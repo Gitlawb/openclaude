@@ -146,6 +146,25 @@ export OPENAI_BASE_URL=https://api.mistral.ai/v1
 export OPENAI_MODEL=mistral-large-latest
 ```
 
+
+### Qwen / Alibaba Cloud (DashScope & Coding Plan)
+
+```bash
+# Using Alibaba Cloud Coding Plan - OpenAI API-Compatible
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_API_KEY=sk-your-coding-plan-key
+export OPENAI_BASE_URL=https://coding-intl.dashscope.aliyuncs.com/v1
+export OPENAI_MODEL=qwen3.5-plus
+```
+
+```bash
+# Using Alibaba Cloud Coding Plan - Anthropic Protocol Compatible
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_API_KEY=sk-your-coding-plan-key
+export OPENAI_BASE_URL=https://coding-intl.dashscope.aliyuncs.com/apps/anthropic
+export OPENAI_MODEL=qwen3.5-plus
+```
+
 ### Azure OpenAI
 
 ```bash
@@ -288,6 +307,9 @@ Not all models are equal at agentic tool use. Here's a rough guide:
 | Llama 3.3 70B | Good | Good | Medium |
 | Mistral Large | Good | Good | Fast |
 | GPT-4o-mini | Good | Good | Very Fast |
+| Qwen 3.5 Plus | Great | Excellent | Medium-Fast |
+| Qwen 3 Coder Plus | Excellent | Excellent | Medium |
+| Qwen 3 Coder Next | Great | Great | Fast |
 | Qwen 2.5 72B | Good | Good | Medium |
 | Smaller models (<7B) | Limited | Limited | Very Fast |
 
