@@ -136,6 +136,80 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
   expect(usageEvent?.usage?.output_tokens).toBe(45)
 })
 
+test('uses max_completion_tokens instead of max_tokens for gpt-5+ models', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-5',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'hi' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 128,
+    stream: false,
+  })
+
+  expect(requestBody).toBeDefined()
+  expect(requestBody!.max_completion_tokens).toBe(128)
+  expect(requestBody!.max_tokens).toBeUndefined()
+})
+
+test('uses max_tokens for gpt-4o models', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'hi' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 128,
+    stream: false,
+  })
+
+  expect(requestBody).toBeDefined()
+  expect(requestBody!.max_tokens).toBe(128)
+  expect(requestBody!.max_completion_tokens).toBeUndefined()
+})
+
 test('preserves Gemini tool call extra_content in follow-up requests', async () => {
   let requestBody: Record<string, unknown> | undefined
 

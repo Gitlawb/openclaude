@@ -633,10 +633,16 @@ class OpenAIShimMessages {
       params.system,
     )
 
+    // GPT-5+ uses max_completion_tokens instead of max_tokens
+    const useMaxCompletionTokens = /^gpt-(\d+)/.test(request.resolvedModel) &&
+      parseInt(request.resolvedModel.match(/^gpt-(\d+)/)?.[1] ?? '0', 10) >= 5
+
     const body: Record<string, unknown> = {
       model: request.resolvedModel,
       messages: openaiMessages,
-      max_tokens: params.max_tokens,
+      ...(useMaxCompletionTokens
+        ? { max_completion_tokens: params.max_tokens }
+        : { max_tokens: params.max_tokens }),
       stream: params.stream ?? false,
     }
 
