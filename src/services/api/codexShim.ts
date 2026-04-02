@@ -566,6 +566,7 @@ async function* readSseEvents(response: Response): AsyncGenerator<CodexSseEvent>
   const decoder = new TextDecoder()
   let buffer = ''
 
+  try {
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -600,6 +601,9 @@ async function* readSseEvents(response: Response): AsyncGenerator<CodexSseEvent>
 
       yield { event, data }
     }
+  }
+  } finally {
+    reader.releaseLock()
   }
 }
 

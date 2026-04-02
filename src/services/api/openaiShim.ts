@@ -374,6 +374,7 @@ async function* openaiStreamToAnthropic(
   const decoder = new TextDecoder()
   let buffer = ''
 
+  try {
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -528,6 +529,9 @@ async function* openaiStreamToAnthropic(
         hasEmittedFinalUsage = true
       }
     }
+  }
+  } finally {
+    reader.releaseLock()
   }
 
   yield { type: 'message_stop' }
