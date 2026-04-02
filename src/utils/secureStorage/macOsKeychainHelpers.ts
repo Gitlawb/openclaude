@@ -18,7 +18,7 @@ import { createHash } from 'crypto'
 import { userInfo } from 'os'
 import { getOauthConfig } from 'src/constants/oauth.js'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
-import type { SecureStorageData } from './types.js'
+import type { SecureStorageData } from './index.js'
 
 // Suffix distinguishing the OAuth credentials keychain entry from the legacy
 // API key entry (which uses no suffix). Both share the service name base.
