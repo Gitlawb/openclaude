@@ -3137,7 +3137,7 @@ async function run(): Promise<CommanderCommand> {
           });
         }
         logError(error);
-        process.exit(1);
+        return await exitWithError(root, errorMessage(error), () => gracefulShutdown(1));
       }
     } else if (feature('DIRECT_CONNECT') && _pendingConnect?.url) {
       // `claude connect <url>` — full interactive TUI connected to a remote server
@@ -3644,7 +3644,7 @@ async function run(): Promise<CommanderCommand> {
                 success: false
               });
               logError(error);
-              await exitWithError(root, `Unable to load transcript from file: ${options.resume}`, () => gracefulShutdown(1));
+              await exitWithError(root, errorMessage(error), () => gracefulShutdown(1));
             }
           }
         }
@@ -3686,7 +3686,7 @@ async function run(): Promise<CommanderCommand> {
             success: false
           });
           logError(error);
-          await exitWithError(root, `Failed to resume session ${sessionId}`);
+          await exitWithError(root, errorMessage(error));
         }
       }
 

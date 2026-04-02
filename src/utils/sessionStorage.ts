@@ -1838,7 +1838,10 @@ export function removeExtraFields(
  */
 function applyPreservedSegmentRelinks(
   messages: Map<UUID, TranscriptMessage>,
-): void {
+): {
+  relinkFailed: boolean
+} {
+  let relinkFailed = false
   type Seg = NonNullable<
     SystemCompactBoundaryMessage['compactMetadata']['preservedSegment']
   >
@@ -1863,46 +1866,96 @@ function applyPreservedSegmentRelinks(
     i++
   }
   // No seg anywhere → no-op. findUnresolvedToolUse etc. read the full map.
-  if (!lastSeg) return
+  if (!lastSeg) return { relinkFailed }
 
   // Seg stale (no-seg boundary came after): skip relink, still prune at
   // absolute — otherwise the stale preserved chain becomes a phantom leaf.
   const segIsLive = lastSegBoundaryIdx === absoluteLastBoundaryIdx
 
-  // Validate tail→head BEFORE mutating so malformed metadata is a true
-  // no-op (walk stops at headUuid, doesn't need the relink to run first).
+  // Validate tail→head BEFORE mutating so malformed metadata never keeps
+  // the full pre-compact history alive on resume. If the walk breaks, mark
+  // the relink as failed and fall through to absolute-boundary pruning.
   const preservedUuids = new Set<UUID>()
   if (segIsLive) {
     const walkSeen = new Set<UUID>()
+    const tailInTranscript = messages.has(lastSeg.tailUuid)
+    const headInTranscript = messages.has(lastSeg.headUuid)
+    const anchorInTranscript = messages.has(lastSeg.anchorUuid)
     let cur = messages.get(lastSeg.tailUuid)
     let reachedHead = false
-    while (cur && !walkSeen.has(cur.uuid)) {
+    let failureKind:
+      | 'missing_tail'
+      | 'missing_parent'
+      | 'null_parent_before_head'
+      | 'cycle_before_head' = 'missing_tail'
+    let lastSeenUuid: UUID | undefined
+    let lastSeenType: TranscriptMessage['type'] | undefined
+    let breakParentUuid: UUID | null | undefined
+
+    while (cur) {
+      if (walkSeen.has(cur.uuid)) {
+        failureKind = 'cycle_before_head'
+        break
+      }
       walkSeen.add(cur.uuid)
       preservedUuids.add(cur.uuid)
+      lastSeenUuid = cur.uuid
+      lastSeenType = cur.type
       if (cur.uuid === lastSeg.headUuid) {
         reachedHead = true
         break
       }
-      cur = cur.parentUuid ? messages.get(cur.parentUuid) : undefined
+      breakParentUuid = cur.parentUuid
+      if (!breakParentUuid) {
+        failureKind = 'null_parent_before_head'
+        break
+      }
+      const next = messages.get(breakParentUuid)
+      if (!next) {
+        failureKind = 'missing_parent'
+        break
+      }
+      cur = next
     }
+
     if (!reachedHead) {
       // tail→head walk broke — a UUID in the preserved segment isn't in the
-      // transcript. Returning here skips the prune below, so resume loads
-      // the full pre-compact history. Known cause: mid-turn-yielded
-      // attachment pushed to mutableMessages but never recordTranscript'd
-      // (SDK subprocess restarted before next turn's qe:420 flush).
+      // transcript. Fail closed: keep only the post-boundary chain instead of
+      // loading the full pre-compact history on resume.
+      relinkFailed = true
+      preservedUuids.clear()
       logEvent('tengu_relink_walk_broken', {
-        tailInTranscript: messages.has(lastSeg.tailUuid),
-        headInTranscript: messages.has(lastSeg.headUuid),
-        anchorInTranscript: messages.has(lastSeg.anchorUuid),
+        failureKind:
+          failureKind as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        tailInTranscript,
+        headInTranscript,
+        anchorInTranscript,
+        walkSteps: walkSeen.size,
+        transcriptSize: messages.size,
+        tailIndex: entryIndex.get(lastSeg.tailUuid),
+        headIndex: entryIndex.get(lastSeg.headUuid),
+        anchorIndex: entryIndex.get(lastSeg.anchorUuid),
+        lastSeenType,
+        breakParentInTranscript: Boolean(
+          breakParentUuid && messages.has(breakParentUuid),
+        ),
+        breakParentIsNull: breakParentUuid === null,
+      })
+      logForDiagnosticsNoPII('warn', 'relink_walk_broken', {
+        failureKind,
+        tailInTranscript,
+        headInTranscript,
+        anchorInTranscript,
         walkSteps: walkSeen.size,
         transcriptSize: messages.size,
       })
-      return
+      logForDebugging(
+        `[sessionStorage] preserved-segment relink failed: kind=${failureKind} tail=${lastSeg.tailUuid} head=${lastSeg.headUuid} anchor=${lastSeg.anchorUuid} lastSeen=${lastSeenUuid ?? 'none'} breakParent=${breakParentUuid ?? 'null'}`,
+      )
     }
   }
 
-  if (segIsLive) {
+  if (segIsLive && !relinkFailed) {
     const head = messages.get(lastSeg.headUuid)
     if (head) {
       messages.set(lastSeg.headUuid, {
@@ -1953,6 +2006,7 @@ function applyPreservedSegmentRelinks(
     }
   }
   for (const uuid of toDelete) messages.delete(uuid)
+  return { relinkFailed }
 }
 
 /**
@@ -3701,7 +3755,12 @@ export async function loadTranscriptFile(
     // File doesn't exist or can't be read
   }
 
-  applyPreservedSegmentRelinks(messages)
+  const { relinkFailed } = applyPreservedSegmentRelinks(messages)
+  if (relinkFailed) {
+    logForDiagnosticsNoPII('warn', 'resume_relink_fail_closed', {
+      transcriptSize: messages.size,
+    })
+  }
   applySnipRemovals(messages)
 
   // Compute leaf UUIDs once at load time
