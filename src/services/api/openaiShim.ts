@@ -642,6 +642,31 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
+    const maxRetries = 3
+    const delays = [4000, 12000, 30000]
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await this._doOpenAIRequestOnce(request, params, options)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('429') && attempt < maxRetries - 1) {
+          const delayMs = delays[attempt]
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+          continue
+        }
+        throw error
+      }
+    }
+
+    throw new Error('Max retries exceeded')
+  }
+
+  private async _doOpenAIRequestOnce(
+    request: ReturnType<typeof resolveProviderRequest>,
+    params: ShimCreateParams,
+    options?: { signal?: AbortSignal; headers?: Record<string, string> },
+  ): Promise<Response> {
     const openaiMessages = convertMessages(
       params.messages as Array<{
         role: string
