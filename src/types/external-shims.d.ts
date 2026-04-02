@@ -74,12 +74,39 @@ declare module 'proper-lockfile' {
 
 declare module 'ws' {
   export default class WebSocket {
+    constructor(url: string | URL, options?: Record<string, unknown>)
     readonly readyState: number
+    on(event: 'open', listener: () => void): this
+    on(event: 'message', listener: (data: Buffer) => void): this
+    on(event: 'error', listener: (error: Error) => void): this
+    on(event: 'close', listener: (code: number, reason: Buffer) => void): this
+    on(event: 'pong', listener: () => void): this
     on(event: string, listener: (...args: unknown[]) => void): this
     off(event: string, listener: (...args: unknown[]) => void): this
     send(data: string, cb?: (error?: Error) => void): void
+    ping(): void
     close(): void
   }
+}
+
+declare module 'qrcode' {
+  export function toString(
+    text: string,
+    options?: {
+      type?: 'utf8' | string
+      errorCorrectionLevel?: 'L' | 'M' | 'Q' | 'H' | string
+      small?: boolean
+      [key: string]: unknown
+    },
+  ): Promise<string>
+}
+
+declare module '@anthropic-ai/claude-agent-sdk' {
+  export type PermissionMode =
+    | 'default'
+    | 'acceptEdits'
+    | 'plan'
+    | 'bypassPermissions'
 }
 
 declare module '@aws-sdk/client-bedrock' {

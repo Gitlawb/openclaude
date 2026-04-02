@@ -140,9 +140,9 @@ function useAppStore(): AppStateStore {
  * const { text, promptId } = useAppState(s => s.promptSuggestion) // good
  * ```
  */
-export function useAppState(selector) {
-  const $ = _c(3);
-  const store = useAppStore();
+export function useAppState<T>(selector: (state: AppState) => T): T {
+  const $ = _c(3)
+  const store = useAppStore()
   let t0;
   if ($[0] !== selector || $[1] !== store) {
     t0 = () => {
@@ -168,15 +168,15 @@ export function useAppState(selector) {
  * Returns a stable reference that never changes -- components using only
  * this hook will never re-render from state changes.
  */
-export function useSetAppState() {
-  return useAppStore().setState;
+export function useSetAppState(): AppStateStore['setState'] {
+  return useAppStore().setState
 }
 
 /**
  * Get the store directly (for passing getState/setState to non-React code).
  */
-export function useAppStateStore() {
-  return useAppStore();
+export function useAppStateStore(): AppStateStore {
+  return useAppStore()
 }
 const NOOP_SUBSCRIBE = () => () => {};
 
@@ -184,9 +184,11 @@ const NOOP_SUBSCRIBE = () => () => {};
  * Safe version of useAppState that returns undefined if called outside of AppStateProvider.
  * Useful for components that may be rendered in contexts where AppStateProvider isn't available.
  */
-export function useAppStateMaybeOutsideOfProvider(selector) {
-  const $ = _c(3);
-  const store = useContext(AppStoreContext);
+export function useAppStateMaybeOutsideOfProvider<T>(
+  selector: (state: AppState) => T,
+): T | undefined {
+  const $ = _c(3)
+  const store = useContext(AppStoreContext)
   let t0;
   if ($[0] !== selector || $[1] !== store) {
     t0 = () => store ? selector(store.getState()) : undefined;
