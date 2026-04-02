@@ -633,10 +633,22 @@ class OpenAIShimMessages {
       params.system,
     )
 
+    // o-series (o1, o3, o4-mini, etc.) and gpt-4.1+ / gpt-5+ reject `max_tokens`
+    // and require `max_completion_tokens` instead.
+    const needsMaxCompletionTokens = (model: string): boolean => {
+      if (/^o\d/i.test(model)) return true           // o1, o3, o4-mini, o1-mini, o1-pro …
+      if (/^gpt-4\.1/i.test(model)) return true      // gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
+      const m = model.match(/^gpt-(\d+)/i)
+      return m !== null && parseInt(m[1], 10) >= 5   // gpt-5 and beyond
+    }
+    const tokenKey = needsMaxCompletionTokens(request.resolvedModel)
+      ? 'max_completion_tokens'
+      : 'max_tokens'
+
     const body: Record<string, unknown> = {
       model: request.resolvedModel,
       messages: openaiMessages,
-      max_tokens: params.max_tokens,
+      [tokenKey]: params.max_tokens,
       stream: params.stream ?? false,
     }
 
