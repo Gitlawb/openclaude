@@ -32,6 +32,7 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
+import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 

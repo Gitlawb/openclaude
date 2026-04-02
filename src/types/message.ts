@@ -138,7 +138,7 @@ export type SystemBridgeStatusMessage = BaseMessage & {
   type: 'system'
   subtype: 'bridge_status'
   content: string
-  level: SystemMessageLevel
+  level?: SystemMessageLevel
   url: string
   upgradeNudge?: string
   isMeta?: boolean
@@ -148,15 +148,15 @@ export type SystemScheduledTaskFireMessage = BaseMessage & {
   type: 'system'
   subtype: 'scheduled_task_fire'
   content: string
-  level: SystemMessageLevel
+  level?: SystemMessageLevel
   isMeta?: boolean
 }
 
 export type SystemStopHookSummaryMessage = BaseMessage & {
   type: 'system'
   subtype: 'stop_hook_summary'
-  content: string
-  level: SystemMessageLevel
+  content?: string
+  level?: SystemMessageLevel
   hookCount: number
   hookInfos: StopHookInfo[]
   hookErrors: string[]
@@ -258,7 +258,7 @@ export type SystemCompactBoundaryMessage = BaseMessage & {
   level: SystemMessageLevel
   compactMetadata: CompactMetadata
   isMeta?: boolean
-  logicalParentUuid?: UUID
+  logicalParentUuid?: UUID | null
 }
 
 export type SystemMicrocompactBoundaryMessage = BaseMessage & {
@@ -325,11 +325,15 @@ export type NormalizedUserMessage = UserMessage & {
 export type GroupedToolUseMessage = BaseMessage & {
   type: 'grouped_tool_use'
   messages: Array<NormalizedAssistantMessage | NormalizedUserMessage>
+  results?: NormalizedUserMessage[]
+  toolName?: string
+  messageId?: UUID | string
+  displayMessage?: NormalizedAssistantMessage | NormalizedUserMessage
 }
 
 export type CollapsedReadSearchGroup = BaseMessage & {
   type: 'collapsed_read_search'
-  messages: Array<NormalizedAssistantMessage | NormalizedUserMessage | AttachmentMessage>
+  messages: Array<NormalizedAssistantMessage | NormalizedUserMessage | AttachmentMessage | SystemStopHookSummaryMessage>
   searchCount: number
   readCount: number
   listCount: number
@@ -337,16 +341,25 @@ export type CollapsedReadSearchGroup = BaseMessage & {
   memorySearchCount?: number
   memoryReadCount?: number
   memoryWriteCount?: number
+  teamMemorySearchCount?: number
+  teamMemoryReadCount?: number
+  teamMemoryWriteCount?: number
   mcpCallCount?: number
+  mcpServerNames?: string[]
   bashCount?: number
   gitOpBashCount?: number
-  readFilePaths?: string[]
+  commits?: string[]
+  pushes?: string[]
+  branches?: string[]
+  prs?: string[]
+  readFilePaths?: Array<string | { path: string; content: string; mtimeMs: number }>
   searchArgs?: string[]
   latestDisplayHint?: string
   hookInfos?: StopHookInfo[]
   hookCount?: number
   hookTotalMs?: number
   relevantMemories?: string[]
+  displayMessage?: RenderableMessage
 }
 
 export type TombstoneMessage = {

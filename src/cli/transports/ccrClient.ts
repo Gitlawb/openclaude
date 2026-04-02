@@ -212,9 +212,17 @@ export function clearStreamAccumulatorForMessage(
   assistant: {
     session_id: string
     parent_tool_use_id: string | null
-    message: { id: string }
+    message: { id: string } | unknown
   },
 ): void {
+  if (
+    typeof assistant.message !== 'object' ||
+    assistant.message === null ||
+    !('id' in assistant.message) ||
+    typeof assistant.message.id !== 'string'
+  ) {
+    return
+  }
   state.byMessage.delete(assistant.message.id)
   const scope = scopeKey(assistant)
   if (state.scopeToMessage.get(scope) === assistant.message.id) {

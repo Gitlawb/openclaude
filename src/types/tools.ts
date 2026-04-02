@@ -1,4 +1,5 @@
 import type { Message } from './message.js'
+import type { HookProgress } from './hooks.js'
 import type { TaskType } from '../Task.js'
 
 export type SdkWorkflowProgress = {
@@ -81,6 +82,7 @@ export type ToolProgressData =
   | ShellProgress
   | BashProgress
   | PowerShellProgress
+  | HookProgress
   | MCPProgress
   | AgentToolProgress
   | SkillToolProgress

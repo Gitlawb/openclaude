@@ -4,7 +4,7 @@ import type {
   ImageBlockParam,
 } from '@anthropic-ai/sdk/resources/messages.mjs'
 import type { UUID } from 'crypto'
-import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
+import type { SDKMessage, SDKUserMessage } from '../entrypoints/agentSdkTypes.js'
 import { detectImageFormatFromBase64 } from '../utils/imageResizer.js'
 
 /**
@@ -24,7 +24,8 @@ export function extractInboundMessageFields(
   | { content: string | Array<ContentBlockParam>; uuid: UUID | undefined }
   | undefined {
   if (msg.type !== 'user') return undefined
-  const content = msg.message?.content
+
+  const content = getUserMessageContent(msg)
   if (!content) return undefined
   if (Array.isArray(content) && content.length === 0) return undefined
 
@@ -37,6 +38,16 @@ export function extractInboundMessageFields(
     content: Array.isArray(content) ? normalizeImageBlocks(content) : content,
     uuid,
   }
+}
+
+function getUserMessageContent(
+  msg: SDKUserMessage,
+): string | Array<ContentBlockParam> | undefined {
+  const message = msg.message as { content?: unknown }
+  const content = message.content
+  return typeof content === 'string' || Array.isArray(content)
+    ? content
+    : undefined
 }
 
 /**

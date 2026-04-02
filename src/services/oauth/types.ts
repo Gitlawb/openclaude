@@ -23,6 +23,24 @@ export type OAuthProfileResponse = {
   subscription_created_at?: string
   subscription_type?: SubscriptionType | null
   rate_limit_tier?: RateLimitTier | null
+  account: {
+    uuid: string
+    email: string
+    display_name?: string | null
+    created_at: string
+    has_claude_max?: boolean
+    has_claude_pro?: boolean
+    [key: string]: unknown
+  }
+  organization: {
+    uuid: string
+    name?: string | null
+    has_extra_usage_enabled?: boolean | null
+    billing_type?: BillingType | null
+    subscription_created_at?: string | null
+    rate_limit_tier?: RateLimitTier | null
+    [key: string]: unknown
+  }
   [key: string]: unknown
 }
 

@@ -51,7 +51,9 @@ import {
 } from '../../utils/swarm/spawnInProcess.js'
 import { buildInheritedEnvVars } from '../../utils/swarm/spawnUtils.js'
 import {
+  getTeamFilePath,
   readTeamFileAsync,
+  registerTeamForSessionCleanup,
   sanitizeAgentName,
   sanitizeName,
   writeTeamFileAsync,
@@ -294,6 +296,77 @@ export async function generateUniqueTeammateName(
 }
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Ensures a team file exists on disk. If it doesn't (e.g. when a non-Claude
+ * model skips the TeamCreate step), auto-creates a minimal team file so
+ * the spawn can proceed.
+ */
+async function ensureTeamFileExists(
+  teamName: string,
+  context: ToolUseContext,
+): Promise<import('../../utils/swarm/teamHelpers.js').TeamFile> {
+  const existing = await readTeamFileAsync(teamName)
+  if (existing) return existing
+
+  // Auto-create the team
+  const leadAgentId = formatAgentId(TEAM_LEAD_NAME, teamName)
+
+  const teamFile: import('../../utils/swarm/teamHelpers.js').TeamFile = {
+    name: teamName,
+    description: `Auto-created team for ${teamName}`,
+    createdAt: Date.now(),
+    leadAgentId,
+    leadSessionId: getSessionId(),
+    members: [
+      {
+        agentId: leadAgentId,
+        name: TEAM_LEAD_NAME,
+        agentType: TEAM_LEAD_NAME,
+        joinedAt: Date.now(),
+        tmuxPaneId: '',
+        cwd: getCwd(),
+        subscriptions: [],
+      },
+    ],
+  }
+
+  await writeTeamFileAsync(teamName, teamFile)
+  registerTeamForSessionCleanup(teamName)
+
+  // Update AppState so the rest of the session is team-aware
+  context.setAppState(prev => ({
+    ...prev,
+    teamContext: {
+      ...prev.teamContext,
+      teamName,
+      teamFilePath: getTeamFilePath(teamName),
+      leadAgentId,
+      teammates: {
+        ...(prev.teamContext?.teammates || {}),
+        [leadAgentId]: {
+          name: TEAM_LEAD_NAME,
+          agentType: TEAM_LEAD_NAME,
+          color: assignTeammateColor(leadAgentId),
+          tmuxSessionName: '',
+          tmuxPaneId: '',
+          cwd: getCwd(),
+          spawnedAt: Date.now(),
+        },
+      },
+    },
+  }))
+
+  logForDebugging(
+    `[spawnMultiAgent] Auto-created team "${teamName}" (team file was missing)`,
+  )
+
+  return teamFile
+}
+
+// ============================================================================
 // Spawn Handlers
 // ============================================================================
 
@@ -485,13 +558,8 @@ async function handleSpawnSplitPane(
     toolUseId: context.toolUseId,
   })
 
-  // Register agent in the team file
-  const teamFile = await readTeamFileAsync(teamName)
-  if (!teamFile) {
-    throw new Error(
-      `Team "${teamName}" does not exist. Call spawnTeam first to create the team.`,
-    )
-  }
+  // Register agent in the team file (auto-create if missing)
+  const teamFile = await ensureTeamFileExists(teamName, context)
   teamFile.members.push({
     agentId: teammateId,
     name: sanitizedName,
@@ -699,13 +767,8 @@ async function handleSpawnSeparateWindow(
     toolUseId: context.toolUseId,
   })
 
-  // Register agent in the team file
-  const teamFile = await readTeamFileAsync(teamName)
-  if (!teamFile) {
-    throw new Error(
-      `Team "${teamName}" does not exist. Call spawnTeam first to create the team.`,
-    )
-  }
+  // Register agent in the team file (auto-create if missing)
+  const teamFile = await ensureTeamFileExists(teamName, context)
   teamFile.members.push({
     agentId: teammateId,
     name: sanitizedName,
@@ -985,13 +1048,8 @@ async function handleSpawnInProcess(
     }
   })
 
-  // Register agent in the team file
-  const teamFile = await readTeamFileAsync(teamName)
-  if (!teamFile) {
-    throw new Error(
-      `Team "${teamName}" does not exist. Call spawnTeam first to create the team.`,
-    )
-  }
+  // Register agent in the team file (auto-create if missing)
+  const teamFile = await ensureTeamFileExists(teamName, context)
   teamFile.members.push({
     agentId: teammateId,
     name: sanitizedName,

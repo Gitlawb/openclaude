@@ -295,20 +295,97 @@ export function convertAnthropicMessagesToResponsesInput(
   )
 }
 
+/**
+ * Recursively enforces Codex strict-mode constraints on a JSON schema:
+ * - Every `object` type gets `additionalProperties: false`
+ * - All property keys are listed in `required`
+ * - Nested schemas (properties, items, anyOf/oneOf/allOf) are processed too
+ */
+function enforceStrictSchema(schema: unknown): Record<string, unknown> {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    return (schema ?? {}) as Record<string, unknown>
+  }
+
+  const record = { ...(schema as Record<string, unknown>) }
+
+  // Codex API strict schemas reject these JSON schema keywords
+  delete record.$schema
+  delete record.propertyNames
+
+  if (record.type === 'object') {
+    // OpenAI structured outputs completely forbid dynamic additionalProperties.
+    // They must be set to false unconditionally.
+    record.additionalProperties = false
+
+    if (
+      record.properties &&
+      typeof record.properties === 'object' &&
+      !Array.isArray(record.properties)
+    ) {
+      const props = record.properties as Record<string, unknown>
+      const allKeys = Object.keys(props)
+
+      const enforcedProps: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(props)) {
+        const strictValue = enforceStrictSchema(value)
+        // If the resulting schema is an empty object (no properties), OpenAI structured outputs will likely
+        // strip it silently and then complain about a 'required' mismatch if it remains in the required list.
+        // E.g. z.record() objects (like AskUserQuestion.answers) lose their schema due to additionalProperties 
+        // restrictions. We can safely drop these from the schema sent to the LLM.
+        if (
+          strictValue &&
+          typeof strictValue === 'object' &&
+          strictValue.type === 'object' &&
+          strictValue.additionalProperties === false &&
+          (!strictValue.properties || Object.keys(strictValue.properties).length === 0)
+        ) {
+          continue
+        }
+        enforcedProps[key] = strictValue
+      }
+      record.properties = enforcedProps
+      record.required = Object.keys(enforcedProps)
+    } else {
+      // No properties — empty required array
+      record.required = []
+    }
+  }
+
+  // Recurse into array items
+  if ('items' in record) {
+    if (Array.isArray(record.items)) {
+      record.items = (record.items as unknown[]).map(item => enforceStrictSchema(item))
+    } else {
+      record.items = enforceStrictSchema(record.items)
+    }
+  }
+
+  // Recurse into combinators
+  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+    if (key in record && Array.isArray(record[key])) {
+      record[key] = (record[key] as unknown[]).map(item => enforceStrictSchema(item))
+    }
+  }
+
+  return record
+}
+
 export function convertToolsToResponsesTools(
   tools: Array<{ name?: string; description?: string; input_schema?: Record<string, unknown> }>,
 ): ResponsesTool[] {
   return tools
     .filter(tool => tool.name && tool.name !== 'ToolSearchTool')
     .map(tool => {
-      const parameters = tool.input_schema ?? { type: 'object', properties: {} }
+      const rawParameters = tool.input_schema ?? { type: 'object', properties: {} }
+      // Codex requires strict schemas: all properties must be required
+      const parameters = enforceStrictSchema(rawParameters)
 
       return {
         type: 'function',
         name: tool.name ?? 'tool',
         description: tool.description ?? '',
         parameters,
-        ...(isStrictResponsesSchema(parameters) ? { strict: true } : {}),
+        strict: true,
       }
     })
 }
@@ -443,11 +520,18 @@ export async function performCodexRequest(options: {
     body.reasoning = options.request.reasoning
   }
 
-  if (options.params.temperature !== undefined) {
-    body.temperature = options.params.temperature
-  }
-  if (options.params.top_p !== undefined) {
-    body.top_p = options.params.top_p
+  const isTargetModel =
+    options.request.resolvedModel?.toLowerCase().includes('gpt') ||
+    options.request.resolvedModel?.toLowerCase().includes('codex')
+
+  // Only pass temperature and top_p if it's not a GPT/Codex model that rejects them
+  if (!isTargetModel) {
+    if (options.params.temperature !== undefined) {
+      body.temperature = options.params.temperature
+    }
+    if (options.params.top_p !== undefined) {
+      body.top_p = options.params.top_p
+    }
   }
 
   const headers: Record<string, string> = {

@@ -22,6 +22,7 @@ import {
   convertCodexResponseToAnthropicMessage,
   performCodexRequest,
   type AnthropicStreamEvent,
+  type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
 import {
@@ -236,15 +237,27 @@ function convertTools(
   tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
 ): OpenAITool[] {
   return tools
-    .filter(t => t.name !== 'ToolSearchTool') // Not relevant for OpenAI
-    .map(t => ({
+      .filter(t => t.name !== 'ToolSearchTool') // Not relevant for OpenAI
+  .map(t => {
+    // Estraiamo lo schema
+    const schema = (t.input_schema ?? { type: 'object', properties: {} }) as any;
+
+    // PATCH PER CODEX: Se è lo strumento Agent, forziamo i campi obbligatori
+    if (t.name === 'Agent' && schema.properties) {
+      if (!schema.required) schema.required = [];
+      if (!schema.required.includes('message')) schema.required.push('message');
+      if (!schema.required.includes('subagent_type')) schema.required.push('subagent_type');
+    }
+
+    return {
       type: 'function' as const,
       function: {
         name: t.name,
         description: t.description ?? '',
-        parameters: normalizeSchemaForOpenAI(t.input_schema ?? { type: 'object', properties: {} }),
+        parameters: normalizeSchemaForOpenAI(schema),
       },
-    }))
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -547,15 +560,15 @@ class OpenAIShimMessages {
       return self._convertNonStreamingResponse(data, request.resolvedModel)
     })()
 
-    ;(promise as unknown as Record<string, unknown>).withResponse =
-      async () => {
-        const data = await promise
-        return {
-          data,
-          response: new Response(),
-          request_id: makeMessageId(),
+      ; (promise as unknown as Record<string, unknown>).withResponse =
+        async () => {
+          const data = await promise
+          return {
+            data,
+            response: new Response(),
+            request_id: makeMessageId(),
+          }
         }
-      }
 
     return promise
   }
