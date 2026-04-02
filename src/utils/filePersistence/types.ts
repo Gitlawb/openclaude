@@ -1,10 +1,18 @@
-// Stub — types not included in source snapshot
-export const OUTPUTS_SUBDIR = 'tool-results'
+export const OUTPUTS_SUBDIR = 'outputs'
 
-export interface PersistedFile {
-  path: string
-  content: string
-  size: number
+export type PersistedFile = {
+  filename: string
+  file_id?: string
+}
+
+export type FailedPersistence = {
+  filename: string
+  error: string
+}
+
+export type FilesPersistedEventData = {
+  files: PersistedFile[]
+  failed: FailedPersistence[]
 }
 
 export type TurnStartTime = number
