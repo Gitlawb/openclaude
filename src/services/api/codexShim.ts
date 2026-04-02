@@ -1,3 +1,4 @@
+import { APIError } from '@anthropic-ai/sdk'
 import type {
   ResolvedCodexCredentials,
   ResolvedProviderRequest,
@@ -553,7 +554,14 @@ export async function performCodexRequest(options: {
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => 'unknown error')
-    throw new Error(`Codex API error ${response.status}: ${errorBody}`)
+    let errorResponse: object | undefined
+    try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
+    throw APIError.generate(
+      response.status,
+      errorResponse,
+      `Codex API error ${response.status}: ${errorBody}`,
+      response.headers as unknown as Record<string, string>,
+    )
   }
 
   return response
@@ -633,10 +641,11 @@ export async function collectCodexCompletedResponse(
 
   for await (const event of readSseEvents(response)) {
     if (event.event === 'response.failed') {
-      throw new Error(
-        event.data?.response?.error?.message ??
-          event.data?.error?.message ??
-          'Codex response failed',
+      const msg = event.data?.response?.error?.message ??
+        event.data?.error?.message ??
+        'Codex response failed'
+      throw APIError.generate(
+        500, undefined, msg, {} as Record<string, string>,
       )
     }
 
@@ -650,7 +659,10 @@ export async function collectCodexCompletedResponse(
   }
 
   if (!completedResponse) {
-    throw new Error('Codex response ended without a completed payload')
+    throw APIError.generate(
+      500, undefined, 'Codex response ended without a completed payload',
+      {} as Record<string, string>,
+    )
   }
 
   return completedResponse
@@ -806,10 +818,11 @@ export async function* codexStreamToAnthropic(
     }
 
     if (event.event === 'response.failed') {
-      throw new Error(
-        payload?.response?.error?.message ??
-          payload?.error?.message ??
-          'Codex response failed',
+      const msg = payload?.response?.error?.message ??
+        payload?.error?.message ??
+        'Codex response failed'
+      throw APIError.generate(
+        500, undefined, msg, {} as Record<string, string>,
       )
     }
   }

@@ -16,6 +16,7 @@
  *   CODEX_API_KEY / ~/.codex/auth.json — Codex auth for codexplan/codexspark
  */
 
+import { APIError } from '@anthropic-ai/sdk'
 import {
   codexStreamToAnthropic,
   collectCodexCompletedResponse,
@@ -756,7 +757,14 @@ class OpenAIShimMessages {
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => 'unknown error')
-      throw new Error(`OpenAI API error ${response.status}: ${errorBody}`)
+      let errorResponse: object | undefined
+      try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
+      throw APIError.generate(
+        response.status,
+        errorResponse,
+        `OpenAI API error ${response.status}: ${errorBody}`,
+        response.headers as unknown as Record<string, string>,
+      )
     }
 
     return response
