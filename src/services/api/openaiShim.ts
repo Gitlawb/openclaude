@@ -185,9 +185,14 @@ function convertMessages(
           (b: { type?: string }) => b.type !== 'tool_use' && b.type !== 'thinking',
         )
 
+        const converted = convertContentBlocks(textContent)
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
-          content: convertContentBlocks(textContent) as string,
+          content: typeof converted === 'string'
+            ? converted
+            : Array.isArray(converted)
+              ? converted.map((p: { text?: string }) => p.text ?? '').join('')
+              : '',
         }
 
         if (toolUses.length > 0) {
@@ -518,7 +523,8 @@ async function* openaiStreamToAnthropic(
       if (
         !hasEmittedFinalUsage &&
         chunkUsage &&
-        (chunk.choices?.length ?? 0) === 0
+        (chunk.choices?.length ?? 0) === 0 &&
+        lastStopReason !== null
       ) {
         yield {
           type: 'message_delta',
