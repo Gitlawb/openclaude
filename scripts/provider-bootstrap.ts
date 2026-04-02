@@ -11,6 +11,7 @@ import {
   buildAtomicChatProfileEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
+  buildNvidiaProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
@@ -37,7 +38,7 @@ function parseArg(name: string): string | null {
 
 function parseProviderArg(): ProviderProfile | 'auto' {
   const p = parseArg('--provider')?.toLowerCase()
-  if (p === 'openai' || p === 'ollama' || p === 'codex' || p === 'gemini' || p === 'atomic-chat') return p
+  if (p === 'openai' || p === 'ollama' || p === 'codex' || p === 'gemini' || p === 'atomic-chat' || p === 'nvidia') return p
   return 'auto'
 }
 
@@ -87,6 +88,21 @@ async function main(): Promise<void> {
     if (!builtEnv) {
       console.error('Gemini profile requires an API key. Use --api-key or set GEMINI_API_KEY.')
       console.error('Get a free key at: https://aistudio.google.com/apikey')
+      process.exit(1)
+    }
+
+    env = builtEnv
+  } else if (selected === 'nvidia') {
+    const builtEnv = buildNvidiaProfileEnv({
+      model: argModel || null,
+      baseUrl: argBaseUrl || null,
+      apiKey: argApiKey || null,
+      processEnv: process.env,
+    })
+
+    if (!builtEnv) {
+      console.error('NVIDIA profile requires an API key. Use --api-key or set NVIDIA_API_KEY.')
+      console.error('Get your API key from: https://build.nvidia.com/')
       process.exit(1)
     }
 

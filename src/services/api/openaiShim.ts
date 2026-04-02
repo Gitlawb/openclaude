@@ -6,7 +6,7 @@
  * in the Anthropic streaming format so the rest of the codebase is unaware.
  *
  * Supports: OpenAI, Azure OpenAI, Ollama, LM Studio, OpenRouter,
- * Together, Groq, Fireworks, DeepSeek, Mistral, and any OpenAI-compatible API.
+ * Together, Groq, Fireworks, DeepSeek, Mistral, NVIDIA NVCF, and any OpenAI-compatible API.
  *
  * Environment variables:
  *   CLAUDE_CODE_USE_OPENAI=1          — enable this provider
@@ -19,6 +19,12 @@
  *   CLAUDE_CODE_USE_GITHUB=1         — enable GitHub inference (no need for USE_OPENAI)
  *   GITHUB_TOKEN or GH_TOKEN         — PAT with models access (mapped to Bearer auth)
  *   OPENAI_MODEL                     — optional; use github:copilot or openai/gpt-4.1 style IDs
+ *
+ * NVIDIA NVCF (integrate.api.nvidia.com), OpenAI-compatible:
+ *   CLAUDE_CODE_USE_NVIDIA=1         — enable NVIDIA inference
+ *   NVIDIA_API_KEY=...               — API key from build.nvidia.com
+ *   NVIDIA_MODEL=meta/llama3-70b-instruct — optional model override
+ *   NVIDIA_BASE_URL=...              — optional custom endpoint
  */
 
 import { APIError } from '@anthropic-ai/sdk'
@@ -1049,6 +1055,16 @@ export function createOpenAIShimClient(options: {
       process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? ''
     if (process.env.GEMINI_MODEL && !process.env.OPENAI_MODEL) {
       process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
+    }
+  } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_NVIDIA)) {
+    // NVIDIA NVCF provider - maps to OpenAI-compatible API
+    process.env.OPENAI_BASE_URL ??=
+      process.env.NVIDIA_BASE_URL ??
+      'https://integrate.api.nvidia.com/v1'
+    process.env.OPENAI_API_KEY ??=
+      process.env.NVIDIA_API_KEY ?? ''
+    if (process.env.NVIDIA_MODEL && !process.env.OPENAI_MODEL) {
+      process.env.OPENAI_MODEL = process.env.NVIDIA_MODEL
     }
   } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
     process.env.OPENAI_BASE_URL ??= GITHUB_MODELS_DEFAULT_BASE

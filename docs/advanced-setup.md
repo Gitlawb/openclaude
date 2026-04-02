@@ -108,6 +108,24 @@ bun run dev:atomic-chat
 
 Download Atomic Chat from [atomic.chat](https://atomic.chat/). The app must be running with a model loaded before launching.
 
+### NVIDIA NVCF
+
+```bash
+export CLAUDE_CODE_USE_NVIDIA=1
+export NVIDIA_API_KEY=nvapi-...
+export NVIDIA_MODEL=meta/llama3-70b-instruct
+```
+
+Or use the profile launcher:
+
+```bash
+bun run dev:nvidia
+```
+
+Get your API key from [build.nvidia.com](https://build.nvidia.com/). See full documentation in [NVIDIA Provider Guide](nvidia-provider.md).
+
+Use `bun run test:list-models minimax` to find correct model IDs (for example `minimaxai/minimax-m2.5`).
+
 ### LM Studio
 
 ```bash
@@ -220,6 +238,9 @@ bun run profile:init -- --provider openai --api-key sk-...
 # ollama bootstrap with custom model
 bun run profile:init -- --provider ollama --model llama3.1:8b
 
+# nvidia bootstrap
+bun run profile:init -- --provider nvidia --api-key nvapi-...
+
 # ollama bootstrap with intelligent model auto-selection
 bun run profile:init -- --provider ollama --goal coding
 
@@ -237,6 +258,9 @@ bun run dev:codex
 
 # OpenAI profile (requires OPENAI_API_KEY in your shell)
 bun run dev:openai
+
+# NVIDIA profile (requires NVIDIA_API_KEY in your shell)
+bun run dev:nvidia
 
 # Ollama profile (defaults: localhost:11434, llama3.1:8b)
 bun run dev:ollama

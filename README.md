@@ -2,7 +2,9 @@
 
 Use Claude Code with **any LLM** — not just Claude.
 
-OpenClaude is a fork of the [Claude Code source leak](https://gitlawb.com/node/repos/z6MkgKkb/instructkr-claude-code) (exposed via npm source maps on March 31, 2026). We added an OpenAI-compatible provider shim so you can plug in GPT-4o, DeepSeek, Gemini, Llama, Mistral, or any model that speaks the OpenAI chat completions API. It now also supports the ChatGPT Codex backend for `codexplan` and `codexspark`, and local inference via [Atomic Chat](https://atomic.chat/) on Apple Silicon.
+OpenClaude is a fork of the [Claude Code source leak](https://gitlawb.com/node/repos/z6MkgKkb/instructkr-claude-code) (exposed via npm source maps on March 31, 2026). We added an OpenAI-compatible provider shim so you can plug in GPT-4o, DeepSeek, Gemini, Llama, Mistral, NVIDIA NVCF, or any model that speaks the OpenAI chat completions API. It now also supports the ChatGPT Codex backend for `codexplan` and `codexspark`, and local inference via [Atomic Chat](https://atomic.chat/) on Apple Silicon.
+
+**Built with TypeScript/Bun** - No Python required! All providers use native TypeScript implementations including NVIDIA NVCF, Ollama, and Atomic Chat.
 
 All of Claude Code's tools work — bash, file read/write/edit, grep, glob, agents, tasks, MCP — just powered by whatever model you choose.
 
@@ -97,6 +99,30 @@ Best if you want to run models locally on your own machine.
 ### Codex
 
 Best if you already use the Codex CLI or ChatGPT Codex backend.
+
+### NVIDIA NVCF ⭐ NEW
+
+Best if you want cost-effective, high-performance inference with OpenAI-compatible APIs. Get your API key from [build.nvidia.com](https://build.nvidia.com/).
+
+**Quick Start (30 seconds)**:
+```bash
+export CLAUDE_CODE_USE_NVIDIA=1
+export NVIDIA_API_KEY=nvapi-your-key-here
+export NVIDIA_MODEL=meta/llama3-70b-instruct  # or meta/llama3-8b-instruct
+
+openclaude
+```
+
+**Popular Models**:
+| Model | Use Case | Speed | Cost |
+|-------|----------|-------|------|
+| `meta/llama3-8b-instruct` | Simple tasks | ⚡⚡⚡ | 💰 |
+| `meta/llama3-70b-instruct` | General use | ⚡⚡ | 💰💰 |
+| `minimaxai/minimax-m2.5` | Complex reasoning | ⚡⚡ | 💰💰 |
+
+**Note**: Use `bun run test:list-models minimax` to find correct model IDs.
+
+See full documentation: [NVIDIA Provider Guide](docs/nvidia-provider.md)
 
 ### Atomic Chat
 

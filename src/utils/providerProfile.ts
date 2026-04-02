@@ -35,6 +35,9 @@ const PROFILE_ENV_KEYS = [
   'GEMINI_MODEL',
   'GEMINI_BASE_URL',
   'GOOGLE_API_KEY',
+  'NVIDIA_API_KEY',
+  'NVIDIA_MODEL',
+  'NVIDIA_BASE_URL',
 ] as const
 
 const SECRET_ENV_KEYS = [
@@ -42,9 +45,10 @@ const SECRET_ENV_KEYS = [
   'CODEX_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
+  'NVIDIA_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat'
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
@@ -56,6 +60,9 @@ export type ProfileEnv = {
   GEMINI_API_KEY?: string
   GEMINI_MODEL?: string
   GEMINI_BASE_URL?: string
+  NVIDIA_API_KEY?: string
+  NVIDIA_MODEL?: string
+  NVIDIA_BASE_URL?: string
 }
 
 export type ProfileFile = {
@@ -90,7 +97,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'ollama' ||
     value === 'codex' ||
     value === 'gemini' ||
-    value === 'atomic-chat'
+    value === 'atomic-chat' ||
+    value === 'nvidia'
   )
 }
 
@@ -253,6 +261,52 @@ export function buildGeminiProfileEnv(options: {
     )
   if (baseUrl) {
     env.GEMINI_BASE_URL = baseUrl
+  }
+
+  return env
+}
+
+export const DEFAULT_NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+export const DEFAULT_NVIDIA_MODEL = 'meta/llama3-70b-instruct'
+
+export function buildNvidiaProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(
+    options.apiKey ??
+      processEnv.NVIDIA_API_KEY,
+  )
+  if (!key) {
+    return null
+  }
+
+  const env: ProfileEnv = {
+    NVIDIA_MODEL:
+      sanitizeProviderConfigValue(options.model, { NVIDIA_API_KEY: key }, processEnv) ||
+      sanitizeProviderConfigValue(
+        processEnv.NVIDIA_MODEL,
+        { NVIDIA_API_KEY: key },
+        processEnv,
+      ) ||
+      DEFAULT_NVIDIA_MODEL,
+    NVIDIA_API_KEY: key,
+  }
+
+  const baseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, { NVIDIA_API_KEY: key }, processEnv) ||
+    sanitizeProviderConfigValue(
+      processEnv.NVIDIA_BASE_URL,
+      { NVIDIA_API_KEY: key },
+      processEnv,
+    )
+  if (baseUrl) {
+    env.NVIDIA_BASE_URL = baseUrl
+  } else {
+    env.NVIDIA_BASE_URL = DEFAULT_NVIDIA_BASE_URL
   }
 
   return env
@@ -460,11 +514,30 @@ export async function buildLaunchEnv(options: {
     processEnv.GEMINI_BASE_URL,
     processEnv,
   )
+  const persistedNvidiaModel = sanitizeProviderConfigValue(
+    persistedEnv.NVIDIA_MODEL,
+    persistedEnv,
+  )
+  const persistedNvidiaBaseUrl = sanitizeProviderConfigValue(
+    persistedEnv.NVIDIA_BASE_URL,
+    persistedEnv,
+  )
+  const shellNvidiaModel = sanitizeProviderConfigValue(
+    processEnv.NVIDIA_MODEL,
+    processEnv,
+  )
+  const shellNvidiaBaseUrl = sanitizeProviderConfigValue(
+    processEnv.NVIDIA_BASE_URL,
+    processEnv,
+  )
 
   const shellGeminiKey = sanitizeApiKey(
     processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY,
   )
   const persistedGeminiKey = sanitizeApiKey(persistedEnv.GEMINI_API_KEY)
+
+  const shellNvidiaKey = sanitizeApiKey(processEnv.NVIDIA_API_KEY)
+  const persistedNvidiaKey = sanitizeApiKey(persistedEnv.NVIDIA_API_KEY)
 
   if (options.profile === 'gemini') {
     const env: NodeJS.ProcessEnv = {
@@ -495,6 +568,42 @@ export async function buildLaunchEnv(options: {
     delete env.OPENAI_BASE_URL
     delete env.OPENAI_MODEL
     delete env.OPENAI_API_KEY
+    delete env.CODEX_API_KEY
+    delete env.CHATGPT_ACCOUNT_ID
+    delete env.CODEX_ACCOUNT_ID
+
+    return env
+  }
+
+  if (options.profile === 'nvidia') {
+    const env: NodeJS.ProcessEnv = {
+      ...processEnv,
+      CLAUDE_CODE_USE_OPENAI: '1',
+    }
+
+    delete env.CLAUDE_CODE_USE_GEMINI
+    delete env.CLAUDE_CODE_USE_GITHUB
+
+    env.OPENAI_BASE_URL =
+      shellNvidiaBaseUrl ||
+      persistedNvidiaBaseUrl ||
+      DEFAULT_NVIDIA_BASE_URL
+    env.OPENAI_MODEL =
+      shellNvidiaModel ||
+      persistedNvidiaModel ||
+      DEFAULT_NVIDIA_MODEL
+
+    const nvidiaKey = shellNvidiaKey || persistedNvidiaKey
+    if (nvidiaKey) {
+      env.OPENAI_API_KEY = nvidiaKey
+    } else {
+      delete env.OPENAI_API_KEY
+    }
+
+    delete env.GEMINI_API_KEY
+    delete env.GEMINI_MODEL
+    delete env.GEMINI_BASE_URL
+    delete env.GOOGLE_API_KEY
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
     delete env.CODEX_ACCOUNT_ID
