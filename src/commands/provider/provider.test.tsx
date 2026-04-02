@@ -213,6 +213,21 @@ test('buildCurrentProviderSummary redacts poisoned model and endpoint values', (
   expect(summary.endpointLabel).toBe('sk-...5678')
 })
 
+test('buildCurrentProviderSummary labels generic local openai-compatible providers', () => {
+  const summary = buildCurrentProviderSummary({
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_MODEL: 'qwen2.5-coder-7b-instruct',
+      OPENAI_BASE_URL: 'http://127.0.0.1:8080/v1',
+    },
+    persisted: null,
+  })
+
+  expect(summary.providerLabel).toBe('Local OpenAI-compatible')
+  expect(summary.modelLabel).toBe('qwen2.5-coder-7b-instruct')
+  expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
+})
+
 test('getProviderWizardDefaults ignores poisoned current provider values', () => {
   const defaults = getProviderWizardDefaults({
     OPENAI_API_KEY: 'sk-secret-12345678',

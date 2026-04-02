@@ -1,5 +1,6 @@
 // biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
 import { getInitialMainLoopModel } from '../../bootstrap/state.js'
+import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
 import {
   isClaudeAISubscriber,
   isMaxSubscriber,
@@ -40,6 +41,25 @@ export type ModelOption = {
   label: string
   description: string
   descriptionForModel?: string
+}
+
+function getScopedAdditionalModelOptions(): ModelOption[] {
+  const config = getGlobalConfig()
+  const activeScope = getAdditionalModelOptionsCacheScope()
+
+  if (!activeScope) {
+    return []
+  }
+
+  if (config.additionalModelOptionsCacheScope !== undefined) {
+    return config.additionalModelOptionsCacheScope === activeScope
+      ? (config.additionalModelOptionsCache ?? [])
+      : []
+  }
+
+  return activeScope === 'firstParty'
+    ? (config.additionalModelOptionsCache ?? [])
+    : []
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
@@ -384,6 +404,10 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     return standardOptions
   }
 
+  if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
+    return [getDefaultOptionForUser(fastMode), ...getScopedAdditionalModelOptions()]
+  }
+
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.6 + Opus 1M + Haiku
   if (getAPIProvider() === 'firstParty') {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
@@ -543,7 +567,7 @@ export function getModelOptions(fastMode = false): ModelOption[] {
   }
 
   // Append additional model options fetched during bootstrap
-  for (const opt of getGlobalConfig().additionalModelOptionsCache ?? []) {
+  for (const opt of getScopedAdditionalModelOptions()) {
     if (!options.some(existing => existing.value === opt.value)) {
       options.push(opt)
     }

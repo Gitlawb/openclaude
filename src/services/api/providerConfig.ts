@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { getAPIProvider } from '../../utils/model/providers.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
@@ -319,6 +320,23 @@ export function resolveProviderRequest(options?: {
       ).replace(/\/+$/, ''),
     reasoning,
   }
+}
+
+export function getAdditionalModelOptionsCacheScope(): string | null {
+  const provider = getAPIProvider()
+  if (provider === 'firstParty') {
+    return 'firstParty'
+  }
+  if (provider !== 'openai') {
+    return null
+  }
+
+  const { baseUrl } = resolveProviderRequest()
+  if (!isLocalProviderUrl(baseUrl)) {
+    return null
+  }
+
+  return `openai:${baseUrl.toLowerCase()}`
 }
 
 export function resolveCodexAuthPath(

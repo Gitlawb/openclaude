@@ -14,6 +14,7 @@ import { Box, Text } from '../../ink.js'
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
+  isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
@@ -43,7 +44,11 @@ import {
   recommendOllamaModel,
   type RecommendationGoal,
 } from '../../utils/providerRecommendation.js'
-import { hasLocalOllama, listOllamaModels } from '../../utils/providerDiscovery.js'
+import {
+  getLocalOpenAICompatibleProviderLabel,
+  hasLocalOllama,
+  listOllamaModels,
+} from '../../utils/providerDiscovery.js'
 
 type ProviderChoice = 'auto' | ProviderProfile | 'clear'
 
@@ -167,10 +172,8 @@ export function buildCurrentProviderSummary(options?: {
     let providerLabel = 'OpenAI-compatible'
     if (request.transport === 'codex_responses') {
       providerLabel = 'Codex'
-    } else if (request.baseUrl.includes('localhost:11434')) {
-      providerLabel = 'Ollama'
-    } else if (request.baseUrl.includes('localhost:1234')) {
-      providerLabel = 'LM Studio'
+    } else if (isLocalProviderUrl(request.baseUrl)) {
+      providerLabel = getLocalOpenAICompatibleProviderLabel(request.baseUrl)
     }
 
     return {

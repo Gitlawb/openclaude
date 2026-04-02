@@ -4,6 +4,7 @@ import * as React from 'react';
 import type { CommandResultDisplay } from '../../commands.js';
 import { ModelPicker } from '../../components/ModelPicker.js';
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js';
+import { fetchBootstrapData } from '../../services/api/bootstrap.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { useAppState, useSetAppState } from '../../state/AppState.js';
 import type { LocalJSXCommandCall } from '../../types/command.js';
@@ -15,6 +16,7 @@ import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
 import { validateModel } from '../../utils/model/validateModel.js';
+import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js';
 function ModelPickerWrapper(t0) {
   const $ = _c(17);
   const {
@@ -287,6 +289,9 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
       args: args as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
     return <SetModelAndClose args={args} onDone={onDone} />;
+  }
+  if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
+    await fetchBootstrapData();
   }
   return <ModelPickerWrapper onDone={onDone} />;
 };
