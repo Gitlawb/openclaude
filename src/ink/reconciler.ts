@@ -430,6 +430,8 @@ const reconciler = createReconciler<
   supportsMutation: true,
   supportsPersistence: false,
   supportsHydration: false,
+  supportsMicrotasks: true,
+  scheduleMicrotask: queueMicrotask,
   scheduleTimeout: setTimeout,
   cancelTimeout: clearTimeout,
   noTimeout: -1,

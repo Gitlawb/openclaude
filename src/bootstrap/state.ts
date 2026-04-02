@@ -1756,3 +1756,4 @@ export function setPromptId(id: string | null): void {
   STATE.promptId = id
 }
 
+export function isReplBridgeActive(): boolean { return false }

@@ -4,7 +4,7 @@ import noop from 'lodash-es/noop.js';
 import throttle from 'lodash-es/throttle.js';
 import React, { type ReactNode } from 'react';
 import type { FiberRoot } from 'react-reconciler';
-import { LegacyRoot } from 'react-reconciler/constants.js';
+import { ConcurrentRoot } from 'react-reconciler/constants.js';
 import { onExit } from 'signal-exit';
 import { flushInteractionTime } from 'src/bootstrap/state.js';
 import { getYogaCounters } from 'src/native-ts/yoga-layout/index.js';
@@ -274,7 +274,7 @@ export default class Ink {
     // but react-reconciler 0.33.0 source only accepts 10 args (no transitionCallbacks)
     this.container = reconciler.createContainer(
       this.rootNode,
-      LegacyRoot,
+      ConcurrentRoot,
       null,
       false,
       null,
@@ -1474,8 +1474,11 @@ export default class Ink {
         </TerminalWriteProvider>
       </App>;
 
-    reconciler.updateContainer(tree, this.container, null, noop);
-    logForDebugging('[Ink:render] updateContainer complete');
+    // @ts-expect-error updateContainerSync exists in react-reconciler but not in @types
+    reconciler.updateContainerSync(tree, this.container, null, noop);
+    // @ts-expect-error flushSyncWork exists in react-reconciler but not in @types
+    reconciler.flushSyncWork();
+    logForDebugging('[Ink:render] updateContainerSync complete');
   }
   unmount(error?: Error | number | null): void {
     if (this.isUnmounted) {

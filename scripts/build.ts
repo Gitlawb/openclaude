@@ -66,6 +66,25 @@ const result = await Bun.build({
   },
   plugins: [
     noTelemetryPlugin,
+    // Fix react-reconciler bug: flushPassiveEffects doesn't wrap executionContext
+    // restoration in try-finally. If any passive effect throws, executionContext
+    // leaks CommitContext permanently, killing all subsequent state updates.
+    // Bug exists in react-reconciler <=0.34.0-canary, fixed in internal 0.34.5.
+    {
+      name: 'fix-reconciler-execution-context',
+      setup(build) {
+        build.onLoad({ filter: /react-reconciler/ }, async (args) => {
+          let src = await Bun.file(args.path).text()
+          // Match the flushPassiveEffects pattern using regex to handle whitespace
+          const pattern = /(startTime = executionContext;\s*executionContext \|= CommitContext;\s*)(var finishedWork = priority\.current;\s*resetComponentEffectTimers\(\);\s*commitPassiveUnmountOnFiber\(finishedWork\);[\s\S]*?commitDoubleInvokeEffectsInDEV\(priority\);\s*)(executionContext = startTime;)/
+          if (pattern.test(src)) {
+            src = src.replace(pattern, '$1try { $2} finally { $3 }')
+            console.log('  🔧 fix-reconciler: patched flushPassiveEffects executionContext leak')
+          }
+          return { contents: src, loader: 'js' }
+        })
+      },
+    },
     {
       name: 'bun-bundle-shim',
       setup(build) {
@@ -162,6 +181,11 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           '@anthropic-ai/mcpb',
           '@ant/claude-for-chrome-mcp',
           '@anthropic-ai/sandbox-runtime',
+          '@ant/computer-use-swift',
+          '@ant/computer-use-mcp',
+          '@ant/computer-use-mcp/sentinelApps',
+          '@ant/computer-use-mcp/types',
+          '@ant/computer-use-input',
           'asciichart',
           'plist',
           'cacache',
@@ -234,7 +258,83 @@ export const DataPointType = { HISTOGRAM: 0, SUM: 1, GAUGE: 2 };
 export const InstrumentType = { COUNTER: 0, HISTOGRAM: 1, UP_DOWN_COUNTER: 2 };
 export const PushMetricExporter = noopClass;
 export const SeverityNumber = {};
+export const API_RESIZE_PARAMS = {};
+export const targetImageSize = noop;
+export const ComputerUseInput = noopClass;
+export const getSentinelCategory = noop;
+export const DEFAULT_GRANT_FLAGS = {};
+export const bindSessionContext = noop;
+export const buildComputerUseTools = noop;
+export const createComputerUseMcpServer = noop;
 `,
+            loader: 'js',
+          }),
+        )
+
+        // Stub missing internal Anthropic modules
+        const missingInternalModules = [
+          'proactive/index', 'assistant/gate', 'assistant/index', 'assistant/sessionDiscovery',
+          'coordinator/workerAgent', 'services/compact/cachedMCConfig', 'services/compact/snipProjection',
+          'services/compact/reactiveCompact', 'services/sessionTranscript/sessionTranscript',
+          'services/skillSearch/featureCheck', 'services/skillSearch/prefetch', 'services/skillSearch/localSearch',
+          'tools/DiscoverSkillsTool/prompt', 'tools/SnipTool/prompt', 'tools/SnipTool/SnipTool',
+          'tools/OverflowTestTool/OverflowTestTool', 'tools/TerminalCaptureTool/prompt',
+          'tools/TerminalCaptureTool/TerminalCaptureTool', 'tools/VerifyPlanExecutionTool/constants',
+          'tools/SendUserFileTool/prompt', 'tools/SendUserFileTool/SendUserFileTool',
+          'tools/MonitorTool/MonitorTool', 'tools/SleepTool/SleepTool', 'tools/WebBrowserTool/WebBrowserTool',
+          'tools/PushNotificationTool/PushNotificationTool', 'tools/ListPeersTool/ListPeersTool',
+          'tools/CtxInspectTool/CtxInspectTool', 'tools/SubscribePRTool/SubscribePRTool',
+          'tools/WorkflowTool/WorkflowTool', 'tools/WorkflowTool/bundled/index', 'tools/WorkflowTool/createWorkflowCommand',
+          'commands/assistant/index', 'commands/buddy/index', 'commands/force-snip',
+          'commands/fork/index', 'commands/peers/index', 'commands/proactive',
+          'commands/remoteControlServer/index', 'commands/subscribe-pr', 'commands/torch',
+          'commands/workflows/index', 'utils/attributionHooks', 'utils/systemThemeWatcher',
+          'utils/taskSummary', 'attributionTrailer', 'skills/mcpSkills',
+          'server/backends/dangerousBackend', 'server/connectHeadless', 'server/lockfile',
+          'server/parseConnectUrl', 'server/server', 'server/serverBanner', 'server/serverLog',
+          'server/sessionManager', 'ssh/createSSHSession', 'jobs/classifier',
+          'sessionTranscript/sessionTranscript',
+          'tasks/MonitorMcpTask/MonitorMcpTask',
+          'components/tasks/MonitorMcpDetailDialog',
+          'messages/SnipBoundaryMessage',
+          './WorkflowDetailDialog',
+          '../udsMessaging',
+          'MonitorMcpDetailDialog',
+          './tasks/LocalWorkflowTask/LocalWorkflowTask',
+          './UserCrossSessionMessage',
+          './UserForkBoilerplateMessage',
+          './UserGitHubWebhookMessage',
+          './MonitorPermissionRequest/MonitorPermissionRequest',
+          '../../tools/WorkflowTool/WorkflowPermissionRequest',
+          './ReviewArtifactPermissionRequest/ReviewArtifactPermissionRequest',
+          '../../tools/ReviewArtifactTool/ReviewArtifactTool',
+          '../skillSearch/localSearch',
+          './memoryShapeTelemetry',
+          '../memdir/memoryShapeTelemetry',
+          '../../utils/udsClient',
+          '../../bridge/peerSessions',
+          '../../services/skillSearch/telemetry',
+          '../../services/skillSearch/remoteSkillLoader',
+          '../../services/contextCollapse/operations',
+          '../../services/skillSearch/remoteSkillState',
+          '../tools/WebBrowserTool/WebBrowserPanel',
+          '../proactive/useProactive',
+          '../SendUserFileTool/prompt',
+          '../services/contextCollapse/persist',
+          './runSkillGenerator',
+          './hunter',
+          './dream',
+          './utils/udsMessaging',
+        ]
+        const missingPattern = missingInternalModules.map(m => m.replace(/\//g, '\\/')).join('|')
+        build.onResolve({ filter: new RegExp(`(${missingPattern})\\.js$`) }, (args) => ({
+          path: args.path,
+          namespace: 'missing-internal-stub',
+        }))
+        build.onLoad(
+          { filter: /.*/, namespace: 'missing-internal-stub' },
+          () => ({
+            contents: `export default null; export const __stub = true;`,
             loader: 'js',
           }),
         )
