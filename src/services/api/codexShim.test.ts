@@ -17,16 +17,23 @@ const tempDirs: string[] = []
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
 }
 
 afterEach(() => {
+  if (originalEnv.OPENAI_BASE_URL === undefined) delete process.env.OPENAI_BASE_URL
+  else process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
+
+  if (originalEnv.OPENAI_API_BASE === undefined) delete process.env.OPENAI_API_BASE
+  else process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
+
+  if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) delete process.env.CLAUDE_CODE_USE_GITHUB
+  else process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
+
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()
     if (dir) rmSync(dir, { recursive: true, force: true })
   }
-
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
 })
 
 function createTempAuthJson(payload: Record<string, unknown>): string {
@@ -71,6 +78,7 @@ describe('Codex provider config', () => {
   test('resolves codexplan alias to Codex transport with reasoning', () => {
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
+    delete process.env.CLAUDE_CODE_USE_GITHUB
 
     const resolved = resolveProviderRequest({ model: 'codexplan' })
     expect(resolved.transport).toBe('codex_responses')
