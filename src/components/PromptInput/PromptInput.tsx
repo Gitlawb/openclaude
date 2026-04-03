@@ -2326,13 +2326,18 @@ function getInitialPasteId(messages: Message[]): number {
   return maxId + 1;
 }
 function buildBorderText(showFastIcon: boolean, showFastIconHint: boolean, fastModeCooldown: boolean): BorderTextOptions | undefined {
-  if (!showFastIcon) return undefined;
+  if (!showFastIcon) return {
+    content: ` ${chalk.dim('prompt')} `,
+    position: 'top',
+    align: 'start',
+    offset: 1
+  };
   const fastSeg = showFastIconHint ? `${getFastIconString(true, fastModeCooldown)} ${chalk.dim('/fast')}` : getFastIconString(true, fastModeCooldown);
   return {
-    content: ` ${fastSeg} `,
+    content: ` ${chalk.dim('prompt')}  ${fastSeg} `,
     position: 'top',
-    align: 'end',
-    offset: 0
+    align: 'start',
+    offset: 1
   };
 }
 export default React.memo(PromptInput);

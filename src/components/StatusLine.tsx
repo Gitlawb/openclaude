@@ -311,9 +311,13 @@ function StatusLineInner({
   // a row from ScrollBox and shifts content. Reserve the row while loading
   // (same trick as PromptInputFooterLeftSide).
   return <Box paddingX={paddingX} gap={2}>
-      {statusLineText ? <Text dimColor wrap="truncate">
-          <Ansi>{statusLineText}</Ansi>
-        </Text> : isFullscreenEnvEnabled() ? <Text> </Text> : null}
+      {statusLineText ? <Box borderStyle="round" borderColor="inactive" paddingX={1} flexDirection="row">
+          <Text color="inactive">status</Text>
+          <Text color="inactive">  </Text>
+          <Text wrap="truncate">
+            <Ansi>{statusLineText}</Ansi>
+          </Text>
+        </Box> : isFullscreenEnvEnabled() ? <Text> </Text> : null}
     </Box>;
 }
 

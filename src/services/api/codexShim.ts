@@ -675,7 +675,7 @@ export async function* codexStreamToAnthropic(
   const messageId = makeMessageId()
   const toolBlocksByItemId = new Map<
     string,
-    { index: number; toolUseId: string }
+    { index: number; toolUseId: string; jsonBuffer: string }
   >()
   let activeTextBlockIndex: number | null = null
   let nextContentBlockIndex = 0
@@ -727,6 +727,7 @@ export async function* codexStreamToAnthropic(
         toolBlocksByItemId.set(String(item.id ?? toolUseId), {
           index: blockIndex,
           toolUseId,
+          jsonBuffer: '',
         })
         sawToolUse = true
 
@@ -742,6 +743,10 @@ export async function* codexStreamToAnthropic(
         }
 
         if (item.arguments) {
+          const toolBlock = toolBlocksByItemId.get(String(item.id ?? toolUseId))
+          if (toolBlock) {
+            toolBlock.jsonBuffer += item.arguments
+          }
           yield {
             type: 'content_block_delta',
             index: blockIndex,
@@ -780,6 +785,7 @@ export async function* codexStreamToAnthropic(
     if (event.event === 'response.function_call_arguments.delta') {
       const toolBlock = toolBlocksByItemId.get(String(payload.item_id ?? ''))
       if (toolBlock) {
+        toolBlock.jsonBuffer += payload.delta ?? ''
         yield {
           type: 'content_block_delta',
           index: toolBlock.index,
@@ -797,6 +803,22 @@ export async function* codexStreamToAnthropic(
       if (item?.type === 'function_call') {
         const toolBlock = toolBlocksByItemId.get(String(item.id ?? ''))
         if (toolBlock) {
+          const finalArgs =
+            typeof item.arguments === 'string' ? item.arguments : ''
+          if (finalArgs.length > toolBlock.jsonBuffer.length) {
+            const remainder = finalArgs.slice(toolBlock.jsonBuffer.length)
+            toolBlock.jsonBuffer = finalArgs
+            if (remainder) {
+              yield {
+                type: 'content_block_delta',
+                index: toolBlock.index,
+                delta: {
+                  type: 'input_json_delta',
+                  partial_json: remainder,
+                },
+              }
+            }
+          }
           yield {
             type: 'content_block_stop',
             index: toolBlock.index,

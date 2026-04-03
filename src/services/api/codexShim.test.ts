@@ -45,6 +45,23 @@ async function collectStreamEventTypes(responseText: string): Promise<string[]> 
   return events
 }
 
+async function collectStreamEvents(
+  responseText: string,
+): Promise<AnthropicStreamEvent[]> {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(responseText))
+      controller.close()
+    },
+  })
+
+  const events: AnthropicStreamEvent[] = []
+  for await (const event of codexStreamToAnthropic(new Response(stream), 'gpt-5.4')) {
+    events.push(event)
+  }
+  return events
+}
+
 describe('Codex provider config', () => {
   test('resolves codexplan alias to Codex transport with reasoning', () => {
     const resolved = resolveProviderRequest({ model: 'codexplan' })
@@ -318,5 +335,30 @@ describe('Codex request translation', () => {
       'message_delta',
       'message_stop',
     ])
+  })
+
+  test('flushes final function-call arguments from output_item.done', async () => {
+    const responseText = [
+      'event: response.output_item.added',
+      'data: {"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","status":"in_progress","call_id":"call_1","name":"Bash","arguments":""},"output_index":0,"sequence_number":0}',
+      '',
+      'event: response.output_item.done',
+      'data: {"type":"response.output_item.done","item":{"id":"fc_1","type":"function_call","status":"completed","call_id":"call_1","name":"Bash","arguments":"{\\"command\\":\\"ls -la\\"}"},"output_index":0,"sequence_number":1}',
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","model":"gpt-5.4","output":[{"type":"function_call","call_id":"call_1","name":"Bash","arguments":"{\\"command\\":\\"ls -la\\"}"}],"usage":{"input_tokens":2,"output_tokens":1}},"sequence_number":2}',
+      '',
+    ].join('\n')
+
+    const events = await collectStreamEvents(responseText)
+    const partialJson = events
+      .filter(
+        event =>
+          event.type === 'content_block_delta' &&
+          event.delta?.type === 'input_json_delta',
+      )
+      .map(event => event.delta?.partial_json)
+
+    expect(partialJson).toEqual(['{"command":"ls -la"}'])
   })
 })

@@ -207,7 +207,7 @@ export function AssistantToolUseMessage(t0) {
   }
   let t10;
   if ($[42] !== renderedToolUseMessage) {
-    t10 = renderedToolUseMessage !== "" && <Box flexWrap="nowrap"><Text>({renderedToolUseMessage})</Text></Box>;
+    t10 = renderedToolUseMessage !== "" && <Box flexWrap="nowrap"><Text color="inactive">({renderedToolUseMessage})</Text></Box>;
     $[42] = renderedToolUseMessage;
     $[43] = t10;
   } else {
@@ -225,7 +225,7 @@ export function AssistantToolUseMessage(t0) {
   }
   let t12;
   if ($[48] !== t10 || $[49] !== t11 || $[50] !== t6 || $[51] !== t7 || $[52] !== t9) {
-    t12 = <Box flexDirection="row" flexWrap="nowrap" minWidth={t6}>{t7}{t9}{t10}{t11}</Box>;
+    t12 = <Box flexDirection="row" flexWrap="nowrap" minWidth={t6} gap={1}>{t7}{t9}{t10}{t11}</Box>;
     $[48] = t10;
     $[49] = t11;
     $[50] = t6;
@@ -272,7 +272,7 @@ export function AssistantToolUseMessage(t0) {
   }
   let t15;
   if ($[73] !== t12 || $[74] !== t13 || $[75] !== t14) {
-    t15 = <Box flexDirection="column">{t12}{t13}{t14}</Box>;
+    t15 = <Box flexDirection="column" borderStyle="round" borderColor="promptBorder" paddingX={1}>{t12}{t13}{t14}</Box>;
     $[73] = t12;
     $[74] = t13;
     $[75] = t14;
