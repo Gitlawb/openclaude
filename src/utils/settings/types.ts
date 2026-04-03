@@ -713,6 +713,27 @@ export const SettingsSchema = lazySchema(() =>
         .string()
         .optional()
         .describe('Advisor model for the server-side advisor tool.'),
+      agentModels: z
+        .record(
+          z.string(),
+          z.object({
+            base_url: z.string().describe('OpenAI-compatible API endpoint'),
+            api_key: z.string().describe('API key for this provider'),
+          }),
+        )
+        .optional()
+        .describe(
+          'Map of model name to provider connection info. ' +
+            'Example: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }',
+        ),
+      agentRouting: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+          'Map of agent identifier (subagent_type or team member name) to model name. ' +
+            'Use "default" key as fallback. Model name must exist in agentModels. ' +
+            'Example: { "Explore": "deepseek-chat", "general-purpose": "gpt-4o", "default": "gpt-4o" }',
+        ),
       fastMode: z
         .boolean()
         .optional()
