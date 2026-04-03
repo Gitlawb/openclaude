@@ -7,9 +7,12 @@ import { isEnvDefinedFalsy } from '../utils/envUtils.js'
 import { getAPIProvider } from '../utils/model/providers.js'
 import { getWorkload } from '../utils/workloadContext.js'
 
-const DEFAULT_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude.`
-const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`
-const AGENT_SDK_PREFIX = `You are a Claude agent, built on Anthropic's Claude Agent SDK.`
+const DEFAULT_PREFIX =
+  `You are OpenClaude, an open-source fork of Claude Code.`
+const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX =
+  `You are OpenClaude, an open-source fork of Claude Code, running within the Claude Agent SDK.`
+const AGENT_SDK_PREFIX =
+  `You are a Claude agent running in OpenClaude, built on the Claude Agent SDK.`
 
 const CLI_SYSPROMPT_PREFIX_VALUES = [
   DEFAULT_PREFIX,

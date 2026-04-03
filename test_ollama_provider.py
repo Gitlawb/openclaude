@@ -38,6 +38,26 @@ def test_converts_image_block_to_placeholder():
     assert "[image]" in result[0]["content"]
     assert "Describe this" in result[0]["content"]
 
+
+def test_converts_base64_image_block_to_ollama_images():
+    messages = [{
+        "role": "user",
+        "content": [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "YWJjMTIz",
+                },
+            },
+            {"type": "text", "text": "Describe this"},
+        ],
+    }]
+    result = anthropic_to_ollama_messages(messages)
+    assert result[0]["images"] == ["YWJjMTIz"]
+    assert "Describe this" in result[0]["content"]
+
 def test_converts_multi_turn():
     messages = [
         {"role": "user", "content": "Hi"},
@@ -118,3 +138,43 @@ async def test_ollama_chat_prepends_system():
         )
     assert captured["messages"][0]["role"] == "system"
     assert "helpful" in captured["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_ollama_chat_includes_base64_images_in_payload():
+    captured = {}
+
+    async def mock_post(url, json=None, **kwargs):
+        captured.update(json or {})
+        m = MagicMock()
+        m.raise_for_status = MagicMock()
+        m.json.return_value = {
+            "message": {"content": "ok"},
+            "created_at": "",
+            "prompt_eval_count": 1,
+            "eval_count": 1,
+        }
+        return m
+
+    with patch("ollama_provider.httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__.return_value.post = mock_post
+        await ollama_chat(
+            model="llama3:8b",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": "ZHVtbXk=",
+                        },
+                    },
+                    {"type": "text", "text": "What is in this image?"},
+                ],
+            }],
+        )
+
+    assert captured["messages"][0]["images"] == ["ZHVtbXk="]
+    assert "What is in this image?" in captured["messages"][0]["content"]

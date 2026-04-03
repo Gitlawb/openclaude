@@ -10,7 +10,7 @@
  */
 
 import type { UUID } from 'crypto'
-import { randomBytes } from 'crypto'
+import { randomInt } from 'crypto'
 import {
   OUTPUT_FILE_TAG,
   STATUS_TAG,
@@ -73,10 +73,9 @@ const DEFAULT_MAIN_SESSION_AGENT: CustomAgentDefinition = {
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
 
 function generateMainSessionTaskId(): string {
-  const bytes = randomBytes(8)
   let id = 's'
   for (let i = 0; i < 8; i++) {
-    id += TASK_ID_ALPHABET[bytes[i]! % TASK_ID_ALPHABET.length]
+    id += TASK_ID_ALPHABET[randomInt(TASK_ID_ALPHABET.length)]!
   }
   return id
 }

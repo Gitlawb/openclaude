@@ -34,6 +34,17 @@ type SharpCreator = (options: SharpCreatorOptions) => SharpInstance
 let imageProcessorModule: { default: SharpFunction } | null = null
 let imageCreatorModule: { default: SharpCreator } | null = null
 
+/**
+ * Error thrown when no image processor is available (e.g., in the open build
+ * where sharp and image-processor-napi are stubbed out).
+ */
+export class ImageProcessorUnavailableError extends Error {
+  constructor() {
+    super('No image processor available (sharp is not installed)')
+    this.name = 'ImageProcessorUnavailableError'
+  }
+}
+
 export async function getImageProcessor(): Promise<SharpFunction> {
   if (imageProcessorModule) {
     return imageProcessorModule.default
@@ -44,10 +55,14 @@ export async function getImageProcessor(): Promise<SharpFunction> {
     try {
       // Use the native image processor module
       const imageProcessor = await import('image-processor-napi')
+      if ((imageProcessor as { __stub?: boolean }).__stub) {
+        throw new ImageProcessorUnavailableError()
+      }
       const sharp = imageProcessor.sharp || imageProcessor.default
       imageProcessorModule = { default: sharp }
       return sharp
-    } catch {
+    } catch (e) {
+      if (e instanceof ImageProcessorUnavailableError) throw e
       // Fall back to sharp if native module is not available
       // biome-ignore lint/suspicious/noConsole: intentional warning
       console.warn(
@@ -58,12 +73,20 @@ export async function getImageProcessor(): Promise<SharpFunction> {
 
   // Use sharp for non-bundled builds or as fallback.
   // Single structural cast: our SharpFunction is a subset of sharp's actual type surface.
-  const imported = (await import(
-    'sharp'
-  )) as unknown as MaybeDefault<SharpFunction>
-  const sharp = unwrapDefault(imported)
-  imageProcessorModule = { default: sharp }
-  return sharp
+  try {
+    const imported = (await import(
+      'sharp'
+    )) as unknown as MaybeDefault<SharpFunction> & { __stub?: boolean }
+    if (imported && (imported as { __stub?: boolean }).__stub) {
+      throw new ImageProcessorUnavailableError()
+    }
+    const sharp = unwrapDefault(imported as MaybeDefault<SharpFunction>)
+    imageProcessorModule = { default: sharp }
+    return sharp
+  } catch (e) {
+    if (e instanceof ImageProcessorUnavailableError) throw e
+    throw new ImageProcessorUnavailableError()
+  }
 }
 
 /**
