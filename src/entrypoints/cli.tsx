@@ -199,7 +199,11 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
     const { hydrateGeminiAccessTokenFromSecureStorage } = await import('../utils/geminiCredentials.js')
     hydrateGeminiAccessTokenFromSecureStorage()
-    const { hydrateGithubModelsTokenFromSecureStorage } = await import('../utils/githubModelsCredentials.js')
+    const {
+      hydrateGithubModelsTokenFromSecureStorage,
+      refreshGithubModelsTokenIfNeeded,
+    } = await import('../utils/githubModelsCredentials.js')
+    await refreshGithubModelsTokenIfNeeded()
     hydrateGithubModelsTokenFromSecureStorage()
   }
 
