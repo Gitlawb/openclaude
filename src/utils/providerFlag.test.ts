@@ -1,20 +1,28 @@
-import { describe, expect, test, afterEach } from 'bun:test'
+import { beforeEach, describe, expect, test, afterEach } from 'bun:test'
 import { parseProviderFlag, applyProviderFlag, VALID_PROVIDERS } from './providerFlag.js'
 
 const originalEnv = { ...process.env }
+const TEST_ENV_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GROQ',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'GEMINI_MODEL',
+] as const
+
+beforeEach(() => {
+  for (const key of TEST_ENV_KEYS) {
+    delete process.env[key]
+  }
+})
 
 afterEach(() => {
-  for (const key of [
-    'CLAUDE_CODE_USE_OPENAI',
-    'CLAUDE_CODE_USE_GEMINI',
-    'CLAUDE_CODE_USE_GITHUB',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'CLAUDE_CODE_USE_VERTEX',
-    'OPENAI_BASE_URL',
-    'OPENAI_API_KEY',
-    'OPENAI_MODEL',
-    'GEMINI_MODEL',
-  ]) {
+  for (const key of TEST_ENV_KEYS) {
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
   }
@@ -57,6 +65,18 @@ describe('applyProviderFlag - anthropic', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
   })
+
+  test('clears stale provider routing env when switching back to anthropic', () => {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://models.github.ai/inference'
+    process.env.OPENAI_API_KEY = 'stale-token'
+
+    applyProviderFlag('anthropic', [])
+
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
 })
 
 describe('applyProviderFlag - openai', () => {
@@ -68,6 +88,20 @@ describe('applyProviderFlag - openai', () => {
 
   test('sets OPENAI_MODEL when --model is provided', () => {
     applyProviderFlag('openai', ['--model', 'gpt-4o'])
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+  })
+
+  test('clears stale GitHub routing env before enabling OpenAI', () => {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_BASE_URL = 'https://models.github.ai/inference'
+    process.env.OPENAI_API_KEY = 'github-token'
+
+    applyProviderFlag('openai', ['--model', 'gpt-4o'])
+
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
   })
 })
@@ -85,11 +119,43 @@ describe('applyProviderFlag - gemini', () => {
   })
 })
 
+describe('applyProviderFlag - groq', () => {
+  test('sets Groq OpenAI-compatible env vars', () => {
+    const result = applyProviderFlag('groq', [])
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_GROQ).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.groq.com/openai/v1')
+  })
+
+  test('sets OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('groq', ['--model', 'llama-3.3-70b-versatile'])
+    expect(process.env.OPENAI_MODEL).toBe('llama-3.3-70b-versatile')
+  })
+})
+
 describe('applyProviderFlag - github', () => {
   test('sets CLAUDE_CODE_USE_GITHUB=1', () => {
     const result = applyProviderFlag('github', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+  })
+
+  test('clears stale Groq routing env before enabling GitHub', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.CLAUDE_CODE_USE_GROQ = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
+    process.env.OPENAI_API_KEY = 'gsk-test'
+    process.env.OPENAI_MODEL = 'llama-3.3-70b-versatile'
+
+    applyProviderFlag('github', ['--model', 'github:copilot'])
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GROQ).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('github:copilot')
   })
 })
 
@@ -123,10 +189,10 @@ describe('applyProviderFlag - ollama', () => {
     expect(process.env.OPENAI_MODEL).toBe('llama3.2')
   })
 
-  test('does not override existing OPENAI_BASE_URL when user set a custom one', () => {
+  test('resets Ollama base URL to the default local endpoint', () => {
     process.env.OPENAI_BASE_URL = 'http://my-ollama:11434/v1'
     applyProviderFlag('ollama', [])
-    expect(process.env.OPENAI_BASE_URL).toBe('http://my-ollama:11434/v1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
   })
 })
 

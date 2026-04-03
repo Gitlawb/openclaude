@@ -14,6 +14,7 @@
 export const VALID_PROVIDERS = [
   'anthropic',
   'openai',
+  'groq',
   'gemini',
   'github',
   'bedrock',
@@ -55,6 +56,20 @@ function parseModelFlag(args: string[]): string | null {
  *
  * Returns { error } if the provider name is not recognized.
  */
+function clearProviderSelectionEnv(): void {
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GROQ
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+}
+
+function clearOpenAICompatibleRoutingEnv(): void {
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+}
+
 export function applyProviderFlag(
   provider: string,
   args: string[],
@@ -66,40 +81,53 @@ export function applyProviderFlag(
   }
 
   const model = parseModelFlag(args)
+  clearProviderSelectionEnv()
 
   switch (provider as ProviderFlagName) {
     case 'anthropic':
-      // Default — no env vars needed
+      clearOpenAICompatibleRoutingEnv()
       break
 
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      if (model) process.env.OPENAI_MODEL ??= model
+      clearOpenAICompatibleRoutingEnv()
+      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'gemini':
+      clearOpenAICompatibleRoutingEnv()
       process.env.CLAUDE_CODE_USE_GEMINI = '1'
-      if (model) process.env.GEMINI_MODEL ??= model
+      if (model) process.env.GEMINI_MODEL = model
+      break
+
+    case 'groq':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.CLAUDE_CODE_USE_GROQ = '1'
+      process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
+      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'github':
+      clearOpenAICompatibleRoutingEnv()
       process.env.CLAUDE_CODE_USE_GITHUB = '1'
-      if (model) process.env.OPENAI_MODEL ??= model
+      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'bedrock':
+      clearOpenAICompatibleRoutingEnv()
       process.env.CLAUDE_CODE_USE_BEDROCK = '1'
       break
 
     case 'vertex':
+      clearOpenAICompatibleRoutingEnv()
       process.env.CLAUDE_CODE_USE_VERTEX = '1'
       break
 
     case 'ollama':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= 'http://localhost:11434/v1'
-      process.env.OPENAI_API_KEY ??= 'ollama'
-      if (model) process.env.OPENAI_MODEL ??= model
+      process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+      process.env.OPENAI_API_KEY = 'ollama'
+      if (model) process.env.OPENAI_MODEL = model
       break
   }
 

@@ -20,11 +20,14 @@ import {
 import {
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
+  buildGroqProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
+  DEFAULT_GROQ_BASE_URL,
+  DEFAULT_GROQ_MODEL,
   deleteProfileFile,
   loadProfileFile,
   maskSecretForDisplay,
@@ -62,6 +65,8 @@ type Step =
     }
   | { name: 'gemini-key' }
   | { name: 'gemini-model'; apiKey: string }
+  | { name: 'groq-key' }
+  | { name: 'groq-model'; apiKey: string }
   | { name: 'codex-check' }
 
 type CurrentProviderSummary = {
@@ -96,6 +101,7 @@ type ProviderWizardDefaults = {
   openAIModel: string
   openAIBaseUrl: string
   geminiModel: string
+  groqModel: string
 }
 
 function isEnvTruthy(value: string | undefined): boolean {
@@ -127,11 +133,15 @@ export function getProviderWizardDefaults(
   const safeGeminiModel =
     sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, processEnv) ||
     DEFAULT_GEMINI_MODEL
+  const safeGroqModel =
+    sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, processEnv) ||
+    DEFAULT_GROQ_MODEL
 
   return {
     openAIModel: safeOpenAIModel,
     openAIBaseUrl: safeOpenAIBaseUrl,
     geminiModel: safeGeminiModel,
+    groqModel: safeGroqModel,
   }
 }
 
@@ -152,6 +162,21 @@ export function buildCurrentProviderSummary(options?: {
       ),
       endpointLabel: getSafeDisplayValue(
         processEnv.GEMINI_BASE_URL ?? DEFAULT_GEMINI_BASE_URL,
+        processEnv,
+      ),
+      savedProfileLabel,
+    }
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GROQ)) {
+    return {
+      providerLabel: 'Groq',
+      modelLabel: getSafeDisplayValue(
+        processEnv.OPENAI_MODEL ?? DEFAULT_GROQ_MODEL,
+        processEnv,
+      ),
+      endpointLabel: getSafeDisplayValue(
+        processEnv.OPENAI_BASE_URL ?? DEFAULT_GROQ_BASE_URL,
         processEnv,
       ),
       savedProfileLabel,
@@ -238,6 +263,24 @@ function buildSavedProfileSummary(
             ? 'configured'
             : undefined,
       }
+    case 'groq':
+      return {
+        providerLabel: 'Groq',
+        modelLabel: getSafeDisplayValue(
+          env.OPENAI_MODEL ?? DEFAULT_GROQ_MODEL,
+          process.env,
+          env,
+        ),
+        endpointLabel: getSafeDisplayValue(
+          env.OPENAI_BASE_URL ?? DEFAULT_GROQ_BASE_URL,
+          process.env,
+          env,
+        ),
+        credentialLabel:
+          maskSecretForDisplay(env.OPENAI_API_KEY) !== undefined
+            ? 'configured'
+            : undefined,
+      }
     case 'ollama':
       return {
         providerLabel: 'Ollama',
@@ -308,7 +351,7 @@ function buildUsageText(): string {
     `Current endpoint: ${summary.endpointLabel}`,
     `Saved profile: ${summary.savedProfileLabel}`,
     '',
-    'Choose Auto, Ollama, OpenAI-compatible, Gemini, or Codex, then save a profile for the next OpenClaude restart.',
+    'Choose Auto, Ollama, OpenAI-compatible, Groq, Gemini, or Codex, then save a profile for the next OpenClaude restart.',
   ].join('\n')
 }
 
@@ -422,7 +465,12 @@ function ProviderChooser({
       label: 'OpenAI-compatible',
       value: 'openai',
       description:
-        'GPT-4o, DeepSeek, OpenRouter, Groq, LM Studio, and similar APIs',
+        'GPT-4o, DeepSeek, OpenRouter, LM Studio, and similar APIs',
+    },
+    {
+      label: 'Groq',
+      value: 'groq',
+      description: 'Use Groq with a custom model name',
     },
     {
       label: 'Gemini',
@@ -927,6 +975,8 @@ export function ProviderWizard({
               })
             } else if (value === 'gemini') {
               setStep({ name: 'gemini-key' })
+            } else if (value === 'groq') {
+              setStep({ name: 'groq-key' })
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
@@ -1116,6 +1166,60 @@ export function ProviderWizard({
             }
           }}
           onCancel={() => setStep({ name: 'gemini-key' })}
+        />
+      )
+
+    case 'groq-key':
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title="Groq setup"
+          subtitle="Step 1 of 2"
+          description={
+            process.env.OPENAI_API_KEY
+              ? 'Enter a Groq API key, or leave this blank to reuse the current OPENAI_API_KEY from this session.'
+              : 'Enter a Groq API key.'
+          }
+          initialValue=""
+          placeholder="gsk_..."
+          mask="*"
+          allowEmpty={Boolean(process.env.OPENAI_API_KEY)}
+          validate={value => {
+            const candidate = value.trim() || process.env.OPENAI_API_KEY || ''
+            return sanitizeApiKey(candidate)
+              ? null
+              : 'Enter a real API key.'
+          }}
+          onSubmit={value => {
+            const apiKey = value.trim() || process.env.OPENAI_API_KEY || ''
+            setStep({ name: 'groq-model', apiKey })
+          }}
+          onCancel={() => setStep({ name: 'choose' })}
+        />
+      )
+
+    case 'groq-model':
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title="Groq setup"
+          subtitle="Step 2 of 2"
+          description={`Enter a Groq model name. Leave blank for ${DEFAULT_GROQ_MODEL}.`}
+          initialValue={defaults.groqModel}
+          placeholder={DEFAULT_GROQ_MODEL}
+          allowEmpty
+          onSubmit={value => {
+            const env = buildGroqProfileEnv({
+              apiKey: step.apiKey,
+              model: value.trim() || DEFAULT_GROQ_MODEL,
+              baseUrl: DEFAULT_GROQ_BASE_URL,
+              processEnv: {},
+            })
+            if (env) {
+              finishProfileSave(onDone, 'groq', env)
+            }
+          }}
+          onCancel={() => setStep({ name: 'groq-key' })}
         />
       )
 
