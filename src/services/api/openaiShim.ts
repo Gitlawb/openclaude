@@ -265,6 +265,16 @@ function convertMessages(
     }
   }
 
+  // Final validation for strict providers (like Mistral):
+  // A 'tool' message MUST be followed by an 'assistant' message.
+  // If the last message is a tool result, add a dummy assistant continuation.
+  if (result.length > 0 && result[result.length - 1].role === 'tool') {
+    result.push({
+      role: 'assistant',
+      content: 'Thinking...',
+    })
+  }
+
   return result
 }
 
