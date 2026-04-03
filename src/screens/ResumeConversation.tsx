@@ -312,17 +312,18 @@ export function ResumeConversation({
         <Text> Resuming conversation…</Text>
       </Box>;
   }
-  if (resumeError) {
-    return <Box flexDirection="column">
-        <Text color="red">Failed to resume conversation.</Text>
-        <Text>{resumeError}</Text>
-        <Text dimColor={true}>Press Ctrl+C to exit and start a new conversation.</Text>
-      </Box>;
-  }
+  const resumeErrorBanner = resumeError ? <Box flexDirection="column" marginBottom={1}>
+      <Text color="red">Failed to resume conversation.</Text>
+      <Text>{resumeError}</Text>
+      <Text dimColor={true}>Choose a different conversation to continue.</Text>
+    </Box> : null;
   if (filteredLogs.length === 0) {
     return <NoConversationsMessage />;
   }
-  return <LogSelector logs={filteredLogs} maxHeight={rows} onCancel={onCancel} onSelect={onSelect} onLogsChanged={isResumeWithRenameEnabled ? () => loadLogs(showAllProjects) : undefined} onLoadMore={loadMoreLogs} initialSearchQuery={initialSearchQuery} showAllProjects={showAllProjects} onToggleAllProjects={handleToggleAllProjects} onAgenticSearch={agenticSessionSearch} />;
+  return <Box flexDirection="column">
+      {resumeErrorBanner}
+      <LogSelector logs={filteredLogs} maxHeight={rows} onCancel={onCancel} onSelect={onSelect} onLogsChanged={isResumeWithRenameEnabled ? () => loadLogs(showAllProjects) : undefined} onLoadMore={loadMoreLogs} initialSearchQuery={initialSearchQuery} showAllProjects={showAllProjects} onToggleAllProjects={handleToggleAllProjects} onAgenticSearch={agenticSessionSearch} />
+    </Box>;
 }
 function NoConversationsMessage() {
   const $ = _c(2);

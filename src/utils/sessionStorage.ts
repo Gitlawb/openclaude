@@ -1887,7 +1887,8 @@ function applyPreservedSegmentRelinks(
       | 'missing_tail'
       | 'missing_parent'
       | 'null_parent_before_head'
-      | 'cycle_before_head' = 'missing_tail'
+      | 'cycle_before_head'
+      | 'missing_anchor' = 'missing_tail'
     let lastSeenUuid: UUID | undefined
     let lastSeenType: TranscriptMessage['type'] | undefined
     let breakParentUuid: UUID | null | undefined
@@ -1918,7 +1919,10 @@ function applyPreservedSegmentRelinks(
       cur = next
     }
 
-    if (!reachedHead) {
+    if (!reachedHead || !anchorInTranscript) {
+      if (!anchorInTranscript && reachedHead) {
+        failureKind = 'missing_anchor'
+      }
       // tail→head walk broke — a UUID in the preserved segment isn't in the
       // transcript. Fail closed: keep only the post-boundary chain instead of
       // loading the full pre-compact history on resume.

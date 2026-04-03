@@ -1,12 +1,12 @@
-import { afterEach, expect, test } from 'bun:test'
+/**
+ * Hook-side-effect regression lives in a separate file with no static import of
+ * conversationRecovery so Bun's mock.module can replace sessionStart before
+ * that module is first loaded.
+ */
+import { afterEach, expect, mock, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
-import {
-  loadConversationForResume,
-  ResumeTranscriptTooLargeError,
-} from './conversationRecovery.ts'
 
 const tempDirs: string[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
@@ -37,7 +37,7 @@ function user(uuid: string, content: string) {
 }
 
 async function writeJsonl(entry: unknown): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'openclaude-conversation-recovery-'))
+  const dir = await mkdtemp(join(tmpdir(), 'openclaude-conversation-recovery-hooks-'))
   tempDirs.push(dir)
   const filePath = join(dir, 'resume.jsonl')
   await writeFile(filePath, `${JSON.stringify(entry)}\n`)
@@ -45,35 +45,27 @@ async function writeJsonl(entry: unknown): Promise<string> {
 }
 
 afterEach(async () => {
+  mock.restore()
   process.env.CLAUDE_CODE_SIMPLE = originalSimple
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
-test('loadConversationForResume accepts a small transcript from jsonl path', async () => {
-  process.env.CLAUDE_CODE_SIMPLE = '1'
-  const path = await writeJsonl(user(id(1), 'hello'))
-
-  const result = await loadConversationForResume('fixture', path)
-  expect(result).not.toBeNull()
-  expect(result?.sessionId).toBe(sessionId)
-  expect(result?.messages.length).toBeGreaterThan(0)
-})
-
-test('loadConversationForResume rejects oversized reconstructed transcripts', async () => {
-  process.env.CLAUDE_CODE_SIMPLE = '1'
+test('loadConversationForResume rejects oversized transcripts before resume hooks run', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
   const hugeContent = 'x'.repeat(8 * 1024 * 1024 + 32 * 1024)
-  const path = await writeJsonl(user(id(2), hugeContent))
+  const path = await writeJsonl(user(id(3), hugeContent))
+  const hookSpy = mock(() => Promise.resolve([{ type: 'hook' }]))
 
-  let caught: unknown
-  try {
-    await loadConversationForResume('fixture', path)
-  } catch (error) {
-    caught = error
-  }
+  mock.module('./sessionStart.js', () => ({
+    processSessionStartHooks: hookSpy,
+  }))
 
-  expect(caught).toBeInstanceOf(ResumeTranscriptTooLargeError)
-  expect((caught as Error).message).toContain(
-    'Reconstructed transcript is too large to resume safely',
+  const { loadConversationForResume, ResumeTranscriptTooLargeError } = await import(
+    './conversationRecovery.ts'
   )
-})
 
+  await expect(loadConversationForResume('fixture', path)).rejects.toBeInstanceOf(
+    ResumeTranscriptTooLargeError,
+  )
+  expect(hookSpy).not.toHaveBeenCalled()
+})

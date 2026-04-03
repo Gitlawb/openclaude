@@ -162,3 +162,35 @@ test('loadTranscriptFile preserves and relinks a valid preserved segment', async
     id(14),
   ])
 })
+
+test('loadTranscriptFile fails closed when preserved-segment anchor is missing', async () => {
+  // Models the case where the compact boundary was written but the post-boundary
+  // summary/anchor message never made it to disk.
+  const oldUser = user(id(21), null, 'old user')
+  const oldAssistant = assistant(id(22), id(21), 'old assistant')
+  const preservedHead = assistant(id(23), id(22), 'preserved head')
+  const preservedTail = assistant(id(24), id(23), 'preserved tail')
+  const boundary = compactBoundary(id(25), id(22), {
+    headUuid: id(23),
+    anchorUuid: id(26),
+    tailUuid: id(24),
+  })
+
+  const filePath = await writeJsonl([
+    oldUser,
+    oldAssistant,
+    preservedHead,
+    preservedTail,
+    boundary,
+  ])
+
+  const { messages } = await loadTranscriptFile(filePath)
+  expect(messages.has(id(21))).toBe(false)
+  expect(messages.has(id(22))).toBe(false)
+  expect(messages.has(id(23))).toBe(false)
+  expect(messages.has(id(24))).toBe(false)
+  expect(messages.has(id(25))).toBe(true)
+
+  const chain = buildConversationChain(messages, messages.get(id(25))!)
+  expect(chain.map(message => message.uuid)).toEqual([id(25)])
+})

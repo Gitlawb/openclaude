@@ -72,6 +72,9 @@ const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 
+// Hard cap for reconstructed resume payloads before REPL boot. 8 MiB keeps
+// resume bounded well below the multi-GB failure mode we saw while leaving
+// enough room for normal compacted sessions plus resume hook context.
 const MAX_RESUME_MESSAGE_BYTES = 8 * 1024 * 1024
 
 export class ResumeTranscriptTooLargeError extends Error {
@@ -590,10 +593,14 @@ export async function loadConversationForResume(
     const deserialized = deserializeMessagesWithInterruptDetection(messages!)
     messages = deserialized.messages
 
+    // Reject oversized resumes before running side-effectful resume hooks.
+    assertResumeMessageSize(messages)
+
     // Process session start hooks for resume
     const hookMessages = await processSessionStartHooks('resume', { sessionId })
 
-    // Append hook messages to the conversation
+    // Append hook messages to the conversation and guard again in case hook
+    // output itself pushes the session over the safe resume limit.
     messages.push(...hookMessages)
     assertResumeMessageSize(messages)
 
