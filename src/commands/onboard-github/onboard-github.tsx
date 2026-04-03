@@ -51,8 +51,12 @@ function OnboardGithub(props: {
   } | null>(null)
 
   const finalize = useCallback(
-    async (token: string, model: string = DEFAULT_MODEL) => {
-      const saved = saveGithubModelsToken(token)
+    async (
+      token: string,
+      model: string = DEFAULT_MODEL,
+      oauthToken?: string,
+    ) => {
+      const saved = saveGithubModelsToken(token, oauthToken)
       if (!saved.success) {
         setErrorMsg(saved.warning ?? 'Could not save token to secure storage.')
         setStep('error')
@@ -72,7 +76,7 @@ function OnboardGithub(props: {
       hydrateGithubModelsTokenFromSecureStorage()
       onChangeAPIKey()
       onDone(
-        'GitHub Copilot onboard complete. OAuth token stored in secure storage; user settings updated. Restart if the model does not switch.',
+        'GitHub Copilot onboard complete. Copilot token and OAuth token stored in secure storage (Windows/Linux: ~/.claude/.credentials.json, macOS: Keychain fallback to ~/.claude/.credentials.json); user settings updated. Restart if the model does not switch.',
         { display: 'user' },
       )
     },
@@ -95,7 +99,7 @@ function OnboardGithub(props: {
         timeoutSeconds: device.expires_in,
       })
       const copilotToken = await exchangeForCopilotToken(oauthToken)
-      await finalize(copilotToken.token, DEFAULT_MODEL)
+      await finalize(copilotToken.token, DEFAULT_MODEL, oauthToken)
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e))
       setStep('error')

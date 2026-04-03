@@ -6,6 +6,7 @@ export const GITHUB_MODELS_STORAGE_KEY = 'githubModels' as const
 
 export type GithubModelsCredentialBlob = {
   accessToken: string
+  oauthAccessToken?: string
 }
 
 export function readGithubModelsToken(): string | undefined {
@@ -41,7 +42,10 @@ export function hydrateGithubModelsTokenFromSecureStorage(): void {
   }
 }
 
-export function saveGithubModelsToken(token: string): {
+export function saveGithubModelsToken(
+  token: string,
+  oauthToken?: string,
+): {
   success: boolean
   warning?: string
 } {
@@ -54,9 +58,21 @@ export function saveGithubModelsToken(token: string): {
   }
   const secureStorage = getSecureStorage()
   const prev = secureStorage.read() || {}
+  const prevGithubModels = (prev as Record<string, unknown>)[
+    GITHUB_MODELS_STORAGE_KEY
+  ] as GithubModelsCredentialBlob | undefined
+  const oauthTrimmed = oauthToken?.trim()
+  const mergedBlob: GithubModelsCredentialBlob = {
+    accessToken: trimmed,
+  }
+  if (oauthTrimmed) {
+    mergedBlob.oauthAccessToken = oauthTrimmed
+  } else if (prevGithubModels?.oauthAccessToken?.trim()) {
+    mergedBlob.oauthAccessToken = prevGithubModels.oauthAccessToken.trim()
+  }
   const merged = {
     ...(prev as Record<string, unknown>),
-    [GITHUB_MODELS_STORAGE_KEY]: { accessToken: trimmed },
+    [GITHUB_MODELS_STORAGE_KEY]: mergedBlob,
   }
   return secureStorage.update(merged as typeof prev)
 }
