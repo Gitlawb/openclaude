@@ -351,6 +351,17 @@ function getCodexModelOptions(): ModelOption[] {
 
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
+
+import { getAllCopilotModels } from './copilotModels.js'
+
+function getCopilotModelOptions(): ModelOption[] {
+  return getAllCopilotModels().map(m => ({
+    value: m.id,
+    label: m.name,
+    description: `${m.family}${m.reasoning ? ' · Reasoning' : ''}${m.tool_call ? ' · Tool call' : ''} · ${Math.round(m.limit.context / 1000)}K context`,
+  }))
+}
+
 function getModelOptionsBase(fastMode = false): ModelOption[] {
   // When using Ollama, show models from the Ollama server instead of Claude models
   if (getAPIProvider() === 'openai' && isOllamaProvider()) {
@@ -458,6 +469,11 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
 
   // PAYG 3P: Default (Sonnet 4.5) + Sonnet (3P custom) or Sonnet 4.6/1M + Opus (3P custom) or Opus 4.1/Opus 4.6/Opus1M + Haiku + Opus 4.1
   const payg3pOptions = [getDefaultOptionForUser(fastMode)]
+
+  // GitHub Copilot provider: show all models from hardcoded registry
+  if (getAPIProvider() === 'github') {
+    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
+  }
 
   // Add Codex models for openai and codex providers
   if (getAPIProvider() === 'openai' || getAPIProvider() === 'codex') {

@@ -43,6 +43,10 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   }
+  // For GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
+  }
   return getDefaultHaikuModel()
 }
 
@@ -135,6 +139,10 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.4'
   }
+  // GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
+  }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // even when values match, since 3P availability lags firstParty and
   // these will diverge again at the next model launch.
@@ -161,6 +169,10 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.4'
   }
+  // GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
+  }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (getAPIProvider() !== 'firstParty') {
     return getModelStrings().sonnet45
@@ -172,6 +184,18 @@ export function getDefaultSonnetModel(): ModelName {
 export function getDefaultHaikuModel(): ModelName {
   if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  }
+  // OpenAI provider
+  if (getAPIProvider() === 'openai') {
+    return process.env.OPENAI_MODEL || 'gpt-4o'
+  }
+  // Codex provider
+  if (getAPIProvider() === 'codex') {
+    return process.env.OPENAI_MODEL || 'gpt-5.4'
+  }
+  // GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
@@ -229,6 +253,10 @@ export function getRuntimeMainLoopModel(params: {
  * @returns The default model setting to use
  */
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
+  // GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
+  }
   // Gemini provider: always use the configured Gemini model
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash'

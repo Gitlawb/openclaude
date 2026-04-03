@@ -5,6 +5,7 @@ import { Spinner } from '../../components/Spinner.js'
 import TextInput from '../../components/TextInput.js'
 import { Box, Text } from '../../ink.js'
 import {
+  exchangeForCopilotToken,
   openVerificationUri,
   pollAccessToken,
   requestDeviceCode,
@@ -96,11 +97,12 @@ function OnboardGithub(props: {
         verification_uri: device.verification_uri,
       })
       await openVerificationUri(device.verification_uri)
-      const token = await pollAccessToken(device.device_code, {
+      const oauthToken = await pollAccessToken(device.device_code, {
         initialInterval: device.interval,
         timeoutSeconds: device.expires_in,
       })
-      await finalize(token, DEFAULT_MODEL)
+      const copilotToken = await exchangeForCopilotToken(oauthToken)
+      await finalize(copilotToken.token, DEFAULT_MODEL)
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e))
       setStep('error')

@@ -1,17 +1,35 @@
 /**
  * GitHub OAuth device flow for CLI login (https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).
+ * Uses GitHub Copilot's official OAuth app for device authentication.
  */
 
 import { execFileNoThrow } from '../../utils/execFileNoThrow.js'
 
-export const DEFAULT_GITHUB_DEVICE_FLOW_CLIENT_ID = 'Ov23liXjWSSui6QIahPl'
+export const DEFAULT_GITHUB_DEVICE_FLOW_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
 
 export const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
 export const GITHUB_DEVICE_ACCESS_TOKEN_URL =
   'https://github.com/login/oauth/access_token'
+export const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token'
 
-/** Match runtime devsper github_oauth DEFAULT_SCOPE */
-export const DEFAULT_GITHUB_DEVICE_SCOPE = 'read:user,models:read'
+/** Only read:user scope — models:read is a PAT permission, not an OAuth scope */
+export const DEFAULT_GITHUB_DEVICE_SCOPE = 'read:user'
+
+export const COPILOT_HEADERS: Record<string, string> = {
+  'User-Agent': 'GitHubCopilotChat/0.26.7',
+  'Editor-Version': 'vscode/1.99.3',
+  'Editor-Plugin-Version': 'copilot-chat/0.26.7',
+  'Copilot-Integration-Id': 'vscode-chat',
+}
+
+export type CopilotTokenResponse = {
+  token: string
+  expires_at: number
+  refresh_in: number
+  endpoints: {
+    api: string
+  }
+}
 
 export class GitHubDeviceFlowError extends Error {
   constructor(message: string) {
@@ -170,5 +188,51 @@ export async function openVerificationUri(uri: string): Promise<void> {
     }
   } catch {
     // User can open the URL manually
+  }
+}
+
+/**
+ * Exchange an OAuth access token for a Copilot API token.
+ * The OAuth token alone cannot be used with the Copilot API endpoint.
+ */
+export async function exchangeForCopilotToken(
+  oauthToken: string,
+  fetchImpl?: typeof fetch,
+): Promise<CopilotTokenResponse> {
+  const fetchFn = fetchImpl ?? fetch
+  const res = await fetchFn(COPILOT_TOKEN_URL, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${oauthToken}`,
+      ...COPILOT_HEADERS,
+    },
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new GitHubDeviceFlowError(
+      `Copilot token exchange failed: ${res.status} ${text}`,
+    )
+  }
+  const data = (await res.json()) as Record<string, unknown>
+  const token = data.token
+  const expires_at = data.expires_at
+  const refresh_in = data.refresh_in
+  const endpoints = data.endpoints
+  if (
+    typeof token !== 'string' ||
+    typeof expires_at !== 'number' ||
+    typeof refresh_in !== 'number' ||
+    !endpoints ||
+    typeof endpoints !== 'object' ||
+    typeof (endpoints as Record<string, unknown>).api !== 'string'
+  ) {
+    throw new GitHubDeviceFlowError('Malformed Copilot token response')
+  }
+  return {
+    token,
+    expires_at,
+    refresh_in,
+    endpoints: endpoints as { api: string },
   }
 }

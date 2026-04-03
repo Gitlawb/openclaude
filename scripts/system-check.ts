@@ -118,14 +118,14 @@ function isLocalBaseUrl(baseUrl: string): boolean {
 }
 
 const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
-const GITHUB_MODELS_DEFAULT_BASE = 'https://models.github.ai/inference'
+const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
 
 function currentBaseUrl(): string {
   if (isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
     return process.env.GEMINI_BASE_URL ?? GEMINI_DEFAULT_BASE_URL
   }
   if (isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
-    return process.env.OPENAI_BASE_URL ?? GITHUB_MODELS_DEFAULT_BASE
+    return process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE
   }
   return process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
 }
