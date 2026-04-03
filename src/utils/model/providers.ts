@@ -7,6 +7,7 @@ export type APIProvider =
   | 'vertex'
   | 'foundry'
   | 'openai'
+  | 'groq'
   | 'gemini'
   | 'github'
   | 'codex'
@@ -19,7 +20,9 @@ export function getAPIProvider(): APIProvider {
       : isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
         ? isCodexModel()
           ? 'codex'
-          : 'openai'
+          : isEnvTruthy(process.env.CLAUDE_CODE_USE_GROQ)
+            ? 'groq'
+            : 'openai'
         : isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)
           ? 'bedrock'
           : isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)

@@ -9,6 +9,7 @@ const originalEnv = {
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_GROQ: process.env.CLAUDE_CODE_USE_GROQ,
   CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
   CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
@@ -19,6 +20,7 @@ afterEach(() => {
   process.env.CLAUDE_CODE_USE_GEMINI = originalEnv.CLAUDE_CODE_USE_GEMINI
   process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
   process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
+  process.env.CLAUDE_CODE_USE_GROQ = originalEnv.CLAUDE_CODE_USE_GROQ
   process.env.CLAUDE_CODE_USE_BEDROCK = originalEnv.CLAUDE_CODE_USE_BEDROCK
   process.env.CLAUDE_CODE_USE_VERTEX = originalEnv.CLAUDE_CODE_USE_VERTEX
   process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
@@ -29,6 +31,7 @@ function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GROQ
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
@@ -78,4 +81,41 @@ test.each([
 
   expect(getAPIProvider()).toBe('codex')
   expect(usesAnthropicAccountFlow()).toBe(false)
+})
+
+test('Groq flag is treated as groq provider', () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_USE_GROQ = '1'
+  process.env.OPENAI_MODEL = 'llama-3.3-70b-versatile'
+
+  expect(getAPIProvider()).toBe('groq')
+  expect(usesAnthropicAccountFlow()).toBe(false)
+})
+
+test('codex still takes precedence over groq when codex model is selected', () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_USE_GROQ = '1'
+  process.env.OPENAI_MODEL = 'gpt-5.4-mini'
+
+  expect(getAPIProvider()).toBe('codex')
+})
+
+test('gemini still takes precedence over groq when both are set', () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_USE_GROQ = '1'
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+  expect(getAPIProvider()).toBe('gemini')
+})
+
+test('github still takes precedence over groq when both are set', () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_USE_GROQ = '1'
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+
+  expect(getAPIProvider()).toBe('github')
 })

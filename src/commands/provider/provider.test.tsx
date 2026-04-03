@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { expect, test } from 'bun:test'
+import { afterEach, expect, test } from 'bun:test'
 import React from 'react'
 import stripAnsi from 'strip-ansi'
 
@@ -12,6 +12,26 @@ import {
   getProviderWizardDefaults,
   TextEntryDialog,
 } from './provider.js'
+
+const originalEnv = { ...process.env }
+
+function restoreEnv(): void {
+  process.env = { ...originalEnv }
+}
+
+function resetProviderEnv(): void {
+  restoreEnv()
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GROQ
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+}
+
+afterEach(() => {
+  restoreEnv()
+})
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'

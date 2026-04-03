@@ -1,20 +1,28 @@
-import { describe, expect, test, afterEach } from 'bun:test'
+import { beforeEach, describe, expect, test, afterEach } from 'bun:test'
 import { parseProviderFlag, applyProviderFlag, VALID_PROVIDERS } from './providerFlag.js'
 
 const originalEnv = { ...process.env }
+const TEST_ENV_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GROQ',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'GEMINI_MODEL',
+] as const
+
+beforeEach(() => {
+  for (const key of TEST_ENV_KEYS) {
+    delete process.env[key]
+  }
+})
 
 afterEach(() => {
-  for (const key of [
-    'CLAUDE_CODE_USE_OPENAI',
-    'CLAUDE_CODE_USE_GEMINI',
-    'CLAUDE_CODE_USE_GITHUB',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'CLAUDE_CODE_USE_VERTEX',
-    'OPENAI_BASE_URL',
-    'OPENAI_API_KEY',
-    'OPENAI_MODEL',
-    'GEMINI_MODEL',
-  ]) {
+  for (const key of TEST_ENV_KEYS) {
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
   }
@@ -82,6 +90,21 @@ describe('applyProviderFlag - gemini', () => {
   test('sets GEMINI_MODEL when --model is provided', () => {
     applyProviderFlag('gemini', ['--model', 'gemini-2.0-flash'])
     expect(process.env.GEMINI_MODEL).toBe('gemini-2.0-flash')
+  })
+})
+
+describe('applyProviderFlag - groq', () => {
+  test('sets Groq OpenAI-compatible env vars', () => {
+    const result = applyProviderFlag('groq', [])
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_GROQ).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.groq.com/openai/v1')
+  })
+
+  test('sets OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('groq', ['--model', 'llama-3.3-70b-versatile'])
+    expect(process.env.OPENAI_MODEL).toBe('llama-3.3-70b-versatile')
   })
 })
 

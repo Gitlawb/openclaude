@@ -14,6 +14,7 @@
 export const VALID_PROVIDERS = [
   'anthropic',
   'openai',
+  'groq',
   'gemini',
   'github',
   'bedrock',
@@ -80,6 +81,13 @@ export function applyProviderFlag(
     case 'gemini':
       process.env.CLAUDE_CODE_USE_GEMINI = '1'
       if (model) process.env.GEMINI_MODEL ??= model
+      break
+
+    case 'groq':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.CLAUDE_CODE_USE_GROQ = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.groq.com/openai/v1'
+      if (model) process.env.OPENAI_MODEL ??= model
       break
 
     case 'github':
