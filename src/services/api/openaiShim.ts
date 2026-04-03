@@ -156,6 +156,49 @@ function convertContentBlocks(
   return parts
 }
 
+/**
+ * Build tool result content, preserving images as image_url parts.
+ * OpenAI accepts multipart content arrays on tool role messages.
+ */
+function buildToolResultContent(
+  content: unknown,
+  isError?: boolean,
+): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
+  if (typeof content === 'string') {
+    return isError ? `Error: ${content}` : content
+  }
+  if (!Array.isArray(content)) {
+    const text = JSON.stringify(content ?? '')
+    return isError ? `Error: ${text}` : text
+  }
+
+  const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
+  for (const block of content as Array<Record<string, unknown>>) {
+    if (block.type === 'text') {
+      parts.push({ type: 'text', text: (block.text as string) ?? '' })
+    } else if (block.type === 'image') {
+      const src = block.source as { type?: string; media_type?: string; data?: string; url?: string } | undefined
+      if (src?.type === 'base64' && src.data && src.media_type) {
+        parts.push({ type: 'image_url', image_url: { url: `data:${src.media_type};base64,${src.data}` } })
+      } else if (src?.type === 'url' && src.url) {
+        parts.push({ type: 'image_url', image_url: { url: src.url } })
+      }
+    }
+  }
+
+  if (parts.length === 0) return ''
+  if (parts.length === 1 && parts[0].type === 'text') {
+    const text = parts[0].text ?? ''
+    return isError ? `Error: ${text}` : text
+  }
+  if (isError && parts[0]?.type === 'text') {
+    parts[0] = { ...parts[0], text: `Error: ${parts[0].text ?? ''}` }
+  } else if (isError) {
+    parts.unshift({ type: 'text', text: 'Error:' })
+  }
+  return parts
+}
+
 function convertMessages(
   messages: Array<{ role: string; message?: { role?: string; content?: unknown }; content?: unknown }>,
   system: unknown,
@@ -182,15 +225,10 @@ function convertMessages(
 
         // Emit tool results as tool messages
         for (const tr of toolResults) {
-          const trContent = Array.isArray(tr.content)
-            ? tr.content.map((c: { text?: string }) => c.text ?? '').join('\n')
-            : typeof tr.content === 'string'
-              ? tr.content
-              : JSON.stringify(tr.content ?? '')
           result.push({
             role: 'tool',
             tool_call_id: tr.tool_use_id ?? 'unknown',
-            content: tr.is_error ? `Error: ${trContent}` : trContent,
+            content: buildToolResultContent(tr.content, tr.is_error),
           })
         }
 
@@ -368,6 +406,8 @@ interface OpenAIStreamChunk {
     delta: {
       role?: string
       content?: string | null
+      reasoning_content?: string | null
+      reasoning?: string | null
       tool_calls?: Array<{
         index: number
         id?: string
@@ -417,6 +457,8 @@ async function* openaiStreamToAnthropic(
   let contentBlockIndex = 0
   const activeToolCalls = new Map<number, { id: string; name: string; index: number; jsonBuffer: string }>()
   let hasEmittedContentStart = false
+  let hasEmittedThinkingStart = false
+  let thinkingBlockIndex = -1
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
@@ -473,9 +515,33 @@ async function* openaiStreamToAnthropic(
       for (const choice of chunk.choices ?? []) {
         const delta = choice.delta
 
-        // Text content — use != null to distinguish absent field from empty string,
-        // some providers send "" as first delta to signal streaming start
+        // Reasoning content from thinking models (DeepSeek R1, etc.)
+        const reasoningText = delta.reasoning_content ?? delta.reasoning
+        if (reasoningText != null && reasoningText !== '') {
+          if (!hasEmittedThinkingStart) {
+            thinkingBlockIndex = contentBlockIndex
+            yield {
+              type: 'content_block_start',
+              index: thinkingBlockIndex,
+              content_block: { type: 'thinking', thinking: '' },
+            }
+            contentBlockIndex++
+            hasEmittedThinkingStart = true
+          }
+          yield {
+            type: 'content_block_delta',
+            index: thinkingBlockIndex,
+            delta: { type: 'thinking_delta', thinking: reasoningText },
+          }
+        }
+
+        // Text content — use != null to distinguish absent field from empty string
         if (delta.content != null) {
+          // Close thinking block before opening text block
+          if (hasEmittedThinkingStart && !hasEmittedContentStart) {
+            yield { type: 'content_block_stop', index: thinkingBlockIndex }
+            hasEmittedThinkingStart = false
+          }
           if (!hasEmittedContentStart) {
             yield {
               type: 'content_block_start',
@@ -495,7 +561,11 @@ async function* openaiStreamToAnthropic(
         if (delta.tool_calls) {
           for (const tc of delta.tool_calls) {
             if (tc.id && tc.function?.name) {
-              // New tool call starting
+              // New tool call starting — close any open blocks first
+              if (hasEmittedThinkingStart) {
+                yield { type: 'content_block_stop', index: thinkingBlockIndex }
+                hasEmittedThinkingStart = false
+              }
               if (hasEmittedContentStart) {
                 yield {
                   type: 'content_block_stop',
@@ -562,6 +632,11 @@ async function* openaiStreamToAnthropic(
         if (choice.finish_reason && !hasProcessedFinishReason) {
           hasProcessedFinishReason = true
 
+          // Close thinking block if still open (reasoning-only models)
+          if (hasEmittedThinkingStart) {
+            yield { type: 'content_block_stop', index: thinkingBlockIndex }
+            hasEmittedThinkingStart = false
+          }
           // Close any open content blocks
           if (hasEmittedContentStart) {
             yield {
@@ -815,7 +890,10 @@ class OpenAIShimMessages {
     }
 
     const isGithub = isGithubModelsMode()
-    if (isGithub && body.max_completion_tokens !== undefined) {
+    const isLocal = isLocalProviderUrl(request.baseUrl)
+    // GitHub Models and local providers (Ollama, LM Studio) accept max_tokens only.
+    // OpenAI cloud and Azure require max_completion_tokens.
+    if ((isGithub || isLocal) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
@@ -960,6 +1038,8 @@ class OpenAIShimMessages {
             | string
             | null
             | Array<{ type?: string; text?: string }>
+          reasoning_content?: string | null
+          reasoning?: string | null
           tool_calls?: Array<{
             id: string
             function: { name: string; arguments: string }
@@ -980,6 +1060,12 @@ class OpenAIShimMessages {
   ) {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
+
+    // Prepend thinking block for reasoning models (DeepSeek R1, etc.)
+    const rawReasoning = choice?.message?.reasoning_content ?? choice?.message?.reasoning
+    if (rawReasoning) {
+      content.push({ type: 'thinking', thinking: rawReasoning, signature: '' })
+    }
 
     const rawContent = choice?.message?.content
     if (typeof rawContent === 'string' && rawContent) {
