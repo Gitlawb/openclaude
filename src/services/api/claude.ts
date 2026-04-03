@@ -331,6 +331,14 @@ export function getExtraBodyParams(betaHeaders?: string[]): JsonObject {
 }
 
 export function getPromptCachingEnabled(model: string): boolean {
+  // Prompt caching is an Anthropic-specific feature — disable for 3P providers.
+  // cache_control blocks in the request payload cause 400 on strict OpenAI-compat
+  // backends (Azure) and are silently ignored by lenient ones.
+  const provider = getAPIProvider()
+  if (provider === 'openai' || provider === 'gemini' || provider === 'github' || provider === 'codex') {
+    return false
+  }
+
   // Global disable takes precedence
   if (isEnvTruthy(process.env.DISABLE_PROMPT_CACHING)) return false
 

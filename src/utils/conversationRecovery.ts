@@ -24,6 +24,7 @@ import {
   type FileHistorySnapshot,
 } from './fileHistory.js'
 import { logError } from './log.js'
+import { getAPIProvider } from './model/providers.js'
 import {
   createAssistantMessage,
   createUserMessage,
@@ -146,6 +147,26 @@ export type DeserializeResult = {
 }
 
 /**
+ * Remove thinking/redacted_thinking content blocks from assistant messages.
+ * Messages that become empty after stripping are removed entirely.
+ * Must run before filterUnresolvedToolUses to avoid orphaned tool_result blocks.
+ */
+function stripThinkingBlocks(messages: NormalizedMessage[]): NormalizedMessage[] {
+  return messages.reduce<NormalizedMessage[]>((acc, msg) => {
+    if (msg.type !== 'assistant' || !Array.isArray(msg.message?.content)) {
+      acc.push(msg)
+      return acc
+    }
+    const filtered = msg.message.content.filter(
+      (block: { type?: string }) => block.type !== 'thinking' && block.type !== 'redacted_thinking',
+    )
+    if (filtered.length === 0) return acc
+    acc.push({ ...msg, message: { ...msg.message, content: filtered } })
+    return acc
+  }, [])
+}
+
+/**
  * Deserializes messages from a log file into the format expected by the REPL.
  * Filters unresolved tool uses, orphaned thinking messages, and appends a
  * synthetic assistant sentinel when the last message is from the user.
@@ -183,9 +204,18 @@ export function deserializeMessagesWithInterruptDetection(
       }
     }
 
+    // Strip thinking blocks BEFORE filtering tool uses when resuming against a 3P
+    // provider. A thinking-only assistant message removed after filterUnresolvedToolUses
+    // would leave its paired tool_result orphaned, causing a 400 on resume.
+    const provider = getAPIProvider()
+    const isThirdPartyProvider = provider === 'openai' || provider === 'gemini' || provider === 'github' || provider === 'codex'
+    const preProcessed = isThirdPartyProvider
+      ? stripThinkingBlocks(migratedMessages as NormalizedMessage[])
+      : migratedMessages
+
     // Filter out unresolved tool uses and any synthetic messages that follow them
     const filteredToolUses = filterUnresolvedToolUses(
-      migratedMessages,
+      preProcessed,
     ) as NormalizedMessage[]
 
     // Filter out orphaned thinking-only assistant messages that can cause API errors

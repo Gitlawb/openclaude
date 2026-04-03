@@ -160,8 +160,25 @@ export async function getAnthropicClient({
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
   ) {
     const { createOpenAIShimClient } = await import('./openaiShim.js')
+    // Strip Anthropic-internal and auth headers before forwarding to 3P providers.
+    // Prevents session IDs, protection flags, and potentially the Anthropic API key
+    // from being sent to external endpoints.
+    const safeHeaders: Record<string, string> = {}
+    for (const [k, v] of Object.entries(defaultHeaders)) {
+      const lower = k.toLowerCase()
+      if (
+        lower.startsWith('x-anthropic') ||
+        lower.startsWith('x-claude') ||
+        lower === 'x-app' ||
+        lower === 'x-client-app' ||
+        lower === 'authorization' ||
+        lower === 'x-api-key' ||
+        lower === 'api-key'
+      ) continue
+      safeHeaders[k] = v
+    }
     return createOpenAIShimClient({
-      defaultHeaders,
+      defaultHeaders: safeHeaders,
       maxRetries,
       timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
     }) as unknown as Anthropic

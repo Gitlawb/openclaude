@@ -183,7 +183,11 @@ function convertMessages(
         // Emit tool results as tool messages
         for (const tr of toolResults) {
           const trContent = Array.isArray(tr.content)
-            ? tr.content.map((c: { text?: string }) => c.text ?? '').join('\n')
+            ? tr.content.map((c: { type?: string; text?: string; source?: { type?: string; url?: string; media_type?: string } }) => {
+                if (c.type === 'image' && c.source?.type === 'url' && c.source.url) return `[Image](${c.source.url})`
+                if (c.type === 'image' && c.source?.media_type) return `[Image: ${c.source.media_type}]`
+                return c.text ?? ''
+              }).join('\n')
             : typeof tr.content === 'string'
               ? tr.content
               : JSON.stringify(tr.content ?? '')

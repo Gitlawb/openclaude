@@ -386,3 +386,69 @@ test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async
   expect(properties?.priority?.enum).toEqual([0, 1, 2, 3])
   expect(properties?.priority).not.toHaveProperty('default')
 })
+
+test('preserves image content in tool results instead of silently dropping it', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'I see the screenshot' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'take a screenshot' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'screenshot' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: [
+              { type: 'text', text: 'Screenshot captured' },
+              { type: 'image', source: { type: 'url', url: 'https://example.com/screenshot.png' } },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const msgs = requestBody?.messages as Array<{ role: string; content: string }>
+  const toolMsg = msgs.find(m => m.role === 'tool')
+
+  // Image should be preserved as a placeholder, not silently dropped
+  expect(toolMsg?.content).toContain('Screenshot captured')
+  expect(toolMsg?.content).toContain('[Image]')
+})
