@@ -42,10 +42,10 @@ import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
 
 type SecretValueSource = Partial<{
-  OPENAI_API_KEY?: string
-  CODEX_API_KEY?: string
-  GEMINI_API_KEY?: string
-  GOOGLE_API_KEY?: string
+  OPENAI_API_KEY: string
+  CODEX_API_KEY: string
+  GEMINI_API_KEY: string
+  GOOGLE_API_KEY: string
 }>
 
 const GITHUB_MODELS_DEFAULT_BASE = 'https://models.github.ai/inference'

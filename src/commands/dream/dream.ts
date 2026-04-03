@@ -53,11 +53,13 @@ const command = {
 **Manually triggered by user via /dream.**
 
 Sessions since last consolidation (${sessionIds.length}, last run: ${hoursSince}):
-${sessionIds.map(id => `- ${id}`).join('\n')}
-
-After consolidation is complete, call recordConsolidation by writing a timestamp marker. To do this, simply create or touch the file \`${memoryRoot}/.consolidate-lock\` with the current timestamp so that auto-dream knows when the last manual run happened.`
+${sessionIds.map(id => `- ${id}`).join('\n')}`
 
     const prompt = buildConsolidationPrompt(memoryRoot, transcriptDir, extra)
+
+    // Record consolidation timestamp programmatically so auto-dream
+    // knows when the last manual run happened.
+    await recordConsolidation()
 
     return [{ type: 'text', text: prompt }]
   },
