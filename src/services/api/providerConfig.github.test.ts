@@ -23,6 +23,8 @@ test.each([
   ['github:gpt-4o', 'gpt-4o'],
   ['gpt-4o', 'gpt-4o'],
   ['github:copilot?reasoning=high', DEFAULT_GITHUB_MODELS_API_MODEL],
+  ['github:openai/gpt-4.1', 'gpt-4.1'],
+  ['openai/gpt-4.1', 'gpt-4.1'],
 ] as const)('normalizeGithubModelsApiModel(%s) -> %s', (input, expected) => {
   expect(normalizeGithubModelsApiModel(input)).toBe(expected)
 })
@@ -31,6 +33,20 @@ test('resolveProviderRequest applies GitHub normalization when CLAUDE_CODE_USE_G
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   const r = resolveProviderRequest({ model: 'github:gpt-4o' })
   expect(r.resolvedModel).toBe('gpt-4o')
+  expect(r.transport).toBe('chat_completions')
+})
+
+test('resolveProviderRequest routes GitHub GPT-5 codex models to responses transport', () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  const r = resolveProviderRequest({ model: 'gpt-5.3-codex' })
+  expect(r.resolvedModel).toBe('gpt-5.3-codex')
+  expect(r.transport).toBe('codex_responses')
+})
+
+test('resolveProviderRequest keeps gpt-5-mini on chat_completions for GitHub', () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  const r = resolveProviderRequest({ model: 'gpt-5-mini' })
+  expect(r.resolvedModel).toBe('gpt-5-mini')
   expect(r.transport).toBe('chat_completions')
 })
 

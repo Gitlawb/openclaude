@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 import {
+  exchangeForCopilotToken,
   GitHubDeviceFlowError,
   pollAccessToken,
   requestDeviceCode,
@@ -90,5 +91,57 @@ describe('pollAccessToken', () => {
         fetchImpl: globalThis.fetch,
       }),
     ).rejects.toThrow(/denied/)
+  })
+})
+
+describe('exchangeForCopilotToken', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  test('parses successful Copilot token response', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            token: 'copilot-token-xyz',
+            expires_at: 1700000000,
+            refresh_in: 3600,
+            endpoints: {
+              api: 'https://api.githubcopilot.com',
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+
+    const result = await exchangeForCopilotToken('oauth-token', globalThis.fetch)
+    expect(result.token).toBe('copilot-token-xyz')
+    expect(result.expires_at).toBe(1700000000)
+    expect(result.refresh_in).toBe(3600)
+    expect(result.endpoints.api).toBe('https://api.githubcopilot.com')
+  })
+
+  test('throws on HTTP error', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(new Response('unauthorized', { status: 401 })),
+    )
+    await expect(
+      exchangeForCopilotToken('bad-token', globalThis.fetch),
+    ).rejects.toThrow(GitHubDeviceFlowError)
+  })
+
+  test('throws on malformed response', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ invalid: 'data' }), { status: 200 }),
+      ),
+    )
+    await expect(
+      exchangeForCopilotToken('oauth-token', globalThis.fetch),
+    ).rejects.toThrow(/Malformed/)
   })
 })
