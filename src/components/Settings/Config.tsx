@@ -631,7 +631,26 @@ export function Config({
         value: String(copyOnSelect) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
-  }] : []),
+  }] : []), {
+    id: 'flickerFreeMode',
+    label: 'Flicker-free mode',
+    value: globalConfig.flickerFreeMode ?? (process.env.USER_TYPE === 'ant'),
+    type: 'boolean' as const,
+    onChange(flickerFreeMode: boolean) {
+      saveGlobalConfig(current => ({
+        ...current,
+        flickerFreeMode
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        flickerFreeMode
+      });
+      logEvent('tengu_config_changed', {
+        setting: 'flickerFreeMode' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        value: String(flickerFreeMode) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  },
   // autoUpdates setting is hidden - use DISABLE_AUTOUPDATER env var to control
   autoUpdaterDisabledReason ? {
     id: 'autoUpdatesChannel',

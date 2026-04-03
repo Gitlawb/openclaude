@@ -464,6 +464,11 @@ export type GlobalConfig = {
   // Fullscreen in-app text selection behavior
   copyOnSelect?: boolean // Auto-copy to clipboard on mouse-up (undefined → true; lets cmd+c "work" via no-op)
 
+  // Flicker-free fullscreen mode (equivalent to CLAUDE_CODE_NO_FLICKER=1 env var).
+  // When true, enables alt-screen + virtualized scroll for all users.
+  // Env var still takes precedence: =0 always off, =1 always on.
+  flickerFreeMode?: boolean
+
   // GitHub repo path mapping for teleport directory switching
   // Key: "owner/repo" (lowercase), Value: array of absolute paths where repo is cloned
   githubRepoPaths?: Record<string, string[]>
@@ -659,6 +664,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'lspRecommendationIgnoredCount',
   'copyFullResponse',
   'copyOnSelect',
+  'flickerFreeMode',
   'permissionExplainerEnabled',
   'prStatusFooterEnabled',
   'remoteControlAtStartup',
