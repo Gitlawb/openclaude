@@ -11,7 +11,7 @@ import { MCPServerDesktopImportDialog } from '../../components/MCPServerDesktopI
 import { render } from '../../ink.js';
 import { KeybindingSetup } from '../../keybindings/KeybindingProviderSetup.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
-import { clearMcpClientConfig, clearServerTokensFromLocalStorage, getMcpClientConfig, readClientSecret, saveMcpClientSecret } from '../../services/mcp/auth.js';
+import { clearMcpClientConfig, clearServerTokensFromLocalStorage, readClientSecret, saveMcpClientSecret } from '../../services/mcp/auth.js';
 import { doctorAllServers, doctorServer, type McpDoctorReport, type McpDoctorScopeFilter } from '../../services/mcp/doctor.js';
 import { connectToServer, getMcpServerConnectionBatchSize } from '../../services/mcp/client.js';
 import { addMcpConfig, getAllMcpConfigs, getMcpConfigByName, getMcpConfigsByScope, removeMcpConfig } from '../../services/mcp/config.js';
@@ -323,9 +323,7 @@ export async function mcpGetHandler(name: string): Promise<void> {
     if (server.oauth?.clientId || server.oauth?.callbackPort) {
       const parts: string[] = [];
       if (server.oauth.clientId) {
-        parts.push('client_id configured');
-        const clientConfig = getMcpClientConfig(name, server);
-        if (clientConfig?.clientSecret) parts.push('client_secret configured');
+        parts.push('oauth client configured');
       }
       if (server.oauth.callbackPort) parts.push(`callback_port ${server.oauth.callbackPort}`);
       // biome-ignore lint/suspicious/noConsole:: intentional console output
@@ -347,9 +345,7 @@ export async function mcpGetHandler(name: string): Promise<void> {
     if (server.oauth?.clientId || server.oauth?.callbackPort) {
       const parts: string[] = [];
       if (server.oauth.clientId) {
-        parts.push('client_id configured');
-        const clientConfig = getMcpClientConfig(name, server);
-        if (clientConfig?.clientSecret) parts.push('client_secret configured');
+        parts.push('oauth client configured');
       }
       if (server.oauth.callbackPort) parts.push(`callback_port ${server.oauth.callbackPort}`);
       // biome-ignore lint/suspicious/noConsole:: intentional console output

@@ -430,6 +430,7 @@ function writeJsonReport(
   options: CliOptions,
   results: CheckResult[],
 ): void {
+  const envSummary = serializeSafeEnvSummary()
   const payload = {
     timestamp: new Date().toISOString(),
     cwd: process.cwd(),
@@ -438,12 +439,24 @@ function writeJsonReport(
       passed: results.filter(result => result.ok).length,
       failed: results.filter(result => !result.ok).length,
     },
-    env: serializeSafeEnvSummary(),
+    env: envSummary,
     results,
   }
 
   if (options.json) {
-    console.log(JSON.stringify(payload, null, 2))
+    console.log(
+      JSON.stringify(
+        {
+          timestamp: payload.timestamp,
+          cwd: payload.cwd,
+          summary: payload.summary,
+          env: '[redacted in console JSON output; use --out-file for the full report]',
+          results: payload.results,
+        },
+        null,
+        2,
+      ),
+    )
   }
 
   if (options.outFile) {

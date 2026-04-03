@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { randomInt } from 'crypto'
 import type { AppState } from './state/AppState.js'
 import type { AgentId } from './types/ids.js'
 import { getTaskOutputPath } from './utils/task/diskOutput.js'
@@ -97,10 +97,9 @@ const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
 
 export function generateTaskId(type: TaskType): string {
   const prefix = getTaskIdPrefix(type)
-  const bytes = randomBytes(8)
   let id = prefix
   for (let i = 0; i < 8; i++) {
-    id += TASK_ID_ALPHABET[bytes[i]! % TASK_ID_ALPHABET.length]
+    id += TASK_ID_ALPHABET[randomInt(TASK_ID_ALPHABET.length)]!
   }
   return id
 }
