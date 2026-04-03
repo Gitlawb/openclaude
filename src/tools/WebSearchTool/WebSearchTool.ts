@@ -4,6 +4,8 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
+import { unlink } from 'fs/promises'
+import { join } from 'path'
 import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { queryModelWithStreaming } from '../../services/api/claude.js'
@@ -99,6 +101,94 @@ function shouldUseFirecrawl(): boolean {
   const provider = getAPIProvider()
   if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') return false
   return true
+}
+
+function isClaudeModel(model: string): boolean {
+  return /claude/i.test(model)
+}
+
+function shouldUseDuckDuckGo(): boolean {
+  if (isCodexResponsesWebSearchEnabled()) return false
+
+  const provider = getAPIProvider()
+  // Don't override providers/models that have native web search support.
+  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
+    return false
+  }
+
+  // Use free DDG search for non-Claude models by default.
+  return !isClaudeModel(getMainLoopModel())
+}
+
+async function runDuckDuckGoSearch(input: Input): Promise<Output> {
+  const startTime = performance.now()
+  const logFiles = ['error.log', 'combined.log']
+
+  try {
+    const { DDGS } = await import('@phukon/duckduckgo-search')
+    const ddgs = new DDGS()
+
+    const data = await ddgs.text({
+      keywords: input.query,
+      maxResults: 10,
+    })
+
+    let hits = data.map((r: { title: string; href: string; body: string }) => ({
+      title: r.title || r.href,
+      url: r.href,
+      snippet: r.body,
+    }))
+
+    if (input.blocked_domains?.length) {
+      hits = hits.filter(h => {
+        try {
+          const host = new URL(h.url).hostname
+          return !input.blocked_domains!.some(d => host.endsWith(d))
+        } catch {
+          return false
+        }
+      })
+    }
+
+    if (input.allowed_domains?.length) {
+      hits = hits.filter(h => {
+        try {
+          const host = new URL(h.url).hostname
+          return input.allowed_domains!.some(d => host.endsWith(d))
+        } catch {
+          return false
+        }
+      })
+    }
+
+    const snippets = hits
+      .filter(h => h.snippet)
+      .map(h => `**${h.title}** — ${h.snippet} (${h.url})`)
+      .join('\n')
+
+    const results: Output['results'] = []
+    if (snippets) results.push(snippets)
+    results.push({
+      tool_use_id: 'duckduckgo-search',
+      content: hits.map(({ title, url }) => ({ title, url })),
+    })
+
+    return {
+      query: input.query,
+      results,
+      durationSeconds: (performance.now() - startTime) / 1000,
+    }
+  } finally {
+    await Promise.all(
+      logFiles.map(async filename => {
+        try {
+          await unlink(join(process.cwd(), filename))
+        } catch {
+          // Ignore if package did not create logs or files are already gone.
+        }
+      }),
+    )
+  }
 }
 
 async function runFirecrawlSearch(input: Input): Promise<Output> {
@@ -439,6 +529,10 @@ export const WebSearchTool = buildTool({
     return summary ? `Searching for ${summary}` : 'Searching the web'
   },
   isEnabled() {
+    if (shouldUseDuckDuckGo()) {
+      return true
+    }
+
     if (shouldUseFirecrawl()) {
       return true
     }
@@ -502,7 +596,11 @@ export const WebSearchTool = buildTool({
     }
   },
   async prompt() {
-    if (shouldUseFirecrawl() || isCodexResponsesWebSearchEnabled()) {
+    if (
+      shouldUseDuckDuckGo() ||
+      shouldUseFirecrawl() ||
+      isCodexResponsesWebSearchEnabled()
+    ) {
       return getWebSearchPrompt().replace(
         /\n\s*-\s*Web search is only available in the US/,
         '',
@@ -539,6 +637,10 @@ export const WebSearchTool = buildTool({
     return { result: true }
   },
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
+    if (shouldUseDuckDuckGo()) {
+      return { data: await runDuckDuckGoSearch(input) }
+    }
+
     if (shouldUseFirecrawl()) {
       return { data: await runFirecrawlSearch(input) }
     }
