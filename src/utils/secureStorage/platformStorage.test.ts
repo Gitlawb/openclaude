@@ -104,6 +104,14 @@ describe("Secure Storage Platform Implementations", () => {
       const script = mockExecaSync.mock.calls[0][1][1];
       expect(script).toContain("Add-Type -AssemblyName System.Runtime.WindowsRuntime");
     });
+
+    test("escapes double quotes in username", () => {
+      process.env.USER = 'user"name';
+      windowsCredentialStorage.read();
+      const script = mockExecaSync.mock.calls[0][1][1];
+      expect(script).toContain('user`"name');
+      expect(script).not.toContain('user"name');
+    });
   });
 
   describe("Linux secret-tool Interaction", () => {

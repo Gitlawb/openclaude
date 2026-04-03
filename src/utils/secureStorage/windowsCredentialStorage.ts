@@ -16,8 +16,8 @@ export const windowsCredentialStorage: SecureStorage = {
   read(): SecureStorageData | null {
     const resourceName = getSecureStorageServiceName(
       CREDENTIALS_SERVICE_SUFFIX,
-    )
-    const username = getUsername()
+    ).replace(/"/g, '`"')
+    const username = getUsername().replace(/"/g, '`"')
     // PowerShell script to retrieve password from vault
     const script = `
       Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -48,8 +48,8 @@ export const windowsCredentialStorage: SecureStorage = {
   update(data: SecureStorageData): { success: boolean; warning?: string } {
     const resourceName = getSecureStorageServiceName(
       CREDENTIALS_SERVICE_SUFFIX,
-    )
-    const username = getUsername()
+    ).replace(/"/g, '`"')
+    const username = getUsername().replace(/"/g, '`"')
     // Use single quotes for the payload and escape ' by doubling it ('').
     // This prevents PowerShell from expanding $... inside the string.
     const payload = jsonStringify(data).replace(/'/g, "''")
@@ -72,8 +72,8 @@ export const windowsCredentialStorage: SecureStorage = {
   delete(): boolean {
     const resourceName = getSecureStorageServiceName(
       CREDENTIALS_SERVICE_SUFFIX,
-    )
-    const username = getUsername()
+    ).replace(/"/g, '`"')
+    const username = getUsername().replace(/"/g, '`"')
     // PowerShell script to remove credential from vault
     const script = `
       Add-Type -AssemblyName System.Runtime.WindowsRuntime
