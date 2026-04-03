@@ -1756,3 +1756,12 @@ export function setPromptId(id: string | null): void {
   STATE.promptId = id
 }
 
+// Stub for feature-gated REPL bridge (not available in open build)
+export function isReplBridgeActive(): boolean {
+  return false
+}
+
+export function getReplBridgeHandle(): null {
+  return null
+}
+

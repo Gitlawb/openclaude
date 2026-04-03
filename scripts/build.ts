@@ -251,6 +251,76 @@ export const SeverityNumber = {};
             loader: 'js',
           }),
         )
+
+        // Catch-all: stub any remaining unresolvable .js relative imports
+        // and missing external packages (feature-gated internal modules)
+        const missingExternalPackages = new Set([
+          '@ant/computer-use-mcp',
+          '@ant/computer-use-mcp/sentinelApps',
+          '@ant/computer-use-mcp/types',
+          '@ant/computer-use-swift',
+          '@ant/computer-use-input',
+        ])
+        // Non-relative src/ path imports that don't exist
+        const missingPathPrefixes = ['src/tasks/']
+        build.onResolve({ filter: /.*/ }, (args) => {
+          if (missingExternalPackages.has(args.path) || missingPathPrefixes.some(p => args.path.startsWith(p))) {
+            return { path: args.path, namespace: 'missing-module-stub' }
+          }
+          // Only catch relative .js imports that fail to resolve
+          if (args.path.endsWith('.js') && (args.path.startsWith('./') || args.path.startsWith('../'))) {
+            const path = require('path')
+            const fs = require('fs')
+            const resolved = path.resolve(args.resolveDir, args.path)
+            // Also check .ts/.tsx variants
+            const tsVariant = resolved.replace(/\.js$/, '.ts')
+            const tsxVariant = resolved.replace(/\.js$/, '.tsx')
+            if (!fs.existsSync(resolved) && !fs.existsSync(tsVariant) && !fs.existsSync(tsxVariant)) {
+              return { path: args.path, namespace: 'missing-module-stub' }
+            }
+          }
+          return null
+        })
+        // Collect named imports needed for each missing module by scanning source
+        const missingModuleExports = new Map<string, Set<string>>()
+        function collectNamedImports() {
+          const fs = require('fs')
+          const pathMod = require('path')
+          const srcDir = pathMod.resolve(__dirname, '..', 'src')
+          function walk(dir: string) {
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = pathMod.join(dir, ent.name)
+              if (ent.isDirectory()) { walk(full); continue }
+              if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const code = fs.readFileSync(full, 'utf-8')
+              // Match: import { Foo, Bar } from 'module' or import { type Foo } from 'module'
+              for (const m of code.matchAll(/import\s+\{([^}]+)\}\s+from\s+['"](.*?)['"]/g)) {
+                const names = m[1].split(',').map((s: string) => s.trim().replace(/^type\s+/, '')).filter((s: string) => s && !s.startsWith('type '))
+                const mod = m[2]
+                if (!missingModuleExports.has(mod)) missingModuleExports.set(mod, new Set())
+                for (const n of names) missingModuleExports.get(mod)!.add(n)
+              }
+            }
+          }
+          walk(srcDir)
+        }
+        collectNamedImports()
+
+        build.onLoad(
+          { filter: /.*/, namespace: 'missing-module-stub' },
+          (args) => {
+            const names = missingModuleExports.get(args.path) ?? new Set()
+            const exports = [...names].map(n => `export const ${n} = noop;`).join('\n')
+            return {
+              contents: `
+const noop = () => null;
+export default noop;
+${exports}
+`,
+              loader: 'js',
+            }
+          },
+        )
       },
     },
   ],

@@ -10,6 +10,7 @@ import {
   AuthenticationError,
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
+import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -44,6 +45,21 @@ export async function validateModel(
   // Check if it matches ANTHROPIC_CUSTOM_MODEL_OPTION (pre-validated by the user)
   if (normalizedModel === process.env.ANTHROPIC_CUSTOM_MODEL_OPTION) {
     return { valid: true }
+  }
+
+  // For Ollama provider, validate against cached model list instead of API call
+  if (getAPIProvider() === 'openai' && isOllamaProvider()) {
+    const ollamaModels = getCachedOllamaModelOptions()
+    const found = ollamaModels.some(m => m.value === normalizedModel)
+    if (found) {
+      validModelCache.set(normalizedModel, true)
+      return { valid: true }
+    }
+    if (ollamaModels.length > 0) {
+      const available = ollamaModels.map(m => m.value).join(', ')
+      return { valid: false, error: `Model '${normalizedModel}' not found on Ollama server. Available: ${available}` }
+    }
+    // If cache is empty, fall through to API validation
   }
 
   // Check cache first
