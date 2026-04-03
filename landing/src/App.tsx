@@ -9,21 +9,21 @@ type Feature = {
 const features: Feature[] = [
   {
     icon: Layers,
-    title: "Project Awareness",
+    title: "Project-aware execution",
     description:
-      "Automatically detects your workspace and context so each response understands your local project reality.",
+      "Work from the current repository, keep local context in view, and use tool-driven workflows instead of a plain chat window.",
   },
   {
     icon: Cpu,
-    title: "Provider Flexibility",
+    title: "Provider flexibility",
     description:
-      "Supports OpenAI (GPT-4/5), Anthropic, and local runtimes with seamless model switching.",
+      "Use OpenAI, Gemini, GitHub Models, Codex, Ollama, LM Studio, OpenRouter, DeepSeek, and compatible /v1 backends through the same CLI.",
   },
   {
     icon: Terminal,
-    title: "Integrated Terminal",
+    title: "Terminal-first workflow",
     description:
-      "Launch workflows directly from your current working directory without breaking flow.",
+      "Keep prompts, slash commands, MCP, Bash, file tools, agents, and streaming output in one consistent workflow.",
   },
 ];
 
@@ -40,14 +40,15 @@ export default function App() {
         <header className="dashboard-card grid gap-10 p-6 md:grid-cols-[1.2fr_1fr] md:p-10">
           <div className="space-y-6">
             <p className="text-xs uppercase tracking-[0.34em] text-[var(--oc-text-dim)]">
-              Open-Source CLI
+              OPEN-SOURCE CODING-AGENT CLI
             </p>
             <h1 className="text-balance text-4xl font-bold leading-tight tracking-[0.02em] md:text-5xl">
-              The Project-Aware AI Companion for Your Local Workflow.
+              One coding-agent workflow across cloud and local models.
             </h1>
             <p className="max-w-2xl text-pretty text-base leading-relaxed text-[var(--oc-text-dim)] md:text-lg">
-              Context-rich, developer-first, and fully open-source. OpenClaude bridges the gap between your local
-              files and LLM intelligence.
+              OpenClaude lets you use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama and
+              other supported backends without giving up terminal-first tools, MCP, slash commands, streaming output,
+              or project-aware context.
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -58,7 +59,7 @@ export default function App() {
                 rel="noreferrer"
               >
                 <Github className="h-4 w-4" />
-                Download on GitHub
+                View on GitHub
               </a>
               <a
                 className="ghost-button"
@@ -66,32 +67,32 @@ export default function App() {
                 target="_blank"
                 rel="noreferrer"
               >
-                View Documentation.
+                Read Setup Guide
               </a>
             </div>
           </div>
 
           <div className="dashboard-card bg-[linear-gradient(180deg,rgba(32,23,18,0.88),rgba(18,14,11,0.95))] p-5">
             <div className="mb-4 flex items-center justify-between border-b border-[var(--oc-border)] pb-3 text-xs uppercase tracking-[0.2em] text-[var(--oc-text-dim)]">
-              <span>Command Relay</span>
+              <span>Runtime Status</span>
               <span className="status-pill animate-soft-pulse">Linked</span>
             </div>
             <div className="space-y-2 font-mono text-sm text-[var(--oc-text-dim)]">
               <p>
                 <span className="terminal-prompt">$</span> openclaude --status
               </p>
+              <p>runtime: active</p>
+              <p>provider: openai-compatible</p>
               <p>workspace: /workspaces/openclaude</p>
-              <p>context: synchronized</p>
-              <p>
-                <span className="terminal-prompt">$</span> awaiting task...
-              </p>
+              <p>tools: ready</p>
+              <p>waiting for input...</p>
             </div>
           </div>
         </header>
 
         <section className="mt-14 md:mt-16">
           <div className="mb-6 flex items-center justify-between gap-4">
-            <h2 className="text-2xl font-semibold uppercase tracking-[0.08em] md:text-3xl">Command Center</h2>
+            <h2 className="text-2xl font-semibold uppercase tracking-[0.08em] md:text-3xl">Why OpenClaude</h2>
             <span className="hidden text-xs uppercase tracking-[0.28em] text-[var(--oc-text-dim)] md:block">
               Modular Intelligence
             </span>
@@ -115,9 +116,10 @@ export default function App() {
 
         <section className="mt-14 md:mt-16">
           <div className="mb-6 text-center">
-            <h2 className="text-2xl font-semibold uppercase tracking-[0.08em] md:text-3xl">Live Status</h2>
+            <h2 className="text-2xl font-semibold uppercase tracking-[0.08em] md:text-3xl">Control Center</h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-[var(--oc-text-dim)] md:text-base">
-              A preview of the OpenClaude Control Center with runtime health and provider routing visible at a glance.
+              OpenClaude is more than model output. It gives you runtime state, provider context, and workspace
+              awareness in one place.
             </p>
           </div>
 
@@ -139,15 +141,19 @@ export default function App() {
                 </p>
                 <p className="terminal-line">
                   <span className="terminal-prompt">&gt;</span>
-                  <span>provider: openai</span>
+                  <span>provider: openai-compatible</span>
                 </p>
                 <p className="terminal-line">
                   <span className="terminal-prompt">&gt;</span>
-                  <span>project: indexed (124 files)</span>
+                  <span>workspace: /workspaces/openclaude</span>
+                </p>
+                <p className="terminal-line">
+                  <span className="terminal-prompt">&gt;</span>
+                  <span>tools: ready</span>
                 </p>
                 <p className="terminal-line">
                   <span className="terminal-prompt">$</span>
-                  <span>ready for command input</span>
+                  <span>waiting for input...</span>
                 </p>
               </div>
 
@@ -156,13 +162,13 @@ export default function App() {
                   <p className="mb-2 text-xs uppercase tracking-[0.24em] text-[var(--oc-text-dim)]">Session Health</p>
                   <div className="flex flex-wrap gap-2">
                     <span className="status-pill">Runtime: Active</span>
-                    <span className="status-pill">Provider: OpenAI</span>
+                    <span className="status-pill">Provider: OpenAI-Compatible</span>
                   </div>
                 </div>
 
                 <div className="dashboard-card p-4">
                   <p className="mb-2 text-xs uppercase tracking-[0.24em] text-[var(--oc-text-dim)]">Pipeline</p>
-                  <p className="text-sm text-[var(--oc-text-dim)]">{"Workspace Context -> Router -> Tool Chain -> LLM Completion"}</p>
+                  <p className="text-sm text-[var(--oc-text-dim)]">{"Workspace Context -> Provider Router -> Tool Chain -> Agent Runtime"}</p>
                 </div>
               </div>
             </div>
@@ -171,19 +177,19 @@ export default function App() {
 
         <section className="mt-14 md:mt-16">
           <div className="dashboard-card p-6 md:p-8">
-            <h2 className="text-2xl font-semibold uppercase tracking-[0.08em] md:text-3xl">Installation</h2>
+            <h2 className="text-2xl font-semibold uppercase tracking-[0.08em] md:text-3xl">Get Started</h2>
             <p className="mt-3 text-sm text-[var(--oc-text-dim)] md:text-base">
-              Install globally and launch OpenClaude from any terminal.
+              Install OpenClaude globally, launch it once, and save your provider setup with /provider.
             </p>
             <pre className="mt-5 overflow-x-auto rounded-[12px] border border-[var(--oc-border)] bg-[#0A0908] p-4 text-sm text-[var(--oc-accent)] md:text-base">
-              <code>npm install -g @gitlawb/openclaude</code>
+              <code>{`npm install -g @gitlawb/openclaude\nopenclaude`}</code>
             </pre>
           </div>
         </section>
 
         <footer className="mt-14 border-t border-[var(--oc-border)] pt-6 md:mt-16">
           <div className="flex flex-col items-start justify-between gap-4 text-sm text-[var(--oc-text-dim)] md:flex-row md:items-center">
-            <p>OpenClaude is open-source and built for local-first developer workflows.</p>
+            <p>OpenClaude is an open-source coding-agent CLI built for real project work across cloud and local backends.</p>
             <div className="flex flex-wrap gap-4">
               <a
                 className="footer-link"
