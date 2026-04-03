@@ -563,7 +563,7 @@ export async function performCodexRequest(options: {
     throw APIError.generate(
       response.status, errorResponse,
       `Codex API error ${response.status}: ${errorBody}`,
-      response.headers as unknown as Record<string, string>,
+      response.headers as unknown as Headers,
     )
   }
 
@@ -646,7 +646,7 @@ export async function collectCodexCompletedResponse(
     if (event.event === 'response.failed') {
       const msg = event.data?.response?.error?.message ??
         event.data?.error?.message ?? 'Codex response failed'
-      throw APIError.generate(500, undefined, msg, {} as Record<string, string>)
+      throw APIError.generate(500, undefined, msg, new Headers())
     }
 
     if (
@@ -661,7 +661,7 @@ export async function collectCodexCompletedResponse(
   if (!completedResponse) {
     throw APIError.generate(
       500, undefined, 'Codex response ended without a completed payload',
-      {} as Record<string, string>,
+      new Headers(),
     )
   }
 
@@ -820,7 +820,7 @@ export async function* codexStreamToAnthropic(
     if (event.event === 'response.failed') {
       const msg = payload?.response?.error?.message ??
         payload?.error?.message ?? 'Codex response failed'
-      throw APIError.generate(500, undefined, msg, {} as Record<string, string>)
+      throw APIError.generate(500, undefined, msg, new Headers())
     }
   }
 
