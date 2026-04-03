@@ -6,7 +6,7 @@ import { QueryEngine } from '../QueryEngine.js'
 import { getTools } from '../tools.js'
 import { getDefaultAppState } from '../state/AppStateStore.js'
 import { AppState } from '../state/AppState.js'
-import { FileStateCache } from '../utils/fileStateCache.js'
+import { FileStateCache, READ_FILE_STATE_CACHE_SIZE } from '../utils/fileStateCache.js'
 
 const PROTO_PATH = path.resolve(import.meta.dirname, '../proto/openclaude.proto')
 
@@ -60,15 +60,23 @@ export class GrpcServer {
           
           engine = new QueryEngine({
             cwd: req.working_directory || process.cwd(),
-            tools: getTools(), // Gets all available tools
+            tools: getTools(appState.toolPermissionContext), // Gets all available tools
             commands: [], // Slash commands
             mcpClients: [],
             agents: [],
+            includePartialMessages: true,
             canUseTool: async (tool, input, context, assistantMsg, toolUseID) => {
+              // Notify client of the tool call first
+              call.write({
+                tool_start: {
+                  tool_name: tool.name,
+                  arguments_json: JSON.stringify(input)
+                }
+              })
+
               // Ask user for permission
               const promptId = randomUUID()
-              
-              const question = `Tool call: ${tool.name}\nArgs: ${JSON.stringify(input)}`
+              const question = `Approve ${tool.name}?`
               call.write({
                 action_required: {
                   prompt_id: promptId,
@@ -98,28 +106,38 @@ export class GrpcServer {
           const generator = engine.submitMessage(req.message)
 
           for await (const msg of generator) {
-            // Map SDKMessage from internal representation to gRPC ServerMessage
-            if (msg.type === 'tool_use' && msg.name === 'local_command') {
-              call.write({
-                tool_start: {
-                  tool_name: msg.name,
-                  arguments_json: JSON.stringify(msg.input)
+            if (msg.type === 'stream_event') {
+              if (msg.event.type === 'content_block_delta' && msg.event.delta.type === 'text_delta') {
+                call.write({
+                  text_chunk: {
+                    text: msg.event.delta.text
+                  }
+                })
+              }
+            } else if (msg.type === 'user') {
+              // Extract tool results
+              const content = msg.message.content
+              if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block.type === 'tool_result') {
+                    let outputStr = ''
+                    if (typeof block.content === 'string') {
+                      outputStr = block.content
+                    } else if (Array.isArray(block.content)) {
+                      outputStr = block.content.map(c => c.type === 'text' ? c.text : '').join('\n')
+                    }
+                    call.write({
+                      tool_result: {
+                        tool_name: block.tool_use_id, // We don't have tool name here easily, sending ID
+                        output: outputStr,
+                        is_error: block.is_error || false
+                      }
+                    })
+                  }
                 }
-              })
-            } else if (msg.type === 'tool_result' && msg.tool_name === 'local_command') {
-               call.write({
-                tool_result: {
-                  tool_name: msg.tool_name,
-                  output: msg.content.map((c: any) => c.text).join('\n'),
-                  is_error: msg.is_error || false
-                }
-              })
-            } else if (msg.type === 'text' && msg.text) {
-              call.write({
-                text_chunk: {
-                  text: msg.text
-                }
-              })
+              }
+            } else if (msg.type === 'result') {
+              // Final response message
             }
           }
 
@@ -130,7 +148,6 @@ export class GrpcServer {
               completion_tokens: 0
             }
           })
-          call.end()
 
         } else if (clientMessage.input) {
           const promptId = clientMessage.input.prompt_id

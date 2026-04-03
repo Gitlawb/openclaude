@@ -1,16 +1,18 @@
 import { GrpcServer } from '../src/grpc/server.ts'
-import { loadAllPluginsCacheOnly } from '../src/utils/plugins/pluginLoader.js'
-import { getGlobalConfig } from '../src/utils/config.js'
+import { enableConfigs } from '../src/utils/config.js'
+
+// Polyfill MACRO which is normally injected by the bundler
+Object.assign(globalThis, {
+  MACRO: {
+    VERSION: '0.1.7',
+    DISPLAY_VERSION: '0.1.7',
+    PACKAGE_URL: '@gitlawb/openclaude',
+  }
+})
 
 async function main() {
   console.log('Starting OpenClaude gRPC Server...')
-
-  // Load plugins if necessary before starting the engine (similar to CLI entrypoint)
-  try {
-    await loadAllPluginsCacheOnly(getGlobalConfig())
-  } catch (error) {
-    console.warn('Failed to load plugins:', error)
-  }
+  enableConfigs()
 
   const port = process.env.GRPC_PORT ? parseInt(process.env.GRPC_PORT, 10) : 50051
   const server = new GrpcServer()

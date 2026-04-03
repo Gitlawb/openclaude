@@ -45,7 +45,6 @@ async function main() {
         console.log(`\n\x1b[36m[Tool Call]\x1b[0m \x1b[1m${serverMessage.tool_start.tool_name}\x1b[0m`)
         console.log(`\x1b[90m${serverMessage.tool_start.arguments_json}\x1b[0m\n`)
       } else if (serverMessage.tool_result) {
-        // Only print tool result if it's brief, or just indicate it finished
         console.log(`\n\x1b[32m[Tool Result]\x1b[0m \x1b[1m${serverMessage.tool_result.tool_name}\x1b[0m`)
         const out = serverMessage.tool_result.output
         if (out.length > 500) {
@@ -75,6 +74,7 @@ async function main() {
 
     call.on('end', () => {
       console.log('\n\x1b[90m[Stream closed by server]\x1b[0m')
+      // Don't prompt user here, let 'done' or 'error' handlers do it
     })
 
     call.on('error', (err: Error) => {
@@ -107,7 +107,6 @@ async function main() {
 
   console.log('\x1b[32mOpenClaude gRPC CLI\x1b[0m')
   console.log('\x1b[90mType /exit to quit.\x1b[0m')
-  startStream()
   promptUser()
 }
 
