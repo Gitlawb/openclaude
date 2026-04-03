@@ -7,7 +7,7 @@ import { useAppState } from '../../../state/AppState.js';
 import { filterToolProgressMessages, type Tool, type Tools } from '../../../Tool.js';
 import type { NormalizedUserMessage, ProgressMessage } from '../../../types/message.js';
 import { deleteClassifierApproval, getClassifierApproval, getYoloClassifierApproval } from '../../../utils/classifierApprovals.js';
-import type { buildMessageLookups } from '../../../utils/messages.js';
+import { extractTag, type buildMessageLookups } from '../../../utils/messages.js';
 import { MessageResponse } from '../../MessageResponse.js';
 import { HookProgressMessage } from '../HookProgressMessage.js';
 type Props = {
@@ -49,8 +49,34 @@ export function UserToolSuccessMessage({
   React.useEffect(() => {
     deleteClassifierApproval(toolUseID);
   }, [toolUseID]);
+
+  const fallbackContent = React.useMemo(() => {
+    if (!Array.isArray(message.message.content)) return null;
+    const toolResultBlock = message.message.content.find(block => block.type === 'tool_result');
+    if (!toolResultBlock || typeof toolResultBlock.content !== 'string') {
+      return null;
+    }
+    return extractTag(toolResultBlock.content, 'persisted-output') ?? toolResultBlock.content;
+  }, [message.message.content]);
   if (!message.toolUseResult || !tool) {
-    return null;
+    return fallbackContent ? <Box flexDirection="column">
+          <Box flexDirection="column" width={width}>
+            <Text>{fallbackContent}</Text>
+            {feature('BASH_CLASSIFIER') ? classifierRule && <MessageResponse height={1}>
+                    <Text dimColor>
+                      <Text color="success">{figures.tick}</Text>
+                      {' Auto-approved · matched '}
+                      {`"${classifierRule}"`}
+                    </Text>
+                  </MessageResponse> : null}
+            {feature('TRANSCRIPT_CLASSIFIER') ? yoloReason && <MessageResponse height={1}>
+                    <Text dimColor>Allowed by auto mode classifier</Text>
+                  </MessageResponse> : null}
+          </Box>
+          <SentryErrorBoundary>
+            <HookProgressMessage hookEvent="PostToolUse" lookups={lookups} toolUseID={toolUseID} verbose={verbose} isTranscriptMode={isTranscriptMode} />
+          </SentryErrorBoundary>
+        </Box> : null;
   }
 
   // Resumed transcripts deserialize toolUseResult via raw JSON.parse with no
@@ -59,7 +85,24 @@ export function UserToolSuccessMessage({
   // Validate against outputSchema before rendering — mirrors CollapsedReadSearchContent.
   const parsedOutput = tool.outputSchema?.safeParse(message.toolUseResult);
   if (parsedOutput && !parsedOutput.success) {
-    return null;
+    return fallbackContent ? <Box flexDirection="column">
+          <Box flexDirection="column" width={width}>
+            <Text>{fallbackContent}</Text>
+            {feature('BASH_CLASSIFIER') ? classifierRule && <MessageResponse height={1}>
+                    <Text dimColor>
+                      <Text color="success">{figures.tick}</Text>
+                      {' Auto-approved · matched '}
+                      {`"${classifierRule}"`}
+                    </Text>
+                  </MessageResponse> : null}
+            {feature('TRANSCRIPT_CLASSIFIER') ? yoloReason && <MessageResponse height={1}>
+                    <Text dimColor>Allowed by auto mode classifier</Text>
+                  </MessageResponse> : null}
+          </Box>
+          <SentryErrorBoundary>
+            <HookProgressMessage hookEvent="PostToolUse" lookups={lookups} toolUseID={toolUseID} verbose={verbose} isTranscriptMode={isTranscriptMode} />
+          </SentryErrorBoundary>
+        </Box> : null;
   }
   const toolResult = parsedOutput?.data ?? message.toolUseResult;
   const renderedMessage = tool.renderToolResultMessage?.(toolResult as never, filterToolProgressMessages(progressMessagesForMessage), {
