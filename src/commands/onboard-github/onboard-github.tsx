@@ -2,7 +2,6 @@ import * as React from 'react'
 import { useCallback, useState } from 'react'
 import { Select } from '../../components/CustomSelect/select.js'
 import { Spinner } from '../../components/Spinner.js'
-import TextInput from '../../components/TextInput.js'
 import { Box, Text } from '../../ink.js'
 import {
   exchangeForCopilotToken,
@@ -19,11 +18,7 @@ import { updateSettingsForSource } from '../../utils/settings/settings.js'
 
 const DEFAULT_MODEL = 'github:copilot'
 
-type Step =
-  | 'menu'
-  | 'device-busy'
-  | 'pat'
-  | 'error'
+type Step = 'menu' | 'device-busy' | 'error'
 
 function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
   const { error } = updateSettingsForSource('userSettings', {
@@ -54,8 +49,6 @@ function OnboardGithub(props: {
     user_code: string
     verification_uri: string
   } | null>(null)
-  const [patDraft, setPatDraft] = useState('')
-  const [cursorOffset, setCursorOffset] = useState(0)
 
   const finalize = useCallback(
     async (token: string, model: string = DEFAULT_MODEL) => {
@@ -79,7 +72,7 @@ function OnboardGithub(props: {
       hydrateGithubModelsTokenFromSecureStorage()
       onChangeAPIKey()
       onDone(
-        'GitHub Models onboard complete. Token stored in secure storage; user settings updated. Restart if the model does not switch.',
+        'GitHub Copilot onboard complete. OAuth token stored in secure storage; user settings updated. Restart if the model does not switch.',
         { display: 'user' },
       )
     },
@@ -141,7 +134,7 @@ function OnboardGithub(props: {
   if (step === 'device-busy') {
     return (
       <Box flexDirection="column" gap={1}>
-        <Text>GitHub device login</Text>
+        <Text>GitHub Copilot sign-in</Text>
         {deviceHint ? (
           <>
             <Text>
@@ -160,42 +153,10 @@ function OnboardGithub(props: {
     )
   }
 
-  if (step === 'pat') {
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Text>Paste a GitHub personal access token with access to GitHub Models.</Text>
-        <Text dimColor>Input is masked. Enter to submit; Esc to go back.</Text>
-        <TextInput
-          value={patDraft}
-          mask="*"
-          onChange={setPatDraft}
-          onSubmit={async (value: string) => {
-            const t = value.trim()
-            if (!t) {
-              return
-            }
-            await finalize(t, DEFAULT_MODEL)
-          }}
-          onExit={() => {
-            setStep('menu')
-            setPatDraft('')
-          }}
-          columns={80}
-          cursorOffset={cursorOffset}
-          onChangeCursorOffset={setCursorOffset}
-        />
-      </Box>
-    )
-  }
-
   const menuOptions = [
     {
-      label: 'Sign in with browser (device code)',
+      label: 'Sign in with browser',
       value: 'device' as const,
-    },
-    {
-      label: 'Paste personal access token',
-      value: 'pat' as const,
     },
     {
       label: 'Cancel',
@@ -205,21 +166,17 @@ function OnboardGithub(props: {
 
   return (
     <Box flexDirection="column" gap={1}>
-      <Text bold>GitHub Models setup</Text>
+      <Text bold>GitHub Copilot setup</Text>
       <Text dimColor>
-        Stores your token in the OS credential store (macOS Keychain when available)
-        and enables CLAUDE_CODE_USE_GITHUB in your user settings — no export
-        GITHUB_TOKEN needed for future runs.
+        Sign in with your GitHub account to use Copilot models (GPT-4o, GPT-5,
+        Claude, Gemini, and more). Your OAuth token is stored securely and
+        exchanged for a Copilot API token automatically.
       </Text>
       <Select
         options={menuOptions}
         onChange={(v: string) => {
           if (v === 'cancel') {
             onDone('GitHub onboard cancelled', { display: 'system' })
-            return
-          }
-          if (v === 'pat') {
-            setStep('pat')
             return
           }
           void runDeviceFlow()
