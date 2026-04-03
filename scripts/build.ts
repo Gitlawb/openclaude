@@ -131,7 +131,7 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
             contents:
               internalFeatureStubModules.get(args.path) ??
               'export {}',
-            loader: 'js',
+            loader: 'js',//loads as js
           }),
         )
 
