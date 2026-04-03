@@ -7,6 +7,7 @@ import type { BashTool } from './BashTool.js'
 import { checkDangerousRemovalPaths } from './pathValidation.js'
 
 const ACCEPT_EDITS_ALLOWED_COMMANDS = [
+  // Filesystem write commands
   'mkdir',
   'touch',
   'rm',
@@ -14,6 +15,21 @@ const ACCEPT_EDITS_ALLOWED_COMMANDS = [
   'mv',
   'cp',
   'sed',
+  // Safe read-only commands — cannot modify files or cause data loss.
+  // Auto-allowing these reduces friction in acceptEdits mode without
+  // introducing any safety risk (issue #251).
+  'grep',
+  'cat',
+  'ls',
+  'find',
+  'head',
+  'tail',
+  'echo',
+  'pwd',
+  'wc',
+  'sort',
+  'uniq',
+  'diff',
 ] as const
 
 type FilesystemCommand = (typeof ACCEPT_EDITS_ALLOWED_COMMANDS)[number]
