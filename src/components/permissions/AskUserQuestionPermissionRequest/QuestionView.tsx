@@ -1,8 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import figures from 'figures';
-import React, { useCallback, useState } from 'react';
-import type { KeyboardEvent } from '../../../ink/events/keyboard-event.js';
-import { Box, Text } from '../../../ink.js';
+import React, { useState } from 'react';
+import { Box, Text, useInput } from '../../../ink.js';
 import { useAppState } from '../../../state/AppState.js';
 import type { Question, QuestionOption } from '../../../tools/AskUserQuestionTool/AskUserQuestionTool.js';
 import type { PastedContent } from '../../../utils/config.js';
@@ -95,6 +94,7 @@ export function QuestionView(t0) {
   let t4;
   if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
     t4 = () => {
+      setFooterIndex(0);
       setIsFooterFocused(true);
     };
     $[3] = t4;
@@ -112,14 +112,15 @@ export function QuestionView(t0) {
     t5 = $[4];
   }
   const handleUpFromFooter = t5;
-  let t6;
-  if ($[5] !== footerIndex || $[6] !== isFooterFocused || $[7] !== isInPlanMode || $[8] !== onCancel || $[9] !== onFinishPlanInterview || $[10] !== onRespondToClaude) {
-    t6 = e => {
+
+  useInput(
+    (input, key, event) => {
       if (!isFooterFocused) {
         return;
       }
-      if (e.key === "up" || e.ctrl && e.key === "p") {
-        e.preventDefault();
+
+      if (key.upArrow || (key.ctrl && input === 'p')) {
+        event.stopImmediatePropagation();
         if (footerIndex === 0) {
           handleUpFromFooter();
         } else {
@@ -127,15 +128,17 @@ export function QuestionView(t0) {
         }
         return;
       }
-      if (e.key === "down" || e.ctrl && e.key === "n") {
-        e.preventDefault();
+
+      if (key.downArrow || (key.ctrl && input === 'n')) {
+        event.stopImmediatePropagation();
         if (isInPlanMode && footerIndex === 0) {
           setFooterIndex(1);
         }
         return;
       }
-      if (e.key === "return") {
-        e.preventDefault();
+
+      if (key.return) {
+        event.stopImmediatePropagation();
         if (footerIndex === 0) {
           onRespondToClaude();
         } else {
@@ -143,22 +146,15 @@ export function QuestionView(t0) {
         }
         return;
       }
-      if (e.key === "escape") {
-        e.preventDefault();
+
+      if (key.escape) {
+        event.stopImmediatePropagation();
         onCancel();
       }
-    };
-    $[5] = footerIndex;
-    $[6] = isFooterFocused;
-    $[7] = isInPlanMode;
-    $[8] = onCancel;
-    $[9] = onFinishPlanInterview;
-    $[10] = onRespondToClaude;
-    $[11] = t6;
-  } else {
-    t6 = $[11];
-  }
-  const handleKeyDown = t6;
+    },
+    { isActive: isFooterFocused },
+  );
+
   let handleOpenEditor;
   let questionText;
   let t7;
@@ -434,9 +430,8 @@ export function QuestionView(t0) {
     t25 = $[109];
   }
   let t26;
-  if ($[110] !== handleKeyDown || $[111] !== t25 || $[112] !== t8) {
-    t26 = <Box flexDirection="column" marginTop={0} tabIndex={0} autoFocus={true} onKeyDown={handleKeyDown}>{t8}{t9}{t25}</Box>;
-    $[110] = handleKeyDown;
+  if ($[111] !== t25 || $[112] !== t8) {
+    t26 = <Box flexDirection="column" marginTop={0} tabIndex={0} autoFocus={true}>{t8}{t9}{t25}</Box>;
     $[111] = t25;
     $[112] = t8;
     $[113] = t26;
