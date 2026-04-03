@@ -1,5 +1,5 @@
 /**
- * smart_router.ts
+ * smartRouter.ts
  * ---------------
  * Intelligent auto-router for openclaude.
  *
@@ -11,7 +11,7 @@
  * - Learns from real request timings over time
  *
  * Usage:
- *   import { SmartRouter } from './smart_router.js'
+ *   import { SmartRouter } from './smartRouter.js'
  *   const router = new SmartRouter()
  *   await router.initialize()
  *   const result = await router.route(messages, model)
@@ -24,22 +24,38 @@
  * Contribution to: https://github.com/Gitlawb/openclaude
  */
 
-import { logger } from './utils/logger.js' // You may need to create this or use console.log
+import { logger } from '../utils/logger.js'
 
-// ── Provider definitions ──────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-export interface Provider {
-  name: string                        // e.g. "openai", "gemini", "ollama", "nvidia"
-  pingUrl: string                     // URL used to check health
-  apiKeyEnv: string                   // env var name for API key
-  costPer1kTokens: number             // estimated cost USD per 1k tokens
-  bigModel: string                    // model for sonnet/large requests
-  smallModel: string                  // model for haiku/small requests
-  latencyMs: number                   // updated by benchmark
-  healthy: boolean                    // updated by health checks
-  requestCount: number                // total requests routed here
-  errorCount: number                  // total errors from this provider
-  avgLatencyMs: number                // rolling average from real requests
+const DEFAULT_LARGE_REQUEST_THRESHOLD = 2000
+const ERROR_RATE_THRESHOLD = 0.7
+const MIN_REQUESTS_FOR_ERROR_RATE = 3
+const RECHECK_DELAY_MS = 60000
+const PING_TIMEOUT_MS = 5000
+const LATENCY_SMOOTHING_ALPHA = 0.3
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface ProviderBase {
+  name: string
+  pingUrl: string
+  apiKeyEnv: string
+  costPer1kTokens: number
+  bigModel: string
+  smallModel: string
+  latencyMs: number
+  healthy: boolean
+  requestCount: number
+  errorCount: number
+  avgLatencyMs: number
+}
+
+export interface Provider extends ProviderBase {
+  readonly apiKey: string | undefined
+  readonly isConfigured: boolean
+  readonly errorRate: number
+  score(strategy: RoutingStrategy): number
 }
 
 function buildDefaultProviders(): Provider[] {
@@ -48,8 +64,61 @@ function buildDefaultProviders(): Provider[] {
   const ollamaUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
   const atomicChatUrl = process.env.ATOMIC_CHAT_BASE_URL ?? 'http://127.0.0.1:1337'
   const nvidiaBaseUrl = process.env.NVIDIA_BASE_URL ?? 'https://integrate.api.nvidia.com/v1'
+  const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
 
-  return [
+  const providers: ProviderBase[] = [
+    {
+      name: 'firstParty',
+      pingUrl: `${anthropicBaseUrl}/v1/models`,
+      apiKeyEnv: 'ANTHROPIC_API_KEY',
+      costPer1kTokens: 0.003,
+      bigModel: big.includes('claude') ? big : 'claude-sonnet-4-20250514',
+      smallModel: small.includes('claude') ? small : 'claude-haiku-3-20250514',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
+    },
+    {
+      name: 'bedrock',
+      pingUrl: 'https://bedrock.runtime.{region}.amazonaws.com',
+      apiKeyEnv: 'AWS_ACCESS_KEY_ID',
+      costPer1kTokens: 0.0025,
+      bigModel: big.includes('claude') ? big : 'anthropic.claude-sonnet-4-20250514',
+      smallModel: small.includes('claude') ? small : 'anthropic.claude-haiku-3-20250514',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
+    },
+    {
+      name: 'vertex',
+      pingUrl: 'https://{region}-aiplatform.googleapis.com/v1',
+      apiKeyEnv: 'GOOGLEAPPLICATIONCREDENTIALS',
+      costPer1kTokens: 0.002,
+      bigModel: big.includes('gemini') ? big : 'gemini-2.0-pro',
+      smallModel: small.includes('gemini') ? small : 'gemini-2.0-flash',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
+    },
+    {
+      name: 'github',
+      pingUrl: 'https://models.inference.ai.azure.com/v1/chat/completions',
+      apiKeyEnv: 'GITHUB_TOKEN',
+      costPer1kTokens: 0.0005,
+      bigModel: big.includes('gpt') ? big : 'gpt-4o',
+      smallModel: small.includes('gpt') ? small : 'gpt-4o-mini',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
+    },
     {
       name: 'openai',
       pingUrl: 'https://api.openai.com/v1/models',
@@ -57,6 +126,11 @@ function buildDefaultProviders(): Provider[] {
       costPer1kTokens: 0.002,
       bigModel: big.includes('gpt') ? big : 'gpt-4.1',
       smallModel: small.includes('gpt') ? small : 'gpt-4.1-mini',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
     },
     {
       name: 'gemini',
@@ -65,36 +139,58 @@ function buildDefaultProviders(): Provider[] {
       costPer1kTokens: 0.0005,
       bigModel: big.includes('gemini') ? big : 'gemini-2.5-pro',
       smallModel: small.includes('gemini') ? small : 'gemini-2.0-flash',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
     },
     {
       name: 'ollama',
       pingUrl: `${ollamaUrl}/api/tags`,
       apiKeyEnv: '',
-      costPer1kTokens: 0.0,   // free — local
-      bigModel: (!big.includes('gemini') && !big.includes('gpt')) ? big : 'llama3:8b',
-      smallModel: (!small.includes('gemini') && !small.includes('gpt')) ? small : 'llama3:8b',
+      costPer1kTokens: 0.0,
+      bigModel: !big.includes('gemini') && !big.includes('gpt') ? big : 'llama3:8b',
+      smallModel: !small.includes('gemini') && !small.includes('gpt') ? small : 'llama3:8b',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
     },
     {
       name: 'atomic-chat',
       pingUrl: `${atomicChatUrl}/v1/models`,
       apiKeyEnv: '',
-      costPer1kTokens: 0.0,   // free — local (Apple Silicon)
-      bigModel: (!big.includes('gemini') && !big.includes('gpt')) ? big : 'llama3:8b',
-      smallModel: (!small.includes('gemini') && !small.includes('gpt')) ? small : 'llama3:8b',
+      costPer1kTokens: 0.0,
+      bigModel: !big.includes('gemini') && !big.includes('gpt') ? big : 'llama3:8b',
+      smallModel: !small.includes('gemini') && !small.includes('gpt') ? small : 'llama3:8b',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
     },
     {
       name: 'nvidia',
       pingUrl: `${nvidiaBaseUrl}/models`,
       apiKeyEnv: 'NVIDIA_API_KEY',
-      costPer1kTokens: 0.0001,  // estimated - varies by model
+      costPer1kTokens: 0.0001,
       bigModel: ['llama', 'nemotron', 'meta'].some(x => big.toLowerCase().includes(x))
         ? big
         : 'meta/llama3-70b-instruct',
       smallModel: ['llama', 'nemotron', 'meta'].some(x => small.toLowerCase().includes(x))
         ? small
         : 'meta/llama3-8b-instruct',
+      latencyMs: 0,
+      healthy: false,
+      requestCount: 0,
+      errorCount: 0,
+      avgLatencyMs: 0,
     },
   ]
+
+  return providers.map(p => createProvider(p))
 }
 
 // ── Smart Router ──────────────────────────────────────────────────────────────
@@ -160,10 +256,10 @@ export class SmartRouter {
       const response = await fetch(provider.pingUrl, {
         method: 'GET',
         headers,
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(PING_TIMEOUT_MS),
       })
       const elapsedMs = performance.now() - start
-      
+
       if ([200, 400, 401, 403].includes(response.status)) {
         // 400/401/403 means reachable, just possibly bad key
         // We still mark healthy for routing purposes
@@ -187,15 +283,17 @@ export class SmartRouter {
 
   // ── Routing logic ─────────────────────────────────────────────────────────
 
-  selectProvider(isLargeRequest = false): Provider | null {
+  selectProvider(): Provider | null {
     const available = this.providers.filter(p => p.healthy && p.isConfigured)
-    if (available.length === 0) {
-      return null
-    }
+    return this.getBestProvider(available)
+  }
 
-    return available.reduce((best, current) => {
-      return current.score(this.strategy) < best.score(this.strategy) ? current : best
-    })
+  async selectProviderAsync(): Promise<string | null> {
+    if (!this.initialized) {
+      await this.initialize()
+    }
+    const provider = this.selectProvider()
+    return provider?.name ?? null
   }
 
   getModelForProvider(provider: Provider, claudeModel: string): string {
@@ -205,16 +303,22 @@ export class SmartRouter {
     return isLarge ? provider.bigModel : provider.smallModel
   }
 
-  isLargeRequest(messages: Array<{ content?: unknown }>): boolean {
+  isLargeRequest(messages: Array<{ content?: unknown }>, threshold = DEFAULT_LARGE_REQUEST_THRESHOLD): boolean {
     const totalChars = messages.reduce((sum, m) => {
       return sum + String(m.content ?? '').length
     }, 0)
-    return totalChars > 2000  // >2000 chars = treat as large
+    return totalChars > threshold
   }
 
   private updateLatency(provider: Provider, durationMs: number): void {
-    const alpha = 0.3  // weight for new observation
-    provider.avgLatencyMs = alpha * durationMs + (1 - alpha) * provider.avgLatencyMs
+    provider.avgLatencyMs = LATENCY_SMOOTHING_ALPHA * durationMs + (1 - LATENCY_SMOOTHING_ALPHA) * provider.avgLatencyMs
+  }
+
+  private getBestProvider(available: Provider[]): Provider | null {
+    if (available.length === 0) return null
+    return available.reduce((best, current) =>
+      current.score(this.strategy) < best.score(this.strategy) ? current : best
+    )
   }
 
   // ── Main routing entry point ──────────────────────────────────────────────
@@ -242,9 +346,10 @@ export class SmartRouter {
       )
     }
 
-    const provider = available.reduce((best, current) => {
-      return current.score(this.strategy) < best.score(this.strategy) ? current : best
-    })
+    const provider = this.getBestProvider(available)
+    if (!provider) {
+      throw new Error('SmartRouter: no suitable provider found')
+    }
     const model = this.getModelForProvider(provider, claudeModel)
 
     logger.debug(
@@ -275,23 +380,20 @@ export class SmartRouter {
       this.updateLatency(provider, durationMs)
     } else {
       provider.errorCount++
-      // After 3 consecutive failures, mark unhealthy temporarily
-      const recentErrors = provider.errorCount
-      const recentTotal = provider.requestCount
-      if (recentTotal >= 3 && (recentErrors / recentTotal) > 0.7) {
+      // After threshold failures, mark unhealthy temporarily
+      if (provider.requestCount >= MIN_REQUESTS_FOR_ERROR_RATE && provider.errorRate > ERROR_RATE_THRESHOLD) {
         logger.warning(
           `SmartRouter: ${providerName} error rate high (${(provider.errorRate * 100).toFixed(0)}%), marking unhealthy`,
         )
         provider.healthy = false
-        // Schedule re-check after 60s
         setTimeout(() => {
           this.recheckProvider(provider)
-        }, 60000)
+        }, RECHECK_DELAY_MS)
       }
     }
   }
 
-  private async recheckProvider(provider: Provider, delay = 60000): Promise<void> {
+  private async recheckProvider(provider: Provider): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, delay))
     await this.pingProvider(provider)
     if (provider.healthy) {
@@ -320,58 +422,57 @@ export class SmartRouter {
   }
 }
 
-// Add computed properties to Provider interface via augmentation
-declare global {
-  interface Provider {
-    readonly apiKey: string | undefined
-    readonly isConfigured: boolean
-    readonly errorRate: number
-    score(strategy: RoutingStrategy): number
-  }
-}
+// Factory function to create enhanced providers with computed properties
+function createProvider(base: ProviderBase): Provider {
+  const provider = base as unknown as Provider
 
-// Add getters and methods to Provider objects
-function enhanceProvider(provider: Provider): Provider {
-  return Object.assign(provider, {
-    get apiKey(): string | undefined {
-      return provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : undefined
+  // Attach computed properties
+  Object.defineProperty(provider, 'apiKey', {
+    get() {
+      return this.apiKeyEnv ? process.env[this.apiKeyEnv] : undefined
     },
-    
-    get isConfigured(): boolean {
-      if (['ollama', 'atomic-chat'].includes(provider.name)) {
-        return true  // Local providers need no API key
-      }
-      return !!provider.apiKey
-    },
-    
-    get errorRate(): number {
-      if (provider.requestCount === 0) {
-        return 0.0
-      }
-      return provider.errorCount / provider.requestCount
-    },
-    
-    score(strategy: RoutingStrategy): number {
-      if (!provider.healthy || !provider.isConfigured) {
-        return Number.POSITIVE_INFINITY
-      }
-
-      const latencyScore = provider.avgLatencyMs / 1000.0   // normalize to seconds
-      const costScore = provider.costPer1kTokens * 100      // normalize to similar scale
-      const errorPenalty = provider.errorRate * 500         // heavy penalty for errors
-
-      if (strategy === 'latency') {
-        return latencyScore + errorPenalty
-      } else if (strategy === 'cost') {
-        return costScore + errorPenalty
-      } else {  // balanced
-        return (latencyScore * 0.5) + (costScore * 0.5) + errorPenalty
-      }
-    },
+    configurable: true,
   })
+
+  Object.defineProperty(provider, 'isConfigured', {
+    get() {
+      if (['ollama', 'atomic-chat'].includes(this.name)) {
+        return true
+      }
+      return !!this.apiKey
+    },
+    configurable: true,
+  })
+
+  Object.defineProperty(provider, 'errorRate', {
+    get() {
+      if (this.requestCount === 0) return 0.0
+      return this.errorCount / this.requestCount
+    },
+    configurable: true,
+  })
+
+  provider.score = function(strategy: RoutingStrategy): number {
+    if (!this.healthy || !this.isConfigured) {
+      return Number.POSITIVE_INFINITY
+    }
+
+    const latencyScore = this.avgLatencyMs / 1000.0
+    const costScore = this.costPer1kTokens * 100
+    const errorPenalty = this.errorRate * 500
+
+    switch (strategy) {
+      case 'latency':
+        return latencyScore + errorPenalty
+      case 'cost':
+        return costScore + errorPenalty
+      default:
+        return latencyScore * 0.5 + costScore * 0.5 + errorPenalty
+    }
+  }
+
+  return provider
 }
 
-// Export factory function to create enhanced providers
-export function createProvider(base: Omit<Provider, keyof Provider>): Provider {
-  return enhanceProvider({ ...base } as Provider)
-}
+// Export factory function
+export { createProvider }

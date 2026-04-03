@@ -5,3 +5,5 @@ dist/
 .env.*
 .openclaude-profile.json
 reports/
+.claude/
+.github/
