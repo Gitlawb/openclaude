@@ -107,16 +107,10 @@ function isPersistentRetryEnabled(): boolean {
 }
 /**
  * Detects non-retryable quota exhaustion errors.
- *
  * Why:
- * - 429 is overloaded: it can mean either transient rate limiting (retryable)
- *   or hard quota exhaustion (non-retryable).
- * - The existing retry logic treats all 429s as retryable, which causes
- *   pointless retries when quota is fully exhausted (e.g. "limit: 0").
- *
- * This function isolates the detection of hard quota failures so we can:
- * - short-circuit retries early
- * - provide actionable feedback to the user
+ * - 429 can mean transient rate limiting OR hard quota exhaustion
+ * - Retrying quota-exhausted errors will never succeed
+ * - We short-circuit retries to avoid wasted attempts
  */
 function isQuotaExhausted(error: any): boolean {
   const msg = (error?.message || "").toLowerCase();
@@ -280,15 +274,7 @@ export async function* withRetry<T>(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: "error" },
       );
-
-      /**
-       * Do not retry hard quota exhaustion errors.
-       *
-       * Why:
-       * - Retrying on exhausted quota is useless (it will never succeed)
-       * - Current behavior retries up to 10 times with backoff, degrading UX
-       * - Users need immediate, actionable feedback instead
-       */
+      // Do not retry hard quota exhaustion errors
       if (isQuotaExhausted(error)) {
         throw new CannotRetryError(
           new Error(
@@ -300,6 +286,7 @@ export async function* withRetry<T>(
           retryContext,
         );
       }
+
       // Fast mode fallback: on 429/529, either wait and retry (short delays)
       // or fall back to standard speed (long delays) to avoid cache thrashing.
       // Skip in persistent mode: the short-retry path below loops with fast
@@ -741,18 +728,6 @@ function handleGcpCredentialError(error: unknown): boolean {
 }
 
 function shouldRetry(error: APIError): boolean {
-  /**
-   * 429 can mean either:
-   * - transient rate limit (retryable)
-   * - hard quota exhaustion (non-retryable)
-   *
-   * We must explicitly filter out quota exhaustion to avoid retry loops.
-   */
-  if (error.status === 429) {
-    if (isQuotaExhausted(error)) return false;
-    return !isClaudeAISubscriber() || isEnterpriseSubscriber();
-  }
-
   // Never retry mock errors - they're from /mock-limits command for testing
   if (isMockRateLimitError(error)) {
     return false;
@@ -823,11 +798,10 @@ function shouldRetry(error: APIError): boolean {
 
   // Retry on rate limits, but not for ClaudeAI Subscription users
   // Enterprise users can retry because they typically use PAYG instead of rate limits
-  
-  //---commenting this, status 429 has been taken cared above---
-  // if (error.status === 429) {
-  //   return !isClaudeAISubscriber() || isEnterpriseSubscriber();
-  // }
+  if (error.status === 429) {
+    if (isQuotaExhausted(error)) return false;
+    return !isClaudeAISubscriber() || isEnterpriseSubscriber();
+  }
 
   // Clear API key cache on 401 and allow retry.
   // OAuth token handling is done in the main retry loop via handleOAuth401Error.
