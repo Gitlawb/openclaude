@@ -104,17 +104,17 @@ test('findCommandPath treats shell-like input as a literal executable name', t =
     fs.chmodSync(executablePath, 0o755);
   }
 
-  assert.equal(
-    findCommandPath(commandName, {
-      cwd: null,
-      env: {
-        PATH: tempDir,
-        PATHEXT: '.CMD;.EXE',
-      },
-      platform: process.platform,
-    }),
-    executablePath,
-  );
+  const resolvedPath = findCommandPath(commandName, {
+    cwd: null,
+    env: {
+      PATH: tempDir,
+      PATHEXT: '.CMD;.EXE',
+    },
+    platform: process.platform,
+  });
+
+  assert.ok(resolvedPath);
+  assert.equal(resolvedPath.toLowerCase(), executablePath.toLowerCase());
 });
 
 test('describeProviderState uses saved profile when present', () => {
