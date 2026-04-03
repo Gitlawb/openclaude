@@ -561,7 +561,11 @@ async function* openaiStreamToAnthropic(
         if (delta.tool_calls) {
           for (const tc of delta.tool_calls) {
             if (tc.id && tc.function?.name) {
-              // New tool call starting
+              // New tool call starting — close any open blocks first
+              if (hasEmittedThinkingStart) {
+                yield { type: 'content_block_stop', index: thinkingBlockIndex }
+                hasEmittedThinkingStart = false
+              }
               if (hasEmittedContentStart) {
                 yield {
                   type: 'content_block_stop',
