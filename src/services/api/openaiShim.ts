@@ -683,10 +683,12 @@ class OpenAIShimStream {
 class OpenAIShimMessages {
   private defaultHeaders: Record<string, string>
   private reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  private providerOverride?: { model: string; baseURL: string; apiKey: string }
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh') {
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
     this.defaultHeaders = defaultHeaders
     this.reasoningEffort = reasoningEffort
+    this.providerOverride = providerOverride
   }
 
   create(
@@ -698,7 +700,7 @@ class OpenAIShimMessages {
     let httpResponse: Response | undefined
 
     const promise = (async () => {
-      const request = resolveProviderRequest({ model: params.model, reasoningEffortOverride: self.reasoningEffort })
+      const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
@@ -857,7 +859,7 @@ class OpenAIShimMessages {
       ...(options?.headers ?? {}),
     }
 
-    const apiKey = process.env.OPENAI_API_KEY ?? ''
+    const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -1056,8 +1058,8 @@ class OpenAIShimBeta {
   messages: OpenAIShimMessages
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh') {
-    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort)
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, providerOverride)
     this.reasoningEffort = reasoningEffort
   }
 }
@@ -1067,6 +1069,7 @@ export function createOpenAIShimClient(options: {
   maxRetries?: number
   timeout?: number
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  providerOverride?: { model: string; baseURL: string; apiKey: string }
 }): unknown {
   hydrateGithubModelsTokenFromSecureStorage()
 
@@ -1089,7 +1092,7 @@ export function createOpenAIShimClient(options: {
 
   const beta = new OpenAIShimBeta({
     ...(options.defaultHeaders ?? {}),
-  }, options.reasoningEffort)
+  }, options.reasoningEffort, options.providerOverride)
 
   return {
     beta,
