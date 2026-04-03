@@ -644,7 +644,8 @@ export const AgentTool = buildTool({
         useExactTools: true
       }),
       worktreePath: worktreeInfo?.worktreePath,
-      description
+      description,
+      agentName: name,
     };
 
     // Helper to wrap execution with a cwd override: explicit cwd arg (KAIROS)
