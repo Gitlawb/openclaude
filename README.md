@@ -139,6 +139,48 @@ For best results, use models with strong tool/function calling support.
 
 ---
 
+## Agent Routing
+
+Route different agents to different AI providers within the same session. Useful for cost optimization (cheap model for code review, powerful model for complex coding) or leveraging model strengths.
+
+### Configuration
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "agentModels": {
+    "deepseek-chat": {
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "sk-your-key"
+    },
+    "gpt-4o": {
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "sk-your-key"
+    }
+  },
+  "agentRouting": {
+    "Explore": "deepseek-chat",
+    "Plan": "gpt-4o",
+    "general-purpose": "gpt-4o",
+    "frontend-dev": "deepseek-chat",
+    "default": "gpt-4o"
+  }
+}
+```
+
+### How It Works
+
+- **agentModels**: Maps model names to OpenAI-compatible API endpoints
+- **agentRouting**: Maps agent types or team member names to model names
+- **Priority**: `name` > `subagent_type` > `"default"` > global provider
+- **Matching**: Case-insensitive, hyphen/underscore equivalent (`general-purpose` = `general_purpose`)
+- **Teams**: Team members are routed by their `name` — no extra config needed
+
+When no routing match is found, the global provider (env vars) is used as fallback.
+
+---
+
 ## Web Search and Fetch
 
 `WebFetch` works out of the box.
