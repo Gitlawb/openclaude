@@ -2,18 +2,17 @@ const vscode = require('vscode');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
-const { promisify } = require('util');
 
 const {
   chooseLaunchWorkspace,
   describeProviderState,
+  findCommandPath,
+  isPathInsideWorkspace,
   parseProfileFile,
   resolveCommandCheckPath,
 } = require('./state');
 const { buildControlCenterViewModel } = require('./presentation');
 
-const execAsync = promisify(exec);
 const OPENCLAUDE_REPO_URL = 'https://github.com/Gitlawb/openclaude';
 const OPENCLAUDE_SETUP_URL = 'https://github.com/Gitlawb/openclaude/blob/main/README.md#quick-start';
 const PROFILE_FILE_NAME = '.openclaude-profile.json';
@@ -27,27 +26,8 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-async function isCommandAvailable(command, workspacePath) {
-  try {
-    if (!command) {
-      return false;
-    }
-
-    const directPath = resolveCommandCheckPath(command, workspacePath);
-    if (directPath) {
-      return fs.existsSync(directPath);
-    }
-
-    if (process.platform === 'win32') {
-      await execAsync(`where ${command}`);
-    } else {
-      await execAsync(`command -v ${command}`);
-    }
-
-    return true;
-  } catch {
-    return false;
-  }
+async function isCommandAvailable(command, launchCwd) {
+  return Boolean(findCommandPath(command, { cwd: launchCwd }));
 }
 
 function getExecutableFromCommand(command) {
@@ -92,8 +72,29 @@ function getActiveFilePath() {
   return editor.document.uri.fsPath || null;
 }
 
-function resolveLaunchTargets({ activeFilePath, workspacePath, workspaceSourceLabel } = {}) {
-  const activeFileDirectory = activeFilePath ? path.dirname(activeFilePath) : null;
+function resolveLaunchTargets({ activeFilePath, workspacePath, workspaceSourceLabel, executable } = {}) {
+  const activeFileDirectory = isPathInsideWorkspace(activeFilePath, workspacePath)
+    ? path.dirname(activeFilePath)
+    : null;
+  const normalizedExecutable = String(executable || '').trim();
+  const commandPath = normalizedExecutable
+    ? resolveCommandCheckPath(normalizedExecutable, workspacePath)
+    : null;
+  const relativeCommandRequiresWorkspaceRoot = Boolean(
+    workspacePath && commandPath && !path.isAbsolute(normalizedExecutable),
+  );
+
+  if (relativeCommandRequiresWorkspaceRoot) {
+    return {
+      projectAwareCwd: workspacePath,
+      projectAwareCwdLabel: workspacePath,
+      projectAwareSourceLabel: 'workspace root (required by relative launch command)',
+      workspaceRootCwd: workspacePath,
+      workspaceRootCwdLabel: workspacePath,
+      launchActionsShareTarget: true,
+      launchActionsShareTargetReason: 'relative-launch-command',
+    };
+  }
 
   if (activeFileDirectory) {
     return {
@@ -102,6 +103,8 @@ function resolveLaunchTargets({ activeFilePath, workspacePath, workspaceSourceLa
       projectAwareSourceLabel: 'active file directory',
       workspaceRootCwd: workspacePath || null,
       workspaceRootCwdLabel: workspacePath || 'No workspace open',
+      launchActionsShareTarget: false,
+      launchActionsShareTargetReason: null,
     };
   }
 
@@ -112,6 +115,8 @@ function resolveLaunchTargets({ activeFilePath, workspacePath, workspaceSourceLa
       projectAwareSourceLabel: workspaceSourceLabel || 'workspace root',
       workspaceRootCwd: workspacePath,
       workspaceRootCwdLabel: workspacePath,
+      launchActionsShareTarget: true,
+      launchActionsShareTargetReason: null,
     };
   }
 
@@ -121,6 +126,8 @@ function resolveLaunchTargets({ activeFilePath, workspacePath, workspaceSourceLa
     projectAwareSourceLabel: 'VS Code default terminal cwd',
     workspaceRootCwd: null,
     workspaceRootCwdLabel: 'No workspace open',
+    launchActionsShareTarget: false,
+    launchActionsShareTargetReason: null,
   };
 }
 
@@ -200,17 +207,15 @@ async function collectControlCenterState() {
   const shimEnabled = configured.get('useOpenAIShim', false);
   const executable = getExecutableFromCommand(launchCommand);
   const launchWorkspace = resolveLaunchWorkspace();
-  const installed = await isCommandAvailable(
-    executable,
-    launchWorkspace.workspacePath,
-  );
   const workspaceFolder = launchWorkspace.workspacePath;
   const workspaceSourceLabel = getWorkspaceSourceLabel(launchWorkspace.source);
   const launchTargets = resolveLaunchTargets({
     activeFilePath: getActiveFilePath(),
     workspacePath: workspaceFolder,
     workspaceSourceLabel,
+    executable,
   });
+  const installed = await isCommandAvailable(executable, launchTargets.projectAwareCwd);
   const profilePath = workspaceFolder
     ? path.join(workspaceFolder, PROFILE_FILE_NAME)
     : null;
@@ -243,6 +248,8 @@ async function collectControlCenterState() {
     launchCwdSourceLabel: launchTargets.projectAwareSourceLabel,
     workspaceRootCwd: launchTargets.workspaceRootCwd,
     workspaceRootCwdLabel: launchTargets.workspaceRootCwdLabel,
+    launchActionsShareTarget: launchTargets.launchActionsShareTarget,
+    launchActionsShareTargetReason: launchTargets.launchActionsShareTargetReason,
     canLaunchInWorkspaceRoot: Boolean(workspaceFolder),
     profileStatusLabel: profileState.statusLabel,
     profileStatusHint: profileState.statusHint,
@@ -260,10 +267,24 @@ async function launchOpenClaude(options = {}) {
   const shimEnabled = configured.get('useOpenAIShim', false);
   const executable = getExecutableFromCommand(launchCommand);
   const launchWorkspace = resolveLaunchWorkspace();
-  const installed = await isCommandAvailable(
+
+  if (requireWorkspace && !launchWorkspace.workspacePath) {
+    await vscode.window.showWarningMessage(
+      'Open a workspace folder before using Launch in Workspace Root.',
+    );
+    return;
+  }
+
+  const launchTargets = resolveLaunchTargets({
+    activeFilePath: getActiveFilePath(),
+    workspacePath: launchWorkspace.workspacePath,
+    workspaceSourceLabel: getWorkspaceSourceLabel(launchWorkspace.source),
     executable,
-    launchWorkspace.workspacePath,
-  );
+  });
+  const targetCwd = requireWorkspace
+    ? launchTargets.workspaceRootCwd
+    : launchTargets.projectAwareCwd;
+  const installed = await isCommandAvailable(executable, targetCwd);
 
   if (!installed) {
     const action = await vscode.window.showErrorMessage(
@@ -281,19 +302,6 @@ async function launchOpenClaude(options = {}) {
     return;
   }
 
-  if (requireWorkspace && !launchWorkspace.workspacePath) {
-    await vscode.window.showWarningMessage(
-      'Open a workspace folder before using Launch in Workspace Root.',
-    );
-    return;
-  }
-
-  const launchTargets = resolveLaunchTargets({
-    activeFilePath: getActiveFilePath(),
-    workspacePath: launchWorkspace.workspacePath,
-    workspaceSourceLabel: getWorkspaceSourceLabel(launchWorkspace.source),
-  });
-
   const env = {};
   if (shimEnabled) {
     env.CLAUDE_CODE_USE_OPENAI = '1';
@@ -303,10 +311,6 @@ async function launchOpenClaude(options = {}) {
     name: terminalName,
     env,
   };
-
-  const targetCwd = requireWorkspace
-    ? launchTargets.workspaceRootCwd
-    : launchTargets.projectAwareCwd;
 
   if (targetCwd) {
     terminalOptions.cwd = targetCwd;
@@ -395,6 +399,10 @@ function renderProfileEmptyState(detail) {
 }
 
 function getPrimaryLaunchActionDetail(status) {
+  if (status.launchActionsShareTargetReason === 'relative-launch-command' && status.launchCwd) {
+    return `Project-aware launch is anchored to the workspace root by the relative command · ${status.launchCwdLabel}`;
+  }
+
   if (status.launchCwd && status.launchCwdSourceLabel === 'active file directory') {
     return `Starts beside the active file · ${status.launchCwdLabel}`;
   }
@@ -409,6 +417,10 @@ function getPrimaryLaunchActionDetail(status) {
 function getWorkspaceRootActionDetail(status, fallbackDetail) {
   if (!status.canLaunchInWorkspaceRoot) {
     return fallbackDetail;
+  }
+
+  if (status.launchActionsShareTargetReason === 'relative-launch-command') {
+    return `Same workspace-root target as Launch OpenClaude because the relative command resolves from the workspace root · ${status.workspaceRootCwdLabel}`;
   }
 
   return `Always starts at the workspace root · ${status.workspaceRootCwdLabel}`;

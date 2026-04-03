@@ -121,6 +121,8 @@ test('resolveLaunchTargets distinguishes project-aware launch from workspace-roo
       projectAwareSourceLabel: 'active file directory',
       workspaceRootCwd: '/workspace/openclaude',
       workspaceRootCwdLabel: '/workspace/openclaude',
+      launchActionsShareTarget: false,
+      launchActionsShareTargetReason: null,
     },
   );
 });
