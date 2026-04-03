@@ -179,6 +179,8 @@ Add to `~/.claude/settings.json`:
 
 When no routing match is found, the global provider (env vars) is used as fallback.
 
+> **Note:** `api_key` values in `settings.json` are stored in plaintext. Keep this file private and do not commit it to version control.
+
 ---
 
 ## Web Search and Fetch
