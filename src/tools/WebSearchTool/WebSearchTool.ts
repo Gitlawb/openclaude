@@ -183,13 +183,7 @@ async function runDuckDuckGoSearch(input: Input): Promise<Output> {
       message.includes('blocked')
 
     if (isRateLimited && isFirecrawlEnabled()) {
-      return {
-        query: input.query,
-        results: [
-          'DuckDuckGo search is currently rate-limited. Falling back to Firecrawl...',
-        ],
-        durationSeconds: (performance.now() - startTime) / 1000,
-      }
+      return runFirecrawlSearch(input)
     }
 
     return {
