@@ -55,6 +55,7 @@ export const windowsCredentialStorage: SecureStorage = {
     const payload = jsonStringify(data).replace(/'/g, "''")
     // PowerShell script to add/update credential in vault
     const script = `
+      Add-Type -AssemblyName System.Runtime.WindowsRuntime
       $vault = New-Object Windows.Security.Credentials.PasswordVault
       $cred = New-Object Windows.Security.Credentials.PasswordCredential("${resourceName}", "${username}", '${payload}')
       $vault.Add($cred)
@@ -75,6 +76,7 @@ export const windowsCredentialStorage: SecureStorage = {
     const username = getUsername()
     // PowerShell script to remove credential from vault
     const script = `
+      Add-Type -AssemblyName System.Runtime.WindowsRuntime
       $vault = New-Object Windows.Security.Credentials.PasswordVault
       try {
         $cred = $vault.Retrieve("${resourceName}", "${username}")

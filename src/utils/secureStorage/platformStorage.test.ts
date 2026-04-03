@@ -66,6 +66,7 @@ describe("Secure Storage Platform Implementations", () => {
       
       const script = mockExecaSync.mock.calls[0][1][1];
       expect(script).toContain(expectedName);
+      expect(script).toContain("Add-Type -AssemblyName System.Runtime.WindowsRuntime");
     });
   });
 
@@ -96,6 +97,12 @@ describe("Secure Storage Platform Implementations", () => {
       windowsCredentialStorage.update(dataWithQuote);
       const script2 = mockExecaSync.mock.calls[1][1][1];
       expect(script2).toContain("token''quote");
+    });
+
+    test("delete() includes assembly load", () => {
+      windowsCredentialStorage.delete();
+      const script = mockExecaSync.mock.calls[0][1][1];
+      expect(script).toContain("Add-Type -AssemblyName System.Runtime.WindowsRuntime");
     });
   });
 
