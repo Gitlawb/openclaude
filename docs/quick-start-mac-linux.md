@@ -66,6 +66,32 @@ openclaude
 
 No API key is needed for Ollama local models.
 
+### Option D: LM Studio
+
+Install LM Studio first from:
+
+- `https://lmstudio.ai/`
+
+Then in LM Studio:
+
+1. Download a model (e.g., Llama 3.1 8B, Mistral 7B)
+2. Go to the "Local Server" tab
+3. Select your model and click "Start Server"
+
+Then run:
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=http://localhost:1234/v1
+export OPENAI_MODEL=your-model-name
+
+openclaude
+```
+
+Replace `your-model-name` with the model name shown in LM Studio.
+
+No API key is needed for LM Studio local models.
+
 ## 4. If `openclaude` Is Not Found
 
 Close the terminal, open a new one, and try again:
@@ -88,6 +114,14 @@ Check the basics:
 - make sure Ollama is installed
 - make sure Ollama is running
 - make sure the model was pulled successfully
+
+### For LM Studio
+
+- make sure LM Studio is installed
+- make sure LM Studio is running
+- make sure the Local Server is started (click "Start Server" in the Local Server tab)
+- make sure a model is loaded in LM Studio
+- make sure the model name matches what you set in `OPENAI_MODEL`
 
 ## 6. Updating OpenClaude
 
