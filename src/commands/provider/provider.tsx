@@ -903,7 +903,11 @@ function resolveCodexCredentials(processEnv: NodeJS.ProcessEnv):
   }
 }
 
-function ProviderWizard({ onDone }: { onDone: LocalJSXCommandOnDone }): React.ReactNode {
+export function ProviderWizard({
+  onDone,
+}: {
+  onDone: LocalJSXCommandOnDone
+}): React.ReactNode {
   const defaults = getProviderWizardDefaults()
   const [step, setStep] = React.useState<Step>({ name: 'choose' })
 
