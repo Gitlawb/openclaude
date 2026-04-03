@@ -114,7 +114,10 @@ export function SystemAPIErrorMessage(t0) {
   }
   let t11;
   if ($[24] !== T1 || $[25] !== t10 || $[26] !== t6 || $[27] !== t7 || $[28] !== t8) {
-    t11 = <T1 flexDirection={t6}>{t7}{t8}{t10}</T1>;
+    t11 = <T1 flexDirection="column" borderStyle="round" borderColor="error" paddingX={1}>
+        <Text color="error" bold={true}>API request failed</Text>
+        <T1 flexDirection={t6}>{t7}{t8}{t10}</T1>
+      </T1>;
     $[24] = T1;
     $[25] = t10;
     $[26] = t6;

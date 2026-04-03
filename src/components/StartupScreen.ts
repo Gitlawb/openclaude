@@ -1,5 +1,5 @@
 /**
- * OpenClaude startup screen — filled-block text logo with sunset gradient.
+ * OpenClaude startup screen with a restrained gradient logo and compact runtime info.
  * Called once at CLI startup before the Ink UI renders.
  *
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
@@ -177,7 +177,7 @@ export function printStartupScreen(): void {
   out.push('')
 
   // Tagline
-  out.push(`  ${rgb(...ACCENT)}\u2726${RESET} ${rgb(...CREAM)}Any model. Every tool. Zero limits.${RESET} ${rgb(...ACCENT)}\u2726${RESET}`)
+  out.push(`  ${rgb(...ACCENT)}\u2726${RESET} ${rgb(...CREAM)}Any model. Native tools. Codex-ready.${RESET} ${rgb(...ACCENT)}\u2726${RESET}`)
   out.push('')
 
   // Provider info box
@@ -201,8 +201,8 @@ export function printStartupScreen(): void {
 
   const sC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
   const sL = p.isLocal ? 'local' : 'cloud'
-  const sRow = ` ${rgb(...sC)}\u25cf${RESET} ${DIM}${rgb(...DIMCOL)}${sL}${RESET}    ${DIM}${rgb(...DIMCOL)}Ready \u2014 type ${RESET}${rgb(...ACCENT)}/help${RESET}${DIM}${rgb(...DIMCOL)} to begin${RESET}`
-  const sLen = ` \u25cf ${sL}    Ready \u2014 type /help to begin`.length
+  const sRow = ` ${rgb(...sC)}\u25cf${RESET} ${DIM}${rgb(...DIMCOL)}${sL}${RESET}    ${DIM}${rgb(...DIMCOL)}Ready. Type ${RESET}${rgb(...ACCENT)}/help${RESET}${DIM}${rgb(...DIMCOL)} to begin.${RESET}`
+  const sLen = ` \u25cf ${sL}    Ready. Type /help to begin.`.length
   out.push(boxRow(sRow, W, sLen))
 
   out.push(`${rgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
