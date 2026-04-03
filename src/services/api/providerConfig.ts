@@ -201,7 +201,7 @@ function parseModelDescriptor(model: string): ModelDescriptor {
   }
 }
 
-function isCodexAlias(model: string): boolean {
+export function isCodexAlias(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
   return base in CODEX_ALIAS_MODELS
