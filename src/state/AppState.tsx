@@ -144,10 +144,11 @@ export function useAppState(selector) {
   const store = useAppStore();
   const selectorRef = React.useRef(selector);
   const storeRef = React.useRef(store);
-  React.useLayoutEffect(() => {
-    selectorRef.current = selector;
-    storeRef.current = store;
-  });
+  // Update refs during render so get() always calls the latest selector/store
+  // without creating a new function identity that would trigger useSyncExternalStore
+  // to re-sync and cause re-render loops.
+  selectorRef.current = selector;
+  storeRef.current = store;
   const get = React.useCallback(() => {
     return selectorRef.current(storeRef.current.getState());
   }, []);
@@ -179,10 +180,10 @@ export function useAppStateMaybeOutsideOfProvider(selector) {
   const store = useContext(AppStoreContext);
   const selectorRef = React.useRef(selector);
   const storeRef = React.useRef(store);
-  React.useLayoutEffect(() => {
-    selectorRef.current = selector;
-    storeRef.current = store;
-  });
+  // Update refs during render so get() always calls the latest selector/store
+  // without creating a new function identity.
+  selectorRef.current = selector;
+  storeRef.current = store;
   const get = React.useCallback(() => {
     return storeRef.current ? selectorRef.current(storeRef.current.getState()) : undefined;
   }, []);
