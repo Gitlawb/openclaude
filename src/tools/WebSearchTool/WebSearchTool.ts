@@ -4,8 +4,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
-import { unlink } from 'fs/promises'
-import { join } from 'path'
+
 import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { queryModelWithStreaming } from '../../services/api/claude.js'
@@ -122,21 +121,18 @@ function shouldUseDuckDuckGo(): boolean {
 
 async function runDuckDuckGoSearch(input: Input): Promise<Output> {
   const startTime = performance.now()
-  const logFiles = ['error.log', 'combined.log']
 
   try {
-    const { DDGS } = await import('@phukon/duckduckgo-search')
-    const ddgs = new DDGS()
+    const { search } = await import('duck-duck-scrape')
 
-    const data = await ddgs.text({
-      keywords: input.query,
-      maxResults: 10,
+    const response = await search(input.query, {
+      safeSearch: 0,
     })
 
-    let hits = data.map((r: { title: string; href: string; body: string }) => ({
-      title: r.title || r.href,
-      url: r.href,
-      snippet: r.body,
+    let hits = response.results.map(r => ({
+      title: r.title || r.url,
+      url: r.url,
+      snippet: r.description,
     }))
 
     if (input.blocked_domains?.length) {
@@ -178,16 +174,31 @@ async function runDuckDuckGoSearch(input: Input): Promise<Output> {
       results,
       durationSeconds: (performance.now() - startTime) / 1000,
     }
-  } finally {
-    await Promise.all(
-      logFiles.map(async filename => {
-        try {
-          await unlink(join(process.cwd(), filename))
-        } catch {
-          // Ignore if package did not create logs or files are already gone.
-        }
-      }),
-    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const isRateLimited =
+      message.includes('429') ||
+      message.includes('rate') ||
+      message.includes('CAPTCHA') ||
+      message.includes('blocked')
+
+    if (isRateLimited && isFirecrawlEnabled()) {
+      return {
+        query: input.query,
+        results: [
+          'DuckDuckGo search is currently rate-limited. Falling back to Firecrawl...',
+        ],
+        durationSeconds: (performance.now() - startTime) / 1000,
+      }
+    }
+
+    return {
+      query: input.query,
+      results: [
+        'Web search temporarily unavailable — try again or add a Firecrawl API key for reliable results.',
+      ],
+      durationSeconds: (performance.now() - startTime) / 1000,
+    }
   }
 }
 
@@ -529,11 +540,11 @@ export const WebSearchTool = buildTool({
     return summary ? `Searching for ${summary}` : 'Searching the web'
   },
   isEnabled() {
-    if (shouldUseDuckDuckGo()) {
+    if (shouldUseFirecrawl()) {
       return true
     }
 
-    if (shouldUseFirecrawl()) {
+    if (shouldUseDuckDuckGo()) {
       return true
     }
 
@@ -637,12 +648,12 @@ export const WebSearchTool = buildTool({
     return { result: true }
   },
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
-    if (shouldUseDuckDuckGo()) {
-      return { data: await runDuckDuckGoSearch(input) }
-    }
-
     if (shouldUseFirecrawl()) {
       return { data: await runFirecrawlSearch(input) }
+    }
+
+    if (shouldUseDuckDuckGo()) {
+      return { data: await runDuckDuckGoSearch(input) }
     }
 
     if (isCodexResponsesWebSearchEnabled()) {

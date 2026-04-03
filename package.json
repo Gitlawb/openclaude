@@ -64,7 +64,7 @@
     "@opentelemetry/sdk-trace-base": "2.6.1",
     "@opentelemetry/sdk-trace-node": "2.6.1",
     "@opentelemetry/semantic-conventions": "1.40.0",
-    "@phukon/duckduckgo-search": "^1.1.0",
+    "duck-duck-scrape": "^2.2.7",
     "ajv": "8.18.0",
     "auto-bind": "5.0.1",
     "axios": "1.14.0",
