@@ -1,8 +1,11 @@
 import { execaSync } from 'execa'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
+import {
+  CREDENTIALS_SERVICE_SUFFIX,
+  getSecureStorageServiceName,
+  getUsername,
+} from './macOsKeychainHelpers.js'
 import type { SecureStorage, SecureStorageData } from './index.js'
-
-const RESOURCE_NAME = 'Claude Code'
 
 /**
  * Windows-specific secure storage implementation using the Windows Credential Locker.
@@ -11,12 +14,16 @@ const RESOURCE_NAME = 'Claude Code'
 export const windowsCredentialStorage: SecureStorage = {
   name: 'credential-locker',
   read(): SecureStorageData | null {
+    const resourceName = getSecureStorageServiceName(
+      CREDENTIALS_SERVICE_SUFFIX,
+    )
+    const username = getUsername()
     // PowerShell script to retrieve password from vault
     const script = `
       Add-Type -AssemblyName System.Runtime.WindowsRuntime
       $vault = New-Object Windows.Security.Credentials.PasswordVault
       try {
-        $cred = $vault.Retrieve("${RESOURCE_NAME}", $env:USERNAME)
+        $cred = $vault.Retrieve("${resourceName}", "${username}")
         $cred.FillPassword()
         $cred.Password
       } catch {
@@ -39,11 +46,17 @@ export const windowsCredentialStorage: SecureStorage = {
     return this.read()
   },
   update(data: SecureStorageData): { success: boolean; warning?: string } {
-    const payload = jsonStringify(data).replace(/"/g, '`"') // Escape quotes for PowerShell string
+    const resourceName = getSecureStorageServiceName(
+      CREDENTIALS_SERVICE_SUFFIX,
+    )
+    const username = getUsername()
+    // Use single quotes for the payload and escape ' by doubling it ('').
+    // This prevents PowerShell from expanding $... inside the string.
+    const payload = jsonStringify(data).replace(/'/g, "''")
     // PowerShell script to add/update credential in vault
     const script = `
       $vault = New-Object Windows.Security.Credentials.PasswordVault
-      $cred = New-Object Windows.Security.Credentials.PasswordCredential("${RESOURCE_NAME}", $env:USERNAME, "${payload}")
+      $cred = New-Object Windows.Security.Credentials.PasswordCredential("${resourceName}", "${username}", '${payload}')
       $vault.Add($cred)
     `
     try {
@@ -56,11 +69,15 @@ export const windowsCredentialStorage: SecureStorage = {
     }
   },
   delete(): boolean {
+    const resourceName = getSecureStorageServiceName(
+      CREDENTIALS_SERVICE_SUFFIX,
+    )
+    const username = getUsername()
     // PowerShell script to remove credential from vault
     const script = `
       $vault = New-Object Windows.Security.Credentials.PasswordVault
       try {
-        $cred = $vault.Retrieve("${RESOURCE_NAME}", $env:USERNAME)
+        $cred = $vault.Retrieve("${resourceName}", "${username}")
         $vault.Remove($cred)
       } catch {
         exit 0

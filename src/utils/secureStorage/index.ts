@@ -24,6 +24,8 @@ export interface SecureStorageData {
     }
   >
   mcpOAuthClientConfig?: Record<string, { clientSecret: string }>
+  trustedDeviceToken?: string
+  pluginSecrets?: Record<string, Record<string, string>>
 }
 
 export interface SecureStorage {

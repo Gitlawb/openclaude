@@ -11,13 +11,7 @@ import { MCPServerDesktopImportDialog } from '../../components/MCPServerDesktopI
 import { render } from '../../ink.js';
 import { KeybindingSetup } from '../../keybindings/KeybindingProviderSetup.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
-import {
-  clearMcpClientConfig,
-  clearServerTokensFromSecureStorage,
-  getMcpClientConfig,
-  readClientSecret,
-  saveMcpClientSecret,
-} from '../../services/mcp/auth.js'
+import { clearMcpClientConfig, clearServerTokensFromLocalStorage, readClientSecret, saveMcpClientSecret } from '../../services/mcp/auth.js';
 import { doctorAllServers, doctorServer, type McpDoctorReport, type McpDoctorScopeFilter } from '../../services/mcp/doctor.js';
 import { connectToServer, getMcpServerConnectionBatchSize } from '../../services/mcp/client.js';
 import { addMcpConfig, getAllMcpConfigs, getMcpConfigByName, getMcpConfigsByScope, removeMcpConfig } from '../../services/mcp/config.js';
@@ -181,7 +175,7 @@ export async function mcpRemoveHandler(name: string, options: {
   const serverBeforeRemoval = getMcpConfigByName(name);
   const cleanupSecureStorage = () => {
     if (serverBeforeRemoval && (serverBeforeRemoval.type === 'sse' || serverBeforeRemoval.type === 'http')) {
-      clearServerTokensFromLocalStorage(name, serverBeforeRemoval);
+      clearServerTokensFromSecureStorage(name, serverBeforeRemoval);
       clearMcpClientConfig(name, serverBeforeRemoval);
     }
   };
