@@ -331,6 +331,14 @@ export function getExtraBodyParams(betaHeaders?: string[]): JsonObject {
 }
 
 export function getPromptCachingEnabled(model: string): boolean {
+  // Prompt caching is an Anthropic-specific feature. Third-party providers
+  // do not understand cache_control blocks and strict backends (e.g. Azure
+  // Foundry) reject or flag requests that contain them.
+  const provider = getAPIProvider()
+  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex') {
+    return false
+  }
+
   // Global disable takes precedence
   if (isEnvTruthy(process.env.DISABLE_PROMPT_CACHING)) return false
 
