@@ -36,10 +36,18 @@ export function resolveAgentProvider(
   const models = settings.agentModels
   if (!routing || !models) return null
 
-  // Build normalized lookup from routing config
+  // Build normalized lookup from routing config.
+  // Warn on duplicate normalized keys (e.g. "explore-agent" and "explore_agent"
+  // both normalize to "exploreagent") to prevent silent shadowing.
   const normalizedRouting = new Map<string, string>()
   for (const [key, value] of Object.entries(routing)) {
-    normalizedRouting.set(normalize(key), value)
+    const nk = normalize(key)
+    if (normalizedRouting.has(nk)) {
+      console.error(`[agentRouting] Warning: routing key "${key}" collides with an existing key after normalization (both map to "${nk}"). First entry wins.`)
+    }
+    if (!normalizedRouting.has(nk)) {
+      normalizedRouting.set(nk, value)
+    }
   }
 
   // Try name first, then subagentType, then "default"

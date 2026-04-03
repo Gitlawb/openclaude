@@ -717,7 +717,7 @@ export const SettingsSchema = lazySchema(() =>
         .record(
           z.string(),
           z.object({
-            base_url: z.string().describe('OpenAI-compatible API endpoint'),
+            base_url: z.string().url().describe('OpenAI-compatible API endpoint (must be https:// or http://)'),
             api_key: z.string().describe('API key for this provider'),
           }),
         )
