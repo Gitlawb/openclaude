@@ -386,3 +386,80 @@ test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async
   expect(properties?.priority?.enum).toEqual([0, 1, 2, 3])
   expect(properties?.priority).not.toHaveProperty('default')
 })
+
+// ---------------------------------------------------------------------------
+// Issue #202 — consecutive role coalescing (Devstral, Mistral strict templates)
+// ---------------------------------------------------------------------------
+
+function makeNonStreamResponse(content = 'ok'): Response {
+  return new Response(
+    JSON.stringify({
+      id: 'chatcmpl-test',
+      model: 'test-model',
+      choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 },
+    }),
+    { headers: { 'Content-Type': 'application/json' } },
+  )
+}
+
+test('coalesces consecutive user messages to avoid alternation errors (issue #202)', async () => {
+  let sentMessages: Array<{ role: string; content: unknown }> | undefined
+
+  globalThis.fetch = (async (_input: unknown, init: RequestInit | undefined) => {
+    sentMessages = JSON.parse(String(init?.body)).messages
+    return makeNonStreamResponse()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'test-model',
+    system: 'sys',
+    messages: [
+      { role: 'user', content: 'first message' },
+      { role: 'user', content: 'second message' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(sentMessages?.length).toBe(2) // system + 1 merged user
+  expect(sentMessages?.[0]?.role).toBe('system')
+  expect(sentMessages?.[1]?.role).toBe('user')
+  const userContent = sentMessages?.[1]?.content as string
+  expect(userContent).toContain('first message')
+  expect(userContent).toContain('second message')
+})
+
+test('coalesces consecutive assistant messages preserving tool_calls (issue #202)', async () => {
+  let sentMessages: Array<{ role: string; content: unknown; tool_calls?: unknown[] }> | undefined
+
+  globalThis.fetch = (async (_input: unknown, init: RequestInit | undefined) => {
+    sentMessages = JSON.parse(String(init?.body)).messages
+    return makeNonStreamResponse()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'test-model',
+    system: 'sys',
+    messages: [
+      { role: 'user', content: 'go' },
+      { role: 'assistant', content: 'thinking...' },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'Bash', input: { command: 'ls' } }],
+      },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'file.txt' }] },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  // system + user + merged assistant + tool
+  const assistantMsgs = sentMessages?.filter(m => m.role === 'assistant')
+  expect(assistantMsgs?.length).toBe(1) // two assistant turns merged into one
+  expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
+})

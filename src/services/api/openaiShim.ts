@@ -258,7 +258,41 @@ function convertMessages(
     }
   }
 
-  return result
+  // Coalescing pass: merge consecutive messages of the same role.
+  // OpenAI/vLLM/Ollama require strict user↔assistant alternation.
+  // Multiple consecutive tool messages are allowed (assistant → tool* → user).
+  // Consecutive user or assistant messages must be merged to avoid Jinja
+  // template errors like "roles must alternate" (Devstral, Mistral models).
+  const coalesced: OpenAIMessage[] = []
+  for (const msg of result) {
+    const prev = coalesced[coalesced.length - 1]
+
+    if (prev && prev.role === msg.role && msg.role !== 'tool' && msg.role !== 'system') {
+      const prevContent = prev.content
+      const curContent = msg.content
+
+      if (typeof prevContent === 'string' && typeof curContent === 'string') {
+        prev.content = prevContent + (prevContent && curContent ? '\n' : '') + curContent
+      } else {
+        const toArray = (
+          c: string | Array<{ type: string; text?: string; image_url?: { url: string } }> | undefined,
+        ): Array<{ type: string; text?: string; image_url?: { url: string } }> => {
+          if (!c) return []
+          if (typeof c === 'string') return c ? [{ type: 'text', text: c }] : []
+          return c
+        }
+        prev.content = [...toArray(prevContent), ...toArray(curContent)]
+      }
+
+      if (msg.tool_calls?.length) {
+        prev.tool_calls = [...(prev.tool_calls ?? []), ...msg.tool_calls]
+      }
+    } else {
+      coalesced.push(msg)
+    }
+  }
+
+  return coalesced
 }
 
 /**
