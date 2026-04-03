@@ -1,8 +1,10 @@
 import type { z } from 'zod/v4'
 import type { ToolPermissionContext } from '../../Tool.js'
 import { splitCommand_DEPRECATED } from '../../utils/bash/commands.js'
+import { getCwd } from '../../utils/cwd.js'
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js'
 import type { BashTool } from './BashTool.js'
+import { checkDangerousRemovalPaths } from './pathValidation.js'
 
 const ACCEPT_EDITS_ALLOWED_COMMANDS = [
   'mkdir',
@@ -39,6 +41,17 @@ function validateCommandForMode(
     toolPermissionContext.mode === 'acceptEdits' &&
     isFilesystemCommand(baseCmd)
   ) {
+    // Guard: always run dangerous path check for rm/rmdir before auto-allowing.
+    // This prevents rm -rf ~ / rm -rf / from bypassing checkDangerousRemovalPaths
+    // which is otherwise skipped when acceptEdits returns allow early.
+    if (baseCmd === 'rm' || baseCmd === 'rmdir') {
+      const args = trimmedCmd.split(/\s+/).slice(1)
+      const dangerousResult = checkDangerousRemovalPaths(baseCmd, args, getCwd())
+      if (dangerousResult.behavior !== 'passthrough') {
+        return dangerousResult
+      }
+    }
+
     return {
       behavior: 'allow',
       updatedInput: { command: cmd },
