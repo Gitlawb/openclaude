@@ -20,7 +20,9 @@ export function AnimatedAsterisk({
   // Read prefersReducedMotion once at mount — no useSettings() subscription,
   // since that would re-render whenever settings change.
   const [reducedMotion] = useState(() => getInitialSettings().prefersReducedMotion ?? false);
-  const [done, setDone] = useState(reducedMotion);
+  // Skip animation on Windows — 60 re-renders in 3s competes with stdin processing
+  // and causes keyboard freeze on CMD/PowerShell (issues #228, #205).
+  const [done, setDone] = useState(reducedMotion || process.platform === 'win32');
   // useAnimationFrame's clock is shared — capture our start offset so the
   // sweep always begins at hue 0 regardless of when we mount.
   const startTimeRef = useRef<number | null>(null);
