@@ -143,6 +143,8 @@ For best results, use models with strong tool/function calling support.
 
 By default, `WebSearch` now works on non-Anthropic models using DuckDuckGo. This gives GPT-4o, DeepSeek, Gemini, Ollama, and other OpenAI-compatible providers a free web search path out of the box.
 
+>**Note:** DuckDuckGo fallback works by scraping search results and may be rate-limited, blocked, or subject to DuckDuckGo's Terms of Service. If you want a more reliable supported option, configure Firecrawl.
+
 For Anthropic-native backends (Anthropic/Vertex/Foundry) and Codex responses, OpenClaude keeps the native provider web search behavior.
 
 `WebFetch` works but uses basic HTTP plus HTML-to-markdown conversion. That fails on JavaScript-rendered pages (React, Next.js, Vue SPAs) and sites that block plain HTTP requests.
