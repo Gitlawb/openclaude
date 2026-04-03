@@ -1,64 +1,44 @@
 # OpenClaude
 
-Use Claude Code with **any LLM** — not just Claude.
+OpenClaude is an open-source coding-agent CLI that works with more than one model provider.
 
-OpenClaude is a fork of the [Claude Code source leak](https://gitlawb.com/node/repos/z6MkgKkb/instructkr-claude-code) (exposed via npm source maps on March 31, 2026). We added an OpenAI-compatible provider shim so you can plug in GPT-4o, DeepSeek, Gemini, Llama, Mistral, or any model that speaks the OpenAI chat completions API. It now also supports the ChatGPT Codex backend for `codexplan` and `codexspark`, and local inference via [Atomic Chat](https://atomic.chat/) on Apple Silicon.
+Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported backends while keeping the same terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
 
-All of Claude Code's tools work — bash, file read/write/edit, grep, glob, agents, tasks, MCP — just powered by whatever model you choose.
+## Why OpenClaude
 
----
-
-## Start Here
-
-If you are new to terminals or just want the easiest path, start with the beginner guides:
-
-- [Non-Technical Setup](docs/non-technical-setup.md)
-- [Windows Quick Start](docs/quick-start-windows.md)
-- [macOS / Linux Quick Start](docs/quick-start-mac-linux.md)
-
-If you want source builds, Bun workflows, profile launchers, or full provider examples, use:
-
-- [Advanced Setup](docs/advanced-setup.md)
+- Use one CLI across cloud and local model providers
+- Save provider profiles inside the app with `/provider`
+- Run locally with Ollama or Atomic Chat
+- Keep core coding-agent workflows: bash, file tools, grep, glob, agents, tasks, MCP, and web tools
 
 ---
 
-## Beginner Install
+## Quick Start
 
-For most users, install the npm package:
+### Install
 
 ```bash
 npm install -g @gitlawb/openclaude
 ```
 
-The package name is `@gitlawb/openclaude`, but the command you run is:
+If the npm install path later reports `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting OpenClaude.
+
+### Start
 
 ```bash
 openclaude
 ```
 
-If you install via npm and later see `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting OpenClaude.
+Inside OpenClaude:
 
----
+- run `/provider` for guided setup of OpenAI-compatible, Gemini, Ollama, or Codex profiles
+- run `/onboard-github` for GitHub Models setup
 
-## Fastest Setup
+### Fastest OpenAI setup
 
-### Windows PowerShell
-
-```powershell
-npm install -g @gitlawb/openclaude
-
-$env:CLAUDE_CODE_USE_OPENAI="1"
-$env:OPENAI_API_KEY="sk-your-key-here"
-$env:OPENAI_MODEL="gpt-4o"
-
-openclaude
-```
-
-### macOS / Linux
+macOS / Linux:
 
 ```bash
-npm install -g @gitlawb/openclaude
-
 export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_API_KEY=sk-your-key-here
 export OPENAI_MODEL=gpt-4o
@@ -66,161 +46,166 @@ export OPENAI_MODEL=gpt-4o
 openclaude
 ```
 
-That is enough to start with OpenAI.
+Windows PowerShell:
+
+```powershell
+$env:CLAUDE_CODE_USE_OPENAI="1"
+$env:OPENAI_API_KEY="sk-your-key-here"
+$env:OPENAI_MODEL="gpt-4o"
+
+openclaude
+```
+
+### Fastest local Ollama setup
+
+macOS / Linux:
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export OPENAI_MODEL=qwen2.5-coder:7b
+
+openclaude
+```
+
+Windows PowerShell:
+
+```powershell
+$env:CLAUDE_CODE_USE_OPENAI="1"
+$env:OPENAI_BASE_URL="http://localhost:11434/v1"
+$env:OPENAI_MODEL="qwen2.5-coder:7b"
+
+openclaude
+```
 
 ---
 
-## Choose Your Guide
+## Setup Guides
 
-### Beginner
+Beginner-friendly guides:
 
-- Want the easiest setup with copy-paste steps: [Non-Technical Setup](docs/non-technical-setup.md)
-- On Windows: [Windows Quick Start](docs/quick-start-windows.md)
-- On macOS or Linux: [macOS / Linux Quick Start](docs/quick-start-mac-linux.md)
+- [Non-Technical Setup](docs/non-technical-setup.md)
+- [Windows Quick Start](docs/quick-start-windows.md)
+- [macOS / Linux Quick Start](docs/quick-start-mac-linux.md)
 
-### Advanced
+Advanced and source-build guides:
 
-- Want source builds, Bun, local profiles, runtime checks, or more provider choices: [Advanced Setup](docs/advanced-setup.md)
-
----
-
-## Common Beginner Choices
-
-### OpenAI
-
-Best default if you already have an OpenAI API key.
-
-### Ollama
-
-Best if you want to run models locally on your own machine.
-
-### Codex
-
-Best if you already use the Codex CLI or ChatGPT Codex backend.
-
-### Atomic Chat
-
-Best if you want local inference on Apple Silicon with Atomic Chat. See [Advanced Setup](docs/advanced-setup.md).
+- [Advanced Setup](docs/advanced-setup.md)
+- [Android Install](ANDROID_INSTALL.md)
 
 ---
 
+## Supported Providers
 
-## VS Code Extension
+| Provider | Setup Path | Notes |
+| --- | --- | --- |
+| OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and compatible local `/v1` servers |
+| Gemini | `/provider` or env vars | Google Gemini support through the runtime provider layer |
+| GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
+| Codex | `/provider` | Uses existing Codex credentials when available |
+| Ollama | `/provider` or env vars | Local inference with no API key |
+| Atomic Chat | advanced setup | Local Apple Silicon backend |
+| Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
 
-Want a native VS Code experience? Use the in-repo extension at `vscode-extension/openclaude-vscode` for one-command terminal launch and the `OpenClaude Terminal Black` theme.
+---
 
 ## What Works
 
-- **All tools**: Bash, FileRead, FileWrite, FileEdit, Glob, Grep, WebFetch, WebSearch, Agent, MCP, LSP, NotebookEdit, Tasks
-- **Streaming**: Real-time token streaming
-- **Tool calling**: Multi-step tool chains (the model calls tools, gets results, continues)
-- **Images**: Base64 and URL images passed to vision models
-- **Slash commands**: /commit, /review, /compact, /diff, /doctor, etc.
-- **Sub-agents**: AgentTool spawns sub-agents using the same provider
-- **Memory**: Persistent memory system
+- Tool-driven coding workflows
+  Bash, file read/write/edit, grep, glob, agents, tasks, MCP, and slash commands
+- Streaming responses
+  Real-time token output and tool progress
+- Tool calling
+  Multi-step tool loops with model calls, tool execution, and follow-up responses
+- Images
+  URL and base64 image inputs for providers that support vision
+- Provider profiles
+  Guided setup plus saved `.openclaude-profile.json` support
+- Local and remote model backends
+  Cloud APIs, local servers, and Apple Silicon local inference
 
-## What's Different
+---
 
-- **No thinking mode**: Anthropic's extended thinking is disabled (OpenAI models use different reasoning)
-- **No prompt caching**: Anthropic-specific cache headers are skipped
-- **No beta features**: Anthropic-specific beta headers are ignored
-- **Token limits**: Defaults to 32K max output — some models may cap lower, which is handled gracefully
+## Provider Notes
+
+OpenClaude supports multiple providers, but behavior is not identical across all of them.
+
+- Anthropic-specific features may not exist on other providers
+- Tool quality depends heavily on the selected model
+- Smaller local models can struggle with long multi-step tool flows
+- Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
+
+For best results, use models with strong tool/function calling support.
 
 ---
 
 ## Web Search and Fetch
 
-By default, `WebSearch` is disabled for all non-Anthropic providers. The native search backend requires either the Anthropic API or the Codex responses endpoint, so users on GPT-4o, DeepSeek, Gemini, Ollama, and other OpenAI-compatible providers get no web search at all.
+`WebFetch` works out of the box.
 
-`WebFetch` works but uses basic HTTP plus HTML-to-markdown conversion. That fails on JavaScript-rendered pages (React, Next.js, Vue SPAs) and sites that block plain HTTP requests.
-
-Set a [Firecrawl](https://firecrawl.dev) API key to fix both:
+`WebSearch` and richer JS-aware fetching work best with a Firecrawl API key:
 
 ```bash
 export FIRECRAWL_API_KEY=your-key-here
 ```
 
-With this set:
+With Firecrawl enabled:
 
-- `WebSearch` is enabled for all providers and routes through Firecrawl's search API
-- `WebFetch` uses Firecrawl's scrape endpoint instead of raw HTTP, handling JS-rendered pages correctly
+- `WebSearch` is available across more provider setups
+- `WebFetch` can handle JavaScript-rendered pages more reliably
 
-Free tier at [firecrawl.dev](https://firecrawl.dev) includes 500 credits. The key is optional — if not set, both tools fall back to their original behavior.
-
----
-
-## How It Works
-
-The shim (`src/services/api/openaiShim.ts`) sits between Claude Code and the LLM API:
-
-```
-Claude Code Tool System
-        |
-        v
-  Anthropic SDK interface (duck-typed)
-        |
-        v
-  openaiShim.ts  <-- translates formats
-        |
-        v
-  OpenAI Chat Completions API
-        |
-        v
-  Any compatible model
-```
-
-It translates:
-- Anthropic message blocks → OpenAI messages
-- Anthropic tool_use/tool_result → OpenAI function calls
-- OpenAI SSE streaming → Anthropic stream events
-- Anthropic system prompt arrays → OpenAI system messages
-
-The rest of Claude Code doesn't know it's talking to a different model.
+Firecrawl is optional. Without it, OpenClaude falls back to the built-in behavior.
 
 ---
 
-## Model Quality Notes
+## Source Build
 
-Not all models are equal at agentic tool use. Here's a rough guide:
+```bash
+bun install
+bun run build
+node dist/cli.mjs
+```
 
-| Model | Tool Calling | Code Quality | Speed |
-|-------|-------------|-------------|-------|
-| GPT-4o | Excellent | Excellent | Fast |
-| DeepSeek-V3 | Great | Great | Fast |
-| Gemini 2.0 Flash | Great | Good | Very Fast |
-| Llama 3.3 70B | Good | Good | Medium |
-| Mistral Large | Good | Good | Fast |
-| GPT-4o-mini | Good | Good | Very Fast |
-| Qwen 2.5 72B | Good | Good | Medium |
-| Smaller models (<7B) | Limited | Limited | Very Fast |
+Helpful commands:
 
-For best results, use models with strong function/tool calling support.
+- `bun run dev`
+- `bun run smoke`
+- `bun run doctor:runtime`
 
 ---
 
-## Files Changed from Original
+## VS Code Extension
 
-```
-src/services/api/openaiShim.ts   — NEW: OpenAI-compatible API shim (724 lines)
-src/services/api/client.ts       — Routes to shim when CLAUDE_CODE_USE_OPENAI=1
-src/utils/model/providers.ts     — Added 'openai' provider type
-src/utils/model/configs.ts       — Added openai model mappings
-src/utils/model/model.ts         — Respects OPENAI_MODEL for defaults
-src/utils/auth.ts                — Recognizes OpenAI as valid 3P provider
-```
-
-6 files changed. 786 lines added. Zero dependencies added.
+The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](vscode-extension/openclaude-vscode) for OpenClaude launch integration and theme support.
 
 ---
 
-## Origin
+## Security
 
-This is a fork of [instructkr/claude-code](https://gitlawb.com/node/repos/z6MkgKkb/instructkr-claude-code), which mirrored the Claude Code source snapshot that became publicly accessible through an npm source map exposure on March 31, 2026.
+If you believe you found a security issue, see [SECURITY.md](SECURITY.md).
 
-The original Claude Code source is the property of Anthropic. This repository is not affiliated with or endorsed by Anthropic.
+---
+
+## Contributing
+
+Contributions are welcome.
+
+For larger changes, open an issue first so the scope is clear before implementation. Helpful validation commands include:
+
+- `bun run build`
+- `bun run smoke`
+- focused `bun test ...` runs for touched areas
+
+---
+
+## Disclaimer
+
+OpenClaude is an independent community project and is not affiliated with, endorsed by, or sponsored by Anthropic.
+
+"Claude" and "Claude Code" are trademarks of Anthropic.
 
 ---
 
 ## License
 
-This repository is provided for educational and research purposes. The original source code is subject to Anthropic's terms. The OpenAI shim additions are public domain.
+MIT
