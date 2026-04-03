@@ -50,7 +50,6 @@ type ExecFileWithCwdOptions = {
   maxBuffer?: number
   cwd?: string
   env?: NodeJS.ProcessEnv
-  shell?: boolean | string | undefined
   stdin?: 'ignore' | 'inherit' | 'pipe'
   input?: string
 }
@@ -96,7 +95,6 @@ export function execFileNoThrowWithCwd(
     cwd: finalCwd,
     env: finalEnv,
     maxBuffer,
-    shell,
     stdin: finalStdin,
     input: finalInput,
   }: ExecFileWithCwdOptions = {
@@ -113,7 +111,7 @@ export function execFileNoThrowWithCwd(
       timeout: finalTimeout,
       cwd: finalCwd,
       env: finalEnv,
-      shell,
+      shell: false,
       stdin: finalStdin,
       input: finalInput,
       reject: false, // Don't throw on non-zero exit codes

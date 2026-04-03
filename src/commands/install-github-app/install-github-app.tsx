@@ -282,17 +282,16 @@ function InstallGitHubApp(props: {
         return;
       }
       const repoWarnings: Warning[] = [];
-      if (repoName_1.includes('github.com')) {
-        const slug = extractGitHubRepoSlug(repoName_1);
-        if (!slug) {
-          repoWarnings.push({
-            title: 'Invalid GitHub URL format',
-            message: 'The repository URL format appears to be invalid.',
-            instructions: ['Use format: owner/repo or https://github.com/owner/repo', 'Example: anthropics/claude-cli']
-          });
-        } else {
-          repoName_1 = slug;
-        }
+      const slug = extractGitHubRepoSlug(repoName_1);
+      const isUrlLike = /^[a-z][a-z0-9+.-]*:\/\//i.test(repoName_1) || repoName_1.startsWith('www.');
+      if (slug) {
+        repoName_1 = slug;
+      } else if (isUrlLike) {
+        repoWarnings.push({
+          title: 'Invalid GitHub URL format',
+          message: 'The repository URL format appears to be invalid.',
+          instructions: ['Use format: owner/repo or https://github.com/owner/repo', 'Example: anthropics/claude-cli']
+        });
       }
       if (!repoName_1.includes('/')) {
         repoWarnings.push({
