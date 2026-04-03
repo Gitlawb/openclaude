@@ -116,7 +116,6 @@ export async function autoModeCritiqueHandler(options: {
       querySource: 'auto_mode_critique',
       model,
       system: CRITIQUE_SYSTEM_PROMPT,
-      skipSystemPromptPrefix: true,
       max_tokens: 4096,
       messages: [
         {

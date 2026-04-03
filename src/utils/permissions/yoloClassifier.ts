@@ -780,7 +780,6 @@ async function classifyYoloActionXml(
         model,
         max_tokens: (mode === 'fast' ? 256 : 64) + thinkingPadding,
         system: systemBlocks,
-        skipSystemPromptPrefix: true,
         temperature: 0,
         thinking: disableThinking,
         messages: [
@@ -867,7 +866,6 @@ async function classifyYoloActionXml(
       model,
       max_tokens: 4096 + thinkingPadding,
       system: systemBlocks,
-      skipSystemPromptPrefix: true,
       temperature: 0,
       thinking: disableThinking,
       messages: [
@@ -1141,7 +1139,6 @@ export async function classifyYoloAction(
           cache_control: getCacheControl({ querySource: 'auto_mode' }),
         },
       ],
-      skipSystemPromptPrefix: true,
       temperature: 0,
       thinking: disableThinking,
       messages: [
