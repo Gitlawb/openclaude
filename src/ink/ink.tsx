@@ -1474,7 +1474,10 @@ export default class Ink {
         </TerminalWriteProvider>
       </App>;
 
-    reconciler.updateContainer(tree, this.container, null, noop);
+    // @ts-expect-error updateContainerSync exists in react-reconciler but not in @types/react-reconciler
+    reconciler.updateContainerSync(tree, this.container, null, noop);
+    // @ts-expect-error flushSyncWork exists in react-reconciler but not in @types/react-reconciler
+    reconciler.flushSyncWork();
     logForDebugging('[Ink:render] updateContainer complete');
   }
   unmount(error?: Error | number | null): void {
