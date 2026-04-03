@@ -1,6 +1,7 @@
 import type * as React from 'react';
 import { useCallback, useEffect } from 'react';
 import { useAppStateStore, useSetAppState } from 'src/state/AppState.js';
+import { logError } from '../utils/log.js';
 import type { Theme } from '../utils/theme.js';
 type Priority = 'low' | 'medium' | 'high' | 'immediate';
 type BaseNotification = {
@@ -44,6 +45,7 @@ export function useNotifications(): {
 
   // Process queue when current notification finishes or queue changes
   const processQueue = useCallback(() => {
+    try {
     setAppState(prev => {
       const next = getNext(prev.notifications.queue);
       if (prev.notifications.current !== null || !next) {
@@ -74,8 +76,12 @@ export function useNotifications(): {
         }
       };
     });
+    } catch (error) {
+      logError(error);
+    }
   }, [setAppState]);
   const addNotification = useCallback<AddNotificationFn>((notif: Notification) => {
+    try {
     // Handle immediate priority notifications
     if (notif.priority === 'immediate') {
       // Clear any existing timeout since we're showing a new immediate notification
@@ -189,8 +195,12 @@ export function useNotifications(): {
 
     // Process queue after adding the notification
     processQueue();
+    } catch (error) {
+      logError(error);
+    }
   }, [setAppState, processQueue]);
   const removeNotification = useCallback<RemoveNotificationFn>((key: string) => {
+    try {
     setAppState(prev => {
       const isCurrent = prev.notifications.current?.key === key;
       const inQueue = prev.notifications.queue.some(n => n.key === key);
@@ -210,6 +220,9 @@ export function useNotifications(): {
       };
     });
     processQueue();
+    } catch (error) {
+      logError(error);
+    }
   }, [setAppState, processQueue]);
 
   // Process queue on mount if there are notifications in the initial state.

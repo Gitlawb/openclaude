@@ -291,8 +291,13 @@ export function resolveProviderRequest(options?: {
     process.env.OPENAI_BASE_URL ??
     process.env.OPENAI_API_BASE ??
     undefined
+  // Use Codex transport only when:
+  // - the base URL is explicitly the Codex endpoint, OR
+  // - the model is a Codex alias AND no custom base URL has been set
+  // A custom OPENAI_BASE_URL (e.g. Azure, OpenRouter) always wins over
+  // model-name-based Codex detection to prevent auth failures (#200, #203).
   const transport: ProviderTransport =
-    isCodexAlias(requestedModel) || isCodexBaseUrl(rawBaseUrl)
+    isCodexBaseUrl(rawBaseUrl) || (!rawBaseUrl && isCodexAlias(requestedModel))
       ? 'codex_responses'
       : 'chat_completions'
 

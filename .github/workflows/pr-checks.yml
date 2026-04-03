@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   smoke-and-tests:
     runs-on: ubuntu-latest

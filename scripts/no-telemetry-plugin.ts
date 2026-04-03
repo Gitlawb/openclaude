@@ -199,15 +199,19 @@ export async function submitTranscriptShare() { return { success: false }; }
 `,
 }
 
+function escapeForResolvedPathRegex(modulePath: string): string {
+	return modulePath
+		.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')
+		.replace(/\//g, '[/\\\\]')
+}
+
 export const noTelemetryPlugin: BunPlugin = {
 	name: 'no-telemetry',
 	setup(build) {
 		for (const [modulePath, contents] of Object.entries(stubs)) {
 			// Build regex that matches the resolved file path on any OS
 			// e.g. "services/analytics/growthbook" → /services[/\\]analytics[/\\]growthbook\.(ts|js)$/
-			const escaped = modulePath
-				.replace(/\//g, '[/\\\\]')
-				.replace(/\./g, '\\.')
+			const escaped = escapeForResolvedPathRegex(modulePath)
 			const filter = new RegExp(`${escaped}\\.(ts|js)$`)
 
 			build.onLoad({ filter }, () => ({

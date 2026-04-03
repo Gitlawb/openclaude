@@ -578,10 +578,12 @@ export const BashTool = buildTool({
       const block = buildImageToolResult(stdout, toolUseID);
       if (block) return block;
     }
-    let processedStdout = stdout;
-    if (stdout) {
+    const normalizedStdout = typeof stdout === 'string' ? stdout : '';
+    const normalizedStderr = typeof stderr === 'string' ? stderr : '';
+    let processedStdout = normalizedStdout;
+    if (normalizedStdout) {
       // Replace any leading newlines or lines with only whitespace
-      processedStdout = stdout.replace(/^(\s*\n)+/, '');
+      processedStdout = normalizedStdout.replace(/^(\s*\n)+/, '');
       // Still trim the end as before
       processedStdout = processedStdout.trimEnd();
     }
@@ -598,9 +600,9 @@ export const BashTool = buildTool({
         hasMore: preview.hasMore
       });
     }
-    let errorMessage = stderr.trim();
+    let errorMessage = normalizedStderr.trim();
     if (interrupted) {
-      if (stderr) errorMessage += EOL;
+      if (normalizedStderr) errorMessage += EOL;
       errorMessage += '<error>Command was aborted before completion</error>';
     }
     let backgroundInfo = '';

@@ -124,19 +124,15 @@ function printSummary(profile: ProviderProfile, env: NodeJS.ProcessEnv): void {
   console.log(`Launching profile: ${profile}`)
   if (profile === 'gemini') {
     console.log(`GEMINI_MODEL=${env.GEMINI_MODEL}`)
-    console.log(`GEMINI_API_KEY_SET=${Boolean(env.GEMINI_API_KEY)}`)
   } else if (profile === 'codex') {
     console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
     console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
-    console.log(`CODEX_API_KEY_SET=${Boolean(resolveCodexApiCredentials(env).apiKey)}`)
   } else if (profile === 'atomic-chat') {
     console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
     console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
-    console.log('OPENAI_API_KEY_SET=false (local provider, no key required)')
   } else {
     console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
     console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
-    console.log(`OPENAI_API_KEY_SET=${Boolean(env.OPENAI_API_KEY)}`)
   }
 }
 

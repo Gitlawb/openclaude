@@ -396,9 +396,13 @@ export const PowerShellTool = buildTool({
       const block = buildImageToolResult(stdout, toolUseID);
       if (block) return block;
     }
-    let processedStdout = stdout;
+    const normalizedStdout = typeof stdout === 'string' ? stdout : '';
+    const normalizedStderr = typeof stderr === 'string' ? stderr : '';
+    let processedStdout = normalizedStdout;
     if (persistedOutputPath) {
-      const trimmed = stdout ? stdout.replace(/^(\s*\n)+/, '').trimEnd() : '';
+      const trimmed = normalizedStdout
+        ? normalizedStdout.replace(/^(\s*\n)+/, '').trimEnd()
+        : '';
       const preview = generatePreview(trimmed, PREVIEW_SIZE_BYTES);
       processedStdout = buildLargeToolResultMessage({
         filepath: persistedOutputPath,
@@ -407,13 +411,13 @@ export const PowerShellTool = buildTool({
         preview: preview.preview,
         hasMore: preview.hasMore
       });
-    } else if (stdout) {
-      processedStdout = stdout.replace(/^(\s*\n)+/, '');
+    } else if (normalizedStdout) {
+      processedStdout = normalizedStdout.replace(/^(\s*\n)+/, '');
       processedStdout = processedStdout.trimEnd();
     }
-    let errorMessage = stderr.trim();
+    let errorMessage = normalizedStderr.trim();
     if (interrupted) {
-      if (stderr) errorMessage += EOL;
+      if (normalizedStderr) errorMessage += EOL;
       errorMessage += '<error>Command was aborted before completion</error>';
     }
     let backgroundInfo = '';
