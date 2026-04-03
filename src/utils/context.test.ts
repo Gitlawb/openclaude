@@ -12,9 +12,17 @@ const originalEnv = {
 }
 
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS =
-    originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  if (originalEnv.CLAUDE_CODE_USE_OPENAI === undefined) {
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+  } else {
+    process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
+  }
+  if (originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS === undefined) {
+    delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  } else {
+    process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS =
+      originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  }
 })
 
 test('deepseek-chat uses provider-specific context and output caps', () => {
