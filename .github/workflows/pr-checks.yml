@@ -22,6 +22,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
         with:
@@ -29,6 +34,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install Python test dependencies
+        run: python -m pip install -r requirements-test.txt
+
+      - name: Typecheck
+        run: bun run typecheck
 
       - name: Smoke check
         run: bun run smoke
@@ -38,3 +49,7 @@ jobs:
 
       - name: Provider recommendation tests
         run: npm run test:provider-recommendation
+
+      - name: Python provider tests
+        working-directory: python/tests
+        run: pytest -q test_atomic_chat_provider.py test_ollama_provider.py test_smart_router.py

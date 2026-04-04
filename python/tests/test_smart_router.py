@@ -5,18 +5,16 @@ Tests for the SmartRouter.
 Run: pytest python/tests/test_smart_router.py -v
 """
 
+import os
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from smart_router import SmartRouter, Provider
 
+os.environ.setdefault("FAKE_KEY", "test-key")
+
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
-
-
-@pytest.fixture(autouse=True)
-def fake_api_key(monkeypatch):
-    monkeypatch.setenv("FAKE_KEY", "test-key")
 
 
 def make_provider(name, healthy=True, configured=True,
@@ -34,7 +32,7 @@ def make_provider(name, healthy=True, configured=True,
     p.error_count = errors
     p.request_count = requests
     if not configured:
-        p.api_key_env = ""  # makes is_configured False for non-local providers
+        p.api_key_env = "MISSING_FAKE_KEY"  # makes is_configured False
     return p
 
 
