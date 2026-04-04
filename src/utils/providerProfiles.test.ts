@@ -12,6 +12,7 @@ import {
 const originalEnv = { ...process.env }
 
 const RESTORED_KEYS = [
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_GITHUB',
@@ -151,12 +152,15 @@ describe('getProviderPresetDefaults', () => {
 })
 
 describe('deleteProviderProfile', () => {
-  test('deleting final profile clears provider env for current session', () => {
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
-    process.env.OPENAI_MODEL = 'gpt-4o'
-    process.env.OPENAI_API_KEY = 'sk-test'
-    process.env.ANTHROPIC_MODEL = 'gpt-4o'
+  test('deleting final profile clears provider env when active profile applied it', () => {
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        id: 'only_profile',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'sk-test',
+      }),
+    )
 
     saveGlobalConfig(current => ({
       ...current,
@@ -168,6 +172,8 @@ describe('deleteProviderProfile', () => {
 
     expect(result.removed).toBe(true)
     expect(result.activeProfileId).toBeUndefined()
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
 
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
@@ -184,5 +190,27 @@ describe('deleteProviderProfile', () => {
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
     expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
+  })
+
+  test('deleting final profile preserves explicit startup provider env', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_MODEL = 'qwen2.5:3b'
+
+    saveGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'only_profile' })],
+      activeProviderProfileId: 'only_profile',
+    }))
+
+    const result = deleteProviderProfile('only_profile')
+
+    expect(result.removed).toBe(true)
+    expect(result.activeProfileId).toBeUndefined()
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
   })
 })

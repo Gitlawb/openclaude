@@ -36,6 +36,7 @@ export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
 
 const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434/v1'
 const DEFAULT_OLLAMA_MODEL = 'llama3.1:8b'
+const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
 
 function trimValue(value: string | undefined): string {
   return value?.trim() ?? ''
@@ -250,7 +251,7 @@ export function hasProviderProfiles(config = getGlobalConfig()): boolean {
   return getProviderProfiles(config).length > 0
 }
 
-function hasExplicitProviderSelection(
+function hasProviderSelectionFlags(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return (
@@ -261,6 +262,18 @@ function hasExplicitProviderSelection(
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
     processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
   )
+}
+
+function hasExplicitProviderSelection(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  // If provider env came from an active saved profile, treat those flags as
+  // profile-managed state (not explicit startup intent).
+  if (processEnv[PROFILE_ENV_APPLIED_FLAG] === '1') {
+    return false
+  }
+
+  return hasProviderSelectionFlags(processEnv)
 }
 
 export function getActiveProviderProfile(
@@ -293,10 +306,12 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.ANTHROPIC_BASE_URL
   delete processEnv.ANTHROPIC_MODEL
   delete processEnv.ANTHROPIC_API_KEY
+  delete processEnv[PROFILE_ENV_APPLIED_FLAG]
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
   clearProviderProfileEnvFromProcessEnv()
+  process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
 
   process.env.ANTHROPIC_MODEL = profile.model
   if (profile.provider === 'anthropic') {
@@ -516,7 +531,7 @@ export function deleteProviderProfile(profileId: string): {
 
   if (nextActiveProfile) {
     applyProviderProfileToProcessEnv(nextActiveProfile)
-  } else {
+  } else if (!hasExplicitProviderSelection()) {
     clearProviderProfileEnvFromProcessEnv()
   }
 
