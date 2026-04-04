@@ -41,6 +41,10 @@ import {
   mayHaveGeminiAdcCredentials,
 } from '../../utils/geminiAuth.js'
 import {
+  readGeminiAccessToken,
+  saveGeminiAccessToken,
+} from '../../utils/geminiCredentials.js'
+import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
   rankOllamaModels,
@@ -66,10 +70,11 @@ type Step =
     }
   | { name: 'gemini-auth-method' }
   | { name: 'gemini-key' }
+  | { name: 'gemini-access-token' }
   | {
       name: 'gemini-model'
       apiKey?: string
-      authMode: 'api-key' | 'access-token-or-adc'
+      authMode: 'api-key' | 'access-token' | 'adc'
     }
   | { name: 'codex-check' }
 
@@ -225,8 +230,10 @@ function buildSavedProfileSummary(
           env,
         ),
         credentialLabel:
-          env.GEMINI_AUTH_MODE === 'access-token-or-adc'
-            ? 'access token / ADC'
+          env.GEMINI_AUTH_MODE === 'access-token'
+            ? 'access token (stored securely)'
+            : env.GEMINI_AUTH_MODE === 'adc'
+              ? 'local ADC'
             : maskSecretForDisplay(env.GEMINI_API_KEY) !== undefined
               ? 'configured'
               : undefined,
@@ -1082,6 +1089,7 @@ export function ProviderWizard({
         process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
       )
       const hasShellGeminiAccessToken = Boolean(process.env.GEMINI_ACCESS_TOKEN)
+      const hasStoredGeminiAccessToken = Boolean(readGeminiAccessToken())
       const hasAdc = mayHaveGeminiAdcCredentials(process.env)
       const projectHint = getGeminiProjectIdHint(process.env)
 
@@ -1094,15 +1102,22 @@ export function ProviderWizard({
             : 'Use a Google Gemini API key',
         },
         {
-          label: 'Access token / ADC',
-          value: 'access-token-or-adc',
-          description: hasShellGeminiAccessToken || hasAdc
+          label: 'Access token',
+          value: 'access-token',
+          description: hasShellGeminiAccessToken || hasStoredGeminiAccessToken
             ? `Use ${
                 hasShellGeminiAccessToken
                   ? 'the current GEMINI_ACCESS_TOKEN'
-                  : 'local Google ADC credentials'
-              }${projectHint ? ` (project: ${projectHint})` : ''}`
-            : 'Save a Gemini profile that expects GEMINI_ACCESS_TOKEN or local Google ADC credentials at runtime',
+                  : 'the securely stored Gemini access token'
+              }`
+            : 'Enter a Gemini access token and store it securely',
+        },
+        {
+          label: 'Local ADC',
+          value: 'adc',
+          description: hasAdc
+            ? `Use local Google ADC credentials${projectHint ? ` (project: ${projectHint})` : ''}`
+            : 'Use local Google ADC credentials after running gcloud auth application-default login',
         },
       ]
 
@@ -1117,10 +1132,12 @@ export function ProviderWizard({
               onChange={value => {
                 if (value === 'api-key') {
                   setStep({ name: 'gemini-key' })
+                } else if (value === 'access-token') {
+                  setStep({ name: 'gemini-access-token' })
                 } else {
                   setStep({
                     name: 'gemini-model',
-                    authMode: 'access-token-or-adc',
+                    authMode: 'adc',
                   })
                 }
               }}
@@ -1160,23 +1177,86 @@ export function ProviderWizard({
         />
       )
 
+    case 'gemini-access-token': {
+      const currentToken =
+        process.env.GEMINI_ACCESS_TOKEN || readGeminiAccessToken() || ''
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title="Gemini setup"
+          subtitle="Step 2 of 3"
+          description={
+            currentToken
+              ? 'Enter a Gemini access token, or leave this blank to reuse the current token from this session or secure storage.'
+              : 'Enter a Gemini access token. It will be stored securely for this profile.'
+          }
+          initialValue=""
+          placeholder="ya29...."
+          mask="*"
+          allowEmpty={Boolean(currentToken)}
+          validate={value => {
+            const token = value.trim() || currentToken
+            return token ? null : 'Enter a Gemini access token or go back and choose Local ADC.'
+          }}
+          onSubmit={value => {
+            const token = value.trim() || currentToken
+            const saved = saveGeminiAccessToken(token)
+            if (!saved.success) {
+              onDone(
+                `Failed to save Gemini access token: ${saved.warning ?? 'unknown error'}`,
+                {
+                  display: 'system',
+                },
+              )
+              return
+            }
+
+            setStep({
+              name: 'gemini-model',
+              authMode: 'access-token',
+            })
+          }}
+          onCancel={() => setStep({ name: 'gemini-auth-method' })}
+        />
+      )
+    }
+
     case 'gemini-model':
       return (
         <TextEntryDialog
           resetStateKey={step.name}
           title="Gemini setup"
           subtitle={
-            step.authMode === 'api-key' ? 'Step 2 of 3' : 'Step 2 of 2'
+            step.authMode === 'api-key'
+              ? 'Step 3 of 3'
+              : step.authMode === 'access-token'
+                ? 'Step 3 of 3'
+                : 'Step 2 of 2'
           }
           description={
             step.authMode === 'api-key'
               ? `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}.`
-              : `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use GEMINI_ACCESS_TOKEN or local Google ADC credentials at runtime.`
+              : step.authMode === 'access-token'
+                ? `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use the stored Gemini access token at runtime.`
+                : `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use local Google ADC credentials at runtime.`
           }
           initialValue={defaults.geminiModel}
           placeholder={DEFAULT_GEMINI_MODEL}
           allowEmpty
           onSubmit={value => {
+            if (
+              step.authMode === 'adc' &&
+              !mayHaveGeminiAdcCredentials(process.env)
+            ) {
+              onDone(
+                'Local ADC credentials were not detected. Run `gcloud auth application-default login` first, then save the Gemini ADC profile again.',
+                {
+                  display: 'system',
+                },
+              )
+              return
+            }
+
             const env = buildGeminiProfileEnv({
               apiKey: step.apiKey,
               authMode: step.authMode,
@@ -1190,7 +1270,9 @@ export function ProviderWizard({
           onCancel={() =>
             step.authMode === 'api-key'
               ? setStep({ name: 'gemini-key' })
-              : setStep({ name: 'gemini-auth-method' })
+              : step.authMode === 'access-token'
+                ? setStep({ name: 'gemini-access-token' })
+                : setStep({ name: 'gemini-auth-method' })
           }
         />
       )

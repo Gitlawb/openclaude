@@ -361,15 +361,28 @@ test('gemini profiles accept google api key fallback', () => {
   })
 })
 
-test('gemini profiles support access token / adc auth mode without persisting a key', () => {
+test('gemini profiles support access-token auth mode without persisting a key', () => {
   const env = buildGeminiProfileEnv({
-    authMode: 'access-token-or-adc',
+    authMode: 'access-token',
     model: 'gemini-2.5-flash',
     processEnv: {},
   })
 
   assert.deepEqual(env, {
-    GEMINI_AUTH_MODE: 'access-token-or-adc',
+    GEMINI_AUTH_MODE: 'access-token',
+    GEMINI_MODEL: 'gemini-2.5-flash',
+  })
+})
+
+test('gemini profiles support adc auth mode without persisting a key', () => {
+  const env = buildGeminiProfileEnv({
+    authMode: 'adc',
+    model: 'gemini-2.5-flash',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'adc',
     GEMINI_MODEL: 'gemini-2.5-flash',
   })
 })
@@ -426,14 +439,14 @@ test('buildStartupEnvFromProfile keeps Gemini access token for access-token prof
 
   const env = await buildStartupEnvFromProfile({
     persisted: profile('gemini', {
-      GEMINI_AUTH_MODE: 'access-token-or-adc',
+      GEMINI_AUTH_MODE: 'access-token',
       GEMINI_MODEL: 'gemini-2.5-flash',
     }),
     processEnv,
   })
 
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
-  assert.equal(env.GEMINI_AUTH_MODE, 'access-token-or-adc')
+  assert.equal(env.GEMINI_AUTH_MODE, 'access-token')
   assert.equal(env.GEMINI_ACCESS_TOKEN, 'token-live')
   assert.equal(env.GEMINI_API_KEY, undefined)
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')

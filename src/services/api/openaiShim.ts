@@ -24,6 +24,7 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
+import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import {
   codexStreamToAnthropic,
@@ -1090,6 +1091,7 @@ export function createOpenAIShimClient(options: {
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   providerOverride?: { model: string; baseURL: string; apiKey: string }
 }): unknown {
+  hydrateGeminiAccessTokenFromSecureStorage()
   hydrateGithubModelsTokenFromSecureStorage()
 
   // When Gemini provider is active, map Gemini env vars to OpenAI-compatible ones

@@ -61,6 +61,8 @@ async function main(): Promise<void> {
     enableConfigs()
     const { applySafeConfigEnvironmentVariables } = await import('../utils/managedEnv.js')
     applySafeConfigEnvironmentVariables()
+    const { hydrateGeminiAccessTokenFromSecureStorage } = await import('../utils/geminiCredentials.js')
+    hydrateGeminiAccessTokenFromSecureStorage()
     const { hydrateGithubModelsTokenFromSecureStorage } = await import('../utils/githubModelsCredentials.js')
     hydrateGithubModelsTokenFromSecureStorage()
   }

@@ -201,7 +201,7 @@ test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly',
   const message = buildProfileSaveMessage(
     'gemini',
     {
-      GEMINI_AUTH_MODE: 'access-token-or-adc',
+      GEMINI_AUTH_MODE: 'access-token',
       GEMINI_MODEL: 'gemini-2.5-flash',
       GEMINI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
     },
@@ -210,7 +210,7 @@ test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly',
 
   expect(message).toContain('Saved Google Gemini profile.')
   expect(message).toContain('Model: gemini-2.5-flash')
-  expect(message).toContain('Credentials: access token / ADC')
+  expect(message).toContain('Credentials: access token (stored securely)')
   expect(message).not.toContain('AIza')
 })
 

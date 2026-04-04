@@ -56,7 +56,7 @@ export type ProfileEnv = {
   CHATGPT_ACCOUNT_ID?: string
   CODEX_ACCOUNT_ID?: string
   GEMINI_API_KEY?: string
-  GEMINI_AUTH_MODE?: 'api-key' | 'access-token-or-adc'
+  GEMINI_AUTH_MODE?: 'api-key' | 'access-token' | 'adc'
   GEMINI_MODEL?: string
   GEMINI_BASE_URL?: string
 }
@@ -223,7 +223,7 @@ export function buildGeminiProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
-  authMode?: 'api-key' | 'access-token-or-adc'
+  authMode?: 'api-key' | 'access-token' | 'adc'
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
@@ -497,8 +497,9 @@ export async function buildLaunchEnv(options: {
       DEFAULT_GEMINI_BASE_URL
 
     const geminiAuthMode =
-      persistedGeminiAuthMode === 'access-token-or-adc'
-        ? 'access-token-or-adc'
+      persistedGeminiAuthMode === 'access-token' ||
+      persistedGeminiAuthMode === 'adc'
+        ? persistedGeminiAuthMode
         : 'api-key'
     const geminiKey = shellGeminiKey || persistedGeminiKey
     if (geminiAuthMode === 'api-key' && geminiKey) {
@@ -507,7 +508,7 @@ export async function buildLaunchEnv(options: {
       delete env.GEMINI_API_KEY
     }
     env.GEMINI_AUTH_MODE = geminiAuthMode
-    if (shellGeminiAccessToken) {
+    if (geminiAuthMode === 'access-token' && shellGeminiAccessToken) {
       env.GEMINI_ACCESS_TOKEN = shellGeminiAccessToken
     } else {
       delete env.GEMINI_ACCESS_TOKEN
