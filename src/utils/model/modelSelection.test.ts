@@ -4,19 +4,28 @@ import { setMainLoopModelOverride } from '../../bootstrap/state.js'
 import { getUserSpecifiedModelSetting } from './model.js'
 
 const originalEnv = {
-  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
-  GEMINI_MODEL: process.env.GEMINI_MODEL,
-  OPENAI_MODEL: process.env.OPENAI_MODEL,
-  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
-  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
-  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
-  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
-  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
-  CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+  anthropicModel: process.env.ANTHROPIC_MODEL,
+  geminiModel: process.env.GEMINI_MODEL,
+  openaiModel: process.env.OPENAI_MODEL,
+  useBedrock: process.env.CLAUDE_CODE_USE_BEDROCK,
+  useFoundry: process.env.CLAUDE_CODE_USE_FOUNDRY,
+  useGemini: process.env.CLAUDE_CODE_USE_GEMINI,
+  useGithub: process.env.CLAUDE_CODE_USE_GITHUB,
+  useOpenai: process.env.CLAUDE_CODE_USE_OPENAI,
+  useVertex: process.env.CLAUDE_CODE_USE_VERTEX,
 }
 
 function restoreEnv(
-  key: keyof typeof originalEnv,
+  key:
+    | 'ANTHROPIC_MODEL'
+    | 'GEMINI_MODEL'
+    | 'OPENAI_MODEL'
+    | 'CLAUDE_CODE_USE_BEDROCK'
+    | 'CLAUDE_CODE_USE_FOUNDRY'
+    | 'CLAUDE_CODE_USE_GEMINI'
+    | 'CLAUDE_CODE_USE_GITHUB'
+    | 'CLAUDE_CODE_USE_OPENAI'
+    | 'CLAUDE_CODE_USE_VERTEX',
   value: string | undefined,
 ): void {
   if (value === undefined) {
@@ -40,15 +49,15 @@ function clearProviderAndModelEnv(): void {
 
 afterEach(() => {
   setMainLoopModelOverride(undefined)
-  restoreEnv('ANTHROPIC_MODEL', originalEnv.ANTHROPIC_MODEL)
-  restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
-  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
-  restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
-  restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalEnv.CLAUDE_CODE_USE_FOUNDRY)
-  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
-  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
-  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('CLAUDE_CODE_USE_VERTEX', originalEnv.CLAUDE_CODE_USE_VERTEX)
+  restoreEnv('ANTHROPIC_MODEL', originalEnv.anthropicModel)
+  restoreEnv('GEMINI_MODEL', originalEnv.geminiModel)
+  restoreEnv('OPENAI_MODEL', originalEnv.openaiModel)
+  restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.useBedrock)
+  restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalEnv.useFoundry)
+  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.useGemini)
+  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.useGithub)
+  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.useOpenai)
+  restoreEnv('CLAUDE_CODE_USE_VERTEX', originalEnv.useVertex)
 })
 
 test('getUserSpecifiedModelSetting prefers OPENAI_MODEL for openai provider over stale GEMINI_MODEL', () => {
