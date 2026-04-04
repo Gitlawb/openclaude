@@ -557,8 +557,12 @@ export function getAssistantMessageFromError(
     const stripped = error.message.replace(/^429\s+/, '')
     const innerMessage = stripped.match(/"message"\s*:\s*"([^"]*)"/)?.[1]
     const detail = innerMessage || stripped
+    const retryAfter = (error as APIError).headers?.get?.('retry-after')
+    const retryHint = retryAfter && !isNaN(Number(retryAfter))
+      ? `Try again in ${retryAfter} seconds.`
+      : 'Try again in a few seconds.'
     return createAssistantAPIErrorMessage({
-      content: `${API_ERROR_MESSAGE_PREFIX}: Request rejected (429) · ${detail || `this may be a temporary capacity issue${getAPIProvider() === 'firstParty' ? ' — check status.anthropic.com' : ''}`}`,
+      content: `${API_ERROR_MESSAGE_PREFIX}: Request rejected (429) · ${detail || 'this may be a temporary capacity issue'} — ${retryHint}`,
       error: 'rate_limit',
     })
   }
