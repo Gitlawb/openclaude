@@ -3,6 +3,7 @@ import { afterEach, expect, test } from 'bun:test'
 import {
   getAdditionalModelOptionsCacheScope,
   isLocalProviderUrl,
+  resolveProviderRequest,
 } from './providerConfig.js'
 
 const originalEnv = {
@@ -56,6 +57,22 @@ test('creates a cache scope for local openai-compatible providers', () => {
 
   expect(getAdditionalModelOptionsCacheScope()).toBe(
     'openai:http://localhost:1234/v1',
+  )
+})
+
+test('keeps codex alias models on chat completions for local openai-compatible providers', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8080/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'http://127.0.0.1:8080/v1',
+  })
+  expect(getAdditionalModelOptionsCacheScope()).toBe(
+    'openai:http://127.0.0.1:8080/v1',
   )
 })
 

@@ -4,7 +4,6 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { isEnvTruthy } from '../../utils/envUtils.js'
-import { getAPIProvider } from '../../utils/model/providers.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
@@ -208,6 +207,17 @@ function isCodexAlias(model: string): boolean {
   return base in CODEX_ALIAS_MODELS
 }
 
+export function shouldUseCodexTransport(
+  model: string,
+  baseUrl: string | undefined,
+): boolean {
+  const explicitBaseUrl = asTrimmedString(baseUrl)
+  return (
+    isCodexBaseUrl(explicitBaseUrl) ||
+    (!explicitBaseUrl && isCodexAlias(model))
+  )
+}
+
 export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
   if (!baseUrl) return false
   try {
@@ -292,8 +302,9 @@ export function resolveProviderRequest(options?: {
     process.env.OPENAI_BASE_URL ??
     process.env.OPENAI_API_BASE ??
     undefined
+  const explicitBaseUrl = asTrimmedString(rawBaseUrl)
   const transport: ProviderTransport =
-    isCodexAlias(requestedModel) || isCodexBaseUrl(rawBaseUrl)
+    shouldUseCodexTransport(requestedModel, explicitBaseUrl)
       ? 'codex_responses'
       : 'chat_completions'
 
@@ -313,7 +324,7 @@ export function resolveProviderRequest(options?: {
     requestedModel,
     resolvedModel,
     baseUrl:
-      (rawBaseUrl ??
+      (explicitBaseUrl ??
         (transport === 'codex_responses'
           ? DEFAULT_CODEX_BASE_URL
           : DEFAULT_OPENAI_BASE_URL)
@@ -323,20 +334,27 @@ export function resolveProviderRequest(options?: {
 }
 
 export function getAdditionalModelOptionsCacheScope(): string | null {
-  const provider = getAPIProvider()
-  if (provider === 'firstParty') {
-    return 'firstParty'
-  }
-  if (provider !== 'openai') {
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
+    if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+      return 'firstParty'
+    }
     return null
   }
 
-  const { baseUrl } = resolveProviderRequest()
-  if (!isLocalProviderUrl(baseUrl)) {
+  const request = resolveProviderRequest()
+  if (request.transport !== 'chat_completions') {
     return null
   }
 
-  return `openai:${baseUrl.toLowerCase()}`
+  if (!isLocalProviderUrl(request.baseUrl)) {
+    return null
+  }
+
+  return `openai:${request.baseUrl.toLowerCase()}`
 }
 
 export function resolveCodexAuthPath(

@@ -256,16 +256,20 @@ function buildSavedProfileSummary(
         ),
       }
     case 'openai':
-    default:
+    default: {
+      const baseUrl = env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL
+
       return {
-        providerLabel: 'OpenAI-compatible',
+        providerLabel: isLocalProviderUrl(baseUrl)
+          ? getLocalOpenAICompatibleProviderLabel(baseUrl)
+          : 'OpenAI-compatible',
         modelLabel: getSafeDisplayValue(
           env.OPENAI_MODEL ?? 'gpt-4o',
           process.env,
           env,
         ),
         endpointLabel: getSafeDisplayValue(
-          env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL,
+          baseUrl,
           process.env,
           env,
         ),
@@ -274,6 +278,7 @@ function buildSavedProfileSummary(
             ? 'configured'
             : undefined,
       }
+    }
   }
 }
 

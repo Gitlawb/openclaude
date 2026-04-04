@@ -14,12 +14,19 @@ import {
 } from './providerConfig.js'
 
 const tempDirs: string[] = []
+const originalEnv = {
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+}
 
 afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()
     if (dir) rmSync(dir, { recursive: true, force: true })
   }
+
+  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
+  process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
 })
 
 function createTempAuthJson(payload: Record<string, unknown>): string {
@@ -47,10 +54,24 @@ async function collectStreamEventTypes(responseText: string): Promise<string[]> 
 
 describe('Codex provider config', () => {
   test('resolves codexplan alias to Codex transport with reasoning', () => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+
     const resolved = resolveProviderRequest({ model: 'codexplan' })
     expect(resolved.transport).toBe('codex_responses')
     expect(resolved.resolvedModel).toBe('gpt-5.4')
     expect(resolved.reasoning).toEqual({ effort: 'high' })
+  })
+
+  test('does not force Codex transport when a non-Codex base URL is explicit', () => {
+    const resolved = resolveProviderRequest({
+      model: 'codexplan',
+      baseUrl: 'http://127.0.0.1:8080/v1',
+    })
+
+    expect(resolved.transport).toBe('chat_completions')
+    expect(resolved.baseUrl).toBe('http://127.0.0.1:8080/v1')
+    expect(resolved.resolvedModel).toBe('gpt-5.4')
   })
 
   test('loads Codex credentials from auth.json fallback', () => {

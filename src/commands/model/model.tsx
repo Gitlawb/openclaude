@@ -291,7 +291,7 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
     return <SetModelAndClose args={args} onDone={onDone} />;
   }
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
-    await fetchBootstrapData();
+    void fetchBootstrapData();
   }
   return <ModelPickerWrapper onDone={onDone} />;
 };
