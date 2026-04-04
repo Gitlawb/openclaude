@@ -12,6 +12,10 @@ import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import { clearFastModeCooldown, isFastModeAvailable, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { MODEL_ALIASES } from '../../utils/model/aliases.js';
 import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1mAccess.js';
+import type { ModelOption } from '../../utils/model/modelOptions.js';
+import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js';
+import { getAPIProvider } from '../../utils/model/providers.js';
+import { getActiveOpenAIModelOptionsCache, setActiveOpenAIModelOptionsCache } from '../../utils/providerProfiles.js';
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
 import { validateModel } from '../../utils/model/validateModel.js';
@@ -268,6 +272,33 @@ function _temp8(s_0) {
 function _temp7(s) {
   return s.mainLoopModel;
 }
+function haveSameModelOptions(left: ModelOption[], right: ModelOption[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((option, index) => {
+    const other = right[index];
+    return other !== undefined && option.value === other.value && option.label === other.label && option.description === other.description && option.descriptionForModel === other.descriptionForModel;
+  });
+}
+async function refreshOpenAIModelOptionsCache(): Promise<void> {
+  if (getAPIProvider() !== 'openai') {
+    return;
+  }
+  try {
+    const discoveredOptions = await discoverOpenAICompatibleModelOptions();
+    if (discoveredOptions.length === 0) {
+      return;
+    }
+    const currentOptions = getActiveOpenAIModelOptionsCache();
+    if (haveSameModelOptions(currentOptions, discoveredOptions)) {
+      return;
+    }
+    setActiveOpenAIModelOptionsCache(discoveredOptions);
+  } catch {
+    // Keep /model usable even if endpoint discovery fails.
+  }
+}
 export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
   args = args?.trim() || '';
   if (COMMON_INFO_ARGS.includes(args)) {
@@ -288,6 +319,7 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
     });
     return <SetModelAndClose args={args} onDone={onDone} />;
   }
+  await refreshOpenAIModelOptionsCache();
   return <ModelPickerWrapper onDone={onDone} />;
 };
 function renderModelLabel(model: string | null): string {

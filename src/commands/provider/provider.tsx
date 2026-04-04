@@ -2,6 +2,7 @@ import * as React from 'react'
 
 import type { LocalJSXCommandCall, LocalJSXCommandOnDone } from '../../types/command.js'
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js'
+import { ProviderManager } from '../../components/ProviderManager.js'
 import TextInput from '../../components/TextInput.js'
 import {
   Select,
@@ -1131,22 +1132,34 @@ export function ProviderWizard({
 }
 
 export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
-  const normalizedArgs = args?.trim().toLowerCase() || ''
+  const trimmedArgs = args?.trim().toLowerCase() ?? ''
 
-  if (COMMON_INFO_ARGS.includes(normalizedArgs)) {
-    onDone(buildUsageText(), { display: 'system' })
-    return null
+  if (
+    COMMON_HELP_ARGS.includes(trimmedArgs) ||
+    COMMON_INFO_ARGS.includes(trimmedArgs) ||
+    trimmedArgs === 'help' ||
+    trimmedArgs === '--help' ||
+    trimmedArgs === '-h'
+  ) {
+    onDone(
+      'Run /provider to add, edit, delete, or activate provider profiles. The active provider controls base URL, model, and API key.',
+      { display: 'system' },
+    )
+    return
   }
 
-  if (COMMON_HELP_ARGS.includes(normalizedArgs)) {
-    onDone(buildUsageText(), { display: 'system' })
-    return null
-  }
+  return (
+    <ProviderManager
+      mode="manage"
+      onDone={result => {
+        const message =
+          result?.message ??
+          (result?.action === 'saved'
+            ? 'Provider profile updated'
+            : 'Provider manager closed')
 
-  if (normalizedArgs) {
-    onDone('Usage: /provider', { display: 'system' })
-    return null
-  }
-
-  return <ProviderWizard onDone={onDone} />
+        onDone(message, { display: 'system' })
+      }}
+    />
+  )
 }

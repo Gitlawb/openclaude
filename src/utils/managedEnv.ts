@@ -8,6 +8,7 @@ import {
 } from './managedEnvConstants.js'
 import { clearMTLSCache } from './mtls.js'
 import { clearProxyCache, configureGlobalAgents } from './proxy.js'
+import { applyActiveProviderProfileFromConfig } from './providerProfiles.js'
 import { isSettingSourceEnabled } from './settings/constants.js'
 import {
   getSettings_DEPRECATED,
@@ -175,6 +176,10 @@ export function applySafeConfigEnvironmentVariables(): void {
       process.env[key] = value
     }
   }
+
+  // Active provider profile must win over settings/env merges so model/provider
+  // selection remains consistent with /provider.
+  applyActiveProviderProfileFromConfig()
 }
 
 /**
@@ -188,6 +193,9 @@ export function applyConfigEnvironmentVariables(): void {
   Object.assign(process.env, filterSettingsEnv(getGlobalConfig().env))
 
   Object.assign(process.env, filterSettingsEnv(getSettings_DEPRECATED()?.env))
+
+  // Keep runtime provider/model env aligned with the active profile.
+  applyActiveProviderProfileFromConfig()
 
   // Clear caches so agents are rebuilt with the new env vars
   clearCACertsCache()
