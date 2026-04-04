@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import * as React from 'react';
 import { pathToFileURL } from 'url';
 import Link from '../ink/components/Link.js';
 import { supportsHyperlinks } from '../ink/supports-hyperlinks.js';
@@ -20,7 +19,7 @@ type Props = {
  * - Terminal doesn't support hyperlinks
  * - Image file is not found in the store
  */
-export function ClickableImageRef(t0) {
+export function ClickableImageRef(t0: Props) {
   const $ = _c(13);
   const {
     imageId,
