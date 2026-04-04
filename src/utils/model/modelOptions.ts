@@ -359,7 +359,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const antModelOptions: ModelOption[] = getAntModels().map(m => ({
       value: m.alias,
       label: m.label,
-      description: m.description ?? `[ANT-ONLY] ${m.label} (${m.model})`,
+      description: m.description ?? `[internal] ${m.label} (${m.model})`,
     }))
 
     return [
