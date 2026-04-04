@@ -23,6 +23,8 @@
 
 import { APIError } from '@anthropic-ai/sdk'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
+import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import {
   codexStreamToAnthropic,
@@ -46,6 +48,7 @@ type SecretValueSource = Partial<{
   CODEX_API_KEY: string
   GEMINI_API_KEY: string
   GOOGLE_API_KEY: string
+  GEMINI_ACCESS_TOKEN: string
 }>
 
 const GITHUB_MODELS_DEFAULT_BASE = 'https://models.github.ai/inference'
@@ -893,7 +896,9 @@ class OpenAIShimMessages {
       ...(options?.headers ?? {}),
     }
 
-    const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+    const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+    const apiKey =
+      this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -909,6 +914,14 @@ class OpenAIShimMessages {
         headers['api-key'] = apiKey
       } else {
         headers.Authorization = `Bearer ${apiKey}`
+      }
+    } else if (isGemini) {
+      const geminiCredential = await resolveGeminiCredential(process.env)
+      if (geminiCredential.kind !== 'none') {
+        headers.Authorization = `Bearer ${geminiCredential.credential}`
+        if (geminiCredential.projectId) {
+          headers['x-goog-user-project'] = geminiCredential.projectId
+        }
       }
     }
 
@@ -1105,6 +1118,7 @@ export function createOpenAIShimClient(options: {
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
   providerOverride?: { model: string; baseURL: string; apiKey: string }
 }): unknown {
+  hydrateGeminiAccessTokenFromSecureStorage()
   hydrateGithubModelsTokenFromSecureStorage()
 
   // When Gemini provider is active, map Gemini env vars to OpenAI-compatible ones
@@ -1113,8 +1127,11 @@ export function createOpenAIShimClient(options: {
     process.env.OPENAI_BASE_URL ??=
       process.env.GEMINI_BASE_URL ??
       'https://generativelanguage.googleapis.com/v1beta/openai'
-    process.env.OPENAI_API_KEY ??=
-      process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? ''
+    const geminiApiKey =
+      process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY
+    if (geminiApiKey && !process.env.OPENAI_API_KEY) {
+      process.env.OPENAI_API_KEY = geminiApiKey
+    }
     if (process.env.GEMINI_MODEL && !process.env.OPENAI_MODEL) {
       process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
     }

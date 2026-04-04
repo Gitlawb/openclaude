@@ -6,9 +6,26 @@ type FetchType = typeof globalThis.fetch
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+  GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
+  GEMINI_AUTH_MODE: process.env.GEMINI_AUTH_MODE,
+  GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
+  GEMINI_MODEL: process.env.GEMINI_MODEL,
+  GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
 }
 
 const originalFetch = globalThis.fetch
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = value
+  }
+}
 
 type OpenAIShimClient = {
   beta: {
@@ -52,11 +69,29 @@ function makeStreamChunks(chunks: unknown[]): string[] {
 beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
+  delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GOOGLE_API_KEY
+  delete process.env.GEMINI_ACCESS_TOKEN
+  delete process.env.GEMINI_AUTH_MODE
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_MODEL
+  delete process.env.GOOGLE_CLOUD_PROJECT
 })
 
 afterEach(() => {
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.OPENAI_API_KEY = originalEnv.OPENAI_API_KEY
+  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+  restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+  restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
+  restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
+  restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
+  restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
+  restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
+  restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
+  restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
   globalThis.fetch = originalFetch
 })
 
@@ -306,6 +341,76 @@ test('preserves image tool results as placeholders in follow-up requests', async
   ) as { content?: string } | undefined
 
   expect(toolMessage?.content).toContain('[image:image/png]')
+})
+
+test('uses GEMINI_ACCESS_TOKEN for Gemini OpenAI-compatible requests', async () => {
+  let capturedAuthorization: string | null = null
+  let capturedProject: string | null = null
+  let requestUrl: string | undefined
+
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_AUTH_MODE = 'access-token'
+  process.env.GEMINI_ACCESS_TOKEN = 'gemini-access-token'
+  process.env.GOOGLE_CLOUD_PROJECT = 'gemini-project'
+  process.env.GEMINI_BASE_URL =
+    'https://generativelanguage.googleapis.com/v1beta/openai'
+  process.env.GEMINI_MODEL = 'gemini-2.0-flash'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GOOGLE_API_KEY
+
+  globalThis.fetch = (async (input, init) => {
+    requestUrl = typeof input === 'string' ? input : input.url
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+    capturedProject =
+      headers?.['x-goog-user-project'] ??
+      headers?.['X-Goog-User-Project'] ??
+      null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-gemini',
+        model: 'gemini-2.0-flash',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 1,
+          total_tokens: 4,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-2.0-flash',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(requestUrl).toBe(
+    'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+  )
+  expect(capturedAuthorization).toBe('Bearer gemini-access-token')
+  expect(capturedProject).toBe('gemini-project')
 })
 
 test('preserves Gemini tool call extra_content from streaming chunks', async () => {

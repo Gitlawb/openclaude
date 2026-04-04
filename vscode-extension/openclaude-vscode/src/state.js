@@ -109,6 +109,19 @@ function isLocalBaseUrl(baseUrl) {
   }
 }
 
+function getHostname(baseUrl) {
+  const normalized = asNonEmptyString(baseUrl);
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    return new URL(normalized).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 function resolveCommandCheckPath(command, workspacePath) {
   const normalized = asNonEmptyString(command);
   if (!normalized) {
@@ -241,6 +254,7 @@ function hasCodexAlias(model) {
 function getOpenAICompatibleLabel(baseUrl, model) {
   const normalizedBaseUrl = (asNonEmptyString(baseUrl) || '').toLowerCase();
   const normalizedModel = (asNonEmptyString(model) || '').toLowerCase();
+  const hostname = getHostname(baseUrl);
 
   if (hasCodexBaseUrl(baseUrl) || (!baseUrl && hasCodexAlias(model))) {
     return 'Codex';
@@ -278,7 +292,7 @@ function getOpenAICompatibleLabel(baseUrl, model) {
     return 'Azure OpenAI';
   }
 
-  if (normalizedBaseUrl.includes('api.openai.com') || !normalizedBaseUrl) {
+  if (hostname === 'api.openai.com' || !normalizedBaseUrl) {
     return 'OpenAI';
   }
 

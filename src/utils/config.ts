@@ -180,6 +180,15 @@ export type DiffTool = 'terminal' | 'auto'
 
 export type OutputStyle = string
 
+export type ProviderProfile = {
+  id: string
+  name: string
+  provider: 'openai' | 'anthropic'
+  baseUrl: string
+  model: string
+  apiKey?: string
+}
+
 export type GlobalConfig = {
   /**
    * @deprecated Use settings.apiKeyHelper instead.
@@ -568,6 +577,18 @@ export type GlobalConfig = {
   // Additional model options for the model picker (fetched during bootstrap).
   additionalModelOptionsCache?: ModelOption[]
 
+  // Additional model options discovered from OpenAI-compatible endpoints.
+  openaiAdditionalModelOptionsCache?: ModelOption[]
+
+  // Provider profiles managed inside the TUI. The active profile determines
+  // which API provider env vars are applied for the current session.
+  providerProfiles?: ProviderProfile[]
+  activeProviderProfileId?: string
+
+  // Per-profile cache for models discovered from OpenAI-compatible endpoints.
+  // Keyed by provider profile id.
+  openaiAdditionalModelOptionsCacheByProfile?: Record<string, ModelOption[]>
+
   // Disk cache for /api/claude_code/organizations/metrics_enabled.
   // Org-level settings change rarely; persisting across processes avoids a
   // cold API call on every `claude -p` invocation.
@@ -624,6 +645,8 @@ function createDefaultGlobalConfig(): GlobalConfig {
     cachedGrowthBookFeatures: {},
     respectGitignore: true,
     copyFullResponse: false,
+    providerProfiles: [],
+    openaiAdditionalModelOptionsCacheByProfile: {},
   }
 }
 

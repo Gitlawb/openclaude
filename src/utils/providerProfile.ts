@@ -12,6 +12,7 @@ import {
   normalizeRecommendationGoal,
   type RecommendationGoal,
 } from './providerRecommendation.ts'
+import { readGeminiAccessToken } from './geminiCredentials.ts'
 import { getOllamaChatBaseUrl } from './providerDiscovery.ts'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
@@ -32,6 +33,8 @@ const PROFILE_ENV_KEYS = [
   'CHATGPT_ACCOUNT_ID',
   'CODEX_ACCOUNT_ID',
   'GEMINI_API_KEY',
+  'GEMINI_AUTH_MODE',
+  'GEMINI_ACCESS_TOKEN',
   'GEMINI_MODEL',
   'GEMINI_BASE_URL',
   'GOOGLE_API_KEY',
@@ -54,6 +57,7 @@ export type ProfileEnv = {
   CHATGPT_ACCOUNT_ID?: string
   CODEX_ACCOUNT_ID?: string
   GEMINI_API_KEY?: string
+  GEMINI_AUTH_MODE?: 'api-key' | 'access-token' | 'adc'
   GEMINI_MODEL?: string
   GEMINI_BASE_URL?: string
 }
@@ -220,19 +224,22 @@ export function buildGeminiProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
+  authMode?: 'api-key' | 'access-token' | 'adc'
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
+  const authMode = options.authMode ?? 'api-key'
   const key = sanitizeApiKey(
     options.apiKey ??
       processEnv.GEMINI_API_KEY ??
       processEnv.GOOGLE_API_KEY,
   )
-  if (!key) {
+  if (authMode === 'api-key' && !key) {
     return null
   }
 
   const env: ProfileEnv = {
+    GEMINI_AUTH_MODE: authMode,
     GEMINI_MODEL:
       sanitizeProviderConfigValue(options.model, { GEMINI_API_KEY: key }, processEnv) ||
       sanitizeProviderConfigValue(
@@ -241,7 +248,10 @@ export function buildGeminiProfileEnv(options: {
         processEnv,
       ) ||
       DEFAULT_GEMINI_MODEL,
-    GEMINI_API_KEY: key,
+  }
+
+  if (authMode === 'api-key' && key) {
+    env.GEMINI_API_KEY = key
   }
 
   const baseUrl =
@@ -422,6 +432,7 @@ export async function buildLaunchEnv(options: {
   resolveOllamaDefaultModel?: (goal: RecommendationGoal) => Promise<string>
   getAtomicChatChatBaseUrl?: (baseUrl?: string) => string
   resolveAtomicChatDefaultModel?: () => Promise<string | null>
+  readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options.processEnv ?? process.env
   const persistedEnv =
@@ -460,11 +471,16 @@ export async function buildLaunchEnv(options: {
     processEnv.GEMINI_BASE_URL,
     processEnv,
   )
+  const shellGeminiAccessToken =
+    processEnv.GEMINI_ACCESS_TOKEN?.trim() || undefined
+  const storedGeminiAccessToken =
+    options.readGeminiAccessToken?.() ?? readGeminiAccessToken()
 
   const shellGeminiKey = sanitizeApiKey(
     processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY,
   )
   const persistedGeminiKey = sanitizeApiKey(persistedEnv.GEMINI_API_KEY)
+  const persistedGeminiAuthMode = persistedEnv.GEMINI_AUTH_MODE
 
   if (options.profile === 'gemini') {
     const env: NodeJS.ProcessEnv = {
@@ -484,11 +500,28 @@ export async function buildLaunchEnv(options: {
       persistedGeminiBaseUrl ||
       DEFAULT_GEMINI_BASE_URL
 
+    const geminiAuthMode =
+      persistedGeminiAuthMode === 'access-token' ||
+      persistedGeminiAuthMode === 'adc'
+        ? persistedGeminiAuthMode
+        : 'api-key'
     const geminiKey = shellGeminiKey || persistedGeminiKey
-    if (geminiKey) {
+    if (geminiAuthMode === 'api-key' && geminiKey) {
       env.GEMINI_API_KEY = geminiKey
     } else {
       delete env.GEMINI_API_KEY
+    }
+    env.GEMINI_AUTH_MODE = geminiAuthMode
+    if (geminiAuthMode === 'access-token') {
+      const geminiAccessToken =
+        shellGeminiAccessToken || storedGeminiAccessToken
+      if (geminiAccessToken) {
+        env.GEMINI_ACCESS_TOKEN = geminiAccessToken
+      } else {
+        delete env.GEMINI_ACCESS_TOKEN
+      }
+    } else {
+      delete env.GEMINI_ACCESS_TOKEN
     }
 
     delete env.GOOGLE_API_KEY
@@ -510,6 +543,8 @@ export async function buildLaunchEnv(options: {
   delete env.CLAUDE_CODE_USE_GEMINI
   delete env.CLAUDE_CODE_USE_GITHUB
   delete env.GEMINI_API_KEY
+  delete env.GEMINI_AUTH_MODE
+  delete env.GEMINI_ACCESS_TOKEN
   delete env.GEMINI_MODEL
   delete env.GEMINI_BASE_URL
   delete env.GOOGLE_API_KEY
@@ -624,6 +659,7 @@ export async function buildStartupEnvFromProfile(options?: {
   processEnv?: NodeJS.ProcessEnv
   getOllamaChatBaseUrl?: (baseUrl?: string) => string
   resolveOllamaDefaultModel?: (goal: RecommendationGoal) => Promise<string>
+  readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options?.processEnv ?? process.env
   if (hasExplicitProviderSelection(processEnv)) {
@@ -645,6 +681,7 @@ export async function buildStartupEnvFromProfile(options?: {
     getOllamaChatBaseUrl:
       options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
     resolveOllamaDefaultModel: options?.resolveOllamaDefaultModel,
+    readGeminiAccessToken: options?.readGeminiAccessToken,
   })
 }
 

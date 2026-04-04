@@ -38,6 +38,7 @@
         "cli-highlight": "2.1.11",
         "code-excerpt": "4.0.0",
         "commander": "12.1.0",
+        "cross-spawn": "7.0.6",
         "diff": "8.0.3",
         "duck-duck-scrape": "^2.2.7",
         "emoji-regex": "10.6.0",
