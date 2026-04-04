@@ -17,6 +17,7 @@ import {
 } from '../utils/providerProfiles.js'
 import {
   clearGithubModelsToken,
+  GITHUB_MODELS_HYDRATED_ENV_MARKER,
   hydrateGithubModelsTokenFromSecureStorage,
   readGithubModelsToken,
 } from '../utils/githubModelsCredentials.js'
@@ -88,6 +89,8 @@ const GITHUB_PROVIDER_LABEL = 'GitHub Models'
 const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
 const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 
+type GithubCredentialSource = 'stored' | 'env' | 'none'
+
 function toDraft(profile: ProviderProfile): ProviderDraft {
   return {
     name: profile.name,
@@ -117,7 +120,7 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
 
 function getGithubCredentialSource(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'stored' | 'env' | 'none' {
+): GithubCredentialSource {
   if (readGithubModelsToken()?.trim()) {
     return 'stored'
   }
@@ -147,15 +150,15 @@ function getGithubProviderModel(
 
 function getGithubProviderSummary(
   isActive: boolean,
+  credentialSource: GithubCredentialSource,
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string {
-  const credentialSource = getGithubCredentialSource(processEnv)
   const credentialSummary =
     credentialSource === 'stored'
       ? 'token stored'
       : credentialSource === 'env'
         ? 'token via env'
-        : 'token availability unknown'
+        : 'no token found'
   const activeSuffix = isActive ? ' (active)' : ''
   return `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel(processEnv)} · ${credentialSummary}${activeSuffix}`
 }
@@ -167,6 +170,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   )
   const [githubProviderAvailable, setGithubProviderAvailable] = React.useState(() =>
     isGithubProviderAvailable(),
+  )
+  const [githubCredentialSource, setGithubCredentialSource] = React.useState<GithubCredentialSource>(
+    () => getGithubCredentialSource(),
   )
   const [isGithubActive, setIsGithubActive] = React.useState(() =>
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB),
@@ -195,6 +201,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setProfiles(nextProfiles)
     setActiveProfileId(getActiveProviderProfile()?.id)
     setGithubProviderAvailable(isGithubProviderAvailable())
+    setGithubCredentialSource(getGithubCredentialSource())
     setIsGithubActive(isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB))
   }
 
@@ -221,6 +228,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
         OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
+        OPENAI_API_KEY: undefined as any,
+        OPENAI_ORG: undefined as any,
+        OPENAI_PROJECT: undefined as any,
+        OPENAI_ORGANIZATION: undefined as any,
         OPENAI_BASE_URL: undefined as any,
         OPENAI_API_BASE: undefined as any,
         CLAUDE_CODE_USE_OPENAI: undefined as any,
@@ -236,6 +247,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     process.env.OPENAI_MODEL = GITHUB_PROVIDER_DEFAULT_MODEL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_ORG
+    delete process.env.OPENAI_PROJECT
+    delete process.env.OPENAI_ORGANIZATION
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
     delete process.env.CLAUDE_CODE_USE_OPENAI
@@ -245,12 +260,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     delete process.env.CLAUDE_CODE_USE_FOUNDRY
     delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
     delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
 
     hydrateGithubModelsTokenFromSecureStorage()
     return null
   }
 
   function deleteGithubProvider(): string | null {
+    const storedTokenBeforeClear = readGithubModelsToken()?.trim()
     const cleared = clearGithubModelsToken()
     if (!cleared.success) {
       return cleared.warning ?? 'Could not clear GitHub credentials.'
@@ -268,7 +285,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return error.message
     }
 
+    const hydratedTokenInSession = process.env.GITHUB_TOKEN?.trim()
+    if (
+      process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] === '1' &&
+      hydratedTokenInSession &&
+      (!storedTokenBeforeClear || hydratedTokenInSession === storedTokenBeforeClear)
+    ) {
+      delete process.env.GITHUB_TOKEN
+    }
+
     delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     delete process.env.OPENAI_MODEL
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
@@ -619,7 +646,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               ))}
               {githubProviderAvailable ? (
                 <Text dimColor>
-                  - {GITHUB_PROVIDER_LABEL}: {getGithubProviderSummary(isGithubActive)}
+                  - {GITHUB_PROVIDER_LABEL}:{' '}
+                  {getGithubProviderSummary(
+                    isGithubActive,
+                    githubCredentialSource,
+                  )}
                 </Text>
               ) : null}
             </>
