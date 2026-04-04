@@ -1,4 +1,4 @@
-import { describe, expect, test, afterEach } from 'bun:test'
+import { describe, expect, test, afterEach, beforeEach } from 'bun:test'
 import { getRateLimitResetDelayMs, parseOpenAIDuration } from './withRetry.js'
 import { APIError } from '@anthropic-ai/sdk'
 
@@ -14,8 +14,25 @@ function makeError(headers: Record<string, string>): APIError {
   } as unknown as APIError
 }
 
-// Save/restore env vars between tests
+// Save original env vars before any mutation
 const originalEnv = { ...process.env }
+
+// Clear provider env before EACH test so the first test in every
+// describe block also runs with a clean slate (not just between tests).
+beforeEach(() => {
+  for (const key of [
+    'CLAUDE_CODE_USE_OPENAI',
+    'CLAUDE_CODE_USE_GEMINI',
+    'CLAUDE_CODE_USE_GITHUB',
+    'CLAUDE_CODE_USE_BEDROCK',
+    'CLAUDE_CODE_USE_VERTEX',
+    'CLAUDE_CODE_USE_FOUNDRY',
+  ]) {
+    delete process.env[key]
+  }
+})
+
+// Restore original env after each test
 afterEach(() => {
   for (const key of [
     'CLAUDE_CODE_USE_OPENAI',
