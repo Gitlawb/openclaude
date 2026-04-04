@@ -1,12 +1,14 @@
 import type { z } from 'zod/v4'
 import type { ToolPermissionContext } from '../../Tool.js'
 import { splitCommand_DEPRECATED } from '../../utils/bash/commands.js'
+import { tryParseShellCommand } from '../../utils/bash/shellQuote.js'
 import { getCwd } from '../../utils/cwd.js'
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js'
 import type { BashTool } from './BashTool.js'
+import { checkReadOnlyConstraints } from './readOnlyValidation.js'
 import { checkDangerousRemovalPaths } from './pathValidation.js'
 
-const ACCEPT_EDITS_ALLOWED_COMMANDS = [
+const ACCEPT_EDITS_WRITE_COMMANDS = [
   // Filesystem write commands
   'mkdir',
   'touch',
@@ -15,9 +17,12 @@ const ACCEPT_EDITS_ALLOWED_COMMANDS = [
   'mv',
   'cp',
   'sed',
+ ] as const
+
+const ACCEPT_EDITS_READ_ONLY_COMMANDS = [
   // Safe read-only commands — cannot modify files or cause data loss.
-  // Auto-allowing these reduces friction in acceptEdits mode without
-  // introducing any safety risk (issue #251).
+  // These still need to pass the existing read-only validator so redirects and
+  // dangerous flags fall through to the normal permission flow.
   'grep',
   'cat',
   'ls',
@@ -32,15 +37,46 @@ const ACCEPT_EDITS_ALLOWED_COMMANDS = [
   'diff',
 ] as const
 
-type FilesystemCommand = (typeof ACCEPT_EDITS_ALLOWED_COMMANDS)[number]
+type AcceptEditsWriteCommand = (typeof ACCEPT_EDITS_WRITE_COMMANDS)[number]
+type AcceptEditsReadOnlyCommand =
+  (typeof ACCEPT_EDITS_READ_ONLY_COMMANDS)[number]
 
-function isFilesystemCommand(command: string): command is FilesystemCommand {
-  return ACCEPT_EDITS_ALLOWED_COMMANDS.includes(command as FilesystemCommand)
+function isAcceptEditsWriteCommand(
+  command: string,
+): command is AcceptEditsWriteCommand {
+  return ACCEPT_EDITS_WRITE_COMMANDS.includes(command as AcceptEditsWriteCommand)
+}
+
+function isAcceptEditsReadOnlyCommand(
+  command: string,
+): command is AcceptEditsReadOnlyCommand {
+  return ACCEPT_EDITS_READ_ONLY_COMMANDS.includes(
+    command as AcceptEditsReadOnlyCommand,
+  )
+}
+
+function hasShellRedirection(cmd: string): boolean {
+  const parsed = tryParseShellCommand(cmd, env => `$${env}`)
+  if (!parsed.success) {
+    // Fail closed: unparseable commands should go through the normal prompt flow.
+    return true
+  }
+
+  return parsed.tokens.some(
+    token =>
+      typeof token === 'object' &&
+      token !== null &&
+      'op' in token &&
+      ['>', '>>', '>|', '&>', '&>>', '1>', '1>>', '2>', '2>>'].includes(
+        String(token.op),
+      ),
+  )
 }
 
 function validateCommandForMode(
   cmd: string,
   toolPermissionContext: ToolPermissionContext,
+  originalInput: string,
 ): PermissionResult {
   const trimmedCmd = cmd.trim()
   const [baseCmd] = trimmedCmd.split(/\s+/)
@@ -52,10 +88,10 @@ function validateCommandForMode(
     }
   }
 
-  // In Accept Edits mode, auto-allow filesystem operations
+  // In Accept Edits mode, auto-allow filesystem write operations.
   if (
     toolPermissionContext.mode === 'acceptEdits' &&
-    isFilesystemCommand(baseCmd)
+    isAcceptEditsWriteCommand(baseCmd)
   ) {
     // Guard: always run dangerous path check for rm/rmdir before auto-allowing.
     // This prevents rm -rf ~ / rm -rf / from bypassing checkDangerousRemovalPaths
@@ -75,6 +111,37 @@ function validateCommandForMode(
         type: 'mode',
         mode: 'acceptEdits',
       },
+    }
+  }
+
+  // In Accept Edits mode, only auto-allow read-only commands if they still
+  // pass the full read-only validator. This prevents redirects and mutating
+  // find forms from being silently auto-approved.
+  if (
+    toolPermissionContext.mode === 'acceptEdits' &&
+    isAcceptEditsReadOnlyCommand(baseCmd)
+  ) {
+    if (hasShellRedirection(originalInput)) {
+      return {
+        behavior: 'passthrough',
+        message:
+          'Read-only commands with shell redirection require normal permission checks',
+      }
+    }
+
+    const readOnlyResult = checkReadOnlyConstraints(
+      { command: cmd } as z.infer<typeof BashTool.inputSchema>,
+      false,
+    )
+    if (readOnlyResult.behavior === 'allow') {
+      return {
+        behavior: 'allow',
+        updatedInput: { command: cmd },
+        decisionReason: {
+          type: 'mode',
+          mode: 'acceptEdits',
+        },
+      }
     }
   }
 
@@ -122,7 +189,7 @@ export function checkPermissionMode(
 
   // Check each subcommand
   for (const cmd of commands) {
-    const result = validateCommandForMode(cmd, toolPermissionContext)
+    const result = validateCommandForMode(cmd, toolPermissionContext, input.command)
 
     // If any command triggers mode-specific behavior, return that result
     if (result.behavior !== 'passthrough') {
@@ -140,5 +207,7 @@ export function checkPermissionMode(
 export function getAutoAllowedCommands(
   mode: ToolPermissionContext['mode'],
 ): readonly string[] {
-  return mode === 'acceptEdits' ? ACCEPT_EDITS_ALLOWED_COMMANDS : []
+  return mode === 'acceptEdits'
+    ? [...ACCEPT_EDITS_WRITE_COMMANDS, ...ACCEPT_EDITS_READ_ONLY_COMMANDS]
+    : []
 }
