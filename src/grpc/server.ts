@@ -177,6 +177,9 @@ export class GrpcServer {
             pendingRequests.delete(promptId)
           }
         } else if (clientMessage.cancel) {
+          if (engine) {
+            engine.interrupt()
+          }
           call.end()
         }
       } catch (err: any) {

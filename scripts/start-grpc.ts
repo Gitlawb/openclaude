@@ -1,5 +1,5 @@
 import { GrpcServer } from '../src/grpc/server.ts'
-import { enableConfigs } from '../src/utils/config.js'
+import { init } from '../src/entrypoints/init.ts'
 
 // Polyfill MACRO which is normally injected by the bundler
 Object.assign(globalThis, {
@@ -12,7 +12,7 @@ Object.assign(globalThis, {
 
 async function main() {
   console.log('Starting OpenClaude gRPC Server...')
-  enableConfigs()
+  await init()
 
   const port = process.env.GRPC_PORT ? parseInt(process.env.GRPC_PORT, 10) : 50051
   const host = process.env.GRPC_HOST || 'localhost'

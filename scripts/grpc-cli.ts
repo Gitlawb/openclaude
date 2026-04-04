@@ -39,10 +39,12 @@ async function main() {
 
   const startStream = () => {
     call = client.Chat()
+    let textStreamed = false
 
     call.on('data', async (serverMessage: any) => {
       if (serverMessage.text_chunk) {
         process.stdout.write(serverMessage.text_chunk.text)
+        textStreamed = true
       } else if (serverMessage.tool_start) {
         console.log(`\n\x1b[36m[Tool Call]\x1b[0m \x1b[1m${serverMessage.tool_start.tool_name}\x1b[0m`)
         console.log(`\x1b[90m${serverMessage.tool_start.arguments_json}\x1b[0m\n`)
@@ -66,6 +68,10 @@ async function main() {
           }
         })
       } else if (serverMessage.done) {
+        if (!textStreamed && serverMessage.done.full_text) {
+          process.stdout.write(serverMessage.done.full_text)
+        }
+        textStreamed = false
         console.log('\n\x1b[32m[Generation Complete]\x1b[0m')
         promptUser()
       } else if (serverMessage.error) {
