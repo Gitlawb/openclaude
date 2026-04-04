@@ -72,6 +72,7 @@ message ToolCallResult {
   string tool_name = 1;
   string output = 2;      // stdout/stderr or file contents
   bool is_error = 3;      // Did the command itself fail
+  string tool_use_id = 4; // Correlation ID matching ToolCallStart
 }
 
 // Agent paused work and is waiting for user decision

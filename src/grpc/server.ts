@@ -69,6 +69,8 @@ export class GrpcServer {
             previousMessages = [...this.sessions.get(sessionId)!]
           }
 
+          const toolNameById = new Map<string, string>()
+
           engine = new QueryEngine({
             cwd: req.working_directory || process.cwd(),
             tools: getTools(appState.toolPermissionContext), // Gets all available tools
@@ -78,6 +80,9 @@ export class GrpcServer {
             ...(previousMessages.length > 0 ? { initialMessages: previousMessages } : {}),
             includePartialMessages: true,
             canUseTool: async (tool, input, context, assistantMsg, toolUseID) => {
+              if (toolUseID) {
+                toolNameById.set(toolUseID, tool.name)
+              }
               // Notify client of the tool call first
               call.write({
                 tool_start: {
@@ -145,7 +150,8 @@ export class GrpcServer {
                     }
                     call.write({
                       tool_result: {
-                        tool_name: block.tool_use_id,
+                        tool_name: toolNameById.get(block.tool_use_id) ?? block.tool_use_id,
+                        tool_use_id: block.tool_use_id,
                         output: outputStr,
                         is_error: block.is_error || false
                       }
