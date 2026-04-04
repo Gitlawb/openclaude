@@ -1,0 +1,149 @@
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { mkdtemp, readFile, rm } from 'fs/promises'
+import { join } from 'path'
+import { tmpdir } from 'os'
+import {
+  __private__,
+  enforceClientQuotaGuards,
+  resetClientQuotaGuardsForTests,
+} from './clientQuotaGuards.js'
+
+const originalEnv = {
+  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  CLAUDE_CODE_CLIENT_RPM_LIMIT: process.env.CLAUDE_CODE_CLIENT_RPM_LIMIT,
+  CLAUDE_CODE_CLIENT_RPM_WINDOW_MS:
+    process.env.CLAUDE_CODE_CLIENT_RPM_WINDOW_MS,
+  CLAUDE_CODE_CLIENT_RPD_LIMIT: process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT,
+  CLAUDE_CODE_CLIENT_RPD_WARN_THRESHOLD_PCT:
+    process.env.CLAUDE_CODE_CLIENT_RPD_WARN_THRESHOLD_PCT,
+  CLAUDE_CODE_CLIENT_RPD_STATE_FILE:
+    process.env.CLAUDE_CODE_CLIENT_RPD_STATE_FILE,
+}
+
+let tempConfigDir: string
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = value
+  }
+}
+
+beforeEach(async () => {
+  tempConfigDir = await mkdtemp(join(tmpdir(), 'openclaude-quota-'))
+
+  process.env.CLAUDE_CONFIG_DIR = tempConfigDir
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_CLIENT_RPM_LIMIT
+  delete process.env.CLAUDE_CODE_CLIENT_RPM_WINDOW_MS
+  delete process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT
+  delete process.env.CLAUDE_CODE_CLIENT_RPD_WARN_THRESHOLD_PCT
+  delete process.env.CLAUDE_CODE_CLIENT_RPD_STATE_FILE
+
+  resetClientQuotaGuardsForTests()
+})
+
+afterEach(async () => {
+  restoreEnv('CLAUDE_CONFIG_DIR', originalEnv.CLAUDE_CONFIG_DIR)
+  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+  restoreEnv(
+    'CLAUDE_CODE_CLIENT_RPM_LIMIT',
+    originalEnv.CLAUDE_CODE_CLIENT_RPM_LIMIT,
+  )
+  restoreEnv(
+    'CLAUDE_CODE_CLIENT_RPM_WINDOW_MS',
+    originalEnv.CLAUDE_CODE_CLIENT_RPM_WINDOW_MS,
+  )
+  restoreEnv(
+    'CLAUDE_CODE_CLIENT_RPD_LIMIT',
+    originalEnv.CLAUDE_CODE_CLIENT_RPD_LIMIT,
+  )
+  restoreEnv(
+    'CLAUDE_CODE_CLIENT_RPD_WARN_THRESHOLD_PCT',
+    originalEnv.CLAUDE_CODE_CLIENT_RPD_WARN_THRESHOLD_PCT,
+  )
+  restoreEnv(
+    'CLAUDE_CODE_CLIENT_RPD_STATE_FILE',
+    originalEnv.CLAUDE_CODE_CLIENT_RPD_STATE_FILE,
+  )
+
+  resetClientQuotaGuardsForTests()
+  await rm(tempConfigDir, { recursive: true, force: true })
+})
+
+test('RPD guard blocks requests after reaching daily cap', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '2'
+
+  await enforceClientQuotaGuards()
+  await enforceClientQuotaGuards()
+
+  await expect(enforceClientQuotaGuards()).rejects.toThrow(
+    'Client quota guard blocked request',
+  )
+})
+
+test('RPD guard resets counter on UTC day boundary', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '1'
+
+  const start = Date.parse('2026-04-04T23:59:50.000Z')
+  let now = start
+
+  await enforceClientQuotaGuards({ nowMs: () => now })
+  await expect(enforceClientQuotaGuards({ nowMs: () => now })).rejects.toThrow(
+    'daily cap reached',
+  )
+
+  now = Date.parse('2026-04-05T00:00:05.000Z')
+  await expect(
+    enforceClientQuotaGuards({ nowMs: () => now }),
+  ).resolves.toBeUndefined()
+})
+
+test('RPD guard persists warning marker once threshold is crossed', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '10'
+  process.env.CLAUDE_CODE_CLIENT_RPD_WARN_THRESHOLD_PCT = '0.5'
+
+  for (let i = 0; i < 5; i += 1) {
+    await enforceClientQuotaGuards()
+  }
+
+  const statePath = __private__.getRpdStatePath()
+  const raw = await readFile(statePath, 'utf8')
+  const parsed = JSON.parse(raw) as {
+    attempts: number
+    warnedAtIso: string | null
+  }
+
+  expect(parsed.attempts).toBe(5)
+  expect(typeof parsed.warnedAtIso).toBe('string')
+})
+
+test('RPM guard waits until request leaves sliding window', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPM_LIMIT = '2'
+  process.env.CLAUDE_CODE_CLIENT_RPM_WINDOW_MS = '1000'
+
+  let now = 0
+  const waits: number[] = []
+
+  const sleepFn = async (ms: number) => {
+    waits.push(ms)
+    now += ms
+  }
+
+  await enforceClientQuotaGuards({ nowMs: () => now, sleepFn })
+  now = 100
+  await enforceClientQuotaGuards({ nowMs: () => now, sleepFn })
+  now = 200
+  await enforceClientQuotaGuards({ nowMs: () => now, sleepFn })
+
+  expect(waits).toEqual([800])
+})

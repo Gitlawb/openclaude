@@ -45,6 +45,7 @@ import {
   checkMockRateLimitError,
   isMockRateLimitError,
 } from '../rateLimitMocking.js'
+import { enforceClientQuotaGuards } from './clientQuotaGuards.js'
 import { REPEATED_529_ERROR_MESSAGE } from './errors.js'
 import { extractConnectionErrorDetails } from './errorUtils.js'
 
@@ -262,6 +263,11 @@ export async function* withRetry<T>(
         }
         client = await getClient()
       }
+
+      await enforceClientQuotaGuards({
+        signal: options.signal,
+        abortError,
+      })
 
       return await operation(client, attempt, retryContext)
     } catch (error) {
