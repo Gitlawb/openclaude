@@ -100,12 +100,14 @@ Advanced and source-build guides:
 | Provider | Setup Path | Notes |
 | --- | --- | --- |
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and compatible local `/v1` servers |
-| Gemini | `/provider` or env vars | Google Gemini support through the runtime provider layer |
+| Gemini | `/provider` or env vars | Google Gemini support through the runtime provider layer (API key, access token, or local ADC) |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex | `/provider` | Uses existing Codex credentials when available |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | advanced setup | Local Apple Silicon backend |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
+
+For Gemini, the current `/provider` flow still sets up the API-key path. Advanced env-based auth can also use `GEMINI_ACCESS_TOKEN` or local Google ADC credentials when available.
 
 ---
 

@@ -1,14 +1,12 @@
 import { feature } from 'bun:bundle';
 import {
-  isLocalProviderUrl,
-  resolveCodexApiCredentials,
-  resolveProviderRequest,
-} from '../services/api/providerConfig.js'
-import {
   applyProfileEnvToProcessEnv,
   buildStartupEnvFromProfile,
-  redactSecretValueForDisplay,
 } from '../utils/providerProfile.js'
+import {
+  getProviderValidationError,
+  validateProviderEnvOrExit,
+} from '../utils/providerValidation.js'
 
 // OpenClaude: disable experimental API betas by default.
 // Tool search (defer_loading), global cache scope, and context management
@@ -42,82 +40,6 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
   }
 }
 
-function isEnvTruthy(value: string | undefined): boolean {
-  if (!value) return false
-  const normalized = value.trim().toLowerCase()
-  return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
-}
-
-function getProviderValidationError(
-  env: NodeJS.ProcessEnv = process.env,
-): string | null {
-  const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
-  const useGithub = isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)
-
-  if (isEnvTruthy(env.CLAUDE_CODE_USE_GEMINI)) {
-    if (!(env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY)) {
-      return 'GEMINI_API_KEY is required when CLAUDE_CODE_USE_GEMINI=1.'
-    }
-    return null
-  }
-
-  if (useGithub && !useOpenAI) {
-    const token = (env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()) ?? ''
-    if (!token) {
-      return 'GITHUB_TOKEN or GH_TOKEN is required when CLAUDE_CODE_USE_GITHUB=1.'
-    }
-    return null
-  }
-
-  if (!useOpenAI) {
-    return null
-  }
-
-  const request = resolveProviderRequest({
-    model: env.OPENAI_MODEL,
-    baseUrl: env.OPENAI_BASE_URL,
-  })
-
-  if (env.OPENAI_API_KEY === 'SUA_CHAVE') {
-    return 'Invalid OPENAI_API_KEY: placeholder value SUA_CHAVE detected. Set a real key or unset for local providers.'
-  }
-
-  if (request.transport === 'codex_responses') {
-    const credentials = resolveCodexApiCredentials(env)
-    if (!credentials.apiKey) {
-      const authHint = credentials.authPath
-        ? ` or put auth.json at ${credentials.authPath}`
-        : ''
-      const safeModel =
-        redactSecretValueForDisplay(request.requestedModel, env) ??
-        'the requested model'
-      return `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`
-    }
-    if (!credentials.accountId) {
-      return 'Codex auth is missing chatgpt_account_id. Re-login with Codex or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.'
-    }
-    return null
-  }
-
-  if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {
-    const hasGithubToken = !!(env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim())
-    if (useGithub && hasGithubToken) {
-      return null
-    }
-    return 'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.'
-  }
-
-  return null
-}
-
-function validateProviderEnvOrExit(): void {
-  const error = getProviderValidationError()
-  if (error) {
-    console.error(error)
-    process.exit(1)
-  }
-}
-
 /**
  * Bootstrap entrypoint - checks for special flags before loading the full CLI.
  * All imports are dynamic to minimize module evaluation for fast paths.
@@ -147,7 +69,7 @@ async function main(): Promise<void> {
     processEnv: process.env,
   })
   if (startupEnv !== process.env) {
-    const startupProfileError = getProviderValidationError(startupEnv)
+    const startupProfileError = await getProviderValidationError(startupEnv)
     if (startupProfileError) {
       console.error(
         `Warning: ignoring saved provider profile. ${startupProfileError}`,
@@ -157,7 +79,7 @@ async function main(): Promise<void> {
     }
   }
 
-  validateProviderEnvOrExit()
+  await validateProviderEnvOrExit()
 
   // Print the gradient startup screen before the Ink UI loads
   const { printStartupScreen } = await import('../components/StartupScreen.js')
