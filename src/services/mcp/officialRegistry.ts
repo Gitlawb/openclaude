@@ -36,7 +36,7 @@ export async function prefetchOfficialMcpUrls(): Promise<void> {
     return
   }
 
-  // Anthropic's official MCP registry is only relevant for first-party mode.
+  // The official first-party MCP registry is only relevant for first-party mode.
   if (getAPIProvider() !== 'firstParty') {
     return
   }

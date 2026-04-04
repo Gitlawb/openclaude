@@ -1141,7 +1141,7 @@ const COMMAND_ALLOWLIST: Record<string, CommandConfig> = {
 const ANT_ONLY_COMMAND_ALLOWLIST: Record<string, CommandConfig> = {
   // All gh read-only commands from shared validation map
   ...GH_READ_ONLY_COMMANDS,
-  // aki — Anthropic internal knowledge-base search CLI.
+  // aki — internal knowledge-base search CLI.
   // Network read-only (same policy as gh). --audit-csv omitted: writes to disk.
   aki: {
     safeFlags: {
