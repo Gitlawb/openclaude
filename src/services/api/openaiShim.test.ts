@@ -261,6 +261,88 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
   })
 })
 
+test('preserves image tool results as placeholders in follow-up requests', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen/qwen3.6-plus',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'qwen/qwen3.6-plus',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Read this screenshot' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_image_1',
+            name: 'Read',
+            input: { file_path: 'C:\\temp\\screenshot.png' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_image_1',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'ZmFrZQ==',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const toolMessage = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => message.role === 'tool',
+  ) as { content?: string } | undefined
+
+  expect(toolMessage?.content).toContain('[image:image/png]')
+})
+
 test('uses GEMINI_ACCESS_TOKEN for Gemini OpenAI-compatible requests', async () => {
   let capturedAuthorization: string | null = null
   let capturedProject: string | null = null

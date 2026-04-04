@@ -24,6 +24,7 @@ import { BLACK_CIRCLE } from '../../constants/figures.js';
 import { TeammateMessageContent } from './UserTeammateMessage.js';
 import { isShutdownApproved } from '../../utils/teammateMailbox.js';
 import { CtrlOToExpand } from '../CtrlOToExpand.js';
+import FullWidthRow from '../design-system/FullWidthRow.js';
 import { FilePathLink } from '../FilePathLink.js';
 import { feature } from 'bun:bundle';
 import { useSelectedMessageBg } from '../messageActions.js';
@@ -514,7 +515,7 @@ function Line(t0) {
   const bg = useSelectedMessageBg();
   let t2;
   if ($[0] !== children || $[1] !== color || $[2] !== dimColor) {
-    t2 = <MessageResponse><Text color={color} dimColor={dimColor} wrap="wrap">{children}</Text></MessageResponse>;
+    t2 = <MessageResponse><FullWidthRow><Text color={color} dimColor={dimColor} wrap="wrap">{children}</Text></FullWidthRow></MessageResponse>;
     $[0] = children;
     $[1] = color;
     $[2] = dimColor;

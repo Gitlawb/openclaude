@@ -34,6 +34,8 @@
     "test:provider-recommendation": "bun test src/utils/providerRecommendation.test.ts src/utils/providerProfile.test.ts",
     "typecheck": "tsc --noEmit",
     "smoke": "bun run build && node dist/cli.mjs --version",
+    "verify:privacy": "bun run scripts/verify-no-phone-home.ts",
+    "build:verified": "bun run build && bun run verify:privacy",
     "test:provider": "bun test src/services/api/*.test.ts src/utils/context.test.ts",
     "doctor:runtime": "bun run scripts/system-check.ts",
     "doctor:runtime:json": "bun run scripts/system-check.ts --json",
@@ -64,7 +66,6 @@
     "@opentelemetry/sdk-trace-base": "2.6.1",
     "@opentelemetry/sdk-trace-node": "2.6.1",
     "@opentelemetry/semantic-conventions": "1.40.0",
-    "duck-duck-scrape": "^2.2.7",
     "ajv": "8.18.0",
     "auto-bind": "5.0.1",
     "axios": "1.14.0",
@@ -76,6 +77,7 @@
     "code-excerpt": "4.0.0",
     "commander": "12.1.0",
     "diff": "8.0.3",
+    "duck-duck-scrape": "^2.2.7",
     "emoji-regex": "10.6.0",
     "env-paths": "3.0.0",
     "execa": "9.6.1",
@@ -99,6 +101,7 @@
     "react-compiler-runtime": "1.0.0",
     "react-reconciler": "0.33.0",
     "semver": "7.7.4",
+    "sharp": "^0.34.5",
     "shell-quote": "1.8.3",
     "signal-exit": "4.1.0",
     "stack-utils": "2.0.6",
@@ -139,7 +142,7 @@
     "ollama",
     "gemini"
   ],
-  "license": "MIT",
+  "license": "SEE LICENSE FILE",
   "publishConfig": {
     "access": "public"
   }

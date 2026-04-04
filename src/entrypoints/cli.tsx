@@ -56,6 +56,18 @@ async function main(): Promise<void> {
     return;
   }
 
+  // --provider: set provider env vars early so saved-profile resolution,
+  // validation, and the startup banner all see the intended provider/model.
+  if (args.includes('--provider')) {
+    const { applyProviderFlagFromArgs } = await import('../utils/providerFlag.js');
+    const result = applyProviderFlagFromArgs(args);
+    if (result?.error) {
+      // biome-ignore lint/suspicious/noConsole:: intentional error output
+      console.error(`Error: ${result.error}`);
+      process.exit(1);
+    }
+  }
+
   {
     const { enableConfigs } = await import('../utils/config.js')
     enableConfigs()
@@ -328,22 +340,6 @@ async function main(): Promise<void> {
   // option building (not just inside the action handler).
   if (args.includes('--bare')) {
     process.env.CLAUDE_CODE_SIMPLE = '1';
-  }
-
-  // --provider: set provider env vars early, before main module loads.
-  // This mirrors the --bare pattern: env vars must be in place before
-  // Commander option building and module-level constants are evaluated.
-  if (args.includes('--provider')) {
-    const { parseProviderFlag, applyProviderFlag } = await import('../utils/providerFlag.js');
-    const provider = parseProviderFlag(args);
-    if (provider) {
-      const result = applyProviderFlag(provider, args);
-      if (result.error) {
-        // biome-ignore lint/suspicious/noConsole:: intentional error output
-        console.error(`Error: ${result.error}`);
-        process.exit(1);
-      }
-    }
   }
 
   // No special flags detected, load and run the full CLI

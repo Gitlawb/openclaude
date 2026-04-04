@@ -9,6 +9,7 @@ import { formatDuration, formatNumber } from '../../utils/format.js';
 import { toInkColor } from '../../utils/ink.js';
 import type { Theme } from '../../utils/theme.js';
 import { Byline } from '../design-system/Byline.js';
+import FullWidthRow from '../design-system/FullWidthRow.js';
 import { GlimmerMessage } from './GlimmerMessage.js';
 import { SpinnerGlyph } from './SpinnerGlyph.js';
 import type { SpinnerMode } from './types.js';
@@ -223,11 +224,13 @@ export function SpinnerAnimationRow({
           <Byline>{parts}</Byline>
           <Text dimColor>)</Text>
         </> : null;
-  return <Box ref={viewportRef} flexDirection="row" flexWrap="wrap" marginTop={1} width="100%">
-      <SpinnerGlyph frame={frame} messageColor={messageColor} stalledIntensity={overrideColor ? 0 : stalledIntensity} reducedMotion={reducedMotion} time={time} />
-      <GlimmerMessage message={message} mode={mode} messageColor={messageColor} glimmerIndex={glimmerIndex} flashOpacity={flashOpacity} shimmerColor={shimmerColor} stalledIntensity={overrideColor ? 0 : stalledIntensity} />
-      {status}
-    </Box>;
+  return <FullWidthRow>
+      <Box ref={viewportRef} flexDirection="row" flexWrap="wrap" marginTop={1}>
+        <SpinnerGlyph frame={frame} messageColor={messageColor} stalledIntensity={overrideColor ? 0 : stalledIntensity} reducedMotion={reducedMotion} time={time} />
+        <GlimmerMessage message={message} mode={mode} messageColor={messageColor} glimmerIndex={glimmerIndex} flashOpacity={flashOpacity} shimmerColor={shimmerColor} stalledIntensity={overrideColor ? 0 : stalledIntensity} />
+        {status}
+      </Box>
+    </FullWidthRow>;
 }
 function SpinnerModeGlyph(t0) {
   const $ = _c(2);

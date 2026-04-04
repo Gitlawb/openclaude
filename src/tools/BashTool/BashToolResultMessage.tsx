@@ -1,6 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { removeSandboxViolationTags } from 'src/utils/sandbox/sandbox-ui-utils.js';
+import FullWidthRow from '../../components/design-system/FullWidthRow.js';
 import { KeyboardShortcutHint } from '../../components/design-system/KeyboardShortcutHint.js';
 import { MessageResponse } from '../../components/MessageResponse.js';
 import { OutputLine } from '../../components/shell/OutputLine.js';
@@ -100,7 +101,7 @@ export default function BashToolResultMessage(t0) {
       if (isImage) {
         let t8;
         if ($[11] === Symbol.for("react.memo_cache_sentinel")) {
-          t8 = <MessageResponse height={1}><Text dimColor={true}>[Image data detected and sent to Claude]</Text></MessageResponse>;
+          t8 = <MessageResponse height={1}><FullWidthRow><Text dimColor={true}>[Image data detected and sent to Claude]</Text></FullWidthRow></MessageResponse>;
           $[11] = t8;
         } else {
           t8 = $[11];
@@ -145,7 +146,7 @@ export default function BashToolResultMessage(t0) {
   }
   let t8;
   if ($[15] !== cwdResetWarning) {
-    t8 = cwdResetWarning ? <MessageResponse><Text dimColor={true}>{cwdResetWarning}</Text></MessageResponse> : null;
+    t8 = cwdResetWarning ? <MessageResponse><FullWidthRow><Text dimColor={true}>{cwdResetWarning}</Text></FullWidthRow></MessageResponse> : null;
     $[15] = cwdResetWarning;
     $[16] = t8;
   } else {
@@ -153,7 +154,7 @@ export default function BashToolResultMessage(t0) {
   }
   let t9;
   if ($[17] !== backgroundTaskId || $[18] !== cwdResetWarning || $[19] !== noOutputExpected || $[20] !== returnCodeInterpretation || $[21] !== stderr || $[22] !== stdout) {
-    t9 = stdout === "" && stderr.trim() === "" && !cwdResetWarning ? <MessageResponse height={1}><Text dimColor={true}>{backgroundTaskId ? <>Running in the background{" "}<KeyboardShortcutHint shortcut={"\u2193"} action="manage" parens={true} /></> : returnCodeInterpretation || (noOutputExpected ? "Done" : "(No output)")}</Text></MessageResponse> : null;
+    t9 = stdout === "" && stderr.trim() === "" && !cwdResetWarning ? <MessageResponse height={1}><FullWidthRow><Text dimColor={true}>{backgroundTaskId ? <>Running in the background{" "}<KeyboardShortcutHint shortcut={"\u2193"} action="manage" parens={true} /></> : returnCodeInterpretation || (noOutputExpected ? "Done" : "(No output)")}</Text></FullWidthRow></MessageResponse> : null;
     $[17] = backgroundTaskId;
     $[18] = cwdResetWarning;
     $[19] = noOutputExpected;
@@ -174,7 +175,7 @@ export default function BashToolResultMessage(t0) {
   }
   let t11;
   if ($[26] !== T0 || $[27] !== t10 || $[28] !== t4 || $[29] !== t5 || $[30] !== t6 || $[31] !== t8 || $[32] !== t9) {
-    t11 = <T0 flexDirection={t4}>{t5}{t6}{t8}{t9}{t10}</T0>;
+    t11 = <T0 flexDirection={t4} width="100%">{t5}{t6}{t8}{t9}{t10}</T0>;
     $[26] = T0;
     $[27] = t10;
     $[28] = t4;

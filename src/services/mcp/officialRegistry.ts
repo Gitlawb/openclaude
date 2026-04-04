@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
+import { getAPIProvider } from '../../utils/model/providers.js'
 
 type RegistryServer = {
   server: {
@@ -32,6 +33,11 @@ function normalizeUrl(url: string): string | undefined {
  */
 export async function prefetchOfficialMcpUrls(): Promise<void> {
   if (process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC) {
+    return
+  }
+
+  // Anthropic's official MCP registry is only relevant for first-party mode.
+  if (getAPIProvider() !== 'firstParty') {
     return
   }
 

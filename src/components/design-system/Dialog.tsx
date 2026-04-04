@@ -6,6 +6,7 @@ import { useKeybinding } from '../../keybindings/useKeybinding.js';
 import type { Theme } from '../../utils/theme.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
 import { Byline } from './Byline.js';
+import FullWidthRow from './FullWidthRow.js';
 import { KeyboardShortcutHint } from './KeyboardShortcutHint.js';
 import { Pane } from './Pane.js';
 type DialogProps = {
@@ -102,7 +103,7 @@ export function Dialog(t0) {
   }
   let t9;
   if ($[16] !== defaultInputGuide || $[17] !== exitState || $[18] !== hideInputGuide || $[19] !== inputGuide) {
-    t9 = !hideInputGuide && <Box marginTop={1}><Text dimColor={true} italic={true}>{inputGuide ? inputGuide(exitState) : defaultInputGuide}</Text></Box>;
+    t9 = !hideInputGuide && <Box marginTop={1}><FullWidthRow><Text dimColor={true} italic={true}>{inputGuide ? inputGuide(exitState) : defaultInputGuide}</Text></FullWidthRow></Box>;
     $[16] = defaultInputGuide;
     $[17] = exitState;
     $[18] = hideInputGuide;

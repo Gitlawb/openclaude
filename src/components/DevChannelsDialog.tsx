@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import React, { useCallback } from 'react';
 import type { ChannelEntry } from '../bootstrap/state.js';
 import { Box, Text } from '../ink.js';
 import { gracefulShutdownSync } from '../utils/gracefulShutdown.js';
@@ -9,7 +8,7 @@ type Props = {
   channels: ChannelEntry[];
   onAccept(): void;
 };
-export function DevChannelsDialog(t0) {
+export function DevChannelsDialog(t0: Props) {
   const $ = _c(14);
   const {
     channels,
@@ -17,7 +16,7 @@ export function DevChannelsDialog(t0) {
   } = t0;
   let t1;
   if ($[0] !== onAccept) {
-    t1 = function onChange(value) {
+    t1 = function onChange(value: 'accept' | 'exit') {
       bb2: switch (value) {
         case "accept":
           {
@@ -79,7 +78,7 @@ export function DevChannelsDialog(t0) {
   }
   let t7;
   if ($[9] !== onChange) {
-    t7 = <Select options={t6} onChange={value_0 => onChange(value_0 as 'accept' | 'exit')} />;
+    t7 = <Select options={t6} onChange={(value_0: string) => onChange(value_0 as 'accept' | 'exit')} />;
     $[9] = onChange;
     $[10] = t7;
   } else {
@@ -96,7 +95,7 @@ export function DevChannelsDialog(t0) {
   }
   return t8;
 }
-function _temp2(c) {
+function _temp2(c: ChannelEntry) {
   return c.kind === "plugin" ? `plugin:${c.name}@${c.marketplace}` : `server:${c.name}`;
 }
 function _temp() {

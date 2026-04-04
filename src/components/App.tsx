@@ -1,5 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
-import React from 'react';
+import type { ReactNode } from 'react';
 import { FpsMetricsProvider } from '../context/fpsMetrics.js';
 import { StatsProvider, type StatsStore } from '../context/stats.js';
 import { type AppState, AppStateProvider } from '../state/AppState.js';
@@ -9,14 +9,14 @@ type Props = {
   getFpsMetrics: () => FpsMetrics | undefined;
   stats?: StatsStore;
   initialState: AppState;
-  children: React.ReactNode;
+  children: ReactNode;
 };
 
 /**
  * Top-level wrapper for interactive sessions.
  * Provides FPS metrics, stats context, and app state to the component tree.
  */
-export function App(t0) {
+export function App(t0: Props) {
   const $ = _c(9);
   const {
     getFpsMetrics,

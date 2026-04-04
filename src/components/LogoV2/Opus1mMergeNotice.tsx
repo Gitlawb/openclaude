@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import * as React from 'react';
 import { useEffect, useState } from 'react';
 import { UP_ARROW } from '../../constants/figures.js';
 import { Box, Text } from '../../ink.js';

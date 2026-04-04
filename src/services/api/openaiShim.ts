@@ -116,6 +116,37 @@ function convertSystemPrompt(
   return String(system)
 }
 
+function convertToolResultContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return JSON.stringify(content ?? '')
+
+  const chunks: string[] = []
+  for (const block of content) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      chunks.push(block.text)
+      continue
+    }
+
+    if (block?.type === 'image') {
+      const source = block.source
+      if (source?.type === 'url' && source.url) {
+        chunks.push(`[Image](${source.url})`)
+      } else if (source?.type === 'base64') {
+        chunks.push(`[image:${source.media_type ?? 'unknown'}]`)
+      } else {
+        chunks.push('[image]')
+      }
+      continue
+    }
+
+    if (typeof block?.text === 'string') {
+      chunks.push(block.text)
+    }
+  }
+
+  return chunks.join('\n')
+}
+
 function convertContentBlocks(
   content: unknown,
 ): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
@@ -192,11 +223,7 @@ function convertMessages(
 
         // Emit tool results as tool messages
         for (const tr of toolResults) {
-          const trContent = Array.isArray(tr.content)
-            ? tr.content.map((c: { text?: string }) => c.text ?? '').join('\n')
-            : typeof tr.content === 'string'
-              ? tr.content
-              : JSON.stringify(tr.content ?? '')
+          const trContent = convertToolResultContent(tr.content)
           result.push({
             role: 'tool',
             tool_call_id: tr.tool_use_id ?? 'unknown',
