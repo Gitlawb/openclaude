@@ -158,7 +158,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'modifiers-napi',
           'url-handler-napi',
           'color-diff-napi',
-          'sharp',
           '@anthropic-ai/mcpb',
           '@ant/claude-for-chrome-mcp',
           '@anthropic-ai/sandbox-runtime',
@@ -275,6 +274,8 @@ export const SeverityNumber = {};
     '@opentelemetry/sdk-logs',
     '@opentelemetry/sdk-metrics',
     '@opentelemetry/semantic-conventions',
+    // Native image processing
+    'sharp',
     // Cloud provider SDKs
     '@aws-sdk/client-bedrock',
     '@aws-sdk/client-bedrock-runtime',
