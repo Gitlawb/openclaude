@@ -20,6 +20,7 @@ import { env } from '../utils/env.js';
 import { type GitRepoState, getGitState, getIsGit } from '../utils/git.js';
 import { getAuthHeaders, getUserAgent } from '../utils/http.js';
 import { getInMemoryErrors, logError } from '../utils/log.js';
+import { getAPIProvider } from '../utils/model/providers.js';
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js';
 import { extractTeammateTranscriptsFromTasks, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
 import { jsonStringify } from '../utils/slowOperations.js';
@@ -32,7 +33,7 @@ import TextInput from './TextInput.js';
 
 // This value was determined experimentally by testing the URL length limit
 const GITHUB_URL_LIMIT = 7250;
-const GITHUB_ISSUES_REPO_URL = "external" === 'ant' ? 'https://github.com/anthropics/claude-cli-internal/issues' : 'https://github.com/anthropics/claude-code/issues';
+const GITHUB_ISSUES_REPO_URL = 'https://github.com/Gitlawb/openclaude/issues';
 type Props = {
   abortSignal: AbortSignal;
   messages: Message[];
@@ -526,6 +527,13 @@ async function submitFeedback(data: FeedbackData, signal?: AbortSignal): Promise
     };
   }
   try {
+    // Third-party providers should not post feedback to Anthropic.
+    if (getAPIProvider() !== 'firstParty') {
+      return {
+        success: false
+      };
+    }
+
     // Ensure OAuth token is fresh before getting auth headers
     // This prevents 401 errors from stale cached tokens
     await checkAndRefreshOAuthTokenIfNeeded();
