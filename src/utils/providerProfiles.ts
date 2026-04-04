@@ -35,7 +35,7 @@ export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
 }
 
 const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434/v1'
-const DEFAULT_OLLAMA_MODEL = 'kimi-k2.5:cloud'
+const DEFAULT_OLLAMA_MODEL = 'llama3.1:8b'
 
 function trimValue(value: string | undefined): string {
   return value?.trim() ?? ''
@@ -264,6 +264,8 @@ export function getActiveProviderProfile(
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
   delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
