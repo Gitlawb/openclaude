@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import * as React from 'react';
 import { Box, Text } from '../../ink.js';
 import { useShortcutDisplay } from '../../keybindings/useShortcutDisplay.js';
 export function CompactBoundaryMessage() {
