@@ -11,6 +11,7 @@ import { getSettingSourceName, type SettingSource } from '../../utils/settings/c
 import { plural } from '../../utils/stringUtils.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
 import { Dialog } from '../design-system/Dialog.js';
+import FullWidthRow from '../design-system/FullWidthRow.js';
 
 // Skills are always PromptCommands with CommandBase properties
 type SkillCommand = CommandBase & PromptCommand;
@@ -105,14 +106,14 @@ export function SkillsMenu(t0) {
   if (skills.length === 0) {
     let t3;
     if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-      t3 = <Text dimColor={true}>Create skills in .claude/skills/ or ~/.claude/skills/</Text>;
+      t3 = <FullWidthRow><Text dimColor={true}>Create skills in .claude/skills/ or ~/.claude/skills/</Text></FullWidthRow>;
       $[6] = t3;
     } else {
       t3 = $[6];
     }
     let t4;
     if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
-      t4 = <Text dimColor={true} italic={true}><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="close" /></Text>;
+      t4 = <FullWidthRow><Text dimColor={true} italic={true}><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="close" /></Text></FullWidthRow>;
       $[7] = t4;
     } else {
       t4 = $[7];
@@ -137,7 +138,7 @@ export function SkillsMenu(t0) {
       }
       const title = getSourceTitle(source_0);
       const subtitle = getSourceSubtitle(source_0, groupSkills);
-      return <Box flexDirection="column" key={source_0}><Box><Text bold={true} dimColor={true}>{title}</Text>{subtitle && <Text dimColor={true}> ({subtitle})</Text>}</Box>{groupSkills.map(skill_1 => renderSkill(skill_1))}</Box>;
+      return <Box flexDirection="column" key={source_0}><FullWidthRow><Text bold={true} dimColor={true}>{title}</Text>{subtitle && <Text dimColor={true}> ({subtitle})</Text>}</FullWidthRow>{groupSkills.map(skill_1 => renderSkill(skill_1))}</Box>;
     };
     $[10] = skillsBySource;
     $[11] = t3;
@@ -209,7 +210,7 @@ export function SkillsMenu(t0) {
   }
   let t13;
   if ($[30] === Symbol.for("react.memo_cache_sentinel")) {
-    t13 = <Text dimColor={true} italic={true}><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="close" /></Text>;
+    t13 = <FullWidthRow><Text dimColor={true} italic={true}><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="close" /></Text></FullWidthRow>;
     $[30] = t13;
   } else {
     t13 = $[30];
@@ -230,7 +231,7 @@ function _temp3(skill_0) {
   const estimatedTokens = estimateSkillFrontmatterTokens(skill_0);
   const tokenDisplay = `~${formatTokens(estimatedTokens)}`;
   const pluginName = skill_0.source === "plugin" ? skill_0.pluginInfo?.pluginManifest.name : undefined;
-  return <Box key={`${skill_0.name}-${skill_0.source}`}><Text>{getSkillListLabel(skill_0)}</Text><Text dimColor={true}>{pluginName ? ` · ${pluginName}` : ""} · {tokenDisplay} description tokens</Text></Box>;
+  return <FullWidthRow key={`${skill_0.name}-${skill_0.source}`}><Text>{getSkillListLabel(skill_0)}</Text><Text dimColor={true}>{pluginName ? ` · ${pluginName}` : ""} · {tokenDisplay} description tokens</Text></FullWidthRow>;
 }
 function _temp2(a, b) {
   return a.name.localeCompare(b.name);
