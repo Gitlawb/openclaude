@@ -3,7 +3,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { buildConversationChain, loadTranscriptFile } from './sessionStorage.ts'
+import {
+  buildConversationChain,
+  loadTranscriptFile,
+  stripPersistedToolUseResultsFromJSONLBuffer,
+} from './sessionStorage.ts'
 
 const tempDirs: string[] = []
 const sessionId = '00000000-0000-4000-8000-000000000999'
@@ -193,4 +197,65 @@ test('loadTranscriptFile fails closed when preserved-segment anchor is missing',
 
   const chain = buildConversationChain(messages, messages.get(id(25))!)
   expect(chain.map(message => message.uuid)).toEqual([id(25)])
+})
+
+test('stripPersistedToolUseResultsFromJSONLBuffer drops raw toolUseResult while preserving persisted preview content', () => {
+  const persisted = user(id(31), null, 'placeholder')
+  persisted.message = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool-31',
+        is_error: false,
+        content: '<persisted-output>\nPreview text\n</persisted-output>',
+      },
+    ],
+  }
+  ;(persisted as typeof persisted & { toolUseResult?: unknown }).toolUseResult = {
+    stdout: 'x'.repeat(200_000),
+    stderr: '',
+  }
+
+  const raw = Buffer.from(`${JSON.stringify(persisted)}\n`)
+  const sanitized = stripPersistedToolUseResultsFromJSONLBuffer(raw)
+  const [parsed] = JSON.parse(`[${sanitized.toString('utf8').trim()}]`) as Array<
+    typeof persisted & { toolUseResult?: unknown }
+  >
+
+  expect(parsed?.toolUseResult).toBeUndefined()
+  expect(
+    (parsed?.message.content as Array<{ content: string }>)[0]?.content,
+  ).toContain('Preview text')
+})
+
+test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript entries', async () => {
+  const persisted = user(id(41), null, 'placeholder')
+  persisted.message = {
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool-41',
+        is_error: false,
+        content: '<persisted-output>\nPreview text\n</persisted-output>',
+      },
+    ],
+  }
+  ;(persisted as typeof persisted & { toolUseResult?: unknown }).toolUseResult = {
+    stdout: 'y'.repeat(200_000),
+    stderr: '',
+  }
+
+  const filePath = await writeJsonl([persisted])
+  const { messages } = await loadTranscriptFile(filePath)
+  const loaded = messages.get(id(41)) as (typeof persisted & {
+    toolUseResult?: unknown
+  }) | undefined
+
+  expect(loaded).toBeDefined()
+  expect(loaded?.toolUseResult).toBeUndefined()
+  expect(
+    (loaded?.message.content as Array<{ content: string }>)[0]?.content,
+  ).toContain('Preview text')
 })
