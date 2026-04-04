@@ -37,7 +37,7 @@ export const TIME_BASED_MC_CLEARED_MESSAGE = '[Old tool result content cleared]'
 
 const IMAGE_MAX_TOKEN_SIZE = 2000
 
-// Only compact these tools
+// Only compact these built-in tools (MCP tools are also compactable via prefix match)
 const COMPACTABLE_TOOLS = new Set<string>([
   FILE_READ_TOOL_NAME,
   ...SHELL_TOOL_NAMES,
@@ -48,6 +48,12 @@ const COMPACTABLE_TOOLS = new Set<string>([
   FILE_EDIT_TOOL_NAME,
   FILE_WRITE_TOOL_NAME,
 ])
+
+const MCP_TOOL_PREFIX = 'mcp__'
+
+function isCompactableTool(name: string): boolean {
+  return COMPACTABLE_TOOLS.has(name) || name.startsWith(MCP_TOOL_PREFIX)
+}
 
 // --- Cached microcompact state (ant-only, gated by feature('CACHED_MICROCOMPACT')) ---
 
@@ -231,7 +237,7 @@ function collectCompactableToolIds(messages: Message[]): string[] {
       Array.isArray(message.message.content)
     ) {
       for (const block of message.message.content) {
-        if (block.type === 'tool_use' && COMPACTABLE_TOOLS.has(block.name)) {
+        if (block.type === 'tool_use' && isCompactableTool(block.name)) {
           ids.push(block.id)
         }
       }
