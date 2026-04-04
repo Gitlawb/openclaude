@@ -11,6 +11,22 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, a
 - Run locally with Ollama or Atomic Chat
 - Keep core coding-agent workflows: bash, file tools, grep, glob, agents, tasks, MCP, and web tools
 
+## Provenance & Legal Notice
+
+OpenClaude is derived from Anthropic's Claude Code CLI source code, which was
+inadvertently exposed in March 2026 through a packaging error in npm. The
+original Claude Code source is proprietary software owned by Anthropic PBC.
+
+This project adds multi-provider support, strips telemetry, and adapts the
+codebase for open use. It is not an authorized fork or open-source release
+by Anthropic.
+
+**"Claude" and "Claude Code" are trademarks of Anthropic PBC.**
+
+Contributors should be aware that the legal status of distributing code
+derived from Anthropic's proprietary source is unresolved. See the LICENSE
+file for details.
+
 ---
 
 ## Quick Start
@@ -100,12 +116,14 @@ Advanced and source-build guides:
 | Provider | Setup Path | Notes |
 | --- | --- | --- |
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and compatible local `/v1` servers |
-| Gemini | `/provider` or env vars | Google Gemini support through the runtime provider layer |
+| Gemini | `/provider` or env vars | Google Gemini support through the runtime provider layer (API key, access token, or local ADC) |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex | `/provider` | Uses existing Codex credentials when available |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | advanced setup | Local Apple Silicon backend |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
+
+For Gemini, `/provider` can now save either the API-key path, a securely stored access-token path, or a local ADC profile.
 
 ---
 
@@ -185,9 +203,15 @@ When no routing match is found, the global provider (env vars) is used as fallba
 
 ## Web Search and Fetch
 
-`WebFetch` works out of the box.
+By default, `WebSearch` now works on non-Anthropic models using DuckDuckGo. This gives GPT-4o, DeepSeek, Gemini, Ollama, and other OpenAI-compatible providers a free web search path out of the box.
 
-`WebSearch` and richer JS-aware fetching work best with a Firecrawl API key:
+>**Note:** DuckDuckGo fallback works by scraping search results and may be rate-limited, blocked, or subject to DuckDuckGo's Terms of Service. If you want a more reliable supported option, configure Firecrawl.
+
+For Anthropic-native backends (Anthropic/Vertex/Foundry) and Codex responses, OpenClaude keeps the native provider web search behavior.
+
+`WebFetch` works but uses basic HTTP plus HTML-to-markdown conversion. That fails on JavaScript-rendered pages (React, Next.js, Vue SPAs) and sites that block plain HTTP requests.
+
+Set a [Firecrawl](https://firecrawl.dev) API key if you want Firecrawl-powered search/fetch behavior:
 
 ```bash
 export FIRECRAWL_API_KEY=your-key-here
@@ -195,10 +219,10 @@ export FIRECRAWL_API_KEY=your-key-here
 
 With Firecrawl enabled:
 
-- `WebSearch` is available across more provider setups
-- `WebFetch` can handle JavaScript-rendered pages more reliably
+- `WebSearch` can use Firecrawl's search API (while DuckDuckGo remains the default free path for non-Claude models)
+- `WebFetch` uses Firecrawl's scrape endpoint instead of raw HTTP, handling JS-rendered pages correctly
 
-Firecrawl is optional. Without it, OpenClaude falls back to the built-in behavior.
+Free tier at [firecrawl.dev](https://firecrawl.dev) includes 500 credits. The key is optional.
 
 ---
 

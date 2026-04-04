@@ -229,12 +229,12 @@ export default class App extends PureComponent<Props, State> {
         stopCapturingEarlyInput();
         stdin.ref();
         stdin.setRawMode(true);
-        stdin.resume();
         if (this.stdinMode === 'data') {
           stdin.addListener('data', this.handleDataChunk);
         } else {
           stdin.addListener('readable', this.handleReadable);
         }
+        stdin.resume();
         // Enable bracketed paste mode
         this.props.stdout.write(EBP);
         // Enable terminal focus reporting (DECSET 1004)

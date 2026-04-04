@@ -5,6 +5,7 @@ import { NO_CONTENT_MESSAGE } from '../../constants/messages.js';
 import { Box, Text } from '../../ink.js';
 import { extractTag } from '../../utils/messages.js';
 import { Markdown } from '../Markdown.js';
+import FullWidthRow from '../design-system/FullWidthRow.js';
 import { MessageResponse } from '../MessageResponse.js';
 type Props = {
   content: string;
@@ -77,7 +78,7 @@ function IndentedContent(t0) {
   }
   let t2;
   if ($[3] !== children) {
-    t2 = <Box flexDirection="row">{t1}<Box flexDirection="column" flexGrow={1}><Markdown>{children}</Markdown></Box></Box>;
+    t2 = <FullWidthRow>{t1}<Box flexDirection="column" flexGrow={1}><Markdown>{children}</Markdown></Box></FullWidthRow>;
     $[3] = children;
     $[4] = t2;
   } else {
@@ -147,7 +148,7 @@ function CloudLaunchContent(t0) {
   }
   let t6;
   if ($[14] !== rest) {
-    t6 = rest && <Box flexDirection="row"><Text dimColor={true}>{"  \u23BF  "}</Text><Text dimColor={true}>{rest}</Text></Box>;
+    t6 = rest && <FullWidthRow><Text dimColor={true}>{"  \u23BF  "}</Text><Text dimColor={true}>{rest}</Text></FullWidthRow>;
     $[14] = rest;
     $[15] = t6;
   } else {

@@ -559,7 +559,7 @@ export const SettingsSchema = lazySchema(() =>
       enabledPlugins: z
         .record(
           z.string(),
-          z.union([z.array(z.string()), z.boolean(), z.undefined()]),
+          z.union([z.array(z.string()), z.boolean()]),
         )
         .optional()
         .describe(

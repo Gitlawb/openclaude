@@ -68,6 +68,9 @@ const ANTHROPIC_PERMISSIONS_TEMPLATE: string =
     : ''
 /* eslint-enable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
 
+const MAX_CLASSIFIER_TRANSCRIPT_CHARS = 200_000
+const MAX_CLASSIFIER_BLOCK_VALUE_CHARS = 32_000
+
 function isUsingExternalPermissions(): boolean {
   if (process.env.USER_TYPE !== 'ant') return true
   const config = getFeatureValue_CACHED_MAY_BE_STALE(
@@ -293,6 +296,64 @@ export type TranscriptEntry = {
   content: TranscriptBlock[]
 }
 
+function messageToTranscriptEntry(msg: Message): TranscriptEntry | null {
+  if (msg.type === 'attachment' && msg.attachment.type === 'queued_command') {
+    const prompt = msg.attachment.prompt
+    let text: string | null = null
+    if (typeof prompt === 'string') {
+      text = prompt
+    } else if (Array.isArray(prompt)) {
+      text =
+        prompt
+          .filter(
+            (block): block is { type: 'text'; text: string } =>
+              block.type === 'text',
+          )
+          .map(block => block.text)
+          .join('\n') || null
+    }
+    return text === null
+      ? null
+      : {
+          role: 'user',
+          content: [{ type: 'text', text }],
+        }
+  }
+
+  if (msg.type === 'user') {
+    const content = msg.message.content
+    const textBlocks: TranscriptBlock[] = []
+    if (typeof content === 'string') {
+      textBlocks.push({ type: 'text', text: content })
+    } else if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === 'text') {
+          textBlocks.push({ type: 'text', text: block.text })
+        }
+      }
+    }
+    return textBlocks.length > 0 ? { role: 'user', content: textBlocks } : null
+  }
+
+  if (msg.type === 'assistant') {
+    const blocks: TranscriptBlock[] = []
+    for (const block of msg.message.content) {
+      // Only include tool_use blocks — assistant text is model-authored
+      // and could be crafted to influence the classifier's decision.
+      if (block.type === 'tool_use') {
+        blocks.push({
+          type: 'tool_use',
+          name: block.name,
+          input: block.input,
+        })
+      }
+    }
+    return blocks.length > 0 ? { role: 'assistant', content: blocks } : null
+  }
+
+  return null
+}
+
 /**
  * Build transcript entries from messages.
  * Includes user text messages and assistant tool_use blocks (excluding assistant text).
@@ -302,58 +363,9 @@ export type TranscriptEntry = {
 export function buildTranscriptEntries(messages: Message[]): TranscriptEntry[] {
   const transcript: TranscriptEntry[] = []
   for (const msg of messages) {
-    if (msg.type === 'attachment' && msg.attachment.type === 'queued_command') {
-      const prompt = msg.attachment.prompt
-      let text: string | null = null
-      if (typeof prompt === 'string') {
-        text = prompt
-      } else if (Array.isArray(prompt)) {
-        text =
-          prompt
-            .filter(
-              (block): block is { type: 'text'; text: string } =>
-                block.type === 'text',
-            )
-            .map(block => block.text)
-            .join('\n') || null
-      }
-      if (text !== null) {
-        transcript.push({
-          role: 'user',
-          content: [{ type: 'text', text }],
-        })
-      }
-    } else if (msg.type === 'user') {
-      const content = msg.message.content
-      const textBlocks: TranscriptBlock[] = []
-      if (typeof content === 'string') {
-        textBlocks.push({ type: 'text', text: content })
-      } else if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text') {
-            textBlocks.push({ type: 'text', text: block.text })
-          }
-        }
-      }
-      if (textBlocks.length > 0) {
-        transcript.push({ role: 'user', content: textBlocks })
-      }
-    } else if (msg.type === 'assistant') {
-      const blocks: TranscriptBlock[] = []
-      for (const block of msg.message.content) {
-        // Only include tool_use blocks — assistant text is model-authored
-        // and could be crafted to influence the classifier's decision.
-        if (block.type === 'tool_use') {
-          blocks.push({
-            type: 'tool_use',
-            name: block.name,
-            input: block.input,
-          })
-        }
-      }
-      if (blocks.length > 0) {
-        transcript.push({ role: 'assistant', content: blocks })
-      }
+    const entry = messageToTranscriptEntry(msg)
+    if (entry) {
+      transcript.push(entry)
     }
   }
   return transcript
@@ -370,6 +382,17 @@ function buildToolLookup(tools: Tools): ToolLookup {
     }
   }
   return map
+}
+
+function truncateClassifierValue(value: string): string {
+  if (value.length <= MAX_CLASSIFIER_BLOCK_VALUE_CHARS) {
+    return value
+  }
+  const omitted = value.length - MAX_CLASSIFIER_BLOCK_VALUE_CHARS
+  return (
+    value.slice(0, MAX_CLASSIFIER_BLOCK_VALUE_CHARS) +
+    `… [truncated ${omitted} chars]`
+  )
 }
 
 /**
@@ -410,21 +433,118 @@ function toCompactBlock(
     }
     if (encoded === '') return ''
     if (isJsonlTranscriptEnabled()) {
-      return jsonStringify({ [block.name]: encoded }) + '\n'
+      const jsonlValue =
+        typeof encoded === 'string'
+          ? truncateClassifierValue(encoded)
+          : encoded
+      return jsonStringify({ [block.name]: jsonlValue }) + '\n'
     }
-    const s = typeof encoded === 'string' ? encoded : jsonStringify(encoded)
+    const s =
+      typeof encoded === 'string'
+        ? truncateClassifierValue(encoded)
+        : jsonStringify(encoded)
     return `${block.name} ${s}\n`
   }
   if (block.type === 'text' && role === 'user') {
     return isJsonlTranscriptEnabled()
-      ? jsonStringify({ user: block.text }) + '\n'
-      : `User: ${block.text}\n`
+      ? jsonStringify({ user: truncateClassifierValue(block.text) }) + '\n'
+      : `User: ${truncateClassifierValue(block.text)}\n`
   }
   return ''
 }
 
 function toCompact(entry: TranscriptEntry, lookup: ToolLookup): string {
   return entry.content.map(b => toCompactBlock(b, entry.role, lookup)).join('')
+}
+
+function serializeTranscriptForClassifier(
+  messages: Message[],
+  tools: Tools,
+  maxChars: number,
+): {
+  userContentBlocks: Anthropic.TextBlockParam[]
+  promptLengths: {
+    toolCalls: number
+    userPrompts: number
+  }
+  transcriptEntries: number
+  truncated: boolean
+} {
+  const lookup = buildToolLookup(tools)
+  const keptEntries: Array<Array<{ role: TranscriptEntry['role']; text: string }>> =
+    []
+  let totalChars = 0
+  let truncated = false
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const entry = messageToTranscriptEntry(messages[i]!)
+    if (!entry) continue
+
+    const serializedBlocks: Array<{
+      role: TranscriptEntry['role']
+      text: string
+    }> = []
+    let entryChars = 0
+
+    for (const block of entry.content) {
+      const serialized = toCompactBlock(block, entry.role, lookup)
+      if (serialized === '') continue
+      serializedBlocks.push({ role: entry.role, text: serialized })
+      entryChars += serialized.length
+    }
+    if (serializedBlocks.length === 0) continue
+
+    if (totalChars + entryChars > maxChars) {
+      if (totalChars === 0) {
+        const partialEntry: typeof serializedBlocks = []
+        let partialChars = 0
+        for (let j = serializedBlocks.length - 1; j >= 0; j--) {
+          const serialized = serializedBlocks[j]!
+          if (partialChars + serialized.text.length > maxChars) continue
+          partialEntry.unshift(serialized)
+          partialChars += serialized.text.length
+        }
+        if (partialEntry.length > 0) {
+          keptEntries.push(partialEntry)
+          totalChars += partialChars
+        }
+      }
+      truncated = true
+      break
+    }
+
+    keptEntries.push(serializedBlocks)
+    totalChars += entryChars
+    if (totalChars >= maxChars) {
+      truncated = i > 0
+      break
+    }
+  }
+
+  const userContentBlocks: Anthropic.TextBlockParam[] = []
+  let userPromptsLength = 0
+  let toolCallsLength = 0
+
+  for (let i = keptEntries.length - 1; i >= 0; i--) {
+    for (const block of keptEntries[i]!) {
+      userContentBlocks.push({ type: 'text' as const, text: block.text })
+      if (block.role === 'user') {
+        userPromptsLength += block.text.length
+      } else {
+        toolCallsLength += block.text.length
+      }
+    }
+  }
+
+  return {
+    userContentBlocks,
+    promptLengths: {
+      toolCalls: toolCallsLength,
+      userPrompts: userPromptsLength,
+    },
+    transcriptEntries: keptEntries.length,
+    truncated,
+  }
 }
 
 /**
@@ -434,10 +554,10 @@ function toCompact(entry: TranscriptEntry, lookup: ToolLookup): string {
 export function buildTranscriptForClassifier(
   messages: Message[],
   tools: Tools,
+  maxChars: number = MAX_CLASSIFIER_TRANSCRIPT_CHARS,
 ): string {
-  const lookup = buildToolLookup(tools)
-  return buildTranscriptEntries(messages)
-    .map(e => toCompact(e, lookup))
+  return serializeTranscriptForClassifier(messages, tools, maxChars)
+    .userContentBlocks.map(block => block.text)
     .join('')
 }
 
@@ -780,7 +900,6 @@ async function classifyYoloActionXml(
         model,
         max_tokens: (mode === 'fast' ? 256 : 64) + thinkingPadding,
         system: systemBlocks,
-        skipSystemPromptPrefix: true,
         temperature: 0,
         thinking: disableThinking,
         messages: [
@@ -867,7 +986,6 @@ async function classifyYoloActionXml(
       model,
       max_tokens: 4096 + thinkingPadding,
       system: systemBlocks,
-      skipSystemPromptPrefix: true,
       temperature: 0,
       thinking: disableThinking,
       messages: [
@@ -1029,34 +1147,24 @@ export async function classifyYoloAction(
   }
 
   const systemPrompt = await buildYoloSystemPrompt(context)
-  const transcriptEntries = buildTranscriptEntries(messages)
+  const transcriptBudget = Math.max(
+    0,
+    MAX_CLASSIFIER_TRANSCRIPT_CHARS - actionCompact.length,
+  )
+  const serializedTranscript = serializeTranscriptForClassifier(
+    messages,
+    tools,
+    transcriptBudget,
+  )
   const claudeMdMessage = buildClaudeMdMessage()
   const prefixMessages: Anthropic.MessageParam[] = claudeMdMessage
     ? [claudeMdMessage]
     : []
 
-  let toolCallsLength = actionCompact.length
-  let userPromptsLength = 0
-  const userContentBlocks: Anthropic.TextBlockParam[] = []
-  for (const entry of transcriptEntries) {
-    for (const block of entry.content) {
-      const serialized = toCompactBlock(block, entry.role, lookup)
-      if (serialized === '') continue
-      switch (entry.role) {
-        case 'user':
-          userPromptsLength += serialized.length
-          break
-        case 'assistant':
-          toolCallsLength += serialized.length
-          break
-        default: {
-          const _exhaustive: never = entry.role
-          void _exhaustive
-        }
-      }
-      userContentBlocks.push({ type: 'text' as const, text: serialized })
-    }
-  }
+  const toolCallsLength =
+    actionCompact.length + serializedTranscript.promptLengths.toolCalls
+  const userPromptsLength = serializedTranscript.promptLengths.userPrompts
+  const userContentBlocks = [...serializedTranscript.userContentBlocks]
 
   const userPrompt = userContentBlocks.map(b => b.text).join('') + actionCompact
   const promptLengths = {
@@ -1082,7 +1190,8 @@ export async function classifyYoloAction(
         `(sys=${promptLengths.systemPrompt} ` +
         `tools=${promptLengths.toolCalls} ` +
         `user=${promptLengths.userPrompts}) ` +
-        `transcriptEntries=${transcriptEntries.length} ` +
+        `transcriptEntries=${serializedTranscript.transcriptEntries} ` +
+        `truncated=${serializedTranscript.truncated} ` +
         `messages=${messages.length}`,
     )
     logForDebugging(
@@ -1121,7 +1230,7 @@ export async function classifyYoloAction(
         mainLoopTokens: mainLoopTokens ?? tokenCountWithEstimation(messages),
         classifierChars,
         classifierTokensEst,
-        transcriptEntries: transcriptEntries.length,
+        transcriptEntries: serializedTranscript.transcriptEntries,
         messages: messages.length,
         action: actionCompact,
       },
@@ -1141,7 +1250,6 @@ export async function classifyYoloAction(
           cache_control: getCacheControl({ querySource: 'auto_mode' }),
         },
       ],
-      skipSystemPromptPrefix: true,
       temperature: 0,
       thinking: disableThinking,
       messages: [
@@ -1277,7 +1385,7 @@ export async function classifyYoloAction(
         mainLoopTokens,
         classifierChars,
         classifierTokensEst,
-        transcriptEntries: transcriptEntries.length,
+        transcriptEntries: serializedTranscript.transcriptEntries,
         messages: messages.length,
         action: actionCompact,
         model,

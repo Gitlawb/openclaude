@@ -16,7 +16,13 @@ export const FINGERPRINT_SALT = '59cf53e54c78'
 export function extractFirstMessageText(
   messages: (UserMessage | AssistantMessage)[],
 ): string {
-  const firstUserMessage = messages.find(msg => msg.type === 'user')
+  // Skip isMeta messages (system-injected attachments) so the fingerprint
+  // reflects the actual user input. On --resume, reorderAttachmentsForAPI
+  // can bubble meta messages before the real first user message, changing
+  // the fingerprint and breaking cache.
+  const firstUserMessage =
+    messages.find(msg => msg.type === 'user' && !msg.isMeta) ??
+    messages.find(msg => msg.type === 'user')
   if (!firstUserMessage) {
     return ''
   }

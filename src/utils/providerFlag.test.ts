@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, test, afterEach } from 'bun:test'
-import { parseProviderFlag, applyProviderFlag, VALID_PROVIDERS } from './providerFlag.js'
+import {
+  parseProviderFlag,
+  applyProviderFlag,
+  applyProviderFlagFromArgs,
+  VALID_PROVIDERS,
+} from './providerFlag.js'
 
 const originalEnv = { ...process.env }
 const TEST_ENV_KEYS = [
@@ -201,5 +206,25 @@ describe('applyProviderFlag - invalid provider', () => {
     const result = applyProviderFlag('unknown-provider', [])
     expect(result.error).toContain('unknown-provider')
     expect(result.error).toContain(VALID_PROVIDERS.join(', '))
+  })
+})
+
+describe('applyProviderFlagFromArgs', () => {
+  test('applies ollama provider and model from argv in one step', () => {
+    const result = applyProviderFlagFromArgs([
+      '--provider',
+      'ollama',
+      '--model',
+      'qwen2.5:3b',
+    ])
+
+    expect(result?.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
+  })
+
+  test('returns undefined when --provider is absent', () => {
+    expect(applyProviderFlagFromArgs(['--model', 'gpt-4o'])).toBeUndefined()
   })
 })

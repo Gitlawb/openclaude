@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import React from 'react';
 import { Link, Text } from '../ink.js';
 export function MCPServerDialogCopy() {
   const $ = _c(1);

@@ -1,14 +1,19 @@
 import { feature } from 'bun:bundle';
 import {
-  isLocalProviderUrl,
-  resolveCodexApiCredentials,
-  resolveProviderRequest,
-} from '../services/api/providerConfig.js'
-import {
   applyProfileEnvToProcessEnv,
   buildStartupEnvFromProfile,
-  redactSecretValueForDisplay,
 } from '../utils/providerProfile.js'
+import {
+  getProviderValidationError,
+  validateProviderEnvOrExit,
+} from '../utils/providerValidation.js'
+
+// OpenClaude: disable experimental API betas by default.
+// Tool search (defer_loading), global cache scope, and context management
+// require internal API support not available to external accounts → 500.
+// Users can opt-in with CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=false.
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
 
 // Bugfix for corepack auto-pinning, which adds yarnpkg to peoples' package.jsons
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
@@ -35,82 +40,6 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
   }
 }
 
-function isEnvTruthy(value: string | undefined): boolean {
-  if (!value) return false
-  const normalized = value.trim().toLowerCase()
-  return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
-}
-
-function getProviderValidationError(
-  env: NodeJS.ProcessEnv = process.env,
-): string | null {
-  const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
-  const useGithub = isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)
-
-  if (isEnvTruthy(env.CLAUDE_CODE_USE_GEMINI)) {
-    if (!(env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY)) {
-      return 'GEMINI_API_KEY is required when CLAUDE_CODE_USE_GEMINI=1.'
-    }
-    return null
-  }
-
-  if (useGithub && !useOpenAI) {
-    const token = (env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()) ?? ''
-    if (!token) {
-      return 'GITHUB_TOKEN or GH_TOKEN is required when CLAUDE_CODE_USE_GITHUB=1.'
-    }
-    return null
-  }
-
-  if (!useOpenAI) {
-    return null
-  }
-
-  const request = resolveProviderRequest({
-    model: env.OPENAI_MODEL,
-    baseUrl: env.OPENAI_BASE_URL,
-  })
-
-  if (env.OPENAI_API_KEY === 'SUA_CHAVE') {
-    return 'Invalid OPENAI_API_KEY: placeholder value SUA_CHAVE detected. Set a real key or unset for local providers.'
-  }
-
-  if (request.transport === 'codex_responses') {
-    const credentials = resolveCodexApiCredentials(env)
-    if (!credentials.apiKey) {
-      const authHint = credentials.authPath
-        ? ` or put auth.json at ${credentials.authPath}`
-        : ''
-      const safeModel =
-        redactSecretValueForDisplay(request.requestedModel, env) ??
-        'the requested model'
-      return `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`
-    }
-    if (!credentials.accountId) {
-      return 'Codex auth is missing chatgpt_account_id. Re-login with Codex or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.'
-    }
-    return null
-  }
-
-  if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {
-    const hasGithubToken = !!(env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim())
-    if (useGithub && hasGithubToken) {
-      return null
-    }
-    return 'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.'
-  }
-
-  return null
-}
-
-function validateProviderEnvOrExit(): void {
-  const error = getProviderValidationError()
-  if (error) {
-    console.error(error)
-    process.exit(1)
-  }
-}
-
 /**
  * Bootstrap entrypoint - checks for special flags before loading the full CLI.
  * All imports are dynamic to minimize module evaluation for fast paths.
@@ -127,11 +56,25 @@ async function main(): Promise<void> {
     return;
   }
 
+  // --provider: set provider env vars early so saved-profile resolution,
+  // validation, and the startup banner all see the intended provider/model.
+  if (args.includes('--provider')) {
+    const { applyProviderFlagFromArgs } = await import('../utils/providerFlag.js');
+    const result = applyProviderFlagFromArgs(args);
+    if (result?.error) {
+      // biome-ignore lint/suspicious/noConsole:: intentional error output
+      console.error(`Error: ${result.error}`);
+      process.exit(1);
+    }
+  }
+
   {
     const { enableConfigs } = await import('../utils/config.js')
     enableConfigs()
     const { applySafeConfigEnvironmentVariables } = await import('../utils/managedEnv.js')
     applySafeConfigEnvironmentVariables()
+    const { hydrateGeminiAccessTokenFromSecureStorage } = await import('../utils/geminiCredentials.js')
+    hydrateGeminiAccessTokenFromSecureStorage()
     const { hydrateGithubModelsTokenFromSecureStorage } = await import('../utils/githubModelsCredentials.js')
     hydrateGithubModelsTokenFromSecureStorage()
   }
@@ -140,7 +83,7 @@ async function main(): Promise<void> {
     processEnv: process.env,
   })
   if (startupEnv !== process.env) {
-    const startupProfileError = getProviderValidationError(startupEnv)
+    const startupProfileError = await getProviderValidationError(startupEnv)
     if (startupProfileError) {
       console.error(
         `Warning: ignoring saved provider profile. ${startupProfileError}`,
@@ -150,7 +93,7 @@ async function main(): Promise<void> {
     }
   }
 
-  validateProviderEnvOrExit()
+  await validateProviderEnvOrExit()
 
   // Print the gradient startup screen before the Ink UI loads
   const { printStartupScreen } = await import('../components/StartupScreen.js')
@@ -399,24 +342,8 @@ async function main(): Promise<void> {
     process.env.CLAUDE_CODE_SIMPLE = '1';
   }
 
-  // --provider: set provider env vars early, before main module loads.
-  // This mirrors the --bare pattern: env vars must be in place before
-  // Commander option building and module-level constants are evaluated.
-  if (args.includes('--provider')) {
-    const { parseProviderFlag, applyProviderFlag } = await import('../utils/providerFlag.js');
-    const provider = parseProviderFlag(args);
-    if (provider) {
-      const result = applyProviderFlag(provider, args);
-      if (result.error) {
-        // biome-ignore lint/suspicious/noConsole:: intentional error output
-        console.error(`Error: ${result.error}`);
-        process.exit(1);
-      }
-    }
-  }
-
   // No special flags detected, load and run the full CLI
-  if (process.env.OPENCLAUDE_ENABLE_EARLY_INPUT === '1') {
+  if (process.env.OPENCLAUDE_DISABLE_EARLY_INPUT !== '1') {
     const {
       startCapturingEarlyInput
     } = await import('../utils/earlyInput.js');

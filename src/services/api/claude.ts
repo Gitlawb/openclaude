@@ -1466,6 +1466,10 @@ async function* queryModel(
     }
   }
 
+  // Latch Sonnet 1M experiment at query start so mid-retry GB refreshes
+  // don't flip the beta header and bust the cache key.
+  const sonnet1mExpLatched = getSonnet1mExpTreatmentEnabled(options.model)
+
   const effort = resolveAppliedEffort(options.model, options.effortValue)
 
   if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
@@ -1549,11 +1553,9 @@ async function* queryModel(
   const paramsFromContext = (retryContext: RetryContext) => {
     const betasParams = [...betas]
 
-    // Append 1M beta dynamically for the Sonnet 1M experiment.
-    if (
-      !betasParams.includes(CONTEXT_1M_BETA_HEADER) &&
-      getSonnet1mExpTreatmentEnabled(retryContext.model)
-    ) {
+    // Append 1M beta from the latched experiment state (computed once before
+    // the closure to avoid mid-retry GB flips changing the cache key).
+    if (!betasParams.includes(CONTEXT_1M_BETA_HEADER) && sonnet1mExpLatched) {
       betasParams.push(CONTEXT_1M_BETA_HEADER)
     }
 
@@ -1709,6 +1711,13 @@ async function* queryModel(
 
     return {
       model: normalizeModelStringForAPI(options.model),
+      // IMPORTANT: `system` must appear before `messages` in the object literal.
+      // JSON.stringify preserves insertion order. The native Bun attestation
+      // (Attestation.zig) overwrites the FIRST `cch=00000` sentinel in the
+      // serialized body. If `messages` is serialized first and conversation
+      // history contains this literal string, the wrong occurrence is replaced,
+      // producing a different system prompt on each request and breaking cache.
+      system,
       messages: addCacheBreakpoints(
         messagesForAPI,
         enablePromptCaching,
@@ -1718,7 +1727,6 @@ async function* queryModel(
         consumedPinnedEdits,
         options.skipCacheWrite,
       ),
-      system,
       tools: allTools,
       tool_choice: options.toolChoice,
       ...(useBetas && { betas: betasParams }),

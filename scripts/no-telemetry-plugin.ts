@@ -197,6 +197,13 @@ export function classifyFetchError() { return 'disabled'; }
 	'components/FeedbackSurvey/submitTranscriptShare': `
 export async function submitTranscriptShare() { return { success: false }; }
 `,
+
+	// ─── Internal employee logging (not needed in the external build) ─────
+
+	'services/internalLogging': `
+export async function logPermissionContextForAnts() {}
+export const getContainerId = async () => null;
+`,
 }
 
 function escapeForResolvedPathRegex(modulePath: string): string {
