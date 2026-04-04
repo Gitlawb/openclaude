@@ -13,6 +13,7 @@ import { summarizeRecentActivities } from '../utils/collapseReadSearch.js';
 import { truncateToWidth } from '../utils/format.js';
 import { isTodoV2Enabled, type Task } from '../utils/tasks.js';
 import type { Theme } from '../utils/theme.js';
+import FullWidthRow from './design-system/FullWidthRow.js';
 import ThemedText from './design-system/ThemedText.js';
 type Props = {
   tasks: Task[];
@@ -186,11 +187,11 @@ export function TaskListV2({
   }
   const content = <>
       {visibleTasks.map(task_0 => <TaskItem key={task_0.id} task={task_0} ownerColor={task_0.owner ? teammateColors[task_0.owner] : undefined} openBlockers={task_0.blockedBy.filter(id_3 => unresolvedTaskIds.has(id_3))} activity={task_0.owner ? teammateActivity[task_0.owner] : undefined} ownerActive={task_0.owner ? activeTeammates.has(task_0.owner) : false} columns={columns} />)}
-      {maxDisplay > 0 && hiddenSummary && <Text dimColor>{hiddenSummary}</Text>}
+      {maxDisplay > 0 && hiddenSummary && <FullWidthRow><Text dimColor>{hiddenSummary}</Text></FullWidthRow>}
     </>;
   if (isStandalone) {
-    return <Box flexDirection="column" marginTop={1} marginLeft={2}>
-        <Box>
+    return <Box flexDirection="column" marginTop={1} marginLeft={2} width="100%">
+        <Box width="100%">
           <Text dimColor>
             <Text bold>{tasks.length}</Text>
             {' tasks ('}
@@ -207,7 +208,7 @@ export function TaskListV2({
         {content}
       </Box>;
   }
-  return <Box flexDirection="column">{content}</Box>;
+  return <Box flexDirection="column" width="100%">{content}</Box>;
 }
 type TaskItemProps = {
   task: Task;
@@ -340,7 +341,7 @@ function TaskItem(t0) {
   }
   let t10;
   if ($[26] !== t5 || $[27] !== t7 || $[28] !== t8 || $[29] !== t9) {
-    t10 = <Box>{t5}{t7}{t8}{t9}</Box>;
+    t10 = <FullWidthRow>{t5}{t7}{t8}{t9}</FullWidthRow>;
     $[26] = t5;
     $[27] = t7;
     $[28] = t8;
@@ -351,7 +352,7 @@ function TaskItem(t0) {
   }
   let t11;
   if ($[31] !== displayActivity || $[32] !== showActivity) {
-    t11 = showActivity && displayActivity && <Box><Text dimColor={true}>{"  "}{displayActivity}{figures.ellipsis}</Text></Box>;
+    t11 = showActivity && displayActivity && <FullWidthRow><Text dimColor={true}>{"  "}{displayActivity}{figures.ellipsis}</Text></FullWidthRow>;
     $[31] = displayActivity;
     $[32] = showActivity;
     $[33] = t11;
@@ -360,7 +361,7 @@ function TaskItem(t0) {
   }
   let t12;
   if ($[34] !== t10 || $[35] !== t11) {
-    t12 = <Box flexDirection="column">{t10}{t11}</Box>;
+    t12 = <Box flexDirection="column" width="100%">{t10}{t11}</Box>;
     $[34] = t10;
     $[35] = t11;
     $[36] = t12;

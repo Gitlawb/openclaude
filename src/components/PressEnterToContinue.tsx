@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import * as React from 'react';
 import { Text } from '../ink.js';
 export function PressEnterToContinue() {
   const $ = _c(1);

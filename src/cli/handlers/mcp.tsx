@@ -175,7 +175,7 @@ export async function mcpRemoveHandler(name: string, options: {
   const serverBeforeRemoval = getMcpConfigByName(name);
   const cleanupSecureStorage = () => {
     if (serverBeforeRemoval && (serverBeforeRemoval.type === 'sse' || serverBeforeRemoval.type === 'http')) {
-      clearServerTokensFromLocalStorage(name, serverBeforeRemoval);
+      clearServerTokensFromSecureStorage(name, serverBeforeRemoval);
       clearMcpClientConfig(name, serverBeforeRemoval);
     }
   };

@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import React from 'react';
 import { Text } from '../ink.js';
 import { saveGlobalConfig } from '../utils/config.js';
 import { Select } from './CustomSelect/index.js';
@@ -8,7 +7,7 @@ type Props = {
   customApiKeyTruncated: string;
   onDone(approved: boolean): void;
 };
-export function ApproveApiKey(t0) {
+export function ApproveApiKey(t0: Props) {
   const $ = _c(17);
   const {
     customApiKeyTruncated,
@@ -16,7 +15,7 @@ export function ApproveApiKey(t0) {
   } = t0;
   let t1;
   if ($[0] !== customApiKeyTruncated || $[1] !== onDone) {
-    t1 = function onChange(value) {
+    t1 = function onChange(value: 'yes' | 'no') {
       bb2: switch (value) {
         case "yes":
           {
@@ -102,7 +101,7 @@ export function ApproveApiKey(t0) {
   }
   let t8;
   if ($[11] !== onChange) {
-    t8 = <Select defaultValue="no" defaultFocusValue="no" options={t7} onChange={value_0 => onChange(value_0 as 'yes' | 'no')} onCancel={() => onChange("no")} />;
+    t8 = <Select defaultValue="no" defaultFocusValue="no" options={t7} onChange={(value_0: string) => onChange(value_0 as 'yes' | 'no')} onCancel={() => onChange("no")} />;
     $[11] = onChange;
     $[12] = t8;
   } else {

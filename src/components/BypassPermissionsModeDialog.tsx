@@ -1,5 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
-import React, { useCallback } from 'react';
+import React from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { Box, Link, Newline, Text } from '../ink.js';
 import { gracefulShutdownSync } from '../utils/gracefulShutdown.js';
@@ -9,12 +9,12 @@ import { Dialog } from './design-system/Dialog.js';
 type Props = {
   onAccept(): void;
 };
-export function BypassPermissionsModeDialog(t0) {
+export function BypassPermissionsModeDialog(t0: Props) {
   const $ = _c(7);
   const {
     onAccept
   } = t0;
-  let t1;
+  let t1: [];
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = [];
     $[0] = t1;
@@ -24,7 +24,7 @@ export function BypassPermissionsModeDialog(t0) {
   React.useEffect(_temp, t1);
   let t2;
   if ($[1] !== onAccept) {
-    t2 = function onChange(value) {
+    t2 = function onChange(value: 'accept' | 'decline') {
       bb3: switch (value) {
         case "accept":
           {
@@ -70,7 +70,7 @@ export function BypassPermissionsModeDialog(t0) {
   }
   let t5;
   if ($[5] !== onChange) {
-    t5 = <Dialog title="WARNING: Claude Code running in Bypass Permissions mode" color="error" onCancel={handleEscape}>{t3}<Select options={t4} onChange={value_0 => onChange(value_0 as 'accept' | 'decline')} /></Dialog>;
+    t5 = <Dialog title="WARNING: Claude Code running in Bypass Permissions mode" color="error" onCancel={handleEscape}>{t3}<Select options={t4} onChange={(value_0: string) => onChange(value_0 as 'accept' | 'decline')} /></Dialog>;
     $[5] = onChange;
     $[6] = t5;
   } else {

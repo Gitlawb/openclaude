@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Box } from '../../ink.js';
 import { getInitialSettings } from '../../utils/settings/settings.js';

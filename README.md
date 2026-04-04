@@ -11,6 +11,22 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, a
 - Run locally with Ollama or Atomic Chat
 - Keep core coding-agent workflows: bash, file tools, grep, glob, agents, tasks, MCP, and web tools
 
+## Provenance & Legal Notice
+
+OpenClaude is derived from Anthropic's Claude Code CLI source code, which was
+inadvertently exposed in March 2026 through a packaging error in npm. The
+original Claude Code source is proprietary software owned by Anthropic PBC.
+
+This project adds multi-provider support, strips telemetry, and adapts the
+codebase for open use. It is not an authorized fork or open-source release
+by Anthropic.
+
+**"Claude" and "Claude Code" are trademarks of Anthropic PBC.**
+
+Contributors should be aware that the legal status of distributing code
+derived from Anthropic's proprietary source is unresolved. See the LICENSE
+file for details.
+
 ---
 
 ## Quick Start
