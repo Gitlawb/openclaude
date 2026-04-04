@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -46,11 +46,47 @@ async function collectStreamEventTypes(responseText: string): Promise<string[]> 
 }
 
 describe('Codex provider config', () => {
+  const originalOpenaiBaseUrl = process.env.OPENAI_BASE_URL
+  const originalOpenaiApiBase = process.env.OPENAI_API_BASE
+
+  beforeEach(() => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+  })
+
+  afterEach(() => {
+    if (originalOpenaiBaseUrl === undefined) delete process.env.OPENAI_BASE_URL
+    else process.env.OPENAI_BASE_URL = originalOpenaiBaseUrl
+    if (originalOpenaiApiBase === undefined) delete process.env.OPENAI_API_BASE
+    else process.env.OPENAI_API_BASE = originalOpenaiApiBase
+  })
+
   test('resolves codexplan alias to Codex transport with reasoning', () => {
     const resolved = resolveProviderRequest({ model: 'codexplan' })
     expect(resolved.transport).toBe('codex_responses')
     expect(resolved.resolvedModel).toBe('gpt-5.4')
     expect(resolved.reasoning).toEqual({ effort: 'high' })
+  })
+
+  test('resolves codexplan to Codex transport even when OPENAI_BASE_URL is the string "undefined"', () => {
+    // On Windows, env vars can leak as the literal string "undefined" instead of
+    // the JS value undefined when not properly unset (issue #336).
+    process.env.OPENAI_BASE_URL = 'undefined'
+    const resolved = resolveProviderRequest({ model: 'codexplan' })
+    expect(resolved.transport).toBe('codex_responses')
+  })
+
+  test('resolves codexplan to Codex transport even when OPENAI_BASE_URL is an empty string', () => {
+    process.env.OPENAI_BASE_URL = ''
+    const resolved = resolveProviderRequest({ model: 'codexplan' })
+    expect(resolved.transport).toBe('codex_responses')
+  })
+
+  test('prefers explicit baseUrl option over env var', () => {
+    process.env.OPENAI_BASE_URL = 'https://example.com/v1'
+    const resolved = resolveProviderRequest({ model: 'codexplan', baseUrl: 'https://chatgpt.com/backend-api/codex' })
+    expect(resolved.transport).toBe('codex_responses')
+    expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
 
   test('loads Codex credentials from auth.json fallback', () => {
