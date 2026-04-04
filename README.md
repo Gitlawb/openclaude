@@ -107,7 +107,7 @@ Advanced and source-build guides:
 | Atomic Chat | advanced setup | Local Apple Silicon backend |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
 
-For Gemini, the current `/provider` flow still sets up the API-key path. Advanced env-based auth can also use `GEMINI_ACCESS_TOKEN` or local Google ADC credentials when available.
+For Gemini, `/provider` can now save either the API-key path or a non-secret profile that expects `GEMINI_ACCESS_TOKEN` or local Google ADC credentials at runtime.
 
 ---
 

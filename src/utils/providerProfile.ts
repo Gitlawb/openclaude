@@ -32,6 +32,8 @@ const PROFILE_ENV_KEYS = [
   'CHATGPT_ACCOUNT_ID',
   'CODEX_ACCOUNT_ID',
   'GEMINI_API_KEY',
+  'GEMINI_AUTH_MODE',
+  'GEMINI_ACCESS_TOKEN',
   'GEMINI_MODEL',
   'GEMINI_BASE_URL',
   'GOOGLE_API_KEY',
@@ -54,6 +56,7 @@ export type ProfileEnv = {
   CHATGPT_ACCOUNT_ID?: string
   CODEX_ACCOUNT_ID?: string
   GEMINI_API_KEY?: string
+  GEMINI_AUTH_MODE?: 'api-key' | 'access-token-or-adc'
   GEMINI_MODEL?: string
   GEMINI_BASE_URL?: string
 }
@@ -220,19 +223,22 @@ export function buildGeminiProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
+  authMode?: 'api-key' | 'access-token-or-adc'
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
+  const authMode = options.authMode ?? 'api-key'
   const key = sanitizeApiKey(
     options.apiKey ??
       processEnv.GEMINI_API_KEY ??
       processEnv.GOOGLE_API_KEY,
   )
-  if (!key) {
+  if (authMode === 'api-key' && !key) {
     return null
   }
 
   const env: ProfileEnv = {
+    GEMINI_AUTH_MODE: authMode,
     GEMINI_MODEL:
       sanitizeProviderConfigValue(options.model, { GEMINI_API_KEY: key }, processEnv) ||
       sanitizeProviderConfigValue(
@@ -241,7 +247,10 @@ export function buildGeminiProfileEnv(options: {
         processEnv,
       ) ||
       DEFAULT_GEMINI_MODEL,
-    GEMINI_API_KEY: key,
+  }
+
+  if (authMode === 'api-key' && key) {
+    env.GEMINI_API_KEY = key
   }
 
   const baseUrl =
@@ -460,11 +469,14 @@ export async function buildLaunchEnv(options: {
     processEnv.GEMINI_BASE_URL,
     processEnv,
   )
+  const shellGeminiAccessToken =
+    processEnv.GEMINI_ACCESS_TOKEN?.trim() || undefined
 
   const shellGeminiKey = sanitizeApiKey(
     processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY,
   )
   const persistedGeminiKey = sanitizeApiKey(persistedEnv.GEMINI_API_KEY)
+  const persistedGeminiAuthMode = persistedEnv.GEMINI_AUTH_MODE
 
   if (options.profile === 'gemini') {
     const env: NodeJS.ProcessEnv = {
@@ -484,11 +496,21 @@ export async function buildLaunchEnv(options: {
       persistedGeminiBaseUrl ||
       DEFAULT_GEMINI_BASE_URL
 
+    const geminiAuthMode =
+      persistedGeminiAuthMode === 'access-token-or-adc'
+        ? 'access-token-or-adc'
+        : 'api-key'
     const geminiKey = shellGeminiKey || persistedGeminiKey
-    if (geminiKey) {
+    if (geminiAuthMode === 'api-key' && geminiKey) {
       env.GEMINI_API_KEY = geminiKey
     } else {
       delete env.GEMINI_API_KEY
+    }
+    env.GEMINI_AUTH_MODE = geminiAuthMode
+    if (shellGeminiAccessToken) {
+      env.GEMINI_ACCESS_TOKEN = shellGeminiAccessToken
+    } else {
+      delete env.GEMINI_ACCESS_TOKEN
     }
 
     delete env.GOOGLE_API_KEY
@@ -510,6 +532,8 @@ export async function buildLaunchEnv(options: {
   delete env.CLAUDE_CODE_USE_GEMINI
   delete env.CLAUDE_CODE_USE_GITHUB
   delete env.GEMINI_API_KEY
+  delete env.GEMINI_AUTH_MODE
+  delete env.GEMINI_ACCESS_TOKEN
   delete env.GEMINI_MODEL
   delete env.GEMINI_BASE_URL
   delete env.GOOGLE_API_KEY

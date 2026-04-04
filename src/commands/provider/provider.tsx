@@ -37,6 +37,10 @@ import {
   type ProviderProfile,
 } from '../../utils/providerProfile.js'
 import {
+  getGeminiProjectIdHint,
+  mayHaveGeminiAdcCredentials,
+} from '../../utils/geminiAuth.js'
+import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
   rankOllamaModels,
@@ -60,8 +64,13 @@ type Step =
       baseUrl: string | null
       defaultModel: string
     }
+  | { name: 'gemini-auth-method' }
   | { name: 'gemini-key' }
-  | { name: 'gemini-model'; apiKey: string }
+  | {
+      name: 'gemini-model'
+      apiKey?: string
+      authMode: 'api-key' | 'access-token-or-adc'
+    }
   | { name: 'codex-check' }
 
 type CurrentProviderSummary = {
@@ -216,9 +225,11 @@ function buildSavedProfileSummary(
           env,
         ),
         credentialLabel:
-          maskSecretForDisplay(env.GEMINI_API_KEY) !== undefined
-            ? 'configured'
-            : undefined,
+          env.GEMINI_AUTH_MODE === 'access-token-or-adc'
+            ? 'access token / ADC'
+            : maskSecretForDisplay(env.GEMINI_API_KEY) !== undefined
+              ? 'configured'
+              : undefined,
       }
     case 'codex':
       return {
@@ -427,7 +438,7 @@ function ProviderChooser({
     {
       label: 'Gemini',
       value: 'gemini',
-      description: 'Use a Google Gemini API key',
+      description: 'Use Google Gemini with API key, access token, or local ADC',
     },
     {
       label: 'Codex',
@@ -926,7 +937,7 @@ export function ProviderWizard({
                 defaultModel: defaults.openAIModel,
               })
             } else if (value === 'gemini') {
-              setStep({ name: 'gemini-key' })
+              setStep({ name: 'gemini-auth-method' })
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
@@ -1066,12 +1077,66 @@ export function ProviderWizard({
         />
       )
 
+    case 'gemini-auth-method': {
+      const hasShellGeminiKey = Boolean(
+        process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+      )
+      const hasShellGeminiAccessToken = Boolean(process.env.GEMINI_ACCESS_TOKEN)
+      const hasAdc = mayHaveGeminiAdcCredentials(process.env)
+      const projectHint = getGeminiProjectIdHint(process.env)
+
+      const options: OptionWithDescription[] = [
+        {
+          label: 'API key',
+          value: 'api-key',
+          description: hasShellGeminiKey
+            ? 'Use the current Gemini API key from this shell, or enter a new one'
+            : 'Use a Google Gemini API key',
+        },
+        {
+          label: 'Access token / ADC',
+          value: 'access-token-or-adc',
+          description: hasShellGeminiAccessToken || hasAdc
+            ? `Use ${
+                hasShellGeminiAccessToken
+                  ? 'the current GEMINI_ACCESS_TOKEN'
+                  : 'local Google ADC credentials'
+              }${projectHint ? ` (project: ${projectHint})` : ''}`
+            : 'Save a Gemini profile that expects GEMINI_ACCESS_TOKEN or local Google ADC credentials at runtime',
+        },
+      ]
+
+      return (
+        <Dialog title="Gemini setup" onCancel={() => onDone()}>
+          <Box flexDirection="column" gap={1}>
+            <Text>Choose how this Gemini profile should authenticate.</Text>
+            <Select
+              options={options}
+              inlineDescriptions
+              visibleOptionCount={options.length}
+              onChange={value => {
+                if (value === 'api-key') {
+                  setStep({ name: 'gemini-key' })
+                } else {
+                  setStep({
+                    name: 'gemini-model',
+                    authMode: 'access-token-or-adc',
+                  })
+                }
+              }}
+              onCancel={() => setStep({ name: 'choose' })}
+            />
+          </Box>
+        </Dialog>
+      )
+    }
+
     case 'gemini-key':
       return (
         <TextEntryDialog
           resetStateKey={step.name}
           title="Gemini setup"
-          subtitle="Step 1 of 2"
+          subtitle="Step 1 of 3"
           description={
             process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
               ? 'Enter a Gemini API key, or leave this blank to reuse the current GEMINI_API_KEY/GOOGLE_API_KEY from this session.'
@@ -1089,9 +1154,9 @@ export function ProviderWizard({
               process.env.GEMINI_API_KEY ||
               process.env.GOOGLE_API_KEY ||
               ''
-            setStep({ name: 'gemini-model', apiKey })
+            setStep({ name: 'gemini-model', apiKey, authMode: 'api-key' })
           }}
-          onCancel={() => setStep({ name: 'choose' })}
+          onCancel={() => setStep({ name: 'gemini-auth-method' })}
         />
       )
 
@@ -1100,14 +1165,21 @@ export function ProviderWizard({
         <TextEntryDialog
           resetStateKey={step.name}
           title="Gemini setup"
-          subtitle="Step 2 of 2"
-          description={`Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}.`}
+          subtitle={
+            step.authMode === 'api-key' ? 'Step 2 of 3' : 'Step 2 of 2'
+          }
+          description={
+            step.authMode === 'api-key'
+              ? `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}.`
+              : `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use GEMINI_ACCESS_TOKEN or local Google ADC credentials at runtime.`
+          }
           initialValue={defaults.geminiModel}
           placeholder={DEFAULT_GEMINI_MODEL}
           allowEmpty
           onSubmit={value => {
             const env = buildGeminiProfileEnv({
               apiKey: step.apiKey,
+              authMode: step.authMode,
               model: value.trim() || DEFAULT_GEMINI_MODEL,
               processEnv: {},
             })
@@ -1115,7 +1187,11 @@ export function ProviderWizard({
               finishProfileSave(onDone, 'gemini', env)
             }
           }}
-          onCancel={() => setStep({ name: 'gemini-key' })}
+          onCancel={() =>
+            step.authMode === 'api-key'
+              ? setStep({ name: 'gemini-key' })
+              : setStep({ name: 'gemini-auth-method' })
+          }
         />
       )
 
