@@ -28,8 +28,10 @@ function askQuestion(query: string): Promise<string> {
 }
 
 async function main() {
+  const host = process.env.GRPC_HOST || 'localhost'
+  const port = process.env.GRPC_PORT || '50051'
   const client = new openclaudeProto.AgentService(
-    'localhost:50051',
+    `${host}:${port}`,
     grpc.credentials.createInsecure()
   )
 

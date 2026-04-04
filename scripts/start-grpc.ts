@@ -15,9 +15,10 @@ async function main() {
   enableConfigs()
 
   const port = process.env.GRPC_PORT ? parseInt(process.env.GRPC_PORT, 10) : 50051
+  const host = process.env.GRPC_HOST || 'localhost'
   const server = new GrpcServer()
-  
-  server.start(port)
+
+  server.start(port, host)
 }
 
 main().catch((err) => {

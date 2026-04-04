@@ -31,16 +31,16 @@ export class GrpcServer {
     })
   }
 
-  start(port: number = 50051) {
+  start(port: number = 50051, host: string = 'localhost') {
     this.server.bindAsync(
-      `0.0.0.0:${port}`,
+      `${host}:${port}`,
       grpc.ServerCredentials.createInsecure(),
       (error, boundPort) => {
         if (error) {
           console.error('Failed to start gRPC server', error)
           return
         }
-        console.log(`gRPC Server running at 0.0.0.0:${boundPort}`)
+        console.log(`gRPC Server running at ${host}:${boundPort}`)
       }
     )
   }
@@ -49,21 +49,25 @@ export class GrpcServer {
     let engine: QueryEngine | null = null
     let appState: AppState = getDefaultAppState()
     const fileCache: FileStateCache = new FileStateCache(READ_FILE_STATE_CACHE_SIZE, 25 * 1024 * 1024)
-    
+
     // To handle ActionRequired (ask user for permission)
     const pendingRequests = new Map<string, (reply: string) => void>()
+
+    // Accumulated messages from previous turns for multi-turn context
+    let previousMessages: any[] = []
 
     call.on('data', async (clientMessage) => {
       try {
         if (clientMessage.request) {
           const req = clientMessage.request
-          
+
           engine = new QueryEngine({
             cwd: req.working_directory || process.cwd(),
             tools: getTools(appState.toolPermissionContext), // Gets all available tools
             commands: [], // Slash commands
             mcpClients: [],
             agents: [],
+            ...(previousMessages.length > 0 ? { initialMessages: previousMessages } : {}),
             includePartialMessages: true,
             canUseTool: async (tool, input, context, assistantMsg, toolUseID) => {
               // Notify client of the tool call first
@@ -103,6 +107,11 @@ export class GrpcServer {
             // Configure provider inside AppState or env variables beforehand
           })
 
+          // Track accumulated response data for FinalResponse
+          let fullText = ''
+          let promptTokens = 0
+          let completionTokens = 0
+
           const generator = engine.submitMessage(req.message)
 
           for await (const msg of generator) {
@@ -113,6 +122,7 @@ export class GrpcServer {
                     text: msg.event.delta.text
                   }
                 })
+                fullText += msg.event.delta.text
               }
             } else if (msg.type === 'user') {
               // Extract tool results
@@ -128,7 +138,7 @@ export class GrpcServer {
                     }
                     call.write({
                       tool_result: {
-                        tool_name: block.tool_use_id, // We don't have tool name here easily, sending ID
+                        tool_name: block.tool_use_id,
                         output: outputStr,
                         is_error: block.is_error || false
                       }
@@ -137,15 +147,25 @@ export class GrpcServer {
                 }
               }
             } else if (msg.type === 'result') {
-              // Final response message
+              // Extract real token counts and final text from the result
+              if (msg.subtype === 'success') {
+                if (msg.result) {
+                  fullText = msg.result
+                }
+                promptTokens = msg.usage?.input_tokens ?? 0
+                completionTokens = msg.usage?.output_tokens ?? 0
+              }
             }
           }
 
+          // Save messages for multi-turn context in subsequent requests
+          previousMessages = [...engine.getMessages()]
+
           call.write({
             done: {
-              full_text: "Generation complete.",
-              prompt_tokens: 0,
-              completion_tokens: 0
+              full_text: fullText,
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens
             }
           })
 
@@ -157,7 +177,6 @@ export class GrpcServer {
             pendingRequests.delete(promptId)
           }
         } else if (clientMessage.cancel) {
-          // Implement cancellation logic if needed
           call.end()
         }
       } catch (err: any) {

@@ -8,3 +8,4 @@ dist/
 reports/
 GEMINI.md
 package-lock.json
+/.claude

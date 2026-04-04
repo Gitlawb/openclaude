@@ -214,6 +214,13 @@ Start the core engine as a gRPC service on `localhost:50051`:
 npm run dev:grpc
 ```
 
+#### Configuration
+
+| Variable | Default | Description |
+|-----------|-------------|------------------------------------------------|
+| `GRPC_PORT` | `50051` | Port the gRPC server listens on |
+| `GRPC_HOST` | `localhost` | Bind address. Use `0.0.0.0` to expose on all interfaces (not recommended without authentication) |
+
 ### 2. Run the Test CLI Client
 
 We provide a lightweight CLI client that communicates exclusively over gRPC. It acts just like the main interactive CLI, rendering colors, streaming tokens, and prompting you for tool permissions (y/n) via the gRPC `action_required` event.
