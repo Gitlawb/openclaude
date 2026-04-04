@@ -111,6 +111,29 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
   })
 
+  test('does not override explicit startup selection when profile marker is stale', () => {
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_MODEL = 'qwen2.5:3b'
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_openai',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-4o',
+        }),
+      ],
+      activeProviderProfileId: 'saved_openai',
+    } as any)
+
+    expect(applied).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
+  })
+
   test('applies active profile when no explicit provider is selected', () => {
     delete process.env.CLAUDE_CODE_USE_OPENAI
     delete process.env.CLAUDE_CODE_USE_GEMINI

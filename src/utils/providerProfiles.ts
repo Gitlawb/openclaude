@@ -264,16 +264,48 @@ function hasProviderSelectionFlags(
   )
 }
 
-function hasExplicitProviderSelection(
-  processEnv: NodeJS.ProcessEnv = process.env,
+function sameOptionalEnvValue(
+  left: string | undefined,
+  right: string | undefined,
 ): boolean {
-  // If provider env came from an active saved profile, treat those flags as
-  // profile-managed state (not explicit startup intent).
-  if (processEnv[PROFILE_ENV_APPLIED_FLAG] === '1') {
+  return trimOrUndefined(left) === trimOrUndefined(right)
+}
+
+function isProcessEnvAlignedWithProfile(
+  processEnv: NodeJS.ProcessEnv,
+  profile: ProviderProfile,
+  options?: {
+    includeApiKey?: boolean
+  },
+): boolean {
+  const includeApiKey = options?.includeApiKey ?? true
+
+  if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
     return false
   }
 
-  return hasProviderSelectionFlags(processEnv)
+  if (profile.provider === 'anthropic') {
+    return (
+      !hasProviderSelectionFlags(processEnv) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, profile.model) &&
+      (!includeApiKey ||
+        sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
+    )
+  }
+
+  return (
+    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+    processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
+    processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
+    processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
+    processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
+    processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
+    sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
+    sameOptionalEnvValue(processEnv.OPENAI_MODEL, profile.model) &&
+    (!includeApiKey ||
+      sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey))
+  )
 }
 
 export function getActiveProviderProfile(
@@ -349,14 +381,19 @@ export function applyActiveProviderProfileFromConfig(
   },
 ): ProviderProfile | undefined {
   const processEnv = options?.processEnv ?? process.env
-  if (!options?.force && hasExplicitProviderSelection(processEnv)) {
-    return undefined
-  }
-
   const activeProfile = getActiveProviderProfile(config)
   if (!activeProfile) {
     return undefined
   }
+
+  if (!options?.force && hasProviderSelectionFlags(processEnv)) {
+    // Respect explicit startup provider intent. Re-apply only when the
+    // current process env is already profile-managed and aligned.
+    if (!isProcessEnvAlignedWithProfile(processEnv, activeProfile)) {
+      return undefined
+    }
+  }
+
   applyProviderProfileToProcessEnv(activeProfile)
   return activeProfile
 }
@@ -485,6 +522,7 @@ export function deleteProviderProfile(profileId: string): {
   activeProfileId?: string
 } {
   let removed = false
+  let deletedProfile: ProviderProfile | undefined
   let nextActiveProfile: ProviderProfile | undefined
 
   saveGlobalConfig(current => {
@@ -496,6 +534,7 @@ export function deleteProviderProfile(profileId: string): {
     }
 
     removed = true
+    deletedProfile = existing
 
     const nextProfiles = currentProfiles.filter(profile => profile.id !== profileId)
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
@@ -531,7 +570,12 @@ export function deleteProviderProfile(profileId: string): {
 
   if (nextActiveProfile) {
     applyProviderProfileToProcessEnv(nextActiveProfile)
-  } else if (!hasExplicitProviderSelection()) {
+  } else if (
+    deletedProfile &&
+    isProcessEnvAlignedWithProfile(process.env, deletedProfile, {
+      includeApiKey: false,
+    })
+  ) {
     clearProviderProfileEnvFromProcessEnv()
   }
 
