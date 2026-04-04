@@ -38,6 +38,7 @@
     "doctor:runtime": "bun run scripts/system-check.ts",
     "doctor:runtime:json": "bun run scripts/system-check.ts --json",
     "doctor:report": "bun run scripts/system-check.ts --out reports/doctor-runtime.json",
+    "analyze:unused": "bun run scripts/unused-analysis.ts",
     "hardening:check": "bun run smoke && bun run doctor:runtime",
     "hardening:strict": "bun run typecheck && bun run hardening:check",
     "prepack": "npm run build"
