@@ -33,4 +33,16 @@ test('rejects malformed or non-GitHub URLs', () => {
   assert.equal(extractGitHubRepoSlug('https://gitlab.com/Gitlawb/openclaude'), null)
   assert.equal(extractGitHubRepoSlug('https://github.com/Gitlawb'), null)
   assert.equal(extractGitHubRepoSlug('not actually github.com/Gitlawb/openclaude'), null)
+  assert.equal(
+    extractGitHubRepoSlug('https://evil.example/?next=github.com/Gitlawb/openclaude'),
+    null,
+  )
+  assert.equal(
+    extractGitHubRepoSlug('https://github.com.evil.example/Gitlawb/openclaude'),
+    null,
+  )
+  assert.equal(
+    extractGitHubRepoSlug('https://example.com/github.com/Gitlawb/openclaude'),
+    null,
+  )
 })

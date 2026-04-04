@@ -1,17 +1,24 @@
 # OpenClaude
 
-OpenClaude is an open-source coding-agent CLI that works with more than one model provider.
+OpenClaude is an open-source coding-agent CLI for cloud and local model providers.
 
-Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported backends while keeping the same terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
+Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported backends while keeping one terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
+
+[![PR Checks](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml)
+[![Release](https://img.shields.io/github/v/tag/Gitlawb/openclaude?label=release&color=0ea5e9)](https://github.com/Gitlawb/openclaude/tags)
+[![Discussions](https://img.shields.io/badge/discussions-open-7c3aed)](https://github.com/Gitlawb/openclaude/discussions)
+[![Security Policy](https://img.shields.io/badge/security-policy-0f766e)](SECURITY.md)
+[![License](https://img.shields.io/badge/license-MIT-2563eb)](LICENSE)
+
+[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
 
 ## Why OpenClaude
 
-- Use one CLI across cloud and local model providers
+- Use one CLI across cloud APIs and local model backends
 - Save provider profiles inside the app with `/provider`
-- Run locally with Ollama or Atomic Chat
-- Keep core coding-agent workflows: bash, file tools, grep, glob, agents, tasks, MCP, and web tools
-
----
+- Run with OpenAI-compatible services, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported providers
+- Keep coding-agent workflows in one place: bash, file tools, grep, glob, agents, tasks, MCP, and web tools
+- Use the bundled VS Code extension for launch integration and theme support
 
 ## Quick Start
 
@@ -21,7 +28,7 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, a
 npm install -g @gitlawb/openclaude
 ```
 
-If the npm install path later reports `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting OpenClaude.
+If the install later reports `ripgrep not found`, install ripgrep system-wide and confirm `rg --version` works in the same terminal before starting OpenClaude.
 
 ### Start
 
@@ -31,8 +38,8 @@ openclaude
 
 Inside OpenClaude:
 
-- run `/provider` for guided setup of OpenAI-compatible, Gemini, Ollama, or Codex profiles
-- run `/onboard-github` for GitHub Models setup
+- run `/provider` for guided provider setup and saved profiles
+- run `/onboard-github` for GitHub Models onboarding
 
 ### Fastest OpenAI setup
 
@@ -78,8 +85,6 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
----
-
 ## Setup Guides
 
 Beginner-friendly guides:
@@ -93,38 +98,26 @@ Advanced and source-build guides:
 - [Advanced Setup](docs/advanced-setup.md)
 - [Android Install](ANDROID_INSTALL.md)
 
----
-
 ## Supported Providers
 
 | Provider | Setup Path | Notes |
 | --- | --- | --- |
-| OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and compatible local `/v1` servers |
-| Gemini | `/provider` or env vars | Google Gemini support through the runtime provider layer |
+| OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
+| Gemini | `/provider` or env vars | Supports API key, access token, or local ADC workflow on current `main` |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex | `/provider` | Uses existing Codex credentials when available |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | advanced setup | Local Apple Silicon backend |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
 
----
-
 ## What Works
 
-- Tool-driven coding workflows
-  Bash, file read/write/edit, grep, glob, agents, tasks, MCP, and slash commands
-- Streaming responses
-  Real-time token output and tool progress
-- Tool calling
-  Multi-step tool loops with model calls, tool execution, and follow-up responses
-- Images
-  URL and base64 image inputs for providers that support vision
-- Provider profiles
-  Guided setup plus saved `.openclaude-profile.json` support
-- Local and remote model backends
-  Cloud APIs, local servers, and Apple Silicon local inference
-
----
+- **Tool-driven coding workflows**: Bash, file read/write/edit, grep, glob, agents, tasks, MCP, and slash commands
+- **Streaming responses**: Real-time token output and tool progress
+- **Tool calling**: Multi-step tool loops with model calls, tool execution, and follow-up responses
+- **Images**: URL and base64 image inputs for providers that support vision
+- **Provider profiles**: Guided setup plus saved `.openclaude-profile.json` support
+- **Local and remote model backends**: Cloud APIs, local servers, and Apple Silicon local inference
 
 ## Provider Notes
 
@@ -137,13 +130,49 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 
 For best results, use models with strong tool/function calling support.
 
----
+## Agent Routing
+
+OpenClaude can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "agentModels": {
+    "deepseek-chat": {
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": "sk-your-key"
+    },
+    "gpt-4o": {
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "sk-your-key"
+    }
+  },
+  "agentRouting": {
+    "Explore": "deepseek-chat",
+    "Plan": "gpt-4o",
+    "general-purpose": "gpt-4o",
+    "frontend-dev": "deepseek-chat",
+    "default": "gpt-4o"
+  }
+}
+```
+
+When no routing match is found, the global provider remains the fallback.
+
+> **Note:** `api_key` values in `settings.json` are stored in plaintext. Keep this file private and do not commit it to version control.
 
 ## Web Search and Fetch
 
-`WebFetch` works out of the box.
+By default, `WebSearch` works on non-Anthropic models using DuckDuckGo. This gives GPT-4o, DeepSeek, Gemini, Ollama, and other OpenAI-compatible providers a free web search path out of the box.
 
-`WebSearch` and richer JS-aware fetching work best with a Firecrawl API key:
+> **Note:** DuckDuckGo fallback works by scraping search results and may be rate-limited, blocked, or subject to DuckDuckGo's Terms of Service. If you want a more reliable supported option, configure Firecrawl.
+
+For Anthropic-native backends and Codex responses, OpenClaude keeps the native provider web search behavior.
+
+`WebFetch` works, but its basic HTTP plus HTML-to-markdown path can still fail on JavaScript-rendered sites or sites that block plain HTTP requests.
+
+Set a [Firecrawl](https://firecrawl.dev) API key if you want Firecrawl-powered search/fetch behavior:
 
 ```bash
 export FIRECRAWL_API_KEY=your-key-here
@@ -151,14 +180,12 @@ export FIRECRAWL_API_KEY=your-key-here
 
 With Firecrawl enabled:
 
-- `WebSearch` is available across more provider setups
-- `WebFetch` can handle JavaScript-rendered pages more reliably
+- `WebSearch` can use Firecrawl's search API while DuckDuckGo remains the default free path for non-Claude models
+- `WebFetch` uses Firecrawl's scrape endpoint instead of raw HTTP, handling JS-rendered pages correctly
 
-Firecrawl is optional. Without it, OpenClaude falls back to the built-in behavior.
+Free tier at [firecrawl.dev](https://firecrawl.dev) includes 500 credits. The key is optional.
 
----
-
-## Source Build
+## Source Build And Local Development
 
 ```bash
 bun install
@@ -171,20 +198,31 @@ Helpful commands:
 - `bun run dev`
 - `bun run smoke`
 - `bun run doctor:runtime`
+- `bun run verify:privacy`
+- focused `bun test ...` runs for the areas you touch
 
----
+## Repository Structure
+
+- `src/` - core CLI/runtime
+- `scripts/` - build, verification, and maintenance scripts
+- `docs/` - setup, contributor, and project documentation
+- `python/` - standalone Python helpers and their tests
+- `vscode-extension/openclaude-vscode/` - VS Code extension
+- `.github/` - repo automation, templates, and CI configuration
+- `bin/` - CLI launcher entrypoints
 
 ## VS Code Extension
 
-The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](vscode-extension/openclaude-vscode) for OpenClaude launch integration and theme support.
-
----
+The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](vscode-extension/openclaude-vscode) for OpenClaude launch integration, provider-aware control-center UI, and theme support.
 
 ## Security
 
 If you believe you found a security issue, see [SECURITY.md](SECURITY.md).
 
----
+## Community
+
+- Use [GitHub Discussions](https://github.com/Gitlawb/openclaude/discussions) for Q&A, ideas, and community conversation
+- Use [GitHub Issues](https://github.com/Gitlawb/openclaude/issues) for confirmed bugs and actionable feature work
 
 ## Contributing
 
@@ -196,16 +234,12 @@ For larger changes, open an issue first so the scope is clear before implementat
 - `bun run smoke`
 - focused `bun test ...` runs for touched areas
 
----
-
 ## Disclaimer
 
 OpenClaude is an independent community project and is not affiliated with, endorsed by, or sponsored by Anthropic.
 
-"Claude" and "Claude Code" are trademarks of Anthropic.
-
----
+OpenClaude originated from the Claude Code codebase and has since been substantially modified to support multiple providers and open use. "Claude" and "Claude Code" are trademarks of Anthropic PBC. See [LICENSE](LICENSE) for details.
 
 ## License
 
-MIT
+See [LICENSE](LICENSE).

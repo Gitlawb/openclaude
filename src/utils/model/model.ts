@@ -75,7 +75,15 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel = modelOverride
   } else {
     const settings = getSettings_DEPRECATED() || {}
-    specifiedModel = process.env.ANTHROPIC_MODEL || process.env.GEMINI_MODEL || process.env.OPENAI_MODEL || settings.model || undefined
+    // Read the model env var that matches the active provider to prevent
+    // cross-provider leaks (e.g. ANTHROPIC_MODEL sent to the OpenAI API).
+    const provider = getAPIProvider()
+    specifiedModel =
+      (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
+      (provider === 'openai' || provider === 'gemini' ? process.env.OPENAI_MODEL : undefined) ||
+      (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
+      settings.model ||
+      undefined
   }
 
   // Ignore the user-specified model if it's not in the availableModels allowlist.

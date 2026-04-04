@@ -21,6 +21,7 @@ import {
 import { logForDebugging } from './debug.js'
 import { parseJSONL } from './json.js'
 import { logError } from './log.js'
+import { getAPIProvider } from './model/providers.js'
 import {
   getCanonicalName,
   getMainLoopModel,
@@ -75,11 +76,13 @@ export function getAttributionTexts(): AttributionTexts {
       : 'Claude Opus 4.6'
   const defaultAttribution =
     '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+  const coAuthorDomain =
+    getAPIProvider() === 'firstParty' ? 'anthropic.com' : 'openclaude.dev'
   const defaultCommit = isEnvTruthy(
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
   )
     ? ''
-    : `Co-Authored-By: ${modelName} <noreply@anthropic.com>`
+    : `Co-Authored-By: ${modelName} <noreply@${coAuthorDomain}>`
 
   const settings = getInitialSettings()
 

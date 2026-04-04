@@ -32,6 +32,8 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
+import { getActiveOpenAIModelOptionsCache } from '../providerProfiles.js'
+import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -330,6 +332,28 @@ function getCodexModelOptions(): ModelOption[] {
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  // When using Ollama, show models from the Ollama server instead of Claude models
+  if (getAPIProvider() === 'openai' && isOllamaProvider()) {
+    const defaultOption = getDefaultOptionForUser(fastMode)
+    const ollamaModels = getCachedOllamaModelOptions()
+    if (ollamaModels.length > 0) {
+      return [defaultOption, ...ollamaModels]
+    }
+    // Fallback: if models not yet fetched, show current model instead of Claude models
+    const currentModel = getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
+    if (currentModel != null) {
+      return [
+        defaultOption,
+        {
+          value: currentModel,
+          label: currentModel,
+          description: 'Currently configured Ollama model',
+        },
+      ]
+    }
+    return [defaultOption]
+  }
+
   if (process.env.USER_TYPE === 'ant') {
     // Build options from antModels config
     const antModelOptions: ModelOption[] = getAntModels().map(m => ({
@@ -542,8 +566,13 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     })
   }
 
-  // Append additional model options fetched during bootstrap
-  for (const opt of getGlobalConfig().additionalModelOptionsCache ?? []) {
+  const additionalOptions =
+    getAPIProvider() === 'openai'
+      ? getActiveOpenAIModelOptionsCache()
+      : getGlobalConfig().additionalModelOptionsCache ?? []
+
+  // Append additional model options fetched during bootstrap/endpoints.
+  for (const opt of additionalOptions) {
     if (!options.some(existing => existing.value === opt.value)) {
       options.push(opt)
     }

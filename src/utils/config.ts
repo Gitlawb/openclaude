@@ -180,6 +180,15 @@ export type DiffTool = 'terminal' | 'auto'
 
 export type OutputStyle = string
 
+export type ProviderProfile = {
+  id: string
+  name: string
+  provider: 'openai' | 'anthropic'
+  baseUrl: string
+  model: string
+  apiKey?: string
+}
+
 export type GlobalConfig = {
   /**
    * @deprecated Use settings.apiKeyHelper instead.
@@ -464,6 +473,11 @@ export type GlobalConfig = {
   // Fullscreen in-app text selection behavior
   copyOnSelect?: boolean // Auto-copy to clipboard on mouse-up (undefined → true; lets cmd+c "work" via no-op)
 
+  // Flicker-free fullscreen mode (equivalent to CLAUDE_CODE_NO_FLICKER=1 env var).
+  // When true, enables alt-screen + virtualized scroll for all users.
+  // Env var still takes precedence: =0 always off, =1 always on.
+  flickerFreeMode?: boolean
+
   // GitHub repo path mapping for teleport directory switching
   // Key: "owner/repo" (lowercase), Value: array of absolute paths where repo is cloned
   githubRepoPaths?: Record<string, string[]>
@@ -563,6 +577,18 @@ export type GlobalConfig = {
   // Additional model options for the model picker (fetched during bootstrap).
   additionalModelOptionsCache?: ModelOption[]
 
+  // Additional model options discovered from OpenAI-compatible endpoints.
+  openaiAdditionalModelOptionsCache?: ModelOption[]
+
+  // Provider profiles managed inside the TUI. The active profile determines
+  // which API provider env vars are applied for the current session.
+  providerProfiles?: ProviderProfile[]
+  activeProviderProfileId?: string
+
+  // Per-profile cache for models discovered from OpenAI-compatible endpoints.
+  // Keyed by provider profile id.
+  openaiAdditionalModelOptionsCacheByProfile?: Record<string, ModelOption[]>
+
   // Disk cache for /api/claude_code/organizations/metrics_enabled.
   // Org-level settings change rarely; persisting across processes avoids a
   // cold API call on every `claude -p` invocation.
@@ -619,6 +645,8 @@ function createDefaultGlobalConfig(): GlobalConfig {
     cachedGrowthBookFeatures: {},
     respectGitignore: true,
     copyFullResponse: false,
+    providerProfiles: [],
+    openaiAdditionalModelOptionsCacheByProfile: {},
   }
 }
 
@@ -659,6 +687,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'lspRecommendationIgnoredCount',
   'copyFullResponse',
   'copyOnSelect',
+  'flickerFreeMode',
   'permissionExplainerEnabled',
   'prStatusFooterEnabled',
   'remoteControlAtStartup',

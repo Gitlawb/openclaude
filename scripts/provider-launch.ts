@@ -120,19 +120,18 @@ function applyFastFlags(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env
 }
 
-function printSummary(profile: ProviderProfile, env: NodeJS.ProcessEnv): void {
+function printSummary(profile: ProviderProfile): void {
   console.log(`Launching profile: ${profile}`)
   if (profile === 'gemini') {
-    console.log(`GEMINI_MODEL=${env.GEMINI_MODEL}`)
+    console.log('Using configured Gemini provider settings.')
   } else if (profile === 'codex') {
-    console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
-    console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
+    console.log('Using configured Codex/OpenAI-compatible provider settings.')
   } else if (profile === 'atomic-chat') {
-    console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
-    console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
+    console.log('Using configured Atomic Chat provider settings.')
+  } else if (profile === 'ollama') {
+    console.log('Using configured Ollama provider settings.')
   } else {
-    console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
-    console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
+    console.log('Using configured OpenAI-compatible provider settings.')
   }
 }
 
@@ -227,7 +226,7 @@ async function main(): Promise<void> {
     }
   }
 
-  printSummary(profile, env)
+  printSummary(profile)
 
   const doctorCode = await runProcess('bun', ['run', 'scripts/system-check.ts'], env)
   if (doctorCode !== 0) {

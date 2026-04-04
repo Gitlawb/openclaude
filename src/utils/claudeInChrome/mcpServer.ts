@@ -181,8 +181,6 @@ export function createChromeContext(
         usage?: { input_tokens: number; output_tokens: number }
       }> => {
         // sideQuery handles OAuth attribution fingerprint, proxy, model betas.
-        // skipSystemPromptPrefix: the lightning prompt is complete on its own;
-        // the CLI prefix would dilute the batching instructions.
         // tools: [] is load-bearing — without it Sonnet emits
         // <function_calls> XML before the text commands. Original
         // lightning-harness.js (apps repo) does the same.
@@ -193,7 +191,6 @@ export function createChromeContext(
           max_tokens: req.max_tokens,
           stop_sequences: req.stop_sequences,
           signal: req.signal,
-          skipSystemPromptPrefix: true,
           tools: [],
           querySource: 'chrome_mcp',
         })

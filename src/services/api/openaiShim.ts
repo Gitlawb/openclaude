@@ -23,6 +23,8 @@
 
 import { APIError } from '@anthropic-ai/sdk'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
+import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import {
   codexStreamToAnthropic,
@@ -40,6 +42,14 @@ import {
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
+
+type SecretValueSource = Partial<{
+  OPENAI_API_KEY: string
+  CODEX_API_KEY: string
+  GEMINI_API_KEY: string
+  GOOGLE_API_KEY: string
+  GEMINI_ACCESS_TOKEN: string
+}>
 
 const GITHUB_MODELS_DEFAULT_BASE = 'https://models.github.ai/inference'
 const GITHUB_API_VERSION = '2022-11-28'
@@ -104,6 +114,37 @@ function convertSystemPrompt(
       .join('\n\n')
   }
   return String(system)
+}
+
+function convertToolResultContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return JSON.stringify(content ?? '')
+
+  const chunks: string[] = []
+  for (const block of content) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      chunks.push(block.text)
+      continue
+    }
+
+    if (block?.type === 'image') {
+      const source = block.source
+      if (source?.type === 'url' && source.url) {
+        chunks.push(`[Image](${source.url})`)
+      } else if (source?.type === 'base64') {
+        chunks.push(`[image:${source.media_type ?? 'unknown'}]`)
+      } else {
+        chunks.push('[image]')
+      }
+      continue
+    }
+
+    if (typeof block?.text === 'string') {
+      chunks.push(block.text)
+    }
+  }
+
+  return chunks.join('\n')
 }
 
 function convertContentBlocks(
@@ -182,11 +223,7 @@ function convertMessages(
 
         // Emit tool results as tool messages
         for (const tr of toolResults) {
-          const trContent = Array.isArray(tr.content)
-            ? tr.content.map((c: { text?: string }) => c.text ?? '').join('\n')
-            : typeof tr.content === 'string'
-              ? tr.content
-              : JSON.stringify(tr.content ?? '')
+          const trContent = convertToolResultContent(tr.content)
           result.push({
             role: 'tool',
             tool_call_id: tr.tool_use_id ?? 'unknown',
@@ -683,10 +720,12 @@ class OpenAIShimStream {
 class OpenAIShimMessages {
   private defaultHeaders: Record<string, string>
   private reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  private providerOverride?: { model: string; baseURL: string; apiKey: string }
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh') {
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
     this.defaultHeaders = defaultHeaders
     this.reasoningEffort = reasoningEffort
+    this.providerOverride = providerOverride
   }
 
   create(
@@ -698,7 +737,7 @@ class OpenAIShimMessages {
     let httpResponse: Response | undefined
 
     const promise = (async () => {
-      const request = resolveProviderRequest({ model: params.model, reasoningEffortOverride: self.reasoningEffort })
+      const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
@@ -748,7 +787,7 @@ class OpenAIShimMessages {
           ? ` or place a Codex auth.json at ${credentials.authPath}`
           : ''
         const safeModel =
-          redactSecretValueForDisplay(request.requestedModel, process.env) ??
+          redactSecretValueForDisplay(request.requestedModel, process.env as SecretValueSource) ??
           'the requested model'
         throw new Error(
           `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`,
@@ -857,7 +896,9 @@ class OpenAIShimMessages {
       ...(options?.headers ?? {}),
     }
 
-    const apiKey = process.env.OPENAI_API_KEY ?? ''
+    const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+    const apiKey =
+      this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -873,6 +914,14 @@ class OpenAIShimMessages {
         headers['api-key'] = apiKey
       } else {
         headers.Authorization = `Bearer ${apiKey}`
+      }
+    } else if (isGemini) {
+      const geminiCredential = await resolveGeminiCredential(process.env)
+      if (geminiCredential.kind !== 'none') {
+        headers.Authorization = `Bearer ${geminiCredential.credential}`
+        if (geminiCredential.projectId) {
+          headers['x-goog-user-project'] = geminiCredential.projectId
+        }
       }
     }
 
@@ -939,13 +988,13 @@ class OpenAIShimMessages {
         response.status,
         errorResponse,
         `OpenAI API error ${response.status}: ${errorBody}${rateHint}`,
-        response.headers as unknown as Record<string, string>,
+        response.headers as unknown as Headers,
       )
     }
 
     throw APIError.generate(
       500, undefined, 'OpenAI shim: request loop exited unexpectedly',
-      {} as Record<string, string>,
+      new Headers(),
     )
   }
 
@@ -1056,8 +1105,8 @@ class OpenAIShimBeta {
   messages: OpenAIShimMessages
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh') {
-    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort)
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, providerOverride)
     this.reasoningEffort = reasoningEffort
   }
 }
@@ -1067,7 +1116,9 @@ export function createOpenAIShimClient(options: {
   maxRetries?: number
   timeout?: number
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  providerOverride?: { model: string; baseURL: string; apiKey: string }
 }): unknown {
+  hydrateGeminiAccessTokenFromSecureStorage()
   hydrateGithubModelsTokenFromSecureStorage()
 
   // When Gemini provider is active, map Gemini env vars to OpenAI-compatible ones
@@ -1076,8 +1127,11 @@ export function createOpenAIShimClient(options: {
     process.env.OPENAI_BASE_URL ??=
       process.env.GEMINI_BASE_URL ??
       'https://generativelanguage.googleapis.com/v1beta/openai'
-    process.env.OPENAI_API_KEY ??=
-      process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? ''
+    const geminiApiKey =
+      process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY
+    if (geminiApiKey && !process.env.OPENAI_API_KEY) {
+      process.env.OPENAI_API_KEY = geminiApiKey
+    }
     if (process.env.GEMINI_MODEL && !process.env.OPENAI_MODEL) {
       process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
     }
@@ -1089,7 +1143,7 @@ export function createOpenAIShimClient(options: {
 
   const beta = new OpenAIShimBeta({
     ...(options.defaultHeaders ?? {}),
-  }, options.reasoningEffort)
+  }, options.reasoningEffort, options.providerOverride)
 
   return {
     beta,

@@ -103,6 +103,15 @@ function isPersistentRetryEnabled(): boolean {
     : false
 }
 
+function isQuotaExhausted(error: any): boolean {
+  const msg = (error?.message || '').toLowerCase()
+
+  return (
+    error?.status === 429 &&
+    (msg.includes('limit: 0') || msg.includes('exceeded your current quota'))
+  )
+}
+
 function isTransientCapacityError(error: unknown): boolean {
   return (
     is529Error(error) || (error instanceof APIError && error.status === 429)
@@ -257,7 +266,17 @@ export async function* withRetry<T>(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: 'error' },
       )
-
+        if (isQuotaExhausted(error)) {
+          throw new CannotRetryError(
+            new Error(
+              'API quota exhausted or not enabled.\n' +
+              'Fix:\n' +
+              '- Enable billing for your provider\n' +
+              '- Or switch provider via /provider',
+            ),
+            retryContext,
+          );
+      }
       // Fast mode fallback: on 429/529, either wait and retry (short delays)
       // or fall back to standard speed (long delays) to avoid cache thrashing.
       // Skip in persistent mode: the short-retry path below loops with fast
@@ -765,6 +784,7 @@ function shouldRetry(error: APIError): boolean {
   // Retry on rate limits, but not for ClaudeAI Subscription users
   // Enterprise users can retry because they typically use PAYG instead of rate limits
   if (error.status === 429) {
+    if (isQuotaExhausted(error)) return false
     return !isClaudeAISubscriber() || isEnterpriseSubscriber()
   }
 
