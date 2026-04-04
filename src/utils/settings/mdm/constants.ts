@@ -73,7 +73,7 @@ export function getMacOSPlistPaths(): Array<{ path: string; label: string }> {
         'Preferences',
         `${MACOS_PREFERENCE_DOMAIN}.plist`,
       ),
-      label: 'user preferences (ant-only)',
+      label: 'user preferences (internal-only)',
     })
   }
 

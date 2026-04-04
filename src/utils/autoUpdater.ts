@@ -74,7 +74,7 @@ export async function assertMinVersion(): Promise<void> {
   }
 
   // Skip version check for third-party providers — the min version
-  // kill-switch is Anthropic-specific and should not block 3P users
+  // kill-switch is first-party-specific and should not block 3P users
   if (getAPIProvider() !== 'firstParty') {
     return
   }

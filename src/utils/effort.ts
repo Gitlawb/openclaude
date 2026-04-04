@@ -292,7 +292,7 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
  */
 export function getEffortValueDescription(value: EffortValue): string {
   if (process.env.USER_TYPE === 'ant' && typeof value === 'number') {
-    return `[ANT-ONLY] Numeric effort value of ${value}`
+    return `[internal-only] Numeric effort value of ${value}`
   }
 
   if (typeof value === 'string') {

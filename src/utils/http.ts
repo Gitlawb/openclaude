@@ -51,7 +51,7 @@ export function getMCPUserAgent(): string {
 }
 
 // User-Agent for WebFetch requests to arbitrary sites. `Claude-User` is
-// Anthropic's publicly documented agent for user-initiated fetches (what site
+// The first-party provider's publicly documented agent for user-initiated fetches (what site
 // operators match in robots.txt); the claude-code suffix lets them distinguish
 // local CLI traffic from claude.ai server-side fetches.
 export function getWebFetchUserAgent(): string {

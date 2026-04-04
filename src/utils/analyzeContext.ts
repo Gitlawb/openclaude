@@ -1023,7 +1023,7 @@ export async function analyzeContextUsage(
     cats.push({
       name:
         process.env.USER_TYPE === 'ant'
-          ? '[ANT-ONLY] System tools'
+          ? '[internal] System tools'
           : 'System tools',
       tokens: systemToolsTokens,
       color: 'inactive',

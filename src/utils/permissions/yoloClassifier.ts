@@ -98,7 +98,7 @@ export type AutoModeRules = {
  * captured tag contents ARE the defaults. Bullet items are single-line in the
  * template; each line starting with `- ` becomes one array entry.
  * Used by `claude auto-mode defaults`. Always returns external defaults,
- * never the Anthropic-internal template.
+ * never the internal-only template.
  */
 export function getDefaultExternalAutoModeRules(): AutoModeRules {
   return {

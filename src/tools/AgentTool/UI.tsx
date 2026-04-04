@@ -387,7 +387,7 @@ export function renderToolResultMessage(data: Output, progressMessagesForMessage
   return <Box flexDirection="column">
       {"external" === 'ant' && <MessageResponse>
           <Text color="warning">
-            [ANT-ONLY] API calls: {getDisplayPath(getDumpPromptsPath(agentId))}
+            [internal] API calls: {getDisplayPath(getDumpPromptsPath(agentId))}
           </Text>
         </MessageResponse>}
       {isTranscriptMode && prompt && <MessageResponse>
@@ -593,7 +593,7 @@ export function renderToolUseRejectedMessage(_input: {
   return <>
       {"external" === 'ant' && agentId && <MessageResponse>
           <Text color="warning">
-            [ANT-ONLY] API calls: {getDisplayPath(getDumpPromptsPath(agentId))}
+            [internal] API calls: {getDisplayPath(getDumpPromptsPath(agentId))}
           </Text>
         </MessageResponse>}
       {renderToolUseProgressMessage(progressMessagesForMessage, {

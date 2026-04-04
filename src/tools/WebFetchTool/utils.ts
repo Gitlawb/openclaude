@@ -177,7 +177,7 @@ type DomainCheckResult =
 export async function checkDomainBlocklist(
   domain: string,
 ): Promise<DomainCheckResult> {
-  // Third-party providers should not consult Anthropic's domain policy.
+  // Third-party providers should not consult the first-party domain policy.
   if (getAPIProvider() !== 'firstParty') {
     return { status: 'allowed' }
   }
