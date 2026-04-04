@@ -37,6 +37,7 @@ import {
   buildPostCompactMessages,
   type CompactionResult,
   createPlanAttachmentIfNeeded,
+  getCompactionModel,
 } from './compact.js'
 import { estimateMessageTokens } from './microCompact.js'
 import { getCompactUserSummaryMessage } from './prompt.js'
@@ -582,7 +583,7 @@ export async function trySessionMemoryCompaction(
 
     // Run session start hooks to restore CLAUDE.md and other context
     const hookResults = await processSessionStartHooks('compact', {
-      model: getMainLoopModel(),
+      model: getCompactionModel(),
     })
 
     // Get transcript path for the summary message

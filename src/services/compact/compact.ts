@@ -80,6 +80,7 @@ import {
 import { sleep } from '../../utils/sleep.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
+import { getSmallFastModel } from '../../utils/model/model.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js'
 import {
@@ -128,6 +129,23 @@ export const POST_COMPACT_MAX_TOKENS_PER_FILE = 5_000
 export const POST_COMPACT_MAX_TOKENS_PER_SKILL = 5_000
 export const POST_COMPACT_SKILLS_TOKEN_BUDGET = 25_000
 const MAX_COMPACT_STREAMING_RETRIES = 2
+
+/**
+ * Return the model to use for compaction side-calls.
+ *
+ * Priority:
+ * 1. CLAUDE_CODE_COMPACT_MODEL env var (explicit user override)
+ * 2. getSmallFastModel() — cheapest available model for the active provider
+ *    (Haiku for Anthropic, gpt-4o-mini for OpenAI, flash-lite for Gemini)
+ *
+ * Compaction summaries don't require the main model's full capability;
+ * using the small/fast tier reduces cost from ~$1/compact to ~$0.05.
+ */
+export function getCompactionModel(): string {
+  const envModel = process.env.CLAUDE_CODE_COMPACT_MODEL
+  if (envModel) return envModel
+  return getSmallFastModel()
+}
 
 /**
  * Strip image blocks from user messages before sending for compaction.
@@ -588,7 +606,7 @@ export async function compactConversation(
     })
     // Execute SessionStart hooks after successful compaction
     const hookMessages = await processSessionStartHooks('compact', {
-      model: context.options.mainLoopModel,
+      model: getCompactionModel(),
     })
 
     // Create the compact boundary marker and summary messages before the
@@ -677,6 +695,17 @@ export async function compactConversation(
           compactionUsage.output_tokens
         : 0,
       promptCacheSharingEnabled,
+      // Which model ran the compaction — may differ from main loop model when
+      // getSmallFastModel() or CLAUDE_CODE_COMPACT_MODEL override is active.
+      compactionModel: getCompactionModel() as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      // Compression ratio as integer percentage (0-100). Lets us detect if
+      // smaller compaction models produce worse (lower ratio) summaries.
+      tokenCompressionRatio:
+        preCompactTokenCount > 0
+          ? Math.round(
+              100 * (1 - truePostCompactTokenCount / preCompactTokenCount),
+            )
+          : 0,
       // analyzeContext walks every content block (~11ms on a 4.5K-message
       // session) purely for this telemetry breakdown. Computed here, past
       // the compaction-API await, so the sync walk doesn't starve the
@@ -977,7 +1006,7 @@ export async function partialCompactConversation(
       hookType: 'session_start',
     })
     const hookMessages = await processSessionStartHooks('compact', {
-      model: context.options.mainLoopModel,
+      model: getCompactionModel(),
     })
 
     const postCompactTokenCount = tokenCountFromLastAPIResponse([
@@ -1308,7 +1337,7 @@ async function streamCompactSummary({
             const appState = context.getAppState()
             return appState.toolPermissionContext
           },
-          model: context.options.mainLoopModel,
+          model: getCompactionModel(),
           toolChoice: undefined,
           isNonInteractiveSession: context.options.isNonInteractiveSession,
           hasAppendSystemPrompt: !!context.options.appendSystemPrompt,
