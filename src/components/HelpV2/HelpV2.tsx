@@ -112,9 +112,9 @@ export function HelpV2(t0) {
     }
     tabs.push(t6);
     if (false && antOnlyCommands.length > 0) {
-      let t7;
+    let t7;
       if ($[26] !== antOnlyCommands || $[27] !== close || $[28] !== columns || $[29] !== maxHeight) {
-        t7 = <Tab key="internal-only" title="[internal-only]"><Commands commands={antOnlyCommands} maxHeight={maxHeight} columns={columns} title="Browse internal-only commands:" onCancel={close} /></Tab>;
+        t7 = <Tab key="ant-internal-only" title="[internal-only]"><Commands commands={antOnlyCommands} maxHeight={maxHeight} columns={columns} title="Browse internal-only commands:" onCancel={close} /></Tab>;
         $[26] = antOnlyCommands;
         $[27] = close;
         $[28] = columns;

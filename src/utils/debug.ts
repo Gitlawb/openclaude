@@ -255,6 +255,14 @@ const updateLatestDebugLogSymlink = memoize(async (): Promise<void> => {
 /**
  * Logs errors for Ants only, always visible in production.
  */
-export function logAntError(_context: string, _error: unknown): void {
-  // External build: internal-only elevated error surfacing is disabled.
+export function logAntError(context: string, error: unknown): void {
+  if (process.env.USER_TYPE !== 'ant') {
+    return
+  }
+
+  if (error instanceof Error && error.stack) {
+    logForDebugging(`[internal] ${context} stack trace:\n${error.stack}`, {
+      level: 'error',
+    })
+  }
 }
