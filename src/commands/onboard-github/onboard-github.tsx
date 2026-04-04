@@ -12,17 +12,43 @@ import {
 import type { LocalJSXCommandCall } from '../../types/command.js'
 import {
   hydrateGithubModelsTokenFromSecureStorage,
+  readGithubModelsToken,
   saveGithubModelsToken,
 } from '../../utils/githubModelsCredentials.js'
 import { updateSettingsForSource } from '../../utils/settings/settings.js'
 
 const DEFAULT_MODEL = 'github:copilot'
+const FORCE_RELOGIN_ARGS = new Set([
+  'force',
+  '--force',
+  'relogin',
+  '--relogin',
+  'reauth',
+  '--reauth',
+])
 
 type Step =
   | 'menu'
   | 'device-busy'
   | 'pat'
   | 'error'
+
+export function shouldForceGithubRelogin(args?: string): boolean {
+  const normalized = (args ?? '').trim().toLowerCase()
+  return FORCE_RELOGIN_ARGS.has(normalized)
+}
+
+export function hasExistingGithubModelsLoginToken(
+  env: NodeJS.ProcessEnv = process.env,
+  storedToken?: string,
+): boolean {
+  const envToken = env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()
+  if (envToken) {
+    return true
+  }
+  const persisted = (storedToken ?? readGithubModelsToken())?.trim()
+  return Boolean(persisted)
+}
 
 function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
   const { error } = updateSettingsForSource('userSettings', {
@@ -147,11 +173,11 @@ function OnboardGithub(props: {
               {deviceHint.verification_uri}
             </Text>
             <Text dimColor>
-              A browser window may have opened. Waiting for authorization…
+              A browser window may have opened. Waiting for authorization...
             </Text>
           </>
         ) : (
-          <Text dimColor>Requesting device code from GitHub…</Text>
+          <Text dimColor>Requesting device code from GitHub...</Text>
         )}
         <Spinner />
       </Box>
@@ -206,7 +232,7 @@ function OnboardGithub(props: {
       <Text bold>GitHub Models setup</Text>
       <Text dimColor>
         Stores your token in the OS credential store (macOS Keychain when available)
-        and enables CLAUDE_CODE_USE_GITHUB in your user settings — no export
+        and enables CLAUDE_CODE_USE_GITHUB in your user settings - no export
         GITHUB_TOKEN needed for future runs.
       </Text>
       <Select
@@ -227,7 +253,16 @@ function OnboardGithub(props: {
   )
 }
 
-export const call: LocalJSXCommandCall = async (onDone, context) => {
+export const call: LocalJSXCommandCall = async (onDone, context, args) => {
+  const forceRelogin = shouldForceGithubRelogin(args)
+  if (hasExistingGithubModelsLoginToken() && !forceRelogin) {
+    onDone(
+      'Already logged in to GitHub Models. Use /onboard-github --force to re-authenticate.',
+      { display: 'system' },
+    )
+    return null
+  }
+
   return (
     <OnboardGithub
       onDone={onDone}
