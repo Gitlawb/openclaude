@@ -7,9 +7,12 @@ const originalEnv = {
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
 }
 
 function restoreEnv(
@@ -27,9 +30,12 @@ function clearProviderAndModelEnv(): void {
   delete process.env.ANTHROPIC_MODEL
   delete process.env.GEMINI_MODEL
   delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_VERTEX
 }
 
 afterEach(() => {
@@ -37,12 +43,15 @@ afterEach(() => {
   restoreEnv('ANTHROPIC_MODEL', originalEnv.ANTHROPIC_MODEL)
   restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
+  restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalEnv.CLAUDE_CODE_USE_FOUNDRY)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+  restoreEnv('CLAUDE_CODE_USE_VERTEX', originalEnv.CLAUDE_CODE_USE_VERTEX)
 })
 
-test('openai provider ignores stale gemini model env when choosing the main loop model', () => {
+test('getUserSpecifiedModelSetting prefers OPENAI_MODEL for openai provider over stale GEMINI_MODEL', () => {
   clearProviderAndModelEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_MODEL = 'llama-3.3-70b-versatile'
@@ -51,7 +60,7 @@ test('openai provider ignores stale gemini model env when choosing the main loop
   expect(getUserSpecifiedModelSetting()).toBe('llama-3.3-70b-versatile')
 })
 
-test('gemini provider ignores stale openai model env when choosing the main loop model', () => {
+test('getUserSpecifiedModelSetting prefers GEMINI_MODEL for gemini provider over stale OPENAI_MODEL', () => {
   clearProviderAndModelEnv()
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
   process.env.GEMINI_MODEL = 'gemini-2.5-flash'
@@ -60,7 +69,7 @@ test('gemini provider ignores stale openai model env when choosing the main loop
   expect(getUserSpecifiedModelSetting()).toBe('gemini-2.5-flash')
 })
 
-test('first-party provider ignores third-party model env vars', () => {
+test('getUserSpecifiedModelSetting prefers ANTHROPIC_MODEL for first-party provider over third-party model env vars', () => {
   clearProviderAndModelEnv()
   process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
   process.env.GEMINI_MODEL = 'gemini-2.0-flash-exp'
