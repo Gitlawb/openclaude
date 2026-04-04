@@ -238,9 +238,7 @@ For larger changes, open an issue first so the scope is clear before implementat
 
 OpenClaude is an independent community project and is not affiliated with, endorsed by, or sponsored by Anthropic.
 
-"Claude" and "Claude Code" are trademarks of Anthropic.
-
-The project has a complex history around the original Claude Code codebase. This README is intended to document the current OpenClaude project and its workflows; provenance and legal questions are separate from ordinary feature and contributor documentation.
+OpenClaude originated from the Claude Code codebase and has since been substantially modified to support multiple providers and open use. "Claude" and "Claude Code" are trademarks of Anthropic PBC. See [LICENSE](LICENSE) for details.
 
 ## License
 
