@@ -30,6 +30,14 @@ function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
       CLAUDE_CODE_USE_BEDROCK: undefined as any,
       CLAUDE_CODE_USE_VERTEX: undefined as any,
       CLAUDE_CODE_USE_FOUNDRY: undefined as any,
+      OPENAI_BASE_URL: undefined as any,
+      OPENAI_API_KEY: undefined as any,
+      GEMINI_API_KEY: undefined as any,
+      GOOGLE_API_KEY: undefined as any,
+      GEMINI_BASE_URL: undefined as any,
+      GEMINI_MODEL: undefined as any,
+      GEMINI_ACCESS_TOKEN: undefined as any,
+      GEMINI_AUTH_MODE: undefined as any,
     },
   })
   if (error) {
