@@ -158,6 +158,44 @@ test('describeProviderState reports LM Studio from openai profile base url', () 
   );
 });
 
+test('describeProviderState does not treat substring-matched OpenAI hosts as OpenAI', () => {
+  assert.deepEqual(
+    describeProviderState({
+      shimEnabled: false,
+      env: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://evil.example/path/api.openai.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+      },
+      profile: null,
+    }),
+    {
+      label: 'OpenAI-compatible',
+      detail: 'gpt-4o',
+      source: 'env',
+    },
+  );
+});
+
+test('describeProviderState reports OpenAI when the parsed host is api.openai.com', () => {
+  assert.deepEqual(
+    describeProviderState({
+      shimEnabled: false,
+      env: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+      },
+      profile: null,
+    }),
+    {
+      label: 'OpenAI',
+      detail: 'gpt-4o',
+      source: 'env',
+    },
+  );
+});
+
 test('describeProviderState reports environment-backed provider details', () => {
   assert.deepEqual(
     describeProviderState({

@@ -3,6 +3,7 @@
 // By using execa, Windows automatically gets shell escaping + BAT / CMD handling
 
 import { type ExecaError, execa } from 'execa'
+import path from 'node:path'
 import { getCwd } from '../utils/cwd.js'
 import { logError } from './log.js'
 
@@ -59,6 +60,46 @@ type ExecaResultWithError = {
   signal?: string
 }
 
+const CONTROL_CHAR_PATTERN = /[\0\r\n]/
+const SAFE_BARE_EXECUTABLE_PATTERN = /^[A-Za-z0-9_.-]+$/
+
+function hasPathSyntax(value: string): boolean {
+  return value.includes(path.sep) || value.includes('/') || path.isAbsolute(value)
+}
+
+function validateExecutable(file: string): string | null {
+  const normalized = file.trim()
+  if (!normalized) {
+    return 'Unsafe executable: empty command'
+  }
+  if (CONTROL_CHAR_PATTERN.test(normalized)) {
+    return 'Unsafe executable: control characters are not allowed'
+  }
+  if (!hasPathSyntax(normalized) && !SAFE_BARE_EXECUTABLE_PATTERN.test(normalized)) {
+    return 'Unsafe executable: bare command names may only contain letters, numbers, ".", "_" and "-"'
+  }
+  return null
+}
+
+function validateArgs(args: string[]): string | null {
+  for (const arg of args) {
+    if (CONTROL_CHAR_PATTERN.test(arg)) {
+      return 'Unsafe argument: control characters are not allowed'
+    }
+  }
+  return null
+}
+
+function validateWorkingDirectory(cwd: string | undefined): string | null {
+  if (!cwd) {
+    return null
+  }
+  if (CONTROL_CHAR_PATTERN.test(cwd)) {
+    return 'Unsafe working directory: control characters are not allowed'
+  }
+  return null
+}
+
 /**
  * Extracts a human-readable error message from an execa result.
  *
@@ -103,6 +144,21 @@ export function execFileNoThrowWithCwd(
     maxBuffer: 1_000_000,
   },
 ): Promise<{ stdout: string; stderr: string; code: number; error?: string }> {
+  const executableError = validateExecutable(file)
+  if (executableError) {
+    return Promise.resolve({ stdout: '', stderr: '', code: 1, error: executableError })
+  }
+
+  const argsError = validateArgs(args)
+  if (argsError) {
+    return Promise.resolve({ stdout: '', stderr: '', code: 1, error: argsError })
+  }
+
+  const cwdError = validateWorkingDirectory(finalCwd)
+  if (cwdError) {
+    return Promise.resolve({ stdout: '', stderr: '', code: 1, error: cwdError })
+  }
+
   return new Promise(resolve => {
     // Use execa for cross-platform .bat/.cmd compatibility on Windows
     execa(file, args, {
