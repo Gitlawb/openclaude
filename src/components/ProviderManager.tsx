@@ -64,7 +64,7 @@ const FORM_STEPS: Array<{
   {
     key: 'model',
     label: 'Default model',
-    placeholder: 'e.g. kimi-k2.5:cloud',
+    placeholder: 'e.g. llama3.1:8b',
     helpText: 'Model name to use when this provider is active.',
   },
   {

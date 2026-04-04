@@ -275,13 +275,28 @@ export function getActiveProviderProfile(
   return profiles.find(profile => profile.id === activeId) ?? profiles[0]
 }
 
+export function clearProviderProfileEnvFromProcessEnv(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  delete processEnv.CLAUDE_CODE_USE_OPENAI
+  delete processEnv.CLAUDE_CODE_USE_GEMINI
+  delete processEnv.CLAUDE_CODE_USE_GITHUB
+  delete processEnv.CLAUDE_CODE_USE_BEDROCK
+  delete processEnv.CLAUDE_CODE_USE_VERTEX
+  delete processEnv.CLAUDE_CODE_USE_FOUNDRY
+
+  delete processEnv.OPENAI_BASE_URL
+  delete processEnv.OPENAI_API_BASE
+  delete processEnv.OPENAI_MODEL
+  delete processEnv.OPENAI_API_KEY
+
+  delete processEnv.ANTHROPIC_BASE_URL
+  delete processEnv.ANTHROPIC_MODEL
+  delete processEnv.ANTHROPIC_API_KEY
+}
+
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
-  delete process.env.CLAUDE_CODE_USE_OPENAI
-  delete process.env.CLAUDE_CODE_USE_GEMINI
-  delete process.env.CLAUDE_CODE_USE_GITHUB
-  delete process.env.CLAUDE_CODE_USE_BEDROCK
-  delete process.env.CLAUDE_CODE_USE_VERTEX
-  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  clearProviderProfileEnvFromProcessEnv()
 
   process.env.ANTHROPIC_MODEL = profile.model
   if (profile.provider === 'anthropic') {
@@ -501,6 +516,8 @@ export function deleteProviderProfile(profileId: string): {
 
   if (nextActiveProfile) {
     applyProviderProfileToProcessEnv(nextActiveProfile)
+  } else {
+    clearProviderProfileEnvFromProcessEnv()
   }
 
   return {

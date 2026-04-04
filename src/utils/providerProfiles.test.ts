@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
-import type { ProviderProfile } from './config.js'
+import { saveGlobalConfig, type ProviderProfile } from './config.js'
 import { getAPIProvider } from './model/providers.js'
 import {
   applyActiveProviderProfileFromConfig,
   applyProviderProfileToProcessEnv,
+  deleteProviderProfile,
   getProviderPresetDefaults,
 } from './providerProfiles.js'
 
@@ -34,6 +35,14 @@ afterEach(() => {
       process.env[key] = originalEnv[key]
     }
   }
+
+  saveGlobalConfig(current => ({
+    ...current,
+    providerProfiles: [],
+    activeProviderProfileId: undefined,
+    openaiAdditionalModelOptionsCache: [],
+    openaiAdditionalModelOptionsCacheByProfile: {},
+  }))
 })
 
 function buildProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
@@ -138,5 +147,42 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.baseUrl).toBe('http://localhost:11434/v1')
     expect(defaults.model).toBe('llama3.1:8b')
+  })
+})
+
+describe('deleteProviderProfile', () => {
+  test('deleting final profile clears provider env for current session', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    process.env.OPENAI_API_KEY = 'sk-test'
+    process.env.ANTHROPIC_MODEL = 'gpt-4o'
+
+    saveGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'only_profile' })],
+      activeProviderProfileId: 'only_profile',
+    }))
+
+    const result = deleteProviderProfile('only_profile')
+
+    expect(result.removed).toBe(true)
+    expect(result.activeProfileId).toBeUndefined()
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_BEDROCK).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_VERTEX).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_FOUNDRY).toBeUndefined()
+
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_BASE).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+
+    expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
+    expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
   })
 })
