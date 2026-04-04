@@ -1455,7 +1455,7 @@ function getClassifierModel(): string {
 }
 
 /**
- * Resolve the XML classifier setting: ant-only env var takes precedence,
+ * Resolve the XML classifier setting: internal-only env var takes precedence,
  * then GrowthBook. Returns undefined when unset (caller decides default).
  */
 function resolveTwoStageClassifier():

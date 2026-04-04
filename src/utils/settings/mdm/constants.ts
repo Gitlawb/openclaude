@@ -39,7 +39,7 @@ export const MDM_SUBPROCESS_TIMEOUT_MS = 5000
 
 /**
  * Build the list of macOS plist paths in priority order (highest first).
- * Evaluates `process.env.USER_TYPE` at call time so ant-only paths are
+ * Evaluates `process.env.USER_TYPE` at call time so internal-only paths are
  * included only when appropriate.
  */
 export function getMacOSPlistPaths(): Array<{ path: string; label: string }> {

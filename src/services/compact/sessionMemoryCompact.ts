@@ -419,7 +419,7 @@ export function shouldUseSessionMemoryCompaction(): boolean {
   )
   const shouldUse = sessionMemoryFlag && smCompactFlag
 
-  // Log flag states for debugging (ant-only to avoid noise in external logs)
+  // Log flag states for debugging (internal-only to avoid noise in external logs)
   if (process.env.USER_TYPE === 'ant') {
     logEvent('tengu_sm_compact_flag_check', {
       tengu_session_memory: sessionMemoryFlag,

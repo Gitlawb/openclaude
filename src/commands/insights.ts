@@ -2187,7 +2187,7 @@ function generateHtmlReport(
     `
       : ''
 
-  // Build Team Feedback section (collapsible, ant-only)
+  // Build Team Feedback section (collapsible, internal-only)
   const ccImprovements =
     process.env.USER_TYPE === 'ant'
       ? insights.cc_team_improvements?.improvements || []
@@ -2804,7 +2804,7 @@ export async function generateUsageReport(options?: {
 }> {
   let remoteStats: { hosts: RemoteHostInfo[]; totalCopied: number } | undefined
 
-  // Optionally collect data from remote hosts first (ant-only)
+  // Optionally collect data from remote hosts first (internal-only)
   if (process.env.USER_TYPE === 'ant' && options?.collectRemote) {
     const destDir = join(getClaudeConfigHomeDir(), 'projects')
     const { hosts, totalCopied } = await collectAllRemoteHostData(destDir)
@@ -3085,7 +3085,7 @@ const usageReport: Command = {
       `${data.git_commits} commits`,
     ].join(' · ')
 
-    // Build remote host info (ant-only)
+    // Build remote host info (internal-only)
     let remoteInfo = ''
     if (process.env.USER_TYPE === 'ant') {
       if (remoteStats && remoteStats.totalCopied > 0) {

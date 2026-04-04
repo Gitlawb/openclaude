@@ -199,7 +199,7 @@ function formatContextAsMarkdownTable(data: ContextData): string {
     output += `\n`
   }
 
-  // System tools (ant-only)
+  // System tools (internal-only)
   if (
     systemTools &&
     systemTools.length > 0 &&
@@ -214,7 +214,7 @@ function formatContextAsMarkdownTable(data: ContextData): string {
     output += `\n`
   }
 
-  // System prompt sections (ant-only)
+  // System prompt sections (internal-only)
   if (
     systemPromptSections &&
     systemPromptSections.length > 0 &&
@@ -288,7 +288,7 @@ function formatContextAsMarkdownTable(data: ContextData): string {
     output += `\n`
   }
 
-  // Message breakdown (ant-only)
+  // Message breakdown (internal-only)
   if (messageBreakdown && process.env.USER_TYPE === 'ant') {
     output += `### [ANT-ONLY] Message Breakdown\n\n`
     output += `| Category | Tokens |\n`

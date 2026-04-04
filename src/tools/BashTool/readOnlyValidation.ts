@@ -1136,7 +1136,7 @@ const COMMAND_ALLOWLIST: Record<string, CommandConfig> = {
   ...DOCKER_READ_ONLY_COMMANDS,
 }
 
-// gh commands are ant-only since they make network requests, which goes against
+// gh commands are internal-only since they make network requests, which goes against
 // the read-only validation principle of no network access
 const ANT_ONLY_COMMAND_ALLOWLIST: Record<string, CommandConfig> = {
   // All gh read-only commands from shared validation map
