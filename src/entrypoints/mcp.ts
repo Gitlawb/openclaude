@@ -10,9 +10,12 @@ import {
 import { getDefaultAppState } from 'src/state/AppStateStore.js'
 import review from '../commands/review.js'
 import type { Command } from '../commands.js'
+import { getMcpToolsCommandsAndResources } from '../services/mcp/client.js'
+import type { MCPServerConnection } from '../services/mcp/types.js'
 import {
   findToolByName,
   getEmptyToolPermissionContext,
+  type Tool as InternalTool,
   type ToolUseContext,
 } from '../Tool.js'
 import { getTools } from '../tools.js'
@@ -56,12 +59,22 @@ export async function startMCPServer(
     },
   )
 
+  const mcpClients: MCPServerConnection[] = []
+  const mcpTools: InternalTool[] = []
+
+  // Load configured MCP clients and their tools
+  await getMcpToolsCommandsAndResources(({ client, tools: clientTools }) => {
+    if (client.type === 'connected') {
+      mcpClients.push(client)
+      mcpTools.push(...clientTools)
+    }
+  })
+
   server.setRequestHandler(
     ListToolsRequestSchema,
     async (): Promise<ListToolsResult> => {
-      // TODO: Also re-expose any MCP tools
       const toolPermissionContext = getEmptyToolPermissionContext()
-      const tools = getTools(toolPermissionContext)
+      const tools = [...getTools(toolPermissionContext), ...mcpTools]
       return {
         tools: await Promise.all(
           tools.map(async tool => {
@@ -100,8 +113,7 @@ export async function startMCPServer(
     CallToolRequestSchema,
     async ({ params: { name, arguments: args } }): Promise<CallToolResult> => {
       const toolPermissionContext = getEmptyToolPermissionContext()
-      // TODO: Also re-expose any MCP tools
-      const tools = getTools(toolPermissionContext)
+      const tools = [...getTools(toolPermissionContext), ...mcpTools]
       const tool = findToolByName(tools, name)
       if (!tool) {
         throw new Error(`Tool ${name} not found`)
@@ -116,7 +128,7 @@ export async function startMCPServer(
           tools,
           mainLoopModel: getMainLoopModel(),
           thinkingConfig: { type: 'disabled' },
-          mcpClients: [],
+          mcpClients,
           mcpResources: {},
           isNonInteractiveSession: true,
           debug,
@@ -133,13 +145,16 @@ export async function startMCPServer(
         updateAttributionState: () => {},
       }
 
-      // TODO: validate input types with zod
       try {
         if (!tool.isEnabled()) {
           throw new Error(`Tool ${name} is not enabled`)
         }
+
+        // Validate input types with zod
+        const parsedArgs = tool.inputSchema.parse(args ?? {})
+
         const validationResult = await tool.validateInput?.(
-          (args as never) ?? {},
+          (parsedArgs as never) ?? {},
           toolUseContext,
         )
         if (validationResult && !validationResult.result) {
@@ -148,7 +163,7 @@ export async function startMCPServer(
           )
         }
         const finalResult = await tool.call(
-          (args ?? {}) as never,
+          (parsedArgs ?? {}) as never,
           toolUseContext,
           hasPermissionsToUseTool,
           createAssistantMessage({
@@ -194,3 +209,4 @@ export async function startMCPServer(
 
   return await runServer()
 }
+
