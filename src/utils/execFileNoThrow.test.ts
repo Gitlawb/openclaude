@@ -11,6 +11,15 @@ test('execFileNoThrowWithCwd rejects shell-like executable names', async () => {
   expect(result.error).toContain('Unsafe executable')
 })
 
+test('execFileNoThrowWithCwd rejects cwd values with control characters', async () => {
+  const result = await execFileNoThrowWithCwd(process.execPath, ['--version'], {
+    cwd: 'C:\\repo\nmalicious',
+  })
+
+  expect(result.code).toBe(1)
+  expect(result.error).toContain('Unsafe working directory')
+})
+
 test('execFileNoThrowWithCwd rejects arguments with control characters', async () => {
   const result = await execFileNoThrowWithCwd(process.execPath, [
     '--version\nmalicious',
@@ -18,15 +27,6 @@ test('execFileNoThrowWithCwd rejects arguments with control characters', async (
 
   expect(result.code).toBe(1)
   expect(result.error).toContain('Unsafe argument')
-})
-
-test('execFileNoThrowWithCwd rejects working directories with control characters', async () => {
-  const result = await execFileNoThrowWithCwd(process.execPath, ['--version'], {
-    cwd: 'C:\\repo\nbad',
-  })
-
-  expect(result.code).toBe(1)
-  expect(result.error).toContain('Unsafe working directory')
 })
 
 test('execFileNoThrowWithCwd rejects environment entries with control characters', async () => {

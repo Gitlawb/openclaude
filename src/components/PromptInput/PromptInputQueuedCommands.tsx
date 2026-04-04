@@ -1,13 +1,14 @@
 import { feature } from 'bun:bundle';
 import * as React from 'react';
 import { useMemo } from 'react';
-import { Box } from 'src/ink.js';
+import { Box, Text } from 'src/ink.js';
 import { useAppState } from 'src/state/AppState.js';
+import type { AppState } from 'src/state/AppState.js';
 import { STATUS_TAG, SUMMARY_TAG, TASK_NOTIFICATION_TAG } from '../../constants/xml.js';
 import { QueuedMessageProvider } from '../../context/QueuedMessageContext.js';
 import { useCommandQueue } from '../../hooks/useCommandQueue.js';
 import type { QueuedCommand } from '../../types/textInputTypes.js';
-import { isQueuedCommandVisible } from '../../utils/messageQueueManager.js';
+import { isQueuedCommandEditable, isQueuedCommandVisible } from '../../utils/messageQueueManager.js';
 import { createUserMessage, EMPTY_LOOKUPS, normalizeMessages } from '../../utils/messages.js';
 import { jsonParse } from '../../utils/slowOperations.js';
 import { Message } from '../Message.js';
@@ -70,17 +71,25 @@ function processQueuedCommands(queuedCommands: QueuedCommand[]): QueuedCommand[]
 }
 function PromptInputQueuedCommandsImpl(): React.ReactNode {
   const queuedCommands = useCommandQueue();
-  const viewingAgent = useAppState(s => !!s.viewingAgentTaskId);
+  const viewingAgent = useAppState((s: AppState) => !!s.viewingAgentTaskId);
   // Brief layout: dim queue items + skip the paddingX (brief messages
   // already indent themselves). Gate mirrors the brief-spinner/message
   // check elsewhere — no teammate-view override needed since this
   // component early-returns when viewing a teammate.
   const useBriefLayout = feature('KAIROS') || feature('KAIROS_BRIEF') ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
-  useAppState(s_0 => s_0.isBriefOnly) : false;
+  useAppState((s_0: AppState) => s_0.isBriefOnly) : false;
 
   // createUserMessage mints a fresh UUID per call; without memoization, streaming
   // re-renders defeat Message's areMessagePropsEqual (compares uuid) → flicker.
+  const queuedPromptCount = useMemo(
+    () =>
+      queuedCommands.filter(
+        cmd => isQueuedCommandEditable(cmd) && cmd.mode === 'prompt',
+      ).length,
+    [queuedCommands],
+  );
+
   const messages = useMemo(() => {
     if (queuedCommands.length === 0) return null;
     // task-notification is shown via useInboxNotification; most isMeta commands
@@ -108,6 +117,11 @@ function PromptInputQueuedCommandsImpl(): React.ReactNode {
     return null;
   }
   return <Box marginTop={1} flexDirection="column">
+      {queuedPromptCount > 0 && <Box marginLeft={2} marginBottom={1}>
+          <Text dimColor>
+            {queuedPromptCount === 1 ? '1 message queued for next turn' : `${queuedPromptCount} messages queued for next turn`}
+          </Text>
+        </Box>}
       {messages.map((message, i) => <QueuedMessageProvider key={i} isFirst={i === 0} useBriefLayout={useBriefLayout}>
           <Message message={message} lookups={EMPTY_LOOKUPS} addMargin={false} tools={[]} commands={[]} verbose={false} inProgressToolUseIDs={EMPTY_SET} progressMessagesForMessage={[]} shouldAnimate={false} shouldShowDot={false} isTranscriptMode={false} isStatic={true} />
         </QueuedMessageProvider>)}
