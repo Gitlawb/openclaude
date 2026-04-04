@@ -112,7 +112,19 @@ function isPrivateIpv6Address(hostname: string): boolean {
 }
 
 function asTrimmedString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed : undefined
+}
+
+// Reads an env-var-style string intended as a URL or path, rejecting both
+// empty strings and the literal string "undefined" that Windows shells can
+// write when a variable is unset-then-referenced without quotes (issue #336).
+function asEnvUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === 'undefined') return undefined
+  return trimmed
 }
 
 function readNestedString(
@@ -201,7 +213,7 @@ function parseModelDescriptor(model: string): ModelDescriptor {
   }
 }
 
-function isCodexAlias(model: string): boolean {
+export function isCodexAlias(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
   return base in CODEX_ALIAS_MODELS
@@ -211,15 +223,8 @@ export function shouldUseCodexTransport(
   model: string,
   baseUrl: string | undefined,
 ): boolean {
-  const explicitBaseUrl = asTrimmedString(baseUrl)
-  if (isLocalProviderUrl(explicitBaseUrl)) {
-    return false
-  }
-
-  return (
-    isCodexBaseUrl(explicitBaseUrl) ||
-    isCodexAlias(model)
-  )
+  const explicitBaseUrl = asEnvUrl(baseUrl)
+  return isCodexBaseUrl(explicitBaseUrl) || (!explicitBaseUrl && isCodexAlias(model))
 }
 
 export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
@@ -302,13 +307,11 @@ export function resolveProviderRequest(options?: {
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const rawBaseUrl =
-    options?.baseUrl ??
-    process.env.OPENAI_BASE_URL ??
-    process.env.OPENAI_API_BASE ??
-    undefined
-  const explicitBaseUrl = asTrimmedString(rawBaseUrl)
+    asEnvUrl(options?.baseUrl) ??
+    asEnvUrl(process.env.OPENAI_BASE_URL) ??
+    asEnvUrl(process.env.OPENAI_API_BASE)
   const transport: ProviderTransport =
-    shouldUseCodexTransport(requestedModel, explicitBaseUrl)
+    shouldUseCodexTransport(requestedModel, rawBaseUrl)
       ? 'codex_responses'
       : 'chat_completions'
 
@@ -328,7 +331,7 @@ export function resolveProviderRequest(options?: {
     requestedModel,
     resolvedModel,
     baseUrl:
-      (explicitBaseUrl ??
+      (rawBaseUrl ??
         (transport === 'codex_responses'
           ? DEFAULT_CODEX_BASE_URL
           : DEFAULT_OPENAI_BASE_URL)

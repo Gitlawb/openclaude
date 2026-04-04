@@ -1,4 +1,4 @@
-// biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
+// biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { getInitialMainLoopModel } from '../../bootstrap/state.js'
 import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
 import {
@@ -33,6 +33,8 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
+import { getActiveOpenAIModelOptionsCache } from '../providerProfiles.js'
+import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -350,6 +352,28 @@ function getCodexModelOptions(): ModelOption[] {
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  // When using Ollama, show models from the Ollama server instead of Claude models
+  if (getAPIProvider() === 'openai' && isOllamaProvider()) {
+    const defaultOption = getDefaultOptionForUser(fastMode)
+    const ollamaModels = getCachedOllamaModelOptions()
+    if (ollamaModels.length > 0) {
+      return [defaultOption, ...ollamaModels]
+    }
+    // Fallback: if models not yet fetched, show current model instead of Claude models
+    const currentModel = getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
+    if (currentModel != null) {
+      return [
+        defaultOption,
+        {
+          value: currentModel,
+          label: currentModel,
+          description: 'Currently configured Ollama model',
+        },
+      ]
+    }
+    return [defaultOption]
+  }
+
   if (process.env.USER_TYPE === 'ant') {
     // Build options from antModels config
     const antModelOptions: ModelOption[] = getAntModels().map(m => ({
@@ -405,7 +429,13 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   }
 
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
-    return [getDefaultOptionForUser(fastMode), ...getScopedAdditionalModelOptions()]
+    const activeOpenAIOptions = getActiveOpenAIModelOptionsCache()
+    return [
+      getDefaultOptionForUser(fastMode),
+      ...(activeOpenAIOptions.length > 0
+        ? activeOpenAIOptions
+        : getScopedAdditionalModelOptions()),
+    ]
   }
 
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.6 + Opus 1M + Haiku

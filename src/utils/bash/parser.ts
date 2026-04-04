@@ -58,7 +58,7 @@ export async function parseCommand(
 ): Promise<ParsedCommandData | null> {
   if (!command || command.length > MAX_COMMAND_LENGTH) return null
 
-  // Gate: ant-only until pentest. External builds fall back to legacy
+  // Gate: internal-only until pentest. External builds fall back to legacy
   // regex/shell-quote path. Guarding the whole body inside the positive
   // branch lets Bun DCE the NAPI import AND keeps telemetry honest — we
   // only fire tengu_tree_sitter_load when a load was genuinely attempted.

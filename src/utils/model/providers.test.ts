@@ -91,11 +91,11 @@ test('codex aliases still resolve to the codex provider without a non-codex base
   expect(getAPIProvider()).toBe('codex')
 })
 
-test('official OpenAI base URLs preserve Codex provider behavior for aliases', () => {
+test('official OpenAI base URLs now keep provider detection on openai for aliases', () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_MODEL = 'gpt-5.4'
 
-  expect(getAPIProvider()).toBe('codex')
+  expect(getAPIProvider()).toBe('openai')
 })

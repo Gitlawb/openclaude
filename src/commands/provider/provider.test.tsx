@@ -212,6 +212,23 @@ test('buildProfileSaveMessage labels local openai-compatible profiles consistent
   expect(message).toContain('Endpoint: http://127.0.0.1:8080/v1')
 })
 
+test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly', () => {
+  const message = buildProfileSaveMessage(
+    'gemini',
+    {
+      GEMINI_AUTH_MODE: 'access-token',
+      GEMINI_MODEL: 'gemini-2.5-flash',
+      GEMINI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved Google Gemini profile.')
+  expect(message).toContain('Model: gemini-2.5-flash')
+  expect(message).toContain('Credentials: access token (stored securely)')
+  expect(message).not.toContain('AIza')
+})
+
 test('buildCurrentProviderSummary redacts poisoned model and endpoint values', () => {
   const summary = buildCurrentProviderSummary({
     processEnv: {

@@ -18,16 +18,16 @@ test('opens the model picker without awaiting local model discovery refresh', as
   process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8080/v1'
   process.env.OPENAI_MODEL = 'qwen2.5-coder-7b-instruct'
 
-  let resolveBootstrap: (() => void) | undefined
-  const fetchBootstrapData = mock(
+  let resolveDiscovery: (() => void) | undefined
+  const discoverOpenAICompatibleModelOptions = mock(
     () =>
       new Promise<void>(resolve => {
-        resolveBootstrap = resolve
+        resolveDiscovery = resolve
       }),
   )
 
-  mock.module('../../services/api/bootstrap.js', () => ({
-    fetchBootstrapData,
+  mock.module('../../utils/model/openaiModelDiscovery.js', () => ({
+    discoverOpenAICompatibleModelOptions,
   }))
 
   const { call } = await import('./model.js')
@@ -36,8 +36,8 @@ test('opens the model picker without awaiting local model discovery refresh', as
     new Promise(resolve => setTimeout(() => resolve('timeout'), 50)),
   ])
 
-  resolveBootstrap?.()
+  resolveDiscovery?.()
 
   expect(result).not.toBe('timeout')
-  expect(fetchBootstrapData).toHaveBeenCalledTimes(1)
+  expect(discoverOpenAICompatibleModelOptions).toHaveBeenCalledTimes(1)
 })

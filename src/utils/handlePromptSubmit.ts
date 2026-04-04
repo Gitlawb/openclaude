@@ -316,9 +316,10 @@ export async function handlePromptSubmit(
       return
     }
 
-    // Interrupt the current turn when all executing tools have
-    // interruptBehavior 'cancel' (e.g. SleepTool).
-    if (params.hasInterruptibleToolInProgress) {
+    // Prompt submissions during generation should guide the next turn without
+    // interrupting the current one. Keep the explicit interrupt path only for
+    // non-prompt inputs that opt into that behavior.
+    if (mode !== 'prompt' && params.hasInterruptibleToolInProgress) {
       logForDebugging(
         `[interrupt] Aborting current turn: streamMode=${params.streamMode}`,
       )

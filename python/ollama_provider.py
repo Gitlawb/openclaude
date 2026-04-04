@@ -49,6 +49,18 @@ def normalize_ollama_model(model_name: str) -> str:
     return model_name
 
 
+def _extract_ollama_image_data(block: dict) -> str | None:
+    source = block.get("source")
+    if not isinstance(source, dict):
+        return None
+    if source.get("type") != "base64":
+        return None
+    data = source.get("data")
+    if isinstance(data, str) and data:
+        return data
+    return None
+
+
 def anthropic_to_ollama_messages(messages: list[dict]) -> list[dict]:
     ollama_messages = []
     for msg in messages:
@@ -58,15 +70,23 @@ def anthropic_to_ollama_messages(messages: list[dict]) -> list[dict]:
             ollama_messages.append({"role": role, "content": content})
         elif isinstance(content, list):
             text_parts = []
+            image_parts = []
             for block in content:
                 if isinstance(block, dict):
                     if block.get("type") == "text":
                         text_parts.append(block.get("text", ""))
                     elif block.get("type") == "image":
-                        text_parts.append("[image]")
+                        image_data = _extract_ollama_image_data(block)
+                        if image_data:
+                            image_parts.append(image_data)
+                        else:
+                            text_parts.append("[image]")
                 elif isinstance(block, str):
                     text_parts.append(block)
-            ollama_messages.append({"role": role, "content": "\n".join(text_parts)})
+            ollama_message = {"role": role, "content": "\n".join(text_parts)}
+            if image_parts:
+                ollama_message["images"] = image_parts
+            ollama_messages.append(ollama_message)
     return ollama_messages
 
 

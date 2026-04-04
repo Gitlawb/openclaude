@@ -197,6 +197,73 @@ export function classifyFetchError() { return 'disabled'; }
 	'components/FeedbackSurvey/submitTranscriptShare': `
 export async function submitTranscriptShare() { return { success: false }; }
 `,
+
+	// ─── Internal employee logging (not needed in the external build) ─────
+
+	'services/internalLogging': `
+export async function logPermissionContextForAnts() {}
+export const getContainerId = async () => null;
+`,
+
+	// ─── Deleted Anthropic-internal modules ───────────────────────────────
+
+	'services/api/dumpPrompts': `
+export function createDumpPromptsFetch() { return undefined; }
+export function getDumpPromptsPath() { return ''; }
+export function getLastApiRequests() { return []; }
+export function clearApiRequestCache() {}
+export function clearDumpState() {}
+export function clearAllDumpState() {}
+export function addApiRequestToCache() {}
+`,
+
+	'utils/undercover': `
+export function isUndercover() { return false; }
+export function getUndercoverInstructions() { return ''; }
+export function shouldShowUndercoverAutoNotice() { return false; }
+`,
+
+	'types/generated/events_mono/claude_code/v1/claude_code_internal_event': `
+export const ClaudeCodeInternalEvent = {
+  fromJSON: value => value,
+  toJSON: value => value,
+  create: value => value ?? {},
+  fromPartial: value => value ?? {},
+};
+`,
+
+	'types/generated/events_mono/growthbook/v1/growthbook_experiment_event': `
+export const GrowthbookExperimentEvent = {
+  fromJSON: value => value,
+  toJSON: value => value,
+  create: value => value ?? {},
+  fromPartial: value => value ?? {},
+};
+`,
+
+	'types/generated/events_mono/common/v1/auth': `
+export const PublicApiAuth = {
+  fromJSON: value => value,
+  toJSON: value => value,
+  create: value => value ?? {},
+  fromPartial: value => value ?? {},
+};
+`,
+
+	'types/generated/google/protobuf/timestamp': `
+export const Timestamp = {
+  fromJSON: value => value,
+  toJSON: value => value,
+  create: value => value ?? {},
+  fromPartial: value => value ?? {},
+};
+`,
+}
+
+function escapeForResolvedPathRegex(modulePath: string): string {
+	return modulePath
+		.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')
+		.replace(/\//g, '[/\\\\]')
 }
 
 export const noTelemetryPlugin: BunPlugin = {
@@ -205,9 +272,7 @@ export const noTelemetryPlugin: BunPlugin = {
 		for (const [modulePath, contents] of Object.entries(stubs)) {
 			// Build regex that matches the resolved file path on any OS
 			// e.g. "services/analytics/growthbook" → /services[/\\]analytics[/\\]growthbook\.(ts|js)$/
-			const escaped = modulePath
-				.replace(/\//g, '[/\\\\]')
-				.replace(/\./g, '\\.')
+			const escaped = escapeForResolvedPathRegex(modulePath)
 			const filter = new RegExp(`${escaped}\\.(ts|js)$`)
 
 			build.onLoad({ filter }, () => ({

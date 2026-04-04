@@ -25,12 +25,18 @@
 
 import { getOauthConfig } from '../constants/oauth.js'
 import { isEnvTruthy } from './envUtils.js'
+import { getAPIProvider } from './model/providers.js'
 
 let fired = false
 
 export function preconnectAnthropicApi(): void {
   if (fired) return
   fired = true
+
+  // Third-party providers should not warm a connection to Anthropic.
+  if (getAPIProvider() !== 'firstParty') {
+    return
+  }
 
   // Skip if using a cloud provider — different endpoint + auth
   if (

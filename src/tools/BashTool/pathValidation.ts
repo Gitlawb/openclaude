@@ -67,7 +67,7 @@ export type PathCommand =
  * require explicit user approval, even if allowlist rules exist.
  * This prevents catastrophic data loss from commands like `rm -rf /`.
  */
-function checkDangerousRemovalPaths(
+export function checkDangerousRemovalPaths(
   command: 'rm' | 'rmdir',
   args: string[],
   cwd: string,

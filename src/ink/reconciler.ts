@@ -433,6 +433,8 @@ const reconciler = createReconciler<
   scheduleTimeout: setTimeout,
   cancelTimeout: clearTimeout,
   noTimeout: -1,
+  supportsMicrotasks: true,
+  scheduleMicrotask: queueMicrotask,
   getCurrentUpdatePriority: () => dispatcher.currentUpdatePriority,
   beforeActiveInstanceBlur() {},
   afterActiveInstanceBlur() {},

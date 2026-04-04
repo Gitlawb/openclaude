@@ -62,7 +62,7 @@ function logEventImpl(eventName: string, metadata: LogEventMetadata): void {
 
   if (shouldTrackDatadog()) {
     // Datadog is a general-access backend — strip _PROTO_* keys
-    // (unredacted PII-tagged values meant only for the 1P privileged column).
+    // (unredacted PII-tagged values meinternal only for the 1P privileged column).
     void trackDatadogEvent(eventName, stripProtoFields(metadataWithSampleRate))
   }
 

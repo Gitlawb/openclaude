@@ -1,4 +1,4 @@
-// Mock rate limits for testing [ANT-ONLY]
+// Mock rate limits for testing [internal-only]
 // This allows testing various rate limit scenarios without hitting actual limits
 //
 // ⚠️  WARNING: This is for internal testing/demo purposes only!
