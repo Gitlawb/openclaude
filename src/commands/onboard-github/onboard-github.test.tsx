@@ -26,6 +26,7 @@ function resetTestEnv() {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_KEY
+  delete process.env.GROQ_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.GEMINI_API_KEY
   delete process.env.GEMINI_MODEL
@@ -46,6 +47,7 @@ test('buildGithubUserSettingsEnv clears stale third-party provider env keys', ()
     CLAUDE_CODE_USE_GROQ: undefined,
     OPENAI_BASE_URL: undefined,
     OPENAI_API_KEY: undefined,
+    GROQ_API_KEY: undefined,
     GEMINI_API_KEY: undefined,
     CODEX_API_KEY: undefined,
   })
@@ -57,6 +59,7 @@ test('applyGithubEnvToProcess clears stale OpenAI and Groq session state', () =>
   process.env.CLAUDE_CODE_USE_GROQ = '1'
   process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
   process.env.OPENAI_API_KEY = 'gsk-test'
+  process.env.GROQ_API_KEY = 'gsk-test'
   process.env.OPENAI_MODEL = 'llama-3.3-70b-versatile'
 
   applyGithubEnvToProcess('github:copilot')
@@ -67,6 +70,7 @@ test('applyGithubEnvToProcess clears stale OpenAI and Groq session state', () =>
   expect(process.env.CLAUDE_CODE_USE_GROQ).toBeUndefined()
   expect(process.env.OPENAI_BASE_URL).toBeUndefined()
   expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  expect(process.env.GROQ_API_KEY).toBeUndefined()
 })
 
 test('applyGithubEnvToProcess falls back to default model', () => {

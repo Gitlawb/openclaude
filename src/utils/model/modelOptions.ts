@@ -283,6 +283,31 @@ function getCodexSparkOption(): ModelOption {
   }
 }
 
+function getOpenAICompatModelOptions(): ModelOption[] {
+  return [
+    {
+      value: 'openai/gpt-oss-120b',
+      label: 'openai/gpt-oss-120b',
+      description: 'Groq-hosted GPT-OSS 120B open model',
+    },
+    {
+      value: 'openai/gpt-oss-20b',
+      label: 'openai/gpt-oss-20b',
+      description: 'Groq-hosted GPT-OSS 20B open model',
+    },
+    {
+      value: 'meta-llama/llama-4-maverick-17b-128e-instruct',
+      label: 'meta-llama/llama-4-maverick-17b-128e-instruct',
+      description: 'Groq-hosted Llama 4 Maverick instruct model',
+    },
+    {
+      value: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      label: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      description: 'Groq-hosted Llama 4 Scout instruct model',
+    },
+  ]
+}
+
 function getCodexModelOptions(): ModelOption[] {
   return [
     {
@@ -433,8 +458,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // PAYG 3P: Default (Sonnet 4.5) + Sonnet (3P custom) or Sonnet 4.6/1M + Opus (3P custom) or Opus 4.1/Opus 4.6/Opus1M + Haiku + Opus 4.1
   const payg3pOptions = [getDefaultOptionForUser(fastMode)]
 
-  // Add Codex models for openai and codex providers
+  // Add OpenAI-compatible and Codex models for openai and codex providers
   if (getAPIProvider() === 'openai' || getAPIProvider() === 'codex') {
+    payg3pOptions.push(...getOpenAICompatModelOptions())
     payg3pOptions.push(...getCodexModelOptions())
   }
 

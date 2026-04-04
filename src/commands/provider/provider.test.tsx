@@ -262,4 +262,25 @@ test('getProviderWizardDefaults ignores poisoned current provider values', () =>
   expect(defaults.openAIModel).toBe('gpt-4o')
   expect(defaults.openAIBaseUrl).toBe('https://api.openai.com/v1')
   expect(defaults.geminiModel).toBe('gemini-2.0-flash')
+  expect(defaults.groqModel).toBe('llama-3.3-70b-versatile')
+})
+
+test('getProviderWizardDefaults does not inherit OPENAI_MODEL as Groq default', () => {
+  const defaults = getProviderWizardDefaults({
+    OPENAI_MODEL: 'gpt-4o',
+  })
+
+  expect(defaults.openAIModel).toBe('gpt-4o')
+  expect(defaults.groqModel).toBe('llama-3.3-70b-versatile')
+})
+
+test('getProviderWizardDefaults keeps Groq default even when shell OpenAI values exist', () => {
+  const defaults = getProviderWizardDefaults({
+    OPENAI_API_KEY: 'sk-live',
+    OPENAI_MODEL: 'gpt-4o',
+    OPENAI_BASE_URL: 'https://api.openai.com/v1',
+  })
+
+  expect(defaults.openAIModel).toBe('gpt-4o')
+  expect(defaults.groqModel).toBe('llama-3.3-70b-versatile')
 })

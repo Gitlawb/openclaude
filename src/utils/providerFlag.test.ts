@@ -14,8 +14,10 @@ const TEST_ENV_KEYS = [
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
   'OPENAI_BASE_URL',
   'OPENAI_API_KEY',
+  'GROQ_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
 ] as const
@@ -73,14 +75,18 @@ describe('applyProviderFlag - anthropic', () => {
 
   test('clears stale provider routing env when switching back to anthropic', () => {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.CLAUDE_CODE_USE_FOUNDRY = '1'
     process.env.OPENAI_BASE_URL = 'https://models.github.ai/inference'
     process.env.OPENAI_API_KEY = 'stale-token'
+    process.env.GROQ_API_KEY = 'gsk-stale'
 
     applyProviderFlag('anthropic', [])
 
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_FOUNDRY).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.GROQ_API_KEY).toBeUndefined()
   })
 })
 
@@ -100,6 +106,7 @@ describe('applyProviderFlag - openai', () => {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     process.env.OPENAI_BASE_URL = 'https://models.github.ai/inference'
     process.env.OPENAI_API_KEY = 'github-token'
+    process.env.GROQ_API_KEY = 'gsk-stale'
 
     applyProviderFlag('openai', ['--model', 'gpt-4o'])
 
@@ -107,6 +114,7 @@ describe('applyProviderFlag - openai', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.GROQ_API_KEY).toBeUndefined()
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
   })
 })
@@ -151,6 +159,7 @@ describe('applyProviderFlag - github', () => {
     process.env.CLAUDE_CODE_USE_GROQ = '1'
     process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
     process.env.OPENAI_API_KEY = 'gsk-test'
+    process.env.GROQ_API_KEY = 'gsk-test'
     process.env.OPENAI_MODEL = 'llama-3.3-70b-versatile'
 
     applyProviderFlag('github', ['--model', 'github:copilot'])
@@ -160,6 +169,7 @@ describe('applyProviderFlag - github', () => {
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.GROQ_API_KEY).toBeUndefined()
     expect(process.env.OPENAI_MODEL).toBe('github:copilot')
   })
 })

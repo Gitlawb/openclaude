@@ -39,8 +39,8 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
   }
-  // For OpenAI provider, use OPENAI_MODEL or a sensible default
-  if (getAPIProvider() === 'openai') {
+  // For OpenAI-compatible and Groq providers, use OPENAI_MODEL or a sensible default
+  if (getAPIProvider() === 'openai' || getAPIProvider() === 'groq') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   }
   return getDefaultHaikuModel()
@@ -80,7 +80,9 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     const provider = getAPIProvider()
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
-      (provider === 'openai' || provider === 'gemini' ? process.env.OPENAI_MODEL : undefined) ||
+      (provider === 'openai' || provider === 'groq' || provider === 'gemini'
+        ? process.env.OPENAI_MODEL
+        : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
       settings.model ||
       undefined
@@ -127,8 +129,8 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.5-pro-preview-03-25'
   }
-  // OpenAI provider: use user-specified model or default
-  if (getAPIProvider() === 'openai') {
+  // OpenAI-compatible and Groq providers: use user-specified model or default
+  if (getAPIProvider() === 'openai' || getAPIProvider() === 'groq') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // Codex provider: use user-specified model or default to gpt-5.4
@@ -153,8 +155,8 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash'
   }
-  // OpenAI provider
-  if (getAPIProvider() === 'openai') {
+  // OpenAI-compatible and Groq providers
+  if (getAPIProvider() === 'openai' || getAPIProvider() === 'groq') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // Codex provider
@@ -177,8 +179,8 @@ export function getDefaultHaikuModel(): ModelName {
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
   }
-  // OpenAI provider
-  if (getAPIProvider() === 'openai') {
+  // OpenAI-compatible and Groq providers
+  if (getAPIProvider() === 'openai' || getAPIProvider() === 'groq') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   }
   // Codex provider

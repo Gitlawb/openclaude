@@ -32,6 +32,7 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'OPENAI_API_KEY',
+  'GROQ_API_KEY',
   'CODEX_API_KEY',
   'CHATGPT_ACCOUNT_ID',
   'CODEX_ACCOUNT_ID',
@@ -45,6 +46,7 @@ const PROFILE_ENV_KEYS = [
 
 const SECRET_ENV_KEYS = [
   'OPENAI_API_KEY',
+  'GROQ_API_KEY',
   'CODEX_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
@@ -279,7 +281,9 @@ export function buildGroqProfileEnv(options: {
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
-  const key = sanitizeApiKey(options.apiKey ?? processEnv.OPENAI_API_KEY)
+  const key = sanitizeApiKey(
+    options.apiKey ?? processEnv.OPENAI_API_KEY ?? processEnv.GROQ_API_KEY,
+  )
   if (!key) {
     return null
   }
@@ -288,13 +292,13 @@ export function buildGroqProfileEnv(options: {
     OPENAI_BASE_URL:
       sanitizeProviderConfigValue(
         options.baseUrl,
-        { OPENAI_API_KEY: key },
+        { OPENAI_API_KEY: key, GROQ_API_KEY: key },
         processEnv,
       ) || DEFAULT_GROQ_BASE_URL,
     OPENAI_MODEL:
       sanitizeProviderConfigValue(
         options.model,
-        { OPENAI_API_KEY: key },
+        { OPENAI_API_KEY: key, GROQ_API_KEY: key },
         processEnv,
       ) || DEFAULT_GROQ_MODEL,
     OPENAI_API_KEY: key,
@@ -525,6 +529,7 @@ export async function buildLaunchEnv(options: {
     delete env.CLAUDE_CODE_USE_OPENAI
     delete env.CLAUDE_CODE_USE_GITHUB
     delete env.CLAUDE_CODE_USE_GROQ
+    delete env.GROQ_API_KEY
 
     env.GEMINI_MODEL =
       shellGeminiModel ||
@@ -586,7 +591,11 @@ export async function buildLaunchEnv(options: {
 
     env.OPENAI_BASE_URL = persistedOpenAIBaseUrl || DEFAULT_GROQ_BASE_URL
     env.OPENAI_MODEL = persistedOpenAIModel || DEFAULT_GROQ_MODEL
-    env.OPENAI_API_KEY = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
+    env.OPENAI_API_KEY =
+      processEnv.OPENAI_API_KEY ||
+      processEnv.GROQ_API_KEY ||
+      persistedEnv.OPENAI_API_KEY
+    delete env.GROQ_API_KEY
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
     delete env.CODEX_ACCOUNT_ID
@@ -608,6 +617,7 @@ export async function buildLaunchEnv(options: {
   delete env.GEMINI_MODEL
   delete env.GEMINI_BASE_URL
   delete env.GOOGLE_API_KEY
+  delete env.GROQ_API_KEY
 
   if (options.profile === 'ollama') {
     const getOllamaBaseUrl =

@@ -75,11 +75,13 @@ function clearProviderSelectionEnv(): void {
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
 }
 
 function clearOpenAICompatibleRoutingEnv(): void {
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_KEY
+  delete process.env.GROQ_API_KEY
 }
 
 export function applyProviderFlag(

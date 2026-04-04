@@ -33,6 +33,7 @@ export function buildGithubUserSettingsEnv(model: string): Record<string, string
     CLAUDE_CODE_USE_FOUNDRY: undefined,
     OPENAI_BASE_URL: undefined,
     OPENAI_API_KEY: undefined,
+    GROQ_API_KEY: undefined,
     GEMINI_API_KEY: undefined,
     GEMINI_MODEL: undefined,
     GEMINI_BASE_URL: undefined,
@@ -66,6 +67,7 @@ export function applyGithubEnvToProcess(model: string): void {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_KEY
+  delete process.env.GROQ_API_KEY
   delete process.env.GEMINI_API_KEY
   delete process.env.GEMINI_MODEL
   delete process.env.GEMINI_BASE_URL

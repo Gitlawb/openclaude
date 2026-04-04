@@ -147,9 +147,7 @@ export function getProviderWizardDefaults(
   const safeGeminiModel =
     sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, processEnv) ||
     DEFAULT_GEMINI_MODEL
-  const safeGroqModel =
-    sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, processEnv) ||
-    DEFAULT_GROQ_MODEL
+  const safeGroqModel = DEFAULT_GROQ_MODEL
 
   return {
     openAIModel: safeOpenAIModel,
@@ -1371,7 +1369,7 @@ export function ProviderWizard({
               apiKey: step.apiKey,
               model: value.trim() || DEFAULT_GROQ_MODEL,
               baseUrl: DEFAULT_GROQ_BASE_URL,
-              processEnv: {},
+              processEnv: process.env,
             })
             if (env) {
               finishProfileSave(onDone, 'groq', env)

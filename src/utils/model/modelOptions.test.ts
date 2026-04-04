@@ -35,6 +35,17 @@ function resetToOpenAIProvider(model = 'gpt-4o'): void {
   process.env.OPENAI_MODEL = model
 }
 
+test('openai-compatible model options include Groq GPT-OSS entries', () => {
+  resetToOpenAIProvider()
+
+  const values = getModelOptions().map(option => option.value)
+
+  expect(values).toContain('openai/gpt-oss-120b')
+  expect(values).toContain('openai/gpt-oss-20b')
+  expect(values).toContain('meta-llama/llama-4-maverick-17b-128e-instruct')
+  expect(values).toContain('meta-llama/llama-4-scout-17b-16e-instruct')
+})
+
 test('codex model options follow expected descending flow', () => {
   resetToOpenAIProvider()
 

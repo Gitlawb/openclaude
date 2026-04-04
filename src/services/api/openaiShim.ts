@@ -1257,6 +1257,9 @@ export function createOpenAIShimClient(options: {
       process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
   } else if (isGroqMode()) {
     process.env.OPENAI_BASE_URL ??= 'https://api.groq.com/openai/v1'
+    if (process.env.GROQ_API_KEY && !process.env.OPENAI_API_KEY) {
+      process.env.OPENAI_API_KEY = process.env.GROQ_API_KEY
+    }
   }
 
   const beta = new OpenAIShimBeta({
