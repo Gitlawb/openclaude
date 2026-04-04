@@ -177,8 +177,8 @@ export function applySafeConfigEnvironmentVariables(): void {
     }
   }
 
-  // Active provider profile must win over settings/env merges so model/provider
-  // selection remains consistent with /provider.
+  // Apply active provider profile only when startup did not explicitly
+  // select a provider via flags/env. Explicit startup intent should win.
   applyActiveProviderProfileFromConfig()
 }
 
@@ -194,7 +194,8 @@ export function applyConfigEnvironmentVariables(): void {
 
   Object.assign(process.env, filterSettingsEnv(getSettings_DEPRECATED()?.env))
 
-  // Keep runtime provider/model env aligned with the active profile.
+  // Keep runtime provider/model env aligned with the active profile, except
+  // when an explicit provider selection is already present in process.env.
   applyActiveProviderProfileFromConfig()
 
   // Clear caches so agents are rebuilt with the new env vars

@@ -250,6 +250,19 @@ export function hasProviderProfiles(config = getGlobalConfig()): boolean {
   return getProviderProfiles(config).length > 0
 }
 
+function hasExplicitProviderSelection(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
+    processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
+    processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
+    processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
+    processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
+    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+  )
+}
+
 export function getActiveProviderProfile(
   config = getGlobalConfig(),
 ): ProviderProfile | undefined {
@@ -300,7 +313,16 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
 
 export function applyActiveProviderProfileFromConfig(
   config = getGlobalConfig(),
+  options?: {
+    processEnv?: NodeJS.ProcessEnv
+    force?: boolean
+  },
 ): ProviderProfile | undefined {
+  const processEnv = options?.processEnv ?? process.env
+  if (!options?.force && hasExplicitProviderSelection(processEnv)) {
+    return undefined
+  }
+
   const activeProfile = getActiveProviderProfile(config)
   if (!activeProfile) {
     return undefined
