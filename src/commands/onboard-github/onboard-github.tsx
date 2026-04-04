@@ -14,31 +14,45 @@ import {
   hydrateGithubModelsTokenFromSecureStorage,
   saveGithubModelsToken,
 } from '../../utils/githubModelsCredentials.js'
-import { updateSettingsForSource } from '../../utils/settings/settings.js'
+import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js'
 
 const DEFAULT_MODEL = 'github:copilot'
 
 type Step = 'menu' | 'device-busy' | 'error'
 
+const PROVIDER_SPECIFIC_KEYS = new Set([
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'GEMINI_BASE_URL',
+  'GEMINI_MODEL',
+  'GEMINI_ACCESS_TOKEN',
+  'GEMINI_AUTH_MODE',
+])
+
 function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
+  const currentSettings = getSettingsForSource('userSettings')
+  const currentEnv = currentSettings?.env ?? {}
+
+  const newEnv: Record<string, string> = {}
+  for (const [key, value] of Object.entries(currentEnv)) {
+    if (!PROVIDER_SPECIFIC_KEYS.has(key)) {
+      newEnv[key] = value
+    }
+  }
+
+  newEnv.CLAUDE_CODE_USE_GITHUB = '1'
+  newEnv.OPENAI_MODEL = model
+
   const { error } = updateSettingsForSource('userSettings', {
-    env: {
-      CLAUDE_CODE_USE_GITHUB: '1',
-      OPENAI_MODEL: model,
-      CLAUDE_CODE_USE_OPENAI: undefined as any,
-      CLAUDE_CODE_USE_GEMINI: undefined as any,
-      CLAUDE_CODE_USE_BEDROCK: undefined as any,
-      CLAUDE_CODE_USE_VERTEX: undefined as any,
-      CLAUDE_CODE_USE_FOUNDRY: undefined as any,
-      OPENAI_BASE_URL: undefined as any,
-      OPENAI_API_KEY: undefined as any,
-      GEMINI_API_KEY: undefined as any,
-      GOOGLE_API_KEY: undefined as any,
-      GEMINI_BASE_URL: undefined as any,
-      GEMINI_MODEL: undefined as any,
-      GEMINI_ACCESS_TOKEN: undefined as any,
-      GEMINI_AUTH_MODE: undefined as any,
-    },
+    env: newEnv,
   })
   if (error) {
     return { ok: false, detail: error.message }
