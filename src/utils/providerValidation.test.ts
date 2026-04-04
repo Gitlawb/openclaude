@@ -7,6 +7,7 @@ const originalEnv = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
+  GEMINI_AUTH_MODE: process.env.GEMINI_AUTH_MODE,
   GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS,
 }
 
@@ -23,6 +24,7 @@ afterEach(() => {
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
   restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
+  restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
   restoreEnv(
     'GOOGLE_APPLICATION_CREDENTIALS',
     originalEnv.GOOGLE_APPLICATION_CREDENTIALS,
@@ -31,6 +33,7 @@ afterEach(() => {
 
 test('accepts GEMINI_ACCESS_TOKEN as valid Gemini auth', async () => {
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_AUTH_MODE = 'access-token'
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
   process.env.GEMINI_ACCESS_TOKEN = 'token-123'
@@ -40,6 +43,7 @@ test('accepts GEMINI_ACCESS_TOKEN as valid Gemini auth', async () => {
 
 test('accepts ADC credentials for Gemini auth', async () => {
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_AUTH_MODE = 'adc'
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
   delete process.env.GEMINI_ACCESS_TOKEN
@@ -57,6 +61,7 @@ test('accepts ADC credentials for Gemini auth', async () => {
 
 test('still errors when no Gemini credential source is available', async () => {
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_AUTH_MODE = 'access-token'
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
   delete process.env.GEMINI_ACCESS_TOKEN

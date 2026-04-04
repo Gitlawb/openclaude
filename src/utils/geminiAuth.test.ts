@@ -12,6 +12,7 @@ const originalEnv = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
+  GEMINI_AUTH_MODE: process.env.GEMINI_AUTH_MODE,
   GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS,
   GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
   GCLOUD_PROJECT: process.env.GCLOUD_PROJECT,
@@ -31,6 +32,7 @@ afterEach(() => {
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
   restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
+  restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
   restoreEnv(
     'GOOGLE_APPLICATION_CREDENTIALS',
     originalEnv.GOOGLE_APPLICATION_CREDENTIALS,
@@ -56,6 +58,7 @@ describe('resolveGeminiCredential', () => {
   test('uses GEMINI_ACCESS_TOKEN when no API key is configured', async () => {
     delete process.env.GEMINI_API_KEY
     delete process.env.GOOGLE_API_KEY
+    process.env.GEMINI_AUTH_MODE = 'access-token'
     process.env.GEMINI_ACCESS_TOKEN = 'token-123'
     process.env.GOOGLE_CLOUD_PROJECT = 'test-project'
 
@@ -70,6 +73,7 @@ describe('resolveGeminiCredential', () => {
     delete process.env.GEMINI_API_KEY
     delete process.env.GOOGLE_API_KEY
     delete process.env.GEMINI_ACCESS_TOKEN
+    process.env.GEMINI_AUTH_MODE = 'adc'
     process.env.GOOGLE_APPLICATION_CREDENTIALS = existingFilePath
 
     const fakeAuth = {
@@ -104,6 +108,63 @@ describe('resolveGeminiCredential', () => {
 
     await expect(resolveGeminiCredential(process.env)).resolves.toEqual({
       kind: 'none',
+    })
+  })
+
+  test('access-token mode does not silently fall back to ADC', async () => {
+    delete process.env.GEMINI_API_KEY
+    delete process.env.GOOGLE_API_KEY
+    delete process.env.GEMINI_ACCESS_TOKEN
+    process.env.GEMINI_AUTH_MODE = 'access-token'
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = existingFilePath
+
+    const fakeAuth = {
+      async getClient() {
+        return {
+          async getAccessToken() {
+            return { token: 'adc-token' }
+          },
+        }
+      },
+    }
+
+    await expect(
+      resolveGeminiCredential(process.env, {
+        createGoogleAuth: async () => fakeAuth,
+      }),
+    ).resolves.toEqual({
+      kind: 'none',
+    })
+  })
+
+  test('adc mode ignores GEMINI_ACCESS_TOKEN and uses ADC credentials', async () => {
+    delete process.env.GEMINI_API_KEY
+    delete process.env.GOOGLE_API_KEY
+    process.env.GEMINI_AUTH_MODE = 'adc'
+    process.env.GEMINI_ACCESS_TOKEN = 'token-123'
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = existingFilePath
+
+    const fakeAuth = {
+      async getClient() {
+        return {
+          async getAccessToken() {
+            return { token: 'adc-token' }
+          },
+        }
+      },
+      async getProjectId() {
+        return 'adc-project'
+      },
+    }
+
+    await expect(
+      resolveGeminiCredential(process.env, {
+        createGoogleAuth: async () => fakeAuth,
+      }),
+    ).resolves.toEqual({
+      kind: 'adc',
+      credential: 'adc-token',
+      projectId: 'adc-project',
     })
   })
 })

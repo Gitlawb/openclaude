@@ -1,4 +1,5 @@
 import { isBareMode, isEnvTruthy } from './envUtils.js'
+import { getGeminiAuthMode } from './geminiAuth.js'
 import { getSecureStorage } from './secureStorage/index.js'
 
 export const GEMINI_TOKEN_STORAGE_KEY = 'gemini' as const
@@ -22,6 +23,10 @@ export function readGeminiAccessToken(): string | undefined {
 
 export function hydrateGeminiAccessTokenFromSecureStorage(): void {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
+    return
+  }
+  const authMode = getGeminiAuthMode(process.env)
+  if (authMode && authMode !== 'access-token') {
     return
   }
   if (process.env.GEMINI_ACCESS_TOKEN?.trim()) {
@@ -69,4 +74,3 @@ export function clearGeminiAccessToken(): {
   delete next[GEMINI_TOKEN_STORAGE_KEY]
   return secureStorage.update(next as typeof previous)
 }
-

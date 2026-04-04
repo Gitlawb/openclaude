@@ -432,17 +432,14 @@ test('buildStartupEnvFromProfile applies persisted gemini settings when no provi
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
 })
 
-test('buildStartupEnvFromProfile keeps Gemini access token for access-token profile mode', async () => {
-  const processEnv = {
-    GEMINI_ACCESS_TOKEN: 'token-live',
-  } as NodeJS.ProcessEnv
-
+test('buildStartupEnvFromProfile rehydrates stored Gemini access token for access-token profile mode', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('gemini', {
       GEMINI_AUTH_MODE: 'access-token',
       GEMINI_MODEL: 'gemini-2.5-flash',
     }),
-    processEnv,
+    processEnv: {},
+    readGeminiAccessToken: () => 'token-live',
   })
 
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
@@ -450,6 +447,22 @@ test('buildStartupEnvFromProfile keeps Gemini access token for access-token prof
   assert.equal(env.GEMINI_ACCESS_TOKEN, 'token-live')
   assert.equal(env.GEMINI_API_KEY, undefined)
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
+})
+
+test('buildStartupEnvFromProfile does not inject stored access token for adc profile mode', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('gemini', {
+      GEMINI_AUTH_MODE: 'adc',
+      GEMINI_MODEL: 'gemini-2.5-flash',
+    }),
+    processEnv: {},
+    readGeminiAccessToken: () => 'token-live',
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.GEMINI_AUTH_MODE, 'adc')
+  assert.equal(env.GEMINI_ACCESS_TOKEN, undefined)
+  assert.equal(env.GEMINI_API_KEY, undefined)
 })
 
 test('buildStartupEnvFromProfile leaves explicit provider selections untouched', async () => {

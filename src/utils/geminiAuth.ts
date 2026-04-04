@@ -7,6 +7,8 @@ import { memoizeWithTTLAsync } from './memoize.js'
 const GEMINI_ADC_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 const GEMINI_ADC_CACHE_TTL_MS = 5 * 60 * 1000
 
+export type GeminiAuthMode = 'api-key' | 'access-token' | 'adc'
+
 type GoogleAccessTokenResult =
   | string
   | null
@@ -55,6 +57,20 @@ export function getGeminiProjectIdHint(
     sanitizeCredential(env.GCLOUD_PROJECT) ??
     sanitizeCredential(env.GOOGLE_PROJECT_ID)
   )
+}
+
+export function getGeminiAuthMode(
+  env: NodeJS.ProcessEnv = process.env,
+): GeminiAuthMode | undefined {
+  const normalized = sanitizeCredential(env.GEMINI_AUTH_MODE)?.toLowerCase()
+  if (
+    normalized === 'api-key' ||
+    normalized === 'access-token' ||
+    normalized === 'adc'
+  ) {
+    return normalized
+  }
+  return undefined
 }
 
 export function getGeminiAdcCredentialPaths(
@@ -157,24 +173,34 @@ export async function resolveGeminiCredential(
   env: NodeJS.ProcessEnv = process.env,
   deps: ResolveGeminiCredentialDeps = {},
 ): Promise<GeminiResolvedCredential> {
+  const authMode = getGeminiAuthMode(env)
   const apiKey =
-    sanitizeCredential(env.GEMINI_API_KEY) ??
-    sanitizeCredential(env.GOOGLE_API_KEY)
-  if (apiKey) {
+    authMode === 'access-token' || authMode === 'adc'
+      ? undefined
+      : sanitizeCredential(env.GEMINI_API_KEY) ??
+        sanitizeCredential(env.GOOGLE_API_KEY)
+  if (apiKey && (authMode === undefined || authMode === 'api-key')) {
     return {
       kind: 'api-key',
       credential: apiKey,
     }
   }
 
-  const accessToken = sanitizeCredential(env.GEMINI_ACCESS_TOKEN)
-  if (accessToken) {
+  const accessToken =
+    authMode === 'api-key' || authMode === 'adc'
+      ? undefined
+      : sanitizeCredential(env.GEMINI_ACCESS_TOKEN)
+  if (accessToken && (authMode === undefined || authMode === 'access-token')) {
     const projectId = getGeminiProjectIdHint(env)
     return {
       kind: 'access-token',
       credential: accessToken,
       ...(projectId ? { projectId } : {}),
     }
+  }
+
+  if (authMode === 'api-key' || authMode === 'access-token') {
+    return { kind: 'none' }
   }
 
   if (deps.createGoogleAuth) {
@@ -188,4 +214,3 @@ export async function resolveGeminiCredential(
     getGeminiProjectIdHint(env),
   )
 }
-

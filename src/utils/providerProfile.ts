@@ -12,6 +12,7 @@ import {
   normalizeRecommendationGoal,
   type RecommendationGoal,
 } from './providerRecommendation.ts'
+import { readGeminiAccessToken } from './geminiCredentials.ts'
 import { getOllamaChatBaseUrl } from './providerDiscovery.ts'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
@@ -431,6 +432,7 @@ export async function buildLaunchEnv(options: {
   resolveOllamaDefaultModel?: (goal: RecommendationGoal) => Promise<string>
   getAtomicChatChatBaseUrl?: (baseUrl?: string) => string
   resolveAtomicChatDefaultModel?: () => Promise<string | null>
+  readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options.processEnv ?? process.env
   const persistedEnv =
@@ -471,6 +473,8 @@ export async function buildLaunchEnv(options: {
   )
   const shellGeminiAccessToken =
     processEnv.GEMINI_ACCESS_TOKEN?.trim() || undefined
+  const storedGeminiAccessToken =
+    options.readGeminiAccessToken?.() ?? readGeminiAccessToken()
 
   const shellGeminiKey = sanitizeApiKey(
     processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY,
@@ -508,8 +512,14 @@ export async function buildLaunchEnv(options: {
       delete env.GEMINI_API_KEY
     }
     env.GEMINI_AUTH_MODE = geminiAuthMode
-    if (geminiAuthMode === 'access-token' && shellGeminiAccessToken) {
-      env.GEMINI_ACCESS_TOKEN = shellGeminiAccessToken
+    if (geminiAuthMode === 'access-token') {
+      const geminiAccessToken =
+        shellGeminiAccessToken || storedGeminiAccessToken
+      if (geminiAccessToken) {
+        env.GEMINI_ACCESS_TOKEN = geminiAccessToken
+      } else {
+        delete env.GEMINI_ACCESS_TOKEN
+      }
     } else {
       delete env.GEMINI_ACCESS_TOKEN
     }
@@ -649,6 +659,7 @@ export async function buildStartupEnvFromProfile(options?: {
   processEnv?: NodeJS.ProcessEnv
   getOllamaChatBaseUrl?: (baseUrl?: string) => string
   resolveOllamaDefaultModel?: (goal: RecommendationGoal) => Promise<string>
+  readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options?.processEnv ?? process.env
   if (hasExplicitProviderSelection(processEnv)) {
@@ -670,6 +681,7 @@ export async function buildStartupEnvFromProfile(options?: {
     getOllamaChatBaseUrl:
       options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
     resolveOllamaDefaultModel: options?.resolveOllamaDefaultModel,
+    readGeminiAccessToken: options?.readGeminiAccessToken,
   })
 }
 
