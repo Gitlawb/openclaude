@@ -212,9 +212,13 @@ export function shouldUseCodexTransport(
   baseUrl: string | undefined,
 ): boolean {
   const explicitBaseUrl = asTrimmedString(baseUrl)
+  if (isLocalProviderUrl(explicitBaseUrl)) {
+    return false
+  }
+
   return (
     isCodexBaseUrl(explicitBaseUrl) ||
-    (!explicitBaseUrl && isCodexAlias(model))
+    isCodexAlias(model)
   )
 }
 

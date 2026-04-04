@@ -63,7 +63,7 @@ describe('Codex provider config', () => {
     expect(resolved.reasoning).toEqual({ effort: 'high' })
   })
 
-  test('does not force Codex transport when a non-Codex base URL is explicit', () => {
+  test('does not force Codex transport when a local non-Codex base URL is explicit', () => {
     const resolved = resolveProviderRequest({
       model: 'codexplan',
       baseUrl: 'http://127.0.0.1:8080/v1',
@@ -71,6 +71,17 @@ describe('Codex provider config', () => {
 
     expect(resolved.transport).toBe('chat_completions')
     expect(resolved.baseUrl).toBe('http://127.0.0.1:8080/v1')
+    expect(resolved.resolvedModel).toBe('gpt-5.4')
+  })
+
+  test('preserves Codex transport for aliases on the official OpenAI base URL', () => {
+    const resolved = resolveProviderRequest({
+      model: 'codexplan',
+      baseUrl: 'https://api.openai.com/v1',
+    })
+
+    expect(resolved.transport).toBe('codex_responses')
+    expect(resolved.baseUrl).toBe('https://api.openai.com/v1')
     expect(resolved.resolvedModel).toBe('gpt-5.4')
   })
 
