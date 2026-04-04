@@ -34,7 +34,7 @@
     "test:provider-recommendation": "bun test src/utils/providerRecommendation.test.ts src/utils/providerProfile.test.ts",
     "typecheck": "tsc --noEmit",
     "smoke": "bun run build && node dist/cli.mjs --version",
-    "verify:privacy": "bash scripts/verify-no-phone-home.sh",
+    "verify:privacy": "bun run scripts/verify-no-phone-home.ts",
     "build:verified": "bun run build && bun run verify:privacy",
     "test:provider": "bun test src/services/api/*.test.ts src/utils/context.test.ts",
     "doctor:runtime": "bun run scripts/system-check.ts",

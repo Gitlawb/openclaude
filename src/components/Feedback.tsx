@@ -52,6 +52,7 @@ type Props = {
   };
 };
 type Step = 'userInput' | 'consent' | 'submitting' | 'done';
+type CompletionMode = 'submitted' | 'issue-draft';
 type FeedbackData = {
   // latestAssistantMessageId is the message ID from the latest main model call
   latestAssistantMessageId: string | null;
@@ -163,6 +164,7 @@ export function Feedback({
   const [cursorOffset, setCursorOffset] = useState(0);
   const [description, setDescription] = useState(initialDescription ?? '');
   const [feedbackId, setFeedbackId] = useState<string | null>(null);
+  const [completionMode, setCompletionMode] = useState<CompletionMode>('submitted');
   const [error, setError] = useState<string | null>(null);
   const [envInfo, setEnvInfo] = useState<{
     isGit: boolean;
@@ -191,6 +193,7 @@ export function Feedback({
     setStep('submitting');
     setError(null);
     setFeedbackId(null);
+    setCompletionMode('submitted');
 
     // Get sanitized errors for the report
     const sanitizedErrors = getSanitizedErrorLogs();
@@ -226,6 +229,7 @@ export function Feedback({
     const [result, t] = await Promise.all([submitFeedback(reportData, abortSignal), generateTitle(description, abortSignal)]);
     setTitle(t);
     if (result.success) {
+      setCompletionMode(result.issueDraftOnly ? 'issue-draft' : 'submitted');
       if (result.feedbackId) {
         setFeedbackId(result.feedbackId);
         logEvent('tengu_bug_report_submitted', {
@@ -259,7 +263,7 @@ export function Feedback({
           display: 'system'
         });
       } else {
-        onDone('Feedback / bug report submitted', {
+        onDone(completionMode === 'issue-draft' ? 'GitHub issue draft ready' : 'Feedback / bug report submitted', {
           display: 'system'
         });
       }
@@ -268,7 +272,7 @@ export function Feedback({
     onDone('Feedback / bug report cancelled', {
       display: 'system'
     });
-  }, [step, error, onDone]);
+  }, [step, error, completionMode, onDone]);
 
   // During text input, use Settings context where only Escape (not 'n') triggers confirm:no.
   // This allows typing 'n' in the text field while still supporting Escape to cancel.
@@ -289,7 +293,7 @@ export function Feedback({
           display: 'system'
         });
       } else {
-        onDone('Feedback / bug report submitted', {
+        onDone(completionMode === 'issue-draft' ? 'GitHub issue draft ready' : 'Feedback / bug report submitted', {
           display: 'system'
         });
       }
@@ -378,7 +382,7 @@ export function Feedback({
         </Box>}
 
       {step === 'done' && <Box flexDirection="column">
-          {error ? <Text color="error">{error}</Text> : <Text color="success">Thank you for your report!</Text>}
+          {error ? <Text color="error">{error}</Text> : <Text color="success">{completionMode === 'issue-draft' ? 'Your GitHub issue draft is ready.' : 'Thank you for your report!'}</Text>}
           {feedbackId && <Text dimColor>Feedback ID: {feedbackId}</Text>}
           <Box marginTop={1}>
             <Text>Press </Text>
@@ -397,7 +401,8 @@ export function createGitHubIssueUrl(feedbackId: string, title: string, descript
 }>): string {
   const sanitizedTitle = redactSensitiveInfo(title);
   const sanitizedDescription = redactSensitiveInfo(description);
-  const bodyPrefix = `**Bug Description**\n${sanitizedDescription}\n\n` + `**Environment Info**\n` + `- Platform: ${env.platform}\n` + `- Terminal: ${env.terminal}\n` + `- Version: ${MACRO.VERSION || 'unknown'}\n` + `- Feedback ID: ${feedbackId}\n` + `\n**Errors**\n\`\`\`json\n`;
+  const feedbackIdLine = feedbackId ? `- Feedback ID: ${feedbackId}\n` : '';
+  const bodyPrefix = `**Bug Description**\n${sanitizedDescription}\n\n` + `**Environment Info**\n` + `- Platform: ${env.platform}\n` + `- Terminal: ${env.terminal}\n` + `- Version: ${MACRO.VERSION || 'unknown'}\n` + feedbackIdLine + `\n**Errors**\n\`\`\`json\n`;
   const errorSuffix = `\n\`\`\`\n`;
   const errorsJson = jsonStringify(errors);
   const baseUrl = `${GITHUB_ISSUES_REPO_URL}/new?title=${encodeURIComponent(sanitizedTitle)}&labels=user-reported,bug&body=`;
@@ -520,6 +525,7 @@ async function submitFeedback(data: FeedbackData, signal?: AbortSignal): Promise
   success: boolean;
   feedbackId?: string;
   isZdrOrg?: boolean;
+  issueDraftOnly?: boolean;
 }> {
   if (isEssentialTrafficOnly()) {
     return {
@@ -527,10 +533,12 @@ async function submitFeedback(data: FeedbackData, signal?: AbortSignal): Promise
     };
   }
   try {
-    // Third-party providers should not post feedback to Anthropic.
+    // Third-party providers should not post feedback to Anthropic, but they
+    // should still reach the done state so users can open a GitHub issue draft.
     if (getAPIProvider() !== 'firstParty') {
       return {
-        success: false
+        success: true,
+        issueDraftOnly: true
       };
     }
 
