@@ -1,5 +1,4 @@
 import figures from 'figures'
-import React from 'react'
 import { describe, expect, it } from 'bun:test'
 import { renderToString } from '../../utils/staticRender.js'
 import {
