@@ -20,6 +20,7 @@ import {
   hydrateGithubModelsTokenFromSecureStorage,
   readGithubModelsToken,
 } from '../utils/githubModelsCredentials.js'
+import { isEnvTruthy } from '../utils/envUtils.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
 import { Select } from './CustomSelect/index.js'
 import { Pane } from './design-system/Pane.js'
@@ -114,38 +115,49 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   return `${providerKind} · ${profile.baseUrl} · ${profile.model} · ${keyInfo}${activeSuffix}`
 }
 
-function isTruthy(value: string | undefined): boolean {
-  if (!value) {
-    return false
+function getGithubCredentialSource(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): 'stored' | 'env' | 'none' {
+  if (readGithubModelsToken()?.trim()) {
+    return 'stored'
   }
-  const normalized = value.trim().toLowerCase()
-  return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
+  if (processEnv.GITHUB_TOKEN?.trim() || processEnv.GH_TOKEN?.trim()) {
+    return 'env'
+  }
+  return 'none'
 }
 
 function isGithubProviderAvailable(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (isTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return true
   }
-  if (processEnv.GITHUB_TOKEN?.trim() || processEnv.GH_TOKEN?.trim()) {
-    return true
-  }
-  return Boolean(readGithubModelsToken()?.trim())
+  return getGithubCredentialSource(processEnv) !== 'none'
 }
 
 function getGithubProviderModel(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string {
-  if (isTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return processEnv.OPENAI_MODEL?.trim() || GITHUB_PROVIDER_DEFAULT_MODEL
   }
   return GITHUB_PROVIDER_DEFAULT_MODEL
 }
 
-function getGithubProviderSummary(isActive: boolean): string {
+function getGithubProviderSummary(
+  isActive: boolean,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string {
+  const credentialSource = getGithubCredentialSource(processEnv)
+  const credentialSummary =
+    credentialSource === 'stored'
+      ? 'token stored'
+      : credentialSource === 'env'
+        ? 'token via env'
+        : 'token availability unknown'
   const activeSuffix = isActive ? ' (active)' : ''
-  return `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel()} · token stored${activeSuffix}`
+  return `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel(processEnv)} · ${credentialSummary}${activeSuffix}`
 }
 
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
@@ -157,7 +169,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     isGithubProviderAvailable(),
   )
   const [isGithubActive, setIsGithubActive] = React.useState(() =>
-    isTruthy(process.env.CLAUDE_CODE_USE_GITHUB),
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB),
   )
   const [screen, setScreen] = React.useState<Screen>(
     mode === 'first-run' ? 'select-preset' : 'menu',
@@ -183,7 +195,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setProfiles(nextProfiles)
     setActiveProfileId(getActiveProviderProfile()?.id)
     setGithubProviderAvailable(isGithubProviderAvailable())
-    setIsGithubActive(isTruthy(process.env.CLAUDE_CODE_USE_GITHUB))
+    setIsGithubActive(isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB))
   }
 
   function clearStartupProviderOverrideFromUserSettings(): string | null {
@@ -257,8 +269,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     delete process.env.CLAUDE_CODE_USE_GITHUB
-    delete process.env.GITHUB_TOKEN
-    delete process.env.GH_TOKEN
     delete process.env.OPENAI_MODEL
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
