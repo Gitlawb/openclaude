@@ -1,6 +1,5 @@
 import figures from 'figures'
 import * as React from 'react'
-import { useState } from 'react'
 import { Box, Text } from '../ink.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import type { ProviderProfile } from '../utils/config.js'
@@ -104,24 +103,24 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
 }
 
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
-  const [profiles, setProfiles] = useState(() => getProviderProfiles())
-  const [activeProfileId, setActiveProfileId] = useState(
+  const [profiles, setProfiles] = React.useState(() => getProviderProfiles())
+  const [activeProfileId, setActiveProfileId] = React.useState(
     () => getActiveProviderProfile()?.id,
   )
-  const [screen, setScreen] = useState<Screen>(
+  const [screen, setScreen] = React.useState<Screen>(
     mode === 'first-run' ? 'select-preset' : 'menu',
   )
-  const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
-  const [draftProvider, setDraftProvider] = useState<ProviderProfile['provider']>(
+  const [editingProfileId, setEditingProfileId] = React.useState<string | null>(null)
+  const [draftProvider, setDraftProvider] = React.useState<ProviderProfile['provider']>(
     'openai',
   )
-  const [draft, setDraft] = useState<ProviderDraft>(() =>
+  const [draft, setDraft] = React.useState<ProviderDraft>(() =>
     presetToDraft('ollama'),
   )
-  const [formStepIndex, setFormStepIndex] = useState(0)
-  const [cursorOffset, setCursorOffset] = useState(0)
-  const [statusMessage, setStatusMessage] = useState<string | undefined>()
-  const [errorMessage, setErrorMessage] = useState<string | undefined>()
+  const [formStepIndex, setFormStepIndex] = React.useState(0)
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+  const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
+  const [errorMessage, setErrorMessage] = React.useState<string | undefined>()
 
   const currentStep = FORM_STEPS[formStepIndex] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
