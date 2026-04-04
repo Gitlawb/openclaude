@@ -50,8 +50,7 @@ export const DANGEROUS_BASH_PATTERNS: readonly string[] = [
   'env',
   'xargs',
   'sudo',
-  // Anthropic internal: internal-only tools plus general tools that ant sandbox
-  // Internal-only subset includes tools plus general commands ant sandbox
+  // Internal-only: internal-only tools plus general tools that ant sandbox
   // data shows are frequently over-allowlisted as broad prefixes.
   // dotfile data shows are commonly over-allowlisted as broad prefixes.
   // These stay internal-only — external users don't have coo, and the rest are
