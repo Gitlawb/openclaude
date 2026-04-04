@@ -5,6 +5,7 @@ import { registerClaudeInChromeSkill } from './claudeInChrome.js'
 import { registerDebugSkill } from './debug.js'
 import { registerKeybindingsSkill } from './keybindings.js'
 import { registerSimplifySkill } from './simplify.js'
+import { registerSkillifySkill } from './skillify.js'
 import { registerUpdateConfigSkill } from './updateConfig.js'
 
 /**
@@ -21,6 +22,7 @@ export function initBundledSkills(): void {
   registerKeybindingsSkill()
   registerDebugSkill()
   registerSimplifySkill()
+  registerSkillifySkill()
   registerBatchSkill()
   if (feature('KAIROS') || feature('KAIROS_DREAM')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
