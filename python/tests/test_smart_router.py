@@ -5,11 +5,6 @@ Tests for the SmartRouter.
 Run: pytest python/tests/test_smart_router.py -v
 """
 
-from pathlib import Path
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch

@@ -3,11 +3,6 @@ test_ollama_provider.py
 Run: pytest python/tests/test_ollama_provider.py -v
 """
 
-from pathlib import Path
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from ollama_provider import (
