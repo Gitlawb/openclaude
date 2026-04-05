@@ -908,6 +908,7 @@ export async function* executeNonStreamingRequest(
     {
       model: retryOptions.model,
       fallbackModel: retryOptions.fallbackModel,
+      providerOverride: clientOptions.providerOverride,
       thinkingConfig: retryOptions.thinkingConfig,
       ...(isFastModeEnabled() && { fastMode: retryOptions.fastMode }),
       signal: retryOptions.signal,
@@ -1858,6 +1859,7 @@ async function* queryModel(
       {
         model: options.model,
         fallbackModel: options.fallbackModel,
+        providerOverride: options.providerOverride,
         thinkingConfig,
         ...(isFastModeEnabled() ? { fastMode: isFastMode } : false),
         signal,
