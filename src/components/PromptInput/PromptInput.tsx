@@ -1213,7 +1213,7 @@ function PromptInput({
     const draggedPaths = extractDraggedFilePaths(text);
     if (draggedPaths.length > 0) {
       const mentions = draggedPaths
-        .map(p => (p.includes(' ') ? `@"${p}"` : `@${p}`))
+        .map(p => (p.includes(' ') || p.includes(':') ? `@"${p}"` : `@${p}`))
         .join(' ');
       // Ensure spacing around the mention(s) relative to existing input
       const charBefore = input[cursorOffset - 1];
