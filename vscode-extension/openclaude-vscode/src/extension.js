@@ -15,7 +15,8 @@ const { buildControlCenterViewModel } = require('./presentation');
 
 const OPENCLAUDE_REPO_URL = 'https://github.com/Gitlawb/openclaude';
 const OPENCLAUDE_SETUP_URL = 'https://github.com/Gitlawb/openclaude/blob/main/README.md#quick-start';
-const PROFILE_FILE_NAME = '.openclaude-profile.json';
+const PROFILE_FILE_NAME = '.openlawb-profile.json';
+const LEGACY_PROFILE_FILE_NAME = '.openclaude-profile.json';
 
 function escapeHtml(value) {
   return String(value)
@@ -200,6 +201,26 @@ function readWorkspaceProfile(profilePath) {
   }
 }
 
+function getWorkspaceProfileCandidates(workspaceFolder) {
+  if (!workspaceFolder) {
+    return [];
+  }
+
+  return [
+    path.join(workspaceFolder, PROFILE_FILE_NAME),
+    path.join(workspaceFolder, LEGACY_PROFILE_FILE_NAME),
+  ];
+}
+
+function resolveWorkspaceProfilePath(workspaceFolder) {
+  for (const candidate of getWorkspaceProfileCandidates(workspaceFolder)) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return workspaceFolder ? path.join(workspaceFolder, PROFILE_FILE_NAME) : null;
+}
+
 async function collectControlCenterState() {
   const configured = vscode.workspace.getConfiguration('openclaude');
   const launchCommand = configured.get('launchCommand', 'openclaude');
@@ -216,9 +237,7 @@ async function collectControlCenterState() {
     executable,
   });
   const installed = await isCommandAvailable(executable, launchTargets.projectAwareCwd);
-  const profilePath = workspaceFolder
-    ? path.join(workspaceFolder, PROFILE_FILE_NAME)
-    : null;
+  const profilePath = resolveWorkspaceProfilePath(workspaceFolder);
 
   const profileState = workspaceFolder
     ? readWorkspaceProfile(profilePath)
@@ -1084,7 +1103,7 @@ function activate(context) {
     provider,
   );
 
-  const profileWatcher = vscode.workspace.createFileSystemWatcher(`**/${PROFILE_FILE_NAME}`);
+  const profileWatcher = vscode.workspace.createFileSystemWatcher(`**/{${PROFILE_FILE_NAME},${LEGACY_PROFILE_FILE_NAME}}`);
 
   context.subscriptions.push(
     startCommand,

@@ -9,8 +9,8 @@ test('truncateMiddle keeps the profile filename visible', () => {
   const { truncateMiddle } = loadPresentation();
 
   assert.equal(
-    truncateMiddle('/Users/example/projects/openclaude/workspace/.openclaude-profile.json', 30),
-    '.../.openclaude-profile.json',
+    truncateMiddle('/Users/example/projects/openclaude/workspace/.openlawb-profile.json', 30),
+    '.../.openlawb-profile.json',
   );
 });
 
@@ -18,8 +18,8 @@ test('truncateMiddle keeps the filename visible for Windows-style paths', () => 
   const { truncateMiddle } = loadPresentation();
 
   assert.equal(
-    truncateMiddle('C:\\Users\\example\\openclaude\\workspace\\.openclaude-profile.json', 30),
-    '...\\.openclaude-profile.json',
+    truncateMiddle('C:\\Users\\example\\openclaude\\workspace\\.openlawb-profile.json', 30),
+    '...\\.openlawb-profile.json',
   );
 });
 
@@ -63,13 +63,13 @@ test('buildActionModel includes workspace-profile action when a profile exists',
 
   const model = buildActionModel({
     canLaunchInWorkspaceRoot: true,
-    workspaceProfilePath: 'C:\\Users\\example\\openclaude\\workspace\\.openclaude-profile.json',
+    workspaceProfilePath: 'C:\\Users\\example\\openclaude\\workspace\\.openlawb-profile.json',
   });
 
   assert.deepEqual(model.openProfile, {
     id: 'openProfile',
     label: 'Open Workspace Profile',
-    detail: 'Inspect ...\\.openclaude-profile.json',
+    detail: 'Inspect ...\\.openlawb-profile.json',
     tone: 'neutral',
     disabled: false,
   });
@@ -88,8 +88,8 @@ function createStatus(overrides = {}) {
     launchCwdLabel: '/workspace/openclaude',
     canLaunchInWorkspaceRoot: true,
     profileStatusLabel: 'Found',
-    profileStatusHint: '/workspace/openclaude/.openclaude-profile.json',
-    workspaceProfilePath: '/workspace/openclaude/.openclaude-profile.json',
+    profileStatusHint: '/workspace/openclaude/.openlawb-profile.json',
+    workspaceProfilePath: '/workspace/openclaude/.openlawb-profile.json',
     providerState: {
       label: 'Codex',
       detail: 'gpt-5.4',
@@ -173,7 +173,7 @@ test('buildControlCenterViewModel uses a concise project summary before full pat
           key: 'profileStatus',
           label: 'Workspace profile',
           summary: 'Found',
-          detail: '/workspace/openclaude/.openclaude-profile.json',
+          detail: '/workspace/openclaude/.openlawb-profile.json',
           tone: 'neutral',
         },
       ],

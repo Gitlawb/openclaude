@@ -10,13 +10,19 @@ export const getClaudeConfigHomeDir = memoize(
     if (process.env.CLAUDE_CONFIG_DIR) {
       return process.env.CLAUDE_CONFIG_DIR.normalize('NFC')
     }
-    const newDefault = join(homedir(), '.openclaude')
-    // Migration compatibility: if ~/.openclaude doesn't exist yet but ~/.claude
-    // does, keep using ~/.claude so existing users don't lose their data on
-    // upgrade. New installs (neither dir exists) go straight to ~/.openclaude.
-    const legacyPath = join(homedir(), '.claude')
-    if (!existsSync(newDefault) && existsSync(legacyPath)) {
-      return legacyPath.normalize('NFC')
+    const newDefault = join(homedir(), '.openlawb')
+    const legacyOpenClaudePath = join(homedir(), '.openclaude')
+    // Migration compatibility: prefer the new default when it exists, then the
+    // previous OpenClaude location, then the oldest ~/.claude location.
+    const legacyClaudePath = join(homedir(), '.claude')
+    if (existsSync(newDefault)) {
+      return newDefault.normalize('NFC')
+    }
+    if (existsSync(legacyOpenClaudePath)) {
+      return legacyOpenClaudePath.normalize('NFC')
+    }
+    if (existsSync(legacyClaudePath)) {
+      return legacyClaudePath.normalize('NFC')
     }
     return newDefault.normalize('NFC')
   },

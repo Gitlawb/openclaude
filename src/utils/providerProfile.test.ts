@@ -13,6 +13,7 @@ import {
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
+  LEGACY_PROFILE_FILE_NAME,
   maskSecretForDisplay,
   loadProfileFile,
   PROFILE_FILE_NAME,
@@ -411,6 +412,24 @@ test('saveProfileFile writes a profile that loadProfileFile can read back', () =
       JSON.parse(readFileSync(filePath, 'utf8')).profile,
       'openai',
     )
+    assert.deepEqual(loadProfileFile({ cwd }), persisted)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('loadProfileFile falls back to the legacy profile filename', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'openclaude-profile-file-legacy-'))
+
+  try {
+    const persisted = createProfileFile('openai', {
+      OPENAI_API_KEY: 'sk-test',
+      OPENAI_MODEL: 'gpt-4o',
+    })
+
+    const legacyPath = join(cwd, LEGACY_PROFILE_FILE_NAME)
+    writeFileSync(legacyPath, JSON.stringify(persisted, null, 2), 'utf8')
+
     assert.deepEqual(loadProfileFile({ cwd }), persisted)
   } finally {
     rmSync(cwd, { recursive: true, force: true })

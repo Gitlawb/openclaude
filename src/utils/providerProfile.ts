@@ -15,7 +15,8 @@ import {
 import { readGeminiAccessToken } from './geminiCredentials.ts'
 import { getOllamaChatBaseUrl } from './providerDiscovery.ts'
 
-export const PROFILE_FILE_NAME = '.openclaude-profile.json'
+export const PROFILE_FILE_NAME = '.openlawb-profile.json'
+export const LEGACY_PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/openai'
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
@@ -86,6 +87,20 @@ function resolveProfileFilePath(options?: ProfileFileLocation): string {
   }
 
   return resolve(options?.cwd ?? process.cwd(), PROFILE_FILE_NAME)
+}
+
+function getCandidateProfileFilePaths(
+  options?: ProfileFileLocation,
+): string[] {
+  if (options?.filePath) {
+    return [options.filePath]
+  }
+
+  const cwd = options?.cwd ?? process.cwd()
+  return [
+    resolve(cwd, PROFILE_FILE_NAME),
+    resolve(cwd, LEGACY_PROFILE_FILE_NAME),
+  ]
 }
 
 export function isProviderProfile(value: unknown): value is ProviderProfile {
@@ -362,28 +377,30 @@ export function createProfileFile(
 }
 
 export function loadProfileFile(options?: ProfileFileLocation): ProfileFile | null {
-  const filePath = resolveProfileFilePath(options)
-  if (!existsSync(filePath)) {
-    return null
-  }
+  for (const filePath of getCandidateProfileFilePaths(options)) {
+    if (!existsSync(filePath)) {
+      continue
+    }
 
-  try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<ProfileFile>
-    if (!isProviderProfile(parsed.profile) || !parsed.env || typeof parsed.env !== 'object') {
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<ProfileFile>
+      if (!isProviderProfile(parsed.profile) || !parsed.env || typeof parsed.env !== 'object') {
+        return null
+      }
+
+      return {
+        profile: parsed.profile,
+        env: parsed.env,
+        createdAt:
+          typeof parsed.createdAt === 'string'
+            ? parsed.createdAt
+            : new Date().toISOString(),
+      }
+    } catch {
       return null
     }
-
-    return {
-      profile: parsed.profile,
-      env: parsed.env,
-      createdAt:
-        typeof parsed.createdAt === 'string'
-          ? parsed.createdAt
-          : new Date().toISOString(),
-    }
-  } catch {
-    return null
   }
+  return null
 }
 
 export function saveProfileFile(
@@ -399,9 +416,15 @@ export function saveProfileFile(
 }
 
 export function deleteProfileFile(options?: ProfileFileLocation): string {
-  const filePath = resolveProfileFilePath(options)
-  rmSync(filePath, { force: true })
-  return filePath
+  const candidates = getCandidateProfileFilePaths(options)
+  let removedPath: string | null = null
+  for (const filePath of candidates) {
+    if (existsSync(filePath) && !removedPath) {
+      removedPath = filePath
+    }
+    rmSync(filePath, { force: true })
+  }
+  return removedPath ?? resolveProfileFilePath(options)
 }
 
 export function hasExplicitProviderSelection(
@@ -676,7 +699,10 @@ export async function buildStartupEnvFromProfile(options?: {
     persisted,
     goal:
       options?.goal ??
-      normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
+      normalizeRecommendationGoal(
+        processEnv.OPENLAWB_PROFILE_GOAL ??
+          processEnv.OPENCLAUDE_PROFILE_GOAL,
+      ),
     processEnv,
     getOllamaChatBaseUrl:
       options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
