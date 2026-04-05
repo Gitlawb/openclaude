@@ -70,7 +70,7 @@ If the user chose personal CLAUDE.local.md or both: ask about them, not the code
   - Only if Phase 2 found multiple git worktrees: ask whether their worktrees are nested inside the main repo (e.g., \`.claude/worktrees/<name>/\`) or siblings/external (e.g., \`../myrepo-feature/\`). If nested, the upward file walk finds the main repo's CLAUDE.local.md automatically — no special handling needed. If sibling/external, the personal content should live in a home-directory file (e.g., \`~/.claude/<project-name>-instructions.md\`) and each worktree gets a one-line CLAUDE.local.md stub that imports it: \`@~/.claude/<project-name>-instructions.md\`. Never put this import in the project CLAUDE.md — that would check a personal reference into the team-shared file.
   - Any communication preferences? (e.g., "be terse", "always explain tradeoffs", "don't summarize at the end")
 
-**Synthesize a proposal from Phase 2 findings** — e.g., format-on-edit if a formatter exists, a project verification skill if tests exist, a CLAUDE.md note for anything from the gap-fill answers that's a guideline rather than a workflow. For each, pick the artifact type that fits, **constrained by the Phase 1 skills+hooks choice**:
+**Synthesize a proposal from Phase 2 findings** — e.g., format-on-edit if a formatter exists, a project verification workflow if tests exist, a CLAUDE.md note for anything from the gap-fill answers that's a guideline rather than a workflow. For each, pick the artifact type that fits, **constrained by the Phase 1 skills+hooks choice**:
 
   - **Hook** (stricter) — deterministic shell command on a tool event; Claude can't skip it. Fits mechanical, fast, per-edit steps: formatting, linting, running a quick test on the changed file.
   - **Skill** (on-demand) — you or Claude invoke \`/skill-name\` when you want it. Fits workflows that don't belong on every edit: deep verification, session reports, deploys.
@@ -85,7 +85,7 @@ If the user chose personal CLAUDE.local.md or both: ask about them, not the code
   - **Keep previews compact — the preview box truncates with no scrolling.** One line per item, no blank lines between items, no header. Example preview content:
 
     • **Format-on-edit hook** (automatic) — \`ruff format <file>\` via PostToolUse
-    • **Verification skill** (on-demand) — \`make lint && make typecheck && make test\`
+    • **Verification workflow** (on-demand) — \`make lint && make typecheck && make test\`
     • **CLAUDE.md note** (guideline) — "run lint/typecheck/test before marking done"
 
   - Option labels stay short ("Looks good", "Drop the hook", "Drop the skill") — the tool auto-adds an "Other" free-text option, so don't add your own catch-all.
