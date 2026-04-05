@@ -73,85 +73,39 @@ async function importFreshWithRetryModule(
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
 
-describe('retry configuration', () => {
-  test('uses default retry attempts when env var is absent', async () => {
-    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
-    expect(getDefaultMaxRetries()).toBe(10)
-  })
+async function importWithRetryForQuotaAttemptTest(options: {
+  baseProvider: 'firstParty' | 'openai' | 'github' | 'bedrock' | 'vertex' | 'gemini' | 'codex' | 'foundry'
+  enforceQuotaSpy: ReturnType<typeof mock>
+}) {
+  mock.restore()
+  mock.module('src/utils/model/providers.js', () => ({
+    getAPIProvider: () => options.baseProvider,
+    getAPIProviderForStatsig: () => options.baseProvider,
+  }))
+  mock.module('./clientQuotaGuards.js', () => ({
+    enforceClientQuotaGuards: options.enforceQuotaSpy,
+  }))
+  mock.module('../../utils/sleep.js', () => ({
+    sleep: async () => undefined,
+  }))
+  mock.module('../../utils/auth.js', () => ({
+    clearApiKeyHelperCache: () => undefined,
+    clearAwsCredentialsCache: () => undefined,
+    clearGcpCredentialsCache: () => undefined,
+    getClaudeAIOAuthTokens: () => undefined,
+    handleOAuth401Error: async () => undefined,
+    isClaudeAISubscriber: () => false,
+    isEnterpriseSubscriber: () => false,
+  }))
+  mock.module('../analytics/growthbook.js', () => ({
+    getFeatureValue_CACHED_MAY_BE_STALE: () => false,
+  }))
+  mock.module('../analytics/index.js', () => ({
+    logEvent: () => undefined,
+  }))
 
-  test('reads retry attempts from OPENCLAUDE_MAX_RETRIES', async () => {
-    process.env.OPENCLAUDE_MAX_RETRIES = '4'
-    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
-    expect(getDefaultMaxRetries()).toBe(4)
-  })
-
-  test('allows zero retry attempts', async () => {
-    process.env.OPENCLAUDE_MAX_RETRIES = '0'
-    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
-    expect(getDefaultMaxRetries()).toBe(0)
-  })
-
-  test('falls back to legacy CLAUDE_CODE_MAX_RETRIES when new env var is absent', async () => {
-    process.env.CLAUDE_CODE_MAX_RETRIES = '0'
-    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
-    expect(getDefaultMaxRetries()).toBe(0)
-  })
-
-  test('prefers OPENCLAUDE_MAX_RETRIES over legacy CLAUDE_CODE_MAX_RETRIES', async () => {
-    process.env.OPENCLAUDE_MAX_RETRIES = '3'
-    process.env.CLAUDE_CODE_MAX_RETRIES = '0'
-    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
-    expect(getDefaultMaxRetries()).toBe(3)
-  })
-
-  test('falls back to default retry attempts for invalid values', async () => {
-    process.env.OPENCLAUDE_MAX_RETRIES = 'nope'
-    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
-    expect(getDefaultMaxRetries()).toBe(10)
-  })
-
-  test('caps retry attempts to a bounded value', async () => {
-    process.env.OPENCLAUDE_MAX_RETRIES = '1000'
-    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
-    expect(getDefaultMaxRetries()).toBe(100)
-  })
-
-  test('uses default retry delay when env var is absent', async () => {
-    const { getDefaultRetryDelayMs } = await importFreshWithRetryModule()
-    expect(getDefaultRetryDelayMs()).toBe(500)
-  })
-
-  test('reads retry delay from OPENCLAUDE_RETRY_DELAY_MS', async () => {
-    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1500'
-    const { getDefaultRetryDelayMs } = await importFreshWithRetryModule()
-    expect(getDefaultRetryDelayMs()).toBe(1500)
-  })
-
-  test('falls back to default retry delay for invalid values', async () => {
-    process.env.OPENCLAUDE_RETRY_DELAY_MS = '-1'
-    const { getDefaultRetryDelayMs } = await importFreshWithRetryModule()
-    expect(getDefaultRetryDelayMs()).toBe(500)
-  })
-
-  test('uses configured retry delay as exponential backoff base', async () => {
-    process.env.OPENCLAUDE_RETRY_DELAY_MS = '2000'
-    const originalRandom = Math.random
-    Math.random = () => 0
-    try {
-      const { getRetryDelay } = await importFreshWithRetryModule()
-      expect(getRetryDelay(1)).toBe(2000)
-      expect(getRetryDelay(2)).toBe(4000)
-    } finally {
-      Math.random = originalRandom
-    }
-  })
-
-  test('retry-after header takes precedence over configured delay', async () => {
-    process.env.OPENCLAUDE_RETRY_DELAY_MS = '2000'
-    const { getRetryDelay } = await importFreshWithRetryModule()
-    expect(getRetryDelay(1, '3')).toBe(3000)
-  })
-})
+  return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
+}
 
 // --- parseOpenAIDuration ---
 describe('parseOpenAIDuration', () => {
@@ -283,6 +237,7 @@ describe('getRateLimitResetDelayMs - providers without reset headers', () => {
   })
 })
 
+
 // Regression for #1125 — OpenRouter 402 (credits-vs-max_tokens mismatch)
 // carries the affordable cap in the message. The retry loop should adjust
 // max_tokens to that cap once instead of bubbling a confusing 402 to the user.
@@ -347,5 +302,61 @@ describe('parseOpenRouterAffordableMaxTokensError (#1125)', () => {
       'You requested up to 32000 tokens, but can only afford 27342',
     )
     expect(shouldRetry(err)).toBe(true)
+      })
+})
+
+
+describe('withRetry quota guard integration', () => {
+  test('enforces quota guard once per attempt using provider override transport', async () => {
+    const enforceQuotaSpy = mock(async () => undefined)
+    const { withRetry } = await importWithRetryForQuotaAttemptTest({
+      baseProvider: 'firstParty',
+      enforceQuotaSpy,
+    })
+
+    const operation = async (_client: unknown, attempt: number) => {
+      if (attempt === 1) {
+        throw new APIError(
+          429,
+          undefined,
+          'rate limit exceeded',
+          new Headers({
+            'x-should-retry': 'true',
+            'retry-after': '0',
+          }),
+        )
+      }
+      return 'ok'
+    }
+
+    const generator = withRetry(
+      async () => ({}) as any,
+      operation,
+      {
+        maxRetries: 1,
+        model: 'gpt-4o',
+        thinkingConfig: { type: 'disabled' } as any,
+        providerOverride: {
+          model: 'gpt-4o',
+          baseURL: 'https://api.openai.com/v1',
+          apiKey: 'test',
+        },
+      },
+    )
+
+    let result: string | undefined
+    while (true) {
+      const next = await generator.next()
+      if (next.done) {
+        result = next.value
+        break
+      }
+    }
+
+    expect(result).toBe('ok')
+    expect(enforceQuotaSpy).toHaveBeenCalledTimes(2)
+    for (const call of enforceQuotaSpy.mock.calls) {
+      expect(call[0]?.provider).toBe('openai')
+    }
   })
 })

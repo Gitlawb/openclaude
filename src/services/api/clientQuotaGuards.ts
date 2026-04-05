@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
-import { dirname, join } from 'path'
+import { dirname, isAbsolute, join, relative, resolve } from 'path'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { errorMessage } from '../../utils/errors.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -70,13 +70,39 @@ function getUtcDay(nowMs: number): string {
   return new Date(nowMs).toISOString().slice(0, 10)
 }
 
+function isPathWithinDirectory(
+  candidatePath: string,
+  directoryPath: string,
+): boolean {
+  const relativePath = relative(directoryPath, candidatePath)
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith('..') && !isAbsolute(relativePath))
+  )
+}
+
 function getRpdStatePath(): string {
+  const configHomeDir = getClaudeConfigHomeDir()
+  const defaultPath = join(configHomeDir, CLIENT_RPD_STATE_FILENAME)
   const override = process.env[ENV_CLIENT_RPD_STATE_FILE]
   const trimmedOverride = override?.trim()
   if (trimmedOverride && trimmedOverride.length > 0) {
-    return trimmedOverride
+    const candidatePath = isAbsolute(trimmedOverride)
+      ? trimmedOverride
+      : join(configHomeDir, trimmedOverride)
+
+    const resolvedConfigHomeDir = resolve(configHomeDir)
+    const resolvedCandidatePath = resolve(candidatePath)
+
+    if (isPathWithinDirectory(resolvedCandidatePath, resolvedConfigHomeDir)) {
+      return resolvedCandidatePath
+    }
+
+    logForDebugging(
+      `[client-quota] Ignoring ${ENV_CLIENT_RPD_STATE_FILE} outside config dir: ${trimmedOverride}`,
+    )
   }
-  return join(getClaudeConfigHomeDir(), CLIENT_RPD_STATE_FILENAME)
+  return defaultPath
 }
 
 function throwIfAborted(options: ClientQuotaGuardOptions): void {
@@ -208,7 +234,10 @@ async function enforceRpmGuard(options: ClientQuotaGuardOptions): Promise<void> 
   }
 }
 
-async function enforceRpdGuard(options: ClientQuotaGuardOptions): Promise<void> {
+async function enforceRpdGuard(
+  options: ClientQuotaGuardOptions,
+  precheckOnly = false,
+): Promise<void> {
   const rpdLimit = parsePositiveIntEnv(ENV_CLIENT_RPD_LIMIT)
   if (!rpdLimit) return
 
@@ -230,6 +259,10 @@ async function enforceRpdGuard(options: ClientQuotaGuardOptions): Promise<void> 
         `Client quota guard blocked request: daily cap reached (${rpdLimit}/day). ` +
           `Increase ${ENV_CLIENT_RPD_LIMIT} or wait until UTC day reset.`,
       )
+    }
+
+    if (precheckOnly) {
+      return
     }
 
     state.attempts += 1
@@ -275,8 +308,16 @@ export async function enforceClientQuotaGuards(
     return
   }
 
+  // Avoid waiting on RPM when daily RPD cap has already been reached.
+  if (hasRpdLimit) {
+    await enforceRpdGuard(options, true)
+  }
+
   await enforceRpmGuard(options)
-  await enforceRpdGuard(options)
+
+  if (hasRpdLimit) {
+    await enforceRpdGuard(options)
+  }
 }
 
 export function resetClientQuotaGuardsForTests(): void {

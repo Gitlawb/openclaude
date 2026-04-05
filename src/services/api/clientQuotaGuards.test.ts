@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, readFile, rm } from 'fs/promises'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { tmpdir } from 'os'
 import {
   __private__,
+  type ClientQuotaGuardOptions,
   enforceClientQuotaGuards,
   resetClientQuotaGuardsForTests,
 } from './clientQuotaGuards.js'
@@ -75,6 +76,15 @@ async function runQuotaGuardChildAttempt(
   }
 }
 
+function enforceQuotaGuards(
+  options: ClientQuotaGuardOptions = {},
+): Promise<void> {
+  return enforceClientQuotaGuards({
+    provider: 'openai',
+    ...options,
+  })
+}
+
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
     delete process.env[key]
@@ -133,10 +143,10 @@ afterEach(async () => {
 test('RPD guard blocks requests after reaching daily cap', async () => {
   process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '2'
 
-  await enforceClientQuotaGuards()
-  await enforceClientQuotaGuards()
+  await enforceQuotaGuards()
+  await enforceQuotaGuards()
 
-  await expect(enforceClientQuotaGuards()).rejects.toThrow(
+  await expect(enforceQuotaGuards()).rejects.toThrow(
     'Client quota guard blocked request',
   )
 })
@@ -147,14 +157,14 @@ test('RPD guard resets counter on UTC day boundary', async () => {
   const start = Date.parse('2026-04-04T23:59:50.000Z')
   let now = start
 
-  await enforceClientQuotaGuards({ nowMs: () => now })
-  await expect(enforceClientQuotaGuards({ nowMs: () => now })).rejects.toThrow(
+  await enforceQuotaGuards({ nowMs: () => now })
+  await expect(enforceQuotaGuards({ nowMs: () => now })).rejects.toThrow(
     'daily cap reached',
   )
 
   now = Date.parse('2026-04-05T00:00:05.000Z')
   await expect(
-    enforceClientQuotaGuards({ nowMs: () => now }),
+    enforceQuotaGuards({ nowMs: () => now }),
   ).resolves.toBeUndefined()
 })
 
@@ -163,7 +173,7 @@ test('RPD guard persists warning marker once threshold is crossed', async () => 
   process.env.CLAUDE_CODE_CLIENT_RPD_WARN_THRESHOLD_PCT = '0.5'
 
   for (let i = 0; i < 5; i += 1) {
-    await enforceClientQuotaGuards()
+    await enforceQuotaGuards()
   }
 
   const statePath = __private__.getRpdStatePath()
@@ -175,6 +185,19 @@ test('RPD guard persists warning marker once threshold is crossed', async () => 
 
   expect(parsed.attempts).toBe(5)
   expect(typeof parsed.warnedAtIso).toBe('string')
+})
+
+test('RPD state-file override outside config dir is ignored', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_STATE_FILE = join(
+    tempConfigDir,
+    '..',
+    'outside-rpd-state.json',
+  )
+
+  const resolvedStatePath = resolve(__private__.getRpdStatePath())
+  const expectedDefaultPath = resolve(join(tempConfigDir, 'client-quota-rpd.json'))
+
+  expect(resolvedStatePath).toBe(expectedDefaultPath)
 })
 
 test('RPD guard enforces daily cap across concurrent processes', async () => {
@@ -214,7 +237,7 @@ test('RPD guard fails closed when state path is unusable', async () => {
   await mkdir(stateDirectory, { recursive: true })
   process.env.CLAUDE_CODE_CLIENT_RPD_STATE_FILE = stateDirectory
 
-  await expect(enforceClientQuotaGuards()).rejects.toThrow(
+  await expect(enforceQuotaGuards()).rejects.toThrow(
     'failed to persist daily state',
   )
 })
@@ -231,11 +254,33 @@ test('RPM guard waits until request leaves sliding window', async () => {
     now += ms
   }
 
-  await enforceClientQuotaGuards({ nowMs: () => now, sleepFn })
+  await enforceQuotaGuards({ nowMs: () => now, sleepFn })
   now = 100
-  await enforceClientQuotaGuards({ nowMs: () => now, sleepFn })
+  await enforceQuotaGuards({ nowMs: () => now, sleepFn })
   now = 200
-  await enforceClientQuotaGuards({ nowMs: () => now, sleepFn })
+  await enforceQuotaGuards({ nowMs: () => now, sleepFn })
 
   expect(waits).toEqual([800])
+})
+
+test('RPD cap blocks before waiting on RPM window', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '1'
+  process.env.CLAUDE_CODE_CLIENT_RPM_LIMIT = '1'
+  process.env.CLAUDE_CODE_CLIENT_RPM_WINDOW_MS = '1000'
+
+  let now = 0
+  const waits: number[] = []
+  const sleepFn = async (ms: number) => {
+    waits.push(ms)
+    now += ms
+  }
+
+  await enforceQuotaGuards({ nowMs: () => now, sleepFn })
+
+  now = 100
+  await expect(
+    enforceQuotaGuards({ nowMs: () => now, sleepFn }),
+  ).rejects.toThrow('daily cap reached')
+
+  expect(waits).toEqual([])
 })
