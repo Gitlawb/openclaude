@@ -5,7 +5,6 @@ import { registerClaudeInChromeSkill } from './claudeInChrome.js'
 import { registerDebugSkill } from './debug.js'
 import { registerKeybindingsSkill } from './keybindings.js'
 import { registerSimplifySkill } from './simplify.js'
-import { registerSkillifySkill } from './skillify.js'
 import { registerUpdateConfigSkill } from './updateConfig.js'
 
 /**
