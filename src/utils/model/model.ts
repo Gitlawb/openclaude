@@ -250,7 +250,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash'
   }
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'mistral-medium-latest'
+    return process.env.MISTRAL_MODEL || 'devstral-latest'
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
