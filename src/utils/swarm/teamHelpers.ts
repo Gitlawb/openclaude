@@ -124,6 +124,46 @@ export function getTeamFilePath(teamName: string): string {
 }
 
 /**
+ * Build the [TEAM CONTEXT] block to prepend to a teammate's initial prompt.
+ * Gives the agent its full team roster, lead identity, config path, and shared
+ * goal so it can coordinate without the leader manually briefing it.
+ *
+ * @param agentName - The name of the agent receiving the context
+ * @param agentType - The agent's role/type (e.g. "Explore", "SubAgent")
+ * @param teamFile - The current team file (caller must ensure it's up-to-date)
+ */
+export function buildTeamContextBlock(
+  agentName: string,
+  agentType: string | undefined,
+  teamFile: TeamFile,
+): string {
+  const leadMember = teamFile.members.find(
+    m => m.agentId === teamFile.leadAgentId,
+  )
+  const leadName = leadMember?.name ?? 'team-lead'
+
+  const teammates = teamFile.members
+    .filter(m => m.agentId !== teamFile.leadAgentId && m.name !== agentName)
+    .map(m => (m.agentType ? `${m.name} (${m.agentType})` : m.name))
+    .join(', ')
+
+  const teamName = teamFile.name
+
+  const lines: string[] = [
+    '[TEAM CONTEXT]',
+    `Team: ${teamName}`,
+    `Your role: ${agentName}${agentType ? ` (${agentType})` : ''}`,
+    `Team lead: ${leadName}`,
+  ]
+  if (teammates) lines.push(`Teammates: ${teammates}`)
+  lines.push(`Team config: ${getTeamFilePath(teamName)}`)
+  if (teamFile.description) lines.push(`Shared goal: ${teamFile.description}`)
+  lines.push('[/TEAM CONTEXT]')
+
+  return lines.join('\n')
+}
+
+/**
  * Reads a team file by name (sync — for sync contexts like React render paths)
  * @internal Exported for team discovery UI
  */
