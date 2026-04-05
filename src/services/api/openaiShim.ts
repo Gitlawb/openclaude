@@ -410,20 +410,15 @@ function convertMessages(
   // System message first
   const sysText = convertSystemPrompt(system)
 
-  // Gemma 4 tool-calling quoting instruction.
-  // Appended to the system prompt so the model wraps complex string
-  // values (multi-line content, paths containing slashes, etc.) in
-  // double quotes when generating call:func{key:"value"} tool calls.
-  // Without this, `call:Write{content:line1\nline2,file_path:/path}`
-  // is impossible to parse because the content value may contain commas
-  // and colons that look like argument separators.
+  // Gemma 4 tool-calling instruction.
+  // Appended to the system prompt so the model remembers to use the wrapper 
+  // AND wraps complex string values in double quotes. 
   const gemma4ToolNote = [
-    '\n\nTOOL CALL FORMAT NOTE:',
-    'When invoking tools with call:funcname{...} syntax, always wrap',
-    'string argument values in double quotes, especially when the value',
-    'contains newlines, commas, colons, or other special characters.',
+    '\n\nCRITICAL TOOL CALL FORMAT NOTE:',
+    '1. You MUST ALWAYS invoke tools using the exact syntax: call:funcname{key:"value"}',
+    '2. If you simply output the parameter values as plain text without the call:funcname{ wrapper, the tool will FAIL to execute.',
+    '3. Always wrap string argument values in double quotes (especially if they contain newlines, commas, or colons).',
     'Example: call:Write{file_path:"/path/file.md",content:"line1\\nline2"}',
-    'Do NOT leave long text values unquoted.',
   ].join(' ')
 
   const finalSysText = sysText ? sysText + gemma4ToolNote : gemma4ToolNote
