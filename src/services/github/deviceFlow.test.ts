@@ -1,20 +1,24 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
-import {
-  exchangeForCopilotToken,
-  GitHubDeviceFlowError,
-  pollAccessToken,
-  requestDeviceCode,
-} from './deviceFlow.js'
+async function importFreshModule() {
+  return import(`./deviceFlow.ts?ts=${Date.now()}-${Math.random()}`)
+}
 
 describe('requestDeviceCode', () => {
   const originalFetch = globalThis.fetch
+
+  beforeEach(() => {
+    mock.restore()
+    globalThis.fetch = originalFetch
+  })
 
   afterEach(() => {
     globalThis.fetch = originalFetch
   })
 
   test('parses successful device code response', async () => {
+    const { requestDeviceCode } = await importFreshModule()
+
     globalThis.fetch = mock(() =>
       Promise.resolve(
         new Response(
@@ -42,6 +46,9 @@ describe('requestDeviceCode', () => {
   })
 
   test('throws on HTTP error', async () => {
+    const { requestDeviceCode, GitHubDeviceFlowError } =
+      await importFreshModule()
+
     globalThis.fetch = mock(() =>
       Promise.resolve(new Response('bad', { status: 500 })),
     )
@@ -59,6 +66,8 @@ describe('pollAccessToken', () => {
   })
 
   test('returns token when GitHub responds with access_token immediately', async () => {
+    const { pollAccessToken } = await importFreshModule()
+
     let calls = 0
     globalThis.fetch = mock(() => {
       calls++
@@ -78,6 +87,8 @@ describe('pollAccessToken', () => {
   })
 
   test('throws on access_denied', async () => {
+    const { pollAccessToken } = await importFreshModule()
+
     globalThis.fetch = mock(() =>
       Promise.resolve(
         new Response(JSON.stringify({ error: 'access_denied' }), {
@@ -102,6 +113,8 @@ describe('exchangeForCopilotToken', () => {
   })
 
   test('parses successful Copilot token response', async () => {
+    const { exchangeForCopilotToken } = await importFreshModule()
+
     globalThis.fetch = mock(() =>
       Promise.resolve(
         new Response(
@@ -126,6 +139,9 @@ describe('exchangeForCopilotToken', () => {
   })
 
   test('throws on HTTP error', async () => {
+    const { exchangeForCopilotToken, GitHubDeviceFlowError } =
+      await importFreshModule()
+
     globalThis.fetch = mock(() =>
       Promise.resolve(new Response('unauthorized', { status: 401 })),
     )
@@ -135,6 +151,8 @@ describe('exchangeForCopilotToken', () => {
   })
 
   test('throws on malformed response', async () => {
+    const { exchangeForCopilotToken } = await importFreshModule()
+
     globalThis.fetch = mock(() =>
       Promise.resolve(
         new Response(JSON.stringify({ invalid: 'data' }), { status: 200 }),

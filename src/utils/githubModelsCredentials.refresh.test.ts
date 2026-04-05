@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 
+async function importFreshModule() {
+  return import(`./githubModelsCredentials.ts?ts=${Date.now()}-${Math.random()}`)
+}
+
 describe('refreshGithubModelsTokenIfNeeded', () => {
   const orig = {
     CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
@@ -52,9 +56,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
       }),
     }))
 
-    const { refreshGithubModelsTokenIfNeeded } = await import(
-      './githubModelsCredentials.js'
-    )
+    const { refreshGithubModelsTokenIfNeeded } = await importFreshModule()
 
     const refreshed = await refreshGithubModelsTokenIfNeeded()
     expect(refreshed).toBe(true)
@@ -98,9 +100,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
       exchangeForCopilotToken: exchangeSpy,
     }))
 
-    const { refreshGithubModelsTokenIfNeeded } = await import(
-      './githubModelsCredentials.js'
-    )
+    const { refreshGithubModelsTokenIfNeeded } = await importFreshModule()
 
     const refreshed = await refreshGithubModelsTokenIfNeeded()
     expect(refreshed).toBe(false)
