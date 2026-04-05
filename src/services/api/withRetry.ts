@@ -192,6 +192,7 @@ export async function* withRetry<T>(
     thinkingConfig: options.thinkingConfig,
     ...(isFastModeEnabled() && { fastMode: options.fastMode }),
   }
+  const quotaGuardProvider = getAPIProvider()
   let client: Anthropic | null = null
   let consecutive529Errors = options.initialConsecutive529Errors ?? 0
   let lastError: unknown
@@ -263,6 +264,7 @@ export async function* withRetry<T>(
       await enforceClientQuotaGuards({
         signal: options.signal,
         abortError,
+        provider: quotaGuardProvider,
       })
 
       return await operation(client, attempt, retryContext)

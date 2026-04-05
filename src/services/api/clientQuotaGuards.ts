@@ -30,6 +30,7 @@ export type ClientQuotaGuardOptions = {
   abortError?: () => Error
   nowMs?: () => number
   sleepFn?: (ms: number) => Promise<void>
+  provider?: APIProvider
 }
 
 let rpmAttemptTimestampsMs: number[] = []
@@ -71,10 +72,18 @@ function getUtcDay(nowMs: number): string {
 
 function getRpdStatePath(): string {
   const override = process.env[ENV_CLIENT_RPD_STATE_FILE]
-  if (override && override.trim().length > 0) {
-    return override
+  const trimmedOverride = override?.trim()
+  if (trimmedOverride && trimmedOverride.length > 0) {
+    return trimmedOverride
   }
   return join(getClaudeConfigHomeDir(), CLIENT_RPD_STATE_FILENAME)
+}
+
+function throwIfAborted(options: ClientQuotaGuardOptions): void {
+  if (!options.signal?.aborted) {
+    return
+  }
+  throw options.abortError ? options.abortError() : new Error('Request aborted')
 }
 
 function defaultRpdState(utcDay: string): RpdState {
@@ -203,6 +212,8 @@ async function enforceRpdGuard(options: ClientQuotaGuardOptions): Promise<void> 
   const rpdLimit = parsePositiveIntEnv(ENV_CLIENT_RPD_LIMIT)
   if (!rpdLimit) return
 
+  throwIfAborted(options)
+
   const nowMs = getNowMs(options.nowMs)
   const utcDay = getUtcDay(nowMs)
   const statePath = getRpdStatePath()
@@ -210,6 +221,8 @@ async function enforceRpdGuard(options: ClientQuotaGuardOptions): Promise<void> 
   const release = await acquireRpdFileLock(statePath)
 
   try {
+    throwIfAborted(options)
+
     const state = await loadRpdState(statePath, utcDay)
 
     if (state.attempts >= rpdLimit) {
@@ -251,7 +264,7 @@ async function enforceRpdGuard(options: ClientQuotaGuardOptions): Promise<void> 
 export async function enforceClientQuotaGuards(
   options: ClientQuotaGuardOptions = {},
 ): Promise<void> {
-  const provider = getAPIProvider()
+  const provider = options.provider ?? getAPIProvider()
   if (!isClientQuotaGuardProvider(provider)) {
     return
   }
