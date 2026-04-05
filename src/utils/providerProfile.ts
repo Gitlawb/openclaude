@@ -594,6 +594,9 @@ export async function buildLaunchEnv(options: {
     delete env.CLAUDE_CODE_USE_OPENAI
     delete env.CLAUDE_CODE_USE_GITHUB
     delete env.CLAUDE_CODE_USE_GEMINI
+    delete env.CLAUDE_CODE_USE_BEDROCK
+    delete env.CLAUDE_CODE_USE_VERTEX
+    delete env.CLAUDE_CODE_USE_FOUNDRY
 
     const shellMistralModel = sanitizeProviderConfigValue(
       processEnv.MISTRAL_MODEL,
@@ -654,6 +657,10 @@ export async function buildLaunchEnv(options: {
     CLAUDE_CODE_USE_OPENAI: '1',
   }
 
+  delete env.CLAUDE_CODE_USE_MISTRAL
+  delete env.CLAUDE_CODE_USE_BEDROCK
+  delete env.CLAUDE_CODE_USE_VERTEX
+  delete env.CLAUDE_CODE_USE_FOUNDRY
   delete env.CLAUDE_CODE_USE_GEMINI
   delete env.CLAUDE_CODE_USE_GITHUB
   delete env.GEMINI_API_KEY

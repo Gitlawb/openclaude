@@ -292,15 +292,20 @@ export function resolveProviderRequest(options?: {
   reasoningEffortOverride?: ReasoningEffort
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+  const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   const requestedModel =
     options?.model?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
+    (isMistralMode
+      ? process.env.MISTRAL_MODEL?.trim()
+      : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const rawBaseUrl =
     asEnvUrl(options?.baseUrl) ??
-    asEnvUrl(process.env.OPENAI_BASE_URL) ??
+    asEnvUrl(
+      isMistralMode ? process.env.MISTRAL_BASE_URL : process.env.OPENAI_BASE_URL,
+    ) ??
     asEnvUrl(process.env.OPENAI_API_BASE)
   // Use Codex transport only when:
   // - the base URL is explicitly the Codex endpoint, OR

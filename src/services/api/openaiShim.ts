@@ -907,7 +907,10 @@ class OpenAIShimMessages {
 
     const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     const apiKey =
-      this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+      this.providerOverride?.apiKey ??
+      (isMistral
+        ? process.env.MISTRAL_API_KEY ?? process.env.OPENAI_API_KEY ?? ''
+        : process.env.OPENAI_API_KEY ?? '')
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -1143,15 +1146,6 @@ export function createOpenAIShimClient(options: {
     }
     if (process.env.GEMINI_MODEL && !process.env.OPENAI_MODEL) {
       process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
-    }
-  } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
-    process.env.OPENAI_BASE_URL ??=
-      process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1'
-    if (process.env.MISTRAL_API_KEY && !process.env.OPENAI_API_KEY) {
-      process.env.OPENAI_API_KEY = process.env.MISTRAL_API_KEY
-    }
-    if (process.env.MISTRAL_MODEL && !process.env.OPENAI_MODEL) {
-      process.env.OPENAI_MODEL = process.env.MISTRAL_MODEL
     }
   } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
     process.env.OPENAI_BASE_URL ??= GITHUB_MODELS_DEFAULT_BASE
