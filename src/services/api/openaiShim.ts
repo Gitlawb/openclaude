@@ -631,7 +631,12 @@ async function* openaiStreamToAnthropic(
         if (delta.tool_calls) {
           for (const tc of delta.tool_calls) {
             if (tc.id && tc.function?.name) {
-              // New tool call starting
+              // New tool call starting — close any open thinking block first
+              if (hasEmittedThinkingStart && !hasClosedThinking) {
+                yield { type: 'content_block_stop', index: contentBlockIndex }
+                contentBlockIndex++
+                hasClosedThinking = true
+              }
               if (hasEmittedContentStart) {
                 yield {
                   type: 'content_block_stop',
@@ -1150,8 +1155,10 @@ class OpenAIShimMessages {
     if (typeof reasoningText === 'string' && reasoningText) {
       content.push({ type: 'thinking', thinking: reasoningText })
     }
-    const rawContent = choice?.message?.content
-      || choice?.message?.reasoning_content
+    const rawContent =
+      choice?.message?.content !== '' && choice?.message?.content != null
+        ? choice?.message?.content
+        : choice?.message?.reasoning_content
     if (typeof rawContent === 'string' && rawContent) {
       content.push({ type: 'text', text: rawContent })
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
