@@ -1,9 +1,10 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { errorMessage } from '../../utils/errors.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { getAPIProvider, type APIProvider } from '../../utils/model/providers.js'
+import { lock } from '../../utils/lockfile.js'
 import { sleep } from '../../utils/sleep.js'
 
 const DEFAULT_RPM_WINDOW_MS = 60_000
@@ -32,7 +33,6 @@ export type ClientQuotaGuardOptions = {
 }
 
 let rpmAttemptTimestampsMs: number[] = []
-let rpdLockPromise: Promise<void> | null = null
 
 function isClientQuotaGuardProvider(provider: APIProvider): boolean {
   return (
@@ -77,24 +77,6 @@ function getRpdStatePath(): string {
   return join(getClaudeConfigHomeDir(), CLIENT_RPD_STATE_FILENAME)
 }
 
-async function withRpdLock<T>(fn: () => Promise<T>): Promise<T> {
-  while (rpdLockPromise) {
-    await rpdLockPromise
-  }
-
-  let releaseLock: (() => void) | undefined
-  rpdLockPromise = new Promise<void>(resolve => {
-    releaseLock = resolve
-  })
-
-  try {
-    return await fn()
-  } finally {
-    rpdLockPromise = null
-    releaseLock?.()
-  }
-}
-
 function defaultRpdState(utcDay: string): RpdState {
   return {
     version: 1,
@@ -134,7 +116,49 @@ async function loadRpdState(path: string, utcDay: string): Promise<RpdState> {
 
 async function saveRpdState(path: string, state: RpdState): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, JSON.stringify(state), 'utf8')
+  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`
+  await writeFile(tempPath, JSON.stringify(state), {
+    encoding: 'utf8',
+    mode: 0o600,
+  })
+
+  try {
+    await rename(tempPath, path)
+  } catch (error) {
+    await unlink(tempPath).catch(() => undefined)
+    throw error
+  }
+}
+
+function toRpdPersistenceFailureError(statePath: string, error: unknown): Error {
+  return new Error(
+    `Client quota guard blocked request: failed to persist daily state at ${statePath}. ` +
+      `Fix file permissions/path or set ${ENV_CLIENT_RPD_STATE_FILE}. ` +
+      `Original error: ${errorMessage(error)}`,
+  )
+}
+
+async function acquireRpdFileLock(statePath: string): Promise<() => Promise<void>> {
+  try {
+    await mkdir(dirname(statePath), { recursive: true })
+    // proper-lockfile requires a target path that already exists.
+    await writeFile(statePath, '', {
+      encoding: 'utf8',
+      mode: 0o600,
+      flag: 'a',
+    })
+
+    return await lock(statePath, {
+      stale: 10_000,
+      retries: {
+        retries: 20,
+        minTimeout: 10,
+        maxTimeout: 100,
+      },
+    })
+  } catch (error) {
+    throw toRpdPersistenceFailureError(statePath, error)
+  }
 }
 
 async function enforceRpmGuard(options: ClientQuotaGuardOptions): Promise<void> {
@@ -183,8 +207,9 @@ async function enforceRpdGuard(options: ClientQuotaGuardOptions): Promise<void> 
   const utcDay = getUtcDay(nowMs)
   const statePath = getRpdStatePath()
   const warnThresholdPct = parseWarnThresholdPct()
+  const release = await acquireRpdFileLock(statePath)
 
-  await withRpdLock(async () => {
+  try {
     const state = await loadRpdState(statePath, utcDay)
 
     if (state.attempts >= rpdLimit) {
@@ -212,8 +237,15 @@ async function enforceRpdGuard(options: ClientQuotaGuardOptions): Promise<void> 
       logForDebugging(
         `[client-quota] Failed to persist RPD state (${statePath}): ${errorMessage(error)}`,
       )
+      throw toRpdPersistenceFailureError(statePath, error)
     }
-  })
+  } finally {
+    await release().catch(error => {
+      logForDebugging(
+        `[client-quota] Failed to release RPD file lock (${statePath}): ${errorMessage(error)}`,
+      )
+    })
+  }
 }
 
 export async function enforceClientQuotaGuards(
@@ -236,7 +268,6 @@ export async function enforceClientQuotaGuards(
 
 export function resetClientQuotaGuardsForTests(): void {
   rpmAttemptTimestampsMs = []
-  rpdLockPromise = null
 }
 
 export const __private__ = {
