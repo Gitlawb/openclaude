@@ -196,10 +196,55 @@ node dist/cli.mjs
 Helpful commands:
 
 - `bun run dev`
+- `bun test`
+- `bun run test:coverage`
 - `bun run smoke`
 - `bun run doctor:runtime`
 - `bun run verify:privacy`
 - focused `bun test ...` runs for the areas you touch
+
+## Testing And Coverage
+
+OpenClaude uses Bun's built-in test runner for unit tests.
+
+Run the full unit suite:
+
+```bash
+bun test
+```
+
+Generate unit test coverage:
+
+```bash
+bun run test:coverage
+```
+
+Open the visual coverage report:
+
+```bash
+open coverage/index.html
+```
+
+If you already have `coverage/lcov.info` and only want to rebuild the UI:
+
+```bash
+bun run test:coverage:ui
+```
+
+Use focused test runs when you only touch one area:
+
+- `bun run test:provider`
+- `bun run test:provider-recommendation`
+- `bun test path/to/file.test.ts`
+
+Recommended contributor validation before opening a PR:
+
+- `bun run build`
+- `bun run smoke`
+- `bun run test:coverage` for broader unit coverage when your change affects shared runtime or provider logic
+- focused `bun test ...` runs for the files and flows you changed
+
+Coverage output is written to `coverage/lcov.info`, and OpenClaude also generates a git-activity-style heatmap at `coverage/index.html`.
 
 ## Repository Structure
 
@@ -231,6 +276,7 @@ Contributions are welcome.
 For larger changes, open an issue first so the scope is clear before implementation. Helpful validation commands include:
 
 - `bun run build`
+- `bun run test:coverage`
 - `bun run smoke`
 - focused `bun test ...` runs for touched areas
 
