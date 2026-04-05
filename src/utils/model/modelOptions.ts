@@ -284,7 +284,7 @@ function getCodexSparkOption(): ModelOption {
   }
 }
 
-function getCodexModelOptions(): ModelOption[] {
+export function getCodexModelOptions(): ModelOption[] {
   return [
     {
       value: 'gpt-5.4',

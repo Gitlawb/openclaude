@@ -1,8 +1,10 @@
 import figures from 'figures'
 import * as React from 'react'
+import { resolveCodexApiCredentials } from '../services/api/providerConfig.js'
 import { Box, Text } from '../ink.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import type { ProviderProfile } from '../utils/config.js'
+import { getCodexModelOptions } from '../utils/model/modelOptions.js'
 import {
   addProviderProfile,
   deleteProviderProfile,
@@ -36,8 +38,14 @@ type Screen =
   | 'select-active'
   | 'select-edit'
   | 'select-delete'
+  | 'codex-auth'
+  | 'codex-model'
 
 type DraftField = 'name' | 'baseUrl' | 'model' | 'apiKey'
+
+type CodexAuthStatus =
+  | { available: true; sourceDescription: string }
+  | { available: false; sourceDescription: string }
 
 type ProviderDraft = Record<DraftField, string>
 
@@ -94,11 +102,37 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
   }
 }
 
+function getCodexAuthStatus(): CodexAuthStatus {
+  const credentials = resolveCodexApiCredentials(process.env)
+  if (credentials.apiKey && credentials.accountId) {
+    return {
+      available: true,
+      sourceDescription:
+        credentials.source === 'env'
+          ? 'Detected credentials in the current environment.'
+          : credentials.authPath
+            ? `Detected local Codex login at ${credentials.authPath}.`
+            : 'Detected local Codex credentials.',
+    }
+  }
+
+  return {
+    available: false,
+    sourceDescription: credentials.authPath
+      ? `No usable local Codex login found. Expected auth file: ${credentials.authPath}.`
+      : 'No usable local Codex login found.',
+  }
+}
+
 function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   const activeSuffix = isActive ? ' (active)' : ''
   const keyInfo = profile.apiKey ? 'key set' : 'no key'
   const providerKind =
-    profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'
+    profile.provider === 'anthropic'
+      ? 'anthropic'
+      : profile.provider === 'codex'
+        ? 'codex'
+        : 'openai-compatible'
   return `${providerKind} · ${profile.baseUrl} · ${profile.model} · ${keyInfo}${activeSuffix}`
 }
 
@@ -121,6 +155,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
   const [errorMessage, setErrorMessage] = React.useState<string | undefined>()
+  const codexAuthStatus = React.useMemo(() => getCodexAuthStatus(), [])
 
   const currentStep = FORM_STEPS[formStepIndex] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
@@ -150,7 +185,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
     setErrorMessage(undefined)
-    setScreen('form')
+    setScreen(defaults.provider === 'codex' ? 'codex-auth' : 'form')
   }
 
   function startEditProfile(profileId: string): void {
@@ -175,7 +210,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       name: draft.name,
       baseUrl: draft.baseUrl,
       model: draft.model,
-      apiKey: draft.apiKey,
+      apiKey: draftProvider === 'codex' ? draft.apiKey || undefined : draft.apiKey,
     }
 
     const saved = editingProfileId
@@ -247,6 +282,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
+    if (screen === 'codex-model') {
+      setScreen('codex-auth')
+      return
+    }
+
+    if (screen === 'codex-auth') {
+      setScreen('select-preset')
+      return
+    }
+
     if (mode === 'first-run') {
       setScreen('select-preset')
       return
@@ -276,6 +321,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         value: 'openai',
         label: 'OpenAI',
         description: 'OpenAI API with API key',
+      },
+      {
+        value: 'codex',
+        label: 'ChatGPT / Codex',
+        description: 'Use ChatGPT Codex-compatible credentials',
       },
       {
         value: 'moonshotai',
@@ -379,7 +429,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           Provider type:{' '}
           {draftProvider === 'anthropic'
             ? 'Anthropic native API'
-            : 'OpenAI-compatible API'}
+            : draftProvider === 'codex'
+              ? 'ChatGPT Codex-compatible API'
+              : 'OpenAI-compatible API'}
         </Text>
         <Text dimColor>
           Step {formStepIndex + 1} of {FORM_STEPS.length}: {currentStep.label}
@@ -407,6 +459,91 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text dimColor>
           Press Enter to continue. Press Esc to go back.
         </Text>
+      </Box>
+    )
+  }
+
+  function renderCodexAuth(): React.ReactNode {
+    const options = [
+      {
+        value: 'use-local',
+        label: 'Use detected login',
+        description: codexAuthStatus.available
+          ? codexAuthStatus.sourceDescription
+          : 'Unavailable until a local Codex login is detected',
+        disabled: !codexAuthStatus.available,
+      },
+      {
+        value: 'manual',
+        label: 'Enter token manually',
+        description: 'Store a CODEX_API_KEY in this provider profile',
+      },
+    ]
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          {editingProfileId ? 'Edit Codex provider' : 'Create Codex provider'}
+        </Text>
+        <Text dimColor>
+          Use an existing local Codex login when available, or fall back to a manual token.
+        </Text>
+        <Text dimColor>{codexAuthStatus.sourceDescription}</Text>
+        <Text dimColor>Default model: {draft.model}</Text>
+        <Select
+          options={options}
+          onChange={value => {
+            setErrorMessage(undefined)
+            if (value === 'use-local') {
+              setDraft(prev => ({ ...prev, apiKey: '' }))
+              setCursorOffset(draft.model.length)
+              setScreen('codex-model')
+              return
+            }
+
+            setFormStepIndex(3)
+            setCursorOffset(draft.apiKey.length)
+            setScreen('form')
+          }}
+          onCancel={handleBackFromForm}
+          visibleOptionCount={options.length}
+        />
+      </Box>
+    )
+  }
+
+  function renderCodexModelSelection(): React.ReactNode {
+    const options = getCodexModelOptions()
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          Choose Codex model
+        </Text>
+        <Text dimColor>
+          Pick a default Codex model. This list is pre-filled from the models already known in the codebase.
+        </Text>
+        <Text dimColor>
+          If you already logged in with Codex locally, your credentials will be reused automatically.
+        </Text>
+        <Select
+          options={options.map(option => ({
+            value: option.value,
+            label: option.label,
+            description: option.description,
+          }))}
+          defaultValue={draft.model}
+          defaultFocusValue={draft.model}
+          inlineDescriptions
+          visibleOptionCount={Math.min(8, options.length)}
+          onChange={value => {
+            setDraft(prev => ({ ...prev, model: String(value) }))
+            setFormStepIndex(0)
+            setCursorOffset(draft.name.length)
+            setScreen('form')
+          }}
+          onCancel={() => setScreen('codex-auth')}
+        />
       </Box>
     )
   }
@@ -534,7 +671,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         profile.id === activeProfileId
           ? `${profile.name} (active)`
           : profile.name,
-      description: `${profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'} · ${profile.baseUrl} · ${profile.model}`,
+      description: `${profile.provider === 'anthropic' ? 'anthropic' : profile.provider === 'codex' ? 'codex' : 'openai-compatible'} · ${profile.baseUrl} · ${profile.model}`,
     }))
 
     return (
@@ -560,6 +697,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       break
     case 'form':
       content = renderForm()
+      break
+    case 'codex-auth':
+      content = renderCodexAuth()
+      break
+    case 'codex-model':
+      content = renderCodexModelSelection()
       break
     case 'select-active':
       content = renderProfileSelection(

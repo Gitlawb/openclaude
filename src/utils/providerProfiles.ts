@@ -10,6 +10,7 @@ export type ProviderPreset =
   | 'anthropic'
   | 'ollama'
   | 'openai'
+  | 'codex'
   | 'moonshotai'
   | 'deepseek'
   | 'gemini'
@@ -54,7 +55,12 @@ function normalizeBaseUrl(value: string): string {
 function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const id = trimValue(profile.id)
   const name = trimValue(profile.name)
-  const provider = profile.provider === 'anthropic' ? 'anthropic' : 'openai'
+  const provider =
+    profile.provider === 'anthropic'
+      ? 'anthropic'
+      : profile.provider === 'codex'
+        ? 'codex'
+        : 'openai'
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
 
@@ -134,6 +140,15 @@ export function getProviderPresetDefaults(
         model: 'gpt-5.3-codex',
         apiKey: '',
         requiresApiKey: true,
+      }
+    case 'codex':
+      return {
+        provider: 'codex',
+        name: 'ChatGPT / Codex',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        model: 'codexplan',
+        apiKey: '',
+        requiresApiKey: false,
       }
     case 'moonshotai':
       return {
@@ -294,6 +309,21 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
+  if (profile.provider === 'codex') {
+    return (
+      processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+      processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
+      processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
+      processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
+      processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
+      processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
+      sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
+      sameOptionalEnvValue(processEnv.OPENAI_MODEL, profile.model) &&
+      (!includeApiKey ||
+        sameOptionalEnvValue(processEnv.CODEX_API_KEY, profile.apiKey))
+    )
+  }
+
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
     processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
@@ -334,6 +364,7 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.OPENAI_API_BASE
   delete processEnv.OPENAI_MODEL
   delete processEnv.OPENAI_API_KEY
+  delete processEnv.CODEX_API_KEY
 
   delete processEnv.ANTHROPIC_BASE_URL
   delete processEnv.ANTHROPIC_MODEL
@@ -366,6 +397,17 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   process.env.OPENAI_BASE_URL = profile.baseUrl
   process.env.OPENAI_MODEL = profile.model
 
+  if (profile.provider === 'codex') {
+    delete process.env.OPENAI_API_KEY
+    if (profile.apiKey) {
+      process.env.CODEX_API_KEY = profile.apiKey
+    } else {
+      delete process.env.CODEX_API_KEY
+    }
+    return
+  }
+
+  delete process.env.CODEX_API_KEY
   if (profile.apiKey) {
     process.env.OPENAI_API_KEY = profile.apiKey
   } else {
