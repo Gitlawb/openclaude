@@ -40,7 +40,12 @@ import {
   registerAgent as registerPerfettoAgent,
   unregisterAgent as unregisterPerfettoAgent,
 } from '../telemetry/perfettoTracing.js'
-import { removeMemberByAgentId } from './teamHelpers.js'
+import {
+  getTeamFilePath,
+  readTeamFile,
+  removeMemberByAgentId,
+} from './teamHelpers.js'
+import { writeToMailbox } from '../teammateMailbox.js'
 
 type SetAppStateFn = (updater: (prev: AppState) => AppState) => void
 
@@ -87,6 +92,55 @@ export type InProcessSpawnOutput = {
   teammateContext?: ReturnType<typeof createTeammateContext>
   /** Error message if spawn failed */
   error?: string
+}
+
+/**
+ * Write a [TEAM CONTEXT] message to a newly-spawned teammate's inbox.
+ * This is consumed by the agent on its first idle poll, giving it the full
+ * team roster, lead identity, config path, and shared goal without requiring
+ * the leader to manually brief each agent in the task prompt.
+ */
+async function writeTeamContextToMailbox(
+  agentName: string,
+  teamName: string,
+): Promise<void> {
+  const teamFile = readTeamFile(teamName)
+  if (!teamFile) return
+
+  const leadMember = teamFile.members.find(
+    m => m.agentId === teamFile.leadAgentId,
+  )
+  const leadName = leadMember?.name ?? 'team-lead'
+
+  const teammates = teamFile.members
+    .filter(m => m.agentId !== teamFile.leadAgentId && m.name !== agentName)
+    .map(m => (m.agentType ? `${m.name} (${m.agentType})` : m.name))
+    .join(', ')
+
+  const lines = [
+    '[TEAM CONTEXT]',
+    `Team: ${teamName}`,
+    `Your role: ${agentName}`,
+    `Team lead: ${leadName}`,
+    teammates ? `Teammates: ${teammates}` : null,
+    `Team config: ${getTeamFilePath(teamName)}`,
+    teamFile.description ? `Shared goal: ${teamFile.description}` : null,
+    '[/TEAM CONTEXT]',
+  ].filter((l): l is string => l !== null)
+
+  await writeToMailbox(
+    agentName,
+    {
+      from: leadName,
+      text: lines.join('\n'),
+      timestamp: new Date().toISOString(),
+    },
+    teamName,
+  )
+
+  logForDebugging(
+    `[spawnInProcessTeammate] Wrote team context to ${agentName}'s inbox`,
+  )
 }
 
 /**
@@ -193,6 +247,12 @@ export async function spawnInProcessTeammate(
     logForDebugging(
       `[spawnInProcessTeammate] Registered ${agentId} in AppState`,
     )
+
+    // Write team context to the teammate's inbox so it's waiting on first idle.
+    // Using the mailbox (rather than mangling the task prompt) keeps the initial
+    // task clean and delivers context through the same channel agents already
+    // understand. Fire-and-forget: a failed write is non-fatal.
+    void writeTeamContextToMailbox(name, teamName)
 
     return {
       success: true,
