@@ -239,6 +239,9 @@ async function acquireRpdFileLock(
       }
     }
   } catch (error) {
+    if (options.signal?.aborted) {
+      throw error
+    }
     throw toRpdPersistenceFailureError(statePath, error)
   }
 }
