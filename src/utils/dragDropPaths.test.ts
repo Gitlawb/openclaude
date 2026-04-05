@@ -1,145 +1,100 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { extractDraggedFilePaths } from './dragDropPaths.js'
 
 describe('extractDraggedFilePaths', () => {
-  // Use paths that actually exist on any system
+  // Paths that exist on any system.
   const thisFile = import.meta.path
   const packageJson = `${process.cwd()}/package.json`
 
-  // Temp dir with a file whose name contains a space, for Finder-drag
-  // backslash-escape tests, and a scoped-package-style subdir so we can
-  // exercise paths that embed `@` (e.g. `node_modules/@types/...`).
-  let tmpDir: string
-  let spacedFile: string
-  let atSignFile: string
-  beforeAll(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'dragdrop-test-'))
-    spacedFile = join(tmpDir, 'my file.txt')
-    writeFileSync(spacedFile, 'test')
-    const scopedDir = join(tmpDir, '@types')
-    mkdirSync(scopedDir)
-    atSignFile = join(scopedDir, 'index.d.ts')
-    writeFileSync(atSignFile, 'test')
-  })
+  // Fixtures created synchronously at describe-load time (not in
+  // `beforeAll`) so their paths are available to `test.each` tables,
+  // which are built before any hook runs.
+  const tmpDir = mkdtempSync(join(tmpdir(), 'dragdrop-test-'))
+  const spacedFile = join(tmpDir, 'my file.txt')
+  writeFileSync(spacedFile, 'test')
+  const scopedDir = join(tmpDir, '@types')
+  mkdirSync(scopedDir)
+  const atSignFile = join(scopedDir, 'index.d.ts')
+  writeFileSync(atSignFile, 'test')
+
   afterAll(() => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  test('detects a single absolute file path', () => {
-    const result = extractDraggedFilePaths(thisFile)
-    expect(result).toEqual([thisFile])
-  })
-
-  test('detects newline-separated file paths', () => {
-    const result = extractDraggedFilePaths(`${thisFile}\n${packageJson}`)
-    expect(result).toEqual([thisFile, packageJson])
-  })
-
-  test('detects space-separated absolute paths (Finder drag)', () => {
-    const result = extractDraggedFilePaths(`${thisFile} ${packageJson}`)
-    expect(result).toEqual([thisFile, packageJson])
-  })
-
-  test('returns empty for non-absolute paths', () => {
-    expect(extractDraggedFilePaths('relative/path/file.ts')).toEqual([])
-  })
-
-  test('returns empty for image file paths', () => {
-    expect(extractDraggedFilePaths('/Users/foo/image.png')).toEqual([])
-  })
-
-  test('returns empty for regular text', () => {
-    expect(extractDraggedFilePaths('hello world this is text')).toEqual([])
-  })
-
-  test('returns empty when file does not exist', () => {
-    expect(
-      extractDraggedFilePaths('/definitely/nonexistent/file.ts'),
-    ).toEqual([])
-  })
-
-  test('returns empty for empty string', () => {
-    expect(extractDraggedFilePaths('')).toEqual([])
-  })
-
-  test('returns empty for whitespace only', () => {
-    expect(extractDraggedFilePaths('   \n  ')).toEqual([])
-  })
-
-  test('returns empty if any path does not exist', () => {
-    expect(
-      extractDraggedFilePaths(`${thisFile}\n/nonexistent/file.ts`),
-    ).toEqual([])
-  })
-
-  test('strips outer double quotes from paths', () => {
-    const result = extractDraggedFilePaths(`"${thisFile}"`)
-    expect(result).toEqual([thisFile])
-  })
-
-  test('strips outer single quotes from paths', () => {
-    const result = extractDraggedFilePaths(`'${thisFile}'`)
-    expect(result).toEqual([thisFile])
-  })
-
-  test('returns empty for a double-quoted image path', () => {
-    // Regression guard: image detection must see through outer quotes so
-    // quoted image drops still route to the image paste handler.
-    expect(extractDraggedFilePaths('"/Users/foo/shot.png"')).toEqual([])
-  })
-
-  test('returns empty for a single-quoted image path', () => {
-    expect(extractDraggedFilePaths("'/Users/foo/shot.jpg'")).toEqual([])
-  })
-
-  test('returns empty for an uppercase image extension', () => {
-    expect(extractDraggedFilePaths('/Users/foo/SHOT.PNG')).toEqual([])
-  })
-
-  if (process.platform !== 'win32') {
-    test('returns empty for a backslash-escaped image path', () => {
-      // Finder drags escape spaces with backslashes; the image check must
-      // apply after escape stripping.
-      expect(
-        extractDraggedFilePaths('/Users/foo/my\\ shot.png'),
-      ).toEqual([])
+  describe('returns an empty array', () => {
+    const emptyCases: Array<[string, string]> = [
+      ['a non-absolute path', 'relative/path/file.ts'],
+      ['a plain image path', '/Users/foo/image.png'],
+      ['an uppercase image extension', '/Users/foo/SHOT.PNG'],
+      ['a double-quoted image path', '"/Users/foo/shot.png"'],
+      ['a single-quoted image path', "'/Users/foo/shot.jpg'"],
+      ['regular prose text', 'hello world this is text'],
+      ['a nonexistent absolute path', '/definitely/nonexistent/file.ts'],
+      ['a single-quoted nonexistent path', "'/definitely/nonexistent.ts'"],
+      ['an empty string', ''],
+      ['whitespace only', '   \n  '],
+      // Mixed-segment cases: all-or-nothing policy means a single bad
+      // entry disqualifies the whole paste.
+      ['a mix where one path does not exist', `${thisFile}\n/nonexistent/file.ts`],
+      ['a mix where one segment is an image', `${thisFile}\n/Users/foo/shot.png`],
+    ]
+    test.each(emptyCases)('for %s', (_label, input) => {
+      expect(extractDraggedFilePaths(input)).toEqual([])
     })
+  })
 
-    test('resolves a backslash-escaped path to a real file on disk', () => {
-      // `spacedFile` is an existing file with a space in its name; the
-      // raw form matches what a terminal delivers on Finder drag.
-      const escaped = spacedFile.replace(/ /g, '\\ ')
-      expect(extractDraggedFilePaths(escaped)).toEqual([spacedFile])
+  describe('resolves a single path', () => {
+    const singleCases: Array<[string, string, string]> = [
+      ['a plain absolute path', thisFile, thisFile],
+      ['a double-quoted path', `"${thisFile}"`, thisFile],
+      ['a single-quoted path', `'${thisFile}'`, thisFile],
+      ['a path with leading/trailing whitespace', `  ${thisFile}  `, thisFile],
+      // Realistic: dragging something under `node_modules/@types/...`.
+      // `@` inside the path must not collide with the mention prefix
+      // that the caller prepends downstream.
+      ['a path containing an `@` segment', atSignFile, atSignFile],
+    ]
+    test.each(singleCases)('from %s', (_label, input, expected) => {
+      expect(extractDraggedFilePaths(input)).toEqual([expected])
+    })
+  })
+
+  describe('resolves multiple paths', () => {
+    const multiCases: Array<[string, string, string[]]> = [
+      [
+        'newline-separated',
+        `${thisFile}\n${packageJson}`,
+        [thisFile, packageJson],
+      ],
+      [
+        'space-separated (Finder drag)',
+        `${thisFile} ${packageJson}`,
+        [thisFile, packageJson],
+      ],
+    ]
+    test.each(multiCases)('when input is %s', (_label, input, expected) => {
+      expect(extractDraggedFilePaths(input)).toEqual(expected)
+    })
+  })
+
+  // Backslash-escaped paths are a Finder/macOS + Linux convention — on
+  // Windows the shell-escape step is skipped, so these cases do not apply.
+  if (process.platform !== 'win32') {
+    describe('handles backslash-escaped paths', () => {
+      test('returns empty for an escaped image path', () => {
+        // The image check must apply after escape stripping so Finder
+        // image drags still route to the image paste handler.
+        expect(extractDraggedFilePaths('/Users/foo/my\\ shot.png')).toEqual([])
+      })
+
+      test('resolves an escaped real file with a space in its name', () => {
+        // Raw form matches what a terminal delivers on Finder drag.
+        const escaped = spacedFile.replace(/ /g, '\\ ')
+        expect(extractDraggedFilePaths(escaped)).toEqual([spacedFile])
+      })
     })
   }
-
-  test('returns empty when mixed segments include an image file', () => {
-    // All-or-nothing: one image in the group disqualifies the whole paste
-    // so it can be handled by the image paste handler instead.
-    expect(
-      extractDraggedFilePaths(`${thisFile}\n/Users/foo/shot.png`),
-    ).toEqual([])
-  })
-
-  test('returns empty for a single-quoted nonexistent path', () => {
-    // Quoted but nonexistent — exists check still runs after unquoting.
-    expect(extractDraggedFilePaths("'/definitely/nonexistent.ts'")).toEqual(
-      [],
-    )
-  })
-
-  test('trims surrounding whitespace from the whole paste', () => {
-    expect(extractDraggedFilePaths(`  ${thisFile}  `)).toEqual([thisFile])
-  })
-
-  test('resolves a path that embeds an `@` segment', () => {
-    // Realistic case: dragging something under `node_modules/@types/...`.
-    // The `@` inside the path must not be confused with the mention prefix
-    // that the caller prepends downstream — `extractDraggedFilePaths`
-    // returns raw paths and leaves mention formatting to PromptInput.
-    expect(extractDraggedFilePaths(atSignFile)).toEqual([atSignFile])
-  })
 })
