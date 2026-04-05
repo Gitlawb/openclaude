@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -36,6 +38,8 @@ jobs:
       - name: Full unit test suite
         run: bun test --max-concurrency=1
 
+      - name: Suspicious PR intent scan
+        run: bun run security:pr-scan -- --base ${{ github.event.pull_request.base.sha || 'origin/main' }}
       - name: Provider tests
         run: bun run test:provider
 

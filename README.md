@@ -198,6 +198,7 @@ Helpful commands:
 - `bun run dev`
 - `bun test`
 - `bun run test:coverage`
+- `bun run security:pr-scan -- --base origin/main`
 - `bun run smoke`
 - `bun run doctor:runtime`
 - `bun run verify:privacy`
@@ -245,7 +246,6 @@ Recommended contributor validation before opening a PR:
 - focused `bun test ...` runs for the files and flows you changed
 
 Coverage output is written to `coverage/lcov.info`, and OpenClaude also generates a git-activity-style heatmap at `coverage/index.html`.
-
 ## Repository Structure
 
 - `src/` - core CLI/runtime
