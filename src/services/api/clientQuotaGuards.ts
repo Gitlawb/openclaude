@@ -228,7 +228,7 @@ async function acquireRpdFileLock(
   statePath: string,
   options: ClientQuotaGuardOptions,
 ): Promise<() => Promise<void>> {
-  const lockAcquireDeadlineMs = Date.now() + RPD_LOCK_STALE_MS
+  const lockAcquireDeadlineMs = getNowMs(options.nowMs) + RPD_LOCK_STALE_MS
 
   try {
     await mkdir(dirname(statePath), { recursive: true })
@@ -260,7 +260,7 @@ async function acquireRpdFileLock(
 
         if (
           attempt >= RPD_LOCK_MAX_RETRIES ||
-          Date.now() >= lockAcquireDeadlineMs
+          getNowMs(options.nowMs) >= lockAcquireDeadlineMs
         ) {
           throw new RpdLockContentionError(statePath)
         }

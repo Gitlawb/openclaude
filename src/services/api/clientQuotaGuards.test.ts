@@ -397,5 +397,7 @@ test('RPD-only mode performs a single RPD pass per request', async () => {
 
   await enforceQuotaGuards({ nowMs })
 
-  expect(nowMsCalls).toBe(1)
+  // Single RPD pass should call nowMs once for day accounting and once for
+  // lock-acquisition deadline timing.
+  expect(nowMsCalls).toBe(2)
 })
