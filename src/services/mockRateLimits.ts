@@ -2,9 +2,10 @@
 // The external build keeps this module as a stable no-op surface so imports
 // remain valid without exposing internal-only rate-limit simulation behavior.
 
-import type { SubscriptionType } from '../services/oauth/types.js'
 import { setMockBillingAccessOverride } from '../utils/billing.js'
 import type { OverageDisabledReason } from './claudeAiLimits.js'
+
+type SubscriptionType = string
 
 type MockHeaders = {
   'anthropic-ratelimit-unified-status'?:
@@ -185,7 +186,7 @@ export function shouldUseMockSubscription(): boolean {
 }
 
 export function setMockBillingAccess(_hasAccess: boolean | null): void {
-  setMockBillingAccessOverride(null)
+  // External build: internal mock billing access overrides are disabled.
 }
 
 export function isMockFastModeRateLimitScenario(): boolean {
