@@ -157,7 +157,7 @@ function checkGeminiEnv(): CheckResult[] {
 
 function checkGithubEnv(): CheckResult[] {
   const results: CheckResult[] = []
-  const baseUrl = process.env.OPENAI_BASE_URL ?? GITHUB_MODELS_DEFAULT_BASE
+  const baseUrl = process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE
   results.push(pass('Provider mode', 'GitHub Models provider enabled.'))
 
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
@@ -435,7 +435,7 @@ function serializeSafeEnvSummary(): Record<string, string | boolean> {
         process.env.OPENAI_MODEL ??
         '(unset, default: github:copilot → openai/gpt-4.1)',
       OPENAI_BASE_URL:
-        process.env.OPENAI_BASE_URL ?? GITHUB_MODELS_DEFAULT_BASE,
+        process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE,
       GITHUB_TOKEN_SET: Boolean(
         process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN,
       ),

@@ -187,7 +187,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
@@ -200,14 +200,6 @@ export function getDefaultHaikuModel(): ModelName {
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
-  }
-  // OpenAI provider
-  if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
-  }
-  // Codex provider
-  if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)

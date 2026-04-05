@@ -341,7 +341,7 @@ export function resolveProviderRequest(options?: {
 
   const resolvedModel =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-      ? normalizeGithubModelsApiModel(requestedModel)
+      ? normalizeGithubModelsApiModel(descriptor.baseModel)
       : descriptor.baseModel
 
   const reasoning = options?.reasoningEffortOverride
