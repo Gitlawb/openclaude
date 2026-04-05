@@ -89,41 +89,46 @@ function parseGemma4Args(body: string): Record<string, unknown> | null {
   const inner = body.trim().replace(/^\{/, '').replace(/\}$/, '').trim()
   if (!inner) return args
 
-  // 1. Split string by top-level commas
+  // Extract top-level comma-separated parts, ignoring commas inside `{...}`, `[...]`, or `\"...\"`.
+  // Single quotes are NOT ignored because they are common punctuation in unquoted English strings (e.g. "I'm", "don't")
+  // and treating them as string delimiters breaks the parser immediately.
   const parts: string[] = []
+  let currentPart = ''
   let depth = 0
   let inQuote = false
-  let quoteChar = ''
-  let current = ''
-  
+
   for (let i = 0; i < inner.length; i++) {
     const ch = inner[i]
     if (inQuote) {
-      current += ch
       if (ch === '\\') {
-        i++ // escape — consume next char
-        if (i < inner.length) current += inner[i]
-      } else if (ch === quoteChar) {
+        currentPart += ch
+        if (i + 1 < inner.length) {
+          currentPart += inner[i + 1]
+          i++
+        }
+      } else if (ch === '"') {
         inQuote = false
+        currentPart += ch
+      } else {
+        currentPart += ch
       }
-    } else if (ch === '"' || ch === "'") {
+    } else if (ch === '"') {
       inQuote = true
-      quoteChar = ch
-      current += ch
+      currentPart += ch
     } else if (ch === '{' || ch === '[') {
       depth++
-      current += ch
+      currentPart += ch
     } else if (ch === '}' || ch === ']') {
       depth--
-      current += ch
+      currentPart += ch
     } else if (ch === ',' && depth === 0) {
-      parts.push(current)
-      current = ''
+      parts.push(currentPart)
+      currentPart = ''
     } else {
-      current += ch
+      currentPart += ch
     }
   }
-  if (current.trim()) parts.push(current)
+  if (currentPart.trim()) parts.push(currentPart)
 
   // 2. Process parts: identify valid parameter declarations vs embedded commas
   let currentKey = ''
@@ -169,21 +174,21 @@ type ParsedGemma4Call = {
  * Walk forward from `startIndex` (which must point to an opening `{`) in `str`
  * and return the index of the matching closing `}`, respecting:
  *  - Nested `{}`  and `[]`
- *  - Single and double quoted strings (with escape handling)
+ *  - Double quoted strings (with escape handling)
+ * Single quotes are ignored because unquoted English text often contains apostrophes (e.g. "I'm").
  * Returns -1 if no matching brace is found.
  */
 function findMatchingBrace(str: string, startIndex: number): number {
   let depth = 0
   let inQuote = false
-  let quoteChar = ''
   for (let i = startIndex; i < str.length; i++) {
     const ch = str[i]
     if (inQuote) {
       if (ch === '\\') { i++; continue } // skip escaped char
-      if (ch === quoteChar) inQuote = false
+      if (ch === '"') inQuote = false
       continue
     }
-    if (ch === '"' || ch === "'") { inQuote = true; quoteChar = ch; continue }
+    if (ch === '"') { inQuote = true; continue }
     if (ch === '{' || ch === '[') { depth++; continue }
     if (ch === '}' || ch === ']') {
       depth--
