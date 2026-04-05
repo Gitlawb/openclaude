@@ -269,7 +269,8 @@ test('RPD guard aborts while waiting on cross-process lock', async () => {
 
   const abortController = new AbortController()
   const abortMessage = 'aborted while waiting for lock'
-  const abortError = () => new Error(abortMessage)
+  const expectedAbortError = new Error(abortMessage)
+  const abortError = () => expectedAbortError
   const enforcePromise = enforceQuotaGuards({
     signal: abortController.signal,
     abortError,
@@ -277,8 +278,16 @@ test('RPD guard aborts while waiting on cross-process lock', async () => {
 
   setTimeout(() => abortController.abort(), 20)
 
-  await expect(enforcePromise).rejects.toThrow(abortMessage)
-  await releaseLock()
+  try {
+    await enforcePromise
+    expect.unreachable('Expected abort while waiting on lock')
+  } catch (error) {
+    expect(error).toBe(expectedAbortError)
+    expect((error as Error).message).toBe(abortMessage)
+    expect((error as Error).message).not.toContain('failed to persist daily state')
+  } finally {
+    await releaseLock()
+  }
 })
 
 test('RPM guard waits until request leaves sliding window', async () => {
