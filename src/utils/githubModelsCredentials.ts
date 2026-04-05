@@ -37,6 +37,7 @@ export function hydrateGithubModelsTokenFromSecureStorage(): void {
     return
   }
   if (process.env.GITHUB_TOKEN?.trim()) {
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return
   }
   if (isBareMode()) {
