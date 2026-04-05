@@ -58,7 +58,8 @@ function makeToolId(): string {
 
 /**
  * Parse a Gemma 4 pythonic value token.
- * Handles: bare words, quoted strings, numbers, booleans.
+ * Handles: bare words, quoted strings (single/double, including multi-line),
+ * numbers, booleans, and nested structures passed as raw text.
  */
 function parseGemma4Value(raw: string): unknown {
   const s = raw.trim()
@@ -67,9 +68,13 @@ function parseGemma4Value(raw: string): unknown {
   if (s === 'null') return null
   const num = Number(s)
   if (!Number.isNaN(num) && s !== '') return num
-  // Quoted string — strip surrounding quotes and unescape
+  // Triple-quoted string (model sometimes wraps long values in """...""")
+  if (s.startsWith('"""') && s.endsWith('"""')) {
+    return s.slice(3, -3)
+  }
+  // Standard double or single quoted string — may span multiple lines
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s.slice(1, -1).replace(/\\(.)/g, '$1')
+    return s.slice(1, -1).replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\(.)/g, '$1')
   }
   return s
 }
@@ -380,9 +385,25 @@ function convertMessages(
 
   // System message first
   const sysText = convertSystemPrompt(system)
-  if (sysText) {
-    result.push({ role: 'system', content: sysText })
-  }
+
+  // Gemma 4 tool-calling quoting instruction.
+  // Appended to the system prompt so the model wraps complex string
+  // values (multi-line content, paths containing slashes, etc.) in
+  // double quotes when generating call:func{key:"value"} tool calls.
+  // Without this, `call:Write{content:line1\nline2,file_path:/path}`
+  // is impossible to parse because the content value may contain commas
+  // and colons that look like argument separators.
+  const gemma4ToolNote = [
+    '\n\nTOOL CALL FORMAT NOTE:',
+    'When invoking tools with call:funcname{...} syntax, always wrap',
+    'string argument values in double quotes, especially when the value',
+    'contains newlines, commas, colons, or other special characters.',
+    'Example: call:Write{file_path:"/path/file.md",content:"line1\\nline2"}',
+    'Do NOT leave long text values unquoted.',
+  ].join(' ')
+
+  const finalSysText = sysText ? sysText + gemma4ToolNote : gemma4ToolNote
+  result.push({ role: 'system', content: finalSysText })
 
   for (const msg of messages) {
     // Claude Code wraps messages in { role, message: { role, content } }
