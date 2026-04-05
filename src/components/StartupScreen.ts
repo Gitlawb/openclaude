@@ -81,6 +81,7 @@ const LOGO_CLAUDE = [
 function detectProvider(): { name: string; model: string; baseUrl: string; isLocal: boolean } {
   const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
+  const useGroq = process.env.CLAUDE_CODE_USE_GROQ === '1' || process.env.CLAUDE_CODE_USE_GROQ === 'true'
   const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
 
   if (useGemini) {
@@ -94,6 +95,12 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     const baseUrl =
       process.env.OPENAI_BASE_URL || 'https://models.github.ai/inference'
     return { name: 'GitHub Models', model, baseUrl, isLocal: false }
+  }
+
+  if (useGroq) {
+    const model = process.env.OPENAI_MODEL || 'llama-3.3-70b-versatile'
+    const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.groq.com/openai/v1'
+    return { name: 'Groq', model, baseUrl, isLocal: false }
   }
 
   if (useOpenAI) {
@@ -117,14 +124,14 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     const codexAliases: Record<string, { model: string; reasoningEffort?: string }> = {
       codexplan: { model: 'gpt-5.4', reasoningEffort: 'high' },
       'gpt-5.4': { model: 'gpt-5.4', reasoningEffort: 'high' },
+      'gpt-5.4-mini': { model: 'gpt-5.4-mini', reasoningEffort: 'medium' },
       'gpt-5.3-codex': { model: 'gpt-5.3-codex', reasoningEffort: 'high' },
       'gpt-5.3-codex-spark': { model: 'gpt-5.3-codex-spark' },
       codexspark: { model: 'gpt-5.3-codex-spark' },
       'gpt-5.2-codex': { model: 'gpt-5.2-codex', reasoningEffort: 'high' },
+      'gpt-5.2': { model: 'gpt-5.2', reasoningEffort: 'medium' },
       'gpt-5.1-codex-max': { model: 'gpt-5.1-codex-max', reasoningEffort: 'high' },
       'gpt-5.1-codex-mini': { model: 'gpt-5.1-codex-mini' },
-      'gpt-5.4-mini': { model: 'gpt-5.4-mini', reasoningEffort: 'medium' },
-      'gpt-5.2': { model: 'gpt-5.2', reasoningEffort: 'medium' },
     }
     const alias = rawModel.toLowerCase()
     if (alias in codexAliases) {

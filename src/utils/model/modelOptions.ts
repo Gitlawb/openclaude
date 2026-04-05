@@ -284,12 +284,42 @@ function getCodexSparkOption(): ModelOption {
   }
 }
 
+function getOpenAICompatModelOptions(): ModelOption[] {
+  return [
+    {
+      value: 'openai/gpt-oss-120b',
+      label: 'openai/gpt-oss-120b',
+      description: 'Groq-hosted GPT-OSS 120B open model',
+    },
+    {
+      value: 'openai/gpt-oss-20b',
+      label: 'openai/gpt-oss-20b',
+      description: 'Groq-hosted GPT-OSS 20B open model',
+    },
+    {
+      value: 'meta-llama/llama-4-maverick-17b-128e-instruct',
+      label: 'meta-llama/llama-4-maverick-17b-128e-instruct',
+      description: 'Groq-hosted Llama 4 Maverick instruct model',
+    },
+    {
+      value: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      label: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      description: 'Groq-hosted Llama 4 Scout instruct model',
+    },
+  ]
+}
+
 function getCodexModelOptions(): ModelOption[] {
   return [
     {
       value: 'gpt-5.4',
       label: 'gpt-5.4',
       description: 'GPT-5.4 with high reasoning',
+    },
+    {
+      value: 'gpt-5.4-mini',
+      label: 'gpt-5.4-mini',
+      description: 'GPT-5.4 Mini - faster, cheaper',
     },
     {
       value: 'gpt-5.3-codex',
@@ -312,6 +342,11 @@ function getCodexModelOptions(): ModelOption[] {
       description: 'GPT-5.2 Codex with high reasoning',
     },
     {
+      value: 'gpt-5.2',
+      label: 'gpt-5.2',
+      description: 'GPT-5.2 with medium reasoning',
+    },
+    {
       value: 'gpt-5.1-codex-max',
       label: 'gpt-5.1-codex-max',
       description: 'GPT-5.1 Codex Max for deep reasoning',
@@ -320,11 +355,6 @@ function getCodexModelOptions(): ModelOption[] {
       value: 'gpt-5.1-codex-mini',
       label: 'gpt-5.1-codex-mini',
       description: 'GPT-5.1 Codex Mini - faster, cheaper',
-    },
-    {
-      value: 'gpt-5.4-mini',
-      label: 'gpt-5.4-mini',
-      description: 'GPT-5.4 Mini - faster, cheaper',
     },
   ]
 }
@@ -429,8 +459,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // PAYG 3P: Default (Sonnet 4.5) + Sonnet (3P custom) or Sonnet 4.6/1M + Opus (3P custom) or Opus 4.1/Opus 4.6/Opus1M + Haiku + Opus 4.1
   const payg3pOptions = [getDefaultOptionForUser(fastMode)]
 
-  // Add Codex models for openai and codex providers
+  // Add OpenAI-compatible and Codex models for openai and codex providers
   if (getAPIProvider() === 'openai' || getAPIProvider() === 'codex') {
+    payg3pOptions.push(...getOpenAICompatModelOptions())
     payg3pOptions.push(...getCodexModelOptions())
   }
 

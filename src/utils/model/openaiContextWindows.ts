@@ -32,6 +32,10 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'deepseek-reasoner':        128_000,
 
   // Groq (fast inference)
+  'openai/gpt-oss-120b':      131_072,
+  'openai/gpt-oss-20b':       131_072,
+  'meta-llama/llama-4-maverick-17b-128e-instruct': 131_072,
+  'meta-llama/llama-4-scout-17b-16e-instruct':     131_072,
   'llama-3.3-70b-versatile':  128_000,
   'llama-3.1-8b-instant':     128_000,
   'mixtral-8x7b-32768':        32_768,
@@ -91,6 +95,10 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'deepseek-reasoner':         32_768,
 
   // Groq
+  'openai/gpt-oss-120b':      65_536,
+  'openai/gpt-oss-20b':       65_536,
+  'meta-llama/llama-4-maverick-17b-128e-instruct': 8_192,
+  'meta-llama/llama-4-scout-17b-16e-instruct':     8_192,
   'llama-3.3-70b-versatile':  32_768,
   'llama-3.1-8b-instant':      8_192,
   'mixtral-8x7b-32768':       32_768,

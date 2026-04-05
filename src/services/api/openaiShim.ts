@@ -61,6 +61,124 @@ function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 }
 
+function isGroqMode(): boolean {
+  return isEnvTruthy(process.env.CLAUDE_CODE_USE_GROQ)
+}
+
+function parseToolCallArguments(argumentsValue: unknown): unknown {
+  if (typeof argumentsValue !== 'string') {
+    return argumentsValue ?? {}
+  }
+
+  const trimmed = argumentsValue.trim()
+  if (!trimmed) {
+    return {}
+  }
+
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return { raw: argumentsValue }
+  }
+}
+
+function getToolCallFinishReason(
+  finishReason: string | null | undefined,
+  hasToolCalls: boolean,
+): 'tool_use' | 'max_tokens' | 'end_turn' {
+  if (finishReason === 'tool_calls' || finishReason === 'function_call') {
+    return 'tool_use'
+  }
+  if (finishReason === 'length') {
+    return 'max_tokens'
+  }
+  if (hasToolCalls && !finishReason) {
+    return 'tool_use'
+  }
+  return 'end_turn'
+}
+
+function getToolCallId(
+  toolCall: { id?: string; index?: number },
+  fallbackIndex: number,
+): string {
+  return toolCall.id ?? `call_${toolCall.index ?? fallbackIndex}`
+}
+
+function getToolCallName(
+  toolCall: { function?: { name?: string } },
+): string {
+  return toolCall.function?.name ?? 'unknown'
+}
+
+function getToolCallExtraContent(
+  toolCall: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const extraContent = toolCall.extra_content
+  return extraContent && typeof extraContent === 'object'
+    ? (extraContent as Record<string, unknown>)
+    : undefined
+}
+
+function getToolCallArgumentDelta(
+  toolCall: { function?: { arguments?: string }; arguments?: string },
+): string | undefined {
+  if (typeof toolCall.function?.arguments === 'string') {
+    return toolCall.function.arguments
+  }
+  if (typeof toolCall.arguments === 'string') {
+    return toolCall.arguments
+  }
+  return undefined
+}
+
+function isToolCallStartChunk(
+  toolCall: { id?: string; function?: { name?: string } },
+): boolean {
+  return Boolean(toolCall.id || toolCall.function?.name)
+}
+
+function normalizeToolCallIndex(
+  toolCall: { index?: number },
+  fallbackIndex: number,
+): number {
+  return typeof toolCall.index === 'number' ? toolCall.index : fallbackIndex
+}
+
+function shouldForceParallelToolCallsFalse(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase().includes('groq')
+  } catch {
+    return false
+  }
+}
+
+function normalizeToolCalls(
+  toolCalls: unknown,
+): Array<{
+  id?: string
+  index?: number
+  type?: string
+  function?: { name?: string; arguments?: string }
+  arguments?: string
+  extra_content?: Record<string, unknown>
+}> {
+  if (!Array.isArray(toolCalls)) {
+    return []
+  }
+
+  return toolCalls.filter(
+    (toolCall): toolCall is {
+      id?: string
+      index?: number
+      type?: string
+      function?: { name?: string; arguments?: string }
+      arguments?: string
+      extra_content?: Record<string, unknown>
+    } => Boolean(toolCall && typeof toolCall === 'object'),
+  )
+}
+
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
@@ -530,8 +648,13 @@ async function* openaiStreamToAnthropic(
 
         // Tool calls
         if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            if (tc.id && tc.function?.name) {
+          const normalizedToolCalls = normalizeToolCalls(delta.tool_calls)
+          for (let toolCallOffset = 0; toolCallOffset < normalizedToolCalls.length; toolCallOffset++) {
+            const tc = normalizedToolCalls[toolCallOffset]
+            const normalizedIndex = normalizeToolCallIndex(tc, toolCallOffset)
+            const argumentDelta = getToolCallArgumentDelta(tc)
+
+            if (isToolCallStartChunk(tc)) {
               // New tool call starting
               if (hasEmittedContentStart) {
                 yield {
@@ -543,11 +666,11 @@ async function* openaiStreamToAnthropic(
               }
 
               const toolBlockIndex = contentBlockIndex
-              activeToolCalls.set(tc.index, {
-                id: tc.id,
-                name: tc.function.name,
+              activeToolCalls.set(normalizedIndex, {
+                id: getToolCallId(tc, normalizedIndex),
+                name: getToolCallName(tc),
                 index: toolBlockIndex,
-                jsonBuffer: tc.function.arguments ?? '',
+                jsonBuffer: argumentDelta ?? '',
               })
 
               yield {
@@ -555,44 +678,43 @@ async function* openaiStreamToAnthropic(
                 index: toolBlockIndex,
                 content_block: {
                   type: 'tool_use',
-                  id: tc.id,
-                  name: tc.function.name,
+                  id: getToolCallId(tc, normalizedIndex),
+                  name: getToolCallName(tc),
                   input: {},
-                  ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
+                  ...(getToolCallExtraContent(tc) ? { extra_content: getToolCallExtraContent(tc) } : {}),
                 },
               }
               contentBlockIndex++
 
-              // Emit any initial arguments
-              if (tc.function.arguments) {
+              if (argumentDelta) {
                 yield {
                   type: 'content_block_delta',
                   index: toolBlockIndex,
                   delta: {
                     type: 'input_json_delta',
-                    partial_json: tc.function.arguments,
+                    partial_json: argumentDelta,
                   },
                 }
               }
-            } else if (tc.function?.arguments) {
+            } else if (argumentDelta) {
               // Continuation of existing tool call
-              const active = activeToolCalls.get(tc.index)
+              const active = activeToolCalls.get(normalizedIndex)
               if (active) {
-                if (tc.function.arguments) {
-                  active.jsonBuffer += tc.function.arguments
-                }
+                active.jsonBuffer += argumentDelta
                 yield {
                   type: 'content_block_delta',
                   index: active.index,
                   delta: {
                     type: 'input_json_delta',
-                    partial_json: tc.function.arguments,
+                    partial_json: argumentDelta,
                   },
                 }
               }
             }
           }
         }
+
+        const hasToolCallsInChunk = normalizeToolCalls(delta.tool_calls).length > 0
 
         // Finish — guard ensures we only process finish_reason once even if
         // multiple chunks arrive with finish_reason set (some providers do this)
@@ -641,12 +763,10 @@ async function* openaiStreamToAnthropic(
             yield { type: 'content_block_stop', index: tc.index }
           }
 
-          const stopReason =
-            choice.finish_reason === 'tool_calls'
-              ? 'tool_use'
-              : choice.finish_reason === 'length'
-                ? 'max_tokens'
-                : 'end_turn'
+          const stopReason = getToolCallFinishReason(
+            choice.finish_reason,
+            hasToolCallsInChunk || activeToolCalls.size > 0,
+          )
           if (choice.finish_reason === 'content_filter' || choice.finish_reason === 'safety') {
             // Gemini/Azure content safety filter blocked the response.
             // Emit a visible text block so the user knows why output was truncated.
@@ -872,6 +992,9 @@ class OpenAIShimMessages {
       )
       if (converted.length > 0) {
         body.tools = converted
+        if (shouldForceParallelToolCallsFalse(request.baseUrl) || isGroqMode()) {
+          body.parallel_tool_calls = false
+        }
         if (params.tool_choice) {
           const tc = params.tool_choice as { type?: string; name?: string }
           if (tc.type === 'auto') {
@@ -1052,29 +1175,22 @@ class OpenAIShimMessages {
     }
 
     if (choice?.message?.tool_calls) {
-      for (const tc of choice.message.tool_calls) {
-        let input: unknown
-        try {
-          input = JSON.parse(tc.function.arguments)
-        } catch {
-          input = { raw: tc.function.arguments }
-        }
+      for (let toolCallOffset = 0; toolCallOffset < choice.message.tool_calls.length; toolCallOffset++) {
+        const tc = choice.message.tool_calls[toolCallOffset]
         content.push({
           type: 'tool_use',
-          id: tc.id,
-          name: tc.function.name,
-          input,
-          ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
+          id: getToolCallId(tc, toolCallOffset),
+          name: getToolCallName(tc),
+          input: parseToolCallArguments(tc.function?.arguments),
+          ...(getToolCallExtraContent(tc) ? { extra_content: getToolCallExtraContent(tc) } : {}),
         })
       }
     }
 
-    const stopReason =
-      choice?.finish_reason === 'tool_calls'
-        ? 'tool_use'
-        : choice?.finish_reason === 'length'
-          ? 'max_tokens'
-          : 'end_turn'
+    const stopReason = getToolCallFinishReason(
+      choice?.finish_reason,
+      Boolean(choice?.message?.tool_calls?.length),
+    )
 
     if (choice?.finish_reason === 'content_filter' || choice?.finish_reason === 'safety') {
       content.push({
@@ -1139,6 +1255,11 @@ export function createOpenAIShimClient(options: {
     process.env.OPENAI_BASE_URL ??= GITHUB_MODELS_DEFAULT_BASE
     process.env.OPENAI_API_KEY ??=
       process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
+  } else if (isGroqMode()) {
+    process.env.OPENAI_BASE_URL ??= 'https://api.groq.com/openai/v1'
+    if (process.env.GROQ_API_KEY && !process.env.OPENAI_API_KEY) {
+      process.env.OPENAI_API_KEY = process.env.GROQ_API_KEY
+    }
   }
 
   const beta = new OpenAIShimBeta({

@@ -7,6 +7,11 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CLAUDE_CODE_USE_GROQ: process.env.CLAUDE_CODE_USE_GROQ,
+  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+  GH_TOKEN: process.env.GH_TOKEN,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
@@ -70,6 +75,11 @@ beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_GROQ
+  delete process.env.GROQ_API_KEY
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
@@ -84,6 +94,11 @@ afterEach(() => {
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('CLAUDE_CODE_USE_GROQ', originalEnv.CLAUDE_CODE_USE_GROQ)
+  restoreEnv('GROQ_API_KEY', originalEnv.GROQ_API_KEY)
+  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+  restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
+  restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
@@ -572,4 +587,496 @@ test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async
   expect(properties?.priority?.type).toBe('integer')
   expect(properties?.priority?.enum).toEqual([0, 1, 2, 3])
   expect(properties?.priority).not.toHaveProperty('default')
+})
+
+test('uses Groq defaults and disables parallel tool calls in Groq mode', async () => {
+  let requestUrl: string | undefined
+  let requestBody: Record<string, unknown> | undefined
+  let capturedAuthorization: string | null = null
+
+  process.env.CLAUDE_CODE_USE_GROQ = '1'
+  process.env.GROQ_API_KEY = 'gsk-groq-env'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+
+  globalThis.fetch = (async (_input, init) => {
+    requestUrl = typeof _input === 'string' ? _input : _input.url
+    requestBody = JSON.parse(String(init?.body))
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'llama-3.3-70b-versatile',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 1,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-oss-20b',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: [
+      {
+        name: 'Bash',
+        description: 'Run bash',
+        input_schema: { type: 'object', properties: {} },
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestUrl).toBe('https://api.groq.com/openai/v1/chat/completions')
+  expect(requestBody?.model).toBe('openai/gpt-oss-20b')
+  expect(requestBody?.parallel_tool_calls).toBe(false)
+  expect(capturedAuthorization).toBe('Bearer gsk-groq-env')
+})
+
+test('omits Claude thinking blocks from Groq requests', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_GROQ = '1'
+  delete process.env.OPENAI_BASE_URL
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'llama-3.3-70b-versatile',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      { role: 'user', content: 'hello' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'hidden chain of thought' },
+          { type: 'text', text: 'visible text' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantMessage = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => message.role === 'assistant',
+  ) as { content?: string } | undefined
+
+  expect(assistantMessage?.content).toBe('visible text')
+  expect(assistantMessage?.content).not.toContain('<thinking>')
+  expect(assistantMessage?.content).not.toContain('hidden chain of thought')
+})
+
+test('handles Groq streaming responses that start with empty text deltas', async () => {
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'openai/gpt-oss-20b',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content: '',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'openai/gpt-oss-20b',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: 'OK',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create({
+    model: 'openai/gpt-oss-20b',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: true,
+  }).withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const textStart = events.find(
+    event => event.type === 'content_block_start',
+  ) as { content_block?: { type?: string } } | undefined
+  const textDelta = events.find(
+    event =>
+      event.type === 'content_block_delta' &&
+      (event as { delta?: { type?: string } }).delta?.type === 'text_delta' &&
+      (event as { delta?: { text?: string } }).delta?.text === 'OK',
+  ) as { delta?: { text?: string } } | undefined
+
+  expect(textStart?.content_block?.type).toBe('text')
+  expect(textDelta?.delta?.text).toBe('OK')
+})
+
+test('ignores Groq reasoning field in non-streaming responses', async () => {
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'openai/gpt-oss-20b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'OK',
+              reasoning: 'hidden reasoning',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 3,
+          total_tokens: 13,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create({
+    model: 'openai/gpt-oss-20b',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  }) as { content: Array<{ type?: string; text?: string }> }
+
+  expect(result.content).toEqual([{ type: 'text', text: 'OK' }])
+})
+
+test('maps Groq non-streaming tool calls with explicit ids', async () => {
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'openai/gpt-oss-20b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_groq_explicit',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"command":"pwd"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 11,
+          completion_tokens: 2,
+          total_tokens: 13,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create({
+    model: 'openai/gpt-oss-20b',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  }) as { stop_reason: string; content: Array<Record<string, unknown>> }
+
+  expect(result.stop_reason).toBe('tool_use')
+  expect(result.content[0]).toMatchObject({
+    type: 'tool_use',
+    id: 'call_groq_explicit',
+    name: 'Bash',
+    input: { command: 'pwd' },
+  })
+})
+
+test('preserves Groq streamed usage after tool call finish', async () => {
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'openai/gpt-oss-20b',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  id: 'call_groq_1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"command":"pwd"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 21,
+          completion_tokens: 7,
+          total_tokens: 28,
+        },
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create({
+    model: 'openai/gpt-oss-20b',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: true,
+  }).withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const usageDelta = events.find(
+    event => event.type === 'message_delta' && typeof event.usage === 'object',
+  ) as { usage?: { input_tokens?: number; output_tokens?: number } } | undefined
+
+  expect(usageDelta?.usage?.input_tokens).toBe(21)
+  expect(usageDelta?.usage?.output_tokens).toBe(7)
+})
+
+test('maps non-streaming function_call finish reason and missing tool id safely', async () => {
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'llama-3.3-70b-versatile',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"command":"pwd"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'function_call',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 1,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create({
+    model: 'llama-3.3-70b-versatile',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    content: Array<Record<string, unknown>>
+    stop_reason: string
+  }
+
+  expect(result.stop_reason).toBe('tool_use')
+  expect(result.content[0]).toMatchObject({
+    type: 'tool_use',
+    id: 'call_0',
+    name: 'Bash',
+    input: { command: 'pwd' },
+  })
+})
+
+test('maps streaming tool call chunks without explicit index to tool_use events', async () => {
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'llama-3.3-70b-versatile',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  id: 'call_groq_1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"command":"',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'llama-3.3-70b-versatile',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  function: {
+                    arguments: 'pwd"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'function_call',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create({
+    model: 'llama-3.3-70b-versatile',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: true,
+  }).withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const toolStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'tool_use',
+  ) as { content_block?: Record<string, unknown> } | undefined
+  const stopEvent = events.find(
+    event => event.type === 'message_delta',
+  ) as { delta?: { stop_reason?: string } } | undefined
+
+  expect(toolStart?.content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'call_groq_1',
+    name: 'Bash',
+  })
+  expect(stopEvent?.delta?.stop_reason).toBe('tool_use')
 })

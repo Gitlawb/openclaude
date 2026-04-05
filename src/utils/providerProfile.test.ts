@@ -9,6 +9,7 @@ import {
   buildAtomicChatProfileEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
+  buildGroqProfileEnv,
   buildLaunchEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
@@ -154,6 +155,242 @@ test('matching persisted gemini env is reused for gemini launch', async () => {
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
   assert.equal(env.GEMINI_API_KEY, 'gem-persisted')
   assert.equal(env.GEMINI_BASE_URL, 'https://example.test/v1beta/openai')
+})
+
+test('matching persisted groq env is reused for groq launch', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'groq',
+    persisted: profile('groq', {
+      OPENAI_MODEL: 'llama-3.3-70b-versatile',
+      OPENAI_API_KEY: 'gsk-persisted',
+      OPENAI_BASE_URL: 'https://api.groq.com/openai/v1',
+    }),
+    goal: 'balanced',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.CLAUDE_CODE_USE_GROQ, '1')
+  assert.equal(env.OPENAI_MODEL, 'llama-3.3-70b-versatile')
+  assert.equal(env.OPENAI_API_KEY, 'gsk-persisted')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.groq.com/openai/v1')
+})
+
+test('groq launch strips gemini and codex secrets', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'groq',
+    persisted: profile('groq', {
+      OPENAI_MODEL: 'llama-3.3-70b-versatile',
+      OPENAI_API_KEY: 'gsk-persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      GEMINI_API_KEY: 'gem-live',
+      GOOGLE_API_KEY: 'google-live',
+      CODEX_API_KEY: 'codex-live',
+      CHATGPT_ACCOUNT_ID: 'acct-live',
+      OPENAI_API_KEY: 'gsk-live',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.CLAUDE_CODE_USE_GROQ, '1')
+  assert.equal(env.OPENAI_API_KEY, 'gsk-live')
+  assert.equal(env.GROQ_API_KEY, undefined)
+  assert.equal(env.GEMINI_API_KEY, undefined)
+  assert.equal(env.GOOGLE_API_KEY, undefined)
+  assert.equal(env.CODEX_API_KEY, undefined)
+  assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
+})
+
+test('groq launch accepts GROQ_API_KEY from shell env', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'groq',
+    persisted: null,
+    goal: 'balanced',
+    processEnv: {
+      GROQ_API_KEY: 'gsk-from-groq-env',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GROQ, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.groq.com/openai/v1')
+  assert.equal(env.OPENAI_MODEL, 'llama-3.3-70b-versatile')
+  assert.equal(env.OPENAI_API_KEY, 'gsk-from-groq-env')
+  assert.equal(env.GROQ_API_KEY, undefined)
+})
+
+test('groq profiles accept GROQ_API_KEY when building profile env', () => {
+  const env = buildGroqProfileEnv({
+    processEnv: {
+      GROQ_API_KEY: 'gsk-from-groq-env',
+    } as NodeJS.ProcessEnv,
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.groq.com/openai/v1',
+    OPENAI_MODEL: 'llama-3.3-70b-versatile',
+    OPENAI_API_KEY: 'gsk-from-groq-env',
+  })
+})
+
+test('groq profiles require an api key and preserve custom model', () => {
+  const env = buildGroqProfileEnv({
+    model: 'llama-3.3-70b-versatile',
+    apiKey: 'gsk-live',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.groq.com/openai/v1',
+    OPENAI_MODEL: 'llama-3.3-70b-versatile',
+    OPENAI_API_KEY: 'gsk-live',
+  })
+})
+
+test('groq profiles require a key', () => {
+  const env = buildGroqProfileEnv({ processEnv: {} })
+  assert.equal(env, null)
+})
+
+test('buildStartupEnvFromProfile applies persisted groq settings when no provider is explicitly selected', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('groq', {
+      OPENAI_API_KEY: 'gsk-test',
+      OPENAI_MODEL: 'llama-3.3-70b-versatile',
+    }),
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.CLAUDE_CODE_USE_GROQ, '1')
+  assert.equal(env.OPENAI_API_KEY, 'gsk-test')
+  assert.equal(env.OPENAI_MODEL, 'llama-3.3-70b-versatile')
+})
+
+test('buildStartupEnvFromProfile leaves explicit groq provider selections untouched', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_GROQ: '1',
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_API_KEY: 'gsk-live',
+    GROQ_API_KEY: 'gsk-live',
+    OPENAI_MODEL: 'llama-3.3-70b-versatile',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-persisted',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    processEnv,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.OPENAI_API_KEY, 'gsk-live')
+  assert.equal(env.GROQ_API_KEY, 'gsk-live')
+})
+
+test('explicit falsey groq provider flag counts as user intent', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_GROQ: '0',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('groq', {
+      OPENAI_API_KEY: 'gsk-persisted',
+      OPENAI_MODEL: 'llama-3.3-70b-versatile',
+    }),
+    processEnv,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
+test('groq profiles ignore poisoned shell model and base url values', () => {
+  const env = buildGroqProfileEnv({
+    apiKey: 'gsk-live',
+    processEnv: {
+      OPENAI_BASE_URL: 'gsk-live',
+      OPENAI_MODEL: 'gsk-live',
+      OPENAI_API_KEY: 'gsk-live',
+    },
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.groq.com/openai/v1',
+    OPENAI_MODEL: 'llama-3.3-70b-versatile',
+    OPENAI_API_KEY: 'gsk-live',
+  })
+})
+
+test('groq profiles sanitize explicit model input against current shell secrets', () => {
+  const env = buildGroqProfileEnv({
+    apiKey: 'gsk-live',
+    model: 'AIzaSecret12345678',
+    processEnv: {
+      GEMINI_API_KEY: 'AIzaSecret12345678',
+    },
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.groq.com/openai/v1',
+    OPENAI_MODEL: 'llama-3.3-70b-versatile',
+    OPENAI_API_KEY: 'gsk-live',
+  })
+})
+
+test('startup env ignores poisoned persisted groq model and base url', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('groq', {
+      OPENAI_API_KEY: 'gsk-live',
+      OPENAI_MODEL: 'gsk-live',
+      OPENAI_BASE_URL: 'gsk-live',
+    }),
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.CLAUDE_CODE_USE_GROQ, '1')
+  assert.equal(env.OPENAI_API_KEY, 'gsk-live')
+  assert.equal(env.OPENAI_MODEL, 'llama-3.3-70b-versatile')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.groq.com/openai/v1')
+})
+
+test('groq launch ignores mismatched persisted openai env', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'groq',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'sk-persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEY: 'gsk-live',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.groq.com/openai/v1')
+  assert.equal(env.OPENAI_MODEL, 'llama-3.3-70b-versatile')
+  assert.equal(env.OPENAI_API_KEY, 'gsk-live')
+})
+
+test('groq launch ignores explicit openai shell config and keeps groq defaults', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'groq',
+    persisted: null,
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEY: 'gsk-live',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GROQ, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.groq.com/openai/v1')
+  assert.equal(env.OPENAI_MODEL, 'llama-3.3-70b-versatile')
 })
 
 test('gemini launch ignores mismatched persisted openai env and strips other provider secrets', async () => {
