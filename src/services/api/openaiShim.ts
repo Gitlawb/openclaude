@@ -89,59 +89,72 @@ function parseGemma4Args(body: string): Record<string, unknown> | null {
   const inner = body.trim().replace(/^\{/, '').replace(/\}$/, '').trim()
   if (!inner) return args
 
-  // Gemma 4 often forgets to quote strings containing commas (e.g. descriptions).
-  // A simple comma-split breaks these strings.
-  // Instead, we scan through the string and identify the boundaries of `key:` declarations.
-  const keys: Array<{ name: string; startPos: number; valueStart: number }> = []
-  
+  // 1. Split string by top-level commas
+  const parts: string[] = []
   let depth = 0
   let inQuote = false
   let quoteChar = ''
+  let current = ''
   
-  let i = 0
-  while (i < inner.length) {
+  for (let i = 0; i < inner.length; i++) {
     const ch = inner[i]
     if (inQuote) {
-      if (ch === '\\') i++ // skip escaped char
-      else if (ch === quoteChar) inQuote = false
+      current += ch
+      if (ch === '\\') {
+        i++ // escape — consume next char
+        if (i < inner.length) current += inner[i]
+      } else if (ch === quoteChar) {
+        inQuote = false
+      }
     } else if (ch === '"' || ch === "'") {
       inQuote = true
       quoteChar = ch
+      current += ch
     } else if (ch === '{' || ch === '[') {
       depth++
+      current += ch
     } else if (ch === '}' || ch === ']') {
       depth--
-    } else if (depth === 0) {
-      // Look for a parameter key declaration: `[commas/spaces]keyName:`
-      const remainder = inner.slice(i)
-      const keyMatch = remainder.match(/^[\s,]*([A-Za-z_][A-Za-z0-9_]*)\s*:/)
-      if (keyMatch) {
-        keys.push({
-          name: keyMatch[1],
-          startPos: i, // start of the whitespace/comma before this key
-          valueStart: i + keyMatch[0].length // where the value text begins
-        })
-        i += keyMatch[0].length - 1 // Advance past the key declaration
+      current += ch
+    } else if (ch === ',' && depth === 0) {
+      parts.push(current)
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  if (current.trim()) parts.push(current)
+
+  // 2. Process parts: identify valid parameter declarations vs embedded commas
+  let currentKey = ''
+  let currentVal = ''
+
+  for (const part of parts) {
+    // Check if this part starts a completely new parameter.
+    // A parameter must be ` [optional spaces] identifier [spaces] : value `
+    const match = part.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:(.*)$/s)
+    
+    if (match) {
+      // It's a new parameter
+      if (currentKey) {
+        args[currentKey] = parseGemma4Value(currentVal)
+      }
+      currentKey = match[1]
+      currentVal = match[2]
+    } else {
+      // It does NOT look like a new parameter declaration, so this comma
+      // must have been embedded inside the previous unquoted parameter's value.
+      if (currentKey) {
+        currentVal += ',' + part
+      } else {
+        // Edge case: no valid key at start of string, just ignore or append
       }
     }
-    i++
   }
 
-  // Extract the value for each key by slicing up to the start of the *next* key
-  for (let idx = 0; idx < keys.length; idx++) {
-    const keyInfo = keys[idx]
-    const nextKeyInfo = keys[idx + 1]
-    
-    let rawVal = ''
-    if (nextKeyInfo) {
-      rawVal = inner.slice(keyInfo.valueStart, nextKeyInfo.startPos).trim()
-    } else {
-      rawVal = inner.slice(keyInfo.valueStart).trim()
-    }
-    
-    if (keyInfo.name) {
-      args[keyInfo.name] = parseGemma4Value(rawVal)
-    }
+  // Save the final parameter
+  if (currentKey) {
+    args[currentKey] = parseGemma4Value(currentVal)
   }
 
   return args
