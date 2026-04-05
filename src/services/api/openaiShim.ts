@@ -43,6 +43,152 @@ import {
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
 
+// ---------------------------------------------------------------------------
+// Gemma 4 pythonic tool-call parser
+//
+// Gemma 4 emits tool calls as plain text inside `content` in the form:
+//   call:func_name{key:value,key2:"quoted value"}
+// vLLM 0.19 does not parse these into tool_calls[] even with --tool-call-parser pythonic.
+// This shim detects the pattern, parses it, and injects proper tool_calls entries.
+// ---------------------------------------------------------------------------
+
+function makeToolId(): string {
+  return `call_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`
+}
+
+/**
+ * Parse a Gemma 4 pythonic value token.
+ * Handles: bare words, quoted strings, numbers, booleans.
+ */
+function parseGemma4Value(raw: string): unknown {
+  const s = raw.trim()
+  if (s === 'true') return true
+  if (s === 'false') return false
+  if (s === 'null') return null
+  const num = Number(s)
+  if (!Number.isNaN(num) && s !== '') return num
+  // Quoted string — strip surrounding quotes and unescape
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1).replace(/\\(.)/g, '$1')
+  }
+  return s
+}
+
+/**
+ * Parse the argument body of a Gemma 4 call: `{key:val, key2:"quoted", ...}`
+ * Returns a plain object or null if parsing fails.
+ */
+function parseGemma4Args(body: string): Record<string, unknown> | null {
+  const args: Record<string, unknown> = {}
+  // Strip surrounding braces
+  const inner = body.trim().replace(/^\{/, '').replace(/\}$/, '').trim()
+  if (!inner) return args
+
+  // Split by commas not inside quotes
+  const parts: string[] = []
+  let depth = 0
+  let inQuote = false
+  let quoteChar = ''
+  let current = ''
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i]
+    if (inQuote) {
+      current += ch
+      if (ch === '\\') {
+        // escape — consume next char
+        i++
+        if (i < inner.length) current += inner[i]
+      } else if (ch === quoteChar) {
+        inQuote = false
+      }
+    } else if (ch === '"' || ch === "'") {
+      inQuote = true
+      quoteChar = ch
+      current += ch
+    } else if (ch === '{' || ch === '[') {
+      depth++
+      current += ch
+    } else if (ch === '}' || ch === ']') {
+      depth--
+      current += ch
+    } else if (ch === ',' && depth === 0) {
+      parts.push(current)
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  if (current.trim()) parts.push(current)
+
+  for (const part of parts) {
+    const colon = part.indexOf(':')
+    if (colon < 0) continue
+    const key = part.slice(0, colon).trim()
+    const val = part.slice(colon + 1).trim()
+    if (!key) continue
+    args[key] = parseGemma4Value(val)
+  }
+  return args
+}
+
+type ParsedGemma4Call = {
+  name: string
+  args: Record<string, unknown>
+}
+
+/**
+ * Scan a content string for one or more Gemma 4 tool calls.
+ * Returns an array of parsed calls and the cleaned content (with call text removed).
+ * Pattern to match (possibly preceded by thought block and newlines):
+ *   call:func_name{...}
+ */
+function extractGemma4ToolCalls(content: string): {
+  calls: ParsedGemma4Call[]
+  cleanedContent: string
+} {
+  const calls: ParsedGemma4Call[] = []
+
+  // Strip leading thought channel markers produced by Gemma 4
+  // e.g. "thought\nSome thinking.call:func{...}"
+  let cleaned = content
+
+  // Regex: optional thought prefix, then one or more call:name{...} blocks
+  // We use a global scan to find all call: occurrences
+  // Format: call:identifier{...} where braces may contain nested content
+  const callRe = /call:([A-Za-z_][A-Za-z0-9_]*)\s*(\{[\s\S]*?\})/g
+  let match: RegExpExecArray | null
+  const matchedSpans: Array<{ start: number; end: number }> = []
+
+  while ((match = callRe.exec(content)) !== null) {
+    const funcName = match[1]
+    const body = match[2]
+    const parsed = parseGemma4Args(body)
+    if (parsed !== null) {
+      calls.push({ name: funcName, args: parsed })
+      matchedSpans.push({ start: match.index, end: match.index + match[0].length })
+    }
+  }
+
+  if (calls.length > 0) {
+    // Remove all matched spans from content (in reverse order)
+    const parts: string[] = []
+    let pos = 0
+    for (const span of matchedSpans) {
+      parts.push(content.slice(pos, span.start))
+      pos = span.end
+    }
+    parts.push(content.slice(pos))
+    cleaned = parts.join('').trim()
+
+    // Also strip Gemma 4 thought channel markers from the visible content
+    // Pattern: "thought\n...text..." at the start
+    cleaned = cleaned.replace(/^thought\n[\s\S]*?(\n|$)/, '').trim()
+  }
+
+  return { calls, cleanedContent: cleaned
+  }
+}
+
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
   CODEX_API_KEY: string
@@ -457,6 +603,8 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
+  // Gemma 4: accumulate streamed content to detect pythonic tool calls at finish
+  let streamingContentBuffer = ''
 
   // Emit message_start
   yield {
@@ -513,6 +661,11 @@ async function* openaiStreamToAnthropic(
         // Text content — use != null to distinguish absent field from empty string,
         // some providers send "" as first delta to signal streaming start
         if (delta.content != null) {
+          // Buffer streaming content for Gemma 4 pythonic tool call detection.
+          // We accumulate the full text and emit at finish_reason so we can
+          // detect and strip call:func{...} patterns before showing them.
+          streamingContentBuffer += delta.content
+
           if (!hasEmittedContentStart) {
             yield {
               type: 'content_block_start',
@@ -598,6 +751,65 @@ async function* openaiStreamToAnthropic(
         // multiple chunks arrive with finish_reason set (some providers do this)
         if (choice.finish_reason && !hasProcessedFinishReason) {
           hasProcessedFinishReason = true
+
+          // --- Gemma 4 pythonic tool-call extraction (streaming) ---
+          // If no structured tool_calls arrived but content contains call:func{...},
+          // emit synthetic tool_use content blocks now (before closing content block).
+          if (activeToolCalls.size === 0 && streamingContentBuffer.includes('call:')) {
+            const { calls, cleanedContent } = extractGemma4ToolCalls(streamingContentBuffer)
+            if (calls.length > 0) {
+              // We already emitted the raw text as content_block_delta chunks.
+              // Close the text block, then emit tool_use blocks for each call.
+              if (hasEmittedContentStart) {
+                // Retract the previously emitted text by emitting a stop
+                // and replacing with cleaned text (re-open + emit cleaned delta)
+                yield { type: 'content_block_stop', index: contentBlockIndex }
+                // Re-emit cleaned content block if there's remaining text
+                if (cleanedContent) {
+                  contentBlockIndex++
+                  yield {
+                    type: 'content_block_start',
+                    index: contentBlockIndex,
+                    content_block: { type: 'text', text: '' },
+                  }
+                  yield {
+                    type: 'content_block_delta',
+                    index: contentBlockIndex,
+                    delta: { type: 'text_delta', text: cleanedContent },
+                  }
+                  yield { type: 'content_block_stop', index: contentBlockIndex }
+                }
+                hasEmittedContentStart = false
+                contentBlockIndex++
+              }
+              for (const call of calls) {
+                const tcId = makeToolId()
+                const toolIdx = contentBlockIndex
+                yield {
+                  type: 'content_block_start',
+                  index: toolIdx,
+                  content_block: { type: 'tool_use', id: tcId, name: call.name, input: {} },
+                }
+                const argsJson = JSON.stringify(call.args)
+                yield {
+                  type: 'content_block_delta',
+                  index: toolIdx,
+                  delta: { type: 'input_json_delta', partial_json: argsJson },
+                }
+                yield { type: 'content_block_stop', index: toolIdx }
+                contentBlockIndex++
+              }
+              // Override stop reason to tool_use since we found tool calls
+              lastStopReason = 'tool_use'
+              yield {
+                type: 'message_delta',
+                delta: { stop_reason: 'tool_use', stop_sequence: null },
+              }
+              hasEmittedFinalUsage = true
+              continue
+            }
+          }
+          // --- end Gemma 4 ---
 
           // Close any open content blocks
           if (hasEmittedContentStart) {
@@ -1030,7 +1242,30 @@ class OpenAIShimMessages {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
 
-    const rawContent = choice?.message?.content
+    let rawContent = choice?.message?.content
+
+    // --- Gemma 4 pythonic tool-call extraction (non-streaming) ---
+    // When tool_calls[] is empty but content contains call:func{...} patterns,
+    // parse them out and inject proper tool_calls entries.
+    const existingToolCalls = choice?.message?.tool_calls ?? []
+    let gemma4ToolCalls: Array<{
+      id: string
+      type: 'function'
+      function: { name: string; arguments: string }
+    }> = []
+    if (existingToolCalls.length === 0 && typeof rawContent === 'string' && rawContent.includes('call:')) {
+      const { calls, cleanedContent } = extractGemma4ToolCalls(rawContent)
+      if (calls.length > 0) {
+        gemma4ToolCalls = calls.map(c => ({
+          id: makeToolId(),
+          type: 'function' as const,
+          function: { name: c.name, arguments: JSON.stringify(c.args) },
+        }))
+        rawContent = cleanedContent || null
+      }
+    }
+    // --- end Gemma 4 ---
+
     if (typeof rawContent === 'string' && rawContent) {
       content.push({ type: 'text', text: rawContent })
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
@@ -1051,8 +1286,9 @@ class OpenAIShimMessages {
       }
     }
 
-    if (choice?.message?.tool_calls) {
-      for (const tc of choice.message.tool_calls) {
+    const allToolCalls = [...existingToolCalls, ...gemma4ToolCalls]
+    if (allToolCalls) {
+      for (const tc of allToolCalls) {
         let input: unknown
         try {
           input = JSON.parse(tc.function.arguments)
