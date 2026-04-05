@@ -302,7 +302,7 @@ function createSpeculationFeedbackMessage(
       : ''
 
   return createSystemMessage(
-    `[ANT-ONLY] ${parts.join(' · ')} · ${savedText}${sessionSuffix}`,
+    `[internal-only] ${parts.join(' · ')} · ${savedText}${sessionSuffix}`,
     'warning',
   )
 }

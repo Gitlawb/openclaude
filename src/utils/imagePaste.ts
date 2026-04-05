@@ -28,6 +28,31 @@ type SupportedPlatform = 'darwin' | 'linux' | 'win32'
 
 // Threshold in characters for when to consider text a "large paste"
 export const PASTE_THRESHOLD = 800
+
+export const LINUX_CLIPBOARD_IMAGE_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+]
+
+export function buildLinuxClipboardCheckCommand(): string {
+  const mimePattern = LINUX_CLIPBOARD_IMAGE_MIME_TYPES.map(mimeType =>
+    mimeType.replace('/', '\\/'),
+  ).join('|')
+
+  return `xclip -selection clipboard -t TARGETS -o 2>/dev/null | grep -E "${mimePattern}" || wl-paste -l 2>/dev/null | grep -E "${mimePattern}"`
+}
+
+export function buildLinuxClipboardSaveCommand(screenshotPath: string): string {
+  return LINUX_CLIPBOARD_IMAGE_MIME_TYPES.flatMap(mimeType => [
+    `xclip -selection clipboard -t ${mimeType} -o > "${screenshotPath}" 2>/dev/null`,
+    `wl-paste --type ${mimeType} > "${screenshotPath}" 2>/dev/null`,
+  ]).join(' || ')
+}
+
 function getClipboardCommands() {
   const platform = process.platform as SupportedPlatform
 
@@ -62,9 +87,8 @@ function getClipboardCommands() {
       deleteFile: `rm -f "${screenshotPath}"`,
     },
     linux: {
-      checkImage:
-        'xclip -selection clipboard -t TARGETS -o 2>/dev/null | grep -E "image/(png|jpeg|jpg|gif|webp|bmp)" || wl-paste -l 2>/dev/null | grep -E "image/(png|jpeg|jpg|gif|webp|bmp)"',
-      saveImage: `xclip -selection clipboard -t image/png -o > "${screenshotPath}" 2>/dev/null || wl-paste --type image/png > "${screenshotPath}" 2>/dev/null || xclip -selection clipboard -t image/bmp -o > "${screenshotPath}" 2>/dev/null || wl-paste --type image/bmp > "${screenshotPath}"`,
+      checkImage: buildLinuxClipboardCheckCommand(),
+      saveImage: buildLinuxClipboardSaveCommand(screenshotPath),
       getPath:
         'xclip -selection clipboard -t text/plain -o 2>/dev/null || wl-paste 2>/dev/null',
       deleteFile: `rm -f "${screenshotPath}"`,

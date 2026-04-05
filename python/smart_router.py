@@ -228,9 +228,14 @@ class SmartRouter:
         return min(available, key=lambda p: p.score(self.strategy))
 
     def get_model_for_provider(
-        self, provider: Provider, claude_model: str
+        self,
+        provider: Provider,
+        claude_model: str,
+        is_large_request: bool = False,
     ) -> str:
         """Map a Claude model name to the provider's actual model."""
+        if is_large_request:
+            return provider.big_model
         is_large = any(
             keyword in claude_model.lower()
             for keyword in ["opus", "sonnet", "large", "big"]
@@ -289,7 +294,11 @@ class SmartRouter:
             )
 
         provider = min(available, key=lambda p: p.score(self.strategy))
-        model = self.get_model_for_provider(provider, claude_model)
+        model = self.get_model_for_provider(
+            provider,
+            claude_model,
+            is_large_request=large,
+        )
 
         logger.debug(
             f"SmartRouter: routing to {provider.name}/{model} "

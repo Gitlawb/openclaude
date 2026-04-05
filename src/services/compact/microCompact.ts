@@ -49,7 +49,7 @@ const COMPACTABLE_TOOLS = new Set<string>([
   FILE_WRITE_TOOL_NAME,
 ])
 
-// --- Cached microcompact state (ant-only, gated by feature('CACHED_MICROCOMPACT')) ---
+// --- Cached microcompact state (internal-only, gated by feature('CACHED_MICROCOMPACT')) ---
 
 // Lazy-initialized cached MC module and state to avoid importing in external builds.
 // The imports and state live inside feature() checks for dead code elimination.

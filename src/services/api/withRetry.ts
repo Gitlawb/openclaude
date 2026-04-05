@@ -75,7 +75,7 @@ const FOREGROUND_529_RETRY_SOURCES = new Set<QuerySource>([
   'side_question',
   // Security classifiers — must complete for auto-mode correctness.
   // yoloClassifier.ts uses 'auto_mode' (not 'yolo_classifier' — that's
-  // type-only). bash_classifier is ant-only; feature-gate so the string
+  // type-only). bash_classifier is internal-only; feature-gate so the string
   // tree-shakes out of external builds (excluded-strings.txt).
   'auto_mode',
   ...(feature('BASH_CLASSIFIER') ? (['bash_classifier'] as const) : []),
@@ -88,7 +88,7 @@ function shouldRetry529(querySource: QuerySource | undefined): boolean {
   )
 }
 
-// CLAUDE_CODE_UNATTENDED_RETRY: for unattended sessions (ant-only). Retries 429/529
+// CLAUDE_CODE_UNATTENDED_RETRY: for unattended sessions (internal-only). Retries 429/529
 // indefinitely with higher backoff and periodic keep-alive yields so the host
 // environment does not mark the session idle mid-wait.
 // TODO(ANT-344): the keep-alive via SystemAPIErrorMessage yields is a stopgap
@@ -101,6 +101,15 @@ function isPersistentRetryEnabled(): boolean {
   return feature('UNATTENDED_RETRY')
     ? isEnvTruthy(process.env.CLAUDE_CODE_UNATTENDED_RETRY)
     : false
+}
+
+function isQuotaExhausted(error: any): boolean {
+  const msg = (error?.message || '').toLowerCase()
+
+  return (
+    error?.status === 429 &&
+    (msg.includes('limit: 0') || msg.includes('exceeded your current quota'))
+  )
 }
 
 function isTransientCapacityError(error: unknown): boolean {
@@ -257,7 +266,17 @@ export async function* withRetry<T>(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: 'error' },
       )
-
+        if (isQuotaExhausted(error)) {
+          throw new CannotRetryError(
+            new Error(
+              'API quota exhausted or not enabled.\n' +
+              'Fix:\n' +
+              '- Enable billing for your provider\n' +
+              '- Or switch provider via /provider',
+            ),
+            retryContext,
+          );
+      }
       // Fast mode fallback: on 429/529, either wait and retry (short delays)
       // or fall back to standard speed (long delays) to avoid cache thrashing.
       // Skip in persistent mode: the short-retry path below loops with fast
@@ -765,6 +784,7 @@ function shouldRetry(error: APIError): boolean {
   // Retry on rate limits, but not for ClaudeAI Subscription users
   // Enterprise users can retry because they typically use PAYG instead of rate limits
   if (error.status === 429) {
+    if (isQuotaExhausted(error)) return false
     return !isClaudeAISubscriber() || isEnterpriseSubscriber()
   }
 

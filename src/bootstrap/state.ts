@@ -112,7 +112,7 @@ type State = {
   agentColorIndex: number
   // Last API request for bug reports
   lastAPIRequest: Omit<BetaMessageStreamParams, 'messages'> | null
-  // Messages from the last API request (ant-only; reference, not clone).
+  // Messages from the last API request (internal-only; reference, not clone).
   // Captures the exact post-compaction, CLAUDE.md-injected message set sent
   // to the API so /share's serialized_conversation.json reflects reality.
   lastAPIRequestMessages: BetaMessageStreamParams['messages'] | null
@@ -185,7 +185,7 @@ type State = {
       agentId: string | null
     }
   >
-  // Track slow operations for dev bar display (ant-only)
+  // Track slow operations for dev bar display (internal-only)
   slowOperations: Array<{
     operation: string
     durationMs: number
@@ -1758,4 +1758,10 @@ export function setPromptId(id: string | null): void {
 
 // openclaude never runs inside a REPL bridge session (that's an Anthropic-internal
 // feature), so this is always false in the open build.
-export function isReplBridgeActive(): boolean { return false }
+export function isReplBridgeActive(): boolean {
+  return false
+}
+
+export function getReplBridgeHandle(): null {
+  return null
+}

@@ -152,12 +152,22 @@ function boxRow(content: string, width: number, rawLen: number): string {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+// Minimum column widths for each display tier
+const LOGO_MIN_COLS = 60  // LOGO_CLAUDE is ~57 chars wide
+const BOX_WIDTH = 62      // provider info box width
+
 export function printStartupScreen(): void {
   // Skip in non-interactive / CI / print mode
   if (process.env.CI || !process.stdout.isTTY) return
 
+  const cols = process.stdout.columns ?? 80
+
+  // Terminal too narrow to render the logo without wrapping — skip entirely
+  // so the output doesn't chew up vertical lines and push Ink off-screen.
+  if (cols < LOGO_MIN_COLS) return
+
   const p = detectProvider()
-  const W = 62
+  const W = Math.min(BOX_WIDTH, cols - 2)
   const out: string[] = []
 
   out.push('')
@@ -180,32 +190,35 @@ export function printStartupScreen(): void {
   out.push(`  ${rgb(...ACCENT)}\u2726${RESET} ${rgb(...CREAM)}Any model. Every tool. Zero limits.${RESET} ${rgb(...ACCENT)}\u2726${RESET}`)
   out.push('')
 
-  // Provider info box
-  out.push(`${rgb(...BORDER)}\u2554${'\u2550'.repeat(W - 2)}\u2557${RESET}`)
+  // Provider info box — only when terminal is wide enough
+  if (cols >= BOX_WIDTH + 2) {
+    out.push(`${rgb(...BORDER)}\u2554${'\u2550'.repeat(W - 2)}\u2557${RESET}`)
 
-  const lbl = (k: string, v: string, c: RGB = CREAM): [string, number] => {
-    const padK = k.padEnd(9)
-    return [` ${DIM}${rgb(...DIMCOL)}${padK}${RESET} ${rgb(...c)}${v}${RESET}`, ` ${padK} ${v}`.length]
+    const lbl = (k: string, v: string, c: RGB = CREAM): [string, number] => {
+      const padK = k.padEnd(9)
+      return [` ${DIM}${rgb(...DIMCOL)}${padK}${RESET} ${rgb(...c)}${v}${RESET}`, ` ${padK} ${v}`.length]
+    }
+
+    const provC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
+    let [r, l] = lbl('Provider', p.name, provC)
+    out.push(boxRow(r, W, l))
+    ;[r, l] = lbl('Model', p.model)
+    out.push(boxRow(r, W, l))
+    const ep = p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl
+    ;[r, l] = lbl('Endpoint', ep)
+    out.push(boxRow(r, W, l))
+
+    out.push(`${rgb(...BORDER)}\u2560${'\u2550'.repeat(W - 2)}\u2563${RESET}`)
+
+    const sC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
+    const sL = p.isLocal ? 'local' : 'cloud'
+    const sRow = ` ${rgb(...sC)}\u25cf${RESET} ${DIM}${rgb(...DIMCOL)}${sL}${RESET}    ${DIM}${rgb(...DIMCOL)}Ready \u2014 type ${RESET}${rgb(...ACCENT)}/help${RESET}${DIM}${rgb(...DIMCOL)} to begin${RESET}`
+    const sLen = ` \u25cf ${sL}    Ready \u2014 type /help to begin`.length
+    out.push(boxRow(sRow, W, sLen))
+
+    out.push(`${rgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
   }
 
-  const provC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
-  let [r, l] = lbl('Provider', p.name, provC)
-  out.push(boxRow(r, W, l))
-  ;[r, l] = lbl('Model', p.model)
-  out.push(boxRow(r, W, l))
-  const ep = p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl
-  ;[r, l] = lbl('Endpoint', ep)
-  out.push(boxRow(r, W, l))
-
-  out.push(`${rgb(...BORDER)}\u2560${'\u2550'.repeat(W - 2)}\u2563${RESET}`)
-
-  const sC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
-  const sL = p.isLocal ? 'local' : 'cloud'
-  const sRow = ` ${rgb(...sC)}\u25cf${RESET} ${DIM}${rgb(...DIMCOL)}${sL}${RESET}    ${DIM}${rgb(...DIMCOL)}Ready \u2014 type ${RESET}${rgb(...ACCENT)}/help${RESET}${DIM}${rgb(...DIMCOL)} to begin${RESET}`
-  const sLen = ` \u25cf ${sL}    Ready \u2014 type /help to begin`.length
-  out.push(boxRow(sRow, W, sLen))
-
-  out.push(`${rgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
   out.push(`  ${DIM}${rgb(...DIMCOL)}openclaude ${RESET}${rgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`)
   out.push('')
 

@@ -1,10 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
 
-import {
-  getAPIProvider,
-  usesAnthropicAccountFlow,
-} from './providers.js'
-
 const originalEnv = {
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
@@ -23,6 +18,10 @@ afterEach(() => {
   process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
 })
 
+async function importFreshProvidersModule() {
+  return import(`./providers.js?ts=${Date.now()}-${Math.random()}`)
+}
+
 function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -34,9 +33,12 @@ function clearProviderEnv(): void {
 
 test('first-party provider keeps Anthropic account setup flow enabled', () => {
   clearProviderEnv()
-
-  expect(getAPIProvider()).toBe('firstParty')
-  expect(usesAnthropicAccountFlow()).toBe(true)
+  return importFreshProvidersModule().then(
+    ({ getAPIProvider, usesAnthropicAccountFlow }) => {
+      expect(getAPIProvider()).toBe('firstParty')
+      expect(usesAnthropicAccountFlow()).toBe(true)
+    },
+  )
 })
 
 test.each([
@@ -48,19 +50,22 @@ test.each([
   ['CLAUDE_CODE_USE_FOUNDRY', 'foundry'],
 ] as const)(
   '%s disables Anthropic account setup flow',
-  (envKey, provider) => {
+  async (envKey, provider) => {
     clearProviderEnv()
     process.env[envKey] = '1'
+    const { getAPIProvider, usesAnthropicAccountFlow } =
+      await importFreshProvidersModule()
 
     expect(getAPIProvider()).toBe(provider)
     expect(usesAnthropicAccountFlow()).toBe(false)
   },
 )
 
-test('GEMINI takes precedence over GitHub when both are set', () => {
+test('GEMINI takes precedence over GitHub when both are set', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_GEMINI = '1'
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  const { getAPIProvider } = await importFreshProvidersModule()
 
   expect(getAPIProvider()).toBe('gemini')
 })

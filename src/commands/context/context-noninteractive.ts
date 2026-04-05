@@ -199,13 +199,13 @@ function formatContextAsMarkdownTable(data: ContextData): string {
     output += `\n`
   }
 
-  // System tools (ant-only)
+  // System tools (internal-only)
   if (
     systemTools &&
     systemTools.length > 0 &&
     process.env.USER_TYPE === 'ant'
   ) {
-    output += `### [ANT-ONLY] System Tools\n\n`
+    output += `### [internal] System Tools\n\n`
     output += `| Tool | Tokens |\n`
     output += `|------|--------|\n`
     for (const tool of systemTools) {
@@ -214,13 +214,13 @@ function formatContextAsMarkdownTable(data: ContextData): string {
     output += `\n`
   }
 
-  // System prompt sections (ant-only)
+  // System prompt sections (internal-only)
   if (
     systemPromptSections &&
     systemPromptSections.length > 0 &&
     process.env.USER_TYPE === 'ant'
   ) {
-    output += `### [ANT-ONLY] System Prompt Sections\n\n`
+    output += `### [internal] System Prompt Sections\n\n`
     output += `| Section | Tokens |\n`
     output += `|---------|--------|\n`
     for (const section of systemPromptSections) {
@@ -288,9 +288,9 @@ function formatContextAsMarkdownTable(data: ContextData): string {
     output += `\n`
   }
 
-  // Message breakdown (ant-only)
+  // Message breakdown (internal-only)
   if (messageBreakdown && process.env.USER_TYPE === 'ant') {
-    output += `### [ANT-ONLY] Message Breakdown\n\n`
+    output += `### [internal] Message Breakdown\n\n`
     output += `| Category | Tokens |\n`
     output += `|----------|--------|\n`
     output += `| Tool calls | ${formatTokens(messageBreakdown.toolCallTokens)} |\n`

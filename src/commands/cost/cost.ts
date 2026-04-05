@@ -16,7 +16,7 @@ export const call: LocalCommandCall = async () => {
     }
 
     if (process.env.USER_TYPE === 'ant') {
-      value += `\n\n[ANT-ONLY] Showing cost anyway:\n ${formatTotalCost()}`
+      value += `\n\n[internal-only] Showing cost anyway:\n ${formatTotalCost()}`
     }
     return { type: 'text', value }
   }

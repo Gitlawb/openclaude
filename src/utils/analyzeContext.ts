@@ -408,7 +408,7 @@ async function countBuiltInToolTokens(
         )
       : 0
 
-  // Build per-tool breakdown for always-loaded tools (ant-only, proportional
+  // Build per-tool breakdown for always-loaded tools (internal-only, proportional
   // split of the bulk count based on rough schema size estimation). Excludes
   // SkillTool since its tokens are shown in the separate Skills category.
   let systemToolDetails: SystemToolDetail[] = []
@@ -1023,7 +1023,7 @@ export async function analyzeContextUsage(
     cats.push({
       name:
         process.env.USER_TYPE === 'ant'
-          ? '[ANT-ONLY] System tools'
+          ? '[internal] System tools'
           : 'System tools',
       tokens: systemToolsTokens,
       color: 'inactive',

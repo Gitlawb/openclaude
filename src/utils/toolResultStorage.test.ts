@@ -14,6 +14,10 @@ test('applyToolResultReplacementsToMessages replaces matching tool results and p
         is_error: false,
       },
     ],
+    toolUseResult: {
+      stdout: 'very large tool output',
+      stderr: '',
+    },
   })
   const messages = [unrelated, oversizedResult]
   const replacement =
@@ -30,6 +34,7 @@ test('applyToolResultReplacementsToMessages replaces matching tool results and p
   expect((next[1]!.message.content as Array<{ content: string }>)[0]!.content).toBe(
     replacement,
   )
+  expect(next[1]!.toolUseResult).toBeUndefined()
 })
 
 test('applyToolResultReplacementsToMessages is idempotent when messages are already hydrated', () => {
