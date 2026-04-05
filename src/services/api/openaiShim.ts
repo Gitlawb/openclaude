@@ -137,6 +137,34 @@ type ParsedGemma4Call = {
 }
 
 /**
+ * Walk forward from `startIndex` (which must point to an opening `{`) in `str`
+ * and return the index of the matching closing `}`, respecting:
+ *  - Nested `{}`  and `[]`
+ *  - Single and double quoted strings (with escape handling)
+ * Returns -1 if no matching brace is found.
+ */
+function findMatchingBrace(str: string, startIndex: number): number {
+  let depth = 0
+  let inQuote = false
+  let quoteChar = ''
+  for (let i = startIndex; i < str.length; i++) {
+    const ch = str[i]
+    if (inQuote) {
+      if (ch === '\\') { i++; continue } // skip escaped char
+      if (ch === quoteChar) inQuote = false
+      continue
+    }
+    if (ch === '"' || ch === "'") { inQuote = true; quoteChar = ch; continue }
+    if (ch === '{' || ch === '[') { depth++; continue }
+    if (ch === '}' || ch === ']') {
+      depth--
+      if (depth === 0) return i
+    }
+  }
+  return -1
+}
+
+/**
  * Scan a content string for one or more Gemma 4 tool calls.
  * Returns an array of parsed calls and the cleaned content (with call text removed).
  * Pattern to match (possibly preceded by thought block and newlines):
@@ -147,25 +175,26 @@ function extractGemma4ToolCalls(content: string): {
   cleanedContent: string
 } {
   const calls: ParsedGemma4Call[] = []
-
-  // Strip leading thought channel markers produced by Gemma 4
-  // e.g. "thought\nSome thinking.call:func{...}"
   let cleaned = content
 
-  // Regex: optional thought prefix, then one or more call:name{...} blocks
-  // We use a global scan to find all call: occurrences
-  // Format: call:identifier{...} where braces may contain nested content
-  const callRe = /call:([A-Za-z_][A-Za-z0-9_]*)\s*(\{[\s\S]*?\})/g
+  // Find all call:funcname{...} occurrences using a brace-depth-aware scanner
+  // so that nested objects/arrays are captured correctly.
+  const callStartRe = /call:([A-Za-z_][A-Za-z0-9_]*)\s*\{/g
   let match: RegExpExecArray | null
   const matchedSpans: Array<{ start: number; end: number }> = []
 
-  while ((match = callRe.exec(content)) !== null) {
+  while ((match = callStartRe.exec(content)) !== null) {
     const funcName = match[1]
-    const body = match[2]
+    // match.index is the start of "call:", the `{` is at match.index + match[0].length - 1
+    const braceStart = match.index + match[0].length - 1
+    const braceEnd = findMatchingBrace(content, braceStart)
+    if (braceEnd < 0) continue // unmatched brace — skip
+
+    const body = content.slice(braceStart, braceEnd + 1)
     const parsed = parseGemma4Args(body)
     if (parsed !== null) {
       calls.push({ name: funcName, args: parsed })
-      matchedSpans.push({ start: match.index, end: match.index + match[0].length })
+      matchedSpans.push({ start: match.index, end: braceEnd + 1 })
     }
   }
 
