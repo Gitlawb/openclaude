@@ -230,6 +230,15 @@ export async function* withRetry<T>(
         }
       }
 
+      // Enforce local quota guard before client creation/refresh to avoid
+      // unnecessary auth or token-refresh work when the attempt will be
+      // delayed/blocked anyway.
+      await enforceClientQuotaGuards({
+        signal: options.signal,
+        abortError,
+        provider: effectiveProvider,
+      })
+
       // Get a fresh client instance on first attempt or after authentication errors
       // - 401 for first-party API authentication failures
       // - 403 "OAuth token has been revoked" (another process refreshed the token)
@@ -270,12 +279,6 @@ export async function* withRetry<T>(
         }
         client = await getClient()
       }
-
-      await enforceClientQuotaGuards({
-        signal: options.signal,
-        abortError,
-        provider: effectiveProvider,
-      })
 
       return await operation(client, attempt, retryContext)
     } catch (error) {

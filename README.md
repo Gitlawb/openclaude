@@ -104,6 +104,7 @@ Notes:
 
 - Guards are opt-in and disabled by default.
 - RPD tracks outbound attempts (including retries) and resets on UTC day boundaries.
+- Near-cap RPD warnings are written to debug logs, so you may only see them when running with `--debug` or debug logging enabled.
 - If RPD state cannot be persisted (permissions/path issues), requests are blocked with a clear error.
 - When RPM is exceeded, OpenClaude waits until a slot is available.
 

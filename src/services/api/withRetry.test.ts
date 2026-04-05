@@ -276,4 +276,32 @@ describe('withRetry quota guard integration', () => {
       expect(call[0]?.provider).toBe('openai')
     }
   })
+
+  test('blocks before client creation when quota guard rejects', async () => {
+    const enforceQuotaSpy = mock(async () => {
+      throw new Error('daily cap reached')
+    })
+    const { withRetry } = await importWithRetryForQuotaAttemptTest({
+      baseProvider: 'openai',
+      enforceQuotaSpy,
+    })
+
+    const getClientSpy = mock(async () => ({}) as any)
+    const operationSpy = mock(async () => 'ok')
+
+    const generator = withRetry(
+      getClientSpy,
+      operationSpy,
+      {
+        maxRetries: 0,
+        model: 'gpt-4o',
+        thinkingConfig: { type: 'disabled' } as any,
+      },
+    )
+
+    await expect(generator.next()).rejects.toThrow('daily cap reached')
+    expect(enforceQuotaSpy).toHaveBeenCalledTimes(1)
+    expect(getClientSpy).toHaveBeenCalledTimes(0)
+    expect(operationSpy).toHaveBeenCalledTimes(0)
+  })
 })
