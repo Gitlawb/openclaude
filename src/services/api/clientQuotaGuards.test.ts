@@ -385,3 +385,17 @@ test('RPD cap blocks before waiting on RPM window', async () => {
 
   expect(waits).toEqual([])
 })
+
+test('RPD-only mode performs a single RPD pass per request', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '3'
+
+  let nowMsCalls = 0
+  const nowMs = () => {
+    nowMsCalls += 1
+    return Date.parse('2026-04-05T12:00:00.000Z')
+  }
+
+  await enforceQuotaGuards({ nowMs })
+
+  expect(nowMsCalls).toBe(1)
+})

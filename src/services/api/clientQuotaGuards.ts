@@ -411,11 +411,15 @@ export async function enforceClientQuotaGuards(
   }
 
   // Avoid waiting on RPM when daily RPD cap has already been reached.
-  if (hasRpdLimit) {
+  // Run this precheck only when RPM is enabled; for RPD-only mode, do a
+  // single full RPD pass below to avoid duplicate file lock/I-O.
+  if (hasRpdLimit && hasRpmLimit) {
     await enforceRpdGuard(options, true)
   }
 
-  await enforceRpmGuard(options)
+  if (hasRpmLimit) {
+    await enforceRpmGuard(options)
+  }
 
   if (hasRpdLimit) {
     await enforceRpdGuard(options)
