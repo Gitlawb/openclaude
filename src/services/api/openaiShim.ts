@@ -1062,10 +1062,15 @@ class OpenAIShimMessages {
         await sleepMs(delaySec * 1000)
         continue
       }
+      // Read body exactly once here — Response body is a stream that can only
+      // be consumed a single time.
+      const errorBody = await response.text().catch(() => 'unknown error')
+      const rateHint =
+        isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
+
       // If GitHub Copilot returns error about /chat/completions,
       // try the /responses endpoint (needed for GPT-5+ models)
       if (isGithub && response.status === 400) {
-        const errorBody = await response.text().catch(() => '')
         if (errorBody.includes('/chat/completions') || errorBody.includes('not accessible')) {
           const responsesUrl = `${request.baseUrl}/responses`
           const responsesBody: Record<string, unknown> = {
@@ -1131,19 +1136,8 @@ class OpenAIShimMessages {
             responsesResponse.headers as unknown as Record<string, string>,
           )
         }
-        // Fallback: use the already-read errorBody instead of consuming the stream again
-        let errorResponse: object | undefined
-        try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
-        throw APIError.generate(
-          response.status,
-          errorResponse,
-          `OpenAI API error ${response.status}: ${errorBody}`,
-          response.headers as unknown as Headers,
-        )
       }
-      const errorBody = await response.text().catch(() => 'unknown error')
-      const rateHint =
-        isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
+
       let errorResponse: object | undefined
       try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
       throw APIError.generate(
