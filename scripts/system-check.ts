@@ -466,8 +466,8 @@ function serializeSafeEnvSummary(): Record<string, string | boolean> {
   if (isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
     return {
       CLAUDE_CODE_USE_MISTRAL: true,
-      MISTRAL_MODEL: process.env.GEMINI_MODEL ?? '(unset, default: ministral-3b-latest)',
-      MISTRAL_BASE_URL: process.env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai',
+      MISTRAL_MODEL: process.env.MISTRAL_MODEL ?? '(unset, default: ministral-3b-latest)',
+      MISTRAL_BASE_URL: process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1',
       MISTRAL_API_KEY_SET: Boolean(process.env.MISTRAL_API_KEY),
     }
   }

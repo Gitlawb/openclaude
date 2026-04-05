@@ -374,6 +374,7 @@ export function buildMistralProfileEnv(options: {
   }
 
   const env: ProfileEnv = {
+    MISTRAL_API_KEY: key,
     MISTRAL_MODEL:
       sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }, processEnv) ||
       sanitizeProviderConfigValue(
