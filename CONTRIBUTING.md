@@ -1,12 +1,12 @@
-# Contributing to OpenClaude
+# Contributing to OpenLawb
 
 Thanks for contributing.
 
-OpenClaude is a fast-moving open-source coding-agent CLI with support for multiple providers, local backends, MCP, and a terminal-first workflow. The best contributions here are focused, well-tested, and easy to review.
+OpenLawb is a fast-moving open-source coding-agent CLI with support for multiple providers, local backends, MCP, and a terminal-first workflow. The best contributions here are focused, well-tested, and easy to review.
 
 ## Before You Start
 
-- Search existing [issues](https://github.com/Gitlawb/openclaude/issues) and [discussions](https://github.com/Gitlawb/openclaude/discussions) before opening a new thread.
+- Search existing [issues](https://github.com/Gitlawb/openlawb/issues) and [discussions](https://github.com/Gitlawb/openlawb/discussions) before opening a new thread.
 - Use issues for confirmed bugs and actionable feature work.
 - Use discussions for setup help, ideas, and general community conversation.
 - For larger changes, open an issue first so the scope is clear before implementation.
@@ -98,7 +98,7 @@ If the PR changes provider behavior, mention which provider path was tested.
 
 ## Provider Changes
 
-OpenClaude supports multiple provider paths. If you change provider logic:
+OpenLawb supports multiple provider paths. If you change provider logic:
 
 - be explicit about which providers are affected
 - avoid breaking third-party providers while fixing first-party behavior

@@ -4,6 +4,6 @@ dist/
 .env
 .env.*
 !.env.example
-.openclaude-profile.json
+.openlawb-profile.json
 reports/
 coverage/

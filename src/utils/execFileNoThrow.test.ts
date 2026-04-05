@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { execFileNoThrowWithCwd } from './execFileNoThrow.js'
 
 test('execFileNoThrowWithCwd rejects shell-like executable names', async () => {
-  const result = await execFileNoThrowWithCwd('openclaude && whoami', [])
+  const result = await execFileNoThrowWithCwd('openlawb && whoami', [])
 
   expect(result.code).toBe(1)
   expect(result.error).toContain('Unsafe executable')
@@ -46,7 +46,7 @@ test('execFileNoThrowWithCwd preserves Windows .cmd compatibility', async () => 
     return
   }
 
-  const dir = mkdtempSync(join(tmpdir(), 'openclaude-execfile-'))
+  const dir = mkdtempSync(join(tmpdir(), 'openlawb-execfile-'))
   const file = join(dir, 'hello.cmd')
   writeFileSync(file, '@echo off\r\necho hello\r\n')
 

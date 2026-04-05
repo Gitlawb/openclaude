@@ -1,4 +1,4 @@
-# OpenClaude for Non-Technical Users
+# OpenLawb for Non-Technical Users
 
 This guide is for people who want the easiest setup path.
 
@@ -6,9 +6,9 @@ You do not need to build from source. You do not need Bun. You do not need to un
 
 If you can copy and paste commands into a terminal, you can set this up.
 
-## What OpenClaude Does
+## What OpenLawb Does
 
-OpenClaude lets you use an AI coding assistant with different model providers such as:
+OpenLawb lets you use an AI coding assistant with different model providers such as:
 
 - OpenAI
 - DeepSeek
@@ -28,9 +28,9 @@ You need:
 
 ## Fastest Path
 
-1. Install OpenClaude with npm
+1. Install OpenLawb with npm
 2. Set 3 environment variables
-3. Run `openclaude`
+3. Run `openlawb`
 
 ## Choose Your Operating System
 
@@ -62,7 +62,7 @@ Choose this if:
 
 ## What Success Looks Like
 
-After you run `openclaude`, the CLI should start and wait for your prompt.
+After you run `openlawb`, the CLI should start and wait for your prompt.
 
 At that point, you can ask it to:
 
@@ -73,7 +73,7 @@ At that point, you can ask it to:
 
 ## Common Problems
 
-### `openclaude` command not found
+### `openlawb` command not found
 
 Cause:
 
@@ -83,7 +83,7 @@ Fix:
 
 1. Close the terminal
 2. Open a new terminal
-3. Run `openclaude` again
+3. Run `openlawb` again
 
 ### Invalid API key
 
@@ -95,7 +95,7 @@ Fix:
 
 1. Get a fresh key from your provider
 2. Paste it again carefully
-3. Re-run `openclaude`
+3. Re-run `openlawb`
 
 ### Ollama not working
 

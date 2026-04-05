@@ -1,6 +1,6 @@
 {
   "$schema": "vscode://schemas/color-theme",
-  "name": "OpenClaude Terminal Black",
+  "name": "OpenLawb Terminal Black",
   "type": "dark",
   "colors": {
     "editor.background": "#090B10",

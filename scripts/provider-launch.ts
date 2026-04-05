@@ -34,7 +34,7 @@ function parseLaunchOptions(argv: string[]): LaunchOptions {
   let requestedProfile: ProviderProfile | 'auto' | null = 'auto'
   const passthroughArgs: string[] = []
   let fast = false
-  let goal = normalizeRecommendationGoal(process.env.OPENCLAUDE_PROFILE_GOAL)
+  let goal = normalizeRecommendationGoal(process.env.OPENLAWB_PROFILE_GOAL)
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!

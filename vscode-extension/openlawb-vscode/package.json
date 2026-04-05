@@ -1,0 +1,129 @@
+{
+  "name": "openlawb-vscode",
+  "displayName": "OpenLawb",
+  "description": "Practical VS Code companion for OpenLawb with project-aware launch behavior and a real Control Center.",
+  "version": "0.1.1",
+  "publisher": "devnull-bootloader",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Themes",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:openlawb.start",
+    "onCommand:openlawb.startInWorkspaceRoot",
+    "onCommand:openlawb.openDocs",
+    "onCommand:openlawb.openSetupDocs",
+    "onCommand:openlawb.openWorkspaceProfile",
+    "onCommand:openlawb.openControlCenter",
+    "onView:openlawb.controlCenter"
+  ],
+  "main": "./src/extension.js",
+  "files": [
+    "README.md",
+    "media/**",
+    "src/extension.js",
+    "src/presentation.js",
+    "src/state.js",
+    "themes/**"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "openlawb.start",
+        "title": "OpenLawb: Launch in Terminal",
+        "category": "OpenLawb"
+      },
+      {
+        "command": "openlawb.startInWorkspaceRoot",
+        "title": "OpenLawb: Launch in Workspace Root",
+        "category": "OpenLawb"
+      },
+      {
+        "command": "openlawb.openDocs",
+        "title": "OpenLawb: Open Repository",
+        "category": "OpenLawb"
+      },
+      {
+        "command": "openlawb.openSetupDocs",
+        "title": "OpenLawb: Open Setup Guide",
+        "category": "OpenLawb"
+      },
+      {
+        "command": "openlawb.openWorkspaceProfile",
+        "title": "OpenLawb: Open Workspace Profile",
+        "category": "OpenLawb"
+      },
+      {
+        "command": "openlawb.openControlCenter",
+        "title": "OpenLawb: Open Control Center",
+        "category": "OpenLawb"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "openlawb",
+          "title": "OpenLawb",
+          "icon": "media/openlawb.svg"
+        }
+      ]
+    },
+    "views": {
+      "openlawb": [
+        {
+          "id": "openlawb.controlCenter",
+          "name": "Control Center",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OpenLawb",
+      "properties": {
+        "openlawb.launchCommand": {
+          "type": "string",
+          "default": "openlawb",
+          "description": "Command run in the integrated terminal when launching OpenLawb."
+        },
+        "openlawb.terminalName": {
+          "type": "string",
+          "default": "OpenLawb",
+          "description": "Integrated terminal tab name for OpenLawb sessions."
+        },
+        "openlawb.useOpenAIShim": {
+          "type": "boolean",
+          "default": false,
+          "description": "Optionally set CLAUDE_CODE_USE_OPENAI=1 in launched OpenLawb terminals."
+        }
+      }
+    },
+    "themes": [
+      {
+        "label": "OpenLawb Terminal Black",
+        "uiTheme": "vs-dark",
+        "path": "./themes/OpenLawb-Terminal-Black.json"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node --test ./src/*.test.js",
+    "lint": "node -e \"for (const file of require('node:fs').readdirSync('./src')) { if (file.endsWith('.js')) { require('node:child_process').execFileSync(process.execPath, ['--check', require('node:path').join('src', file)], { stdio: 'inherit' }); } }\"",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "keywords": [
+    "openlawb",
+    "terminal",
+    "theme",
+    "cli",
+    "llm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gitlawb/openlawb"
+  },
+  "license": "MIT"
+}

@@ -75,11 +75,11 @@ export function getAttributionTexts(): AttributionTexts {
       ? getPublicModelName(model)
       : 'Claude Opus 4.6'
   const defaultAttribution =
-    '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+    '🤖 Generated with [OpenLawb](https://github.com/Gitlawb/openlawb)'
   const coAuthorDomain =
-    getAPIProvider() === 'firstParty' ? 'anthropic.com' : 'openclaude.dev'
+    getAPIProvider() === 'firstParty' ? 'anthropic.com' : 'openlawb.dev'
   const defaultCommit = isEnvTruthy(
-    process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
+    process.env.OPENLAWB_DISABLE_CO_AUTHORED_BY,
   )
     ? ''
     : `Co-Authored-By: ${modelName} <noreply@${coAuthorDomain}>`
@@ -331,7 +331,7 @@ export async function getEnhancedPRAttribution(
   }
 
   const defaultAttribution =
-    '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+    '🤖 Generated with [OpenLawb](https://github.com/Gitlawb/openlawb)'
 
   // Get AppState first
   const appState = getAppState()
@@ -377,7 +377,7 @@ export async function getEnhancedPRAttribution(
     memoryAccessCount > 0
       ? `, ${memoryAccessCount} ${memoryAccessCount === 1 ? 'memory' : 'memories'} recalled`
       : ''
-  const summary = `🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
+  const summary = `🤖 Generated with [OpenLawb](https://github.com/Gitlawb/openlawb) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
 
   // Append trailer lines for squash-merge survival. Only for allowlisted repos
   // (INTERNAL_MODEL_REPOS) and only in builds with COMMIT_ATTRIBUTION enabled —

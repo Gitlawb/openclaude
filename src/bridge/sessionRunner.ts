@@ -30,7 +30,7 @@ const CHILD_ENV_ALLOWLIST = new Set([
   'LANG', 'LC_ALL', 'LC_CTYPE',
   // Node.js runtime
   'NODE_OPTIONS', 'NODE_PATH', 'NODE_ENV',
-  // OpenClaude session / bridge (non-secret)
+  // OpenLawb session / bridge (non-secret)
   'CLAUDE_CODE_ENVIRONMENT_KIND',
   'CLAUDE_CODE_FORCE_SANDBOX',
   'CLAUDE_CODE_BUBBLEWRAP',

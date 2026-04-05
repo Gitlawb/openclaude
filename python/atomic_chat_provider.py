@@ -1,7 +1,7 @@
 """
 atomic_chat_provider.py
 -----------------------
-Adds native Atomic Chat support to openclaude.
+Adds native Atomic Chat support to openlawb.
 Lets Claude Code route requests to any locally-running model via
 Atomic Chat (Apple Silicon only) at 127.0.0.1:1337.
 

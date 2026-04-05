@@ -6,22 +6,21 @@ import {
   VALID_PROVIDERS,
 } from './providerFlag.js'
 
-const originalEnv = { ...process.env }
+const RESET_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'GEMINI_MODEL',
+] as const
 
 afterEach(() => {
-  for (const key of [
-    'CLAUDE_CODE_USE_OPENAI',
-    'CLAUDE_CODE_USE_GEMINI',
-    'CLAUDE_CODE_USE_GITHUB',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'CLAUDE_CODE_USE_VERTEX',
-    'OPENAI_BASE_URL',
-    'OPENAI_API_KEY',
-    'OPENAI_MODEL',
-    'GEMINI_MODEL',
-  ]) {
-    if (originalEnv[key] === undefined) delete process.env[key]
-    else process.env[key] = originalEnv[key]
+  for (const key of RESET_KEYS) {
+    delete process.env[key]
   }
 })
 

@@ -33,7 +33,7 @@ function buildActionModel({ canLaunchInWorkspaceRoot, workspaceProfilePath } = {
   return {
     primary: {
       id: 'launch',
-      label: 'Launch OpenClaude',
+      label: 'Launch OpenLawb',
       detail: 'Use the resolved project-aware launch directory',
       tone: 'accent',
       disabled: false,
@@ -108,8 +108,8 @@ function buildControlCenterViewModel(status = {}) {
 
   return {
     header: {
-      eyebrow: 'OpenClaude Control Center',
-      title: 'Project-aware OpenClaude companion',
+      eyebrow: 'OpenLawb Control Center',
+      title: 'Project-aware OpenLawb companion',
       subtitle:
         'Useful local status, predictable launch behavior, and quick access to the workflows you actually use.',
     },
@@ -176,7 +176,7 @@ function buildControlCenterViewModel(status = {}) {
         rows: [
           {
             key: 'runtime',
-            label: 'OpenClaude executable',
+            label: 'OpenLawb executable',
             summary: runtimeSummary,
             detail: runtimeDetail,
             tone: getRuntimeTone(status.installed),

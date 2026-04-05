@@ -309,7 +309,7 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
         headers['chatgpt-account-id'] = credentials.accountId
       }
       headers['Content-Type'] = 'application/json'
-      headers.originator = 'openclaude'
+      headers.originator = 'openlawb'
       method = 'POST'
       body = JSON.stringify({
         model: request.resolvedModel,

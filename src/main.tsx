@@ -3789,7 +3789,7 @@ async function run(): Promise<CommanderCommand> {
         pendingHookMessages
       }, renderAndRun);
     }
-  }).version(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (Open Claude)`, '-v, --version', 'Output the version number');
+  }).version(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (OpenLawb)`, '-v, --version', 'Output the version number');
 
   // Worktree flags
   program.option('-w, --worktree [name]', 'Create a new git worktree for this session (optionally specify a name)');

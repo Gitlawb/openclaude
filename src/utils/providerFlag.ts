@@ -5,10 +5,10 @@
  * that the rest of the codebase uses for provider detection.
  *
  * Usage:
- *   openclaude --provider openai --model gpt-4o
- *   openclaude --provider gemini --model gemini-2.0-flash
- *   openclaude --provider ollama --model llama3.2
- *   openclaude --provider anthropic   (default, no-op)
+ *   openlawb --provider openai --model gpt-4o
+ *   openlawb --provider gemini --model gemini-2.0-flash
+ *   openlawb --provider ollama --model llama3.2
+ *   openlawb --provider anthropic   (default, no-op)
  */
 
 export const VALID_PROVIDERS = [

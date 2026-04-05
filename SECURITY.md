@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Open Claude is currently maintained on the latest `main` branch and the latest
+OpenLawb is currently maintained on the latest `main` branch and the latest
 npm release only.
 
 | Version | Supported |
@@ -16,7 +16,7 @@ landed directly on `main` before a package release is published.
 
 ## Reporting a Vulnerability
 
-If you believe you have found a security vulnerability in Open Claude, please
+If you believe you have found a security vulnerability in OpenLawb, please
 report it privately.
 
 Preferred reporting channel:
@@ -58,9 +58,9 @@ report.
 
 This policy applies to:
 
-- the Open Claude source code in this repository
+- the OpenLawb source code in this repository
 - official release artifacts published from this repository
-- the `@gitlawb/openclaude` npm package
+- the `@gitlawb/openlawb` npm package
 
 This policy does not cover:
 
