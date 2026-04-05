@@ -1131,6 +1131,15 @@ class OpenAIShimMessages {
             responsesResponse.headers as unknown as Record<string, string>,
           )
         }
+        // Fallback: use the already-read errorBody instead of consuming the stream again
+        let errorResponse: object | undefined
+        try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
+        throw APIError.generate(
+          response.status,
+          errorResponse,
+          `OpenAI API error ${response.status}: ${errorBody}`,
+          response.headers as unknown as Headers,
+        )
       }
       const errorBody = await response.text().catch(() => 'unknown error')
       const rateHint =
