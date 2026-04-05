@@ -65,6 +65,9 @@ import { isBuddyEnabled } from './buddy/feature.js'
 import routerCosts from './commands/costs/index.js'
 import routerHealth from './commands/health/index.js'
 import routerTier from './commands/tier/index.js'
+import routerLog from './commands/log/index.js'
+import routerCheckpoint from './commands/checkpoint/index.js'
+import routerDecisions from './commands/decisions/index.js'
 // Dead code elimination: conditional imports
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactive =
@@ -332,6 +335,9 @@ const COMMANDS = memoize((): Command[] => [
   routerCosts,
   routerHealth,
   routerTier,
+  routerLog,
+  routerCheckpoint,
+  routerDecisions,
   ...(webCmd ? [webCmd] : []),
   ...(forkCmd ? [forkCmd] : []),
   ...(buddy ? [buddy] : []),

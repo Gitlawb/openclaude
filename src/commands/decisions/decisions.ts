@@ -18,35 +18,32 @@ export const call: LocalCommandCall = async (args: string) => {
       alternativesRejected: [],
       session: eventLog?.getSessionId() ?? 'unknown',
     })
-    return { type: 'text', value: `Decision logged: **${d.title}** (${d.id})` }
+    return { type: 'text', value: 'Decision logged: **' + d.title + '** (' + d.id + ')' }
   }
 
   if (sub === 'remove' && parts[1]) {
     const removed = log.removeDecision(parts[1])
-    return { type: 'text', value: removed ? `Decision ${parts[1]} removed.` : `Decision ${parts[1]} not found.` }
+    return { type: 'text', value: removed ? 'Decision ' + parts[1] + ' removed.' : 'Decision ' + parts[1] + ' not found.' }
   }
 
   if (sub === 'search' && parts.length > 1) {
     const query = parts.slice(1).join(' ')
     const results = log.searchDecisions(query)
-    if (results.length === 0) return { type: 'text', value: `No decisions matching "${query}".` }
-    const lines = results.map(d => `- **${d.title}**: ${d.choice} — ${d.why} (${d.id})`)
-    return { type: 'text', value: lines.join('
-') }
+    if (results.length === 0) return { type: 'text', value: 'No decisions matching "' + query + '".' }
+    const lines = results.map(d => '- **' + d.title + '**: ' + d.choice + ' -- ' + d.why + ' (' + d.id + ')')
+    return { type: 'text', value: lines.join('\n') }
   }
 
-  // Default: show all
   const all = log.getDecisions()
-  if (all.length === 0) return { type: 'text', value: 'No decisions recorded for this project. Use `/decisions add <title>` to log one.' }
+  if (all.length === 0) return { type: 'text', value: 'No decisions recorded. Use /decisions add <title> to log one.' }
 
   const lines = ['## Project Decisions', '']
   for (const d of all) {
-    lines.push(`### ${d.date} — ${d.title}`)
-    lines.push(`**Choice:** ${d.choice}`)
-    lines.push(`**Why:** ${d.why}`)
-    if (d.alternativesRejected.length > 0) lines.push(`**Rejected:** ${d.alternativesRejected.join(', ')}`)
-    lines.push(`ID: \`${d.id}\``, '')
+    lines.push('### ' + d.date + ' -- ' + d.title)
+    lines.push('**Choice:** ' + d.choice)
+    lines.push('**Why:** ' + d.why)
+    if (d.alternativesRejected.length > 0) lines.push('**Rejected:** ' + d.alternativesRejected.join(', '))
+    lines.push('ID: ' + d.id, '')
   }
-  return { type: 'text', value: lines.join('
-') }
+  return { type: 'text', value: lines.join('\n') }
 }
