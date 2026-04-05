@@ -1262,12 +1262,23 @@ function PromptInput({
     if (isNonSpacePrintable(input, key)) return ' ' + input;
     return input;
   }, []);
+  // Ref mirrors cursorOffset for use in synchronous loops (e.g. multi-image
+  // paste) where React batches state updates and the closure value is stale.
+  const cursorOffsetRef = useRef(cursorOffset);
+  cursorOffsetRef.current = cursorOffset;
+
   function insertTextAtCursor(text: string) {
-    // Push current state to buffer before inserting
-    pushToBuffer(input, cursorOffset, pastedContents);
-    const newInput = input.slice(0, cursorOffset) + text + input.slice(cursorOffset);
+    // Use refs for input/cursor so back-to-back calls in the same event
+    // (e.g. onImagePaste loop for multiple dragged images) chain correctly
+    // instead of each reading the same stale closure values.
+    const currentInput = lastInternalInputRef.current;
+    const currentOffset = cursorOffsetRef.current;
+    pushToBuffer(currentInput, currentOffset, pastedContents);
+    const newInput = currentInput.slice(0, currentOffset) + text + currentInput.slice(currentOffset);
     trackAndSetInput(newInput);
-    setCursorOffset(cursorOffset + text.length);
+    const newOffset = currentOffset + text.length;
+    cursorOffsetRef.current = newOffset;
+    setCursorOffset(newOffset);
   }
   const doublePressEscFromEmpty = useDoublePress(() => {}, () => onShowMessageSelector());
 
