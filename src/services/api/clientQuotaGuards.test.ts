@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm } from 'fs/promises'
-import { join, resolve } from 'path'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises'
+import { dirname, join, resolve } from 'path'
 import { tmpdir } from 'os'
+import { lock } from '../../utils/lockfile.js'
 import {
   __private__,
   type ClientQuotaGuardOptions,
@@ -240,6 +241,44 @@ test('RPD guard fails closed when state path is unusable', async () => {
   await expect(enforceQuotaGuards()).rejects.toThrow(
     'failed to persist daily state',
   )
+})
+
+test('RPD guard fails closed on corrupted state file content', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '1'
+
+  const statePath = __private__.getRpdStatePath()
+  await mkdir(dirname(statePath), { recursive: true })
+  await writeFile(statePath, '{not-valid-json', 'utf8')
+
+  await expect(enforceQuotaGuards()).rejects.toThrow(
+    'failed to persist daily state',
+  )
+})
+
+test('RPD guard aborts while waiting on cross-process lock', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '1'
+
+  const statePath = __private__.getRpdStatePath()
+  await mkdir(dirname(statePath), { recursive: true })
+  await writeFile(statePath, '', { encoding: 'utf8', flag: 'a' })
+
+  const releaseLock = await lock(statePath, {
+    stale: 10_000,
+    retries: 0,
+  })
+
+  const abortController = new AbortController()
+  const abortMessage = 'aborted while waiting for lock'
+  const abortError = () => new Error(abortMessage)
+  const enforcePromise = enforceQuotaGuards({
+    signal: abortController.signal,
+    abortError,
+  })
+
+  setTimeout(() => abortController.abort(), 20)
+
+  await expect(enforcePromise).rejects.toThrow(abortMessage)
+  await releaseLock()
 })
 
 test('RPM guard waits until request leaves sliding window', async () => {

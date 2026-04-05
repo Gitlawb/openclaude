@@ -10,6 +10,10 @@ import { sleep } from '../../utils/sleep.js'
 const DEFAULT_RPM_WINDOW_MS = 60_000
 const DEFAULT_RPD_WARN_THRESHOLD_PCT = 0.9
 const CLIENT_RPD_STATE_FILENAME = 'client-quota-rpd.json'
+const RPD_LOCK_STALE_MS = 10_000
+const RPD_LOCK_MAX_RETRIES = 20
+const RPD_LOCK_MIN_TIMEOUT_MS = 10
+const RPD_LOCK_MAX_TIMEOUT_MS = 100
 
 const ENV_CLIENT_RPM_LIMIT = 'CLAUDE_CODE_CLIENT_RPM_LIMIT'
 const ENV_CLIENT_RPM_WINDOW_MS = 'CLAUDE_CODE_CLIENT_RPM_WINDOW_MS'
@@ -122,30 +126,50 @@ function defaultRpdState(utcDay: string): RpdState {
 }
 
 async function loadRpdState(path: string, utcDay: string): Promise<RpdState> {
+  let raw: string
   try {
-    const raw = await readFile(path, 'utf8')
-    const parsed = JSON.parse(raw) as Partial<RpdState>
-    if (
-      parsed.version !== 1 ||
-      typeof parsed.utcDay !== 'string' ||
-      typeof parsed.attempts !== 'number'
-    ) {
+    raw = await readFile(path, 'utf8')
+  } catch (error) {
+    const code = (error as { code?: unknown }).code
+    if (code === 'ENOENT') {
       return defaultRpdState(utcDay)
     }
+    throw error
+  }
 
-    if (parsed.utcDay !== utcDay) {
-      return defaultRpdState(utcDay)
-    }
-
-    return {
-      version: 1,
-      utcDay,
-      attempts: Math.max(0, Math.floor(parsed.attempts)),
-      warnedAtIso:
-        typeof parsed.warnedAtIso === 'string' ? parsed.warnedAtIso : null,
-    }
-  } catch {
+  let parsed: Partial<RpdState>
+  if (raw.trim().length === 0) {
     return defaultRpdState(utcDay)
+  }
+
+  try {
+    parsed = JSON.parse(raw) as Partial<RpdState>
+  } catch (error) {
+    throw new Error(
+      `invalid RPD state JSON (${path}): ${errorMessage(error)}`,
+    )
+  }
+
+  if (
+    parsed.version !== 1 ||
+    typeof parsed.utcDay !== 'string' ||
+    typeof parsed.attempts !== 'number'
+  ) {
+    throw new Error(
+      `invalid RPD state schema (${path}); expected version/utcDay/attempts`,
+    )
+  }
+
+  if (parsed.utcDay !== utcDay) {
+    return defaultRpdState(utcDay)
+  }
+
+  return {
+    version: 1,
+    utcDay,
+    attempts: Math.max(0, Math.floor(parsed.attempts)),
+    warnedAtIso:
+      typeof parsed.warnedAtIso === 'string' ? parsed.warnedAtIso : null,
   }
 }
 
@@ -173,7 +197,10 @@ function toRpdPersistenceFailureError(statePath: string, error: unknown): Error 
   )
 }
 
-async function acquireRpdFileLock(statePath: string): Promise<() => Promise<void>> {
+async function acquireRpdFileLock(
+  statePath: string,
+  options: ClientQuotaGuardOptions,
+): Promise<() => Promise<void>> {
   try {
     await mkdir(dirname(statePath), { recursive: true })
     // proper-lockfile requires a target path that already exists.
@@ -183,14 +210,34 @@ async function acquireRpdFileLock(statePath: string): Promise<() => Promise<void
       flag: 'a',
     })
 
-    return await lock(statePath, {
-      stale: 10_000,
-      retries: {
-        retries: 20,
-        minTimeout: 10,
-        maxTimeout: 100,
-      },
-    })
+    for (let attempt = 0; ; attempt += 1) {
+      throwIfAborted(options)
+      try {
+        return await lock(statePath, {
+          stale: RPD_LOCK_STALE_MS,
+          retries: 0,
+        })
+      } catch (error) {
+        if (options.signal?.aborted) {
+          throw options.abortError
+            ? options.abortError()
+            : new Error('Request aborted')
+        }
+
+        const code = (error as { code?: unknown }).code
+        if (code !== 'ELOCKED' || attempt >= RPD_LOCK_MAX_RETRIES) {
+          throw error
+        }
+
+        const backoffMs = Math.min(
+          RPD_LOCK_MAX_TIMEOUT_MS,
+          RPD_LOCK_MIN_TIMEOUT_MS * Math.pow(2, attempt),
+        )
+        await sleep(backoffMs, options.signal, {
+          abortError: options.abortError,
+        })
+      }
+    }
   } catch (error) {
     throw toRpdPersistenceFailureError(statePath, error)
   }
@@ -247,12 +294,17 @@ async function enforceRpdGuard(
   const utcDay = getUtcDay(nowMs)
   const statePath = getRpdStatePath()
   const warnThresholdPct = parseWarnThresholdPct()
-  const release = await acquireRpdFileLock(statePath)
+  const release = await acquireRpdFileLock(statePath, options)
 
   try {
     throwIfAborted(options)
 
-    const state = await loadRpdState(statePath, utcDay)
+    let state: RpdState
+    try {
+      state = await loadRpdState(statePath, utcDay)
+    } catch (error) {
+      throw toRpdPersistenceFailureError(statePath, error)
+    }
 
     if (state.attempts >= rpdLimit) {
       throw new Error(
