@@ -19,6 +19,13 @@ export { scanForSecrets, hasSensitiveContent } from './secretScanner.js'
 export { classifyCommand } from './destructiveGuard.js'
 export type { Tier, ProviderOverride, ClassifierResult, RouterConfig, HealthStatus, CostEntry } from './types.js'
 
+export { DocCache } from './docCache.js'
+export { DocEngine } from './docEngine.js'
+export { ContextManager } from './contextManager.js'
+export { compressContext } from './contextCompressor.js'
+export { Checkpointer } from './checkpointer.js'
+export { DriftDetector } from './driftDetector.js'
+
 let router: TieredRouter | null = null
 let eventLog: EventLog | null = null
 let costTracker: CostTracker | null = null
