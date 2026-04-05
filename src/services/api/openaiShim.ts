@@ -89,50 +89,61 @@ function parseGemma4Args(body: string): Record<string, unknown> | null {
   const inner = body.trim().replace(/^\{/, '').replace(/\}$/, '').trim()
   if (!inner) return args
 
-  // Split by commas not inside quotes
-  const parts: string[] = []
+  // Gemma 4 often forgets to quote strings containing commas (e.g. descriptions).
+  // A simple comma-split breaks these strings.
+  // Instead, we scan through the string and identify the boundaries of `key:` declarations.
+  const keys: Array<{ name: string; startPos: number; valueStart: number }> = []
+  
   let depth = 0
   let inQuote = false
   let quoteChar = ''
-  let current = ''
-  for (let i = 0; i < inner.length; i++) {
+  
+  let i = 0
+  while (i < inner.length) {
     const ch = inner[i]
     if (inQuote) {
-      current += ch
-      if (ch === '\\') {
-        // escape — consume next char
-        i++
-        if (i < inner.length) current += inner[i]
-      } else if (ch === quoteChar) {
-        inQuote = false
-      }
+      if (ch === '\\') i++ // skip escaped char
+      else if (ch === quoteChar) inQuote = false
     } else if (ch === '"' || ch === "'") {
       inQuote = true
       quoteChar = ch
-      current += ch
     } else if (ch === '{' || ch === '[') {
       depth++
-      current += ch
     } else if (ch === '}' || ch === ']') {
       depth--
-      current += ch
-    } else if (ch === ',' && depth === 0) {
-      parts.push(current)
-      current = ''
+    } else if (depth === 0) {
+      // Look for a parameter key declaration: `[commas/spaces]keyName:`
+      const remainder = inner.slice(i)
+      const keyMatch = remainder.match(/^[\s,]*([A-Za-z_][A-Za-z0-9_]*)\s*:/)
+      if (keyMatch) {
+        keys.push({
+          name: keyMatch[1],
+          startPos: i, // start of the whitespace/comma before this key
+          valueStart: i + keyMatch[0].length // where the value text begins
+        })
+        i += keyMatch[0].length - 1 // Advance past the key declaration
+      }
+    }
+    i++
+  }
+
+  // Extract the value for each key by slicing up to the start of the *next* key
+  for (let idx = 0; idx < keys.length; idx++) {
+    const keyInfo = keys[idx]
+    const nextKeyInfo = keys[idx + 1]
+    
+    let rawVal = ''
+    if (nextKeyInfo) {
+      rawVal = inner.slice(keyInfo.valueStart, nextKeyInfo.startPos).trim()
     } else {
-      current += ch
+      rawVal = inner.slice(keyInfo.valueStart).trim()
+    }
+    
+    if (keyInfo.name) {
+      args[keyInfo.name] = parseGemma4Value(rawVal)
     }
   }
-  if (current.trim()) parts.push(current)
 
-  for (const part of parts) {
-    const colon = part.indexOf(':')
-    if (colon < 0) continue
-    const key = part.slice(0, colon).trim()
-    const val = part.slice(colon + 1).trim()
-    if (!key) continue
-    args[key] = parseGemma4Value(val)
-  }
   return args
 }
 
