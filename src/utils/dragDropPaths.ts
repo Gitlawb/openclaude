@@ -1,6 +1,10 @@
+import { existsSync } from 'fs'
 import { isAbsolute } from 'path'
-import { getFsImplementation } from './fsOperations.js'
-import { isImageFilePath } from './imagePaste.js'
+
+// Inlined to avoid pulling the full `imagePaste.ts` module (which imports
+// `bun:bundle`) into this file's dependency graph. Must stay in sync with
+// `IMAGE_EXTENSION_REGEX` in `./imagePaste.ts`.
+const IMAGE_EXTENSION_REGEX = /\.(png|jpe?g|gif|webp)$/i
 
 /**
  * Detect absolute file paths in pasted text (typically from drag-and-drop).
@@ -19,7 +23,6 @@ export function extractDraggedFilePaths(text: string): string[] {
 
   if (segments.length === 0) return []
 
-  const fs = getFsImplementation()
   const cleaned: string[] = []
 
   for (const raw of segments) {
@@ -35,11 +38,16 @@ export function extractDraggedFilePaths(text: string): string[] {
       p = p.replace(/\\(.)/g, '$1')
     }
 
+    // Image files are handled by the upstream image paste handler.
+    // Check against the cleaned path so quoted/escaped image paths like
+    // `"/foo/shot.png"` or `/foo/my\ shot.png` are reliably excluded.
+    if (IMAGE_EXTENSION_REGEX.test(p)) return []
     if (!isAbsolute(p)) return []
-    // Image files are handled by the upstream image paste handler
-    if (isImageFilePath(raw)) return []
-    // Verify the path actually exists on disk
-    if (!fs.existsSync(p)) return []
+    // Verify the path actually exists on disk. Plain `fs.existsSync` is
+    // used intentionally here instead of the wrapped `getFsImplementation`
+    // to keep this module free of the heavy `fsOperations` dependency
+    // chain — this is a pure existence check with no permission semantics.
+    if (!existsSync(p)) return []
     cleaned.push(p)
   }
 
