@@ -15,6 +15,16 @@ const RPD_LOCK_MAX_RETRIES = 20
 const RPD_LOCK_MIN_TIMEOUT_MS = 10
 const RPD_LOCK_MAX_TIMEOUT_MS = 100
 
+class RpdLockContentionError extends Error {
+  constructor(statePath: string) {
+    super(
+      `Client quota guard blocked request: failed to acquire daily quota lock at ${statePath}. ` +
+        'Another OpenClaude process may be using quota state; retry shortly.',
+    )
+    this.name = 'RpdLockContentionError'
+  }
+}
+
 const ENV_CLIENT_RPM_LIMIT = 'CLAUDE_CODE_CLIENT_RPM_LIMIT'
 const ENV_CLIENT_RPM_WINDOW_MS = 'CLAUDE_CODE_CLIENT_RPM_WINDOW_MS'
 const ENV_CLIENT_RPD_LIMIT = 'CLAUDE_CODE_CLIENT_RPD_LIMIT'
@@ -218,6 +228,8 @@ async function acquireRpdFileLock(
   statePath: string,
   options: ClientQuotaGuardOptions,
 ): Promise<() => Promise<void>> {
+  const lockAcquireDeadlineMs = Date.now() + RPD_LOCK_STALE_MS
+
   try {
     await mkdir(dirname(statePath), { recursive: true })
     // proper-lockfile requires a target path that already exists.
@@ -242,8 +254,15 @@ async function acquireRpdFileLock(
         }
 
         const code = (error as { code?: unknown }).code
-        if (code !== 'ELOCKED' || attempt >= RPD_LOCK_MAX_RETRIES) {
+        if (code !== 'ELOCKED') {
           throw error
+        }
+
+        if (
+          attempt >= RPD_LOCK_MAX_RETRIES ||
+          Date.now() >= lockAcquireDeadlineMs
+        ) {
+          throw new RpdLockContentionError(statePath)
         }
 
         const backoffMs = Math.min(
@@ -256,6 +275,10 @@ async function acquireRpdFileLock(
       }
     }
   } catch (error) {
+    if (error instanceof RpdLockContentionError) {
+      throw error
+    }
+
     if (options.signal?.aborted) {
       throw error
     }

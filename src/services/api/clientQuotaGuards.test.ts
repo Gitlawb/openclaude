@@ -290,6 +290,39 @@ test('RPD guard aborts while waiting on cross-process lock', async () => {
   }
 })
 
+test('RPD guard surfaces lock contention with dedicated error message', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '1'
+
+  const statePath = __private__.getRpdStatePath()
+  await mkdir(dirname(statePath), { recursive: true })
+  await writeFile(statePath, '', { encoding: 'utf8', flag: 'a' })
+
+  const releaseLock = await lock(statePath, {
+    stale: 10_000,
+    retries: 0,
+  })
+
+  const contentionMessage = 'failed to acquire daily quota lock'
+  const persistenceMessage = 'failed to persist daily state'
+  const startedAt = Date.now()
+
+  try {
+    try {
+      await enforceQuotaGuards()
+      expect.unreachable('Expected lock contention error')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      expect(message).toContain(contentionMessage)
+      expect(message).not.toContain(persistenceMessage)
+    }
+  } finally {
+    await releaseLock()
+  }
+
+  // Prevent accidental indefinite waits if lock retry behavior regresses.
+  expect(Date.now() - startedAt).toBeLessThan(5_000)
+})
+
 test('RPM guard waits until request leaves sliding window', async () => {
   process.env.CLAUDE_CODE_CLIENT_RPM_LIMIT = '2'
   process.env.CLAUDE_CODE_CLIENT_RPM_WINDOW_MS = '1000'
