@@ -645,7 +645,7 @@ const internalOnlyTips: Tip[] =
         {
           id: 'skillify',
           content: async () =>
-            '[internal] Use /skillify at the end of a workflow to turn it into a reusable skill',
+            '[internal] Turn repeatable workflows into reusable project skills when they keep recurring',
           cooldownSessions: 15,
           isRelevant: async () => true,
         },

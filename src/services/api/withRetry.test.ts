@@ -1,5 +1,4 @@
-import { describe, expect, test, afterEach } from 'bun:test'
-import { getRateLimitResetDelayMs, parseOpenAIDuration } from './withRetry.js'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
 
 // Helper to build a mock APIError with specific headers
@@ -28,42 +27,71 @@ afterEach(() => {
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
   }
+  mock.restore()
 })
+
+async function importFreshWithRetryModule(
+  provider:
+    | 'firstParty'
+    | 'openai'
+    | 'github'
+    | 'bedrock'
+    | 'vertex'
+    | 'gemini'
+    | 'codex'
+    | 'foundry' = 'firstParty',
+) {
+  mock.restore()
+  mock.module('src/utils/model/providers.js', () => ({
+    getAPIProvider: () => provider,
+    getAPIProviderForStatsig: () => provider,
+  }))
+  return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
+}
 
 // --- parseOpenAIDuration ---
 describe('parseOpenAIDuration', () => {
-  test('parses seconds: "1s" → 1000', () => {
+  test('parses seconds: "1s" → 1000', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('1s')).toBe(1000)
   })
 
-  test('parses minutes+seconds: "6m0s" → 360000', () => {
+  test('parses minutes+seconds: "6m0s" → 360000', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('6m0s')).toBe(360000)
   })
 
-  test('parses hours+minutes+seconds: "1h30m0s" → 5400000', () => {
+  test('parses hours+minutes+seconds: "1h30m0s" → 5400000', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('1h30m0s')).toBe(5400000)
   })
 
-  test('parses milliseconds: "500ms" → 500', () => {
+  test('parses milliseconds: "500ms" → 500', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('500ms')).toBe(500)
   })
 
-  test('parses minutes only: "2m" → 120000', () => {
+  test('parses minutes only: "2m" → 120000', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('2m')).toBe(120000)
   })
 
-  test('returns null for empty string', () => {
+  test('returns null for empty string', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('')).toBeNull()
   })
 
-  test('returns null for unrecognized format', () => {
+  test('returns null for unrecognized format', async () => {
+    const { parseOpenAIDuration } = await importFreshWithRetryModule()
     expect(parseOpenAIDuration('invalid')).toBeNull()
   })
 })
 
 // --- getRateLimitResetDelayMs ---
 describe('getRateLimitResetDelayMs - Anthropic (firstParty)', () => {
-  test('reads anthropic-ratelimit-unified-reset Unix timestamp', () => {
+  test('reads anthropic-ratelimit-unified-reset Unix timestamp', async () => {
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('firstParty')
     const futureUnixSec = Math.floor(Date.now() / 1000) + 60
     const error = makeError({
       'anthropic-ratelimit-unified-reset': String(futureUnixSec),
@@ -74,12 +102,16 @@ describe('getRateLimitResetDelayMs - Anthropic (firstParty)', () => {
     expect(delay!).toBeLessThanOrEqual(60_000)
   })
 
-  test('returns null when header absent', () => {
+  test('returns null when header absent', async () => {
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('firstParty')
     const error = makeError({})
     expect(getRateLimitResetDelayMs(error)).toBeNull()
   })
 
-  test('returns null when reset is in the past', () => {
+  test('returns null when reset is in the past', async () => {
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('firstParty')
     const pastUnixSec = Math.floor(Date.now() / 1000) - 10
     const error = makeError({
       'anthropic-ratelimit-unified-reset': String(pastUnixSec),
@@ -89,15 +121,19 @@ describe('getRateLimitResetDelayMs - Anthropic (firstParty)', () => {
 })
 
 describe('getRateLimitResetDelayMs - OpenAI provider', () => {
-  test('reads x-ratelimit-reset-requests duration string', () => {
+  test('reads x-ratelimit-reset-requests duration string', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('openai')
     const error = makeError({ 'x-ratelimit-reset-requests': '30s' })
     const delay = getRateLimitResetDelayMs(error)
     expect(delay).toBe(30_000)
   })
 
-  test('reads x-ratelimit-reset-tokens and picks the larger delay', () => {
+  test('reads x-ratelimit-reset-tokens and picks the larger delay', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('openai')
     const error = makeError({
       'x-ratelimit-reset-requests': '10s',
       'x-ratelimit-reset-tokens': '1m0s',
@@ -107,29 +143,37 @@ describe('getRateLimitResetDelayMs - OpenAI provider', () => {
     expect(delay).toBe(60_000)
   })
 
-  test('returns null when no openai rate limit headers present', () => {
+  test('returns null when no openai rate limit headers present', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('openai')
     const error = makeError({})
     expect(getRateLimitResetDelayMs(error)).toBeNull()
   })
 
-  test('works for github provider too', () => {
+  test('works for github provider too', async () => {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('github')
     const error = makeError({ 'x-ratelimit-reset-requests': '5s' })
     expect(getRateLimitResetDelayMs(error)).toBe(5_000)
   })
 })
 
 describe('getRateLimitResetDelayMs - providers without reset headers', () => {
-  test('returns null for bedrock', () => {
+  test('returns null for bedrock', async () => {
     process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('bedrock')
     const error = makeError({ 'anthropic-ratelimit-unified-reset': String(Math.floor(Date.now() / 1000) + 60) })
     // Bedrock doesn't use this header — should still return null
     expect(getRateLimitResetDelayMs(error)).toBeNull()
   })
 
-  test('returns null for vertex', () => {
+  test('returns null for vertex', async () => {
     process.env.CLAUDE_CODE_USE_VERTEX = '1'
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('vertex')
     const error = makeError({})
     expect(getRateLimitResetDelayMs(error)).toBeNull()
   })
