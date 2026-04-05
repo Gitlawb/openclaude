@@ -7,6 +7,7 @@
  * Usage:
  *   openclaude --provider openai --model gpt-4o
  *   openclaude --provider gemini --model gemini-2.0-flash
+ *   openclaude --provider mistral --model ministral-3b-latest
  *   openclaude --provider ollama --model llama3.2
  *   openclaude --provider anthropic   (default, no-op)
  */
@@ -15,6 +16,7 @@ export const VALID_PROVIDERS = [
   'anthropic',
   'openai',
   'gemini',
+  'mistral',
   'github',
   'bedrock',
   'vertex',
@@ -92,6 +94,11 @@ export function applyProviderFlag(
     case 'gemini':
       process.env.CLAUDE_CODE_USE_GEMINI = '1'
       if (model) process.env.GEMINI_MODEL ??= model
+      break
+
+    case 'mistral':
+      process.env.CLAUDE_CODE_USE_MISTRAL = '1'
+      if (model) process.env.MISTRAL_MODEL ??= model
       break
 
     case 'github':

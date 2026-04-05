@@ -39,6 +39,9 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
   }
+  if (getAPIProvider() === 'mistral') {
+    return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
+  }
   // For OpenAI provider, use OPENAI_MODEL or a sensible default
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
@@ -80,6 +83,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     const provider = getAPIProvider()
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
+      (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
       (provider === 'openai' || provider === 'gemini' ? process.env.OPENAI_MODEL : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
       settings.model ||
@@ -127,6 +131,10 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.5-pro-preview-03-25'
   }
+  // Mistral provider
+  if (getAPIProvider() === 'mistral') {
+    return process.env.MISTRAL_MODEL || 'devstral-latest'
+  }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
@@ -153,6 +161,10 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash'
   }
+  // Mistral provider
+  if (getAPIProvider() === 'mistral') {
+    return process.env.MISTRAL_MODEL || 'mistral-medium-latest'
+  }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
@@ -176,6 +188,10 @@ export function getDefaultHaikuModel(): ModelName {
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
+  }
+  // Mistral provider
+  if (getAPIProvider() === 'mistral') {
+    return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
@@ -232,6 +248,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   // Gemini provider: always use the configured Gemini model
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+  }
+  if (getAPIProvider() === 'mistral') {
+    return process.env.MISTRAL_MODEL || 'mistral-medium-latest'
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {

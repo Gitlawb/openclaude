@@ -31,6 +31,7 @@ function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
       OPENAI_MODEL: model,
       CLAUDE_CODE_USE_OPENAI: undefined as any,
       CLAUDE_CODE_USE_GEMINI: undefined as any,
+      CLAUDE_CODE_USE_MISTRAL: undefined as any,
       CLAUDE_CODE_USE_BEDROCK: undefined as any,
       CLAUDE_CODE_USE_VERTEX: undefined as any,
       CLAUDE_CODE_USE_FOUNDRY: undefined as any,

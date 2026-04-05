@@ -49,6 +49,7 @@ type SecretValueSource = Partial<{
   GEMINI_API_KEY: string
   GOOGLE_API_KEY: string
   GEMINI_ACCESS_TOKEN: string
+  MISTRAL_API_KEY: string
 }>
 
 const GITHUB_MODELS_DEFAULT_BASE = 'https://models.github.ai/inference'
@@ -59,6 +60,10 @@ const GITHUB_429_MAX_DELAY_SEC = 32
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+}
+
+function isMistralMode(): boolean {
+    return isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
 }
 
 function formatRetryAfterHint(response: Response): string {
@@ -854,8 +859,12 @@ class OpenAIShimMessages {
     }
 
     const isGithub = isGithubModelsMode()
+    const isMistral = isMistralMode()
     if (isGithub && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
+      delete body.max_completion_tokens
+    }
+    else if (isMistral) {
       delete body.max_completion_tokens
     }
 
@@ -1134,6 +1143,15 @@ export function createOpenAIShimClient(options: {
     }
     if (process.env.GEMINI_MODEL && !process.env.OPENAI_MODEL) {
       process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
+    }
+  } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
+    process.env.OPENAI_BASE_URL ??=
+      process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1'
+    if (process.env.MISTRAL_API_KEY && !process.env.OPENAI_API_KEY) {
+      process.env.OPENAI_API_KEY = process.env.MISTRAL_API_KEY
+    }
+    if (process.env.MISTRAL_MODEL && !process.env.OPENAI_MODEL) {
+      process.env.OPENAI_MODEL = process.env.MISTRAL_MODEL
     }
   } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
     process.env.OPENAI_BASE_URL ??= GITHUB_MODELS_DEFAULT_BASE

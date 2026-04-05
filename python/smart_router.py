@@ -113,6 +113,14 @@ def build_default_providers() -> list[Provider]:
             small_model=small if "gemini" in small else "gemini-2.0-flash",
         ),
         Provider(
+          name="mistral",
+          ping_url=""
+          api_key_env="MISTRAL_API_KEY",
+          cost_per_1k_tokens=0.0001,
+          big_model=big if "mistral" in big else "devstral-latest",
+          small_model=small if "small" in small else "ministral-3b-latest",  
+        ),
+        Provider(
             name="ollama",
             ping_url=f"{ollama_url}/api/tags",
             api_key_env="",

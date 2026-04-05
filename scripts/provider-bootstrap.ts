@@ -11,6 +11,7 @@ import {
   buildAtomicChatProfileEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
+  buildMistralProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
@@ -37,7 +38,7 @@ function parseArg(name: string): string | null {
 
 function parseProviderArg(): ProviderProfile | 'auto' {
   const p = parseArg('--provider')?.toLowerCase()
-  if (p === 'openai' || p === 'ollama' || p === 'codex' || p === 'gemini' || p === 'atomic-chat') return p
+  if (p === 'openai' || p === 'ollama' || p === 'codex' || p === 'gemini' || p === 'mistral' || p === 'atomic-chat') return p
   return 'auto'
 }
 
@@ -87,6 +88,21 @@ async function main(): Promise<void> {
     if (!builtEnv) {
       console.error('Gemini profile requires an API key. Use --api-key or set GEMINI_API_KEY.')
       console.error('Get a free key at: https://aistudio.google.com/apikey')
+      process.exit(1)
+    }
+
+    env = builtEnv
+  } else if (selected === 'mistral') {
+    const builtEnv = buildMistralProfileEnv({
+      model: argModel || null,
+      baseUrl: argBaseUrl || null,
+      apiKey: argApiKey || null,
+      processEnv: process.env,
+    })
+
+    if (!builtEnv) {
+      console.error('Mistral profile requires an API key. Use --api-key or set MISTRAL_API_KEY.')
+      console.error('Get a free key at: https://admin.mistral.ai/organization/api-keys')
       process.exit(1)
     }
 

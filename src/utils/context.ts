@@ -76,7 +76,8 @@ export function getContextWindowForModel(
   if (
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   ) {
     const openaiWindow = getOpenAIContextWindow(model)
     if (openaiWindow !== undefined) {
