@@ -311,6 +311,26 @@ test('RPM guard waits until request leaves sliding window', async () => {
   expect(waits).toEqual([800])
 })
 
+test('RPM guard serializes concurrent attempts in-process', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPM_LIMIT = '1'
+  process.env.CLAUDE_CODE_CLIENT_RPM_WINDOW_MS = '1000'
+
+  let now = 0
+  const waits: number[] = []
+
+  const sleepFn = async (ms: number) => {
+    waits.push(ms)
+    now += ms
+  }
+
+  await Promise.all([
+    enforceQuotaGuards({ nowMs: () => now, sleepFn }),
+    enforceQuotaGuards({ nowMs: () => now, sleepFn }),
+  ])
+
+  expect(waits).toEqual([1000])
+})
+
 test('RPD cap blocks before waiting on RPM window', async () => {
   process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '1'
   process.env.CLAUDE_CODE_CLIENT_RPM_LIMIT = '1'

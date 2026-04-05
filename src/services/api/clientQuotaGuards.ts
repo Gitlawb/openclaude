@@ -38,6 +38,23 @@ export type ClientQuotaGuardOptions = {
 }
 
 let rpmAttemptTimestampsMs: number[] = []
+let rpmGuardMutexTail: Promise<void> = Promise.resolve()
+
+async function withRpmGuardLock<T>(fn: () => T): Promise<T> {
+  const previous = rpmGuardMutexTail
+  let release: (() => void) | undefined
+  const next = new Promise<void>(resolve => {
+    release = resolve
+  })
+  rpmGuardMutexTail = previous.then(() => next)
+
+  await previous
+  try {
+    return fn()
+  } finally {
+    release?.()
+  }
+}
 
 function isClientQuotaGuardProvider(provider: APIProvider): boolean {
   return (
@@ -260,23 +277,30 @@ async function enforceRpmGuard(options: ClientQuotaGuardOptions): Promise<void> 
       }))
 
   while (true) {
-    const nowMs = getNowMs(options.nowMs)
-    rpmAttemptTimestampsMs = rpmAttemptTimestampsMs.filter(
-      ts => nowMs - ts < rpmWindowMs,
-    )
+    const waitMs = await withRpmGuardLock(() => {
+      const nowMs = getNowMs(options.nowMs)
+      rpmAttemptTimestampsMs = rpmAttemptTimestampsMs.filter(
+        ts => nowMs - ts < rpmWindowMs,
+      )
 
-    if (rpmAttemptTimestampsMs.length < rpmLimit) {
-      rpmAttemptTimestampsMs.push(nowMs)
+      if (rpmAttemptTimestampsMs.length < rpmLimit) {
+        rpmAttemptTimestampsMs.push(nowMs)
+        return 0
+      }
+
+      const oldestTs = rpmAttemptTimestampsMs[0]
+      if (oldestTs === undefined) {
+        rpmAttemptTimestampsMs = []
+        return 0
+      }
+
+      return Math.max(1, oldestTs + rpmWindowMs - nowMs)
+    })
+
+    if (waitMs === 0) {
       return
     }
 
-    const oldestTs = rpmAttemptTimestampsMs[0]
-    if (oldestTs === undefined) {
-      rpmAttemptTimestampsMs = []
-      continue
-    }
-
-    const waitMs = Math.max(1, oldestTs + rpmWindowMs - nowMs)
     logForDebugging(
       `[client-quota] RPM guard sleeping ${waitMs}ms (${rpmAttemptTimestampsMs.length}/${rpmLimit} in ${rpmWindowMs}ms window)`,
     )
@@ -377,6 +401,7 @@ export async function enforceClientQuotaGuards(
 
 export function resetClientQuotaGuardsForTests(): void {
   rpmAttemptTimestampsMs = []
+  rpmGuardMutexTail = Promise.resolve()
 }
 
 export const __private__ = {
