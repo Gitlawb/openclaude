@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdtemp, readFile, rm } from 'fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import {
@@ -7,6 +7,20 @@ import {
   enforceClientQuotaGuards,
   resetClientQuotaGuardsForTests,
 } from './clientQuotaGuards.js'
+
+const CHILD_QUOTA_ATTEMPT_SCRIPT = `
+import { enforceClientQuotaGuards } from './src/services/api/clientQuotaGuards.ts'
+
+try {
+  await enforceClientQuotaGuards()
+  process.stdout.write('ok\\n')
+  process.exit(0)
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  process.stderr.write(message + '\\n')
+  process.exit(2)
+}
+`
 
 const originalEnv = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
@@ -24,6 +38,42 @@ const originalEnv = {
 }
 
 let tempConfigDir: string
+
+function buildChildEnv(overrides: Record<string, string>): Record<string, string> {
+  const base: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') {
+      base[key] = value
+    }
+  }
+
+  return {
+    ...base,
+    ...overrides,
+  }
+}
+
+async function runQuotaGuardChildAttempt(
+  env: Record<string, string>,
+): Promise<{ exitCode: number; output: string }> {
+  const processHandle = Bun.spawn([process.execPath, '--eval', CHILD_QUOTA_ATTEMPT_SCRIPT], {
+    cwd: process.cwd(),
+    env,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+
+  const [exitCode, stdout, stderr] = await Promise.all([
+    processHandle.exited,
+    new Response(processHandle.stdout).text(),
+    new Response(processHandle.stderr).text(),
+  ])
+
+  return {
+    exitCode,
+    output: `${stdout}${stderr}`,
+  }
+}
 
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -125,6 +175,48 @@ test('RPD guard persists warning marker once threshold is crossed', async () => 
 
   expect(parsed.attempts).toBe(5)
   expect(typeof parsed.warnedAtIso).toBe('string')
+})
+
+test('RPD guard enforces daily cap across concurrent processes', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '1'
+
+  const sharedStatePath = join(tempConfigDir, 'shared-rpd-state.json')
+  process.env.CLAUDE_CODE_CLIENT_RPD_STATE_FILE = sharedStatePath
+
+  const childEnv = buildChildEnv({
+    CLAUDE_CONFIG_DIR: tempConfigDir,
+    CLAUDE_CODE_USE_OPENAI: '1',
+    CLAUDE_CODE_CLIENT_RPD_LIMIT: '1',
+    CLAUDE_CODE_CLIENT_RPD_STATE_FILE: sharedStatePath,
+  })
+
+  const [first, second] = await Promise.all([
+    runQuotaGuardChildAttempt(childEnv),
+    runQuotaGuardChildAttempt(childEnv),
+  ])
+
+  const results = [first, second]
+  const successCount = results.filter(result => result.exitCode === 0).length
+  const blockedCount = results.filter(
+    result =>
+      result.exitCode === 2 &&
+      result.output.includes('daily cap reached'),
+  ).length
+
+  expect(successCount).toBe(1)
+  expect(blockedCount).toBe(1)
+})
+
+test('RPD guard fails closed when state path is unusable', async () => {
+  process.env.CLAUDE_CODE_CLIENT_RPD_LIMIT = '1'
+
+  const stateDirectory = join(tempConfigDir, 'rpd-state-directory')
+  await mkdir(stateDirectory, { recursive: true })
+  process.env.CLAUDE_CODE_CLIENT_RPD_STATE_FILE = stateDirectory
+
+  await expect(enforceClientQuotaGuards()).rejects.toThrow(
+    'failed to persist daily state',
+  )
 })
 
 test('RPM guard waits until request leaves sliding window', async () => {
