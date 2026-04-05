@@ -23,6 +23,7 @@ afterEach(() => {
     'CLAUDE_CODE_USE_BEDROCK',
     'CLAUDE_CODE_USE_VERTEX',
     'CLAUDE_CODE_USE_FOUNDRY',
+    'CLAUDE_CODE_UNATTENDED_RETRY',
   ]) {
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
@@ -45,6 +46,7 @@ async function importFreshWithRetryModule(
   mock.module('src/utils/model/providers.js', () => ({
     getAPIProvider: () => provider,
     getAPIProviderForStatsig: () => provider,
+    isFirstPartyAnthropicBaseUrl: () => true,
   }))
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
@@ -57,6 +59,7 @@ async function importWithRetryForQuotaAttemptTest(options: {
   mock.module('src/utils/model/providers.js', () => ({
     getAPIProvider: () => options.baseProvider,
     getAPIProviderForStatsig: () => options.baseProvider,
+    isFirstPartyAnthropicBaseUrl: () => true,
   }))
   mock.module('./clientQuotaGuards.js', () => ({
     enforceClientQuotaGuards: options.enforceQuotaSpy,
@@ -191,6 +194,13 @@ describe('getRateLimitResetDelayMs - OpenAI provider', () => {
       await importFreshWithRetryModule('github')
     const error = makeError({ 'x-ratelimit-reset-requests': '5s' })
     expect(getRateLimitResetDelayMs(error)).toBe(5_000)
+  })
+
+  test('accepts explicit provider to support override-aware retry timing', async () => {
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('firstParty')
+    const error = makeError({ 'x-ratelimit-reset-requests': '30s' })
+    expect(getRateLimitResetDelayMs(error, 'openai')).toBe(30_000)
   })
 })
 

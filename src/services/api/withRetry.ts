@@ -202,7 +202,7 @@ export async function* withRetry<T>(
     thinkingConfig: options.thinkingConfig,
     ...(isFastModeEnabled() && { fastMode: options.fastMode }),
   }
-  const quotaGuardProvider = resolveQuotaGuardProvider(options)
+  const effectiveProvider = resolveEffectiveProvider(options)
   let client: Anthropic | null = null
   let consecutive529Errors = options.initialConsecutive529Errors ?? 0
   let lastError: unknown
@@ -274,7 +274,7 @@ export async function* withRetry<T>(
       await enforceClientQuotaGuards({
         signal: options.signal,
         abortError,
-        provider: quotaGuardProvider,
+        provider: effectiveProvider,
       })
 
       return await operation(client, attempt, retryContext)
@@ -471,7 +471,7 @@ export async function* withRetry<T>(
         persistentAttempt++
         // Window-based limits (e.g. 5hr Max/Pro) include a reset timestamp.
         // Wait until reset rather than polling every 5 min uselessly.
-        const resetDelay = getRateLimitResetDelayMs(error)
+        const resetDelay = getRateLimitResetDelayMs(error, effectiveProvider)
         delayMs =
           resetDelay ??
           Math.min(
@@ -553,7 +553,7 @@ export async function* withRetry<T>(
   throw new CannotRetryError(lastError, retryContext)
 }
 
-function resolveQuotaGuardProvider(options: RetryOptions): APIProvider {
+function resolveEffectiveProvider(options: RetryOptions): APIProvider {
   if (!options.providerOverride) {
     return getAPIProvider()
   }
@@ -882,8 +882,10 @@ export function parseOpenAIDuration(s: string): number | null {
   return total > 0 ? total : null
 }
 
-export function getRateLimitResetDelayMs(error: APIError): number | null {
-  const provider = getAPIProvider()
+export function getRateLimitResetDelayMs(
+  error: APIError,
+  provider: APIProvider = getAPIProvider(),
+): number | null {
 
   if (provider === 'firstParty') {
     const resetHeader = error.headers?.get?.('anthropic-ratelimit-unified-reset')
