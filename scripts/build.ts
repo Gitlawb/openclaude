@@ -73,14 +73,18 @@ const result = await Bun.build({
     {
       name: 'fix-reconciler-execution-context',
       setup(build) {
-        build.onLoad({ filter: /react-reconciler/ }, async (args) => {
+        build.onLoad({ filter: /react-reconciler\.development\.js$/ }, async (args) => {
           let src = await Bun.file(args.path).text()
           // Match the flushPassiveEffects pattern using regex to handle whitespace
           const pattern = /(startTime = executionContext;\s*executionContext \|= CommitContext;\s*)(var finishedWork = priority\.current;\s*resetComponentEffectTimers\(\);\s*commitPassiveUnmountOnFiber\(finishedWork\);[\s\S]*?commitDoubleInvokeEffectsInDEV\(priority\);\s*)(executionContext = startTime;)/
-          if (pattern.test(src)) {
-            src = src.replace(pattern, '$1try { $2} finally { $3 }')
-            console.log('  🔧 fix-reconciler: patched flushPassiveEffects executionContext leak')
+          if (!pattern.test(src)) {
+            throw new Error(
+              `fix-reconciler: failed to find flushPassiveEffects executionContext pattern in ${args.path}. ` +
+              `The patch no longer applies — update or remove the fix-reconciler-execution-context plugin.`
+            )
           }
+          src = src.replace(pattern, '$1try { $2} finally { $3 }')
+          console.log('  fix-reconciler: patched flushPassiveEffects executionContext leak')
           return { contents: src, loader: 'js' }
         })
       },

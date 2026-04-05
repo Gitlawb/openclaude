@@ -1756,4 +1756,6 @@ export function setPromptId(id: string | null): void {
   STATE.promptId = id
 }
 
+// openclaude never runs inside a REPL bridge session (that's an Anthropic-internal
+// feature), so this is always false in the open build.
 export function isReplBridgeActive(): boolean { return false }
