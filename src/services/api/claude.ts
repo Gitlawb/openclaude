@@ -928,6 +928,18 @@ export async function* executeNonStreamingRequest(
   return e.value as BetaMessage
 }
 
+function shouldAttachClientRequestIdHeader(
+  providerOverride?: Options['providerOverride'],
+): boolean {
+  // providerOverride routes requests through OpenAI-compatible transports,
+  // so first-party-only correlation headers must not be attached.
+  if (providerOverride) {
+    return false
+  }
+
+  return getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
+}
+
 /**
  * Extracts the request ID from the most recent assistant message in the
  * conversation. Used to link consecutive API requests in analytics so we can
@@ -1832,7 +1844,7 @@ async function* queryModel(
         // server request ID) can still be correlated with server logs.
         // First-party only — 3P providers don't log it (inc-4029 class).
         clientRequestId =
-          getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
+          shouldAttachClientRequestIdHeader(options.providerOverride)
             ? randomUUID()
             : undefined
 
@@ -2670,7 +2682,11 @@ async function* queryModel(
       try {
         // Fall back to non-streaming mode
         const result = yield* executeNonStreamingRequest(
-          { model: options.model, source: options.querySource },
+          {
+            model: options.model,
+            source: options.querySource,
+            providerOverride: options.providerOverride,
+          },
           {
             model: options.model,
             fallbackModel: options.fallbackModel,
