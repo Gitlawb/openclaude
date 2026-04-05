@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { extractDraggedFilePaths } from './dragDropPaths.js'
@@ -10,13 +10,19 @@ describe('extractDraggedFilePaths', () => {
   const packageJson = `${process.cwd()}/package.json`
 
   // Temp dir with a file whose name contains a space, for Finder-drag
-  // backslash-escape tests.
+  // backslash-escape tests, and a scoped-package-style subdir so we can
+  // exercise paths that embed `@` (e.g. `node_modules/@types/...`).
   let tmpDir: string
   let spacedFile: string
+  let atSignFile: string
   beforeAll(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'dragdrop-test-'))
     spacedFile = join(tmpDir, 'my file.txt')
     writeFileSync(spacedFile, 'test')
+    const scopedDir = join(tmpDir, '@types')
+    mkdirSync(scopedDir)
+    atSignFile = join(scopedDir, 'index.d.ts')
+    writeFileSync(atSignFile, 'test')
   })
   afterAll(() => {
     rmSync(tmpDir, { recursive: true, force: true })
@@ -127,5 +133,13 @@ describe('extractDraggedFilePaths', () => {
 
   test('trims surrounding whitespace from the whole paste', () => {
     expect(extractDraggedFilePaths(`  ${thisFile}  `)).toEqual([thisFile])
+  })
+
+  test('resolves a path that embeds an `@` segment', () => {
+    // Realistic case: dragging something under `node_modules/@types/...`.
+    // The `@` inside the path must not be confused with the mention prefix
+    // that the caller prepends downstream — `extractDraggedFilePaths`
+    // returns raw paths and leaves mention formatting to PromptInput.
+    expect(extractDraggedFilePaths(atSignFile)).toEqual([atSignFile])
   })
 })
