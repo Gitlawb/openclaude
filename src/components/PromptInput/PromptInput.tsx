@@ -67,6 +67,7 @@ import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import { getFastModeUnavailableReason, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import type { PromptInputHelpers } from '../../utils/handlePromptSubmit.js';
+import { extractDraggedFilePaths } from '../../utils/dragDropPaths.js';
 import { getImageFromClipboard, PASTE_THRESHOLD } from '../../utils/imagePaste.js';
 import type { ImageDimensions } from '../../utils/imageResizer.js';
 import { cacheImagePath, storeImage } from '../../utils/imageStore.js';
@@ -1203,6 +1204,22 @@ function PromptInput({
     pendingSpaceAfterPillRef.current = false;
     // Clean up pasted text - strip ANSI escape codes and normalize line endings and tabs
     let text = stripAnsi(rawText).replace(/\r/g, '\n').replaceAll('\t', '    ');
+
+    // Detect file paths from drag-and-drop and convert to @mentions.
+    // When files are dragged into the terminal, the terminal sends their
+    // absolute paths via bracketed paste. Image files are handled by the
+    // image paste handler upstream; here we handle non-image files by
+    // converting them to @mentions so they get attached on submit.
+    const draggedPaths = extractDraggedFilePaths(text);
+    if (draggedPaths.length > 0) {
+      const mentions = draggedPaths
+        .map(p => (p.includes(' ') ? `@"${p}"` : `@${p}`))
+        .join(' ');
+      // Ensure spacing around the mention(s) relative to existing input
+      const charBefore = input[cursorOffset - 1];
+      const prefix = charBefore && !/\s/.test(charBefore) ? ' ' : '';
+      text = prefix + mentions + ' ';
+    }
 
     // Match typed/auto-suggest: `!cmd` pasted into empty input enters bash mode.
     if (input.length === 0) {
