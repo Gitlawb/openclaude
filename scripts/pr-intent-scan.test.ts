@@ -20,6 +20,9 @@ describe('scanAddedLines', () => {
     expect(findings.some(finding => finding.code === 'suspicious-download-link')).toBe(
       true,
     )
+    expect(findings.some(finding => finding.code === 'executable-download-link')).toBe(
+      false,
+    )
     expect(findings.some(finding => finding.severity === 'high')).toBe(true)
   })
 
@@ -89,6 +92,7 @@ describe('scanAddedLines', () => {
     expect(findings.some(finding => finding.code === 'sensitive-automation-change')).toBe(
       true,
     )
+    expect(findings.some(finding => finding.code === 'download-command')).toBe(true)
   })
 
   test('flags markdown reference links to suspicious downloads', () => {
@@ -120,5 +124,13 @@ describe('scanAddedLines', () => {
     ])
 
     expect(findings).toHaveLength(0)
+  })
+
+  test('does not flag bare curl examples in README without a URL', () => {
+    const findings = scanAddedLines([
+      line('Use curl with your preferred flags for local testing.'),
+    ])
+
+    expect(findings.some(finding => finding.code === 'download-command')).toBe(false)
   })
 })

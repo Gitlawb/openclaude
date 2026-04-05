@@ -199,20 +199,26 @@ function findUrlFindings(line: DiffLine): Finding[] {
       }
     }
 
-    for (const domain of SUSPICIOUS_DOWNLOAD_DOMAINS) {
-      if (hostMatches(hostname, domain)) {
-        findings.push({
-          severity: hasSuspiciousDownloadIndicators(parsed) ? 'high' : 'medium',
-          code: 'suspicious-download-link',
-          file: line.file,
-          line: line.line,
-          detail: `Added external file-hosting link: ${hostname}`,
-          excerpt: trimExcerpt(line.content),
-        })
-      }
-    }
+    const isSuspiciousHost = SUSPICIOUS_DOWNLOAD_DOMAINS.some(domain =>
+      hostMatches(hostname, domain),
+    )
+    const isExecutableDownload = EXECUTABLE_PATH_REGEX.test(
+      `${parsed.pathname}${parsed.search}`,
+    )
 
-    if (EXECUTABLE_PATH_REGEX.test(`${parsed.pathname}${parsed.search}`)) {
+    if (isSuspiciousHost) {
+      findings.push({
+        severity:
+          hasSuspiciousDownloadIndicators(parsed) || isExecutableDownload
+            ? 'high'
+            : 'medium',
+        code: 'suspicious-download-link',
+        file: line.file,
+        line: line.line,
+        detail: `Added external file-hosting link: ${hostname}`,
+        excerpt: trimExcerpt(line.content),
+      })
+    } else if (isExecutableDownload) {
       findings.push({
         severity: 'high',
         code: 'executable-download-link',
@@ -292,7 +298,7 @@ function findCommandFindings(line: DiffLine): Finding[] {
   const mediumPatterns: Array<[string, RegExp, string]> = [
     [
       'download-command',
-      /\b(curl|wget|invoke-webrequest|iwr)\b/i,
+      /\b(curl|wget|invoke-webrequest|iwr)\b.*https?:\/\//i,
       'Added command that downloads remote content',
     ],
     [
@@ -321,6 +327,9 @@ function findCommandFindings(line: DiffLine): Finding[] {
   }
 
   for (const [code, pattern, detail] of mediumPatterns) {
+    if (code === 'download-command' && !SENSITIVE_PATH_REGEX.test(line.file)) {
+      continue
+    }
     if (pattern.test(line.content)) {
       findings.push({
         severity: 'medium',
