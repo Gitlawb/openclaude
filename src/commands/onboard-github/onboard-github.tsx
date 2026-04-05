@@ -93,6 +93,12 @@ function OnboardGithub(props: {
         setStep('error')
         return
       }
+      // Clear stale provider-specific env vars from the current session
+      // so resolveProviderRequest() doesn't pick up a previous provider's
+      // base URL or key after onboarding completes.
+      for (const key of PROVIDER_SPECIFIC_KEYS) {
+        delete process.env[key]
+      }
       process.env.CLAUDE_CODE_USE_GITHUB = '1'
       process.env.OPENAI_MODEL = model.trim() || DEFAULT_MODEL
       hydrateGithubModelsTokenFromSecureStorage()
