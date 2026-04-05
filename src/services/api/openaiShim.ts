@@ -784,8 +784,9 @@ class OpenAIShimMessages {
       httpResponse = response
 
       if (params.stream) {
+        const isResponsesStream = response.url?.includes('/responses')
         return new OpenAIShimStream(
-          request.transport === 'codex_responses'
+          (request.transport === 'codex_responses' || isResponsesStream)
             ? codexStreamToAnthropic(response, request.resolvedModel)
             : openaiStreamToAnthropic(response, request.resolvedModel),
         )
@@ -799,7 +800,8 @@ class OpenAIShimMessages {
         )
       }
 
-      if (request.transport === 'chat_completions' && isGithubModelsMode()) {
+      const isResponsesNonStream = response.url?.includes('/responses')
+      if (isResponsesNonStream || (request.transport === 'chat_completions' && isGithubModelsMode())) {
         const contentType = response.headers.get('content-type') ?? ''
         if (contentType.includes('application/json')) {
           const parsed = await response.json() as Record<string, unknown>
@@ -817,8 +819,19 @@ class OpenAIShimMessages {
         }
       }
 
-      const data = await response.json()
-      return self._convertNonStreamingResponse(data, request.resolvedModel)
+      const contentType = response.headers.get('content-type') ?? ''
+      if (contentType.includes('application/json')) {
+        const data = await response.json()
+        return self._convertNonStreamingResponse(data, request.resolvedModel)
+      }
+
+      const textBody = await response.text().catch(() => '')
+      throw APIError.generate(
+        response.status,
+        undefined,
+        `OpenAI API error ${response.status}: unexpected response: ${textBody.slice(0, 500)}`,
+        response.headers as unknown as Headers,
+      )
     })()
 
       ; (promise as unknown as Record<string, unknown>).withResponse =
@@ -1003,7 +1016,7 @@ class OpenAIShimMessages {
       const geminiCredential = await resolveGeminiCredential(process.env)
       if (geminiCredential.kind !== 'none') {
         headers.Authorization = `Bearer ${geminiCredential.credential}`
-        if (geminiCredential.projectId) {
+        if (geminiCredential.kind !== 'api-key' && 'projectId' in geminiCredential && geminiCredential.projectId) {
           headers['x-goog-user-project'] = geminiCredential.projectId
         }
       }
@@ -1133,7 +1146,7 @@ class OpenAIShimMessages {
             responsesResponse.status,
             responsesErrorResponse,
             `OpenAI API error ${responsesResponse.status}: ${responsesErrorBody}`,
-            responsesResponse.headers as unknown as Record<string, string>,
+            responsesResponse.headers,
           )
         }
       }
