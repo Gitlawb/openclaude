@@ -77,6 +77,24 @@ function createTestStreams(): {
   }
 }
 
+async function waitForCondition(
+  predicate: () => boolean,
+  options?: { timeoutMs?: number; intervalMs?: number },
+): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 2000
+  const intervalMs = options?.intervalMs ?? 10
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) {
+      return
+    }
+    await Bun.sleep(intervalMs)
+  }
+
+  throw new Error('Timed out waiting for ProviderManager test condition')
+}
+
 function mockProviderProfilesModule(): void {
   mock.module('../utils/providerProfiles.js', () => ({
     addProviderProfile: () => null,
@@ -101,6 +119,10 @@ async function renderProviderManagerFrame(
     mode: 'first-run' | 'manage'
     onDone: () => void
   }>,
+  options?: {
+    waitForOutput?: (output: string) => boolean
+    timeoutMs?: number
+  },
 ): Promise<string> {
   const { stdout, stdin, getOutput } = createTestStreams()
   const root = await createRoot({
@@ -118,13 +140,21 @@ async function renderProviderManagerFrame(
     </AppStateProvider>,
   )
 
-  await Bun.sleep(120)
+  await waitForCondition(() => {
+    const output = stripAnsi(extractLastFrame(getOutput()))
+    if (!options?.waitForOutput) {
+      return output.includes('Provider manager')
+    }
+    return options.waitForOutput(output)
+  }, { timeoutMs: options?.timeoutMs ?? 2500 })
+
+  const output = stripAnsi(extractLastFrame(getOutput()))
+
   root.unmount()
   stdin.end()
   stdout.end()
-  await Bun.sleep(25)
 
-  return stripAnsi(extractLastFrame(getOutput()))
+  return output
 }
 
 afterEach(() => {
@@ -163,8 +193,14 @@ test('ProviderManager resolves GitHub virtual provider from async storage withou
     updateSettingsForSource: () => ({ error: null }),
   }))
 
-  const { ProviderManager } = await import('./ProviderManager.js')
-  const output = await renderProviderManagerFrame(ProviderManager)
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const output = await renderProviderManagerFrame(ProviderManager, {
+    waitForOutput: frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('GitHub Models') &&
+      frame.includes('token stored'),
+  })
 
   expect(output).toContain('Provider manager')
   expect(output).toContain('GitHub Models')
