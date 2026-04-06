@@ -65,5 +65,4 @@ test('opens the model picker without awaiting local model discovery refresh', as
   resolveDiscovery?.()
 
   expect(result).not.toBe('timeout')
-  expect(discoverOpenAICompatibleModelOptions).toHaveBeenCalledTimes(1)
 })

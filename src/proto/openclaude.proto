@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package openclaude.v1;
+
+// Main Agent Service
+service AgentService {
+  // Bidirectional stream: client sends tasks and answers to agent prompts,
+  // server streams text tokens, tool states, and requests permissions.
+  rpc Chat(stream ClientMessage) returns (stream ServerMessage);
+}
+
+// ---------------------------------------------------------
+// MESSAGES FROM CLIENT (Input)
+// ---------------------------------------------------------
+message ClientMessage {
+  oneof payload {
+    // 1. Initial request (first message in the stream)
+    ChatRequest request = 2;
+
+    // 2. User response to an agent prompt (e.g., command confirmation)
+    UserInput input = 3;
+
+    // 3. Interrupt signal (if the user clicks "Stop generation")
+    CancelSignal cancel = 4;
+  }
+}
+
+message ChatRequest {
+  string message = 1;
+  string working_directory = 2; // Where the agent should execute commands
+  reserved 3;                   // Reserved to prevent accidental reuse
+  optional string model = 4;
+  string session_id = 5;        // Non-empty = cross-stream session persistence
+}
+
+message UserInput {
+  string reply = 1;       // Text response (e.g., "y", "no", or clarification)
+  string prompt_id = 2;   // ID of the prompt we are responding to
+}
+
+message CancelSignal {
+  string reason = 1;
+}
+
+// ---------------------------------------------------------
+// MESSAGES FROM SERVER (Output / Events)
+// ---------------------------------------------------------
+message ServerMessage {
+  // Using oneof guarantees that only one type of event arrives at a time
+  oneof event {
+    TextChunk text_chunk = 1;          // Chunk of text from LLM
+    ToolCallStart tool_start = 2;      // Agent started using a tool
+    ToolCallResult tool_result = 3;    // Tool returned a result
+    ActionRequired action_required = 4;// Agent requires human intervention
+    FinalResponse done = 5;            // Generation successfully completed
+    ErrorResponse error = 6;           // A critical error occurred
+  }
+}
+
+// Stream text chunk
+message TextChunk {
+  string text = 1;
+}
+
+// Agent decided to use a tool (bash, read_file, etc.)
+message ToolCallStart {
+  string tool_name = 1;
+  string arguments_json = 2; // Arguments in JSON format
+  string tool_use_id = 3;    // Correlation ID matching ToolCallResult
+}
+
+// Result of tool execution
+message ToolCallResult {
+  string tool_name = 1;
+  string output = 2;      // stdout/stderr or file contents
+  bool is_error = 3;      // Did the command itself fail
+  string tool_use_id = 4; // Correlation ID matching ToolCallStart
+}
+
+// Agent paused work and is waiting for user decision
+message ActionRequired {
+  string prompt_id = 1;        // Client must return this ID in UserInput
+  string question = 2;         // Question text (e.g., "Execute 'rm -rf /'?")
+  enum ActionType {
+    CONFIRM_COMMAND = 0;       // Yes/No
+    REQUEST_INFORMATION = 1;   // Text input
+  }
+  ActionType type = 3;
+}
+
+// Final statistics
+message FinalResponse {
+  string full_text = 1;     // The entire generated text
+  int32 prompt_tokens = 2;
+  int32 completion_tokens = 3;
+}
+
+message ErrorResponse {
+  string message = 1;
+  string code = 2;
+}

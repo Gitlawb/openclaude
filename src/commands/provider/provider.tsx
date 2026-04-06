@@ -205,7 +205,24 @@ export function buildCurrentProviderSummary(options?: {
         processEnv.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL,
         processEnv
       ),
-      savedProfileLabel
+      savedProfileLabel,
+    }
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+    return {
+      providerLabel: 'GitHub Models',
+      modelLabel: getSafeDisplayValue(
+        processEnv.OPENAI_MODEL ?? 'github:copilot',
+        processEnv,
+      ),
+      endpointLabel: getSafeDisplayValue(
+        processEnv.OPENAI_BASE_URL ??
+          processEnv.OPENAI_API_BASE ??
+          'https://models.github.ai/inference',
+        processEnv,
+      ),
+      savedProfileLabel,
     }
   }
 

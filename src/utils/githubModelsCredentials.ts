@@ -3,6 +3,8 @@ import { getSecureStorage } from './secureStorage/index.js'
 
 /** JSON key in the shared OpenClaude secure storage blob. */
 export const GITHUB_MODELS_STORAGE_KEY = 'githubModels' as const
+export const GITHUB_MODELS_HYDRATED_ENV_MARKER =
+  'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED' as const
 
 export type GithubModelsCredentialBlob = {
   accessToken: string
@@ -27,18 +29,28 @@ export function readGithubModelsToken(): string | undefined {
  */
 export function hydrateGithubModelsTokenFromSecureStorage(): void {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return
   }
-  if (process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim()) {
+  if (process.env.GH_TOKEN?.trim()) {
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    return
+  }
+  if (process.env.GITHUB_TOKEN?.trim()) {
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return
   }
   if (isBareMode()) {
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
     return
   }
   const t = readGithubModelsToken()
   if (t) {
     process.env.GITHUB_TOKEN = t
+    process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] = '1'
+    return
   }
+  delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
 }
 
 export function saveGithubModelsToken(token: string): {
