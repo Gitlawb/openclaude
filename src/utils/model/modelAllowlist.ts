@@ -121,26 +121,45 @@ function isBedrockFormattedModel(model: string): boolean {
 }
 
 /**
- * Normalize a Bedrock-formatted model ID to its canonical first-party form
- * for allowlist comparison. Only applies to recognized Bedrock patterns
- * (Bedrock ARN, region-prefixed inference profiles, foundation models with version
- * suffixes like -v1 or -v1:0). Custom/unknown model IDs are returned unchanged to
- * prevent accidental allowlist bypasses.
+ * Detect whether a model ID carries a Vertex AI `@YYYYMMDD` date suffix
+ * (e.g. "claude-sonnet-4-5@20250929"). Only recognized Claude model IDs
+ * (starting with "claude-") are matched to prevent accidental normalization
+ * of arbitrary custom deployment names.
+ */
+function isVertexFormattedModel(model: string): boolean {
+  return /^claude-.*@\d{8}$/.test(model)
+}
+
+/**
+ * Normalize a provider-specific model ID to its canonical first-party form
+ * for allowlist comparison.
  *
- * Example: "eu.anthropic.claude-sonnet-4-5-v1:0" → "claude-sonnet-4-5"
+ * Handles two provider formats:
+ *   - Bedrock: "eu.anthropic.claude-sonnet-4-5-v1:0" → "claude-sonnet-4-5"
+ *   - Vertex:  "claude-sonnet-4-5@20250929"          → "claude-sonnet-4-5"
+ *
+ * Custom/unknown model IDs are returned unchanged to prevent accidental
+ * allowlist bypasses.
  */
 function normalizeForAllowlist(model: string): string {
-  if (!isBedrockFormattedModel(model)) {
-    return model
+  // Bedrock normalization (ARN, region-prefixed inference profiles, foundation models)
+  if (isBedrockFormattedModel(model)) {
+    // 1. Strip ARN wrapper if present
+    let id = extractModelIdFromArn(model)
+    // 2. Strip region prefix (eu., us., apac., global.)
+    id = id.replace(/^(?:us|eu|apac|global)\./, '')
+    // 3. Strip vendor prefix (anthropic.)
+    id = id.replace(/^anthropic\./, '')
+    // 4. Resolve to canonical first-party short name (handles date/version suffixes)
+    return firstPartyNameToCanonical(id)
   }
-  // 1. Strip ARN wrapper if present
-  let id = extractModelIdFromArn(model)
-  // 2. Strip region prefix (eu., us., apac., global.)
-  id = id.replace(/^(?:us|eu|apac|global)\./, '')
-  // 3. Strip vendor prefix (anthropic.)
-  id = id.replace(/^anthropic\./, '')
-  // 4. Resolve to canonical first-party short name (handles date/version suffixes)
-  return firstPartyNameToCanonical(id)
+
+  // Vertex normalization: strip @YYYYMMDD date suffix from recognized Claude IDs
+  if (isVertexFormattedModel(model)) {
+    return firstPartyNameToCanonical(model.replace(/@\d{8}$/, ''))
+  }
+
+  return model
 }
 
 /**
@@ -168,10 +187,11 @@ export function isModelAllowed(model: string): boolean {
   const normalizedModel = resolvedModel.trim().toLowerCase()
   const normalizedAllowlist = availableModels.map(m => m.trim().toLowerCase())
 
-  // For Bedrock/Vertex model IDs (e.g. "eu.anthropic.claude-sonnet-4-5-v1:0"),
-  // also derive the canonical first-party form ("claude-sonnet-4-5") so that
-  // allowlist entries like "claude-sonnet-4-5" or "sonnet" match correctly
-  // even when the resolved model carries provider-specific formatting.
+  // For provider-specific model IDs, also derive the canonical first-party form
+  // so that allowlist entries like "claude-sonnet-4-5" or "sonnet" match correctly
+  // even when the resolved model carries provider-specific formatting:
+  //   Bedrock: "eu.anthropic.claude-sonnet-4-5-v1:0" → "claude-sonnet-4-5"
+  //   Vertex:  "claude-sonnet-4-5@20250929"           → "claude-sonnet-4-5"
   const canonicalModel = normalizeForAllowlist(normalizedModel)
 
   // Direct match (alias-to-alias or full-name-to-full-name)

@@ -108,6 +108,45 @@ describe('isModelAllowed — Bedrock model ID normalization', () => {
   })
 })
 
+describe('isModelAllowed — Vertex model ID normalization', () => {
+  test('Vertex model with @date suffix allowed when family alias is in allowlist', () => {
+    withAllowlist(['sonnet'])
+    expect(isModelAllowed('claude-sonnet-4-5@20250929')).toBe(true)
+  })
+
+  test('Vertex model with @date suffix allowed when canonical name is in allowlist', () => {
+    withAllowlist(['claude-sonnet-4-5'])
+    expect(isModelAllowed('claude-sonnet-4-5@20250929')).toBe(true)
+  })
+
+  test('Vertex opus model allowed when opus family alias is in allowlist', () => {
+    withAllowlist(['opus'])
+    expect(isModelAllowed('claude-opus-4-5@20251101')).toBe(true)
+  })
+
+  test('Vertex haiku model allowed by version-prefix entry', () => {
+    withAllowlist(['claude-haiku-4-5'])
+    expect(isModelAllowed('claude-haiku-4-5@20251001')).toBe(true)
+  })
+
+  test('Vertex model blocked when different family is in allowlist', () => {
+    withAllowlist(['opus'])
+    expect(isModelAllowed('claude-sonnet-4-5@20250929')).toBe(false)
+  })
+
+  test('custom model with @date suffix is NOT normalized — not accidentally allowed', () => {
+    // A non-Claude model with @date suffix should not be normalized
+    withAllowlist(['claude-sonnet-4-5'])
+    expect(isModelAllowed('my-model@20250929')).toBe(false)
+  })
+
+  test('Vertex model not allowed when specific version restricts the family alias', () => {
+    // ["opus", "opus-4-5"] → family wildcard suppressed, only opus 4.5 allowed
+    withAllowlist(['opus', 'opus-4-5'])
+    expect(isModelAllowed('claude-opus-4-6@20250929')).toBe(false) // opus 4.6 blocked
+  })
+})
+
 describe('isModelAllowed — alias resolution', () => {
   test('"sonnet" alias is allowed when "sonnet" is in allowlist', () => {
     withAllowlist(['sonnet'])
