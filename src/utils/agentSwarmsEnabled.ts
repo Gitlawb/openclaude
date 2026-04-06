@@ -21,6 +21,20 @@ function isAgentTeamsFlagSet(): boolean {
  * 1. Opt-in via CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env var OR --agent-teams flag
  * 2. GrowthBook gate 'tengu_amber_flint' enabled (killswitch)
  */
+/**
+ * Check only the user opt-in signal (env var or CLI flag),
+ * ignoring the GrowthBook killswitch. Used for toggling.
+ */
+export function isAgentSwarmsOptedIn(): boolean {
+  if (process.env.USER_TYPE === 'ant') {
+    return true
+  }
+  return (
+    isEnvTruthy(process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS) ||
+    isAgentTeamsFlagSet()
+  )
+}
+
 export function isAgentSwarmsEnabled(): boolean {
   // Ant: always on
   if (process.env.USER_TYPE === 'ant') {

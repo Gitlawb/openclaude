@@ -1,5 +1,5 @@
 import chalk from 'chalk'
-import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js'
+import { isAgentSwarmsEnabled, isAgentSwarmsOptedIn } from '../../utils/agentSwarmsEnabled.js'
 import { updateSettingsForSource } from '../../utils/settings/settings.js'
 import type { LocalCommandCall } from '../../types/command.js'
 
@@ -12,8 +12,8 @@ export const call: LocalCommandCall = async (args) => {
   } else if (trimmed === 'off') {
     enable = false
   } else if (trimmed === '') {
-    // Toggle current state
-    enable = !isAgentSwarmsEnabled()
+    // Toggle current state based on opt-in signal only (not the killswitch)
+    enable = !isAgentSwarmsOptedIn()
   } else {
     return {
       type: 'text',
