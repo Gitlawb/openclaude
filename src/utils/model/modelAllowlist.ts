@@ -88,12 +88,36 @@ function familyHasSpecificEntries(
 }
 
 /**
- * Normalize a model ID to its canonical first-party form for allowlist comparison.
- * Strips Bedrock ARN wrappers, region prefixes (eu./us./…), vendor prefixes
- * (anthropic.), and version suffixes (-v1:0) so that e.g.
- * "eu.anthropic.claude-sonnet-4-5-v1:0" becomes "claude-sonnet-4-5".
+ * Detect whether a model ID is a standard Bedrock-formatted inference profile
+ * or foundation model (as opposed to a custom deployment name that may
+ * coincidentally contain a Claude model substring).
+ *
+ * Recognized patterns:
+ *   - ARN: arn:aws:bedrock:...
+ *   - Cross-region inference profile: {region}.anthropic.claude-*-v{N}:{N}
+ *   - Foundation model: anthropic.claude-*-v{N}:{N}
+ */
+function isBedrockFormattedModel(model: string): boolean {
+  if (model.startsWith('arn:')) return true
+  // Match (optional region prefix.)anthropic.claude-...-v{digits}:{digits}
+  return /^(?:(?:us|eu|apac|global)\.)?anthropic\.claude-.*-v\d+:\d+$/.test(
+    model,
+  )
+}
+
+/**
+ * Normalize a Bedrock-formatted model ID to its canonical first-party form
+ * for allowlist comparison. Only applies to recognized Bedrock patterns
+ * (ARN, region-prefixed inference profiles, foundation models with version
+ * suffixes like -v1:0). Custom/unknown model IDs are returned unchanged to
+ * prevent accidental allowlist bypasses.
+ *
+ * Example: "eu.anthropic.claude-sonnet-4-5-v1:0" → "claude-sonnet-4-5"
  */
 function normalizeForAllowlist(model: string): string {
+  if (!isBedrockFormattedModel(model)) {
+    return model
+  }
   // 1. Strip ARN wrapper if present
   let id = extractModelIdFromArn(model)
   // 2. Strip region prefix (eu., us., apac., global.)

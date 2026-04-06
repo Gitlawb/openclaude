@@ -1,7 +1,34 @@
 import chalk from 'chalk'
 import { isAgentSwarmsEnabled, isAgentSwarmsOptedIn } from '../../utils/agentSwarmsEnabled.js'
-import { updateSettingsForSource } from '../../utils/settings/settings.js'
+import { isEnvTruthy } from '../../utils/envUtils.js'
+import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js'
+import type { SettingSource } from '../../utils/settings/constants.js'
 import type { LocalCommandCall } from '../../types/command.js'
+
+/**
+ * Sources that override userSettings, in priority order.
+ */
+const HIGHER_PRIORITY_SOURCES: SettingSource[] = [
+  'projectSettings',
+  'localSettings',
+  'flagSettings',
+  'policySettings',
+]
+
+/**
+ * Check if a higher-priority settings source sets the agent-teams env var.
+ * Returns the source name if found, undefined otherwise.
+ */
+function findOverridingSource(): SettingSource | undefined {
+  for (const source of HIGHER_PRIORITY_SOURCES) {
+    const settings = getSettingsForSource(source)
+    const value = settings?.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+    if (value !== undefined) {
+      return source
+    }
+  }
+  return undefined
+}
 
 export const call: LocalCommandCall = async (args) => {
   // In ant builds, agent teams are always enabled and cannot be toggled
@@ -65,7 +92,18 @@ export const call: LocalCommandCall = async (args) => {
   }
 
   if (!enable && effectivelyEnabled) {
-    // The CLI flag --agent-teams keeps the feature on for this session
+    // Check for higher-priority settings source override first
+    const overridingSource = findOverridingSource()
+    if (overridingSource) {
+      return {
+        type: 'text',
+        value: chalk.yellow(
+          `Agent teams user setting saved as disabled, but ${overridingSource} is overriding it with CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS. ` +
+            `Remove the env entry from ${overridingSource} to fully disable.`,
+        ),
+      }
+    }
+    // Otherwise the CLI flag --agent-teams keeps the feature on
     return {
       type: 'text',
       value: chalk.yellow(

@@ -104,7 +104,13 @@ export function resolveTeammateModel(
   const spec = inputModel?.trim() || undefined
 
   let resolved: string
-  if (spec === undefined || spec.toLowerCase() === 'inherit') {
+  if (spec === undefined) {
+    // No model specified — use the configured default from /config,
+    // which may itself follow the leader or use a hardcoded fallback.
+    resolved = getDefaultTeammateModel(leaderModel)
+  } else if (spec.toLowerCase() === 'inherit') {
+    // Explicit 'inherit' — use leader's model directly, falling back
+    // to the default only when leader model is unknown.
     resolved = leaderModel ?? getDefaultTeammateModel(leaderModel)
   } else {
     resolved = parseUserSpecifiedModel(spec)
