@@ -149,6 +149,26 @@ export function getAgentModelOptions(): AgentModelOption[] {
       description: 'Fast and efficient for simple tasks',
     },
     {
+      value: 'best',
+      label: 'Best',
+      description: 'Automatically select the best available model',
+    },
+    {
+      value: 'sonnet[1m]',
+      label: 'Sonnet (1M context)',
+      description: 'Sonnet with extended 1M token context window',
+    },
+    {
+      value: 'opus[1m]',
+      label: 'Opus (1M context)',
+      description: 'Opus with extended 1M token context window',
+    },
+    {
+      value: 'opusplan',
+      label: 'Opus Plan',
+      description: 'Opus optimized for planning tasks',
+    },
+    {
       value: 'inherit',
       label: 'Inherit from parent',
       description: 'Use the same model as the main conversation',
