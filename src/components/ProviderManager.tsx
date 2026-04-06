@@ -179,6 +179,8 @@ function getGithubProviderSummary(
 
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const initialGithubCredentialSource = getGithubCredentialSourceFromEnv()
+  const initialIsGithubActive = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+  const initialHasGithubCredential = initialGithubCredentialSource !== 'none'
 
   const [profiles, setProfiles] = React.useState(() => getProviderProfiles())
   const [activeProfileId, setActiveProfileId] = React.useState(
@@ -190,9 +192,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [githubCredentialSource, setGithubCredentialSource] = React.useState<GithubCredentialSource>(
     () => initialGithubCredentialSource,
   )
-  const [isGithubActive, setIsGithubActive] = React.useState(() =>
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB),
-  )
+  const [isGithubActive, setIsGithubActive] = React.useState(() => initialIsGithubActive)
+  const [isGithubCredentialSourceResolved, setIsGithubCredentialSourceResolved] =
+    React.useState(() => initialHasGithubCredential || initialIsGithubActive)
   const githubRefreshEpochRef = React.useRef(0)
   const [screen, setScreen] = React.useState<Screen>(
     mode === 'first-run' ? 'select-preset' : 'menu',
@@ -214,6 +216,20 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const currentValue = draft[currentStepKey]
 
   const refreshGithubProviderState = React.useCallback((): void => {
+    const envCredentialSource = getGithubCredentialSourceFromEnv()
+    const githubActive = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+    const canResolveFromEnv = githubActive || envCredentialSource !== 'none'
+
+    if (canResolveFromEnv) {
+      githubRefreshEpochRef.current += 1
+      setGithubCredentialSource(envCredentialSource)
+      setGithubProviderAvailable(isGithubProviderAvailable(envCredentialSource))
+      setIsGithubActive(githubActive)
+      setIsGithubCredentialSourceResolved(true)
+      return
+    }
+
+    setIsGithubCredentialSourceResolved(false)
     const refreshEpoch = ++githubRefreshEpochRef.current
     void (async () => {
       const credentialSource = await resolveGithubCredentialSource()
@@ -224,6 +240,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       setGithubCredentialSource(credentialSource)
       setGithubProviderAvailable(isGithubProviderAvailable(credentialSource))
       setIsGithubActive(isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB))
+      setIsGithubCredentialSourceResolved(true)
     })()
   }, [])
 
@@ -677,7 +694,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         {statusMessage && <Text>{statusMessage}</Text>}
         <Box flexDirection="column">
           {profiles.length === 0 && !githubProviderAvailable ? (
-            <Text dimColor>No provider profiles configured yet.</Text>
+            isGithubCredentialSourceResolved ? (
+              <Text dimColor>No provider profiles configured yet.</Text>
+            ) : (
+              <Text dimColor>Checking GitHub Models credentials...</Text>
+            )
           ) : (
             <>
               {profiles.map(profile => (

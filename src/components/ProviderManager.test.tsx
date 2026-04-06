@@ -95,6 +95,17 @@ async function waitForCondition(
   throw new Error('Timed out waiting for ProviderManager test condition')
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+} {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(r => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
 function mockProviderProfilesModule(): void {
   mock.module('../utils/providerProfiles.js', () => ({
     addProviderProfile: () => null,
@@ -114,16 +125,49 @@ function mockProviderProfilesModule(): void {
   }))
 }
 
-async function renderProviderManagerFrame(
+function mockProviderManagerDependencies(
+  syncRead: () => string | undefined,
+  asyncRead: () => Promise<string | undefined>,
+): void {
+  mockProviderProfilesModule()
+
+  mock.module('../utils/githubModelsCredentials.js', () => ({
+    clearGithubModelsToken: () => ({ success: true }),
+    GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
+    hydrateGithubModelsTokenFromSecureStorage: () => {},
+    readGithubModelsToken: syncRead,
+    readGithubModelsTokenAsync: asyncRead,
+  }))
+
+  mock.module('../utils/settings/settings.js', () => ({
+    updateSettingsForSource: () => ({ error: null }),
+  }))
+}
+
+async function waitForFrameOutput(
+  getOutput: () => string,
+  predicate: (output: string) => boolean,
+  timeoutMs = 2500,
+): Promise<string> {
+  let output = ''
+
+  await waitForCondition(() => {
+    output = stripAnsi(extractLastFrame(getOutput()))
+    return predicate(output)
+  }, { timeoutMs })
+
+  return output
+}
+
+async function mountProviderManager(
   ProviderManager: React.ComponentType<{
     mode: 'first-run' | 'manage'
     onDone: () => void
   }>,
-  options?: {
-    waitForOutput?: (output: string) => boolean
-    timeoutMs?: number
-  },
-): Promise<string> {
+): Promise<{
+  getOutput: () => string
+  dispose: () => Promise<void>
+}> {
   const { stdout, stdin, getOutput } = createTestStreams()
   const root = await createRoot({
     stdout: stdout as unknown as NodeJS.WriteStream,
@@ -140,20 +184,40 @@ async function renderProviderManagerFrame(
     </AppStateProvider>,
   )
 
-  await waitForCondition(() => {
-    const output = stripAnsi(extractLastFrame(getOutput()))
-    if (!options?.waitForOutput) {
-      return output.includes('Provider manager')
-    }
-    return options.waitForOutput(output)
-  }, { timeoutMs: options?.timeoutMs ?? 2500 })
+  return {
+    getOutput,
+    dispose: async () => {
+      root.unmount()
+      stdin.end()
+      stdout.end()
+      await Bun.sleep(0)
+    },
+  }
+}
 
-  const output = stripAnsi(extractLastFrame(getOutput()))
+async function renderProviderManagerFrame(
+  ProviderManager: React.ComponentType<{
+    mode: 'first-run' | 'manage'
+    onDone: () => void
+  }>,
+  options?: {
+    waitForOutput?: (output: string) => boolean
+    timeoutMs?: number
+  },
+): Promise<string> {
+  const mounted = await mountProviderManager(ProviderManager)
+  const output = await waitForFrameOutput(
+    mounted.getOutput,
+    frame => {
+      if (!options?.waitForOutput) {
+        return frame.includes('Provider manager')
+      }
+      return options.waitForOutput(frame)
+    },
+    options?.timeoutMs ?? 2500,
+  )
 
-  root.unmount()
-  stdin.end()
-  stdout.end()
-
+  await mounted.dispose()
   return output
 }
 
@@ -179,19 +243,7 @@ test('ProviderManager resolves GitHub virtual provider from async storage withou
   })
   const asyncRead = mock(async () => 'stored-token')
 
-  mockProviderProfilesModule()
-
-  mock.module('../utils/githubModelsCredentials.js', () => ({
-    clearGithubModelsToken: () => ({ success: true }),
-    GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
-    hydrateGithubModelsTokenFromSecureStorage: () => {},
-    readGithubModelsToken: syncRead,
-    readGithubModelsTokenAsync: asyncRead,
-  }))
-
-  mock.module('../utils/settings/settings.js', () => ({
-    updateSettingsForSource: () => ({ error: null }),
-  }))
+  mockProviderManagerDependencies(syncRead, asyncRead)
 
   const nonce = `${Date.now()}-${Math.random()}`
   const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
@@ -206,6 +258,47 @@ test('ProviderManager resolves GitHub virtual provider from async storage withou
   expect(output).toContain('GitHub Models')
   expect(output).toContain('token stored')
   expect(output).not.toContain('No provider profiles configured yet.')
+
+  expect(syncRead).not.toHaveBeenCalled()
+  expect(asyncRead).toHaveBeenCalled()
+})
+
+test('ProviderManager avoids first-frame false negative while stored-token lookup is pending', async () => {
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const syncRead = mock(() => {
+    throw new Error('sync credential read should not run in ProviderManager render flow')
+  })
+  const deferredStoredToken = createDeferred<string | undefined>()
+  const asyncRead = mock(async () => deferredStoredToken.promise)
+
+  mockProviderManagerDependencies(syncRead, asyncRead)
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  const firstFrame = await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Provider manager'),
+  )
+
+  expect(firstFrame).toContain('Checking GitHub Models credentials...')
+  expect(firstFrame).not.toContain('No provider profiles configured yet.')
+
+  deferredStoredToken.resolve('stored-token')
+
+  const resolvedFrame = await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('GitHub Models') && frame.includes('token stored'),
+  )
+
+  expect(resolvedFrame).toContain('GitHub Models')
+  expect(resolvedFrame).toContain('token stored')
+
+  await mounted.dispose()
 
   expect(syncRead).not.toHaveBeenCalled()
   expect(asyncRead).toHaveBeenCalled()
