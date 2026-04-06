@@ -1162,7 +1162,14 @@ class OpenAIShimMessages {
     const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
     let response: Response | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      response = await fetch(chatCompletionsUrl, fetchInit)
+      try {
+        response = await fetch(chatCompletionsUrl, fetchInit)
+      }catch (err: unknown) {
+        const cause = err instanceof Error ? err.message : String(err)
+        throw new Error (
+          `Network request failed for ${chatCompletionsUrl} -` + `check OPENAI_BASE_URL connection. Cause: ${cause}` 
+        )
+      }
       if (response.ok) {
         return response
       }
