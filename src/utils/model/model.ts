@@ -535,15 +535,18 @@ export function parseUserSpecifiedModel(
     : normalizedModel
 
   if (isModelAlias(modelString)) {
+    // [1m] context is only supported on first-party API — strip it for 3P
+    // providers to prevent invalid model IDs like "gpt-4o[1m]"
+    const effective1mTag = has1mTag && getAPIProvider() === 'firstParty'
     switch (modelString) {
       case 'opusplan':
-        return getDefaultSonnetModel() + (has1mTag ? '[1m]' : '') // Sonnet is default, Opus in plan mode
+        return getDefaultSonnetModel() + (effective1mTag ? '[1m]' : '') // Sonnet is default, Opus in plan mode
       case 'sonnet':
-        return getDefaultSonnetModel() + (has1mTag ? '[1m]' : '')
+        return getDefaultSonnetModel() + (effective1mTag ? '[1m]' : '')
       case 'haiku':
-        return getDefaultHaikuModel() + (has1mTag ? '[1m]' : '')
+        return getDefaultHaikuModel() + (effective1mTag ? '[1m]' : '')
       case 'opus':
-        return getDefaultOpusModel() + (has1mTag ? '[1m]' : '')
+        return getDefaultOpusModel() + (effective1mTag ? '[1m]' : '')
       case 'best':
         return getBestModel()
       default:

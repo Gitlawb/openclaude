@@ -118,6 +118,20 @@ describe('isModelAllowed — Bedrock model ID normalization', () => {
     expect(isModelAllowed('anthropic.claude-My_Deploy-v2:0')).toBe(false)
   })
 
+  test('Bedrock ID with arbitrary segment before -vN is NOT normalized (regression: policy bypass via custom deployment name)', () => {
+    // anthropic.claude-sonnet-4-5-prod-v1:0 contains "prod" — a custom deployment
+    // label, not a numeric version or date. Must not be normalized to
+    // claude-sonnet-4-5, which would bypass an allowlist restricted to the
+    // official model.
+    withAllowlist(['claude-sonnet-4-5'])
+    expect(isModelAllowed('anthropic.claude-sonnet-4-5-prod-v1:0')).toBe(false)
+    // Same with region prefix
+    expect(isModelAllowed('us.anthropic.claude-sonnet-4-5-custom-v1:0')).toBe(false)
+    // But the official ID without the extra segment should still work
+    expect(isModelAllowed('anthropic.claude-sonnet-4-5-v1:0')).toBe(true)
+    expect(isModelAllowed('us.anthropic.claude-sonnet-4-5-20250929-v1:0')).toBe(true)
+  })
+
   test('Bedrock model not allowed when specific version restricts the family alias', () => {
     // When allowlist has both "opus" and "opus-4-5", the family wildcard is suppressed
     withAllowlist(['opus', 'opus-4-5'])

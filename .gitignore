@@ -5,5 +5,6 @@ dist/
 .env.*
 !.env.example
 .openclaude-profile.json
+settings.local.json
 reports/
 coverage/
