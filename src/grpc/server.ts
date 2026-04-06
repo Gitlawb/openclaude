@@ -66,6 +66,7 @@ export class GrpcServer {
         if (clientMessage.request) {
           const req = clientMessage.request
           sessionId = req.session_id || ''
+          previousMessages = []
 
           // Load previous messages from session store (cross-stream persistence)
           if (sessionId && this.sessions.has(sessionId)) {
