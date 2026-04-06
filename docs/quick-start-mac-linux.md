@@ -1,143 +1,98 @@
-# OpenClaude Quick Start for macOS and Linux
+# OpenClaude: início rápido para macOS e Linux
 
-This guide uses a standard shell such as Terminal, iTerm, bash, or zsh.
+## 1. Instale o Node.js
 
-## 1. Install Node.js
-
-Install Node.js 20 or newer from:
-
-- `https://nodejs.org/`
-
-Then check it:
+Use Node.js LTS (recomendado: 20+):
 
 ```bash
-node --version
-npm --version
+node -v
+npm -v
 ```
 
-## 2. Install OpenClaude
+Se não estiver instalado, instale pelo site oficial do Node.js.
+
+## 2. Instale o OpenClaude
 
 ```bash
-npm install -g @gitlawb/openclaude
+npm install -g openclaude
+openclaude --version
 ```
 
-## 3. Pick One Provider
+## 3. Escolha um provedor
 
-### Option A: OpenAI
-
-Replace `sk-your-key-here` with your real key.
+### Opção A: OpenAI
 
 ```bash
-export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_API_KEY=sk-your-key-here
-export OPENAI_MODEL=gpt-4o
-
+export OPENAI_API_KEY="sua_chave"
 openclaude
 ```
 
-### Option B: DeepSeek
+### Opção B: DeepSeek
 
 ```bash
-export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_API_KEY=sk-your-key-here
-export OPENAI_BASE_URL=https://api.deepseek.com/v1
-export OPENAI_MODEL=deepseek-chat
-
+export OPENAI_BASE_URL="https://api.deepseek.com/v1"
+export OPENAI_API_KEY="sua_chave_deepseek"
+export OPENAI_MODEL="deepseek-chat"
 openclaude
 ```
 
-### Option C: Ollama
-
-Install Ollama first from:
-
-- `https://ollama.com/download`
-
-Then run:
+### Opção C: Ollama
 
 ```bash
+ollama serve
 ollama pull llama3.1:8b
-
-export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_BASE_URL=http://localhost:11434/v1
-export OPENAI_MODEL=llama3.1:8b
-
+export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+export OPENAI_API_KEY="ollama"
+export OPENAI_MODEL="llama3.1:8b"
 openclaude
 ```
 
-No API key is needed for Ollama local models.
-
-### Option D: LM Studio
-
-Install LM Studio first from:
-
-- `https://lmstudio.ai/`
-
-Then in LM Studio:
-
-1. Download a model (e.g., Llama 3.1 8B, Mistral 7B)
-2. Go to the "Developer" tab
-3. Select your model and enable the server via the toggle
-
-Then run:
+### Opção D: LM Studio
 
 ```bash
-export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_BASE_URL=http://localhost:1234/v1
-export OPENAI_MODEL=your-model-name
-# export OPENAI_API_KEY=lmstudio  # optional: some users need a dummy key
-
+export OPENAI_BASE_URL="http://127.0.0.1:1234/v1"
+export OPENAI_API_KEY="lmstudio" # opcional/dummy em alguns cenários
 openclaude
 ```
 
-Replace `your-model-name` with the model name shown in LM Studio.
-
-No API key is needed for LM Studio local models (but uncomment the `OPENAI_API_KEY` line if you hit auth errors).
-
-## 4. If `openclaude` Is Not Found
-
-Close the terminal, open a new one, and try again:
+## 4. Se `openclaude` não for encontrado
 
 ```bash
-openclaude
+npm prefix -g
+npm bin -g
 ```
 
-## 5. If Your Provider Fails
+Adicione o diretório global de binários ao `PATH` no seu shell (`~/.bashrc`, `~/.zshrc`, etc.).
 
-Check the basics:
+## 5. Se o provedor falhar
 
-### For OpenAI or DeepSeek
+### OpenAI ou DeepSeek
 
-- make sure the key is real
-- make sure you copied it fully
+- Verifique se a chave está correta.
+- Confirme se `OPENAI_BASE_URL` está certo (quando aplicável).
 
-### For Ollama
+### Ollama
 
-- make sure Ollama is installed
-- make sure Ollama is running
-- make sure the model was pulled successfully
+- Confirme se `ollama serve` está ativo.
+- Teste `curl http://127.0.0.1:11434/api/tags`.
 
-### For LM Studio
+### LM Studio
 
-- make sure LM Studio is installed
-- make sure LM Studio is running
-- make sure the server is enabled (toggle on in the "Developer" tab)
-- make sure a model is loaded in LM Studio
-- make sure the model name matches what you set in `OPENAI_MODEL`
+- Ative o servidor local na interface do LM Studio.
+- Confira se a porta configurada é `1234`.
 
-## 6. Updating OpenClaude
+## 6. Atualizar OpenClaude
 
 ```bash
-npm install -g @gitlawb/openclaude@latest
+npm update -g openclaude
 ```
 
-## 7. Uninstalling OpenClaude
+## 7. Desinstalar OpenClaude
 
 ```bash
-npm uninstall -g @gitlawb/openclaude
+npm uninstall -g openclaude
 ```
 
-## Need Advanced Setup?
+## Precisa de setup avançado?
 
-Use:
-
-- [Advanced Setup](advanced-setup.md)
+Consulte `docs/advanced-setup.md`.

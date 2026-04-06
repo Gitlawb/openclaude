@@ -1,69 +1,31 @@
-# Security Policy
+# Política de segurança
 
-## Supported Versions
+## Versões suportadas
 
-Open Claude is currently maintained on the latest `main` branch and the latest
-npm release only.
+A política se aplica às versões ativamente mantidas do OpenClaude.
 
-| Version | Supported |
-| ------- | --------- |
-| Latest release | :white_check_mark: |
-| Older releases | :x: |
-| Unreleased forks / modified builds | :x: |
+## Como reportar vulnerabilidades
 
-Security fixes are generally released in the next patch version and may also be
-landed directly on `main` before a package release is published.
+Reporte de forma responsável e privada para os mantenedores do projeto.
 
-## Reporting a Vulnerability
+Inclua:
 
-If you believe you have found a security vulnerability in Open Claude, please
-report it privately.
+- Descrição do problema
+- Passos de reprodução
+- Impacto potencial
+- Versão/ambiente afetados
 
-Preferred reporting channel:
+## Processo de resposta
 
-- GitHub Security Advisories / private vulnerability reporting for this
-  repository
+1. Triagem inicial.
+2. Confirmação de severidade/escopo.
+3. Correção e validação.
+4. Divulgação responsável.
 
-Please include:
+## Divulgação e CVEs
 
-- a clear description of the issue
-- affected version, commit, or environment
-- reproduction steps or a proof of concept
-- impact assessment
-- any suggested remediation, if available
+Quando aplicável, o projeto pode publicar advisories e registrar CVE para vulnerabilidades relevantes.
 
-Please do **not** open a public issue for an unpatched vulnerability.
+## Escopo
 
-## Response Process
-
-Our general goals are:
-
-- initial triage acknowledgment within 7 days
-- follow-up after validation when we can reproduce the issue
-- coordinated disclosure after a fix is available
-
-Severity, exploitability, and maintenance bandwidth may affect timelines.
-
-## Disclosure and CVEs
-
-Valid reports may be fixed privately first and disclosed after a patch is
-available.
-
-If a report is accepted and the issue is significant enough to warrant formal
-tracking, we may publish a GitHub Security Advisory and request or assign a CVE
-through the appropriate channel. CVE issuance is not guaranteed for every
-report.
-
-## Scope
-
-This policy applies to:
-
-- the Open Claude source code in this repository
-- official release artifacts published from this repository
-- the `@gitlawb/openclaude` npm package
-
-This policy does not cover:
-
-- third-party model providers, endpoints, or hosted services
-- local misconfiguration on the reporter's machine
-- vulnerabilities in unofficial forks, mirrors, or downstream repackages
+Abrange código-fonte, integrações oficiais e documentação de segurança do repositório.
