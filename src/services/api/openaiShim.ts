@@ -42,6 +42,10 @@ import {
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
+import {
+  normalizeToolArguments,
+  hasToolFieldMapping,
+} from './toolArgumentNormalization.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -514,6 +518,30 @@ function convertChunkUsage(
   }
 }
 
+const JSON_REPAIR_SUFFIXES = [
+  '}', '"}', ']}', '"]}', '}}', '"}}', ']}}', '"]}}', '"]}]}', '}]}'
+]
+
+function repairPossiblyTruncatedObjectJson(raw: string): string | null {
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? raw
+      : null
+  } catch {
+    for (const combo of JSON_REPAIR_SUFFIXES) {
+      try {
+        const repaired = raw + combo
+        const parsed = JSON.parse(repaired)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return repaired
+        }
+      } catch {}
+    }
+    return null
+  }
+}
+
 /**
  * Async generator that transforms an OpenAI SSE stream into
  * Anthropic-format BetaRawMessageStreamEvent objects.
@@ -524,7 +552,16 @@ async function* openaiStreamToAnthropic(
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   let contentBlockIndex = 0
-  const activeToolCalls = new Map<number, { id: string; name: string; index: number; jsonBuffer: string }>()
+  const activeToolCalls = new Map<
+    number,
+    {
+      id: string
+      name: string
+      index: number
+      jsonBuffer: string
+      normalizeAtStop: boolean
+    }
+  >()
   let hasEmittedContentStart = false
   let hasEmittedThinkingStart = false
   let hasClosedThinking = false
@@ -647,11 +684,14 @@ async function* openaiStreamToAnthropic(
               }
 
               const toolBlockIndex = contentBlockIndex
+              const initialArguments = tc.function.arguments ?? ''
+              const normalizeAtStop = hasToolFieldMapping(tc.function.name)
               activeToolCalls.set(tc.index, {
                 id: tc.id,
                 name: tc.function.name,
                 index: toolBlockIndex,
-                jsonBuffer: tc.function.arguments ?? '',
+                jsonBuffer: initialArguments,
+                normalizeAtStop,
               })
 
               yield {
@@ -675,7 +715,7 @@ async function* openaiStreamToAnthropic(
               contentBlockIndex++
 
               // Emit any initial arguments
-              if (tc.function.arguments) {
+              if (tc.function.arguments && !normalizeAtStop) {
                 yield {
                   type: 'content_block_delta',
                   index: toolBlockIndex,
@@ -692,6 +732,11 @@ async function* openaiStreamToAnthropic(
                 if (tc.function.arguments) {
                   active.jsonBuffer += tc.function.arguments
                 }
+
+                if (active.normalizeAtStop) {
+                  continue
+                }
+
                 yield {
                   type: 'content_block_delta',
                   index: active.index,
@@ -725,16 +770,44 @@ async function* openaiStreamToAnthropic(
           }
           // Close active tool calls
           for (const [, tc] of activeToolCalls) {
+            if (tc.normalizeAtStop) {
+              let partialJson: string
+              if (choice.finish_reason === 'length') {
+                // Truncated by max tokens — preserve raw buffer to avoid
+                // turning an incomplete tool call into an executable command
+                partialJson = tc.jsonBuffer
+              } else {
+                const repairedStructuredJson = repairPossiblyTruncatedObjectJson(
+                  tc.jsonBuffer,
+                )
+                if (repairedStructuredJson) {
+                  partialJson = repairedStructuredJson
+                } else {
+                  partialJson = JSON.stringify(
+                    normalizeToolArguments(tc.name, tc.jsonBuffer),
+                  )
+                }
+              }
+
+              yield {
+                type: 'content_block_delta',
+                index: tc.index,
+                delta: {
+                  type: 'input_json_delta',
+                  partial_json: partialJson,
+                },
+              }
+              yield { type: 'content_block_stop', index: tc.index }
+              continue
+            }
+
             let suffixToAdd = ''
             if (tc.jsonBuffer) {
               try {
                 JSON.parse(tc.jsonBuffer)
               } catch {
                 const str = tc.jsonBuffer.trimEnd()
-                const combinations = [
-                  '}', '"}', ']}', '"]}', '}}', '"}}', ']}}', '"]}}', '"]}]}', '}]}'
-                ]
-                for (const combo of combinations) {
+                for (const combo of JSON_REPAIR_SUFFIXES) {
                   try {
                     JSON.parse(str + combo)
                     suffixToAdd = combo
@@ -1181,12 +1254,10 @@ class OpenAIShimMessages {
 
     if (choice?.message?.tool_calls) {
       for (const tc of choice.message.tool_calls) {
-        let input: unknown
-        try {
-          input = JSON.parse(tc.function.arguments)
-        } catch {
-          input = { raw: tc.function.arguments }
-        }
+        const input = normalizeToolArguments(
+          tc.function.name,
+          tc.function.arguments,
+        )
         content.push({
           type: 'tool_use',
           id: tc.id,

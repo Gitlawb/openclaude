@@ -1,6 +1,16 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 
+import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
 import { saveGlobalConfig } from '../config.js'
+
+async function importFreshModelOptionsModule() {
+  mock.restore()
+  mock.module('./providers.js', () => ({
+    getAPIProvider: () => 'github',
+  }))
+  const nonce = `${Date.now()}-${Math.random()}`
+  return import(`./modelOptions.js?ts=${nonce}`)
+}
 
 const originalEnv = {
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
@@ -13,6 +23,20 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   ANTHROPIC_CUSTOM_MODEL_OPTION: process.env.ANTHROPIC_CUSTOM_MODEL_OPTION,
 }
+
+beforeEach(() => {
+  mock.restore()
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
+  resetModelStringsForTestingOnly()
+})
 
 afterEach(() => {
   process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
@@ -34,16 +58,8 @@ afterEach(() => {
     providerProfiles: [],
     activeProviderProfileId: undefined,
   }))
+  resetModelStringsForTestingOnly()
 })
-
-async function importFreshModelOptionsModule() {
-  mock.restore()
-  mock.module('./providers.js', () => ({
-    getAPIProvider: () => 'github',
-  }))
-  const nonce = `${Date.now()}-${Math.random()}`
-  return import(`./modelOptions.js?ts=${nonce}`)
-}
 
 test('GitHub provider exposes only default + GitHub model in /model options', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -58,7 +74,9 @@ test('GitHub provider exposes only default + GitHub model in /model options', as
 
   const { getModelOptions } = await importFreshModelOptionsModule()
   const options = getModelOptions(false)
-  const nonDefault = options.filter(option => option.value !== null)
+  const nonDefault = options.filter(
+    (option: { value: unknown }) => option.value !== null,
+  )
 
   expect(nonDefault.length).toBe(1)
   expect(nonDefault[0]?.value).toBe('github:copilot')
