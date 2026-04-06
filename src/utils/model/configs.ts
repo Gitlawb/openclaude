@@ -9,9 +9,20 @@ export type ModelConfig = Record<APIProvider, ModelName>
 // Override with OPENAI_MODEL, ANTHROPIC_MODEL, or settings.model
 // ---------------------------------------------------------------------------
 export const OPENAI_MODEL_DEFAULTS = {
-  opus: 'gpt-4o',           // best reasoning
-  sonnet: 'gpt-4o-mini',    // balanced
-  haiku: 'gpt-4o-mini',     // fast & cheap
+  opus: 'gpt-4o',                          // best reasoning
+  sonnet: 'gpt-4o',                        // balanced
+  haiku: 'gpt-4o-mini',                    // fast & cheap
+} as const
+
+// ---------------------------------------------------------------------------
+// Codex model mappings
+// Maps Claude model tiers to ChatGPT Codex equivalents.
+// Override with OPENAI_MODEL env var.
+// ---------------------------------------------------------------------------
+export const CODEX_MODEL_DEFAULTS = {
+  opus: 'gpt-5.4',                         // best reasoning
+  sonnet: 'gpt-5.4',                       // balanced
+  haiku: 'gpt-5.4-mini',                   // fast & cheap
 } as const
 
 // ---------------------------------------------------------------------------
@@ -149,7 +160,14 @@ export const CLAUDE_SONNET_4_6_CONFIG = {
   codex: 'gpt-5.4',
 } as const satisfies ModelConfig
 
-// @[MODEL LAUNCH]: Register the new config here.
+// @[MODEL LAUNCH]: Register new external provider defaults here.
+export const EXTERNAL_PROVIDER_DEFAULTS = {
+  openai: OPENAI_MODEL_DEFAULTS,
+  codex: CODEX_MODEL_DEFAULTS,
+  gemini: GEMINI_MODEL_DEFAULTS,
+} as const
+
+// @[MODEL LAUNCH]: Register new Claude model configs here.
 export const ALL_MODEL_CONFIGS = {
   haiku35: CLAUDE_3_5_HAIKU_CONFIG,
   haiku45: CLAUDE_HAIKU_4_5_CONFIG,

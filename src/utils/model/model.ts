@@ -24,6 +24,7 @@ import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { getAPIProvider } from './providers.js'
+import { EXTERNAL_PROVIDER_DEFAULTS } from './configs.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
@@ -37,11 +38,15 @@ export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   // For Gemini provider, use a fast model
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
+    return process.env.GEMINI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.gemini.haiku
   }
   // For OpenAI provider, use OPENAI_MODEL or a sensible default
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.openai.haiku
+  }
+  // For Codex provider, use OPENAI_MODEL or a sensible default
+  if (getAPIProvider() === 'codex') {
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.codex.haiku
   }
   // For GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -131,15 +136,15 @@ export function getDefaultOpusModel(): ModelName {
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.5-pro'
+    return process.env.GEMINI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.gemini.opus
   }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.openai.opus
   }
-  // Codex provider: use user-specified model or default to gpt-5.4
+  // Codex provider: use user-specified model or default
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.codex.opus
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -161,15 +166,15 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    return process.env.GEMINI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.gemini.sonnet
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.openai.sonnet
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.codex.sonnet
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -189,11 +194,11 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.openai.haiku
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.codex.haiku
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -201,7 +206,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
+    return process.env.GEMINI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.gemini.haiku
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -254,15 +259,15 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   }
   // Gemini provider: always use the configured Gemini model
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    return process.env.GEMINI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.gemini.sonnet
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.openai.opus
   }
-  // Codex provider: always use the configured Codex model (default gpt-5.4)
+  // Codex provider: always use the configured Codex model
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
+    return process.env.OPENAI_MODEL || EXTERNAL_PROVIDER_DEFAULTS.codex.opus
   }
 
   // Ants default to defaultModel from flag config, or Opus 1M if not configured
