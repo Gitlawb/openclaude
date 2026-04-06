@@ -63,6 +63,17 @@ export const call: LocalCommandCall = async (args) => {
     }
   }
 
+  if (!enable && effectivelyEnabled) {
+    // The CLI flag --agent-teams keeps the feature on for this session
+    return {
+      type: 'text',
+      value: chalk.yellow(
+        'Agent teams setting saved as disabled, but the --agent-teams CLI flag is keeping it enabled for this session. ' +
+          'Restart without the flag to fully disable.',
+      ),
+    }
+  }
+
   const status = effectivelyEnabled ? chalk.green('enabled') : chalk.yellow('disabled')
   return {
     type: 'text',
