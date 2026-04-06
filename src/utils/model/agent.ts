@@ -28,36 +28,17 @@ export function getDefaultSubagentModel(): string {
 }
 
 /**
- * Validate that a resolved model is in the list of available models
- * (the same list shown by /models). Throws if the model is not allowed.
- *
- * Compares using canonical names so that region prefixes, casing, and
- * version suffixes don't cause false negatives.
+ * Validate that a resolved model is allowed by the active provider/org
+ * policy. This intentionally does not require the model to appear in
+ * `getModelOptions()`, because the /model picker is not exhaustive and may
+ * omit valid custom model IDs such as provider deployment names.
  */
 function validateResolvedAgentModel(resolvedModel: string): void {
-  const options = getModelOptions()
-  const resolvedCanonical = getCanonicalName(resolvedModel)
+  const provider = getAPIProvider()
+  if (provider.isModelAllowed(resolvedModel)) return
 
-  for (const opt of options) {
-    if (opt.value === null) continue
-    // Compare the resolved model against both the raw option value and its
-    // parsed form so aliases like "sonnet" match their resolved model ID.
-    const optCanonical = getCanonicalName(opt.value)
-    if (optCanonical === resolvedCanonical) return
-
-    const optResolved = parseUserSpecifiedModel(opt.value)
-    const optResolvedCanonical = getCanonicalName(optResolved)
-    if (optResolvedCanonical === resolvedCanonical) return
-  }
-
-  const availableModels = options
-    .filter(o => o.value !== null)
-    .map(o => o.value)
-    .join(', ')
   throw new Error(
-    `Model "${resolvedModel}" is not available. ` +
-      `Use one of the available models: ${availableModels}. ` +
-      `Run /model to see and select from all available models.`,
+    `Model "${resolvedModel}" is not allowed by your current organization or provider settings.`,
   )
 }
 
