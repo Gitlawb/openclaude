@@ -90,6 +90,11 @@ export function getAgentModel(
 
   // Prioritize tool-specified model if provided
   if (toolSpecifiedModel) {
+    if (toolSpecifiedModel === 'inherit') {
+      throw new Error(
+        `"inherit" is not a valid model override. Omit the model parameter to inherit the parent model.`,
+      )
+    }
     if (aliasMatchesParentTier(toolSpecifiedModel, parentModel)) {
       return parentModel
     }

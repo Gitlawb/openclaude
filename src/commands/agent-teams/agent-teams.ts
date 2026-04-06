@@ -4,6 +4,14 @@ import { updateSettingsForSource } from '../../utils/settings/settings.js'
 import type { LocalCommandCall } from '../../types/command.js'
 
 export const call: LocalCommandCall = async (args) => {
+  // In ant builds, agent teams are always enabled and cannot be toggled
+  if (process.env.USER_TYPE === 'ant') {
+    return {
+      type: 'text',
+      value: chalk.yellow('Agent teams are always enabled in ant builds.'),
+    }
+  }
+
   const trimmed = args.trim().toLowerCase()
 
   let enable: boolean
