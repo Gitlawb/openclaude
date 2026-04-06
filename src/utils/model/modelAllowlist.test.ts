@@ -100,6 +100,16 @@ describe('isModelAllowed — Bedrock model ID normalization', () => {
     expect(isModelAllowed('my-sonnet-deployment')).toBe(false)
   })
 
+  test('Bedrock-style ID with uppercase segments is NOT normalized — uppercase preserved as guard', () => {
+    // us.anthropic.claude-MyCustomDeploy has the anthropic. prefix but uppercase
+    // chars in the name, so it must not be treated as a first-party Bedrock ID.
+    // The [a-z0-9] guard in the pattern only works if the string is NOT lowercased
+    // before calling normalizeForAllowlist().
+    withAllowlist(['sonnet', 'claude-sonnet-4-6'])
+    expect(isModelAllowed('us.anthropic.claude-MyCustomDeploy')).toBe(false)
+    expect(isModelAllowed('anthropic.claude-MyBuild')).toBe(false)
+  })
+
   test('Bedrock model not allowed when specific version restricts the family alias', () => {
     // When allowlist has both "opus" and "opus-4-5", the family wildcard is suppressed
     withAllowlist(['opus', 'opus-4-5'])

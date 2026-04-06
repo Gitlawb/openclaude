@@ -114,6 +114,19 @@ export const call: LocalCommandCall = async (args) => {
     }
     process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
   } else {
+    // Do NOT mutate process.env if a higher-priority source (e.g. policySettings)
+    // is enforcing enablement — deleting the var would bypass that policy for the
+    // lifetime of this process.
+    const overridingSource = findOverridingSource()
+    if (overridingSource) {
+      return {
+        type: 'text',
+        value: chalk.yellow(
+          `Agent teams user setting saved as disabled, but ${overridingSource} is overriding it with CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS enabled. ` +
+            `Remove the env entry from ${overridingSource} to fully disable.`,
+        ),
+      }
+    }
     delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
   }
 

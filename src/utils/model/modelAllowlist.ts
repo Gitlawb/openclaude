@@ -191,7 +191,11 @@ export function isModelAllowed(model: string): boolean {
   }
 
   const resolvedModel = resolveOverriddenModel(model)
-  const normalizedModel = resolvedModel.trim().toLowerCase()
+  // Keep the trimmed-but-original-case string for normalizeForAllowlist so that
+  // the pattern's [a-z0-9] guards against custom deployment names can use
+  // uppercase as a signal. Lowercasing happens *after* normalization.
+  const trimmedModel = resolvedModel.trim()
+  const normalizedModel = trimmedModel.toLowerCase()
   const normalizedAllowlist = availableModels.map(m => m.trim().toLowerCase())
 
   // For provider-specific model IDs, also derive the canonical first-party form
@@ -199,7 +203,9 @@ export function isModelAllowed(model: string): boolean {
   // even when the resolved model carries provider-specific formatting:
   //   Bedrock: "eu.anthropic.claude-sonnet-4-5-v1:0" → "claude-sonnet-4-5"
   //   Vertex:  "claude-sonnet-4-5@20250929"           → "claude-sonnet-4-5"
-  const canonicalModel = normalizeForAllowlist(normalizedModel)
+  // normalizeForAllowlist receives the original-case trimmed string so that
+  // its uppercase-detecting guards work correctly; the result is lowercased here.
+  const canonicalModel = normalizeForAllowlist(trimmedModel).toLowerCase()
 
   // Direct match (alias-to-alias or full-name-to-full-name)
   // Skip family aliases that have been narrowed by specific entries —
