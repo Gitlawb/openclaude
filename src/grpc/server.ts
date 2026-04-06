@@ -21,6 +21,8 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 const protoDescriptor = grpc.loadPackageDefinition(packageDefinition) as any
 const openclaudeProto = protoDescriptor.openclaude.v1
 
+const MAX_SESSIONS = 1000
+
 export class GrpcServer {
   private server: grpc.Server
   private sessions: Map<string, any[]> = new Map()
@@ -57,6 +59,7 @@ export class GrpcServer {
     // Accumulated messages from previous turns for multi-turn context
     let previousMessages: any[] = []
     let sessionId = ''
+    let interrupted = false
 
     call.on('data', async (clientMessage) => {
       try {
@@ -172,21 +175,27 @@ export class GrpcServer {
             }
           }
 
-          // Save messages for multi-turn context in subsequent requests
-          previousMessages = [...engine.getMessages()]
+          if (!interrupted) {
+            // Save messages for multi-turn context in subsequent requests
+            previousMessages = [...engine.getMessages()]
 
-          // Persist to session store for cross-stream resumption
-          if (sessionId) {
-            this.sessions.set(sessionId, previousMessages)
-          }
-
-          call.write({
-            done: {
-              full_text: fullText,
-              prompt_tokens: promptTokens,
-              completion_tokens: completionTokens
+            // Persist to session store for cross-stream resumption
+            if (sessionId) {
+              if (!this.sessions.has(sessionId) && this.sessions.size >= MAX_SESSIONS) {
+                // Evict oldest session (Map preserves insertion order)
+                this.sessions.delete(this.sessions.keys().next().value)
+              }
+              this.sessions.set(sessionId, previousMessages)
             }
-          })
+
+            call.write({
+              done: {
+                full_text: fullText,
+                prompt_tokens: promptTokens,
+                completion_tokens: completionTokens
+              }
+            })
+          }
 
         } else if (clientMessage.input) {
           const promptId = clientMessage.input.prompt_id
@@ -196,6 +205,7 @@ export class GrpcServer {
             pendingRequests.delete(promptId)
           }
         } else if (clientMessage.cancel) {
+          interrupted = true
           if (engine) {
             engine.interrupt()
           }
@@ -214,7 +224,11 @@ export class GrpcServer {
     })
 
     call.on('end', () => {
-      // Client closed the stream — stop any in-progress work
+      interrupted = true
+      // Unblock any pending permission prompts so canUseTool can return
+      for (const resolve of pendingRequests.values()) {
+        resolve('no')
+      }
       if (engine) {
         engine.interrupt()
       }

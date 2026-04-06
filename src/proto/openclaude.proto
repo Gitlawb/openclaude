@@ -28,6 +28,7 @@ message ClientMessage {
 message ChatRequest {
   string message = 1;
   string working_directory = 2; // Where the agent should execute commands
+  reserved 3;                   // Reserved to prevent accidental reuse
   optional string model = 4;
   string session_id = 5;        // Non-empty = cross-stream session persistence
 }
