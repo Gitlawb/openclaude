@@ -50,17 +50,52 @@ export function hasExistingGithubModelsLoginToken(
   return Boolean(persisted)
 }
 
+export function buildGithubOnboardingSettingsEnv(
+  model: string,
+): Record<string, string | undefined> {
+  return {
+    CLAUDE_CODE_USE_GITHUB: '1',
+    OPENAI_MODEL: model,
+    OPENAI_API_KEY: undefined,
+    OPENAI_ORG: undefined,
+    OPENAI_PROJECT: undefined,
+    OPENAI_ORGANIZATION: undefined,
+    OPENAI_BASE_URL: undefined,
+    OPENAI_API_BASE: undefined,
+    CLAUDE_CODE_USE_OPENAI: undefined,
+    CLAUDE_CODE_USE_GEMINI: undefined,
+    CLAUDE_CODE_USE_BEDROCK: undefined,
+    CLAUDE_CODE_USE_VERTEX: undefined,
+    CLAUDE_CODE_USE_FOUNDRY: undefined,
+  }
+}
+
+export function applyGithubOnboardingProcessEnv(
+  model: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  env.CLAUDE_CODE_USE_GITHUB = '1'
+  env.OPENAI_MODEL = model
+
+  delete env.OPENAI_API_KEY
+  delete env.OPENAI_ORG
+  delete env.OPENAI_PROJECT
+  delete env.OPENAI_ORGANIZATION
+  delete env.OPENAI_BASE_URL
+  delete env.OPENAI_API_BASE
+
+  delete env.CLAUDE_CODE_USE_OPENAI
+  delete env.CLAUDE_CODE_USE_GEMINI
+  delete env.CLAUDE_CODE_USE_BEDROCK
+  delete env.CLAUDE_CODE_USE_VERTEX
+  delete env.CLAUDE_CODE_USE_FOUNDRY
+  delete env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+}
+
 function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
   const { error } = updateSettingsForSource('userSettings', {
-    env: {
-      CLAUDE_CODE_USE_GITHUB: '1',
-      OPENAI_MODEL: model,
-      CLAUDE_CODE_USE_OPENAI: undefined as any,
-      CLAUDE_CODE_USE_GEMINI: undefined as any,
-      CLAUDE_CODE_USE_BEDROCK: undefined as any,
-      CLAUDE_CODE_USE_VERTEX: undefined as any,
-      CLAUDE_CODE_USE_FOUNDRY: undefined as any,
-    },
+    env: buildGithubOnboardingSettingsEnv(model) as any,
   })
   if (error) {
     return { ok: false, detail: error.message }
@@ -99,8 +134,7 @@ function OnboardGithub(props: {
         setStep('error')
         return
       }
-      process.env.CLAUDE_CODE_USE_GITHUB = '1'
-      process.env.OPENAI_MODEL = model.trim() || DEFAULT_MODEL
+      applyGithubOnboardingProcessEnv(model.trim() || DEFAULT_MODEL)
       hydrateGithubModelsTokenFromSecureStorage()
       onChangeAPIKey()
       onDone(
