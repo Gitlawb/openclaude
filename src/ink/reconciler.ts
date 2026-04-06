@@ -366,14 +366,12 @@ const reconciler = createReconciler<
   createTextInstance(
     text: string,
     _root: DOMElement,
-    hostContext: HostContext,
+    _hostContext: HostContext,
   ): TextNode {
-    if (!hostContext.isInsideText) {
-      throw new Error(
-        `Text string "${text}" must be rendered inside <Text> component`,
-      )
-    }
-
+    // react-compiler memoization can reuse cached <Text> elements without
+    // re-traversing getChildHostContext, so hostContext.isInsideText may be
+    // stale. Always create the text node — Ink will render it correctly
+    // regardless of the context tracking state.
     return createTextNode(text)
   },
   resetTextContent() {},
@@ -430,8 +428,6 @@ const reconciler = createReconciler<
   supportsMutation: true,
   supportsPersistence: false,
   supportsHydration: false,
-  supportsMicrotasks: true,
-  scheduleMicrotask: queueMicrotask,
   scheduleTimeout: setTimeout,
   cancelTimeout: clearTimeout,
   noTimeout: -1,
