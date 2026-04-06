@@ -5,13 +5,29 @@
  *   - Allowlist validation via isModelAllowed
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { getHardcodedTeammateModelFallback } from '../../utils/swarm/teammateModel.js'
 import { resetSettingsCache, setSessionSettingsCache } from '../../utils/settings/settingsCache.js'
 import { resolveTeammateModel } from './spawnMultiAgent.js'
+
+// Provider env vars that affect getAPIProvider() and therefore model resolution.
+// Cleared before each test so results are deterministic regardless of CI env.
+const PROVIDER_ENV_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'OPENAI_MODEL',
+] as const
 
 // Use test env so getGlobalConfig() returns TEST_GLOBAL_CONFIG_FOR_TESTING
 // (avoids disk reads and gives a predictable default state).
 // Captured and restored to avoid leaking into other test files.
 const originalNodeEnv = process.env.NODE_ENV
+const savedProviderEnv: Partial<Record<(typeof PROVIDER_ENV_KEYS)[number], string | undefined>> = {}
 
 beforeAll(() => {
   process.env.NODE_ENV = 'test'
@@ -33,8 +49,25 @@ function restrictToAllowlist(availableModels: string[]) {
   setSessionSettingsCache({ settings: { availableModels }, errors: [] })
 }
 
-beforeEach(allowAllModels)
-afterEach(resetSettingsCache)
+beforeEach(() => {
+  allowAllModels()
+  for (const key of PROVIDER_ENV_KEYS) {
+    savedProviderEnv[key] = process.env[key]
+    delete process.env[key]
+  }
+})
+
+afterEach(() => {
+  resetSettingsCache()
+  for (const key of PROVIDER_ENV_KEYS) {
+    const val = savedProviderEnv[key]
+    if (val === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = val
+    }
+  }
+})
 
 describe('resolveTeammateModel — inherit behavior', () => {
   test('"inherit" uses the leader model directly', () => {
@@ -54,26 +87,24 @@ describe('resolveTeammateModel — inherit behavior', () => {
 
   test('"inherit" falls back to hardcoded fallback when leaderModel is null', () => {
     const result = resolveTeammateModel('inherit', null)
-    // With firstParty provider, fallback is claude-opus-4-6
-    expect(result).toContain('opus')
+    expect(result).toBe(getHardcodedTeammateModelFallback())
   })
 })
 
 describe('resolveTeammateModel — undefined / whitespace normalization', () => {
   test('undefined inputModel falls back to the hardcoded teammate default', () => {
     const result = resolveTeammateModel(undefined, 'claude-sonnet-4-6')
-    // Default when not configured is getHardcodedTeammateModelFallback() = opus 4.6
-    expect(result).toContain('opus')
+    expect(result).toBe(getHardcodedTeammateModelFallback())
   })
 
   test('empty string normalized to undefined → uses default', () => {
     const result = resolveTeammateModel('', 'claude-sonnet-4-6')
-    expect(result).toContain('opus')
+    expect(result).toBe(getHardcodedTeammateModelFallback())
   })
 
   test('whitespace-only string normalized to undefined → uses default', () => {
     const result = resolveTeammateModel('   ', 'claude-sonnet-4-6')
-    expect(result).toContain('opus')
+    expect(result).toBe(getHardcodedTeammateModelFallback())
   })
 })
 
