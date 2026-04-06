@@ -6,13 +6,16 @@ import type { SettingSource } from '../../utils/settings/constants.js'
 import type { LocalCommandCall } from '../../types/command.js'
 
 /**
- * Sources that override userSettings, in priority order.
+ * Sources that override userSettings, in descending priority order.
+ * Listed highest-priority first so findOverridingSource() reports the
+ * most authoritative source when multiple sources set the env var.
+ * Priority: policySettings > flagSettings > localSettings > projectSettings > userSettings
  */
 const HIGHER_PRIORITY_SOURCES: SettingSource[] = [
-  'projectSettings',
-  'localSettings',
-  'flagSettings',
   'policySettings',
+  'flagSettings',
+  'localSettings',
+  'projectSettings',
 ]
 
 /**

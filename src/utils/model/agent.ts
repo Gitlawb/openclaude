@@ -66,7 +66,7 @@ export function getAgentModel(
   // so operators can force an arbitrary model string, but it still goes through
   // the org-level availableModels allowlist to prevent unintentional policy bypass
   // in enterprise deployments (where users can set env vars via settings).
-  if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
+  if (process.env.CLAUDE_CODE_SUBAGENT_MODEL !== undefined) {
     const envSpec = process.env.CLAUDE_CODE_SUBAGENT_MODEL.trim()
     if (envSpec === '') {
       throw new Error(
@@ -106,7 +106,7 @@ export function getAgentModel(
   }
 
   // Prioritize tool-specified model if provided
-  if (toolSpecifiedModel) {
+  if (toolSpecifiedModel !== undefined) {
     const spec = toolSpecifiedModel.trim()
     if (spec === '') {
       throw new Error(
