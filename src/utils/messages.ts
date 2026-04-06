@@ -2223,10 +2223,12 @@ export function normalizeMessagesForAPI(
 
                   // When tool search is enabled, preserve all fields including 'caller'
                   if (toolSearchEnabled) {
+                    const { extra_content, ...restBlock } = block as any
                     return {
-                      ...block,
+                      ...restBlock,
                       name: canonicalName,
                       input: normalizedInput,
+                      ...(getAPIProvider() === 'gemini' && extra_content ? { extra_content } : {})
                     }
                   }
 
