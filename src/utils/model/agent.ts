@@ -7,6 +7,7 @@ import {
   getRuntimeMainLoopModel,
   parseUserSpecifiedModel,
 } from './model.js'
+import { getModelOptions } from './modelOptions.js'
 import { getAPIProvider } from './providers.js'
 
 export const AGENT_MODEL_OPTIONS = [...MODEL_ALIASES, 'inherit'] as const
@@ -24,6 +25,40 @@ export type AgentModelOption = {
  */
 export function getDefaultSubagentModel(): string {
   return 'inherit'
+}
+
+/**
+ * Validate that a resolved model is in the list of available models
+ * (the same list shown by /models). Throws if the model is not allowed.
+ *
+ * Compares using canonical names so that region prefixes, casing, and
+ * version suffixes don't cause false negatives.
+ */
+function validateResolvedAgentModel(resolvedModel: string): void {
+  const options = getModelOptions()
+  const resolvedCanonical = getCanonicalName(resolvedModel)
+
+  for (const opt of options) {
+    if (opt.value === null) continue
+    // Compare the resolved model against both the raw option value and its
+    // parsed form so aliases like "sonnet" match their resolved model ID.
+    const optCanonical = getCanonicalName(opt.value)
+    if (optCanonical === resolvedCanonical) return
+
+    const optResolved = parseUserSpecifiedModel(opt.value)
+    const optResolvedCanonical = getCanonicalName(optResolved)
+    if (optResolvedCanonical === resolvedCanonical) return
+  }
+
+  const availableModels = options
+    .filter(o => o.value !== null)
+    .map(o => o.value)
+    .join(', ')
+  throw new Error(
+    `Model "${resolvedModel}" is not available. ` +
+      `Use one of the available models: ${availableModels}. ` +
+      `Run /model to see and select from all available models.`,
+  )
 }
 
 /**
@@ -72,7 +107,9 @@ export function getAgentModel(
       return parentModel
     }
     const model = parseUserSpecifiedModel(toolSpecifiedModel)
-    return applyParentRegionPrefix(model, toolSpecifiedModel)
+    const resolved = applyParentRegionPrefix(model, toolSpecifiedModel)
+    validateResolvedAgentModel(resolved)
+    return resolved
   }
 
   const agentModelWithExp = agentModel ?? getDefaultSubagentModel()
@@ -91,7 +128,9 @@ export function getAgentModel(
     return parentModel
   }
   const model = parseUserSpecifiedModel(agentModelWithExp)
-  return applyParentRegionPrefix(model, agentModelWithExp)
+  const resolved = applyParentRegionPrefix(model, agentModelWithExp)
+  validateResolvedAgentModel(resolved)
+  return resolved
 }
 
 /**
