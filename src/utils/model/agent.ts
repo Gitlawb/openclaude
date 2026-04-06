@@ -62,12 +62,14 @@ export function getAgentModel(
   permissionMode?: PermissionMode,
 ): string {
   // CLAUDE_CODE_SUBAGENT_MODEL is an escape-hatch env var intended for
-  // debugging / local development. It intentionally bypasses the org-level
-  // availableModels allowlist (validateResolvedAgentModel) and Bedrock
-  // region-prefix inheritance so that operators can force an arbitrary
-  // model without being blocked by policy restrictions.
+  // debugging / local development. It skips Bedrock region-prefix inheritance
+  // so operators can force an arbitrary model string, but it still goes through
+  // the org-level availableModels allowlist to prevent unintentional policy bypass
+  // in enterprise deployments (where users can set env vars via settings).
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
-    return parseUserSpecifiedModel(process.env.CLAUDE_CODE_SUBAGENT_MODEL)
+    const resolved = parseUserSpecifiedModel(process.env.CLAUDE_CODE_SUBAGENT_MODEL)
+    validateResolvedAgentModel(resolved)
+    return resolved
   }
 
   // Extract Bedrock region prefix from parent model to inherit for subagents.
@@ -94,21 +96,31 @@ export function getAgentModel(
 
   // Prioritize tool-specified model if provided
   if (toolSpecifiedModel) {
-    if (toolSpecifiedModel.trim().toLowerCase() === 'inherit') {
+    const spec = toolSpecifiedModel.trim()
+    if (spec === '') {
+      throw new Error(
+        `Model override must not be an empty or whitespace-only string. Omit the model parameter to inherit the parent model.`,
+      )
+    }
+    if (spec.toLowerCase() === 'inherit') {
       throw new Error(
         `"inherit" is not a valid model override. Omit the model parameter to inherit the parent model.`,
       )
     }
-    if (aliasMatchesParentTier(toolSpecifiedModel, parentModel)) {
+    if (aliasMatchesParentTier(spec, parentModel)) {
       return parentModel
     }
-    const model = parseUserSpecifiedModel(toolSpecifiedModel)
-    const resolved = applyParentRegionPrefix(model, toolSpecifiedModel)
+    const model = parseUserSpecifiedModel(spec)
+    const resolved = applyParentRegionPrefix(model, spec)
     validateResolvedAgentModel(resolved)
     return resolved
   }
 
-  const agentModelWithExp = agentModel ?? getDefaultSubagentModel()
+  // Normalize agentModel: treat blank/whitespace-only as unset so it falls
+  // back to the default ('inherit'). Throw early for non-empty invalid values
+  // rather than letting parseUserSpecifiedModel silently produce ''.
+  const agentModelNormalized = agentModel?.trim() || undefined
+  const agentModelWithExp = agentModelNormalized ?? getDefaultSubagentModel()
 
   if (agentModelWithExp === 'inherit') {
     // Apply runtime model resolution for inherit to get the effective model
