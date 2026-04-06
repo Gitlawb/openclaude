@@ -79,12 +79,12 @@ export function applyProviderFlag(
     }
   }
 
-  process.env.CLAUDE_CODE_USE_OPENAI = undefined
-  process.env.CLAUDE_CODE_USE_GEMINI = undefined
-  process.env.CLAUDE_CODE_USE_MISTRAL = undefined
-  process.env.CLAUDE_CODE_USE_GITHUB = undefined
-  process.env.CLAUDE_CODE_USE_BEDROCK = undefined
-  process.env.CLAUDE_CODE_USE_VERTEX = undefined
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
 
   const model = parseModelFlag(args)
 
