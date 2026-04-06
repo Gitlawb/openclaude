@@ -1,48 +1,4 @@
-import { describe, expect, it, mock, beforeEach } from 'bun:test'
-import { renderToString } from '../utils/staticRender.js'
-
-// Mock modules before importing ThemePicker
-mock.module('../ink.js', () => ({
-  useTheme: () => ['dark', () => {}],
-  useThemeSetting: () => 'dark',
-  usePreviewTheme: () => ({
-    setPreviewTheme: mock(),
-    savePreview: mock(),
-    cancelPreview: mock(),
-  }),
-  useTerminalSize: () => ({ columns: 80, rows: 24 }),
-  Box: 'Box',
-  Text: 'Text',
-}))
-
-mock.module('../hooks/useExitOnCtrlCDWithKeybindings.js', () => ({
-  useExitOnCtrlCDWithKeybindings: () => ({ pending: false, keyName: 'Ctrl+C' }),
-}))
-
-mock.module('../keybindings/KeybindingContext.js', () => ({
-  useRegisterKeybindingContext: mock(),
-}))
-
-mock.module('../keybindings/useKeybinding.js', () => ({
-  useKeybinding: mock(),
-}))
-
-mock.module('../keybindings/useShortcutDisplay.js', () => ({
-  useShortcutDisplay: () => 'Ctrl+T',
-}))
-
-mock.module('../state/AppState.js', () => ({
-  useAppState: () => ({ settings: { syntaxHighlightingDisabled: false } }),
-  useSetAppState: () => mock(),
-}))
-
-mock.module('../utils/gracefulShutdown.js', () => ({
-  gracefulShutdown: mock(),
-}))
-
-mock.module('../utils/settings/settings.js', () => ({
-  updateSettingsForSource: mock(),
-}))
+import { describe, expect, it, mock } from 'bun:test'
 
 // We can't fully render ThemePicker due to complex dependencies
 // But we can test the theme options generation logic
