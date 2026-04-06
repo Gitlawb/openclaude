@@ -64,6 +64,16 @@ export class GrpcServer {
     call.on('data', async (clientMessage) => {
       try {
         if (clientMessage.request) {
+          if (engine) {
+            call.write({
+              error: {
+                message: 'A request is already in progress on this stream',
+                code: 'ALREADY_EXISTS'
+              }
+            })
+            return
+          }
+          interrupted = false
           const req = clientMessage.request
           sessionId = req.session_id || ''
           previousMessages = []
@@ -197,6 +207,8 @@ export class GrpcServer {
               }
             })
           }
+
+          engine = null
 
         } else if (clientMessage.input) {
           const promptId = clientMessage.input.prompt_id
