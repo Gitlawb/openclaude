@@ -24,6 +24,7 @@ import { getCwd } from '../../utils/cwd.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { errorMessage } from '../../utils/errors.js'
 import { execFileNoThrow } from '../../utils/execFileNoThrow.js'
+import { isModelAllowed } from '../../utils/model/modelAllowlist.js'
 import { parseUserSpecifiedModel } from '../../utils/model/model.js'
 import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
 import { isTmuxAvailable } from '../../utils/swarm/backends/detection.js'
@@ -90,16 +91,33 @@ function getDefaultTeammateModel(leaderModel: string | null): string {
  * have access". If leader model is null (not yet set), falls through to the
  * default.
  *
+ * Also validates the resolved model against the org-level availableModels
+ * allowlist, consistent with getAgentModel() validation for normal subagents.
+ *
  * Exported for testing.
  */
 export function resolveTeammateModel(
   inputModel: string | undefined,
   leaderModel: string | null,
 ): string {
-  if (inputModel === 'inherit') {
-    return leaderModel ?? getDefaultTeammateModel(leaderModel)
+  // Normalize: treat whitespace-only as unset
+  const spec = inputModel?.trim() || undefined
+
+  let resolved: string
+  if (spec === undefined || spec.toLowerCase() === 'inherit') {
+    resolved = leaderModel ?? getDefaultTeammateModel(leaderModel)
+  } else {
+    resolved = parseUserSpecifiedModel(spec)
   }
-  return inputModel ?? getDefaultTeammateModel(leaderModel)
+
+  if (!isModelAllowed(resolved)) {
+    throw new Error(
+      `Model "${resolved}" is not allowed by your organization's model policy. ` +
+        `Run /model to see the allowed models.`,
+    )
+  }
+
+  return resolved
 }
 
 // ============================================================================
