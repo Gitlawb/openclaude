@@ -79,28 +79,31 @@ test('GEMINI takes precedence over GitHub when both are set', async () => {
   expect(getAPIProvider()).toBe('gemini')
 })
 
-test('explicit local openai-compatible base URLs stay on the openai provider', () => {
+test('explicit local openai-compatible base URLs stay on the openai provider', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8080/v1'
   process.env.OPENAI_MODEL = 'gpt-5.4'
 
+  const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('openai')
 })
 
-test('codex aliases still resolve to the codex provider without a non-codex base URL', () => {
+test('codex aliases still resolve to the codex provider without a non-codex base URL', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_MODEL = 'codexplan'
 
+  const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('codex')
 })
 
-test('official OpenAI base URLs now keep provider detection on openai for aliases', () => {
+test('official OpenAI base URLs now keep provider detection on openai for aliases', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_MODEL = 'gpt-5.4'
 
+  const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('openai')
 })
