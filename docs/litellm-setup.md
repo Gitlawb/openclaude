@@ -74,9 +74,11 @@ Replace `<your-litellm-model-alias>` with a model name from your `litellm_config
 1. Run `openclaude`
 2. Type `/provider` to open the provider setup flow
 3. Choose the **OpenAI-compatible** option
-4. When prompted for the base URL, enter `http://localhost:4000`
-5. Enter your model alias as the model name
-6. Save the profile
+4. When prompted for the API key, enter the key required by your LiteLLM proxy
+5.    - If your local LiteLLM setup does not enforce auth, you may still need to enter a placeholder value
+      - 5. When prompted for the base URL, enter `http://localhost:4000`
+        6. 6. When prompted for the model, enter the LiteLLM model name or alias you configured
+           7. 7. Save the provider configuration
 
 ## 3. Example LiteLLM Configs
 
