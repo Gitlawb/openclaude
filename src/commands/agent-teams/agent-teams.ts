@@ -29,14 +29,8 @@ export const call: LocalCommandCall = async (args) => {
     }
   }
 
-  // Update process.env for immediate effect this session
-  if (enable) {
-    process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
-  } else {
-    delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
-  }
-
-  // Persist in user settings so it survives restarts
+  // Persist in user settings first; only update process.env if the write succeeds
+  // to avoid leaving runtime state out of sync when the settings file is corrupt.
   const result = updateSettingsForSource('userSettings', {
     env: {
       CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: enable ? '1' : '0',
@@ -48,6 +42,13 @@ export const call: LocalCommandCall = async (args) => {
       type: 'text',
       value: chalk.red(`Failed to update settings: ${result.error.message}`),
     }
+  }
+
+  // Settings write succeeded — now apply to current session
+  if (enable) {
+    process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
+  } else {
+    delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
   }
 
   // Re-check actual runtime state after applying the toggle.
