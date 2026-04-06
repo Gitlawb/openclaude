@@ -576,6 +576,7 @@ export type GlobalConfig = {
 
   // Additional model options for the model picker (fetched during bootstrap).
   additionalModelOptionsCache?: ModelOption[]
+  additionalModelOptionsCacheScope?: string
 
   // Additional model options discovered from OpenAI-compatible endpoints.
   openaiAdditionalModelOptionsCache?: ModelOption[]

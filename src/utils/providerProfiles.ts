@@ -37,6 +37,7 @@ export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
 const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434/v1'
 const DEFAULT_OLLAMA_MODEL = 'llama3.1:8b'
 const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
+const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
 
 function trimValue(value: string | undefined): string {
   return value?.trim() ?? ''
@@ -264,6 +265,23 @@ function hasProviderSelectionFlags(
   )
 }
 
+function hasConflictingProviderFlagsForProfile(
+  processEnv: NodeJS.ProcessEnv,
+  profile: ProviderProfile,
+): boolean {
+  if (profile.provider === 'anthropic') {
+    return hasProviderSelectionFlags(processEnv)
+  }
+
+  return (
+    processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
+    processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
+    processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
+    processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
+    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+  )
+}
+
 function sameOptionalEnvValue(
   left: string | undefined,
   right: string | undefined,
@@ -281,6 +299,10 @@ function isProcessEnvAlignedWithProfile(
   const includeApiKey = options?.includeApiKey ?? true
 
   if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
+    return false
+  }
+
+  if (trimOrUndefined(processEnv[PROFILE_ENV_APPLIED_ID]) !== profile.id) {
     return false
   }
 
@@ -339,11 +361,13 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.ANTHROPIC_MODEL
   delete processEnv.ANTHROPIC_API_KEY
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
+  delete processEnv[PROFILE_ENV_APPLIED_ID]
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
   clearProviderProfileEnvFromProcessEnv()
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
+  process.env[PROFILE_ENV_APPLIED_ID] = profile.id
 
   process.env.ANTHROPIC_MODEL = profile.model
   if (profile.provider === 'anthropic') {
@@ -386,11 +410,23 @@ export function applyActiveProviderProfileFromConfig(
     return undefined
   }
 
+  const isCurrentEnvProfileManaged =
+    processEnv[PROFILE_ENV_APPLIED_FLAG] === '1' &&
+    trimOrUndefined(processEnv[PROFILE_ENV_APPLIED_ID]) === activeProfile.id
+
   if (!options?.force && hasProviderSelectionFlags(processEnv)) {
-    // Respect explicit startup provider intent. Re-apply only when the
-    // current process env is already profile-managed and aligned.
-    if (!isProcessEnvAlignedWithProfile(processEnv, activeProfile)) {
+    // Respect explicit startup provider intent. Auto-heal only when this
+    // exact active profile previously applied the current env.
+    if (!isCurrentEnvProfileManaged) {
       return undefined
+    }
+
+    if (hasConflictingProviderFlagsForProfile(processEnv, activeProfile)) {
+      return undefined
+    }
+
+    if (isProcessEnvAlignedWithProfile(processEnv, activeProfile)) {
+      return activeProfile
     }
   }
 
@@ -494,6 +530,61 @@ export function updateProviderProfile(
   }
 
   return updatedProfile
+}
+
+export function persistActiveProviderProfileModel(
+  model: string,
+): ProviderProfile | null {
+  const nextModel = trimOrUndefined(model)
+  if (!nextModel) {
+    return null
+  }
+
+  const activeProfile = getActiveProviderProfile()
+  if (!activeProfile) {
+    return null
+  }
+
+  saveGlobalConfig(current => {
+    const currentProfiles = getProviderProfiles(current)
+    const profileIndex = currentProfiles.findIndex(
+      profile => profile.id === activeProfile.id,
+    )
+
+    if (profileIndex < 0) {
+      return current
+    }
+
+    const currentProfile = currentProfiles[profileIndex]
+    if (currentProfile.model === nextModel) {
+      return current
+    }
+
+    const nextProfiles = [...currentProfiles]
+    nextProfiles[profileIndex] = {
+      ...currentProfile,
+      model: nextModel,
+    }
+
+    return {
+      ...current,
+      providerProfiles: nextProfiles,
+    }
+  })
+
+  const resolvedProfile = getActiveProviderProfile()
+  if (!resolvedProfile || resolvedProfile.id !== activeProfile.id) {
+    return null
+  }
+
+  if (
+    process.env[PROFILE_ENV_APPLIED_FLAG] === '1' &&
+    trimOrUndefined(process.env[PROFILE_ENV_APPLIED_ID]) === resolvedProfile.id
+  ) {
+    applyProviderProfileToProcessEnv(resolvedProfile)
+  }
+
+  return resolvedProfile
 }
 
 export function setActiveProviderProfile(

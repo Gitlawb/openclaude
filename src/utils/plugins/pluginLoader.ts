@@ -3045,22 +3045,61 @@ export function mergePluginSources(sources: {
   })
 
   const sessionNames = new Set(sessionPlugins.map(p => p.name))
-  const marketplacePlugins = sources.marketplace.filter(p => {
-    if (sessionNames.has(p.name)) {
+  // Different marketplaces can enable the same short plugin name, but
+  // downstream command/skill loading scopes by plugin.name.
+  const marketplacePluginsByName = new Map<string, LoadedPlugin>()
+  for (const plugin of sources.marketplace) {
+    if (sessionNames.has(plugin.name)) {
       logForDebugging(
-        `Plugin "${p.name}" from --plugin-dir overrides installed version`,
+        `Plugin "${plugin.name}" from --plugin-dir overrides installed version`,
       )
-      return false
+      continue
     }
-    return true
-  })
+    const existing = marketplacePluginsByName.get(plugin.name)
+    if (!existing) {
+      marketplacePluginsByName.set(plugin.name, plugin)
+      continue
+    }
+
+    const winner = selectMarketplacePlugin(existing, plugin)
+    const dropped = winner === existing ? plugin : existing
+    marketplacePluginsByName.set(plugin.name, winner)
+
+    logForDebugging(
+      `Ignoring duplicate marketplace plugin "${plugin.name}" from ${dropped.source}; using ${winner.source}`,
+      { level: 'warn' },
+    )
+    if (existing.enabled && plugin.enabled) {
+      errors.push({
+        type: 'generic-error',
+        source: dropped.source,
+        plugin: plugin.name,
+        error: `Duplicate marketplace plugin "${plugin.name}" ignored: using "${winner.source}" and skipping "${dropped.source}" to avoid short-name collisions`,
+      })
+    }
+  }
   // Session first, then non-overridden marketplace, then builtin.
   // Downstream first-match consumers see session plugins before
   // installed ones for any that slipped past the name filter.
   return {
-    plugins: [...sessionPlugins, ...marketplacePlugins, ...sources.builtin],
+    plugins: [
+      ...sessionPlugins,
+      ...marketplacePluginsByName.values(),
+      ...sources.builtin,
+    ],
     errors,
   }
+}
+
+function selectMarketplacePlugin(
+  current: LoadedPlugin,
+  candidate: LoadedPlugin,
+): LoadedPlugin {
+  if (current.enabled !== candidate.enabled) {
+    return candidate.enabled ? candidate : current
+  }
+
+  return candidate
 }
 
 /**
