@@ -202,6 +202,14 @@ function convertContentBlocks(
   return parts
 }
 
+function isGeminiMode(): boolean {
+  return (
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
+    (process.env.OPENAI_BASE_URL?.includes('generativelanguage.googleapis.com') ??
+      false)
+  )
+}
+
 function convertMessages(
   messages: Array<{ role: string; message?: { role?: string; content?: unknown }; content?: unknown }>,
   system: unknown,
@@ -253,6 +261,7 @@ function convertMessages(
       // Check for tool_use blocks
       if (Array.isArray(content)) {
         const toolUses = content.filter((b: { type?: string }) => b.type === 'tool_use')
+        const thinkingBlock = content.find((b: { type?: string }) => b.type === 'thinking')
         const textContent = content.filter(
           (b: { type?: string }) => b.type !== 'tool_use' && b.type !== 'thinking',
         )
@@ -272,18 +281,46 @@ function convertMessages(
               name?: string
               input?: unknown
               extra_content?: Record<string, unknown>
-            }) => ({
-              id: tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`,
-              type: 'function' as const,
-              function: {
-                name: tu.name ?? 'unknown',
-                arguments:
-                  typeof tu.input === 'string'
-                    ? tu.input
-                    : JSON.stringify(tu.input ?? {}),
-              },
-              ...(tu.extra_content ? { extra_content: tu.extra_content } : {}),
-            }),
+              signature?: string
+            }, index) => {
+              const toolCall: NonNullable<OpenAIMessage['tool_calls']>[number] = {
+                id: tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`,
+                type: 'function' as const,
+                function: {
+                  name: tu.name ?? 'unknown',
+                  arguments:
+                    typeof tu.input === 'string'
+                      ? tu.input
+                      : JSON.stringify(tu.input ?? {}),
+                },
+              }
+
+              // Preserve existing extra_content if present
+              if (tu.extra_content) {
+                toolCall.extra_content = { ...tu.extra_content }
+              }
+
+              // Handle Gemini thought_signature
+              if (isGeminiMode()) {
+                // If the model provided a signature in the tool_use block itself (e.g. from a previous Turn/Step)
+                // Use thinkingBlock.signature for ALL tool calls in the same assistant turn if available.
+                // The API requires the same signature on every replayed function call part in a parallel set.
+                const signature = tu.signature ?? (thinkingBlock as any)?.signature
+
+                // Merge into existing google-specific metadata if present
+                const existingGoogle = (toolCall.extra_content?.google as Record<string, unknown>) ?? {}
+
+                toolCall.extra_content = {
+                  ...toolCall.extra_content,
+                  google: {
+                    ...existingGoogle,
+                    thought_signature: signature ?? "skip_thought_signature_validator"
+                  }
+                }
+              }
+
+              return toolCall
+            },
           )
         }
 
@@ -402,7 +439,7 @@ function normalizeSchemaForOpenAI(
 function convertTools(
   tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
 ): OpenAITool[] {
-  const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  const isGemini = isGeminiMode()
 
   return tools
     .filter(t => t.name !== 'ToolSearchTool') // Not relevant for OpenAI
@@ -598,6 +635,13 @@ async function* openaiStreamToAnthropic(
                   name: tc.function.name,
                   input: {},
                   ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
+                  // Extract Gemini signature from extra_content
+                  ...((tc.extra_content?.google as any)?.thought_signature
+                    ? {
+                        signature: (tc.extra_content.google as any)
+                          .thought_signature,
+                      }
+                    : {}),
                 },
               }
               contentBlockIndex++
@@ -1104,6 +1148,10 @@ class OpenAIShimMessages {
           name: tc.function.name,
           input,
           ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
+          // Extract Gemini signature from extra_content
+          ...((tc.extra_content?.google as any)?.thought_signature
+            ? { signature: (tc.extra_content.google as any).thought_signature }
+            : {}),
         })
       }
     }
