@@ -42,6 +42,16 @@ type ToolOutput = Tool['outputSchema']
 
 const MCP_COMMANDS: Command[] = [review]
 
+export function getCombinedTools(
+  builtins: InternalTool[],
+  mcpTools: InternalTool[],
+): InternalTool[] {
+  const mcpToolNames = new Set(mcpTools.map(t => t.name))
+  const deduplicatedBuiltins = builtins.filter(t => !mcpToolNames.has(t.name))
+
+  return [...mcpTools, ...deduplicatedBuiltins]
+}
+
 export async function startMCPServer(
   cwd: string,
   debug: boolean,
@@ -81,7 +91,7 @@ export async function startMCPServer(
     ListToolsRequestSchema,
     async (): Promise<ListToolsResult> => {
       const toolPermissionContext = getEmptyToolPermissionContext()
-      const tools = [...getTools(toolPermissionContext), ...mcpTools]
+      const tools = getCombinedTools(getTools(toolPermissionContext), mcpTools)
       return {
         tools: await Promise.all(
           tools.map(async tool => {
@@ -120,7 +130,7 @@ export async function startMCPServer(
     CallToolRequestSchema,
     async ({ params: { name, arguments: args } }): Promise<CallToolResult> => {
       const toolPermissionContext = getEmptyToolPermissionContext()
-      const tools = [...getTools(toolPermissionContext), ...mcpTools]
+      const tools = getCombinedTools(getTools(toolPermissionContext), mcpTools)
       const tool = findToolByName(tools, name)
       if (!tool) {
         throw new Error(`Tool ${name} not found`)
