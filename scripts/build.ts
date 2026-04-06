@@ -3,7 +3,7 @@
  * distributable JS file using Bun's bundler.
  *
  * Handles:
- * - bun:bundle feature() flags → all false (disables internal-only features)
+ * - bun:bundle feature() flags for the open build
  * - MACRO.* globals → inlined version/build-time constants
  * - src/ path aliases
  */
@@ -14,8 +14,9 @@ import { noTelemetryPlugin } from './no-telemetry-plugin'
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const version = pkg.version
 
-// Feature flags — all disabled for the open build.
-// These gate Anthropic-internal features (voice, proactive, kairos, etc.)
+// Feature flags for the open build.
+// Most Anthropic-internal features stay off; open-build features can be
+// selectively enabled here when their full source exists in the mirror.
 const featureFlags: Record<string, boolean> = {
   VOICE_MODE: false,
   PROACTIVE: false,
@@ -37,7 +38,7 @@ const featureFlags: Record<string, boolean> = {
   TRANSCRIPT_CLASSIFIER: false,
   WEB_BROWSER_TOOL: false,
   MESSAGE_ACTIONS: false,
-  BUDDY: false,
+  BUDDY: true,
   CHICAGO_MCP: false,
   COWORKER_TYPE_TELEMETRY: false,
 }
@@ -110,7 +111,7 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
         build.onLoad(
           { filter: /.*/, namespace: 'bun-bundle-shim' },
           () => ({
-            contents: `export function feature(name) { return false; }`,
+            contents: `const featureFlags = ${JSON.stringify(featureFlags)};\nexport function feature(name) { return featureFlags[name] ?? false; }`,
             loader: 'js',
           }),
         )

@@ -711,7 +711,7 @@ export class FirstPartyEventLoggingExporter implements LogRecordExporter {
         eventMetadata,
       )
 
-      // _PROTO_* keys are PII-tagged values meant only for privileged BQ
+      // _PROTO_* keys are PII-tagged values meinternal only for privileged BQ
       // columns. Hoist known keys to proto fields, then defensively strip any
       // remaining _PROTO_* so an unrecognized future key can't silently land
       // in the general-access additional_metadata blob. sink.ts applies the

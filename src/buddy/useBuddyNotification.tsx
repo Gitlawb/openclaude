@@ -1,10 +1,10 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
 import React, { useEffect } from 'react';
 import { useNotifications } from '../context/notifications.js';
 import { Text } from '../ink.js';
 import { getGlobalConfig } from '../utils/config.js';
 import { getRainbowColor } from '../utils/thinking.js';
+import { isBuddyEnabled } from './feature.js';
 
 // Local date, not UTC — 24h rolling wave across timezones. Sustained Twitter
 // buzz instead of a single UTC-midnight spike, gentler on soul-gen load.
@@ -50,7 +50,7 @@ export function useBuddyNotification() {
   let t1;
   if ($[0] !== addNotification || $[1] !== removeNotification) {
     t0 = () => {
-      if (!feature("BUDDY")) {
+      if (!isBuddyEnabled()) {
         return;
       }
       const config = getGlobalConfig();
@@ -80,7 +80,7 @@ export function findBuddyTriggerPositions(text: string): Array<{
   start: number;
   end: number;
 }> {
-  if (!feature('BUDDY')) return [];
+  if (!isBuddyEnabled()) return [];
   const triggers: Array<{
     start: number;
     end: number;

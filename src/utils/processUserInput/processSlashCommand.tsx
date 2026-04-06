@@ -274,7 +274,7 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
 
   // Prepend debug log for ant users so it appears inside the command output
   if ("external" === 'ant') {
-    resultText = `[ANT-ONLY] API calls: ${getDisplayPath(getDumpPromptsPath(agentId))}\n${resultText}`;
+    resultText = `[internal] API calls: ${getDisplayPath(getDumpPromptsPath(agentId))}\n${resultText}`;
   }
 
   // Return the result as a user message (simulates the agent's output)

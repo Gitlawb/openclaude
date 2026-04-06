@@ -1,6 +1,5 @@
 
 import { expect, test, mock, describe, beforeEach, afterEach } from "bun:test";
-import { getSecureStorage } from "./index.js";
 import { linuxSecretStorage } from "./linuxSecretStorage.js";
 import { windowsCredentialStorage } from "./windowsCredentialStorage.js";
 import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
@@ -133,24 +132,31 @@ describe("Secure Storage Platform Implementations", () => {
   describe("Platform Selection", () => {
     const originalPlatform = process.platform;
 
+    async function importFreshSecureStorage() {
+      return import(`./index.js?ts=${Date.now()}-${Math.random()}`);
+    }
+
     afterEach(() => {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     });
 
-    test("darwin returns keychain with fallback", () => {
+    test("darwin returns keychain with fallback", async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin' });
+      const { getSecureStorage } = await importFreshSecureStorage();
       const storage = getSecureStorage();
       expect(storage.name).toContain("keychain");
     });
 
-    test("linux returns libsecret with fallback", () => {
+    test("linux returns libsecret with fallback", async () => {
       Object.defineProperty(process, 'platform', { value: 'linux' });
+      const { getSecureStorage } = await importFreshSecureStorage();
       const storage = getSecureStorage();
       expect(storage.name).toContain("libsecret");
     });
 
-    test("win32 returns credential-locker with fallback", () => {
+    test("win32 returns credential-locker with fallback", async () => {
       Object.defineProperty(process, 'platform', { value: 'win32' });
+      const { getSecureStorage } = await importFreshSecureStorage();
       const storage = getSecureStorage();
       expect(storage.name).toContain("credential-locker");
     });

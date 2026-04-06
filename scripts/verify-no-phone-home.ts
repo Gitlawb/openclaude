@@ -9,6 +9,10 @@ const BANNED_PATTERNS = [
   '/var/run/secrets/kubernetes',
   '/proc/self/mountinfo',
   'tengu_internal_record_permission_context',
+  'anthropic-serve',
+  'infra.ant.dev',
+  'claude-code-feedback',
+  'C07VBSHV7EV',
 ] as const
 
 if (!existsSync(DIST)) {

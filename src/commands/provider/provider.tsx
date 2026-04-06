@@ -15,6 +15,7 @@ import { Box, Text } from '../../ink.js'
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
+  isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
@@ -52,7 +53,11 @@ import {
   recommendOllamaModel,
   type RecommendationGoal,
 } from '../../utils/providerRecommendation.js'
-import { hasLocalOllama, listOllamaModels } from '../../utils/providerDiscovery.js'
+import {
+  getLocalOpenAICompatibleProviderLabel,
+  hasLocalOllama,
+  listOllamaModels,
+} from '../../utils/providerDiscovery.js'
 
 type ProviderChoice = 'auto' | ProviderProfile | 'clear'
 
@@ -182,10 +187,8 @@ export function buildCurrentProviderSummary(options?: {
     let providerLabel = 'OpenAI-compatible'
     if (request.transport === 'codex_responses') {
       providerLabel = 'Codex'
-    } else if (request.baseUrl.includes('localhost:11434')) {
-      providerLabel = 'Ollama'
-    } else if (request.baseUrl.includes('localhost:1234')) {
-      providerLabel = 'LM Studio'
+    } else if (isLocalProviderUrl(request.baseUrl)) {
+      providerLabel = getLocalOpenAICompatibleProviderLabel(request.baseUrl)
     }
 
     return {
@@ -272,16 +275,20 @@ function buildSavedProfileSummary(
         ),
       }
     case 'openai':
-    default:
+    default: {
+      const baseUrl = env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL
+
       return {
-        providerLabel: 'OpenAI-compatible',
+        providerLabel: isLocalProviderUrl(baseUrl)
+          ? getLocalOpenAICompatibleProviderLabel(baseUrl)
+          : 'OpenAI-compatible',
         modelLabel: getSafeDisplayValue(
           env.OPENAI_MODEL ?? 'gpt-4o',
           process.env,
           env,
         ),
         endpointLabel: getSafeDisplayValue(
-          env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL,
+          baseUrl,
           process.env,
           env,
         ),
@@ -290,6 +297,7 @@ function buildSavedProfileSummary(
             ? 'configured'
             : undefined,
       }
+    }
   }
 }
 

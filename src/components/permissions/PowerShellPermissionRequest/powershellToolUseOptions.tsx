@@ -39,7 +39,7 @@ export function powershellToolUseOptions({
   }
 
   // Note: No sandbox toggle for PowerShell - sandbox is not supported on Windows
-  // Note: No classifier-reviewed option for PowerShell (ANT-ONLY feature for Bash)
+  // Note: No classifier-reviewed option for PowerShell (internal-only feature for Bash)
 
   // Only show "always allow" options when not restricted by allowManagedPermissionRulesOnly.
   // Prefer the editable prefix input (static extractor + user edits) over the

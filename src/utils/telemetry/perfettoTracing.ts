@@ -4,7 +4,7 @@
  * This module generates traces in the Chrome Trace Event format that can be
  * viewed in ui.perfetto.dev or Chrome's chrome://tracing.
  *
- * NOTE: This feature is ant-only and eliminated from external builds.
+ * NOTE: This feature is internal-only and eliminated from external builds.
  *
  * The trace file includes:
  * - Agent hierarchy (parent-child relationships in a swarm)

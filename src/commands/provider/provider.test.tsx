@@ -197,6 +197,21 @@ test('buildProfileSaveMessage maps provider fields without echoing secrets', () 
   expect(message).not.toContain('sk-secret-12345678')
 })
 
+test('buildProfileSaveMessage labels local openai-compatible profiles consistently', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_MODEL: 'gpt-5.4',
+      OPENAI_BASE_URL: 'http://127.0.0.1:8080/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved Local OpenAI-compatible profile.')
+  expect(message).toContain('Model: gpt-5.4')
+  expect(message).toContain('Endpoint: http://127.0.0.1:8080/v1')
+})
+
 test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly', () => {
   const message = buildProfileSaveMessage(
     'gemini',
@@ -228,6 +243,36 @@ test('buildCurrentProviderSummary redacts poisoned model and endpoint values', (
   expect(summary.providerLabel).toBe('OpenAI-compatible')
   expect(summary.modelLabel).toBe('sk-...5678')
   expect(summary.endpointLabel).toBe('sk-...5678')
+})
+
+test('buildCurrentProviderSummary labels generic local openai-compatible providers', () => {
+  const summary = buildCurrentProviderSummary({
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_MODEL: 'qwen2.5-coder-7b-instruct',
+      OPENAI_BASE_URL: 'http://127.0.0.1:8080/v1',
+    },
+    persisted: null,
+  })
+
+  expect(summary.providerLabel).toBe('Local OpenAI-compatible')
+  expect(summary.modelLabel).toBe('qwen2.5-coder-7b-instruct')
+  expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
+})
+
+test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Codex', () => {
+  const summary = buildCurrentProviderSummary({
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_MODEL: 'gpt-5.4',
+      OPENAI_BASE_URL: 'http://127.0.0.1:8080/v1',
+    },
+    persisted: null,
+  })
+
+  expect(summary.providerLabel).toBe('Local OpenAI-compatible')
+  expect(summary.modelLabel).toBe('gpt-5.4')
+  expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
 })
 
 test('getProviderWizardDefaults ignores poisoned current provider values', () => {

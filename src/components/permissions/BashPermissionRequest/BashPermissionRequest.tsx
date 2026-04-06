@@ -211,7 +211,7 @@ function BashPermissionRequestInner({
   // Editable prefix — initialize synchronously with the best prefix we can
   // extract without tree-sitter, then refine via tree-sitter for compound
   // commands. The sync path matters because TREE_SITTER_BASH is gated
-  // ant-only: in external builds the async refinement below always resolves
+  // internal-only: in external builds the async refinement below always resolves
   // to [] and this initial value is what the user sees.
   //
   // Lazy initializer: this runs regex + split on every render if left in
