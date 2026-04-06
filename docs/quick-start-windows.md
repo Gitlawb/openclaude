@@ -101,6 +101,20 @@ Close PowerShell, open a new one, and try again:
 openclaude
 ```
 
+If PowerShell opens a text editor or Notepad instead of starting OpenClaude, check which launcher it is resolving:
+
+```powershell
+Get-Command openclaude -All
+```
+
+On Windows, `openclaude.ps1` or `openclaude.cmd` should appear before any extensionless `openclaude` file. If the command is resolving to the extensionless shim, run:
+
+```powershell
+openclaude.cmd
+```
+
+If that works, remove the conflicting path entry or move your npm global bin directory earlier in `PATH`, then open a new PowerShell session.
+
 ## 5. If Your Provider Fails
 
 Check the basics:
