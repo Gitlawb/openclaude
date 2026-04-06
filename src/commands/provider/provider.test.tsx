@@ -245,26 +245,16 @@ test('buildCurrentProviderSummary redacts poisoned model and endpoint values', (
   expect(summary.endpointLabel).toBe('sk-...5678')
 })
 
-<<<<<<< HEAD
 test('buildCurrentProviderSummary labels generic local openai-compatible providers', () => {
   const summary = buildCurrentProviderSummary({
     processEnv: {
       CLAUDE_CODE_USE_OPENAI: '1',
       OPENAI_MODEL: 'qwen2.5-coder-7b-instruct',
       OPENAI_BASE_URL: 'http://127.0.0.1:8080/v1',
-=======
-test('buildCurrentProviderSummary recognizes GitHub Models mode', () => {
-  const summary = buildCurrentProviderSummary({
-    processEnv: {
-      CLAUDE_CODE_USE_GITHUB: '1',
-      OPENAI_MODEL: 'github:copilot',
-      OPENAI_BASE_URL: 'https://models.github.ai/inference',
->>>>>>> 86f7ac4 (feat: improve GitHub provider onboarding and lifecycle)
     },
     persisted: null,
   })
 
-<<<<<<< HEAD
   expect(summary.providerLabel).toBe('Local OpenAI-compatible')
   expect(summary.modelLabel).toBe('qwen2.5-coder-7b-instruct')
   expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
@@ -283,11 +273,21 @@ test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Co
   expect(summary.providerLabel).toBe('Local OpenAI-compatible')
   expect(summary.modelLabel).toBe('gpt-5.4')
   expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
-=======
+})
+
+test('buildCurrentProviderSummary recognizes GitHub Models mode', () => {
+  const summary = buildCurrentProviderSummary({
+    processEnv: {
+      CLAUDE_CODE_USE_GITHUB: '1',
+      OPENAI_MODEL: 'github:copilot',
+      OPENAI_BASE_URL: 'https://models.github.ai/inference',
+    },
+    persisted: null,
+  })
+
   expect(summary.providerLabel).toBe('GitHub Models')
   expect(summary.modelLabel).toBe('github:copilot')
   expect(summary.endpointLabel).toBe('https://models.github.ai/inference')
->>>>>>> 86f7ac4 (feat: improve GitHub provider onboarding and lifecycle)
 })
 
 test('getProviderWizardDefaults ignores poisoned current provider values', () => {
