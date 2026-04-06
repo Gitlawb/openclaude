@@ -23,6 +23,19 @@ const openclaudeProto = protoDescriptor.openclaude.v1
 
 const MAX_SESSIONS = 1000
 
+export function summarizeGrpcErrorForLog(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'Non-Error thrown'
+  }
+
+  const code =
+    typeof (error as NodeJS.ErrnoException).code === 'string'
+      ? (error as NodeJS.ErrnoException).code
+      : undefined
+
+  return code ? `${error.name} (${code})` : error.name
+}
+
 export class GrpcServer {
   private server: grpc.Server
   private sessions: Map<string, any[]> = new Map()
@@ -40,7 +53,10 @@ export class GrpcServer {
       grpc.ServerCredentials.createInsecure(),
       (error, boundPort) => {
         if (error) {
-          console.error('Failed to start gRPC server')
+          console.error(
+            'Failed to start gRPC server',
+            summarizeGrpcErrorForLog(error),
+          )
           return
         }
         console.log(`gRPC Server running at ${host}:${boundPort}`)
@@ -225,7 +241,7 @@ export class GrpcServer {
           call.end()
         }
       } catch (err: any) {
-        console.error('Error processing stream')
+        console.error('Error processing stream:', summarizeGrpcErrorForLog(err))
         call.write({
           error: {
             message: err.message || "Internal server error",
