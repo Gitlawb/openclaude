@@ -20,6 +20,7 @@ import {
   GITHUB_MODELS_HYDRATED_ENV_MARKER,
   hydrateGithubModelsTokenFromSecureStorage,
   readGithubModelsToken,
+  readGithubModelsTokenAsync,
 } from '../utils/githubModelsCredentials.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
@@ -118,25 +119,38 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   return `${providerKind} · ${profile.baseUrl} · ${profile.model} · ${keyInfo}${activeSuffix}`
 }
 
-function getGithubCredentialSource(
+function getGithubCredentialSourceFromEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): GithubCredentialSource {
-  if (readGithubModelsToken()?.trim()) {
-    return 'stored'
-  }
   if (processEnv.GITHUB_TOKEN?.trim() || processEnv.GH_TOKEN?.trim()) {
     return 'env'
   }
   return 'none'
 }
 
+async function resolveGithubCredentialSource(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): Promise<GithubCredentialSource> {
+  const envSource = getGithubCredentialSourceFromEnv(processEnv)
+  if (envSource !== 'none') {
+    return envSource
+  }
+
+  if (await readGithubModelsTokenAsync()) {
+    return 'stored'
+  }
+
+  return 'none'
+}
+
 function isGithubProviderAvailable(
+  credentialSource: GithubCredentialSource,
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return true
   }
-  return getGithubCredentialSource(processEnv) !== 'none'
+  return credentialSource !== 'none'
 }
 
 function getGithubProviderModel(
@@ -164,19 +178,22 @@ function getGithubProviderSummary(
 }
 
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
+  const initialGithubCredentialSource = getGithubCredentialSourceFromEnv()
+
   const [profiles, setProfiles] = React.useState(() => getProviderProfiles())
   const [activeProfileId, setActiveProfileId] = React.useState(
     () => getActiveProviderProfile()?.id,
   )
-  const [githubProviderAvailable, setGithubProviderAvailable] = React.useState(() =>
-    isGithubProviderAvailable(),
+  const [githubProviderAvailable, setGithubProviderAvailable] = React.useState(
+    () => isGithubProviderAvailable(initialGithubCredentialSource),
   )
   const [githubCredentialSource, setGithubCredentialSource] = React.useState<GithubCredentialSource>(
-    () => getGithubCredentialSource(),
+    () => initialGithubCredentialSource,
   )
   const [isGithubActive, setIsGithubActive] = React.useState(() =>
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB),
   )
+  const githubRefreshEpochRef = React.useRef(0)
   const [screen, setScreen] = React.useState<Screen>(
     mode === 'first-run' ? 'select-preset' : 'menu',
   )
@@ -196,13 +213,33 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const currentStepKey = currentStep.key
   const currentValue = draft[currentStepKey]
 
+  const refreshGithubProviderState = React.useCallback((): void => {
+    const refreshEpoch = ++githubRefreshEpochRef.current
+    void (async () => {
+      const credentialSource = await resolveGithubCredentialSource()
+      if (refreshEpoch !== githubRefreshEpochRef.current) {
+        return
+      }
+
+      setGithubCredentialSource(credentialSource)
+      setGithubProviderAvailable(isGithubProviderAvailable(credentialSource))
+      setIsGithubActive(isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB))
+    })()
+  }, [])
+
+  React.useEffect(() => {
+    refreshGithubProviderState()
+
+    return () => {
+      githubRefreshEpochRef.current += 1
+    }
+  }, [refreshGithubProviderState])
+
   function refreshProfiles(): void {
     const nextProfiles = getProviderProfiles()
     setProfiles(nextProfiles)
     setActiveProfileId(getActiveProviderProfile()?.id)
-    setGithubProviderAvailable(isGithubProviderAvailable())
-    setGithubCredentialSource(getGithubCredentialSource())
-    setIsGithubActive(isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB))
+    refreshGithubProviderState()
   }
 
   function clearStartupProviderOverrideFromUserSettings(): string | null {
