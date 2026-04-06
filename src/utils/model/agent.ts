@@ -1,6 +1,6 @@
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { capitalize } from '../stringUtils.js'
-import { MODEL_ALIASES, type ModelAlias } from './aliases.js'
+import { MODEL_ALIASES } from './aliases.js'
 import { applyBedrockRegionPrefix, getBedrockRegionPrefix } from './bedrock.js'
 import {
   getCanonicalName,
@@ -37,7 +37,7 @@ export function getDefaultSubagentModel(): string {
 export function getAgentModel(
   agentModel: string | undefined,
   parentModel: string,
-  toolSpecifiedModel?: ModelAlias,
+  toolSpecifiedModel?: string,
   permissionMode?: PermissionMode,
 ): string {
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
@@ -147,6 +147,26 @@ export function getAgentModelOptions(): AgentModelOption[] {
       value: 'haiku',
       label: 'Haiku',
       description: 'Fast and efficient for simple tasks',
+    },
+    {
+      value: 'best',
+      label: 'Best',
+      description: 'Automatically select the best available model',
+    },
+    {
+      value: 'sonnet[1m]',
+      label: 'Sonnet (1M context)',
+      description: 'Sonnet with extended 1M token context window',
+    },
+    {
+      value: 'opus[1m]',
+      label: 'Opus (1M context)',
+      description: 'Opus with extended 1M token context window',
+    },
+    {
+      value: 'opusplan',
+      label: 'Opus Plan',
+      description: 'Opus optimized for planning tasks',
     },
     {
       value: 'inherit',
