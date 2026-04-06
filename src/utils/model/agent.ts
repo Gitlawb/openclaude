@@ -8,6 +8,7 @@ import {
   parseUserSpecifiedModel,
 } from './model.js'
 import { getModelOptions } from './modelOptions.js'
+import { isModelAllowed } from './modelAllowlist.js'
 import { getAPIProvider } from './providers.js'
 
 export const AGENT_MODEL_OPTIONS = [...MODEL_ALIASES, 'inherit'] as const
@@ -28,18 +29,46 @@ export function getDefaultSubagentModel(): string {
 }
 
 /**
- * Validate that a resolved model is allowed by the active provider/org
- * policy. This intentionally does not require the model to appear in
- * `getModelOptions()`, because the /model picker is not exhaustive and may
- * omit valid custom model IDs such as provider deployment names.
+ * Validate that a resolved model is available for use.
+ * Checks two layers:
+ * 1. The model must appear in `getModelOptions()` (the /model picker list),
+ *    matching by canonical name so region prefixes and casing don't matter.
+ * 2. If an org-level `availableModels` allowlist is configured, the model
+ *    must also pass `isModelAllowed()`.
+ *
+ * This prevents subagents from using arbitrary model IDs that aren't
+ * available to the current user/provider.
  */
 function validateResolvedAgentModel(resolvedModel: string): void {
-  const provider = getAPIProvider()
-  if (provider.isModelAllowed(resolvedModel)) return
+  const resolvedCanonical = getCanonicalName(resolvedModel)
+  const options = getModelOptions()
 
-  throw new Error(
-    `Model "${resolvedModel}" is not allowed by your current organization or provider settings.`,
-  )
+  const inOptions = options.some(opt => {
+    if (opt.value === null) return false
+    if (getCanonicalName(opt.value) === resolvedCanonical) return true
+    const optResolved = parseUserSpecifiedModel(opt.value)
+    return getCanonicalName(optResolved) === resolvedCanonical
+  })
+
+  if (!inOptions) {
+    const availableModels = options
+      .filter(o => o.value !== null)
+      .map(o => o.label || o.value)
+      .join(', ')
+    throw new Error(
+      `Model "${resolvedModel}" is not available. ` +
+        `Allowed models: ${availableModels}. ` +
+        `Run /model to see and select from all available models.`,
+    )
+  }
+
+  // Also enforce org-level allowlist if configured
+  if (!isModelAllowed(resolvedModel)) {
+    throw new Error(
+      `Model "${resolvedModel}" is not allowed by your organization's model policy. ` +
+        `Run /model to see the allowed models.`,
+    )
+  }
 }
 
 /**

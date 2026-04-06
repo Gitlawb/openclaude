@@ -31,7 +31,7 @@ export const call: LocalCommandCall = async (args) => {
   // Persist in user settings so it survives restarts
   const result = updateSettingsForSource('userSettings', {
     env: {
-      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: enable ? '1' : undefined,
+      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: enable ? '1' : '0',
     },
   })
 
@@ -42,7 +42,20 @@ export const call: LocalCommandCall = async (args) => {
     }
   }
 
-  const status = enable ? chalk.green('enabled') : chalk.yellow('disabled')
+  // Re-check actual runtime state after applying the toggle.
+  // isAgentSwarmsEnabled() also checks the GrowthBook killswitch,
+  // so we report the effective state, not just what was requested.
+  const effectivelyEnabled = isAgentSwarmsEnabled()
+  if (enable && !effectivelyEnabled) {
+    return {
+      type: 'text',
+      value: chalk.yellow(
+        'Agent teams could not be enabled — the feature is currently disabled by the server. Try again later.',
+      ),
+    }
+  }
+
+  const status = effectivelyEnabled ? chalk.green('enabled') : chalk.yellow('disabled')
   return {
     type: 'text',
     value: `Agent teams ${status}`,

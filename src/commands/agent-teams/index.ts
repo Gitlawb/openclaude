@@ -6,6 +6,7 @@ const agentTeams = {
   description: 'Toggle agent teams on/off',
   argumentHint: '[on|off]',
   isEnabled: () => true,
+  supportsNonInteractive: true,
   load: () => import('./agent-teams.js'),
 } satisfies Command
 
