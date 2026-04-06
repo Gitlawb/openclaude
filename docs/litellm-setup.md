@@ -134,7 +134,7 @@ openclaude
 | 404 or Model Not Found | Model alias doesn't exist in LiteLLM config | Verify the `model_name` in `litellm_config.yaml` matches `OPENAI_MODEL` |
 | Connection Refused | LiteLLM proxy isn't running | Start the proxy with `litellm --config litellm_config.yaml --port 4000` |
 | Auth Failed | Missing or wrong `master_key` | Set the correct key in `OPENAI_API_KEY` |
-| Upstream provider error | The backend provider key is missing or invalid | Ensure the upstream API key (e.g., `OPENAI_API_KEY`) is set in your LiteLLM environment |
+| Upstream provider error | The backend provider key is missing or invalid | Ensure the upstream API key (e.g., `OPENAI_API_KEY`) is set in your LiteLLM proxy process environment |
 | Tools fail but chat works | The selected model has weak function/tool calling support | Switch to a model with strong tool support (e.g., GPT-4o, Claude Sonnet) |
 
 ## 6. Resources
