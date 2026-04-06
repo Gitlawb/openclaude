@@ -114,7 +114,7 @@ def build_default_providers() -> list[Provider]:
         ),
         Provider(
           name="mistral",
-          ping_url=""
+          ping_url="",
           api_key_env="MISTRAL_API_KEY",
           cost_per_1k_tokens=0.0001,
           big_model=big if "mistral" in big else "devstral-latest",

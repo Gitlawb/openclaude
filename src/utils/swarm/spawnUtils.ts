@@ -114,6 +114,7 @@ const TEAMMATE_ENV_VARS = [
   'GOOGLE_API_KEY',
   'MISTRAL_API_KEY',
   'MISTRAL_MODEL',
+  'MISTRAL_BASE_URL',
   // Custom API endpoint
   'ANTHROPIC_BASE_URL',
   // Config directory override

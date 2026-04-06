@@ -894,11 +894,8 @@ class OpenAIShimMessages {
 
     const isGithub = isGithubModelsMode()
     const isMistral = isMistralMode()
-    if (isGithub && body.max_completion_tokens !== undefined) {
+    if ((isGithub || isMistral) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
-      delete body.max_completion_tokens
-    }
-    else if (isMistral) {
       delete body.max_completion_tokens
     }
 
