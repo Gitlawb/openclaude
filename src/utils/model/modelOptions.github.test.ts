@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, mock, test } from 'bun:test'
 
-import { getModelOptions } from './modelOptions.js'
+import { saveGlobalConfig } from '../config.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
@@ -25,9 +25,27 @@ afterEach(() => {
   process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
   process.env.ANTHROPIC_CUSTOM_MODEL_OPTION =
     originalEnv.ANTHROPIC_CUSTOM_MODEL_OPTION
+  saveGlobalConfig(current => ({
+    ...current,
+    additionalModelOptionsCache: [],
+    additionalModelOptionsCacheScope: undefined,
+    openaiAdditionalModelOptionsCache: [],
+    openaiAdditionalModelOptionsCacheByProfile: {},
+    providerProfiles: [],
+    activeProviderProfileId: undefined,
+  }))
 })
 
-test('GitHub provider exposes only default + GitHub model in /model options', () => {
+async function importFreshModelOptionsModule() {
+  mock.restore()
+  mock.module('./providers.js', () => ({
+    getAPIProvider: () => 'github',
+  }))
+  const nonce = `${Date.now()}-${Math.random()}`
+  return import(`./modelOptions.js?ts=${nonce}`)
+}
+
+test('GitHub provider exposes only default + GitHub model in /model options', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -38,6 +56,7 @@ test('GitHub provider exposes only default + GitHub model in /model options', ()
   process.env.OPENAI_MODEL = 'github:copilot'
   delete process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
 
+  const { getModelOptions } = await importFreshModelOptionsModule()
   const options = getModelOptions(false)
   const nonDefault = options.filter(option => option.value !== null)
 
