@@ -299,21 +299,15 @@ function convertMessages(
               if (isGeminiMode()) {
                 // If the model provided a signature in the tool_use block itself (e.g. from a previous Turn/Step)
                 const signature = tu.signature ?? (index === 0 ? (thinkingBlock as any)?.signature : undefined)
-                if (signature) {
-                  toolCall.extra_content = {
-                    ...toolCall.extra_content,
-                    google: {
-                      thought_signature: signature
-                    }
-                  }
-                } else {
-                  // If we are on Gemini 3 and missing a signature for the tool call,
-                  // provide a dummy one to skip validation instead of 400ing.
-                  toolCall.extra_content = {
-                    ...toolCall.extra_content,
-                    google: {
-                      thought_signature: "skip_thought_signature_validator"
-                    }
+
+                // Merge into existing google-specific metadata if present
+                const existingGoogle = (toolCall.extra_content?.google as Record<string, unknown>) ?? {}
+
+                toolCall.extra_content = {
+                  ...toolCall.extra_content,
+                  google: {
+                    ...existingGoogle,
+                    thought_signature: signature ?? "skip_thought_signature_validator"
                   }
                 }
               }
