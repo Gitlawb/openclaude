@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  activateGithubOnboardingMode,
   applyGithubOnboardingProcessEnv,
   buildGithubOnboardingSettingsEnv,
   hasExistingGithubModelsLoginToken,
@@ -19,6 +20,12 @@ describe('shouldForceGithubRelogin', () => {
     expect(shouldForceGithubRelogin('')).toBe(false)
     expect(shouldForceGithubRelogin(undefined)).toBe(false)
     expect(shouldForceGithubRelogin('something-else')).toBe(false)
+  })
+
+  test('treats force flags as present in multi-word args', () => {
+    expect(shouldForceGithubRelogin('--force extra')).toBe(true)
+    expect(shouldForceGithubRelogin('foo --relogin bar')).toBe(true)
+    expect(shouldForceGithubRelogin('abc reauth xyz')).toBe(true)
   })
 })
 
@@ -84,3 +91,58 @@ describe('onboarding auth precedence cleanup', () => {
     expect(settingsEnv.OPENAI_ORGANIZATION).toBeUndefined()
   })
 })
+
+describe('activateGithubOnboardingMode', () => {
+  test('activates settings/env/hydration in order when merge succeeds', () => {
+    const calls: string[] = []
+
+    const result = activateGithubOnboardingMode('  github:copilot  ', {
+      mergeSettingsEnv: model => {
+        calls.push(`merge:${model}`)
+        return { ok: true }
+      },
+      applyProcessEnv: model => {
+        calls.push(`apply:${model}`)
+      },
+      hydrateToken: () => {
+        calls.push('hydrate')
+      },
+      onChangeAPIKey: () => {
+        calls.push('onChangeAPIKey')
+      },
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(calls).toEqual([
+      'merge:github:copilot',
+      'apply:github:copilot',
+      'hydrate',
+      'onChangeAPIKey',
+    ])
+  })
+
+  test('stops activation when settings merge fails', () => {
+    const calls: string[] = []
+
+    const result = activateGithubOnboardingMode(DEFAULT_MODEL_FOR_TESTS, {
+      mergeSettingsEnv: () => {
+        calls.push('merge')
+        return { ok: false, detail: 'settings write failed' }
+      },
+      applyProcessEnv: () => {
+        calls.push('apply')
+      },
+      hydrateToken: () => {
+        calls.push('hydrate')
+      },
+      onChangeAPIKey: () => {
+        calls.push('onChangeAPIKey')
+      },
+    })
+
+    expect(result).toEqual({ ok: false, detail: 'settings write failed' })
+    expect(calls).toEqual(['merge'])
+  })
+})
+
+const DEFAULT_MODEL_FOR_TESTS = 'github:copilot'

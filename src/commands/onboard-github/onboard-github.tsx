@@ -35,7 +35,10 @@ type Step =
 
 export function shouldForceGithubRelogin(args?: string): boolean {
   const normalized = (args ?? '').trim().toLowerCase()
-  return FORCE_RELOGIN_ARGS.has(normalized)
+  if (!normalized) {
+    return false
+  }
+  return normalized.split(/\s+/).some(arg => FORCE_RELOGIN_ARGS.has(arg))
 }
 
 export function hasExistingGithubModelsLoginToken(
@@ -103,6 +106,32 @@ function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
   return { ok: true }
 }
 
+export function activateGithubOnboardingMode(
+  model: string = DEFAULT_MODEL,
+  options?: {
+    mergeSettingsEnv?: (model: string) => { ok: boolean; detail?: string }
+    applyProcessEnv?: (model: string) => void
+    hydrateToken?: () => void
+    onChangeAPIKey?: () => void
+  },
+): { ok: boolean; detail?: string } {
+  const normalizedModel = model.trim() || DEFAULT_MODEL
+  const mergeSettingsEnv = options?.mergeSettingsEnv ?? mergeUserSettingsEnv
+  const applyProcessEnv = options?.applyProcessEnv ?? applyGithubOnboardingProcessEnv
+  const hydrateToken =
+    options?.hydrateToken ?? hydrateGithubModelsTokenFromSecureStorage
+
+  const merged = mergeSettingsEnv(normalizedModel)
+  if (!merged.ok) {
+    return merged
+  }
+
+  applyProcessEnv(normalizedModel)
+  hydrateToken()
+  options?.onChangeAPIKey?.()
+  return { ok: true }
+}
+
 function OnboardGithub(props: {
   onDone: Parameters<LocalJSXCommandCall>[0]
   onChangeAPIKey: () => void
@@ -125,18 +154,17 @@ function OnboardGithub(props: {
         setStep('error')
         return
       }
-      const merged = mergeUserSettingsEnv(model.trim() || DEFAULT_MODEL)
-      if (!merged.ok) {
+      const activated = activateGithubOnboardingMode(model, {
+        onChangeAPIKey,
+      })
+      if (!activated.ok) {
         setErrorMsg(
-          `Token saved, but settings were not updated: ${merged.detail ?? 'unknown error'}. ` +
+          `Token saved, but settings were not updated: ${activated.detail ?? 'unknown error'}. ` +
             `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.claude/settings.json manually.`,
         )
         setStep('error')
         return
       }
-      applyGithubOnboardingProcessEnv(model.trim() || DEFAULT_MODEL)
-      hydrateGithubModelsTokenFromSecureStorage()
-      onChangeAPIKey()
       onDone(
         'GitHub Models onboard complete. Token stored in secure storage; user settings updated. Restart if the model does not switch.',
         { display: 'user' },
@@ -290,9 +318,21 @@ function OnboardGithub(props: {
 export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   const forceRelogin = shouldForceGithubRelogin(args)
   if (hasExistingGithubModelsLoginToken() && !forceRelogin) {
+    const activated = activateGithubOnboardingMode(DEFAULT_MODEL, {
+      onChangeAPIKey: context.onChangeAPIKey,
+    })
+    if (!activated.ok) {
+      onDone(
+        `GitHub token detected, but settings activation failed: ${activated.detail ?? 'unknown error'}. ` +
+          'Set CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL=github:copilot in user settings manually.',
+        { display: 'system' },
+      )
+      return null
+    }
+
     onDone(
-      'Already logged in to GitHub Models. Use /onboard-github --force to re-authenticate.',
-      { display: 'system' },
+      'GitHub Models already authorized. Activated GitHub Models mode using your existing token. Use /onboard-github --force to re-authenticate.',
+      { display: 'user' },
     )
     return null
   }
