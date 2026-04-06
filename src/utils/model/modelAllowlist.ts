@@ -94,16 +94,23 @@ function familyHasSpecificEntries(
  *
  * Recognized patterns:
  *   - Bedrock ARN: arn:aws[...]:bedrock:... (with extracted ID matching the pattern below)
- *   - Cross-region inference profile: {region}.anthropic.claude-*-v{N}[:{N}]
- *   - Foundation model: anthropic.claude-*-v{N}[:{N}]
+ *   - Cross-region inference profile with version: {region}.anthropic.claude-*-v{N}[:{N}]
+ *   - Foundation model with version: anthropic.claude-*-v{N}[:{N}]
+ *   - New-style IDs without version suffix: [{region}.]anthropic.claude-{name}
+ *     where {name} is lowercase alphanumeric segments (e.g. us.anthropic.claude-sonnet-4-6)
+ *
+ * The no-version-suffix alternative is restricted to lowercase alphanumeric+hyphen
+ * segments to avoid matching arbitrary custom deployment names (which may use
+ * uppercase, underscores, or dots).
  */
 
 // Matches arn:aws[...]:bedrock:... — restricts to AWS Bedrock ARNs only.
 const BEDROCK_ARN_PATTERN = /^arn:aws(?:-[^:]+)?:bedrock:/
 
-// Matches (optional region.)anthropic.claude-...-vN or -vN:N (colon-variant optional).
+// Matches (optional region.)anthropic.claude-...-vN[:{N}] (versioned)
+// OR (optional region.)anthropic.claude-{lowercase-name} (new-style, no version suffix).
 const BEDROCK_ANTHROPIC_MODEL_ID_PATTERN =
-  /^(?:(?:us|eu|apac|global)\.)?anthropic\.claude-.*-v\d+(?::\d+)?$/
+  /^(?:(?:us|eu|apac|global)\.)?anthropic\.claude-(?:.*-v\d+(?::\d+)?|[a-z0-9]+(?:-[a-z0-9]+)*)$/
 
 function isRecognizedBedrockModelId(model: string): boolean {
   return BEDROCK_ANTHROPIC_MODEL_ID_PATTERN.test(model)

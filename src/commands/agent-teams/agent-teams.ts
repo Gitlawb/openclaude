@@ -36,6 +36,25 @@ function findOverridingSource(): SettingSource | undefined {
   return undefined
 }
 
+/**
+ * Check if a higher-priority settings source is actively *disabling* agent teams.
+ * Returns the most authoritative source that explicitly sets the env var to a
+ * falsy value. Used to prevent a userSettings write from overriding policy via
+ * direct process.env mutation.
+ */
+function findBlockingSource(): SettingSource | undefined {
+  for (const source of HIGHER_PRIORITY_SOURCES) {
+    const settings = getSettingsForSource(source)
+    const value = settings?.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+    // Only report sources that explicitly set the var to a falsy value —
+    // an absent value means the source has no opinion.
+    if (value !== undefined && !isEnvTruthy(value)) {
+      return source
+    }
+  }
+  return undefined
+}
+
 export const call: LocalCommandCall = async (args) => {
   // In ant builds, agent teams are always enabled and cannot be toggled
   if (process.env.USER_TYPE === 'ant') {
@@ -77,8 +96,22 @@ export const call: LocalCommandCall = async (args) => {
     }
   }
 
-  // Settings write succeeded — now apply to current session
+  // Settings write succeeded — now apply to current session, but only if no
+  // higher-priority source is actively overriding us in the opposite direction.
   if (enable) {
+    // Do NOT mutate process.env if a higher-priority source (e.g. policySettings)
+    // explicitly disables the feature — that would bypass the policy for the
+    // lifetime of this process even though the settings layer is authoritative.
+    const blockingSource = findBlockingSource()
+    if (blockingSource) {
+      return {
+        type: 'text',
+        value: chalk.yellow(
+          `Agent teams user setting saved as enabled, but ${blockingSource} is overriding it with CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS disabled. ` +
+            `Remove the env entry from ${blockingSource} to enable agent teams.`,
+        ),
+      }
+    }
     process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1'
   } else {
     delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS

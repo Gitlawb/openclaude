@@ -106,6 +106,29 @@ describe('isModelAllowed — Bedrock model ID normalization', () => {
     expect(isModelAllowed('us.anthropic.claude-opus-4-6-v1:0')).toBe(false)
     expect(isModelAllowed('us.anthropic.claude-opus-4-5-v1:0')).toBe(true)
   })
+
+  test('new-style Bedrock ID without -vN suffix is normalized and matched (claude-sonnet-4-6)', () => {
+    // us.anthropic.claude-sonnet-4-6 has no -vN suffix; must still be recognized
+    // and normalized to "claude-sonnet-4-6" for allowlist comparison.
+    withAllowlist(['claude-sonnet-4-6'])
+    expect(isModelAllowed('us.anthropic.claude-sonnet-4-6')).toBe(true)
+    expect(isModelAllowed('anthropic.claude-sonnet-4-6')).toBe(true)
+  })
+
+  test('new-style Bedrock ID without -vN suffix matched by family alias', () => {
+    withAllowlist(['sonnet'])
+    expect(isModelAllowed('us.anthropic.claude-sonnet-4-6')).toBe(true)
+  })
+
+  test('Bedrock ID with -vN but no colon variant is normalized (claude-opus-4-6-v1)', () => {
+    withAllowlist(['opus'])
+    expect(isModelAllowed('us.anthropic.claude-opus-4-6-v1')).toBe(true)
+  })
+
+  test('new-style Bedrock ID blocked when different family is in allowlist', () => {
+    withAllowlist(['haiku'])
+    expect(isModelAllowed('us.anthropic.claude-sonnet-4-6')).toBe(false)
+  })
 })
 
 describe('isModelAllowed — Vertex model ID normalization', () => {
