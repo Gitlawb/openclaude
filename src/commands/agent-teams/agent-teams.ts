@@ -150,7 +150,7 @@ export const call: LocalCommandCall = async (args) => {
       return {
         type: 'text',
         value: chalk.yellow(
-          `Agent teams user setting saved as disabled, but ${overridingSource} is overriding it with CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS. ` +
+          `Agent teams user setting saved as disabled, but ${overridingSource} is overriding it with CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS enabled. ` +
             `Remove the env entry from ${overridingSource} to fully disable.`,
         ),
       }
