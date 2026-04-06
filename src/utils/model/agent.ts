@@ -30,6 +30,7 @@ export function getDefaultSubagentModel(): string {
 
 /**
  * Validate that a resolved model is available for use.
+ *
  * Checks two layers:
  * 1. The model must appear in `getModelOptions()` (the /model picker list),
  *    matching by canonical name so region prefixes and casing don't matter.
@@ -38,6 +39,30 @@ export function getDefaultSubagentModel(): string {
  *
  * This prevents subagents from using arbitrary model IDs that aren't
  * available to the current user/provider.
+ *
+ * --- Design tradeoff ---
+ *
+ * The agent/subagent schema accepts a plain `string` for the `model` field
+ * (not a restricted union), which was intended to allow both aliases (e.g.
+ * "sonnet", "opus") and arbitrary provider model IDs (e.g. deployment names
+ * on Bedrock/Vertex/Azure). However, this validation restricts the accepted
+ * values to only those present in `getModelOptions()` — the same list shown
+ * by the `/model` picker. A model ID that is valid at the provider level
+ * but does not appear in that list (because it is not the current `/model`
+ * setting, a built-in option, or an injected custom option) will be
+ * rejected here before ever reaching the provider.
+ *
+ * This is a **deliberate safety-first choice**: it catches typos and
+ * hallucinated model names early with an actionable error message, rather
+ * than letting them propagate to the API and fail with an opaque provider
+ * error. The tradeoff is that truly custom/unlisted model IDs must first be
+ * set via `/model <id>` or injected through `ANTHROPIC_CUSTOM_MODEL_OPTION`
+ * / additional model options before they can be used by agents.
+ *
+ * If this proves too restrictive (e.g. for 3P providers with many
+ * deployment names), consider relaxing layer 1 to only enforce the org
+ * allowlist via `isModelAllowed()` and let invalid IDs fail at the
+ * provider runtime instead.
  */
 function validateResolvedAgentModel(resolvedModel: string): void {
   const resolvedCanonical = getCanonicalName(resolvedModel)
