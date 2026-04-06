@@ -399,16 +399,15 @@ function normalizeSchemaForOpenAI(
     }
     record.properties = normalizedProps
 
+    // Keep only properties that were originally required — optional properties
+    // must NOT be forced into required[], otherwise providers reject tool calls
+    // that omit optional parameters (e.g. Read without offset/limit/pages).
+    record.required = existingRequired.filter(k => k in normalizedProps)
+
     if (strict) {
-      // OpenAI strict mode requires every property to be listed in required[]
-      const allKeys = Object.keys(normalizedProps)
-      record.required = Array.from(new Set([...existingRequired, ...allKeys]))
       // OpenAI strict mode requires additionalProperties: false on all object
       // schemas — override unconditionally to ensure nested objects comply.
       record.additionalProperties = false
-    } else {
-      // For Gemini: keep only existing required keys that are present in properties
-      record.required = existingRequired.filter(k => k in normalizedProps)
     }
   }
 
