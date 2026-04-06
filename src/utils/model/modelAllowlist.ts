@@ -1,6 +1,7 @@
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { isModelAlias, isModelFamilyAlias } from './aliases.js'
-import { parseUserSpecifiedModel } from './model.js'
+import { extractModelIdFromArn } from './bedrock.js'
+import { firstPartyNameToCanonical, parseUserSpecifiedModel } from './model.js'
 import { resolveOverriddenModel } from './modelStrings.js'
 
 /**
@@ -87,6 +88,23 @@ function familyHasSpecificEntries(
 }
 
 /**
+ * Normalize a model ID to its canonical first-party form for allowlist comparison.
+ * Strips Bedrock ARN wrappers, region prefixes (eu./us./…), vendor prefixes
+ * (anthropic.), and version suffixes (-v1:0) so that e.g.
+ * "eu.anthropic.claude-sonnet-4-5-v1:0" becomes "claude-sonnet-4-5".
+ */
+function normalizeForAllowlist(model: string): string {
+  // 1. Strip ARN wrapper if present
+  let id = extractModelIdFromArn(model)
+  // 2. Strip region prefix (eu., us., apac., global.)
+  id = id.replace(/^(?:us|eu|apac|global)\./, '')
+  // 3. Strip vendor prefix (anthropic.)
+  id = id.replace(/^anthropic\./, '')
+  // 4. Resolve to canonical first-party short name (handles date/version suffixes)
+  return firstPartyNameToCanonical(id)
+}
+
+/**
  * Check if a model is allowed by the availableModels allowlist in settings.
  * If availableModels is not set, all models are allowed.
  *
@@ -111,14 +129,26 @@ export function isModelAllowed(model: string): boolean {
   const normalizedModel = resolvedModel.trim().toLowerCase()
   const normalizedAllowlist = availableModels.map(m => m.trim().toLowerCase())
 
+  // For Bedrock/Vertex model IDs (e.g. "eu.anthropic.claude-sonnet-4-5-v1:0"),
+  // also derive the canonical first-party form ("claude-sonnet-4-5") so that
+  // allowlist entries like "claude-sonnet-4-5" or "sonnet" match correctly
+  // even when the resolved model carries provider-specific formatting.
+  const canonicalModel = normalizeForAllowlist(normalizedModel)
+
   // Direct match (alias-to-alias or full-name-to-full-name)
   // Skip family aliases that have been narrowed by specific entries —
   // e.g., "opus" in ["opus", "opus-4-5"] should NOT directly match,
   // because the admin intends to restrict to opus 4.5 only.
-  if (normalizedAllowlist.includes(normalizedModel)) {
+  if (
+    normalizedAllowlist.includes(normalizedModel) ||
+    normalizedAllowlist.includes(canonicalModel)
+  ) {
+    const matchedModel = normalizedAllowlist.includes(normalizedModel)
+      ? normalizedModel
+      : canonicalModel
     if (
-      !isModelFamilyAlias(normalizedModel) ||
-      !familyHasSpecificEntries(normalizedModel, normalizedAllowlist)
+      !isModelFamilyAlias(matchedModel) ||
+      !familyHasSpecificEntries(matchedModel, normalizedAllowlist)
     ) {
       return true
     }
@@ -131,7 +161,8 @@ export function isModelAllowed(model: string): boolean {
     if (
       isModelFamilyAlias(entry) &&
       !familyHasSpecificEntries(entry, normalizedAllowlist) &&
-      modelBelongsToFamily(normalizedModel, entry)
+      (modelBelongsToFamily(normalizedModel, entry) ||
+        modelBelongsToFamily(canonicalModel, entry))
     ) {
       return true
     }
@@ -150,17 +181,21 @@ export function isModelAllowed(model: string): boolean {
   for (const entry of normalizedAllowlist) {
     if (!isModelFamilyAlias(entry) && isModelAlias(entry)) {
       const resolved = parseUserSpecifiedModel(entry).toLowerCase()
-      if (resolved === normalizedModel) {
+      if (resolved === normalizedModel || resolved === canonicalModel) {
         return true
       }
     }
   }
 
   // Version-prefix matching: "opus-4-5" or "claude-opus-4-5" matches
-  // "claude-opus-4-5-20251101" at a segment boundary
+  // "claude-opus-4-5-20251101" at a segment boundary.
+  // Check both the raw model and its canonical form for Bedrock compatibility.
   for (const entry of normalizedAllowlist) {
     if (!isModelFamilyAlias(entry) && !isModelAlias(entry)) {
-      if (modelMatchesVersionPrefix(normalizedModel, entry)) {
+      if (
+        modelMatchesVersionPrefix(normalizedModel, entry) ||
+        modelMatchesVersionPrefix(canonicalModel, entry)
+      ) {
         return true
       }
     }
