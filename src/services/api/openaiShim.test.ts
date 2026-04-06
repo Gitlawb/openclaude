@@ -500,6 +500,1125 @@ test('preserves Gemini tool call extra_content from streaming chunks', async () 
   })
 })
 
+test('normalizes plain string Bash tool arguments from OpenAI-compatible responses', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: 'pwd',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-pro-preview',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Use Bash' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    stop_reason?: string
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.stop_reason).toBe('tool_use')
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'function-call-1',
+      name: 'Bash',
+      input: { command: 'pwd' },
+    },
+  ])
+})
+
+test('normalizes Bash tool arguments that are valid JSON strings', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '"pwd"',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-pro-preview',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Use Bash' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'function-call-1',
+      name: 'Bash',
+      input: { command: 'pwd' },
+    },
+  ])
+})
+
+test.each([
+  ['false', false],
+  ['null', null],
+  ['[]', []],
+])(
+  'preserves malformed Bash JSON literals as parsed values in non-streaming responses: %s',
+  async (argumentsValue, expectedInput) => {
+    globalThis.fetch = (async (_input, _init) => {
+      return new Response(
+        JSON.stringify({
+          id: 'chatcmpl-1',
+          model: 'google/gemini-3.1-pro-preview',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                tool_calls: [
+                  {
+                    id: 'function-call-1',
+                    type: 'function',
+                    function: {
+                      name: 'Bash',
+                      arguments: argumentsValue,
+                    },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 4,
+            total_tokens: 16,
+          },
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }) as FetchType
+
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+    const message = await client.beta.messages.create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: false,
+    }) as {
+      content?: Array<Record<string, unknown>>
+    }
+
+    expect(message.content).toEqual([
+      {
+        type: 'tool_use',
+        id: 'function-call-1',
+        name: 'Bash',
+        input: expectedInput,
+      },
+    ])
+  },
+)
+
+test('keeps terminal empty Bash tool arguments invalid in non-streaming responses', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-pro-preview',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Use Bash' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'function-call-1',
+      name: 'Bash',
+      input: {},
+    },
+  ])
+})
+
+test('normalizes plain string Bash tool arguments in streaming responses', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: 'pwd',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{"command":"pwd"}')
+})
+
+test('normalizes plain string Bash tool arguments when streaming starts with an empty chunk', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  type: 'function',
+                  function: {
+                    arguments: 'pwd',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{"command":"pwd"}')
+})
+
+test('normalizes plain string Bash tool arguments when streaming starts with whitespace', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: ' ',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  type: 'function',
+                  function: {
+                    arguments: 'pwd',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{"command":" pwd"}')
+})
+
+test('keeps terminal whitespace-only Bash arguments invalid in streaming responses', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: ' ',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{}')
+})
+
+test('normalizes streaming Bash arguments that begin with bracket syntax', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '[ -f package.json ] && pwd',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{"command":"[ -f package.json ] && pwd"}')
+})
+
+test('normalizes streaming Bash arguments when the first chunk is only an opening brace', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  type: 'function',
+                  function: {
+                    arguments: ' pwd; }',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{"command":"{ pwd; }"}')
+})
+
+test('repairs truncated structured Bash JSON in streaming responses', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"command":"pwd"',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{"command":"pwd"}')
+})
+
+test('does not normalize incomplete streamed Bash commands when finish_reason is length', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: 'rg --fi',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'length',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const streamedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(streamedInput).toBe('rg --fi')
+})
+
+test('repairs truncated JSON objects even without command field', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"cwd":"/tmp"',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Bash' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const streamedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(streamedInput).toBe('{"cwd":"/tmp"}')
+})
+
+test('preserves raw input for unknown plain string tool arguments', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'UnknownTool',
+                    arguments: 'pwd',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-pro-preview',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Use tool' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'function-call-1',
+      name: 'UnknownTool',
+      input: {},
+    },
+  ])
+})
+
+test('preserves parsed string input for unknown JSON string tool arguments', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  id: 'function-call-1',
+                  type: 'function',
+                  function: {
+                    name: 'UnknownTool',
+                    arguments: '"pwd"',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-pro-preview',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Use tool' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'function-call-1',
+      name: 'UnknownTool',
+      input: 'pwd',
+    },
+  ])
+})
+
 test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async () => {
   let requestBody: Record<string, unknown> | undefined
 
@@ -1057,13 +2176,241 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
   expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
 })
 
+test('non-streaming: reasoning_content emitted as thinking block, used as text when content is null', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'Let me think about this step by step.',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = (await client.beta.messages.create({
+    model: 'glm-5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(result.content).toEqual([
+    { type: 'thinking', thinking: 'Let me think about this step by step.' },
+    { type: 'text', text: 'Let me think about this step by step.' },
+  ])
+})
+
+test('non-streaming: empty string content does not fall through to reasoning_content as text', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '',
+              reasoning_content: 'Chain of thought here.',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = (await client.beta.messages.create({
+    model: 'glm-5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(result.content).toEqual([
+    { type: 'thinking', thinking: 'Chain of thought here.' },
+    { type: 'text', text: 'Chain of thought here.' },
+  ])
+})
+
+test('non-streaming: real content takes precedence over reasoning_content', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'The answer is 42.',
+              reasoning_content: 'I need to calculate this.',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = (await client.beta.messages.create({
+    model: 'glm-5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(result.content).toEqual([
+    { type: 'thinking', thinking: 'I need to calculate this.' },
+    { type: 'text', text: 'The answer is 42.' },
+  ])
+})
+
+test('streaming: thinking block closed before tool call', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5',
+        choices: [
+          {
+            index: 0,
+            delta: { role: 'assistant', reasoning_content: 'Thinking...' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"command":"ls"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'glm-5',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Run ls' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const types = events.map(e => e.type)
+
+  const thinkingStartIdx = types.indexOf('content_block_start')
+  const firstStopIdx = types.indexOf('content_block_stop')
+  const toolStartIdx = types.indexOf(
+    'content_block_start',
+    thinkingStartIdx + 1,
+  )
+
+  expect(thinkingStartIdx).toBeGreaterThanOrEqual(0)
+  expect(firstStopIdx).toBeGreaterThan(thinkingStartIdx)
+  expect(toolStartIdx).toBeGreaterThan(firstStopIdx)
+
+  const thinkingStart = events[thinkingStartIdx] as {
+    content_block?: Record<string, unknown>
+  }
+  expect(thinkingStart?.content_block?.type).toBe('thinking')
+})
+
 // ---------------------------------------------------------------------------
 // Real-world provider behavior tests (Kimi & DeepSeek)
 // ---------------------------------------------------------------------------
 
 test('streaming: handles DeepSeek-style null content and reasoning_content pattern', async () => {
-  // DeepSeek sends: content: null + reasoning_content: "..." during thinking
-  // Then: content: "..." + reasoning_content: null during response
   globalThis.fetch = (async (_input, _init) => {
     const chunks = makeStreamChunks([
       {
@@ -1166,7 +2513,6 @@ test('streaming: handles DeepSeek-style null content and reasoning_content patte
     events.push(event)
   }
 
-  // Verify thinking block was created from reasoning_content
   const thinkingStart = events.find(
     e =>
       e.type === 'content_block_start' &&
@@ -1176,7 +2522,6 @@ test('streaming: handles DeepSeek-style null content and reasoning_content patte
   )
   expect(thinkingStart).toBeDefined()
 
-  // Verify text block was created after reasoning
   const textStart = events.find(
     e =>
       e.type === 'content_block_start' &&
@@ -1186,7 +2531,6 @@ test('streaming: handles DeepSeek-style null content and reasoning_content patte
   )
   expect(textStart).toBeDefined()
 
-  // Verify content was accumulated correctly
   const textDeltas = events.filter(
     e =>
       e.type === 'content_block_delta' &&
@@ -1201,7 +2545,6 @@ test('streaming: handles DeepSeek-style null content and reasoning_content patte
 })
 
 test('streaming: handles Kimi-style empty content in role announcement', async () => {
-  // Kimi sends: content: "" + role in first chunk (not null, but empty string)
   globalThis.fetch = (async (_input, _init) => {
     const chunks = makeStreamChunks([
       {
@@ -1291,7 +2634,6 @@ test('streaming: handles Kimi-style empty content in role announcement', async (
     events.push(event)
   }
 
-  // Verify no empty text block was created for initial content: ''
   const textStarts = events.filter(
     e =>
       e.type === 'content_block_start' &&
@@ -1300,11 +2642,9 @@ test('streaming: handles Kimi-style empty content in role announcement', async (
       (e.content_block as Record<string, unknown>).type === 'text',
   )
 
-  // Should only have ONE text block with 'Result: 42', not an empty one
   expect(textStarts.length).toBe(1)
   expect((textStarts[0] as { content_block?: { text?: string } }).content_block?.text).toBe('')
 
-  // Verify thinking block was created
   const thinkingStart = events.find(
     e =>
       e.type === 'content_block_start' &&
@@ -1316,7 +2656,6 @@ test('streaming: handles Kimi-style empty content in role announcement', async (
 })
 
 test('streaming: skips empty strings in both content and reasoning_content', async () => {
-  // Edge case: provider sends multiple empty strings
   globalThis.fetch = (async (_input, _init) => {
     const chunks = makeStreamChunks([
       {
@@ -1389,7 +2728,6 @@ test('streaming: skips empty strings in both content and reasoning_content', asy
     events.push(event)
   }
 
-  // Should have thinking block with actual content
   const thinkingDeltas = events.filter(
     e =>
       e.type === 'content_block_delta' &&
@@ -1400,7 +2738,6 @@ test('streaming: skips empty strings in both content and reasoning_content', asy
   expect(thinkingDeltas.length).toBe(1)
   expect((thinkingDeltas[0] as { delta?: { thinking?: string } }).delta?.thinking).toBe('Actual thought')
 
-  // Should have text block with actual content
   const textDeltas = events.filter(
     e =>
       e.type === 'content_block_delta' &&
@@ -1411,13 +2748,11 @@ test('streaming: skips empty strings in both content and reasoning_content', asy
   expect(textDeltas.length).toBe(1)
   expect((textDeltas[0] as { delta?: { text?: string } }).delta?.text).toBe('Actual content')
 
-  // Verify empty strings didn't create extra blocks
   const allDeltas = events.filter(e => e.type === 'content_block_delta')
-  expect(allDeltas.length).toBe(2) // Only one thinking and one text delta
+  expect(allDeltas.length).toBe(2)
 })
 
 test('streaming: handles Kimi-style tool_calls with empty initial arguments', async () => {
-  // Kimi sends tool_calls with empty arguments first, then streams arguments in separate chunks
   globalThis.fetch = (async (_input, _init) => {
     const chunks = makeStreamChunks([
       {
@@ -1445,7 +2780,7 @@ test('streaming: handles Kimi-style tool_calls with empty initial arguments', as
                   index: 0,
                   id: 'search:0',
                   type: 'function',
-                  function: { name: 'search', arguments: '' },  // Empty initial arguments
+                  function: { name: 'search', arguments: '' },
                 },
               ],
             },
@@ -1544,13 +2879,11 @@ test('streaming: handles Kimi-style tool_calls with empty initial arguments', as
     events.push(event)
   }
 
-  // Verify thinking block was closed before tool started
   const thinkingStop = events.find(
     e => e.type === 'content_block_stop' && typeof e.index === 'number',
   )
   expect(thinkingStop).toBeDefined()
 
-  // Verify tool block was created
   const toolStart = events.find(
     e =>
       e.type === 'content_block_start' &&
@@ -1562,7 +2895,6 @@ test('streaming: handles Kimi-style tool_calls with empty initial arguments', as
   expect(toolStart?.content_block?.id).toBe('search:0')
   expect(toolStart?.content_block?.name).toBe('search')
 
-  // Verify tool arguments were accumulated correctly
   const toolDeltas = events.filter(
     e =>
       e.type === 'content_block_delta' &&
@@ -1574,6 +2906,5 @@ test('streaming: handles Kimi-style tool_calls with empty initial arguments', as
   const fullArgs = toolDeltas.map(e => e.delta?.partial_json ?? '').join('')
   expect(fullArgs).toBe('{"query":"Context Caching"}')
 
-  // Verify no delta was sent for empty initial arguments
-  expect(toolDeltas.length).toBe(3) // {" + query + ":"Context Caching"}
+  expect(toolDeltas.length).toBe(3)
 })

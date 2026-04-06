@@ -2,6 +2,10 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 import type { ProviderProfile } from './config.js'
 
+async function importFreshProvidersModule() {
+  return import(`./model/providers.ts?ts=${Date.now()}-${Math.random()}`)
+}
+
 const originalEnv = { ...process.env }
 
 const RESTORED_KEYS = [
@@ -96,24 +100,26 @@ function buildProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile
 
 describe('applyProviderProfileToProcessEnv', () => {
   test('openai profile clears competing gemini/github flags', async () => {
-    const { applyProviderProfileToProcessEnv, getAPIProvider } =
+    const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
 
     applyProviderProfileToProcessEnv(buildProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
 
     expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
       'provider_test',
     )
-    expect(getAPIProvider()).toBe('openai')
+    expect(getFreshAPIProvider()).toBe('openai')
   })
 
   test('anthropic profile clears competing gemini/github flags', async () => {
-    const { applyProviderProfileToProcessEnv, getAPIProvider } =
+    const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -125,11 +131,13 @@ describe('applyProviderProfileToProcessEnv', () => {
         model: 'claude-sonnet-4-6',
       }),
     )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
 
     expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
-    expect(getAPIProvider()).toBe('firstParty')
+    expect(getFreshAPIProvider()).toBe('firstParty')
   })
 })
 
@@ -177,7 +185,7 @@ describe('applyActiveProviderProfileFromConfig', () => {
     } as any)
 
     expect(applied).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
   })
@@ -267,7 +275,7 @@ describe('applyActiveProviderProfileFromConfig', () => {
     } as any)
 
     expect(applied?.id).toBe('saved_openai')
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
   })
@@ -286,10 +294,10 @@ describe('persistActiveProviderProfileModel', () => {
       model: 'kimi-k2.5:cloud',
     })
 
-      saveMockGlobalConfig(current => ({
-        ...current,
-        providerProfiles: [activeProfile],
-        activeProviderProfileId: activeProfile.id,
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: activeProfile.id,
     }))
     applyProviderProfileToProcessEnv(activeProfile)
 
@@ -303,7 +311,7 @@ describe('persistActiveProviderProfileModel', () => {
     )
 
     const saved = getProviderProfiles().find(
-      profile => profile.id === activeProfile.id,
+      (profile: ProviderProfile) => profile.id === activeProfile.id,
     )
     expect(saved?.model).toBe('minimax-m2.5:cloud')
   })
@@ -333,7 +341,7 @@ describe('persistActiveProviderProfileModel', () => {
 
     expect(process.env.OPENAI_MODEL).toBe('cli-model')
     const saved = getProviderProfiles().find(
-      profile => profile.id === activeProfile.id,
+      (profile: ProviderProfile) => profile.id === activeProfile.id,
     )
     expect(saved?.model).toBe('minimax-m2.5:cloud')
   })
@@ -414,7 +422,7 @@ describe('deleteProviderProfile', () => {
     expect(result.activeProfileId).toBeUndefined()
 
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
   })

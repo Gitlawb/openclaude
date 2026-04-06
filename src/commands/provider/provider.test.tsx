@@ -52,7 +52,11 @@ async function renderFinalFrame(node: React.ReactNode): Promise<string> {
     patchConsole: false,
   })
 
-  await instance.waitUntilExit()
+  // Timeout guard: if render throws before exit effect fires, don't hang
+  await Promise.race([
+    instance.waitUntilExit(),
+    new Promise<void>(resolve => setTimeout(resolve, 3000)),
+  ])
   return stripAnsi(extractLastFrame(getOutput()))
 }
 
