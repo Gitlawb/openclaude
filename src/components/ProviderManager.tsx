@@ -5,6 +5,7 @@ import { useKeybinding } from '../keybindings/useKeybinding.js'
 import type { ProviderProfile } from '../utils/config.js'
 import {
   addProviderProfile,
+  applyActiveProviderProfileFromConfig,
   deleteProviderProfile,
   getActiveProviderProfile,
   getProviderPresetDefaults,
@@ -14,6 +15,14 @@ import {
   type ProviderProfileInput,
   updateProviderProfile,
 } from '../utils/providerProfiles.js'
+import {
+  clearGithubModelsToken,
+  GITHUB_MODELS_HYDRATED_ENV_MARKER,
+  hydrateGithubModelsTokenFromSecureStorage,
+  readGithubModelsToken,
+} from '../utils/githubModelsCredentials.js'
+import { isEnvTruthy } from '../utils/envUtils.js'
+import { updateSettingsForSource } from '../utils/settings/settings.js'
 import { Select } from './CustomSelect/index.js'
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
@@ -75,6 +84,13 @@ const FORM_STEPS: Array<{
   },
 ]
 
+const GITHUB_PROVIDER_ID = '__github_models__'
+const GITHUB_PROVIDER_LABEL = 'GitHub Models'
+const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
+const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
+
+type GithubCredentialSource = 'stored' | 'env' | 'none'
+
 function toDraft(profile: ProviderProfile): ProviderDraft {
   return {
     name: profile.name,
@@ -102,10 +118,64 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   return `${providerKind} · ${profile.baseUrl} · ${profile.model} · ${keyInfo}${activeSuffix}`
 }
 
+function getGithubCredentialSource(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): GithubCredentialSource {
+  if (readGithubModelsToken()?.trim()) {
+    return 'stored'
+  }
+  if (processEnv.GITHUB_TOKEN?.trim() || processEnv.GH_TOKEN?.trim()) {
+    return 'env'
+  }
+  return 'none'
+}
+
+function isGithubProviderAvailable(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+    return true
+  }
+  return getGithubCredentialSource(processEnv) !== 'none'
+}
+
+function getGithubProviderModel(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string {
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+    return processEnv.OPENAI_MODEL?.trim() || GITHUB_PROVIDER_DEFAULT_MODEL
+  }
+  return GITHUB_PROVIDER_DEFAULT_MODEL
+}
+
+function getGithubProviderSummary(
+  isActive: boolean,
+  credentialSource: GithubCredentialSource,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string {
+  const credentialSummary =
+    credentialSource === 'stored'
+      ? 'token stored'
+      : credentialSource === 'env'
+        ? 'token via env'
+        : 'no token found'
+  const activeSuffix = isActive ? ' (active)' : ''
+  return `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel(processEnv)} · ${credentialSummary}${activeSuffix}`
+}
+
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [profiles, setProfiles] = React.useState(() => getProviderProfiles())
   const [activeProfileId, setActiveProfileId] = React.useState(
     () => getActiveProviderProfile()?.id,
+  )
+  const [githubProviderAvailable, setGithubProviderAvailable] = React.useState(() =>
+    isGithubProviderAvailable(),
+  )
+  const [githubCredentialSource, setGithubCredentialSource] = React.useState<GithubCredentialSource>(
+    () => getGithubCredentialSource(),
+  )
+  const [isGithubActive, setIsGithubActive] = React.useState(() =>
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB),
   )
   const [screen, setScreen] = React.useState<Screen>(
     mode === 'first-run' ? 'select-preset' : 'menu',
@@ -130,10 +200,114 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     const nextProfiles = getProviderProfiles()
     setProfiles(nextProfiles)
     setActiveProfileId(getActiveProviderProfile()?.id)
+    setGithubProviderAvailable(isGithubProviderAvailable())
+    setGithubCredentialSource(getGithubCredentialSource())
+    setIsGithubActive(isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB))
+  }
+
+  function clearStartupProviderOverrideFromUserSettings(): string | null {
+    const { error } = updateSettingsForSource('userSettings', {
+      env: {
+        CLAUDE_CODE_USE_OPENAI: undefined as any,
+        CLAUDE_CODE_USE_GEMINI: undefined as any,
+        CLAUDE_CODE_USE_GITHUB: undefined as any,
+        CLAUDE_CODE_USE_BEDROCK: undefined as any,
+        CLAUDE_CODE_USE_VERTEX: undefined as any,
+        CLAUDE_CODE_USE_FOUNDRY: undefined as any,
+      },
+    })
+    return error ? error.message : null
   }
 
   function closeWithCancelled(message: string): void {
     onDone({ action: 'cancelled', message })
+  }
+
+  function activateGithubProvider(): string | null {
+    const { error } = updateSettingsForSource('userSettings', {
+      env: {
+        CLAUDE_CODE_USE_GITHUB: '1',
+        OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
+        OPENAI_API_KEY: undefined as any,
+        OPENAI_ORG: undefined as any,
+        OPENAI_PROJECT: undefined as any,
+        OPENAI_ORGANIZATION: undefined as any,
+        OPENAI_BASE_URL: undefined as any,
+        OPENAI_API_BASE: undefined as any,
+        CLAUDE_CODE_USE_OPENAI: undefined as any,
+        CLAUDE_CODE_USE_GEMINI: undefined as any,
+        CLAUDE_CODE_USE_BEDROCK: undefined as any,
+        CLAUDE_CODE_USE_VERTEX: undefined as any,
+        CLAUDE_CODE_USE_FOUNDRY: undefined as any,
+      },
+    })
+    if (error) {
+      return error.message
+    }
+
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.OPENAI_MODEL = GITHUB_PROVIDER_DEFAULT_MODEL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_ORG
+    delete process.env.OPENAI_PROJECT
+    delete process.env.OPENAI_ORGANIZATION
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_USE_BEDROCK
+    delete process.env.CLAUDE_CODE_USE_VERTEX
+    delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+
+    hydrateGithubModelsTokenFromSecureStorage()
+    return null
+  }
+
+  function deleteGithubProvider(): string | null {
+    const storedTokenBeforeClear = readGithubModelsToken()?.trim()
+    const cleared = clearGithubModelsToken()
+    if (!cleared.success) {
+      return cleared.warning ?? 'Could not clear GitHub credentials.'
+    }
+
+    const { error } = updateSettingsForSource('userSettings', {
+      env: {
+        CLAUDE_CODE_USE_GITHUB: undefined as any,
+        OPENAI_MODEL: undefined as any,
+        OPENAI_BASE_URL: undefined as any,
+        OPENAI_API_BASE: undefined as any,
+      },
+    })
+    if (error) {
+      return error.message
+    }
+
+    const hydratedTokenInSession = process.env.GITHUB_TOKEN?.trim()
+    if (
+      process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] === '1' &&
+      hydratedTokenInSession &&
+      (!storedTokenBeforeClear || hydratedTokenInSession === storedTokenBeforeClear)
+    ) {
+      delete process.env.GITHUB_TOKEN
+    }
+
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_ORG
+    delete process.env.OPENAI_PROJECT
+    delete process.env.OPENAI_ORGANIZATION
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+
+    // Restore active provider profile immediately when one exists.
+    applyActiveProviderProfileFromConfig()
+
+    return null
   }
 
   function startCreateFromPreset(preset: ProviderPreset): void {
@@ -187,11 +361,20 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
+    const isActiveSavedProfile = getActiveProviderProfile()?.id === saved.id
+    const settingsOverrideError = isActiveSavedProfile
+      ? clearStartupProviderOverrideFromUserSettings()
+      : null
+
     refreshProfiles()
-    setStatusMessage(
+    const successMessage =
       editingProfileId
         ? `Updated provider: ${saved.name}`
-        : `Added provider: ${saved.name} (now active)`,
+        : `Added provider: ${saved.name} (now active)`
+    setStatusMessage(
+      settingsOverrideError
+        ? `${successMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+        : successMessage,
     )
 
     if (mode === 'first-run') {
@@ -413,6 +596,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function renderMenu(): React.ReactNode {
     const hasProfiles = profiles.length > 0
+    const hasSelectableProviders = hasProfiles || githubProviderAvailable
 
     const options = [
       {
@@ -424,7 +608,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         value: 'activate',
         label: 'Set active provider',
         description: 'Switch the active provider profile',
-        disabled: !hasProfiles,
+        disabled: !hasSelectableProviders,
       },
       {
         value: 'edit',
@@ -436,7 +620,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         value: 'delete',
         label: 'Delete provider',
         description: 'Remove a provider profile',
-        disabled: !hasProfiles,
+        disabled: !hasSelectableProviders,
       },
       {
         value: 'done',
@@ -455,14 +639,25 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         </Text>
         {statusMessage && <Text>{statusMessage}</Text>}
         <Box flexDirection="column">
-          {profiles.length === 0 ? (
+          {profiles.length === 0 && !githubProviderAvailable ? (
             <Text dimColor>No provider profiles configured yet.</Text>
           ) : (
-            profiles.map(profile => (
-              <Text key={profile.id} dimColor>
-                - {profile.name}: {profileSummary(profile, profile.id === activeProfileId)}
-              </Text>
-            ))
+            <>
+              {profiles.map(profile => (
+                <Text key={profile.id} dimColor>
+                  - {profile.name}: {profileSummary(profile, profile.id === activeProfileId)}
+                </Text>
+              ))}
+              {githubProviderAvailable ? (
+                <Text dimColor>
+                  - {GITHUB_PROVIDER_LABEL}:{' '}
+                  {getGithubProviderSummary(
+                    isGithubActive,
+                    githubCredentialSource,
+                  )}
+                </Text>
+              ) : null}
+            </>
           )}
         </Box>
         <Select
@@ -474,7 +669,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 setScreen('select-preset')
                 break
               case 'activate':
-                if (profiles.length > 0) {
+                if (hasSelectableProviders) {
                   setScreen('select-active')
                 }
                 break
@@ -484,7 +679,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 }
                 break
               case 'delete':
-                if (profiles.length > 0) {
+                if (hasSelectableProviders) {
                   setScreen('select-delete')
                 }
                 break
@@ -504,8 +699,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     title: string,
     emptyMessage: string,
     onSelect: (profileId: string) => void,
+    options?: { includeGithub?: boolean },
   ): React.ReactNode {
-    if (profiles.length === 0) {
+    const includeGithub = options?.includeGithub ?? false
+    const selectOptions = profiles.map(profile => ({
+      value: profile.id,
+      label:
+        profile.id === activeProfileId
+          ? `${profile.name} (active)`
+          : profile.name,
+      description: `${profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'} · ${profile.baseUrl} · ${profile.model}`,
+    }))
+
+    if (includeGithub && githubProviderAvailable) {
+      selectOptions.push({
+        value: GITHUB_PROVIDER_ID,
+        label: isGithubActive
+          ? `${GITHUB_PROVIDER_LABEL} (active)`
+          : GITHUB_PROVIDER_LABEL,
+        description: `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel()}`,
+      })
+    }
+
+    if (selectOptions.length === 0) {
       return (
         <Box flexDirection="column" gap={1}>
           <Text color="remember" bold>
@@ -528,25 +744,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       )
     }
 
-    const options = profiles.map(profile => ({
-      value: profile.id,
-      label:
-        profile.id === activeProfileId
-          ? `${profile.name} (active)`
-          : profile.name,
-      description: `${profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'} · ${profile.baseUrl} · ${profile.model}`,
-    }))
-
     return (
       <Box flexDirection="column" gap={1}>
         <Text color="remember" bold>
           {title}
         </Text>
         <Select
-          options={options}
+          options={selectOptions}
           onChange={onSelect}
           onCancel={() => setScreen('menu')}
-          visibleOptionCount={Math.min(10, Math.max(2, options.length))}
+          visibleOptionCount={Math.min(10, Math.max(2, selectOptions.length))}
         />
       </Box>
     )
@@ -566,16 +773,36 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         'Set active provider',
         'No providers available. Add one first.',
         profileId => {
+          if (profileId === GITHUB_PROVIDER_ID) {
+            const githubError = activateGithubProvider()
+            if (githubError) {
+              setErrorMessage(`Could not activate GitHub provider: ${githubError}`)
+              setScreen('menu')
+              return
+            }
+            refreshProfiles()
+            setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
+            setScreen('menu')
+            return
+          }
+
           const active = setActiveProviderProfile(profileId)
           if (!active) {
             setErrorMessage('Could not change active provider.')
             setScreen('menu')
             return
           }
+          const settingsOverrideError =
+            clearStartupProviderOverrideFromUserSettings()
           refreshProfiles()
-          setStatusMessage(`Active provider: ${active.name}`)
+          setStatusMessage(
+            settingsOverrideError
+              ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+              : `Active provider: ${active.name}`,
+          )
           setScreen('menu')
         },
+          { includeGithub: true },
       )
       break
     case 'select-edit':
@@ -592,15 +819,35 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         'Delete provider',
         'No providers available. Add one first.',
         profileId => {
+          if (profileId === GITHUB_PROVIDER_ID) {
+            const githubDeleteError = deleteGithubProvider()
+            if (githubDeleteError) {
+              setErrorMessage(`Could not delete GitHub provider: ${githubDeleteError}`)
+            } else {
+              refreshProfiles()
+              setStatusMessage('GitHub provider deleted')
+            }
+            setScreen('menu')
+            return
+          }
+
           const result = deleteProviderProfile(profileId)
           if (!result.removed) {
             setErrorMessage('Could not delete provider.')
           } else {
+            const settingsOverrideError = result.activeProfileId
+              ? clearStartupProviderOverrideFromUserSettings()
+              : null
             refreshProfiles()
-            setStatusMessage('Provider deleted')
+            setStatusMessage(
+              settingsOverrideError
+                ? `Provider deleted. Warning: could not clear startup provider override (${settingsOverrideError}).`
+                : 'Provider deleted',
+            )
           }
           setScreen('menu')
         },
+        { includeGithub: true },
       )
       break
     case 'menu':
