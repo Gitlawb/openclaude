@@ -197,7 +197,10 @@ function convertContentBlocks(
   }
 
   if (parts.length === 0) return ''
-  if (parts.length === 1 && parts[0].type === 'text') return parts[0].text ?? ''
+  // If all parts are text, flatten to a single string so providers that
+  // don't support multipart content arrays (e.g. Groq) don't reject the request.
+  const hasNonText = parts.some(p => p.type !== 'text')
+  if (!hasNonText) return parts.map(p => p.text ?? '').join('\n')
   return parts
 }
 
