@@ -61,6 +61,11 @@ export function getAgentModel(
   toolSpecifiedModel?: string,
   permissionMode?: PermissionMode,
 ): string {
+  // CLAUDE_CODE_SUBAGENT_MODEL is an escape-hatch env var intended for
+  // debugging / local development. It intentionally bypasses the org-level
+  // availableModels allowlist (validateResolvedAgentModel) and Bedrock
+  // region-prefix inheritance so that operators can force an arbitrary
+  // model without being blocked by policy restrictions.
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
     return parseUserSpecifiedModel(process.env.CLAUDE_CODE_SUBAGENT_MODEL)
   }
