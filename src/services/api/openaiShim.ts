@@ -1071,7 +1071,17 @@ class OpenAIShimMessages {
         }>,
       )
       if (converted.length > 0) {
-        body.tools = converted
+        // For 3P providers, limit tools to essential ones to reduce request size.
+        // Full tool set can exceed 100KB which causes DeepSeek and other providers
+        // to silently hang (64K token context limit ≈ 256KB but tool schemas are verbose).
+        const ESSENTIAL_TOOLS = new Set([
+          'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
+          'Agent', 'Skill', 'WebSearch', 'WebFetch',
+          'TaskCreate', 'TaskUpdate', 'TodoWrite',
+          'AskUserQuestion', 'NotebookEdit',
+        ])
+        const trimmed = converted.filter(t => ESSENTIAL_TOOLS.has(t.function.name))
+        body.tools = trimmed.length > 0 ? trimmed : converted
         if (params.tool_choice) {
           const tc = params.tool_choice as { type?: string; name?: string }
           if (tc.type === 'auto') {

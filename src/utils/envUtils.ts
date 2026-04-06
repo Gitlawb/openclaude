@@ -75,6 +75,18 @@ export function isBareMode(): boolean {
 }
 
 /**
+ * Returns true when running against a third-party provider with limited
+ * context windows (OpenAI-compat, Gemini). Used to trim system prompts,
+ * tool sets, and hook output to fit within provider limits.
+ */
+export function is3PProvider(): boolean {
+  return (
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  )
+}
+
+/**
  * Parses an array of environment variable strings into a key-value object
  * @param envVars Array of strings in KEY=VALUE format
  * @returns Object with key-value pairs
