@@ -90,7 +90,7 @@ export function getAgentModel(
 
   // Prioritize tool-specified model if provided
   if (toolSpecifiedModel) {
-    if (toolSpecifiedModel === 'inherit') {
+    if (toolSpecifiedModel.trim().toLowerCase() === 'inherit') {
       throw new Error(
         `"inherit" is not a valid model override. Omit the model parameter to inherit the parent model.`,
       )
