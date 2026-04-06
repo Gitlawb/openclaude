@@ -995,10 +995,16 @@ async function* injectGenerationStats(
   )
 
   let yieldedDeltaWithoutUsage = false
+  let pendingStop = false
 
   for await (const event of stream) {
     if (event.type === 'message_delta') {
       if (event.usage) {
+        // Flush any pending message_stop before this delta
+        if (pendingStop) {
+          yield { type: 'message_stop' }
+          pendingStop = false
+        }
         yield event
         continue
       }
@@ -1011,9 +1017,22 @@ async function* injectGenerationStats(
       // so the stream completes immediately without blocking.
       yield event
       yieldedDeltaWithoutUsage = true
+    } else if (event.type === 'message_stop') {
+      // Defer message_stop if we might emit a follow-up delta with usage
+      if (yieldedDeltaWithoutUsage && !statsSettled) {
+        pendingStop = true
+      } else {
+        yield event
+      }
     } else {
       yield event
     }
+  }
+
+  // Flush pending message_stop (either after follow-up delta, or immediately if stats settled)
+  if (pendingStop) {
+    yield { type: 'message_stop' }
+    pendingStop = false
   }
 
   // Stats resolved after streaming finished — emit follow-up message_delta
