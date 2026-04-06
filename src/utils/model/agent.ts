@@ -117,8 +117,8 @@ export function getAgentModel(
   }
 
   // Normalize agentModel: treat blank/whitespace-only as unset so it falls
-  // back to the default ('inherit'). Throw early for non-empty invalid values
-  // rather than letting parseUserSpecifiedModel silently produce ''.
+  // back to the default ('inherit'). Non-blank values continue through the
+  // usual parse and validation flow below.
   const agentModelNormalized = agentModel?.trim() || undefined
   const agentModelWithExp = agentModelNormalized ?? getDefaultSubagentModel()
 
