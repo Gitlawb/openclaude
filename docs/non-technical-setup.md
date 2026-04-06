@@ -59,6 +59,7 @@ Choose this if:
 
 - you already use the Codex CLI
 - you already have Codex or ChatGPT auth configured
+- you want OpenClaude to reuse your local Codex login from `/provider`
 
 ## What Success Looks Like
 

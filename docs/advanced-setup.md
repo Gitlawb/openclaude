@@ -50,6 +50,8 @@ export OPENAI_MODEL=gpt-4o
 
 If you already use the Codex CLI, OpenClaude reads `~/.codex/auth.json` automatically. You can also point it elsewhere with `CODEX_AUTH_JSON_PATH` or override the token directly with `CODEX_API_KEY`.
 
+You can now also use `/provider` to add a `ChatGPT / Codex` profile, reuse a detected local Codex login, and pick from built-in Codex model options instead of typing a model name manually.
+
 ```bash
 export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_MODEL=codexplan

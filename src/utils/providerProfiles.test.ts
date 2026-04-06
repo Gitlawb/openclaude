@@ -16,6 +16,7 @@ const RESTORED_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_MODEL',
   'OPENAI_API_KEY',
+  'CODEX_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
@@ -107,6 +108,25 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(getAPIProvider()).toBe('firstParty')
+  })
+
+  test('codex profile uses CODEX_API_KEY instead of OPENAI_API_KEY', () => {
+    process.env.OPENAI_API_KEY = 'sk-openai'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'codex',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        model: 'codexplan',
+        apiKey: 'codex-token',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://chatgpt.com/backend-api/codex')
+    expect(process.env.OPENAI_MODEL).toBe('codexplan')
+    expect(process.env.CODEX_API_KEY).toBe('codex-token')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 })
 
@@ -200,6 +220,15 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('http://localhost:11434/v1')
     expect(defaults.model).toBe('llama3.1:8b')
   })
+
+  test('codex preset defaults to the ChatGPT Codex endpoint', () => {
+    const defaults = getProviderPresetDefaults('codex')
+
+    expect(defaults.provider).toBe('codex')
+    expect(defaults.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
+    expect(defaults.model).toBe('codexplan')
+    expect(defaults.requiresApiKey).toBe(false)
+  })
 })
 
 describe('deleteProviderProfile', () => {
@@ -237,6 +266,7 @@ describe('deleteProviderProfile', () => {
     expect(process.env.OPENAI_API_BASE).toBeUndefined()
     expect(process.env.OPENAI_MODEL).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CODEX_API_KEY).toBeUndefined()
 
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
     expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
@@ -270,5 +300,35 @@ describe('deleteProviderProfile', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
+  })
+
+  test('deleting final codex profile clears CODEX_API_KEY when profile applied it', () => {
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        id: 'only_codex',
+        provider: 'codex',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        model: 'codexplan',
+        apiKey: 'codex-token',
+      }),
+    )
+
+    saveGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [
+        buildProfile({
+          id: 'only_codex',
+          provider: 'codex',
+          baseUrl: 'https://chatgpt.com/backend-api/codex',
+          model: 'codexplan',
+        }),
+      ],
+      activeProviderProfileId: 'only_codex',
+    }))
+
+    const result = deleteProviderProfile('only_codex')
+
+    expect(result.removed).toBe(true)
+    expect(process.env.CODEX_API_KEY).toBeUndefined()
   })
 })
