@@ -237,6 +237,7 @@ import { useOfficialMarketplaceNotification } from 'src/hooks/useOfficialMarketp
 import { usePromptsFromClaudeInChrome } from 'src/hooks/usePromptsFromClaudeInChrome.js';
 import { getTipToShowOnSpinner, recordShownTip } from 'src/services/tips/tipScheduler.js';
 import type { Theme } from 'src/utils/theme.js';
+import { shouldRunStartupChecks } from './replStartupGates.js';
 import { isPromptTypingSuppressionActive } from './replInputSuppression.js';
 import { checkAndDisableBypassPermissionsIfNeeded, checkAndDisableAutoModeIfNeeded, useKickOffCheckAndDisableBypassPermissionsIfNeeded, useKickOffCheckAndDisableAutoModeIfNeeded } from 'src/utils/permissions/bypassPermissionsKillswitch.js';
 import { SandboxManager } from 'src/utils/sandbox/sandbox-adapter.js';
@@ -793,9 +794,33 @@ export function REPL({
   // This ensures that plugin installations from repository and user settings only
   // happen after explicit user consent to trust the current working directory.
   useEffect(() => {
-    if (isRemoteSession) return;
-    void performStartupChecks(setAppState);
-  }, [setAppState, isRemoteSession]);
+    if (
+      !shouldRunStartupChecks(
+        isRemoteSession,
+        startupChecksStartedRef.current,
+        promptTypingSuppressionActive,
+      )
+    ) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      if (
+        !shouldRunStartupChecks(
+          isRemoteSession,
+          startupChecksStartedRef.current,
+          promptTypingSuppressionActive,
+        )
+      ) {
+        return;
+      }
+
+      startupChecksStartedRef.current = true;
+      void performStartupChecks(setAppState);
+    }, 1500);
+
+    return () => clearTimeout(timeout);
+  }, [setAppState, isRemoteSession, promptTypingSuppressionActive]);
 
   // Allow Claude in Chrome MCP to send prompts through MCP notifications
   // and sync permission mode changes to the Chrome extension
@@ -1338,6 +1363,7 @@ export function REPL({
   const inputValueRef = useRef(inputValue);
   inputValueRef.current = inputValue;
   const promptTypingSuppressionActive = isPromptTypingSuppressionActive(isPromptInputActive, inputValue);
+  const startupChecksStartedRef = useRef(false);
   const insertTextRef = useRef<{
     insert: (text: string) => void;
     setInputWithCursor: (value: string, cursor: number) => void;
