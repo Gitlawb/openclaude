@@ -362,7 +362,11 @@ function convertMessages(
           if (typeof c === 'string') return c ? [{ type: 'text', text: c }] : []
           return c
         }
-        prev.content = [...toArray(prevContent), ...toArray(curContent)]
+        const merged = [...toArray(prevContent), ...toArray(curContent)]
+        // Flatten to string when all parts are text — providers like Groq
+        // reject content arrays even when they contain only text parts.
+        const allText = merged.every(p => p.type === 'text')
+        prev.content = allText ? merged.map(p => p.text ?? '').join('\n') : merged
       }
 
       if (msg.tool_calls?.length) {
