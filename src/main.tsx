@@ -2334,6 +2334,9 @@ async function run(): Promise<CommanderCommand> {
     const bgRefreshThrottleMs = getFeatureValue_CACHED_MAY_BE_STALE('tengu_cicada_nap_ms', 0);
     const lastPrefetched = getGlobalConfig().startupPrefetchedAt ?? 0;
     const skipStartupPrefetches = isBareMode() || bgRefreshThrottleMs > 0 && Date.now() - lastPrefetched < bgRefreshThrottleMs;
+    // Always prefetch Ollama models (not gated by throttle — local server, fast & cheap)
+    prefetchOllamaModels();
+
     if (!skipStartupPrefetches) {
       const lastPrefetchedInfo = lastPrefetched > 0 ? ` last ran ${Math.round((Date.now() - lastPrefetched) / 1000)}s ago` : '';
       logForDebugging(`Starting background startup prefetches${lastPrefetchedInfo}`);
@@ -2341,9 +2344,6 @@ async function run(): Promise<CommanderCommand> {
 
       // Fetch bootstrap data from the server and update all cache values.
       void fetchBootstrapData();
-
-      // Prefetch Ollama models for the /model picker
-      prefetchOllamaModels();
 
       // TODO: Consolidate other prefetches into a single bootstrap request.
       void prefetchPassesEligibility();
