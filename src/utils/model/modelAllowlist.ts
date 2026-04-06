@@ -93,23 +93,38 @@ function familyHasSpecificEntries(
  * coincidentally contain a Claude model substring).
  *
  * Recognized patterns:
- *   - ARN: arn:aws:bedrock:...
- *   - Cross-region inference profile: {region}.anthropic.claude-*-v{N}:{N}
- *   - Foundation model: anthropic.claude-*-v{N}:{N}
+ *   - Bedrock ARN: arn:aws[...]:bedrock:... (with extracted ID matching the pattern below)
+ *   - Cross-region inference profile: {region}.anthropic.claude-*-v{N}[:{N}]
+ *   - Foundation model: anthropic.claude-*-v{N}[:{N}]
  */
+
+// Matches arn:aws[...]:bedrock:... — restricts to AWS Bedrock ARNs only.
+const BEDROCK_ARN_PATTERN = /^arn:aws(?:-[^:]+)?:bedrock:/
+
+// Matches (optional region.)anthropic.claude-...-vN or -vN:N (colon-variant optional).
+const BEDROCK_ANTHROPIC_MODEL_ID_PATTERN =
+  /^(?:(?:us|eu|apac|global)\.)?anthropic\.claude-.*-v\d+(?::\d+)?$/
+
+function isRecognizedBedrockModelId(model: string): boolean {
+  return BEDROCK_ANTHROPIC_MODEL_ID_PATTERN.test(model)
+}
+
 function isBedrockFormattedModel(model: string): boolean {
-  if (model.startsWith('arn:')) return true
-  // Match (optional region prefix.)anthropic.claude-...-v{digits}:{digits}
-  return /^(?:(?:us|eu|apac|global)\.)?anthropic\.claude-.*-v\d+:\d+$/.test(
-    model,
-  )
+  if (BEDROCK_ARN_PATTERN.test(model)) {
+    // Only treat the ARN as Bedrock-formatted if the extracted model ID
+    // matches the expected anthropic.claude-* pattern — prevents non-Bedrock
+    // or custom ARNs that happen to contain Claude substrings from bypassing
+    // allowlist checks.
+    return isRecognizedBedrockModelId(extractModelIdFromArn(model))
+  }
+  return isRecognizedBedrockModelId(model)
 }
 
 /**
  * Normalize a Bedrock-formatted model ID to its canonical first-party form
  * for allowlist comparison. Only applies to recognized Bedrock patterns
- * (ARN, region-prefixed inference profiles, foundation models with version
- * suffixes like -v1:0). Custom/unknown model IDs are returned unchanged to
+ * (Bedrock ARN, region-prefixed inference profiles, foundation models with version
+ * suffixes like -v1 or -v1:0). Custom/unknown model IDs are returned unchanged to
  * prevent accidental allowlist bypasses.
  *
  * Example: "eu.anthropic.claude-sonnet-4-5-v1:0" → "claude-sonnet-4-5"

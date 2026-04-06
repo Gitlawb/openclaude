@@ -4,13 +4,26 @@
  *   - Case-insensitive 'inherit' handling
  *   - Allowlist validation via isModelAllowed
  */
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { resetSettingsCache, setSessionSettingsCache } from '../../utils/settings/settingsCache.js'
 import { resolveTeammateModel } from './spawnMultiAgent.js'
 
 // Use test env so getGlobalConfig() returns TEST_GLOBAL_CONFIG_FOR_TESTING
-// (avoids disk reads and gives a predictable default state)
-process.env.NODE_ENV = 'test'
+// (avoids disk reads and gives a predictable default state).
+// Captured and restored to avoid leaking into other test files.
+const originalNodeEnv = process.env.NODE_ENV
+
+beforeAll(() => {
+  process.env.NODE_ENV = 'test'
+})
+
+afterAll(() => {
+  if (originalNodeEnv === undefined) {
+    delete process.env.NODE_ENV
+  } else {
+    process.env.NODE_ENV = originalNodeEnv
+  }
+})
 
 function allowAllModels() {
   setSessionSettingsCache({ settings: {}, errors: [] })

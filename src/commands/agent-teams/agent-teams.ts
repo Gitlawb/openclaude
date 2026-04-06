@@ -19,14 +19,17 @@ const HIGHER_PRIORITY_SOURCES: SettingSource[] = [
 ]
 
 /**
- * Check if a higher-priority settings source sets the agent-teams env var.
- * Returns the source name if found, undefined otherwise.
+ * Check if a higher-priority settings source is actively *enabling* agent teams.
+ * Only returns a source when its value is truthy — a source with value '0' is
+ * trying to disable the feature, not override the user setting, so we don't
+ * report it as the cause (the --agent-teams CLI flag would be the actual cause
+ * in that case).
  */
 function findOverridingSource(): SettingSource | undefined {
   for (const source of HIGHER_PRIORITY_SOURCES) {
     const settings = getSettingsForSource(source)
     const value = settings?.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
-    if (value !== undefined) {
+    if (isEnvTruthy(value)) {
       return source
     }
   }
