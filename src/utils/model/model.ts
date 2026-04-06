@@ -131,7 +131,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.5-pro-preview-03-25'
+    return process.env.GEMINI_MODEL || 'gemini-2.5-pro'
   }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
