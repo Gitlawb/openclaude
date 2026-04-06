@@ -5,17 +5,39 @@ import { firstPartyNameToCanonical, parseUserSpecifiedModel } from './model.js'
 import { resolveOverriddenModel } from './modelStrings.js'
 
 /**
- * Check if a model belongs to a given family by checking if its name
- * (or resolved name) contains the family identifier.
+ * Check if a model belongs to a given family.
+ *
+ * Two conditions must both hold:
+ * 1. The model is a recognized first-party Claude ID (starts with "claude-",
+ *    is a Bedrock-formatted ID, a Vertex @date ID, or a known alias).
+ *    This prevents custom/third-party models like "my-sonnet-deployment" or
+ *    "gpt-sonnet-foo" from accidentally matching a Claude family alias.
+ * 2. The family name is a distinct hyphen-delimited segment of the model name
+ *    (e.g. "opus" in "claude-opus-4-6", but NOT a prefix of "opusplan").
+ *
+ * Note: isBedrockFormattedModel / isVertexFormattedModel are declared later in
+ * this file but are regular function declarations, so they are hoisted.
  */
 function modelBelongsToFamily(model: string, family: string): boolean {
-  if (model.includes(family)) {
+  // Guard: non-alias models must be recognized first-party Claude IDs.
+  const isRecognizedClaudeId =
+    model.startsWith('claude-') ||
+    isBedrockFormattedModel(model) ||
+    isVertexFormattedModel(model)
+  if (!isModelAlias(model) && !isRecognizedClaudeId) {
+    return false
+  }
+
+  // Segment-boundary match: family must be a complete hyphen-delimited token.
+  const segmentRe = new RegExp(`(?:^|-)${family}(?:-|$)`)
+  if (segmentRe.test(model)) {
     return true
   }
-  // Resolve aliases like "best" → "claude-opus-4-6" to check family membership
+
+  // Resolve aliases like "best" → "claude-opus-4-6" to check family membership.
   if (isModelAlias(model)) {
     const resolved = parseUserSpecifiedModel(model).toLowerCase()
-    return resolved.includes(family)
+    return segmentRe.test(resolved)
   }
   return false
 }
@@ -107,10 +129,14 @@ function familyHasSpecificEntries(
 // Matches arn:aws[...]:bedrock:... — restricts to AWS Bedrock ARNs only.
 const BEDROCK_ARN_PATTERN = /^arn:aws(?:-[^:]+)?:bedrock:/
 
-// Matches (optional region.)anthropic.claude-...-vN[:{N}] (versioned)
-// OR (optional region.)anthropic.claude-{lowercase-name} (new-style, no version suffix).
+// Matches (optional region.)anthropic.claude-{lowercase-name}-vN[:{N}] (versioned)
+// OR     (optional region.)anthropic.claude-{lowercase-name}            (no-version suffix).
+// Both branches restrict to lowercase alphanumeric segments separated by hyphens.
+// This ensures custom deployment names that use uppercase, underscores, or dots
+// (e.g. us.anthropic.claude-MyCustom-v1) are not recognised and cannot be
+// accidentally normalized to a canonical Claude name.
 const BEDROCK_ANTHROPIC_MODEL_ID_PATTERN =
-  /^(?:(?:us|eu|apac|global)\.)?anthropic\.claude-(?:.*-v\d+(?::\d+)?|[a-z0-9]+(?:-[a-z0-9]+)*)$/
+  /^(?:(?:us|eu|apac|global)\.)?anthropic\.claude-(?:[a-z0-9]+(?:-[a-z0-9]+)*-v\d+(?::\d+)?|[a-z0-9]+(?:-[a-z0-9]+)*)$/
 
 function isRecognizedBedrockModelId(model: string): boolean {
   return BEDROCK_ANTHROPIC_MODEL_ID_PATTERN.test(model)

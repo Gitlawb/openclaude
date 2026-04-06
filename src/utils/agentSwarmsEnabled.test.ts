@@ -7,9 +7,19 @@ const originalEnv = {
 }
 
 function resetEnv() {
-  process.env.USER_TYPE = originalEnv.USER_TYPE
-  process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS =
-    originalEnv.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+  // Use delete when the original value was undefined — assigning undefined
+  // coerces to the string "undefined" in process.env, which leaks into later tests.
+  if (originalEnv.USER_TYPE === undefined) {
+    delete process.env.USER_TYPE
+  } else {
+    process.env.USER_TYPE = originalEnv.USER_TYPE
+  }
+  if (originalEnv.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === undefined) {
+    delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+  } else {
+    process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS =
+      originalEnv.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
+  }
   // Restore argv without the --agent-teams flag
   process.argv.splice(0, process.argv.length, ...originalArgv)
 }

@@ -110,6 +110,14 @@ describe('isModelAllowed — Bedrock model ID normalization', () => {
     expect(isModelAllowed('anthropic.claude-MyBuild')).toBe(false)
   })
 
+  test('versioned Bedrock ID with uppercase body is NOT normalized (regression: .*-v1 was too loose)', () => {
+    // The versioned branch previously used .*-v\d+ which accepted any chars before -vN.
+    // us.anthropic.claude-MyCustom-v1 must not be recognized as a first-party Bedrock model.
+    withAllowlist(['sonnet', 'claude-sonnet-4-6'])
+    expect(isModelAllowed('us.anthropic.claude-MyCustom-v1')).toBe(false)
+    expect(isModelAllowed('anthropic.claude-My_Deploy-v2:0')).toBe(false)
+  })
+
   test('Bedrock model not allowed when specific version restricts the family alias', () => {
     // When allowlist has both "opus" and "opus-4-5", the family wildcard is suppressed
     withAllowlist(['opus', 'opus-4-5'])
@@ -200,5 +208,32 @@ describe('isModelAllowed — alias resolution', () => {
     // Use a concrete model ID that no alias will resolve to
     withAllowlist(['claude-haiku-4-5'])
     expect(isModelAllowed('opus')).toBe(false)
+  })
+})
+
+describe('isModelAllowed — family-alias boundary matching', () => {
+  test('custom model with family name as substring is NOT allowed by family alias', () => {
+    // "my-sonnet-deployment" and "gpt-sonnet-foo" contain "sonnet" as a substring
+    // but are not first-party Claude IDs — they must not match the "sonnet" family alias.
+    withAllowlist(['sonnet'])
+    expect(isModelAllowed('my-sonnet-deployment')).toBe(false)
+    expect(isModelAllowed('gpt-sonnet-foo')).toBe(false)
+  })
+
+  test('model with family name as non-boundary substring is NOT allowed (regression: opusplan vs opus)', () => {
+    // "opusplan" contains "opus" but not as a standalone segment; it must not
+    // match the "opus" family alias in the allowlist.
+    withAllowlist(['opus'])
+    expect(isModelAllowed('opusplan')).toBe(false)
+  })
+
+  test('canonical claude model IS allowed by matching family alias', () => {
+    withAllowlist(['sonnet'])
+    expect(isModelAllowed('claude-sonnet-4-6')).toBe(true)
+  })
+
+  test('canonical claude model with family as exact prefix-segment IS allowed', () => {
+    withAllowlist(['opus'])
+    expect(isModelAllowed('claude-opus-4-6')).toBe(true)
   })
 })
