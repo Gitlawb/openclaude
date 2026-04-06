@@ -40,7 +40,7 @@ type OpenAIShimClient = {
   }
 }
 
-function makeSseResponse(lines: string[]): Response {
+function makeSseResponse(lines: string[], extraHeaders?: Record<string, string>): Response {
   const encoder = new TextEncoder()
   return new Response(
     new ReadableStream({
@@ -54,6 +54,7 @@ function makeSseResponse(lines: string[]): Response {
     {
       headers: {
         'Content-Type': 'text/event-stream',
+        ...extraHeaders,
       },
     },
   )
@@ -649,4 +650,209 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
   const assistantMsgs = sentMessages?.filter(m => m.role === 'assistant')
   expect(assistantMsgs?.length).toBe(1) // two assistant turns merged into one
   expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
+})
+
+test('prefers native token counts over standard token counts in streaming usage', async () => {
+  globalThis.fetch = (async (_input, init) => {
+    const body = JSON.parse(String(init?.body))
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 30,
+          native_tokens_prompt: 50,
+          native_tokens_completion: 10,
+          completion_tokens_details: { reasoning_tokens: 5 },
+        },
+      },
+    ])
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({ model: 'fake-model', messages: [{ role: 'user', content: 'hi' }], stream: true })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) events.push(event)
+
+  const usageEvent = events.find(
+    e => e.type === 'message_delta' && typeof e.usage === 'object' && e.usage !== null,
+  ) as { usage?: Record<string, unknown> } | undefined
+
+  // native_tokens_prompt (50) should be preferred over prompt_tokens (100)
+  expect(usageEvent?.usage?.input_tokens).toBe(50)
+  // native_tokens_completion (10) preferred over completion_tokens (30)
+  expect(usageEvent?.usage?.output_tokens).toBe(10)
+})
+
+test('prefers native token counts over standard token counts in non-streaming response', async () => {
+  globalThis.fetch = (async (_input, init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'fake-model',
+        choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 30,
+          native_tokens_prompt: 50,
+          native_tokens_completion: 10,
+          completion_tokens_details: { reasoning_tokens: 5 },
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create({
+    model: 'fake-model',
+    messages: [{ role: 'user', content: 'hi' }],
+    stream: false,
+  })
+
+  expect((result as Record<string, unknown>).usage).toMatchObject({
+    input_tokens: 50,
+    output_tokens: 10,
+  })
+})
+
+test('calls OpenRouter generation API when x-generation-id header is present in streaming response', async () => {
+  const chunks = makeStreamChunks([
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'anthropic/claude-sonnet-4-5-20250514',
+      choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }],
+    },
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'anthropic/claude-sonnet-4-5-20250514',
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+    },
+    // Empty choices, no usage in the stream — this is the scenario
+    // where OpenRouter doesn't include usage in the SSE body.
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'anthropic/claude-sonnet-4-5-20250514',
+      choices: [],
+    },
+  ])
+
+  let generationApiCalled = false
+  globalThis.fetch = (async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.includes('/api/v1/generation')) {
+      generationApiCalled = true
+      expect((init as RequestInit)?.headers).toMatchObject({
+        'Authorization': 'Bearer or-test-key',
+      })
+      return new Response(
+        JSON.stringify({
+          data: {
+            tokens_prompt: 100,
+            tokens_completion: 50,
+            native_tokens_prompt: 90,
+            native_tokens_completion: 45,
+            native_tokens_reasoning: 10,
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return makeSseResponse(chunks, { 'x-generation-id': 'gen-abc-123' })
+  }) as FetchType
+
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_API_KEY = 'or-test-key'
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({ model: 'anthropic/claude-sonnet-4-5-20250514', messages: [{ role: 'user', content: 'hi' }], stream: true })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) events.push(event)
+
+  expect(generationApiCalled).toBe(true)
+
+  const deltaEvents = events.filter(e => e.type === 'message_delta')
+
+  // Wait for any pending microtasks (stats fetch) to settle,
+  // then check for either inline injection or follow-up delta.
+  await new Promise(r => setImmediate(r))
+
+  const allDeltaEvents = events.filter(e => e.type === 'message_delta')
+
+  // Verify that at least one streamed message_delta contains the injected
+  // usage values returned by the generation API (90 input, 55 output = 45 + 10 reasoning).
+  const hasCorrectUsage = allDeltaEvents.some(e => {
+    const usage = e.usage as Record<string, unknown> | undefined
+    return usage?.input_tokens === 90 && usage?.output_tokens === 55
+  })
+
+  expect(hasCorrectUsage).toBe(true)
+})
+
+test('skips generation stats fetch when x-generation-id header is absent', async () => {
+  const chunks = makeStreamChunks([
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'fake-model',
+      choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }],
+    },
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'fake-model',
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+    },
+  ])
+
+  let generationApiCalled = false
+  globalThis.fetch = (async (input) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.includes('/api/v1/generation')) {
+      generationApiCalled = true
+    }
+    return makeSseResponse(chunks)
+    // no x-generation-id header set
+  }) as FetchType
+
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_API_KEY = 'or-test-key'
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({ model: 'fake-model', messages: [{ role: 'user', content: 'hi' }], stream: true })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) events.push(event)
+
+  // Give time for any async fetch that shouldn't happen
+  await new Promise(r => setTimeout(r, 50))
+
+  expect(generationApiCalled).toBe(false)
 })

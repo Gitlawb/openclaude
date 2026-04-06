@@ -490,9 +490,14 @@ interface OpenAIStreamChunk {
     prompt_tokens?: number
     completion_tokens?: number
     total_tokens?: number
+    completion_tokens_details?: {
+      reasoning_tokens?: number
+    }
     prompt_tokens_details?: {
       cached_tokens?: number
     }
+    native_tokens_prompt?: number
+    native_tokens_completion?: number
   }
 }
 
@@ -505,9 +510,17 @@ function convertChunkUsage(
 ): Partial<AnthropicUsage> | undefined {
   if (!usage) return undefined
 
+  // Prefer native token counts when available (accurate for non-OpenAI models
+  // like Gemini, Qwen, etc.). Fall back to GPT-tokenizer counts for
+  // providers that don't emit native token fields.
+  const inputTokens =
+    usage.native_tokens_prompt ?? usage.prompt_tokens ?? 0
+  const outputTokens =
+    usage.native_tokens_completion ?? usage.completion_tokens ?? 0
+
   return {
-    input_tokens: usage.prompt_tokens ?? 0,
-    output_tokens: usage.completion_tokens ?? 0,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
   }
@@ -781,6 +794,128 @@ async function* openaiStreamToAnthropic(
 // The shim client — duck-types as Anthropic SDK
 // ---------------------------------------------------------------------------
 
+/**
+ * OpenRouter streaming responses may include usage in the final SSE chunk,
+ * but sometimes lack it. When an `x-generation-id` header is present, we
+ * can fetch stats from the generation API as a fallback.
+ *
+ * OpenRouter header: x-generation-id (generation UUID)
+ * API endpoint: GET /api/v1/generation?id=<generation_id>
+ */
+async function fetchOpenRouterGenerationStats(
+  response: Response,
+  baseUrl: string,
+  apiKey: string,
+): Promise<Partial<AnthropicUsage> | null> {
+  const generationId = response.headers.get('x-generation-id')
+  if (!generationId) return null
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+
+  try {
+    const origin = (() => {
+      try {
+        const u = new URL(baseUrl.includes('://') ? baseUrl : `https://${baseUrl}`)
+        return `${u.protocol}//${u.host}`
+      } catch {
+        // If URL is malformed (non-OpenRouter local setup etc), don't leak
+        // the API key to a random host — just bail.
+        return null
+      }
+    })()
+    if (!origin) return null
+
+    const url = `${origin}/api/v1/generation?id=${encodeURIComponent(generationId)}`
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    })
+    if (!res.ok) return null
+    const json = await res.json()
+    const d = json?.data
+    if (!d) return null
+
+    const promptTokens = (d.tokens_prompt ?? d.native_tokens_prompt ?? 0) as number
+    const completionTokens = (d.tokens_completion ?? d.native_tokens_completion ?? 0) as number
+    const reasoningTokens = (d.native_tokens_reasoning ?? 0) as number
+    const cachedTokens = (d.native_tokens_cached ?? 0) as number
+
+    return {
+      input_tokens: promptTokens,
+      output_tokens: completionTokens + reasoningTokens,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: cachedTokens,
+    }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Wraps a streaming event generator, injecting usage into message_delta events.
+ * Only applies when `x-generation-id` is present (i.e., `statsPromise` will
+ * resolve non-null).
+ *
+ * If message_delta already has usage or stats resolves in time, usage is
+ * injected inline. If stats haven't resolved when message_delta arrives, the
+ * event is yielded without usage so the stream completes immediately. Once
+ * stats resolve, a follow-up message_delta with correct usage is emitted
+ * downstream. Downstream code (updateUsage) merges usage from multiple
+ * message_delta events, so this is safe.
+ */
+async function* injectGenerationStats(
+  stream: AsyncGenerator<AnthropicStreamEvent>,
+  statsPromise: Promise<Partial<AnthropicUsage> | null>,
+): AsyncGenerator<AnthropicStreamEvent> {
+  let resolved: Partial<AnthropicUsage> | null = null
+  let statsSettled = false
+
+  // Resolve stats in the background — never blocks the stream.
+  statsPromise.then(
+    s => { resolved = s; statsSettled = true },
+    () => { statsSettled = true },
+  )
+
+  let yieldedDeltaWithoutUsage = false
+
+  for await (const event of stream) {
+    if (event.type === 'message_delta') {
+      if (event.usage) {
+        yield event
+        continue
+      }
+      // If stats already resolved, inject and yield immediately
+      if (resolved) {
+        yield { ...event, usage: { ...event.usage, ...resolved } }
+        continue
+      }
+      // Stats not yet available — yield message_delta without usage
+      // so the stream completes immediately without blocking.
+      yield event
+      yieldedDeltaWithoutUsage = true
+    } else {
+      yield event
+    }
+  }
+
+  // Stats resolved after streaming finished — emit follow-up message_delta
+  // with correct usage. Downstream code (updateUsage) merges usage from
+  // multiple message_delta events.
+  if (statsSettled && resolved && yieldedDeltaWithoutUsage) {
+    yield {
+      type: 'message_delta',
+      delta: { stop_reason: null, stop_sequence: null },
+      usage: resolved,
+    }
+  }
+}
+
 class OpenAIShimStream {
   private generator: AsyncGenerator<AnthropicStreamEvent>
   // The controller property is checked by claude.ts to distinguish streams from error messages
@@ -820,11 +955,30 @@ class OpenAIShimMessages {
       httpResponse = response
 
       if (params.stream) {
-        return new OpenAIShimStream(
+        const baseStream =
           request.transport === 'codex_responses'
             ? codexStreamToAnthropic(response, request.resolvedModel)
-            : openaiStreamToAnthropic(response, request.resolvedModel),
-        )
+            : openaiStreamToAnthropic(response, request.resolvedModel)
+
+        // Only apply the OpenRouter generation-stats wrapper when the
+        // response has the x-generation-id header (OpenRouter-specific).
+        // Non-OpenRouter providers skip the wrapper entirely — no buffering,
+        // no extra latency.
+        if (response.headers.has('x-generation-id')) {
+          const genStatsPromise = (async () => {
+            const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+            return fetchOpenRouterGenerationStats(
+              response,
+              request.baseUrl,
+              apiKey,
+            )
+          })()
+          return new OpenAIShimStream(
+            injectGenerationStats(baseStream, genStatsPromise),
+          )
+        }
+
+        return new OpenAIShimStream(baseStream)
       }
 
       if (request.transport === 'codex_responses') {
