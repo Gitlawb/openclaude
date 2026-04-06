@@ -1,6 +1,6 @@
 """
 test_atomic_chat_provider.py
-Run: pytest test_atomic_chat_provider.py -v
+Run: pytest python/tests/test_atomic_chat_provider.py -v
 """
 
 import pytest

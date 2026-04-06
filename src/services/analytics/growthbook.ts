@@ -202,7 +202,7 @@ export function hasGrowthBookEnvOverride(feature: string): boolean {
 }
 
 /**
- * Local config overrides set via /config Gates tab (ant-only). Checked after
+ * Local config overrides set via /config Gates tab (internal-only). Checked after
  * env-var overrides — env wins so eval harnesses remain deterministic. Unlike
  * getEnvOverrides this is not memoized: the user can change overrides at
  * runtime, and getGlobalConfig() is already memory-cached (pointer-chase)

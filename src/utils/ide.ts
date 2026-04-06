@@ -1390,6 +1390,12 @@ const detectHostIP = memoize(
 )
 
 async function installFromArtifactory(command: string): Promise<string> {
+  const artifactoryBaseUrl =
+    process.env.CLAUDE_CODE_INTERNAL_ARTIFACTORY_BASE_URL
+  if (!artifactoryBaseUrl) {
+    throw new Error('Internal artifactory base URL is not configured')
+  }
+  const npmrcAuthPrefix = `//${artifactoryBaseUrl.replace(/^https?:\/\//, '')}/api/npm/npm-all/:_authToken=`
   // Read auth token from ~/.npmrc
   const npmrcPath = join(os.homedir(), '.npmrc')
   let authToken: string | null = null
@@ -1402,11 +1408,8 @@ async function installFromArtifactory(command: string): Promise<string> {
     const lines = npmrcContent.split('\n')
     for (const line of lines) {
       // Look for the artifactory auth token line
-      const match = line.match(
-        /\/\/artifactory\.infra\.ant\.dev\/artifactory\/api\/npm\/npm-all\/:_authToken=(.+)/,
-      )
-      if (match && match[1]) {
-        authToken = match[1].trim()
+      if (line.startsWith(npmrcAuthPrefix)) {
+        authToken = line.slice(npmrcAuthPrefix.length).trim()
         break
       }
     }
@@ -1420,8 +1423,7 @@ async function installFromArtifactory(command: string): Promise<string> {
   }
 
   // Fetch the version from artifactory
-  const versionUrl =
-    'https://artifactory.infra.ant.dev/artifactory/armorcode-claude-code-internal/claude-vscode-releases/stable'
+  const versionUrl = `${artifactoryBaseUrl}/armorcode-claude-code-internal/claude-vscode-releases/stable`
 
   try {
     const versionResponse = await axios.get(versionUrl, {
@@ -1436,7 +1438,7 @@ async function installFromArtifactory(command: string): Promise<string> {
     }
 
     // Download the .vsix file from artifactory
-    const vsixUrl = `https://artifactory.infra.ant.dev/artifactory/armorcode-claude-code-internal/claude-vscode-releases/${version}/claude-code.vsix`
+    const vsixUrl = `${artifactoryBaseUrl}/armorcode-claude-code-internal/claude-vscode-releases/${version}/claude-code.vsix`
     const tempVsixPath = join(
       os.tmpdir(),
       `claude-code-${version}-${Date.now()}.vsix`,

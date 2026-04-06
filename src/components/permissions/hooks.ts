@@ -164,7 +164,7 @@ export function usePermissionRequestLogging(
       }
     }
 
-    // [ANT-ONLY] Log bash tool calls, so we can categorize
+    // [internal-only] Log bash tool calls, so we can categorize
     // & burn down calls that should have been allowed
     if (process.env.USER_TYPE === 'ant') {
       const parsedInput = BashTool.inputSchema.safeParse(toolUseConfirm.input)

@@ -36,6 +36,18 @@ export function parseProviderFlag(args: string[]): string | null {
 }
 
 /**
+ * Parse and apply --provider from argv in one step.
+ * Returns undefined when the flag is absent.
+ */
+export function applyProviderFlagFromArgs(
+  args: string[],
+): { error?: string } | undefined {
+  const provider = parseProviderFlag(args)
+  if (!provider) return undefined
+  return applyProviderFlag(provider, args)
+}
+
+/**
  * Extract the value of --model from argv.
  * Returns null if absent.
  */

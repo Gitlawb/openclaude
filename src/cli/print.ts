@@ -1,4 +1,4 @@
-// biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
+// biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { feature } from 'bun:bundle'
 import { readFile, stat } from 'fs/promises'
 import { dirname } from 'path'
@@ -2829,7 +2829,7 @@ function runHeadlessStreaming(
 
       if (message.type === 'control_request') {
         if (message.request.subtype === 'interrupt') {
-          // Track escapes for attribution (ant-only feature)
+          // Track escapes for attribution (internal-only feature)
           if (feature('COMMIT_ATTRIBUTION')) {
             setAppState(prev => ({
               ...prev,
@@ -3765,7 +3765,7 @@ function runHeadlessStreaming(
             ...getSettingsWithSources(),
             applied: {
               model,
-              // Numeric effort (ant-only) → null; SDK schema is string-level only.
+              // Numeric effort (internal-only) → null; SDK schema is string-level only.
               effort: typeof effort === 'string' ? effort : null,
             },
           })
@@ -5025,7 +5025,7 @@ async function loadInitialMessages(
   }
 
   // Handle resume in print mode (accepts session ID or URL)
-  // URLs are [ANT-ONLY]
+  // URLs are [internal-only]
   if (options.resume) {
     try {
       logEvent('tengu_resume_print', {})
