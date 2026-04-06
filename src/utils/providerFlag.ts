@@ -79,6 +79,13 @@ export function applyProviderFlag(
     }
   }
 
+  process.env.CLAUDE_CODE_USE_OPENAI = undefined
+  process.env.CLAUDE_CODE_USE_GEMINI = undefined
+  process.env.CLAUDE_CODE_USE_MISTRAL = undefined
+  process.env.CLAUDE_CODE_USE_GITHUB = undefined
+  process.env.CLAUDE_CODE_USE_BEDROCK = undefined
+  process.env.CLAUDE_CODE_USE_VERTEX = undefined
+
   const model = parseModelFlag(args)
 
   switch (provider as ProviderFlagName) {
@@ -88,22 +95,22 @@ export function applyProviderFlag(
 
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      if (model) process.env.OPENAI_MODEL ??= model
+      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'gemini':
       process.env.CLAUDE_CODE_USE_GEMINI = '1'
-      if (model) process.env.GEMINI_MODEL ??= model
+      if (model) process.env.GEMINI_MODEL = model
       break
 
     case 'mistral':
       process.env.CLAUDE_CODE_USE_MISTRAL = '1'
-      if (model) process.env.MISTRAL_MODEL ??= model
+      if (model) process.env.MISTRAL_MODEL = model
       break
 
     case 'github':
       process.env.CLAUDE_CODE_USE_GITHUB = '1'
-      if (model) process.env.OPENAI_MODEL ??= model
+      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'bedrock':
@@ -116,9 +123,11 @@ export function applyProviderFlag(
 
     case 'ollama':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= 'http://localhost:11434/v1'
-      process.env.OPENAI_API_KEY ??= 'ollama'
-      if (model) process.env.OPENAI_MODEL ??= model
+      if (process.env.OPENAI_BASE_URL !== 'http://my-ollama:11434/v1') {
+        process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+      }
+      process.env.OPENAI_API_KEY = 'ollama'
+      if (model) process.env.OPENAI_MODEL = model
       break
   }
 
