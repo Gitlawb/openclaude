@@ -30,6 +30,10 @@ export function hasToolFieldMapping(toolName: string): boolean {
   return toolName in STRING_ARGUMENT_TOOL_FIELDS
 }
 
+export function shouldNormalizeToolArgumentsAtStop(toolName: string): boolean {
+  return hasToolFieldMapping(toolName) || toolName === 'Agent'
+}
+
 function wrapPlainStringToolArguments(
   toolName: string,
   value: string,

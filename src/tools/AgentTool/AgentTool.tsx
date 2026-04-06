@@ -76,6 +76,18 @@ function getAutoBackgroundMs(): number {
   return 0;
 }
 
+export function resolveEffectiveRunInBackground(
+  runInBackground: boolean | undefined,
+  options: {
+    backgroundTasksDisabled: boolean;
+    forkSubagentEnabled: boolean;
+  },
+): boolean | undefined {
+  return options.backgroundTasksDisabled || options.forkSubagentEnabled
+    ? undefined
+    : runInBackground;
+}
+
 // Multi-agent type constants are defined inline inside gated blocks to enable dead code elimination
 
 // Base input schema without multi-agent parameters
@@ -250,6 +262,10 @@ export const AgentTool = buildTool({
   }: AgentToolInput, toolUseContext, canUseTool, assistantMessage, onProgress?) {
     const startTime = Date.now();
     const model = isCoordinatorMode() ? undefined : modelParam;
+    const effectiveRunInBackground = resolveEffectiveRunInBackground(run_in_background, {
+      backgroundTasksDisabled: isBackgroundTasksDisabled,
+      forkSubagentEnabled: isForkSubagentEnabled()
+    });
 
     // Get app state for permission mode and agent filtering
     const appState = toolUseContext.getAppState();
@@ -275,7 +291,7 @@ export const AgentTool = buildTool({
     // In-process teammates cannot spawn background agents (their lifecycle is
     // tied to the leader's process). Tmux teammates are separate processes and
     // can manage their own background agents.
-    if (isInProcessTeammate() && teamName && run_in_background === true) {
+    if (isInProcessTeammate() && teamName && effectiveRunInBackground === true) {
       throw new Error('In-process teammates cannot spawn background agents. Use run_in_background=false for synchronous subagents.');
     }
 
@@ -545,7 +561,7 @@ export const AgentTool = buildTool({
       isBuiltInAgent: isBuiltInAgent(selectedAgent),
       startTime,
       agentType: selectedAgent.agentType,
-      isAsync: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled
+      isAsync: (effectiveRunInBackground === true || selectedAgent.background === true) && !isBackgroundTasksDisabled
     };
 
     // Use inline env check instead of coordinatorModule to avoid circular
@@ -564,7 +580,7 @@ export const AgentTool = buildTool({
     // <task-notification> re-entry there is handled by the else branch
     // below (registerAsyncAgentTask + notifyOnCompletion).
     const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
-    const shouldRunAsync = (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
+    const shouldRunAsync = (effectiveRunInBackground === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
     // Assemble the worker's tool pool independently of the parent's.
     // Workers always get their tools from assembleToolPool with their own
     // permission mode, so they aren't affected by the parent's tool

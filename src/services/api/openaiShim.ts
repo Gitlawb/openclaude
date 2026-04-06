@@ -44,7 +44,7 @@ import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
 import {
   normalizeToolArguments,
-  hasToolFieldMapping,
+  shouldNormalizeToolArgumentsAtStop,
 } from './toolArgumentNormalization.js'
 
 type SecretValueSource = Partial<{
@@ -445,13 +445,15 @@ function convertTools(
     .map(t => {
       const schema = { ...(t.input_schema ?? { type: 'object', properties: {} }) } as Record<string, unknown>
 
-      // For Codex/OpenAI: promote known Agent sub-fields into required[] only if
-      // they actually exist in properties (Gemini rejects required keys absent from properties).
+      // Keep the Agent tool schema aligned with the current tool contract.
+      // The live schema requires description + prompt, while subagent_type is optional.
+      // When Gemini compatibility disables strict mode, preserve only the current
+      // required fields and avoid forcing legacy or optional fields into required[].
       if (t.name === 'Agent' && schema.properties) {
         const props = schema.properties as Record<string, unknown>
         if (!Array.isArray(schema.required)) schema.required = []
         const req = schema.required as string[]
-        for (const key of ['message', 'subagent_type']) {
+        for (const key of ['description', 'prompt']) {
           if (key in props && !req.includes(key)) req.push(key)
         }
       }
@@ -559,7 +561,6 @@ async function* openaiStreamToAnthropic(
       name: string
       index: number
       jsonBuffer: string
-      normalizeAtStop: boolean
     }
   >()
   let hasEmittedContentStart = false
@@ -685,13 +686,12 @@ async function* openaiStreamToAnthropic(
 
               const toolBlockIndex = contentBlockIndex
               const initialArguments = tc.function.arguments ?? ''
-              const normalizeAtStop = hasToolFieldMapping(tc.function.name)
+              const normalizeAtStop = shouldNormalizeToolArgumentsAtStop(tc.function.name)
               activeToolCalls.set(tc.index, {
                 id: tc.id,
                 name: tc.function.name,
                 index: toolBlockIndex,
                 jsonBuffer: initialArguments,
-                normalizeAtStop,
               })
 
               yield {
@@ -733,7 +733,7 @@ async function* openaiStreamToAnthropic(
                   active.jsonBuffer += tc.function.arguments
                 }
 
-                if (active.normalizeAtStop) {
+                if (shouldNormalizeToolArgumentsAtStop(active.name)) {
                   continue
                 }
 
@@ -770,7 +770,7 @@ async function* openaiStreamToAnthropic(
           }
           // Close active tool calls
           for (const [, tc] of activeToolCalls) {
-            if (tc.normalizeAtStop) {
+            if (shouldNormalizeToolArgumentsAtStop(tc.name)) {
               let partialJson: string
               if (choice.finish_reason === 'length') {
                 // Truncated by max tokens — preserve raw buffer to avoid

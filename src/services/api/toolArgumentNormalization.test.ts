@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizeToolArguments } from './toolArgumentNormalization'
+import {
+  normalizeToolArguments,
+  shouldNormalizeToolArgumentsAtStop,
+} from './toolArgumentNormalization'
 
 describe('normalizeToolArguments', () => {
   describe('Bash tool', () => {
@@ -151,6 +154,21 @@ describe('normalizeToolArguments', () => {
       expect(
         normalizeToolArguments('Grep', '{"pattern":"fixme","path":"/src"}'),
       ).toEqual({ pattern: 'fixme', path: '/src' })
+    })
+  })
+
+  describe('shouldNormalizeToolArgumentsAtStop', () => {
+    test('returns true for Agent', () => {
+      expect(shouldNormalizeToolArgumentsAtStop('Agent')).toBe(true)
+    })
+
+    test('returns true for mapped tools', () => {
+      expect(shouldNormalizeToolArgumentsAtStop('Bash')).toBe(true)
+      expect(shouldNormalizeToolArgumentsAtStop('Read')).toBe(true)
+    })
+
+    test('returns false for unrelated tools', () => {
+      expect(shouldNormalizeToolArgumentsAtStop('UnknownTool')).toBe(false)
     })
   })
 

@@ -4,6 +4,7 @@ import type {
   ResolvedProviderRequest,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from './openaiSchemaSanitizer.js'
+import { normalizeToolArguments } from './toolArgumentNormalization.js'
 
 export interface AnthropicUsage {
   input_tokens: number
@@ -871,7 +872,7 @@ export function convertCodexResponseToAnthropicMessage(
       try {
         input = JSON.parse(item.arguments ?? '{}')
       } catch {
-        input = { raw: item.arguments ?? '' }
+        input = normalizeToolArguments(item.name ?? 'tool', item.arguments)
       }
 
       content.push({

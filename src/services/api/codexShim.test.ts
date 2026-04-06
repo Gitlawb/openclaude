@@ -376,4 +376,78 @@ describe('Codex request translation', () => {
       'message_stop',
     ])
   })
+
+  test('keeps malformed plain-string Agent arguments invalid in completed Codex responses', () => {
+    const message = convertCodexResponseToAnthropicMessage(
+      {
+        id: 'resp_agent_1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'function_call',
+            id: 'fc_agent_1',
+            call_id: 'call_agent_1',
+            name: 'Agent',
+            arguments: 'delegate this task',
+          },
+        ],
+        usage: { input_tokens: 12, output_tokens: 4 },
+      },
+      'gpt-5.4',
+    )
+
+    expect(message.stop_reason).toBe('tool_use')
+    expect(message.content).toEqual([
+      {
+        type: 'tool_use',
+        id: 'call_agent_1',
+        name: 'Agent',
+        input: {},
+      },
+    ])
+  })
+
+  test('preserves truncated Codex Agent arguments as raw streamed deltas', async () => {
+    const responseText = [
+      'event: response.output_item.added',
+      'data: {"type":"response.output_item.added","item":{"id":"fc_agent_1","type":"function_call","call_id":"call_agent_1","name":"Agent","arguments":"delegate this task"},"output_index":0,"sequence_number":0}',
+      '',
+      'event: response.output_item.done',
+      'data: {"type":"response.output_item.done","item":{"id":"fc_agent_1","type":"function_call","call_id":"call_agent_1","name":"Agent","arguments":"delegate this task"},"output_index":0,"sequence_number":1}',
+      '',
+      'event: response.incomplete',
+      'data: {"type":"response.incomplete","response":{"id":"resp_agent_2","status":"incomplete","model":"gpt-5.4","output":[{"id":"fc_agent_1","type":"function_call","call_id":"call_agent_1","name":"Agent","arguments":"delegate this task"}],"incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":2,"output_tokens":1}},"sequence_number":2}',
+      '',
+    ].join('\n')
+
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(responseText))
+        controller.close()
+      },
+    })
+
+    const events: Array<Record<string, unknown>> = []
+    for await (const event of codexStreamToAnthropic(new Response(stream), 'gpt-5.4')) {
+      events.push(event as Record<string, unknown>)
+    }
+
+    const streamedInput = events
+      .filter(
+        event =>
+          event.type === 'content_block_delta' &&
+          typeof event.delta === 'object' &&
+          event.delta !== null &&
+          (event.delta as Record<string, unknown>).type === 'input_json_delta',
+      )
+      .map(event => (event.delta as Record<string, unknown>).partial_json)
+      .join('')
+
+    const messageDelta = events.find(event => event.type === 'message_delta') as
+      | { delta?: { stop_reason?: string } }
+      | undefined
+
+    expect(streamedInput).toBe('delegate this task')
+    expect(messageDelta?.delta?.stop_reason).toBe('tool_use')
+  })
 })

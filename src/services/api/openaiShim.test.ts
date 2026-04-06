@@ -343,6 +343,164 @@ test('preserves image tool results as placeholders in follow-up requests', async
   expect(toolMessage?.content).toContain('[image:image/png]')
 })
 
+test('keeps Agent tool required fields aligned with the current schema in Gemini mode', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_AUTH_MODE = 'access-token'
+  process.env.GEMINI_ACCESS_TOKEN = 'gemini-access-token'
+  process.env.GOOGLE_CLOUD_PROJECT = 'gemini-project'
+  process.env.GEMINI_BASE_URL =
+    'https://generativelanguage.googleapis.com/v1beta/openai'
+  process.env.GEMINI_MODEL = 'gemini-2.0-flash'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GOOGLE_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-agent-schema',
+        model: 'gemini-2.0-flash',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 1,
+          total_tokens: 4,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-2.0-flash',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Spawn an agent' }],
+    tools: [
+      {
+        name: 'Agent',
+        description: 'Launch a new agent',
+        input_schema: {
+          type: 'object',
+          properties: {
+            description: { type: 'string' },
+            prompt: { type: 'string' },
+            subagent_type: { type: 'string' },
+          },
+          required: ['description', 'prompt'],
+          additionalProperties: false,
+        },
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const tools = requestBody?.tools as Array<Record<string, unknown>> | undefined
+  const agentTool = tools?.find(tool => (tool.function as Record<string, unknown>)?.name === 'Agent') as
+    | { function?: { parameters?: { required?: string[] } } }
+    | undefined
+
+  expect(agentTool?.function?.parameters?.required).toEqual(['description', 'prompt'])
+})
+
+test('does not reintroduce legacy Agent message field into Gemini required list', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_AUTH_MODE = 'access-token'
+  process.env.GEMINI_ACCESS_TOKEN = 'gemini-access-token'
+  process.env.GOOGLE_CLOUD_PROJECT = 'gemini-project'
+  process.env.GEMINI_BASE_URL =
+    'https://generativelanguage.googleapis.com/v1beta/openai'
+  process.env.GEMINI_MODEL = 'gemini-2.0-flash'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GOOGLE_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-agent-schema-legacy',
+        model: 'gemini-2.0-flash',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 1,
+          total_tokens: 4,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-2.0-flash',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Spawn an agent' }],
+    tools: [
+      {
+        name: 'Agent',
+        description: 'Launch a new agent',
+        input_schema: {
+          type: 'object',
+          properties: {
+            description: { type: 'string' },
+            prompt: { type: 'string' },
+          },
+          required: ['description', 'prompt'],
+          additionalProperties: false,
+        },
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const tools = requestBody?.tools as Array<Record<string, unknown>> | undefined
+  const agentTool = tools?.find(tool => (tool.function as Record<string, unknown>)?.name === 'Agent') as
+    | { function?: { parameters?: { required?: string[] } } }
+    | undefined
+
+  expect(agentTool?.function?.parameters?.required).not.toContain('message')
+  expect(agentTool?.function?.parameters?.required).not.toContain('subagent_type')
+})
+
 test('uses GEMINI_ACCESS_TOKEN for Gemini OpenAI-compatible requests', async () => {
   let capturedAuthorization: string | null = null
   let capturedProject: string | null = null
@@ -1421,6 +1579,142 @@ test('does not normalize incomplete streamed Bash commands when finish_reason is
     .join('')
 
   expect(streamedInput).toBe('rg --fi')
+})
+
+test('keeps malformed plain-string Agent arguments invalid in non-streaming responses', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-agent-1',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  id: 'function-call-agent-1',
+                  type: 'function',
+                  function: {
+                    name: 'Agent',
+                    arguments: 'delegate this task',
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const message = await client.beta.messages.create({
+    model: 'google/gemini-3.1-pro-preview',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Use Agent' }],
+    max_tokens: 64,
+    stream: false,
+  }) as {
+    content?: Array<Record<string, unknown>>
+  }
+
+  expect(message.content).toEqual([
+    {
+      type: 'tool_use',
+      id: 'function-call-agent-1',
+      name: 'Agent',
+      input: {},
+    },
+  ])
+})
+
+test('keeps malformed plain-string Agent arguments invalid in streaming responses', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-agent-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'function-call-agent-1',
+                  type: 'function',
+                  function: {
+                    name: 'Agent',
+                    arguments: 'delegate this task',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-agent-1',
+        object: 'chat.completion.chunk',
+        model: 'google/gemini-3.1-pro-preview',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'google/gemini-3.1-pro-preview',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Use Agent' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const normalizedInput = events
+    .filter(
+      event =>
+        event.type === 'content_block_delta' &&
+        typeof event.delta === 'object' &&
+        event.delta !== null &&
+        (event.delta as Record<string, unknown>).type === 'input_json_delta',
+    )
+    .map(event => (event.delta as Record<string, unknown>).partial_json)
+    .join('')
+
+  expect(normalizedInput).toBe('{}')
 })
 
 test('repairs truncated JSON objects even without command field', async () => {
