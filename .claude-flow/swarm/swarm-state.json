@@ -1,0 +1,23 @@
+{
+  "swarms": {
+    "swarm-1775488477528-gpvh54": {
+      "swarmId": "swarm-1775488477528-gpvh54",
+      "topology": "hierarchical",
+      "maxAgents": 10,
+      "status": "running",
+      "agents": [],
+      "tasks": [],
+      "config": {
+        "topology": "hierarchical",
+        "maxAgents": 10,
+        "strategy": "specialized",
+        "communicationProtocol": "message-bus",
+        "autoScaling": true,
+        "consensusMechanism": "majority"
+      },
+      "createdAt": "2026-04-06T15:14:37.528Z",
+      "updatedAt": "2026-04-06T15:14:37.528Z"
+    }
+  },
+  "version": "3.0.0"
+}

@@ -1,0 +1,73 @@
+{
+  "tasks": {
+    "task-1775488498763-xlr5u7": {
+      "taskId": "task-1775488498763-xlr5u7",
+      "type": "feature",
+      "description": "PostgreSQL schema: users, organizations, api_keys, subscriptions, usage_logs tables for Anthropic API gateway",
+      "priority": "critical",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [],
+      "tags": [
+        "backend",
+        "database",
+        "schema"
+      ],
+      "createdAt": "2026-04-06T15:14:58.763Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1775488499747-ncwk0s": {
+      "taskId": "task-1775488499747-ncwk0s",
+      "type": "feature",
+      "description": "Go backend: POST /v1/messages with SSE streaming, GET /v1/models, auth middleware, LLM router (Anthropic/OpenAI/Ollama)",
+      "priority": "critical",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [],
+      "tags": [
+        "backend",
+        "go",
+        "api"
+      ],
+      "createdAt": "2026-04-06T15:14:59.747Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1775488500677-6xgnjh": {
+      "taskId": "task-1775488500677-6xgnjh",
+      "type": "feature",
+      "description": "Go backend: OAuth endpoints - POST /v1/oauth/token, GET /api/oauth/profile, GET /api/oauth/claude_cli/roles, POST /api/claude_cli/api_key",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [],
+      "tags": [
+        "backend",
+        "go",
+        "oauth"
+      ],
+      "createdAt": "2026-04-06T15:15:00.677Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1775488501601-y6to0b": {
+      "taskId": "task-1775488501601-y6to0b",
+      "type": "feature",
+      "description": "Next.js frontend: landing page, login/register, dashboard with API keys and usage stats, pricing page",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [],
+      "tags": [
+        "frontend",
+        "nextjs",
+        "ui"
+      ],
+      "createdAt": "2026-04-06T15:15:01.601Z",
+      "startedAt": null,
+      "completedAt": null
+    }
+  },
+  "version": "3.0.0"
+}

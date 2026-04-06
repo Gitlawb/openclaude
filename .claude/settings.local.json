@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C d:/project/openclaude status --short)",
+      "Bash(git -C d:/project/openclaude log --oneline -10)",
+      "Bash(git -C d:/project/openclaude diff --stat HEAD)",
+      "Bash(git -C d:/project/openclaude rev-parse --show-toplevel)",
+      "Bash(git -C d:/project/openclaude ls-files --deleted)",
+      "Bash(git -C d:/project/openclaude log --oneline -5)",
+      "Bash(git -C d:/project/openclaude/openclaude log --oneline -5)",
+      "WebFetch(domain:kingston-meat-sodium-totally.trycloudflare.com)",
+      "Bash(curl -s --max-time 10 \"https://api.github.com/repos/anthropics/claude-plugins-official/contents/plugins\")",
+      "Bash(xargs grep:*)",
+      "Bash(xargs wc:*)",
+      "mcp__ruflo__swarm_init",
+      "mcp__ruflo__agent_spawn",
+      "Read(//d/project/gateway/backend/**)",
+      "Bash(go mod:*)",
+      "Bash(npm install:*)"
+    ]
+  }
+}

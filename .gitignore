@@ -1,12 +1,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
-.env
-.env.*
-!.env.example
 .openclaude-profile.json
 reports/
-GEMINI.md
 package-lock.json
-/.claude
 coverage/
