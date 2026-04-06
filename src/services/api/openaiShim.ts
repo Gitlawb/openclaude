@@ -200,9 +200,10 @@ function convertContentBlocks(
   const joinedText = textParts.join('\n')
 
   // Only return multipart array when images are present AND the provider
-  // supports it (OpenAI native, Gemini). All other OpenAI-compatible
-  // providers (Groq, Ollama, vLLM, etc.) require content to be a string.
-  if (imageParts.length > 0 && isGeminiMode()) {
+  // supports it (OpenAI native, Gemini, GitHub Models, Azure OpenAI).
+  // All other OpenAI-compatible providers (Groq, Ollama, vLLM, etc.)
+  // require content to be a string.
+  if (imageParts.length > 0 && supportsMultipartContent()) {
     const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
     if (joinedText) parts.push({ type: 'text', text: joinedText })
     parts.push(...imageParts)
@@ -223,6 +224,33 @@ function isGeminiMode(): boolean {
     (process.env.OPENAI_BASE_URL?.includes('generativelanguage.googleapis.com') ??
       false)
   )
+}
+
+/**
+ * Returns true for providers that accept multipart content arrays
+ * ([{type: "text"}, {type: "image_url"}]) in message content.
+ *
+ * Providers like Groq, Together, Ollama, vLLM, and LM Studio require
+ * content to be a plain string and reject arrays.
+ */
+function supportsMultipartContent(): boolean {
+  // Gemini always supports multipart
+  if (isGeminiMode()) return true
+
+  // GitHub Models uses OpenAI-compatible vision API
+  if (isGithubModelsMode()) return true
+
+  const baseUrl = process.env.OPENAI_BASE_URL ?? ''
+
+  // OpenAI native (explicit URL or default when no URL is set)
+  if (baseUrl === '' && isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) return true
+  if (baseUrl.includes('api.openai.com')) return true
+
+  // Azure OpenAI supports vision
+  if (baseUrl.includes('openai.azure.com')) return true
+
+  // Everything else (Groq, Together, Ollama, vLLM, etc.) → string only
+  return false
 }
 
 function convertMessages(

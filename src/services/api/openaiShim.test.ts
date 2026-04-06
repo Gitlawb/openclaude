@@ -7,7 +7,9 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
@@ -2003,4 +2005,111 @@ test('streaming: thinking block closed before tool call', async () => {
     content_block?: Record<string, unknown>
   }
   expect(thinkingStart?.content_block?.type).toBe('thinking')
+})
+
+// ---------------------------------------------------------------------------
+// Issue #430 — multipart content handling per provider
+// ---------------------------------------------------------------------------
+
+const imageBlock = {
+  type: 'image',
+  source: { type: 'base64', media_type: 'image/png', data: 'ZmFrZQ==' },
+}
+
+function captureMessages(): { get: () => Array<{ role: string; content: unknown }> | undefined } {
+  let captured: Array<{ role: string; content: unknown }> | undefined
+  globalThis.fetch = (async (_input: unknown, init: RequestInit | undefined) => {
+    captured = JSON.parse(String(init?.body)).messages
+    return makeNonStreamResponse()
+  }) as FetchType
+  return { get: () => captured }
+}
+
+test('non-multipart provider: text-only message → content is string', async () => {
+  const msgs = captureMessages()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'test',
+    system: 'sys',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const userMsg = msgs.get()?.find(m => m.role === 'user')
+  expect(typeof userMsg?.content).toBe('string')
+  expect(userMsg?.content).toBe('hello')
+})
+
+test('non-multipart provider: image message → content is string with placeholder', async () => {
+  const msgs = captureMessages()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'test',
+    system: 'sys',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'describe this' }, imageBlock] }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const userMsg = msgs.get()?.find(m => m.role === 'user')
+  expect(typeof userMsg?.content).toBe('string')
+  expect(userMsg?.content).toContain('describe this')
+  expect(userMsg?.content).toContain('image')
+})
+
+test('OpenAI native: image message → content is multipart array', async () => {
+  const msgs = captureMessages()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'test',
+    system: 'sys',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'describe this' }, imageBlock] }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const userMsg = msgs.get()?.find(m => m.role === 'user')
+  expect(Array.isArray(userMsg?.content)).toBe(true)
+  const parts = userMsg?.content as Array<{ type: string }>
+  expect(parts.some(p => p.type === 'image_url')).toBe(true)
+  expect(parts.some(p => p.type === 'text')).toBe(true)
+})
+
+test('Gemini: image message → content is multipart array', async () => {
+  const msgs = captureMessages()
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_API_KEY = 'fake-key'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'test',
+    system: 'sys',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'describe this' }, imageBlock] }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const userMsg = msgs.get()?.find(m => m.role === 'user')
+  expect(Array.isArray(userMsg?.content)).toBe(true)
+  const parts = userMsg?.content as Array<{ type: string }>
+  expect(parts.some(p => p.type === 'image_url')).toBe(true)
+  expect(parts.some(p => p.type === 'text')).toBe(true)
 })
