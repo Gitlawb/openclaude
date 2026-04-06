@@ -157,23 +157,25 @@ function convertContentBlocks(
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return String(content ?? '')
 
-  const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
+  const textParts: string[] = []
+  const imageParts: Array<{ type: string; image_url: { url: string } }> = []
+
   for (const block of content) {
     switch (block.type) {
       case 'text':
-        parts.push({ type: 'text', text: block.text ?? '' })
+        textParts.push(block.text ?? '')
         break
       case 'image': {
         const src = block.source
         if (src?.type === 'base64') {
-          parts.push({
+          imageParts.push({
             type: 'image_url',
-            image_url: {
-              url: `data:${src.media_type};base64,${src.data}`,
-            },
+            image_url: { url: `data:${src.media_type};base64,${src.data}` },
           })
         } else if (src?.type === 'url') {
-          parts.push({ type: 'image_url', image_url: { url: src.url } })
+          imageParts.push({ type: 'image_url', image_url: { url: src.url } })
+        } else {
+          textParts.push('[image]')
         }
         break
       }
@@ -184,24 +186,35 @@ function convertContentBlocks(
         // handled separately
         break
       case 'thinking':
-        // Append thinking as text with a marker for models that support reasoning
         if (block.thinking) {
-          parts.push({ type: 'text', text: `<thinking>${block.thinking}</thinking>` })
+          textParts.push(`<thinking>${block.thinking}</thinking>`)
         }
         break
       default:
         if (block.text) {
-          parts.push({ type: 'text', text: block.text })
+          textParts.push(block.text)
         }
     }
   }
 
-  if (parts.length === 0) return ''
-  // If all parts are text, flatten to a single string so providers that
-  // don't support multipart content arrays (e.g. Groq) don't reject the request.
-  const hasNonText = parts.some(p => p.type !== 'text')
-  if (!hasNonText) return parts.map(p => p.text ?? '').join('\n')
-  return parts
+  const joinedText = textParts.join('\n')
+
+  // Only return multipart array when images are present AND the provider
+  // supports it (OpenAI native, Gemini). All other OpenAI-compatible
+  // providers (Groq, Ollama, vLLM, etc.) require content to be a string.
+  if (imageParts.length > 0 && isGeminiMode()) {
+    const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
+    if (joinedText) parts.push({ type: 'text', text: joinedText })
+    parts.push(...imageParts)
+    return parts
+  }
+
+  // For providers that don't support multipart, drop images with a note
+  if (imageParts.length > 0) {
+    return joinedText + (joinedText ? '\n' : '') + `[${imageParts.length} image(s) attached but not supported by this provider]`
+  }
+
+  return joinedText
 }
 
 function isGeminiMode(): boolean {
