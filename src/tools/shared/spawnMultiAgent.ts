@@ -952,6 +952,32 @@ async function handleSpawnInProcess(
     )
   }
 
+  // Register agent in the team file (auto-create if missing) and build the
+  // team-context block BEFORE constructing config / starting the agent so that
+  // promptWithContext is in scope for both uses below.
+  const teamFile = await ensureTeamFileExists(teamName, context)
+  teamFile.members.push({
+    agentId: teammateId,
+    name: sanitizedName,
+    agentType: agent_type,
+    model,
+    prompt,
+    color: teammateColor,
+    planModeRequired: plan_mode_required,
+    joinedAt: Date.now(),
+    tmuxPaneId: 'in-process',
+    cwd: getCwd(),
+    subscriptions: [],
+    backendType: 'in-process',
+  })
+  await writeTeamFileAsync(teamName, teamFile)
+
+  // Prepend team context to the prompt for in-process teammates.
+  // Unlike pane-based teammates (which receive their first turn via mailbox),
+  // in-process teammates receive the prompt directly via startInProcessTeammate().
+  const teamContext = buildTeamContextBlock(sanitizedName, agent_type, teamFile)
+  const promptWithContext = `${teamContext}\n\n${prompt}`
+
   // Spawn in-process teammate
   const config: InProcessSpawnConfig = {
     name: sanitizedName,
@@ -1050,30 +1076,6 @@ async function handleSpawnInProcess(
       },
     }
   })
-
-  // Register agent in the team file (auto-create if missing)
-  const teamFile = await ensureTeamFileExists(teamName, context)
-  teamFile.members.push({
-    agentId: teammateId,
-    name: sanitizedName,
-    agentType: agent_type,
-    model,
-    prompt,
-    color: teammateColor,
-    planModeRequired: plan_mode_required,
-    joinedAt: Date.now(),
-    tmuxPaneId: 'in-process',
-    cwd: getCwd(),
-    subscriptions: [],
-    backendType: 'in-process',
-  })
-  await writeTeamFileAsync(teamName, teamFile)
-
-  // Prepend team context to the prompt for in-process teammates.
-  // Unlike pane-based teammates (which receive their first turn via mailbox),
-  // in-process teammates receive the prompt directly via startInProcessTeammate().
-  const teamContext = buildTeamContextBlock(sanitizedName, agent_type, teamFile)
-  const promptWithContext = `${teamContext}\n\n${prompt}`
 
   return {
     data: {
