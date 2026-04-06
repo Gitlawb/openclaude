@@ -1,5 +1,4 @@
 import type { Command } from '../../commands.js'
-import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js'
 
 const agentTeams = {
   type: 'local',
