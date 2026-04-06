@@ -67,7 +67,18 @@ export function getAgentModel(
   // the org-level availableModels allowlist to prevent unintentional policy bypass
   // in enterprise deployments (where users can set env vars via settings).
   if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
-    const resolved = parseUserSpecifiedModel(process.env.CLAUDE_CODE_SUBAGENT_MODEL)
+    const envSpec = process.env.CLAUDE_CODE_SUBAGENT_MODEL.trim()
+    if (envSpec === '') {
+      throw new Error(
+        `CLAUDE_CODE_SUBAGENT_MODEL must not be empty or whitespace-only.`,
+      )
+    }
+    if (envSpec.toLowerCase() === 'inherit') {
+      throw new Error(
+        `CLAUDE_CODE_SUBAGENT_MODEL cannot be set to "inherit". Unset the variable to inherit the parent model.`,
+      )
+    }
+    const resolved = parseUserSpecifiedModel(envSpec)
     validateResolvedAgentModel(resolved)
     return resolved
   }
