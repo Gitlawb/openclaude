@@ -650,3 +650,237 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
   expect(assistantMsgs?.length).toBe(1) // two assistant turns merged into one
   expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
 })
+
+test('non-streaming: reasoning_content emitted as thinking block, used as text when content is null', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'Let me think about this step by step.',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = (await client.beta.messages.create({
+    model: 'glm-5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(result.content).toEqual([
+    { type: 'thinking', thinking: 'Let me think about this step by step.' },
+    { type: 'text', text: 'Let me think about this step by step.' },
+  ])
+})
+
+test('non-streaming: empty string content does not fall through to reasoning_content as text', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: '',
+              reasoning_content: 'Chain of thought here.',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = (await client.beta.messages.create({
+    model: 'glm-5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  // reasoning_content should be a thinking block, and also used as text
+  // since content is empty string (treated as absent)
+  expect(result.content).toEqual([
+    { type: 'thinking', thinking: 'Chain of thought here.' },
+    { type: 'text', text: 'Chain of thought here.' },
+  ])
+})
+
+test('non-streaming: real content takes precedence over reasoning_content', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'The answer is 42.',
+              reasoning_content: 'I need to calculate this.',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = (await client.beta.messages.create({
+    model: 'glm-5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(result.content).toEqual([
+    { type: 'thinking', thinking: 'I need to calculate this.' },
+    { type: 'text', text: 'The answer is 42.' },
+  ])
+})
+
+test('streaming: thinking block closed before tool call', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5',
+        choices: [
+          {
+            index: 0,
+            delta: { role: 'assistant', reasoning_content: 'Thinking...' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call-1',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: '{"command":"ls"}',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'glm-5',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Run ls' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const types = events.map(e => e.type)
+
+  // Verify thinking block is started, then closed, then tool call starts
+  const thinkingStartIdx = types.indexOf('content_block_start')
+  const firstStopIdx = types.indexOf('content_block_stop')
+  const toolStartIdx = types.indexOf(
+    'content_block_start',
+    thinkingStartIdx + 1,
+  )
+
+  expect(thinkingStartIdx).toBeGreaterThanOrEqual(0)
+  expect(firstStopIdx).toBeGreaterThan(thinkingStartIdx)
+  expect(toolStartIdx).toBeGreaterThan(firstStopIdx)
+
+  // Verify thinking block start content
+  const thinkingStart = events[thinkingStartIdx] as {
+    content_block?: Record<string, unknown>
+  }
+  expect(thinkingStart?.content_block?.type).toBe('thinking')
+})

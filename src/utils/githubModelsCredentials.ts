@@ -23,6 +23,19 @@ export function readGithubModelsToken(): string | undefined {
   }
 }
 
+export async function readGithubModelsTokenAsync(): Promise<string | undefined> {
+  if (isBareMode()) return undefined
+  try {
+    const data = (await getSecureStorage().readAsync()) as
+      | ({ githubModels?: GithubModelsCredentialBlob } & Record<string, unknown>)
+      | null
+    const t = data?.githubModels?.accessToken?.trim()
+    return t || undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * If GitHub Models mode is on and no token is in the environment, copy the
  * stored token into process.env so the OpenAI shim and validation see it.
