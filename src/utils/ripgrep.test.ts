@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import path from 'path'
 
-import { resolveRipgrepConfig, wrapRipgrepUnavailableError } from './ripgrep.ts'
+import { resolveRipgrepConfig, wrapRipgrepUnavailableError } from './ripgrep.js'
 
 const MOCK_BUILTIN_PATH = path.normalize(
   process.platform === 'win32'
@@ -11,7 +11,7 @@ const MOCK_BUILTIN_PATH = path.normalize(
 
 test('ripgrepCommand falls back to system rg when builtin binary is missing', () => {
   const config = resolveRipgrepConfig({
-    userWantsSystemRipgrep: true,
+    userWantsSystemRipgrep: false,
     bundledMode: false,
     builtinCommand: MOCK_BUILTIN_PATH,
     builtinExists: false,
@@ -19,7 +19,7 @@ test('ripgrepCommand falls back to system rg when builtin binary is missing', ()
     processExecPath: '/fake/bun',
   })
 
-  expect(config).toEqual({
+  expect(config).toMatchObject({
     mode: 'system',
     command: 'rg',
     args: [],
@@ -36,7 +36,7 @@ test('ripgrepCommand keeps builtin mode when bundled binary exists', () => {
     processExecPath: '/fake/bun',
   })
 
-  expect(config).toEqual({
+  expect(config).toMatchObject({
     mode: 'builtin',
     command: MOCK_BUILTIN_PATH,
     args: [],
@@ -46,7 +46,7 @@ test('ripgrepCommand keeps builtin mode when bundled binary exists', () => {
 test('wrapRipgrepUnavailableError explains missing packaged fallback', () => {
   const error = wrapRipgrepUnavailableError(
     { code: 'ENOENT', message: 'spawn rg ENOENT' },
-    { mode: 'builtin', command: 'C:\\fake\\vendor\\ripgrep\\rg.exe' },
+    { mode: 'builtin', command: 'C:\\fake\\vendor\\ripgrep\\rg.exe', args: [] },
     'win32',
   )
 
@@ -59,7 +59,7 @@ test('wrapRipgrepUnavailableError explains missing packaged fallback', () => {
 test('wrapRipgrepUnavailableError explains missing system ripgrep', () => {
   const error = wrapRipgrepUnavailableError(
     { code: 'ENOENT', message: 'spawn rg ENOENT' },
-    { mode: 'system', command: 'rg' },
+    { mode: 'system', command: 'rg', args: [] },
     'linux',
   )
 

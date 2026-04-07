@@ -31,6 +31,10 @@ type RipgrepConfig = {
 
 type RipgrepErrorLike = Pick<NodeJS.ErrnoException, 'code' | 'message'>
 
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error
+}
+
 type ResolveRipgrepConfigArgs = {
   userWantsSystemRipgrep: boolean
   bundledMode: boolean
@@ -353,7 +357,9 @@ async function ripGrepFileCount(
       if (settled) return
       settled = true
       reject(
-        err.code === 'ENOENT' ? wrapRipgrepUnavailableError(err) : err,
+        isErrnoException(err) && err.code === 'ENOENT'
+          ? wrapRipgrepUnavailableError(err)
+          : err,
       )
     })
   })
@@ -417,7 +423,9 @@ export async function ripGrepStream(
       if (settled) return
       settled = true
       reject(
-        err.code === 'ENOENT' ? wrapRipgrepUnavailableError(err) : err,
+        isErrnoException(err) && err.code === 'ENOENT'
+          ? wrapRipgrepUnavailableError(err)
+          : err,
       )
     })
   })
@@ -465,7 +473,9 @@ export async function ripGrep(
       const CRITICAL_ERROR_CODES = ['ENOENT', 'EACCES', 'EPERM']
       if (CRITICAL_ERROR_CODES.includes(error.code as string)) {
         reject(
-          error.code === 'ENOENT' ? wrapRipgrepUnavailableError(error) : error,
+          isErrnoException(error) && error.code === 'ENOENT'
+            ? wrapRipgrepUnavailableError(error)
+            : error,
         )
         return
       }

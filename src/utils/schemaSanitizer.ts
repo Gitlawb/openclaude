@@ -224,10 +224,13 @@ export function sanitizeSchemaForOpenAICompat(
     }
   }
 
-  if (Array.isArray(record.required) && isSchemaRecord(record.properties)) {
+  const properties = isSchemaRecord(record.properties)
+    ? record.properties
+    : undefined
+
+  if (Array.isArray(record.required) && properties) {
     record.required = record.required.filter(
-      (value): value is string =>
-        typeof value === 'string' && value in record.properties,
+      (value): value is string => typeof value === 'string' && value in properties,
     )
   }
 
