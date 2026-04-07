@@ -1000,8 +1000,8 @@ async function fetchOpenRouterGenerationStats(
     const d = json?.data
     if (!d) return null
 
-    const promptTokens = (d.tokens_prompt ?? d.native_tokens_prompt ?? 0) as number
-    const completionTokens = (d.tokens_completion ?? d.native_tokens_completion ?? 0) as number
+    const promptTokens = (d.native_tokens_prompt ?? d.tokens_prompt ?? 0) as number
+    const completionTokens = (d.native_tokens_completion ?? d.tokens_completion ?? 0) as number
     const reasoningTokens = (d.native_tokens_reasoning ?? 0) as number
     const cachedTokens = (d.native_tokens_cached ?? 0) as number
 
@@ -1102,10 +1102,18 @@ async function* injectGenerationStats(
     throw err
   }
 
-  // Stream exhausted — if stats have already resolved, inject a follow-up
-  // message_delta with the stats BEFORE message_stop. But we don't wait for
-  // stats here to avoid blocking stream completion - the 5-second timeout
-  // is handled by statsWithTimeout resolving to null.
+  // Stream exhausted — wait briefly for stats to settle (max 200ms) so we can
+  // emit follow-up message_delta with usage BEFORE message_stop. This is a
+  // trade-off: we might miss late-resolving stats, but we don't block the
+  // stream for the full 5s fetch timeout.
+  if (!statsSettled && yieldedDeltaWithoutUsage) {
+    const gracePeriod = 200 // ms to wait for stats at stream end
+    const start = Date.now()
+    while (!statsSettled && Date.now() - start < gracePeriod) {
+      await new Promise(r => setTimeout(r, 10)) // brief yield
+    }
+  }
+
   if (statsSettled && resolved && yieldedDeltaWithoutUsage) {
     yield {
       type: 'message_delta',

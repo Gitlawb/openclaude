@@ -807,10 +807,10 @@ test('calls OpenRouter generation API when x-generation-id header is present in 
 
   // Verify that at least one streamed message_delta contains the injected
   // usage values returned by the generation API.
-  // Note: The implementation prefers standard token counts over native tokens.
+  // Note: The implementation prefers native token counts over standard tokens.
   const hasCorrectUsage = allDeltaEvents.some(e => {
     const usage = e.usage as Record<string, unknown> | undefined
-    return usage?.input_tokens === 100 && usage?.output_tokens === 60
+    return usage?.input_tokens === 90 && usage?.output_tokens === 55
   })
 
   expect(hasCorrectUsage).toBe(true)
