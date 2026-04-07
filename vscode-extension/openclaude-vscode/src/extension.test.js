@@ -1,6 +1,5 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mock } = require('bun:test');
 
 function createStatus(overrides = {}) {
   return {
@@ -28,9 +27,7 @@ function createStatus(overrides = {}) {
 }
 
 function loadExtension() {
-  const extensionPath = require.resolve('./extension');
-  delete require.cache[extensionPath];
-  mock.module('vscode', () => ({
+  const vscodeMock = {
     workspace: {
       workspaceFolders: [],
       getConfiguration: () => ({
@@ -54,7 +51,23 @@ function loadExtension() {
     },
     Uri: { parse: value => value, file: value => value },
     ViewColumn: { Active: 1 },
-  }));
+  };
+
+  // Inject mock into require.cache so require('vscode') in extension.js
+  // resolves to our mock without needing bun:test's mock.module
+  const vscodePath = require.resolve('vscode');
+  require.cache[vscodePath] = {
+    id: vscodePath,
+    filename: vscodePath,
+    loaded: true,
+    exports: vscodeMock,
+    children: [],
+    parent: null,
+    paths: [],
+  };
+
+  const extensionPath = require.resolve('./extension');
+  delete require.cache[extensionPath];
   return require('./extension');
 }
 

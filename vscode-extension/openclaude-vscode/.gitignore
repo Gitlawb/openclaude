@@ -1,0 +1,4 @@
+# Allow the vscode stub used by the Node.js test runner
+!node_modules/
+!node_modules/vscode/
+!node_modules/vscode/**

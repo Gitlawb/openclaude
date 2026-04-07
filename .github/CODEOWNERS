@@ -1,0 +1,8 @@
+# Default owner for all files
+* @gitlawb
+
+# VSCode extension
+/vscode-extension/ @gitlawb
+
+# GitHub configuration
+/.github/ @gitlawb
