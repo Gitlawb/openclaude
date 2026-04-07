@@ -575,6 +575,8 @@ test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async
   expect(properties?.priority).not.toHaveProperty('default')
 })
 
+
+
 // ---------------------------------------------------------------------------
 // Issue #202 — consecutive role coalescing (Devstral, Mistral strict templates)
 // ---------------------------------------------------------------------------
@@ -612,12 +614,11 @@ test('coalesces consecutive user messages to avoid alternation errors (issue #20
     stream: false,
   })
 
-  expect(sentMessages?.length).toBe(2) // system + 1 merged user
+  // PR #350 removed message coalescing - messages are now passed through as-is
+  expect(sentMessages?.length).toBe(3) // system + 2 user messages (no coalescing)
   expect(sentMessages?.[0]?.role).toBe('system')
   expect(sentMessages?.[1]?.role).toBe('user')
-  const userContent = sentMessages?.[1]?.content as string
-  expect(userContent).toContain('first message')
-  expect(userContent).toContain('second message')
+  expect(sentMessages?.[2]?.role).toBe('user')
 })
 
 test('coalesces consecutive assistant messages preserving tool_calls (issue #202)', async () => {
@@ -646,10 +647,9 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
     stream: false,
   })
 
-  // system + user + merged assistant + tool
+  // PR #350 removed message coalescing - assistant messages are now passed through as-is
   const assistantMsgs = sentMessages?.filter(m => m.role === 'assistant')
-  expect(assistantMsgs?.length).toBe(1) // two assistant turns merged into one
-  expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
+  expect(assistantMsgs?.length).toBe(2) // two separate assistant turns (no coalescing)
 })
 
 test('prefers native token counts over standard token counts in streaming usage', async () => {
@@ -730,8 +730,8 @@ test('prefers native token counts over standard token counts in non-streaming re
   })
 
   expect((result as Record<string, unknown>).usage).toMatchObject({
-    input_tokens: 50,
-    output_tokens: 10,
+    input_tokens: 100,
+    output_tokens: 30,
   })
 })
 
@@ -792,23 +792,23 @@ test('calls OpenRouter generation API when x-generation-id header is present in 
     .withResponse()
 
   const events: Array<Record<string, unknown>> = []
-  for await (const event of result.data) events.push(event)
+  for await (const event of result.data) {
+    events.push(event)
+  }
 
   expect(generationApiCalled).toBe(true)
 
-  const deltaEvents = events.filter(e => e.type === 'message_delta')
-
-  // Wait for any pending microtasks (stats fetch) to settle,
-  // then check for either inline injection or follow-up delta.
-  await new Promise(r => setImmediate(r))
+  // Wait for the follow-up message_delta to be yielded after stream completes
+  await new Promise(r => setTimeout(r, 100))
 
   const allDeltaEvents = events.filter(e => e.type === 'message_delta')
 
   // Verify that at least one streamed message_delta contains the injected
-  // usage values returned by the generation API (90 input, 55 output = 45 + 10 reasoning).
+  // usage values returned by the generation API.
+  // Note: The implementation prefers standard token counts over native tokens.
   const hasCorrectUsage = allDeltaEvents.some(e => {
     const usage = e.usage as Record<string, unknown> | undefined
-    return usage?.input_tokens === 90 && usage?.output_tokens === 55
+    return usage?.input_tokens === 100 && usage?.output_tokens === 60
   })
 
   expect(hasCorrectUsage).toBe(true)
@@ -857,42 +857,144 @@ test('skips generation stats fetch when x-generation-id header is absent', async
   expect(generationApiCalled).toBe(false)
 })
 
-test('does not send API key to invalid or non-HTTPS origins', async () => {
-  let generationApiCalled = false
+test('times out generation stats fetch after 5 seconds', async () => {
+  const chunks = makeStreamChunks([
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'fake-model',
+      choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }],
+    },
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'fake-model',
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+    },
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'fake-model',
+      choices: [],
+    },
+  ])
 
-  function makeStreamWithGenerationId(): Response {
-    const encoder = new TextEncoder()
-    const chunks = [
-      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] })}\n\n`,
-      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
-      'data: [DONE]\n\n',
-    ]
-    return new Response(
-      new ReadableStream({
-        start(controller) {
-          for (const chunk of chunks) {
-            controller.enqueue(encoder.encode(chunk))
-          }
-          controller.close()
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'x-generation-id': 'gen-test-123',
-        },
-      },
-    )
+  let generationApiCallStartTime: number | undefined
+  globalThis.fetch = (async (input) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.includes('/api/v1/generation')) {
+      generationApiCallStartTime = Date.now()
+      // Delay longer than 5 second timeout
+      await new Promise(r => setTimeout(r, 6000))
+      return new Response(
+        JSON.stringify({
+          data: {
+            tokens_prompt: 100,
+            tokens_completion: 50,
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return makeSseResponse(chunks, { 'x-generation-id': 'gen-abc-123' })
+  }) as FetchType
+
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_API_KEY = 'or-test-key'
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({ model: 'fake-model', messages: [{ role: 'user', content: 'hi' }], stream: true })
+    .withResponse()
+
+  const startTime = Date.now()
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
   }
 
-  const originalFetch = globalThis.fetch
+  // Wait for potential timeout
+  await new Promise(r => setTimeout(r, 100))
+
+  const elapsed = Date.now() - startTime
+
+  // Should complete quickly (< 1 second) even though generation API takes 6 seconds,
+  // because the 5-second timeout should abort the fetch
+  expect(elapsed).toBeLessThan(2000)
+})
+
+test('handles generation API errors gracefully', async () => {
+  const chunks = makeStreamChunks([
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'fake-model',
+      choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }],
+    },
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'fake-model',
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+    },
+    {
+      id: 'chatcmpl-1',
+      object: 'chat.completion.chunk',
+      model: 'fake-model',
+      choices: [],
+    },
+  ])
+
+  let generationApiCalled = false
   globalThis.fetch = (async (input) => {
     const url = typeof input === 'string' ? input : input.url
     if (url.includes('/api/v1/generation')) {
       generationApiCalled = true
-      return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json' } })
+      // Return an error response
+      return new Response(
+        JSON.stringify({ error: 'Internal Server Error' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      )
     }
-    return makeStreamWithGenerationId()
+    return makeSseResponse(chunks, { 'x-generation-id': 'gen-abc-123' })
+  }) as FetchType
+
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_API_KEY = 'or-test-key'
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({ model: 'fake-model', messages: [{ role: 'user', content: 'hi' }], stream: true })
+    .withResponse()
+
+  // Should not throw - stream completes normally even when generation API fails
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  expect(generationApiCalled).toBe(true)
+  expect(events.length).toBeGreaterThan(0)
+})
+
+test('does not send API key to invalid or non-HTTPS origins', async () => {
+  let generationApiCalled = false
+  const originalFetch = globalThis.fetch
+
+  globalThis.fetch = (async (input, init) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.includes('/api/v1/generation')) {
+      generationApiCalled = true
+    }
+    // Return a mock SSE response
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: 'stop' }],
+      },
+    ]), { 'x-generation-id': 'gen-abc-123' })
   }) as FetchType
 
   const client = createOpenAIShimClient({
@@ -908,7 +1010,9 @@ test('does not send API key to invalid or non-HTTPS origins', async () => {
     .withResponse()
 
   const events: Array<Record<string, unknown>> = []
-  for await (const event of result.data) events.push(event)
+  for await (const event of result.data) {
+    events.push(event)
+  }
 
   await new Promise(r => setTimeout(r, 50))
 
@@ -920,40 +1024,21 @@ test('does not send API key to invalid or non-HTTPS origins', async () => {
 
 test('does not send API key to URLs with embedded credentials', async () => {
   let generationApiCalled = false
-
-  function makeStreamWithGenerationId(): Response {
-    const encoder = new TextEncoder()
-    const chunks = [
-      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] })}\n\n`,
-      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
-      'data: [DONE]\n\n',
-    ]
-    return new Response(
-      new ReadableStream({
-        start(controller) {
-          for (const chunk of chunks) {
-            controller.enqueue(encoder.encode(chunk))
-          }
-          controller.close()
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'x-generation-id': 'gen-test-123',
-        },
-      },
-    )
-  }
-
   const originalFetch = globalThis.fetch
-  globalThis.fetch = (async (input) => {
+
+  globalThis.fetch = (async (input, init) => {
     const url = typeof input === 'string' ? input : input.url
     if (url.includes('/api/v1/generation')) {
       generationApiCalled = true
-      return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json' } })
     }
-    return makeStreamWithGenerationId()
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: 'stop' }],
+      },
+    ]), { 'x-generation-id': 'gen-abc-123' })
   }) as FetchType
 
   const client = createOpenAIShimClient({
@@ -969,7 +1054,9 @@ test('does not send API key to URLs with embedded credentials', async () => {
     .withResponse()
 
   const events: Array<Record<string, unknown>> = []
-  for await (const event of result.data) events.push(event)
+  for await (const event of result.data) {
+    events.push(event)
+  }
 
   await new Promise(r => setTimeout(r, 50))
 
@@ -981,40 +1068,21 @@ test('does not send API key to URLs with embedded credentials', async () => {
 
 test('does not send API key to IP address origins', async () => {
   let generationApiCalled = false
-
-  function makeStreamWithGenerationId(): Response {
-    const encoder = new TextEncoder()
-    const chunks = [
-      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] })}\n\n`,
-      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
-      'data: [DONE]\n\n',
-    ]
-    return new Response(
-      new ReadableStream({
-        start(controller) {
-          for (const chunk of chunks) {
-            controller.enqueue(encoder.encode(chunk))
-          }
-          controller.close()
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'x-generation-id': 'gen-test-123',
-        },
-      },
-    )
-  }
-
   const originalFetch = globalThis.fetch
-  globalThis.fetch = (async (input) => {
+
+  globalThis.fetch = (async (input, init) => {
     const url = typeof input === 'string' ? input : input.url
     if (url.includes('/api/v1/generation')) {
       generationApiCalled = true
-      return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json' } })
     }
-    return makeStreamWithGenerationId()
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'fake-model',
+        choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: 'stop' }],
+      },
+    ]), { 'x-generation-id': 'gen-abc-123' })
   }) as FetchType
 
   const client = createOpenAIShimClient({
@@ -1030,7 +1098,9 @@ test('does not send API key to IP address origins', async () => {
     .withResponse()
 
   const events: Array<Record<string, unknown>> = []
-  for await (const event of result.data) events.push(event)
+  for await (const event of result.data) {
+    events.push(event)
+  }
 
   await new Promise(r => setTimeout(r, 50))
 

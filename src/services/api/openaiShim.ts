@@ -907,6 +907,51 @@ async function* openaiStreamToAnthropic(
 // ---------------------------------------------------------------------------
 
 /**
+ * Validates that a URL object is safe for sending API keys to.
+ * Checks: HTTPS protocol, valid hostname format, no embedded credentials.
+ * Does NOT whitelist specific domains to support various hosted proxies.
+ */
+function isValidApiUrl(url: URL): boolean {
+  // Require HTTPS for credential transport
+  if (url.protocol !== 'https:') {
+    return false
+  }
+
+  // No embedded credentials allowed (e.g., https://user:pass@host)
+  if (url.username || url.password) {
+    return false
+  }
+
+  const hostname = url.hostname
+
+  // Must have a valid-looking hostname (not empty, not just dots)
+  if (!hostname || hostname === '.' || hostname === '..') {
+    return false
+  }
+
+  // Reject IP addresses to prevent SSRF via IP-based bypasses
+  const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/
+  if (ipv4Pattern.test(hostname)) {
+    return false
+  }
+
+  // Basic hostname validation: must contain at least one dot for TLD
+  const parts = hostname.split('.')
+  if (parts.length < 2) {
+    return false
+  }
+
+  // Each label must be non-empty and not start/end with hyphen
+  for (const part of parts) {
+    if (!part || part.startsWith('-') || part.endsWith('-')) {
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
  * OpenRouter streaming responses may include usage in the final SSE chunk,
  * but sometimes lack it. When an `x-generation-id` header is present, we
  * can fetch stats from the generation API as a fallback.
@@ -929,6 +974,10 @@ async function fetchOpenRouterGenerationStats(
     const origin = (() => {
       try {
         const u = new URL(baseUrl.includes('://') ? baseUrl : `https://${baseUrl}`)
+        // Validate the URL object is safe before extracting origin and sending API keys
+        if (!isValidApiUrl(u)) {
+          return null
+        }
         return `${u.protocol}//${u.host}`
       } catch {
         // If URL is malformed (non-OpenRouter local setup etc), don't leak
@@ -978,7 +1027,7 @@ async function fetchOpenRouterGenerationStats(
  * injected inline. If stats haven't resolved when message_delta arrives, the
  * event is yielded without usage so the stream completes immediately. Once
  * stats resolve, a follow-up message_delta with correct usage is emitted
- * downstream. Downstream code (updateUsage) merges usage from multiple
+ * BEFORE message_stop. Downstream code (updateUsage) merges usage from multiple
  * message_delta events, so this is safe.
  */
 async function* injectGenerationStats(
@@ -988,62 +1037,101 @@ async function* injectGenerationStats(
   let resolved: Partial<AnthropicUsage> | null = null
   let statsSettled = false
 
-  // Resolve stats in the background — never blocks the stream.
-  statsPromise.then(
+  // Resolve stats in the background with a 5-second timeout.
+  // Never blocks the stream - errors and timeouts are silently ignored.
+  const statsWithTimeout = Promise.race([
+    statsPromise.catch(() => null),
+    new Promise<null>(resolve => setTimeout(() => resolve(null), 5000)),
+  ])
+
+  statsWithTimeout.then(
     s => { resolved = s; statsSettled = true },
     () => { statsSettled = true },
   )
 
   let yieldedDeltaWithoutUsage = false
-  let pendingStop = false
+  let bufferedMessageStop: AnthropicStreamEvent | null = null
 
-  for await (const event of stream) {
-    if (event.type === 'message_delta') {
-      if (event.usage) {
-        // Flush any pending message_stop before this delta
-        if (pendingStop) {
-          yield { type: 'message_stop' }
-          pendingStop = false
+  try {
+    for await (const event of stream) {
+      // If we have a buffered message_stop and receive a new event,
+      // we need to flush the message_stop first with proper ordering
+      if (bufferedMessageStop) {
+        // Stats resolved before new event - emit follow-up delta first
+        if (statsSettled && resolved && yieldedDeltaWithoutUsage) {
+          yield {
+            type: 'message_delta',
+            delta: { stop_reason: null, stop_sequence: null },
+            usage: resolved,
+          }
+          yieldedDeltaWithoutUsage = false
         }
+        yield bufferedMessageStop
+        bufferedMessageStop = null
+      }
+
+      if (event.type === 'message_delta') {
+        if (event.usage) {
+          yield event
+          continue
+        }
+        // If stats already resolved, inject and yield immediately
+        if (resolved) {
+          yield { ...event, usage: { ...event.usage, ...resolved } }
+          continue
+        }
+        // Stats not yet available — yield message_delta without usage
+        // so the stream completes immediately without blocking.
         yield event
-        continue
-      }
-      // If stats already resolved, inject and yield immediately
-      if (resolved) {
-        yield { ...event, usage: { ...event.usage, ...resolved } }
-        continue
-      }
-      // Stats not yet available — yield message_delta without usage
-      // so the stream completes immediately without blocking.
-      yield event
-      yieldedDeltaWithoutUsage = true
-    } else if (event.type === 'message_stop') {
-      // Defer message_stop if we might emit a follow-up delta with usage
-      if (yieldedDeltaWithoutUsage && !statsSettled) {
-        pendingStop = true
+        yieldedDeltaWithoutUsage = true
+      } else if (event.type === 'message_stop') {
+        // Buffer message_stop until we know if stats will resolve
+        // The follow-up delta with stats must come BEFORE message_stop
+        bufferedMessageStop = event
       } else {
         yield event
       }
-    } else {
-      yield event
+    }
+  } catch (err) {
+    // If the upstream stream errors, flush any buffered message_stop first
+    // then rethrow to let the caller handle it
+    if (bufferedMessageStop) {
+      yield bufferedMessageStop
+      bufferedMessageStop = null
+    }
+    throw err
+  }
+
+  // Stream exhausted — flush any remaining buffered message_stop
+  // First, try to wait for stats if we haven't settled yet
+  if (!statsSettled && yieldedDeltaWithoutUsage) {
+    try {
+      // Wait for stats (up to 5s timeout, but user won't see this delay
+      // since the stream already completed - this just ensures we eventually
+      // get the stats for the follow-up delta)
+      const finalStats = await statsWithTimeout
+      if (finalStats) {
+        resolved = finalStats
+        statsSettled = true
+      }
+    } catch {
+      // Ignore errors on final attempt
     }
   }
 
-  // Flush pending message_stop (either after follow-up delta, or immediately if stats settled)
-  if (pendingStop) {
-    yield { type: 'message_stop' }
-    pendingStop = false
-  }
-
-  // Stats resolved after streaming finished — emit follow-up message_delta
-  // with correct usage. Downstream code (updateUsage) merges usage from
-  // multiple message_delta events.
+  // Emit follow-up message_delta with stats BEFORE message_stop
   if (statsSettled && resolved && yieldedDeltaWithoutUsage) {
     yield {
       type: 'message_delta',
       delta: { stop_reason: null, stop_sequence: null },
       usage: resolved,
     }
+    yieldedDeltaWithoutUsage = false
+  }
+
+  // Finally yield the message_stop
+  if (bufferedMessageStop) {
+    yield bufferedMessageStop
   }
 }
 
