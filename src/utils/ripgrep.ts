@@ -31,49 +31,68 @@ type RipgrepConfig = {
 
 type RipgrepErrorLike = Pick<NodeJS.ErrnoException, 'code' | 'message'>
 
-const getRipgrepConfig = memoize((): RipgrepConfig => {
-  const userWantsSystemRipgrep = isEnvDefinedFalsy(
-    process.env.USE_BUILTIN_RIPGREP,
-  )
+type ResolveRipgrepConfigArgs = {
+  userWantsSystemRipgrep: boolean
+  bundledMode: boolean
+  builtinCommand: string
+  builtinExists: boolean
+  systemExecutablePath: string
+  processExecPath?: string
+}
 
-  // Try system ripgrep if user wants it
-  if (userWantsSystemRipgrep) {
-    const { cmd: systemPath } = findExecutable('rg', [])
-    if (systemPath !== 'rg') {
-      // SECURITY: Use command name 'rg' instead of systemPath to prevent PATH hijacking
-      // If we used systemPath, a malicious ./rg.exe in current directory could be executed
-      // Using just 'rg' lets the OS resolve it safely with NoDefaultCurrentDirectoryInExePath protection
-      return { mode: 'system', command: 'rg', args: [] }
-    }
+export function resolveRipgrepConfig({
+  userWantsSystemRipgrep,
+  bundledMode,
+  builtinCommand,
+  builtinExists,
+  systemExecutablePath,
+  processExecPath = process.execPath,
+}: ResolveRipgrepConfigArgs): RipgrepConfig {
+  if (userWantsSystemRipgrep && systemExecutablePath !== 'rg') {
+    // SECURITY: Use command name 'rg' instead of systemExecutablePath to prevent PATH hijacking
+    return { mode: 'system', command: 'rg', args: [] }
   }
 
-  // In bundled (native) mode, ripgrep is statically compiled into bun-internal
-  // and dispatches based on argv[0]. We spawn ourselves with argv0='rg'.
-  if (isInBundledMode()) {
+  if (bundledMode) {
     return {
       mode: 'embedded',
-      command: process.execPath,
+      command: processExecPath,
       args: ['--no-config'],
       argv0: 'rg',
     }
   }
 
-  const rgRoot = path.resolve(__dirname, 'vendor', 'ripgrep')
-  const command =
-    process.platform === 'win32'
-      ? path.resolve(rgRoot, `${process.arch}-win32`, 'rg.exe')
-      : path.resolve(rgRoot, `${process.arch}-${process.platform}`, 'rg')
-
-  if (existsSync(command)) {
-    return { mode: 'builtin', command, args: [] }
+  if (builtinExists) {
+    return { mode: 'builtin', command: builtinCommand, args: [] }
   }
 
-  const { cmd: systemPath } = findExecutable('rg', [])
-  if (systemPath !== 'rg') {
+  if (systemExecutablePath !== 'rg') {
     return { mode: 'system', command: 'rg', args: [] }
   }
 
-  return { mode: 'builtin', command, args: [] }
+  return { mode: 'builtin', command: builtinCommand, args: [] }
+}
+
+const getRipgrepConfig = memoize((): RipgrepConfig => {
+  const userWantsSystemRipgrep = isEnvDefinedFalsy(
+    process.env.USE_BUILTIN_RIPGREP,
+  )
+  const bundledMode = isInBundledMode()
+  const rgRoot = path.resolve(__dirname, 'vendor', 'ripgrep')
+  const builtinCommand =
+    process.platform === 'win32'
+      ? path.resolve(rgRoot, `${process.arch}-win32`, 'rg.exe')
+      : path.resolve(rgRoot, `${process.arch}-${process.platform}`, 'rg')
+  const builtinExists = existsSync(builtinCommand)
+  const { cmd: systemExecutablePath } = findExecutable('rg', [])
+
+  return resolveRipgrepConfig({
+    userWantsSystemRipgrep,
+    bundledMode,
+    builtinCommand,
+    builtinExists,
+    systemExecutablePath,
+  })
 })
 
 export function ripgrepCommand(): {

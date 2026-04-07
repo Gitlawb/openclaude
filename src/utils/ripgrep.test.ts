@@ -1,21 +1,7 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { expect, test } from 'bun:test'
 import path from 'path'
 
-import { wrapRipgrepUnavailableError } from './ripgrep.ts'
-
-const originalEnv = {
-  USE_BUILTIN_RIPGREP: process.env.USE_BUILTIN_RIPGREP,
-}
-
-afterEach(() => {
-  if (originalEnv.USE_BUILTIN_RIPGREP === undefined) {
-    delete process.env.USE_BUILTIN_RIPGREP
-  } else {
-    process.env.USE_BUILTIN_RIPGREP = originalEnv.USE_BUILTIN_RIPGREP
-  }
-
-  mock.restore()
-})
+import { resolveRipgrepConfig, wrapRipgrepUnavailableError } from './ripgrep.ts'
 
 const MOCK_BUILTIN_PATH = path.normalize(
   process.platform === 'win32'
@@ -23,82 +9,38 @@ const MOCK_BUILTIN_PATH = path.normalize(
     : `vendor/ripgrep/${process.arch}-${process.platform}/rg`,
 )
 
-function normalizePathForMatch(target: string): string {
-  return path.normalize(target)
-}
-
-function loadFsModule() {
-  return import('fs')
-}
-
-function loadFindExecutableModule() {
-  return import('./findExecutable.js')
-}
-
-function loadRipgrepModule() {
-  return import(`./ripgrep.ts?test=${Date.now()}-${Math.random()}`)
-}
-
-async function withMockedRipgrepConfig(options: {
-  builtinExists: boolean
-  systemRgFound: boolean
-}) {
-  const fsModule = await loadFsModule()
-  const findExecutableModule = await loadFindExecutableModule()
-
-  mock.module('fs', () => ({
-    ...fsModule,
-    existsSync: (target: string) =>
-      normalizePathForMatch(target).includes(MOCK_BUILTIN_PATH)
-        ? options.builtinExists
-        : fsModule.existsSync(target),
-  }))
-
-  mock.module('./findExecutable.js', () => ({
-    ...findExecutableModule,
-    findExecutable: (_exe: string, args: string[]) => ({
-      cmd: options.systemRgFound ? '/usr/bin/rg' : 'rg',
-      args,
-    }),
-  }))
-
-  return loadRipgrepModule()
-}
-
-async function getRipgrepCommandWithMocks(options: {
-  builtinExists: boolean
-  systemRgFound: boolean
-}) {
-  const module = await withMockedRipgrepConfig(options)
-  return module.ripgrepCommand()
-}
-
-
-test('ripgrepCommand falls back to system rg when builtin binary is missing', async () => {
-  delete process.env.USE_BUILTIN_RIPGREP
-
-  const command = await getRipgrepCommandWithMocks({
+test('ripgrepCommand falls back to system rg when builtin binary is missing', () => {
+  const config = resolveRipgrepConfig({
+    userWantsSystemRipgrep: true,
+    bundledMode: false,
+    builtinCommand: MOCK_BUILTIN_PATH,
     builtinExists: false,
-    systemRgFound: true,
+    systemExecutablePath: '/usr/bin/rg',
+    processExecPath: '/fake/bun',
   })
 
-  expect(command).toEqual({
-    rgPath: 'rg',
-    rgArgs: [],
-    argv0: undefined,
+  expect(config).toEqual({
+    mode: 'system',
+    command: 'rg',
+    args: [],
   })
 })
 
-test('ripgrepCommand keeps builtin mode when bundled binary exists', async () => {
-  delete process.env.USE_BUILTIN_RIPGREP
-
-  const command = await getRipgrepCommandWithMocks({
+test('ripgrepCommand keeps builtin mode when bundled binary exists', () => {
+  const config = resolveRipgrepConfig({
+    userWantsSystemRipgrep: false,
+    bundledMode: false,
+    builtinCommand: MOCK_BUILTIN_PATH,
     builtinExists: true,
-    systemRgFound: true,
+    systemExecutablePath: '/usr/bin/rg',
+    processExecPath: '/fake/bun',
   })
 
-  expect(command.rgPath).toContain(MOCK_BUILTIN_PATH)
-  expect(command.rgArgs).toEqual([])
+  expect(config).toEqual({
+    mode: 'builtin',
+    command: MOCK_BUILTIN_PATH,
+    args: [],
+  })
 })
 
 test('wrapRipgrepUnavailableError explains missing packaged fallback', () => {
