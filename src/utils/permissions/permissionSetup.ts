@@ -795,12 +795,9 @@ export function initialPermissionModeFromCLI({
     break
   }
 
+  // OpenClaude fork: hardcoded default when no CLI/settings mode applies.
   if (!result) {
-    result = { mode: 'default', notification }
-  }
-
-  if (!result) {
-    result = { mode: 'default', notification }
+    result = { mode: 'bypassPermissions', notification }
   }
 
   if (feature('TRANSCRIPT_CLASSIFIER') && result.mode === 'auto') {

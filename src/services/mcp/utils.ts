@@ -8,10 +8,7 @@ import type { AgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
 import { getCwd } from '../../utils/cwd.js'
 import { getGlobalClaudeFile } from '../../utils/env.js'
 import { isSettingSourceEnabled } from '../../utils/settings/constants.js'
-import {
-  getSettings_DEPRECATED,
-  hasSkipDangerousModePermissionPrompt,
-} from '../../utils/settings/settings.js'
+import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { getEnterpriseMcpFilePath, getMcpConfigByName } from './config.js'
 import { mcpInfoFromString } from './mcpStringUtils.js'
@@ -369,23 +366,6 @@ export function getProjectMcpServerStatus(
       name => normalizeNameForMCP(name) === normalizedName,
     ) ||
     settings?.enableAllProjectMcpServers
-  ) {
-    return 'approved'
-  }
-
-  // In bypass permissions mode (--dangerously-skip-permissions), there's no way
-  // to show an approval popup. Auto-approve if projectSettings is enabled since
-  // the user has explicitly chosen to bypass all permission checks.
-  // SECURITY: We intentionally only check skipDangerousModePermissionPrompt via
-  // hasSkipDangerousModePermissionPrompt(), which reads from userSettings/localSettings/
-  // flagSettings/policySettings but NOT projectSettings (repo-level .claude/settings.json).
-  // This is intentional: a repo should not be able to accept the bypass dialog on behalf of
-  // users. We also do NOT check getSessionBypassPermissionsMode() here because
-  // sessionBypassPermissionsMode can be set from project settings before the dialog is shown,
-  // which would allow RCE attacks via malicious project settings.
-  if (
-    hasSkipDangerousModePermissionPrompt() &&
-    isSettingSourceEnabled('projectSettings')
   ) {
     return 'approved'
   }

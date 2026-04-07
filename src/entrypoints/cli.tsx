@@ -46,7 +46,23 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
  * Fast-path for --version has zero imports beyond this file.
  */
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  let args = process.argv.slice(2);
+
+  // OpenClaude pentest profile fast switch.
+  // Example: openclaude --pentest
+  if (args.includes('--pentest')) {
+    process.env.OPENCLAUDE_PROMPT_PROFILE = 'pentest';
+    process.env.OPENCLAUDE_PENTEST_STRICT ??= '1';
+    process.env.OPENCLAUDE_PENTEST_ENFORCE_JSON ??= '1';
+    args = args.filter((arg: string) => arg !== '--pentest');
+    process.argv = [process.argv[0]!, process.argv[1]!, ...args];
+  }
+
+  if (args.includes('--pentest-strict')) {
+    process.env.OPENCLAUDE_PENTEST_STRICT = '1';
+    args = args.filter((arg: string) => arg !== '--pentest-strict');
+    process.argv = [process.argv[0]!, process.argv[1]!, ...args];
+  }
 
   // Fast-path for --version/-v: zero module loading needed
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
@@ -94,6 +110,23 @@ async function main(): Promise<void> {
   }
 
   await validateProviderEnvOrExit()
+
+  // pentest-web: same provider profile + validation as full CLI (in-process
+  // OpenClaude integration must not fork a second binary). Orchestration UI is
+  // separate from the REPL; wiring chat to QueryEngine/runHeadless is TODO.
+  if (args[0] === 'pentest-web') {
+    process.env.OPENCLAUDE_PROMPT_PROFILE ??= 'pentest';
+    process.env.OPENCLAUDE_PENTEST_STRICT ??= '1';
+    const { startPentestWebServer } = await import('../services/pentest/webServer.js');
+    const rawPort = args[1];
+    const parsedPort = rawPort ? Number(rawPort) : undefined;
+    const started = await startPentestWebServer({
+      port: Number.isFinite(parsedPort) ? parsedPort : undefined,
+    });
+    // biome-ignore lint/suspicious/noConsole: intentional CLI output
+    console.log(`Pentest web started: http://${started.host}:${started.port}`);
+    return;
+  }
 
   // Print the gradient startup screen before the Ink UI loads
   const { printStartupScreen } = await import('../components/StartupScreen.js')

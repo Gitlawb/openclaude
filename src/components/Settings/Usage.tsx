@@ -1,7 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
 import { useEffect, useState } from 'react';
-import { extraUsage as extraUsageCommand } from 'src/commands/extra-usage/index.js';
+import { isExtraUsageInteractiveAvailable } from 'src/services/extraUsage/availability.js';
 import { formatCost } from 'src/cost-tracker.js';
 import { getSubscriptionType } from 'src/utils/auth.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
@@ -288,10 +288,10 @@ function ExtraUsageSection(t0) {
     return false;
   }
   if (!extraUsage.is_enabled) {
-    if (extraUsageCommand.isEnabled()) {
+    if (isExtraUsageInteractiveAvailable()) {
       let t1;
       if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-        t1 = <Box flexDirection="column"><Text bold={true}>{EXTRA_USAGE_SECTION_TITLE}</Text><Text dimColor={true}>Extra usage not enabled · /extra-usage to enable</Text></Box>;
+        t1 = <Box flexDirection="column"><Text bold={true}>{EXTRA_USAGE_SECTION_TITLE}</Text><Text dimColor={true}>Extra usage not enabled · open rate-limit options when limited, or account usage settings</Text></Box>;
         $[0] = t1;
       } else {
         t1 = $[0];

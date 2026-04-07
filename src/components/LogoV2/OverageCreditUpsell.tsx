@@ -69,12 +69,12 @@ export function incrementOverageCreditUpsellSeenCount(): void {
 
 // Copy from "OC & Bulk Overages copy" doc (#6 — CLI /usage)
 function getUsageText(amount: string): string {
-  return `${amount} in extra usage for third-party apps · /extra-usage`;
+  return `${amount} in extra usage for third-party apps · see account usage settings`;
 }
 
 // Copy from "OC & Bulk Overages copy" doc (#4 — CLI Welcome screen).
 // Char budgets: title ≤19, subtitle ≤48.
-const FEED_SUBTITLE = 'On us. Works on third-party apps · /extra-usage';
+const FEED_SUBTITLE = 'On us. Works on third-party apps · usage settings';
 function getFeedTitle(amount: string): string {
   return `${amount} in extra usage`;
 }

@@ -345,14 +345,29 @@ function ModeIndicator({
   // the local permission mode shown here doesn't reflect the agent's state.
   // Rendered before the tasks pill so a long pill label (e.g. ultraplan URL)
   // doesn't push the mode indicator off-screen.
-  const modePart = currentMode && hasActiveMode && !getIsRemoteMode() ? <Text color={getModeColor(currentMode)} key="mode">
-        {permissionModeSymbol(currentMode)}{' '}
-        {permissionModeTitle(currentMode).toLowerCase()} on
-        {shouldShowModeHint && <Text dimColor>
-            {' '}
-            <KeyboardShortcutHint shortcut={modeCycleShortcut} action="cycle" parens />
-          </Text>}
+  const modeHintSuffix = shouldShowModeHint ? <Text dimColor>
+        {' '}
+        <KeyboardShortcutHint shortcut={modeCycleShortcut} action="cycle" parens />
       </Text> : null;
+
+  const modePart =
+    currentMode && hasActiveMode && !getIsRemoteMode() ? (
+      currentMode === 'bypassPermissions' ? (
+        <Text key="mode">
+          <Text color="planMode">{permissionModeSymbol('bypassPermissions')} </Text>
+          <Text color="autoAccept">Geeker </Text>
+          <Text color="success">Mode </Text>
+          <Text color="warning">On</Text>
+          {modeHintSuffix}
+        </Text>
+      ) : (
+        <Text color={getModeColor(currentMode)} key="mode">
+          {permissionModeSymbol(currentMode)}{' '}
+          {permissionModeTitle(currentMode).toLowerCase()} on
+          {modeHintSuffix}
+        </Text>
+      )
+    ) : null;
 
   // Build parts array - exclude BackgroundTaskStatus when we have teammate pills
   // (teammate pills get their own row)

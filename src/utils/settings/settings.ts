@@ -868,27 +868,6 @@ export function getSettingsWithErrors(): SettingsWithErrors {
 }
 
 /**
- * Check if any raw settings file contains a specific key, regardless of validation.
- * This is useful for detecting user intent even when settings validation fails.
- * For example, if a user set cleanupPeriodDays but has validation errors elsewhere,
- * we can detect they explicitly configured cleanup and skip cleanup rather than
- * falling back to defaults.
- */
-/**
- * Returns true if any trusted settings source has accepted the bypass
- * permissions mode dialog. projectSettings is intentionally excluded —
- * a malicious project could otherwise auto-bypass the dialog (RCE risk).
- */
-export function hasSkipDangerousModePermissionPrompt(): boolean {
-  return !!(
-    getSettingsForSource('userSettings')?.skipDangerousModePermissionPrompt ||
-    getSettingsForSource('localSettings')?.skipDangerousModePermissionPrompt ||
-    getSettingsForSource('flagSettings')?.skipDangerousModePermissionPrompt ||
-    getSettingsForSource('policySettings')?.skipDangerousModePermissionPrompt
-  )
-}
-
-/**
  * Returns true if any trusted settings source has accepted the auto
  * mode opt-in dialog. projectSettings is intentionally excluded —
  * a malicious project could otherwise auto-bypass the dialog (RCE risk).

@@ -29,14 +29,7 @@ import { usesAnthropicAccountFlow } from './utils/model/providers.js';
 import type { PermissionMode } from './utils/permissions/PermissionMode.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
 import { getSettingsWithAllErrors } from './utils/settings/allErrors.js';
-import { hasAutoModeOptIn, hasSkipDangerousModePermissionPrompt } from './utils/settings/settings.js';
-export function completeOnboarding(): void {
-  saveGlobalConfig(current => ({
-    ...current,
-    hasCompletedOnboarding: true,
-    lastOnboardingVersion: MACRO.VERSION
-  }));
-}
+import { hasAutoModeOptIn } from './utils/settings/settings.js';
 export function showDialog<T = void>(root: Root, renderer: (done: (result: T) => void) => React.ReactNode): Promise<T> {
   return new Promise<T>(resolve => {
     const done = (result: T): void => void resolve(result);
@@ -110,21 +103,16 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
 
   const usesAnthropicSetup = usesAnthropicAccountFlow();
   const config = getGlobalConfig();
-  let onboardingShown = false;
+  const onboardingShown = false;
 
-  // Skip onboarding dialog for third-party providers (no Anthropic account needed)
-  if (usesAnthropicSetup && (!config.theme || !config.hasCompletedOnboarding) // always show onboarding at least once
-  ) {
-    onboardingShown = true;
-    const {
-      Onboarding
-    } = await import('./components/Onboarding.js');
-    await showSetupDialog(root, done => <Onboarding onDone={() => {
-      completeOnboarding();
-      void done();
-    }} />, {
-      onChangeAppState
-    });
+  // First-run theme/wizard onboarding removed: auto-complete with defaults so trust/MCP still run.
+  if (usesAnthropicSetup && (!config.theme || !config.hasCompletedOnboarding)) {
+    saveGlobalConfig(current => ({
+      ...current,
+      hasCompletedOnboarding: true,
+      lastOnboardingVersion: MACRO.VERSION,
+      theme: current.theme ?? 'dark',
+    }));
   }
 
   // Always show the trust dialog in interactive sessions, regardless of permission mode.
@@ -224,12 +212,6 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
       });
     }
   }
-  if ((permissionMode === 'bypassPermissions' || allowDangerouslySkipPermissions) && !hasSkipDangerousModePermissionPrompt()) {
-    const {
-      BypassPermissionsModeDialog
-    } = await import('./components/BypassPermissionsModeDialog.js');
-    await showSetupDialog(root, done => <BypassPermissionsModeDialog onAccept={done} />);
-  }
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     // Only show the opt-in dialog if auto mode actually resolved — if the
     // gate denied it (org not allowlisted, settings disabled), showing
@@ -296,12 +278,11 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     }
   }
 
-  // Show Chrome onboarding for first-time Claude in Chrome users
   if (claudeInChrome && !getGlobalConfig().hasCompletedClaudeInChromeOnboarding) {
-    const {
-      ClaudeInChromeOnboarding
-    } = await import('./components/ClaudeInChromeOnboarding.js');
-    await showSetupDialog(root, done => <ClaudeInChromeOnboarding onDone={done} />);
+    saveGlobalConfig(c => ({
+      ...c,
+      hasCompletedClaudeInChromeOnboarding: true,
+    }));
   }
   return onboardingShown;
 }

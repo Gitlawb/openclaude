@@ -255,6 +255,10 @@ import {
   type RetryContext,
   withRetry,
 } from './withRetry.js'
+import {
+  getPentestDefaultOutputFormat,
+  shouldEnforcePentestStructuredOutput,
+} from './pentestOutput.js'
 
 // Define a type that represents valid JSON values
 type JsonValue = string | number | boolean | null | JsonObject | JsonArray
@@ -3271,6 +3275,11 @@ export async function queryHaiku({
   signal: AbortSignal
   options: HaikuOptions
 }): Promise<AssistantMessage> {
+  const resolvedOutputFormat =
+    outputFormat ||
+    (shouldEnforcePentestStructuredOutput(options.querySource)
+      ? getPentestDefaultOutputFormat()
+      : undefined)
   const result = await withVCR(
     [
       createUserMessage({
@@ -3297,7 +3306,7 @@ export async function queryHaiku({
           ...options,
           model: getSmallFastModel(),
           enablePromptCaching: options.enablePromptCaching ?? false,
-          outputFormat,
+          outputFormat: resolvedOutputFormat,
           async getToolPermissionContext() {
             return getEmptyToolPermissionContext()
           },
@@ -3330,6 +3339,11 @@ export async function queryWithModel({
   signal: AbortSignal
   options: QueryWithModelOptions
 }): Promise<AssistantMessage> {
+  const resolvedOutputFormat =
+    outputFormat ||
+    (shouldEnforcePentestStructuredOutput(options.querySource)
+      ? getPentestDefaultOutputFormat()
+      : undefined)
   const result = await withVCR(
     [
       createUserMessage({
@@ -3355,7 +3369,7 @@ export async function queryWithModel({
         options: {
           ...options,
           enablePromptCaching: options.enablePromptCaching ?? false,
-          outputFormat,
+          outputFormat: resolvedOutputFormat,
           async getToolPermissionContext() {
             return getEmptyToolPermissionContext()
           },

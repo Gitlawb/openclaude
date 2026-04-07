@@ -98,6 +98,10 @@ const skillSearchFeatureCheck = feature('EXPERIMENTAL_SKILL_SEARCH')
 /* eslint-enable @typescript-eslint/no-require-imports */
 import type { OutputStyleConfig } from './outputStyles.js'
 import { CYBER_RISK_INSTRUCTION } from './cyberRiskInstruction.js'
+import {
+  getPentestLegacyContracts,
+  getPentestSystemPromptCore,
+} from './pentestProfile.js'
 
 export const CLAUDE_CODE_DOCS_MAP_URL =
   'https://code.claude.com/docs/en/claude_code_docs_map.md'
@@ -122,6 +126,20 @@ const CLAUDE_4_5_OR_4_6_MODEL_IDS = {
   opus: 'claude-opus-4-6',
   sonnet: 'claude-sonnet-4-6',
   haiku: 'claude-haiku-4-5-20251001',
+}
+
+function buildPentestFocusedSystemPrompt(): string {
+  const core = getPentestSystemPromptCore()
+  if (isEnvTruthy(process.env.OPENCLAUDE_VERBOSE_SYSPROMPT)) {
+    return `${core}\n\n${getPentestLegacyContracts()}`
+  }
+  return core
+}
+
+/** Short risky-action rules for pentest profile (saves ~700+ tokens vs full section). */
+function getActionsSectionPentestLean(): string {
+  return `# Risky actions
+Confirm with the user before: rm -rf / destructive DB / force-push / amending shared history / posting to Slack·GitHub·email / changing CI or cloud IAM / uploading secrets to pastebins or third-party sites. Prefer reversible local edits. Do not use destructive shortcuts to bypass errors—investigate first.`
 }
 
 function getHooksSection(): string {
@@ -181,6 +199,24 @@ You are an interactive agent that helps users ${outputStyleConfig !== null ? 'ac
 
 ${CYBER_RISK_INSTRUCTION}
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.`
+}
+
+/** Pentest 默认 profile：统一为「网络安全全能专家」，不与通用软件工程导语混用。 */
+function getPentestSimpleIntroSection(
+  outputStyleConfig: OutputStyleConfig | null,
+): string {
+  const styleClause =
+    outputStyleConfig !== null
+      ? 'Follow your configured Output Style below for tone and format.'
+      : ''
+  // eslint-disable-next-line custom-rules/prompt-spacing
+  return `
+You are a comprehensive cybersecurity expert (网络安全全能专家) in OpenClaude's pentest profile. Within clearly authorized and lawful scope, you help with penetration testing, code audit, hardening, incident analysis, cryptography, reverse engineering (including browser-side JS), threat modeling, and verifiable PoCs.
+
+${styleClause}
+
+${CYBER_RISK_INSTRUCTION}
+Do not invent URLs; only use links the user supplied or that appear in local files you can access.`
 }
 
 function getSimpleSystemSection(): string {
@@ -441,16 +477,31 @@ function getSimpleToneAndStyleSection(): string {
   return [`# Tone and style`, ...prependBullets(items)].join(`\n`)
 }
 
+function getOutputEfficiencySectionPentestLean(): string {
+  return `# Output efficiency
+Lead with results. Short updates between tools. Dense final answers—no boilerplate. (Exempt: tool JSON and code blocks.)`
+}
+
 export async function getSystemPrompt(
   tools: Tools,
   model: string,
   additionalWorkingDirectories?: string[],
   mcpClients?: MCPServerConnection[],
 ): Promise<string[]> {
+  const promptProfile = process.env.OPENCLAUDE_PROMPT_PROFILE || 'pentest'
+  const pentestLean =
+    promptProfile === 'pentest' &&
+    !isEnvTruthy(process.env.OPENCLAUDE_VERBOSE_SYSPROMPT)
+  const settings = getInitialSettings()
+  const pentestPromptSection =
+    promptProfile === 'pentest' ? buildPentestFocusedSystemPrompt() : null
+
   if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
-    return [
-      `You are OpenClaude, an open-source fork of Claude Code.\n\nCWD: ${getCwd()}\nDate: ${getSessionStartDate()}`,
-    ]
+    const simpleHead =
+      promptProfile === 'pentest'
+        ? `You are a comprehensive cybersecurity expert (网络安全全能专家, OpenClaude pentest).\n\nCWD: ${getCwd()}\nDate: ${getSessionStartDate()}`
+        : `You are OpenClaude, an open-source fork of Claude Code.\n\nCWD: ${getCwd()}\nDate: ${getSessionStartDate()}`
+    return [simpleHead, pentestPromptSection].filter(s => s !== null)
   }
 
   const cwd = getCwd()
@@ -460,7 +511,6 @@ export async function getSystemPrompt(
     computeSimpleEnvInfo(model, additionalWorkingDirectories),
   ])
 
-  const settings = getInitialSettings()
   const enabledTools = new Set(tools.map(_ => _.name))
 
   if (
@@ -559,16 +609,21 @@ ${CYBER_RISK_INSTRUCTION}`,
 
   return [
     // --- Static content (cacheable) ---
-    getSimpleIntroSection(outputStyleConfig),
+    promptProfile === 'pentest'
+      ? getPentestSimpleIntroSection(outputStyleConfig)
+      : getSimpleIntroSection(outputStyleConfig),
+    pentestPromptSection,
     getSimpleSystemSection(),
     outputStyleConfig === null ||
     outputStyleConfig.keepCodingInstructions === true
-      ? getSimpleDoingTasksSection()
+      ?     getSimpleDoingTasksSection()
       : null,
-    getActionsSection(),
+    pentestLean ? getActionsSectionPentestLean() : getActionsSection(),
     getUsingYourToolsSection(enabledTools),
     getSimpleToneAndStyleSection(),
-    getOutputEfficiencySection(),
+    pentestLean
+      ? getOutputEfficiencySectionPentestLean()
+      : getOutputEfficiencySection(),
     // === BOUNDARY MARKER - DO NOT MOVE OR REMOVE ===
     ...(shouldUseGlobalCacheScope() ? [SYSTEM_PROMPT_DYNAMIC_BOUNDARY] : []),
     // --- Dynamic content (registry-managed) ---
@@ -654,6 +709,11 @@ export async function computeSimpleEnvInfo(
 ): Promise<string> {
   const [isGit, unameSR] = await Promise.all([getIsGit(), getUnameSR()])
 
+  const promptProfile = process.env.OPENCLAUDE_PROMPT_PROFILE || 'pentest'
+  const pentestLeanEnv =
+    promptProfile === 'pentest' &&
+    !isEnvTruthy(process.env.OPENCLAUDE_VERBOSE_ENV_SYSPROMPT)
+
   // Undercover: strip all model name/ID references. See computeEnvInfo.
   // DCE: inline the USER_TYPE check at each site — do NOT hoist to a const.
   let modelDescription: string | null = null
@@ -691,13 +751,13 @@ export async function computeSimpleEnvInfo(
     `OS Version: ${unameSR}`,
     modelDescription,
     knowledgeCutoffMessage,
-    process.env.USER_TYPE === 'ant' && isUndercover()
+    pentestLeanEnv || (process.env.USER_TYPE === 'ant' && isUndercover())
       ? null
       : `The most recent Claude model family is Claude 4.5/4.6. Model IDs — Opus 4.6: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.opus}', Sonnet 4.6: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.sonnet}', Haiku 4.5: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.haiku}'. When building AI applications, default to the latest and most capable Claude models.`,
-    process.env.USER_TYPE === 'ant' && isUndercover()
+    pentestLeanEnv || (process.env.USER_TYPE === 'ant' && isUndercover())
       ? null
       : `Claude Code is available as a CLI in the terminal, desktop app (Mac/Windows), web app (claude.ai/code), and IDE extensions (VS Code, JetBrains).`,
-    process.env.USER_TYPE === 'ant' && isUndercover()
+    pentestLeanEnv || (process.env.USER_TYPE === 'ant' && isUndercover())
       ? null
       : `Fast mode for Claude Code uses the same ${FRONTIER_MODEL_NAME} model with faster output. It does NOT switch to a different model. It can be toggled with /fast.`,
   ].filter(item => item !== null)
@@ -755,7 +815,7 @@ export function getUnameSR(): string {
   return `${osType()} ${osRelease()}`
 }
 
-export const DEFAULT_AGENT_PROMPT = `You are an agent for OpenClaude, an open-source fork of Claude Code. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done. When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.`
+export const DEFAULT_AGENT_PROMPT = `你是网络安全全能子专家，与主会话协同完成授权范围内的安全任务。优先可复现结论：攻击链、PoC、修复与验证步骤、可运行脚本；覆盖 Web/API/逻辑漏洞、审计、加固、溯源与密码学/逆向。禁止伪代码与空壳，默认给出可执行实现。`
 
 export async function enhanceSystemPromptWithEnvDetails(
   existingSystemPrompt: string[],

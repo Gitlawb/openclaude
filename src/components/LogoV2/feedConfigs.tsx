@@ -39,11 +39,11 @@ export function createWhatsNewFeed(releaseNotes: string[]): FeedConfig {
       text: note
     };
   });
-  const emptyMessage = "external" === 'ant' ? 'Unable to fetch latest claude-cli-internal commits' : 'Check /release-notes for recent updates';
+  const emptyMessage = "external" === 'ant' ? 'Unable to fetch latest claude-cli-internal commits' : 'No recent release notes';
   return {
     title: "external" === 'ant' ? "Open Claude Updates [internal-only: Latest CC commits]" : "Open Claude Updates",
     lines,
-    footer: lines.length > 0 ? '/release-notes for more' : undefined,
+    footer: undefined,
     emptyMessage
   };
 }

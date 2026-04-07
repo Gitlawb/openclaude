@@ -1,16 +1,8 @@
 import { logEvent } from 'src/services/analytics/index.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logError } from '../utils/log.js'
-import {
-  hasSkipDangerousModePermissionPrompt,
-  updateSettingsForSource,
-} from '../utils/settings/settings.js'
 
-/**
- * Migration: Move bypassPermissionsModeAccepted from global config to settings.json
- * as skipDangerousModePermissionPrompt. This is a better home since settings.json
- * is the user-configurable settings file.
- */
+/** Drop legacy global flag (bypass dialog feature removed in OpenClaude fork). */
 export function migrateBypassPermissionsAcceptedToSettings(): void {
   const globalConfig = getGlobalConfig()
 
@@ -19,12 +11,6 @@ export function migrateBypassPermissionsAcceptedToSettings(): void {
   }
 
   try {
-    if (!hasSkipDangerousModePermissionPrompt()) {
-      updateSettingsForSource('userSettings', {
-        skipDangerousModePermissionPrompt: true,
-      })
-    }
-
     logEvent('tengu_migrate_bypass_permissions_accepted', {})
 
     saveGlobalConfig(current => {

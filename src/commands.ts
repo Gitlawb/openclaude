@@ -5,7 +5,6 @@ import backfillSessions from './commands/backfill-sessions/index.js'
 import btw from './commands/btw/index.js'
 import goodClaude from './commands/good-claude/index.js'
 import issue from './commands/issue/index.js'
-import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
@@ -20,7 +19,6 @@ import diff from './commands/diff/index.js'
 import dream from './commands/dream/index.js'
 import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
-import onboardGithub from './commands/onboard-github/index.js'
 import memory from './commands/memory/index.js'
 import help from './commands/help/index.js'
 import ide from './commands/ide/index.js'
@@ -34,9 +32,7 @@ import installSlackApp from './commands/install-slack-app/index.js'
 import breakCache from './commands/break-cache/index.js'
 import mcp from './commands/mcp/index.js'
 import mobile from './commands/mobile/index.js'
-import onboarding from './commands/onboarding/index.js'
 import pr_comments from './commands/pr_comments/index.js'
-import releaseNotes from './commands/release-notes/index.js'
 import rename from './commands/rename/index.js'
 import resume from './commands/resume/index.js'
 import review, { ultrareview } from './commands/review.js'
@@ -175,35 +171,21 @@ import { isUsing3PServices, isClaudeAISubscriber } from './utils/auth.js'
 import { isFirstPartyAnthropicBaseUrl } from './utils/model/providers.js'
 import env from './commands/env/index.js'
 import exit from './commands/exit/index.js'
+import pentestWeb from './commands/pentest-web/index.js'
+import ragAdd from './commands/rag-add/index.js'
+import ragDelete from './commands/rag-delete/index.js'
+import ragList from './commands/rag-list/index.js'
+import ragQuery from './commands/rag-query/index.js'
+import ragRebuild from './commands/rag-rebuild/index.js'
 import exportCommand from './commands/export/index.js'
 import model from './commands/model/index.js'
 import tag from './commands/tag/index.js'
 import outputStyle from './commands/output-style/index.js'
 import remoteEnv from './commands/remote-env/index.js'
 import upgrade from './commands/upgrade/index.js'
-import {
-  extraUsage,
-  extraUsageNonInteractive,
-} from './commands/extra-usage/index.js'
 import rateLimitOptions from './commands/rate-limit-options/index.js'
 import statusline from './commands/statusline.js'
 import effort from './commands/effort/index.js'
-import stats from './commands/stats/index.js'
-// insights.ts is 113KB (3200 lines, includes diffLines/html rendering). Lazy
-// shim defers the heavy module until /insights is actually invoked.
-const usageReport: Command = {
-  type: 'prompt',
-  name: 'insights',
-  description: 'Generate a report analyzing your Claude Code sessions',
-  contentLength: 0,
-  progressMessage: 'analyzing your sessions',
-  source: 'builtin',
-  async getPromptForCommand(args, context) {
-    const real = (await import('./commands/insights.js')).default
-    if (real.type !== 'prompt') throw new Error('unreachable')
-    return real.getPromptForCommand(args, context)
-  },
-}
 import oauthRefresh from './commands/oauth-refresh/index.js'
 import debugToolCall from './commands/debug-tool-call/index.js'
 import { getSettingSourceName } from './utils/settings/constants.js'
@@ -244,7 +226,6 @@ export const INTERNAL_ONLY_COMMANDS = [
   ...(subscribePr ? [subscribePr] : []),
   resetLimits,
   resetLimitsNonInteractive,
-  onboarding,
   share,
   summary,
   teleport,
@@ -278,6 +259,12 @@ const COMMANDS = memoize((): Command[] => [
   diff,
   dream,
   doctor,
+  pentestWeb,
+  ragAdd,
+  ragDelete,
+  ragList,
+  ragQuery,
+  ragRebuild,
   effort,
   exit,
   fast,
@@ -293,36 +280,29 @@ const COMMANDS = memoize((): Command[] => [
   memory,
   mobile,
   model,
-  onboardGithub,
   outputStyle,
   remoteEnv,
   plugin,
   provider,
   pr_comments,
-  releaseNotes,
   reloadPlugins,
   rename,
   resume,
   session,
   skills,
-  stats,
   status,
   statusline,
   stickers,
   tag,
   theme,
-  feedback,
   review,
   ultrareview,
   rewind,
   securityReview,
   terminalSetup,
   upgrade,
-  extraUsage,
-  extraUsageNonInteractive,
   rateLimitOptions,
   usage,
-  usageReport,
   vim,
   ...(webCmd ? [webCmd] : []),
   ...(forkCmd ? [forkCmd] : []),
@@ -635,7 +615,6 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   usage, // Show usage info
   copy, // Copy last message
   btw, // Quick note
-  feedback, // Send feedback
   plan, // Plan mode toggle
   keybindings, // Keybinding management
   statusline, // Status line toggle
@@ -661,7 +640,6 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     clear, // Wipe transcript
     cost, // Show session cost
     summary, // Summarize conversation
-    releaseNotes, // Show changelog
     files, // List tracked files
   ].filter((c): c is Command => c !== null),
 )

@@ -23,6 +23,8 @@ export type QueryConfig = {
     emitToolUseSummaries: boolean
     isAnt: boolean
     fastModeEnabled: boolean
+    pentestProfileEnabled: boolean
+    pentestStrictMode: boolean
   }
 }
 
@@ -41,6 +43,9 @@ export function buildQueryConfig(): QueryConfig {
       // (axios, settings, auth, model, oauth, config) into test shards that
       // didn't previously load it — changes init order and breaks unrelated tests.
       fastModeEnabled: !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_FAST_MODE),
+      pentestProfileEnabled:
+        (process.env.OPENCLAUDE_PROMPT_PROFILE || '').toLowerCase() === 'pentest',
+      pentestStrictMode: isEnvTruthy(process.env.OPENCLAUDE_PENTEST_STRICT),
     },
   }
 }

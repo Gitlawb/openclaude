@@ -16,6 +16,28 @@ import {
   matchesNegativeKeyword,
 } from '../userPromptKeywords.js'
 
+function getPentestStrictSuffix(): string {
+  return '\n\n[PentestStrict] 输出必须工程化：禁止伪代码、禁止 TODO、优先给可运行实现与可验证步骤。'
+}
+
+function applyPentestStrictToInput(
+  input: string | Array<ContentBlockParam>,
+): string | Array<ContentBlockParam> {
+  if (process.env.OPENCLAUDE_PENTEST_STRICT !== '1') {
+    return input
+  }
+  if (typeof input === 'string') {
+    return `${input}${getPentestStrictSuffix()}`
+  }
+  return input.map(block => {
+    if (block.type !== 'text') return block
+    return {
+      ...block,
+      text: `${block.text}${getPentestStrictSuffix()}`,
+    }
+  })
+}
+
 export function processTextPrompt(
   input: string | Array<ContentBlockParam>,
   imageContentBlocks: ContentBlockParam[],
@@ -28,13 +50,14 @@ export function processTextPrompt(
   messages: (UserMessage | AttachmentMessage | SystemMessage)[]
   shouldQuery: boolean
 } {
+  const normalizedInput = applyPentestStrictToInput(input)
   const promptId = randomUUID()
   setPromptId(promptId)
 
   const userPromptText =
-    typeof input === 'string'
-      ? input
-      : input.find(block => block.type === 'text')?.text || ''
+    typeof normalizedInput === 'string'
+      ? normalizedInput
+      : normalizedInput.find(block => block.type === 'text')?.text || ''
   startInteractionSpan(userPromptText)
 
   // Emit user_prompt OTEL event for both string (CLI) and array (SDK/VS Code)
@@ -45,9 +68,9 @@ export function processTextPrompt(
   // so .findLast gets the actual prompt. userPromptText (first block) is kept
   // unchanged for startInteractionSpan to preserve existing span attributes.
   const otelPromptText =
-    typeof input === 'string'
-      ? input
-      : input.findLast(block => block.type === 'text')?.text || ''
+    typeof normalizedInput === 'string'
+      ? normalizedInput
+      : normalizedInput.findLast(block => block.type === 'text')?.text || ''
   if (otelPromptText) {
     void logOTelEvent('user_prompt', {
       prompt_length: String(otelPromptText.length),
@@ -67,11 +90,11 @@ export function processTextPrompt(
   if (imageContentBlocks.length > 0) {
     // Build content: text first, then images below
     const textContent =
-      typeof input === 'string'
-        ? input.trim()
-          ? [{ type: 'text' as const, text: input }]
+      typeof normalizedInput === 'string'
+        ? normalizedInput.trim()
+          ? [{ type: 'text' as const, text: normalizedInput }]
           : []
-        : input
+        : normalizedInput
     const userMessage = createUserMessage({
       content: [...textContent, ...imageContentBlocks],
       uuid: uuid,
@@ -87,7 +110,7 @@ export function processTextPrompt(
   }
 
   const userMessage = createUserMessage({
-    content: input,
+    content: normalizedInput,
     uuid,
     permissionMode,
     isMeta: isMeta || undefined,

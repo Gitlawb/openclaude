@@ -813,7 +813,17 @@ export function getDefaultMaxRetries(): number {
   return DEFAULT_MAX_RETRIES
 }
 function getMaxRetries(options: RetryOptions): number {
-  return options.maxRetries ?? getDefaultMaxRetries()
+  let retries = options.maxRetries ?? getDefaultMaxRetries()
+  const strictPentest = isEnvTruthy(process.env.OPENCLAUDE_PENTEST_STRICT)
+  const source = options.querySource
+  const highValueSource =
+    source === 'repl_main_thread' ||
+    source === 'verification_agent' ||
+    (typeof source === 'string' && source.startsWith('agent:'))
+  if (strictPentest && highValueSource) {
+    retries = Math.min(retries + 4, 20)
+  }
+  return retries
 }
 
 const DEFAULT_FAST_MODE_FALLBACK_HOLD_MS = 30 * 60 * 1000 // 30 minutes

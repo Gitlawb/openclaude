@@ -614,22 +614,10 @@ const externalTips: Tip[] = [
       const amount = info ? formatGrantAmount(info) : null
       if (!amount) return ''
       // Copy from "OC & Bulk Overages copy" doc (#5 — CLI Rotating tip)
-      return `${claude(`${amount} in extra usage, on us`)} · third-party apps · ${claude('/extra-usage')}`
+      return `${claude(`${amount} in extra usage, on us`)} · third-party apps · account usage settings`
     },
     cooldownSessions: 3,
     isRelevant: async () => shouldShowOverageCreditUpsell(),
-  },
-  {
-    id: 'feedback-command',
-    content: async () => 'Use /feedback to help us improve!',
-    cooldownSessions: 15,
-    async isRelevant() {
-      if (process.env.USER_TYPE === 'ant') {
-        return false
-      }
-      const config = getGlobalConfig()
-      return config.numStartups > 5
-    },
   },
 ]
 const internalOnlyTips: Tip[] =

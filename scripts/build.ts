@@ -374,6 +374,8 @@ ${exports}
     '@opentelemetry/semantic-conventions',
     // Native image processing
     'sharp',
+    // Native SQLite (pentest RAG)
+    'better-sqlite3',
     // Cloud provider SDKs
     '@aws-sdk/client-bedrock',
     '@aws-sdk/client-bedrock-runtime',

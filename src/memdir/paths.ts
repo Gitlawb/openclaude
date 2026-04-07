@@ -173,8 +173,7 @@ function getAutoMemPathOverride(): string | undefined {
  * intentionally excluded — a malicious repo could otherwise set
  * autoMemoryDirectory: "~/.ssh" and gain silent write access to sensitive
  * directories via the filesystem.ts write carve-out (which fires when
- * isAutoMemPath() matches and hasAutoMemPathOverride() is false). This follows
- * the same pattern as hasSkipDangerousModePermissionPrompt() etc.
+ * isAutoMemPath() matches and hasAutoMemPathOverride() is false).
  */
 function getAutoMemPathSetting(): string | undefined {
   const dir =

@@ -64,10 +64,10 @@ const PERMISSION_MODE_CONFIG: Partial<
     external: 'acceptEdits',
   },
   bypassPermissions: {
-    title: 'Bypass Permissions',
-    shortTitle: 'Bypass',
+    title: 'Geeker Mode',
+    shortTitle: 'Geeker',
     symbol: '⏵⏵',
-    color: 'error',
+    color: 'autoAccept',
     external: 'bypassPermissions',
   },
   dontAsk: {

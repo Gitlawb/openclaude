@@ -10,8 +10,8 @@ import type { ToolUseContext } from '../../Tool.js';
 import type { LocalJSXCommandOnDone } from '../../types/command.js';
 import { getOauthAccountInfo, getRateLimitTier, getSubscriptionType } from '../../utils/auth.js';
 import { hasClaudeAiBillingAccess } from '../../utils/billing.js';
-import { call as extraUsageCall } from '../extra-usage/extra-usage.js';
-import { extraUsage } from '../extra-usage/index.js';
+import { isExtraUsageInteractiveAvailable } from '../../services/extraUsage/availability.js';
+import { interactiveExtraUsageCall } from '../../services/extraUsage/interactiveExtraUsageCall.js';
 import upgrade from '../upgrade/index.js';
 import { call as upgradeCall } from '../upgrade/upgrade.js';
 type RateLimitOptionsMenuOptionType = 'upgrade' | 'extra-usage' | 'cancel';
@@ -55,7 +55,7 @@ function RateLimitOptionsMenu(t0) {
     let actionOptions;
     if ($[2] !== claudeAiLimits.overageDisabledReason || $[3] !== claudeAiLimits.overageStatus) {
       actionOptions = [];
-      if (extraUsage.isEnabled()) {
+      if (isExtraUsageInteractiveAvailable()) {
         const hasBillingAccess = hasClaudeAiBillingAccess();
         const needsToRequestFromAdmin = isTeamOrEnterprise && !hasBillingAccess;
         const isOrgSpendCapDepleted = claudeAiLimits.overageDisabledReason === "out_of_credits" || claudeAiLimits.overageDisabledReason === "org_level_disabled_until" || claudeAiLimits.overageDisabledReason === "org_service_zero_credit_limit";
@@ -161,7 +161,7 @@ function RateLimitOptionsMenu(t0) {
       } else {
         if (value === "extra-usage") {
           logEvent("tengu_rate_limit_options_menu_select_extra_usage", {});
-          extraUsageCall(onDone, context).then(jsx_0 => {
+          interactiveExtraUsageCall(onDone, context).then(jsx_0 => {
             if (jsx_0) {
               setSubCommandJSX(jsx_0);
             }

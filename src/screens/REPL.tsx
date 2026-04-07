@@ -3604,7 +3604,7 @@ export function REPL({
 
   // Handler for when user presses 1 on survey thanks screen to share details
   const handleSurveyRequestFeedback = useCallback(() => {
-    const command = "external" === 'ant' ? '/issue' : '/feedback';
+    const command = '/issue';
     onSubmit(command, {
       setCursorOffset: () => { },
       clearBuffer: () => { },

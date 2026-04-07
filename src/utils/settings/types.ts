@@ -980,12 +980,6 @@ export const SettingsSchema = lazySchema(() =>
         .describe(
           'Show thinking summaries in the transcript view (ctrl+o). Default: false.',
         ),
-      skipDangerousModePermissionPrompt: z
-        .boolean()
-        .optional()
-        .describe(
-          'Whether the user has accepted the bypass permissions mode dialog',
-        ),
       ...(feature('TRANSCRIPT_CLASSIFIER')
         ? {
             skipAutoPermissionPrompt: z

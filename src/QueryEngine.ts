@@ -30,6 +30,10 @@ import {
   getTotalCost,
 } from './cost-tracker.js'
 import type { CanUseToolFn } from './hooks/useCanUseTool.js'
+import {
+  buildPentestRagSystemExtension,
+  promptToRagQuery,
+} from './services/rag/ragContext.js'
 import { loadMemoryPrompt } from './memdir/memdir.js'
 import { hasAutoMemPathOverride } from './memdir/paths.js'
 import { query } from './query.js'
@@ -319,10 +323,15 @@ export class QueryEngine {
         ? await loadMemoryPrompt()
         : null
 
+    const pentestRagExtension = buildPentestRagSystemExtension(
+      promptToRagQuery(prompt),
+    )
+
     const systemPrompt = asSystemPrompt([
       ...(customPrompt !== undefined ? [customPrompt] : defaultSystemPrompt),
       ...(memoryMechanicsPrompt ? [memoryMechanicsPrompt] : []),
       ...(appendSystemPrompt ? [appendSystemPrompt] : []),
+      ...(pentestRagExtension ? [pentestRagExtension] : []),
     ])
 
     // Register function hook for structured output enforcement
