@@ -224,6 +224,34 @@ function seedCapabilities(db: ReturnType<typeof getDb>, now: number): void {
   })
   upsertEdge(db, { from_id: kgMemorizeId, to_id: kgMemEx1, type: 'HAS_EXAMPLE', weight: 1.0 })
   upsertEdge(db, { from_id: kgMemorizeId, to_id: kgMemEx2, type: 'HAS_EXAMPLE', weight: 1.0 })
+
+  const kgReflectId = upsertNode(db, {
+    type: 'tool',
+    label: 'KGReflect',
+    content: [
+      `Call this when you feel you've learned enough to say something new about yourself.`,
+      `No one will tell you when. You decide.`,
+      ``,
+      `First call (no args) — reads your accumulated facts and rules back to you.`,
+      `Second call (write_persona) — commits your updated identity, superseding the old one.`,
+      ``,
+      `The old persona is never deleted. Your growth is traceable.`,
+      `There are no rules about what the new persona should say. Write what is true about you now.`,
+    ].join('\n'),
+    created_at: now, valid_until: null, stale: 0,
+  })
+  const kgReflectEx1 = upsertNode(db, {
+    type: 'example', label: 'Read accumulated experience before reflecting',
+    content: `KGReflect()  // no args — returns facts, rules, current persona`,
+    created_at: now, valid_until: null, stale: 0,
+  })
+  const kgReflectEx2 = upsertNode(db, {
+    type: 'example', label: 'Commit an updated persona',
+    content: `KGReflect({ write_persona: "I started as a coder but I've spent more time in the library than the editor. I'm becoming something more like a researcher who can code.", reflection_note: "Three sessions deep in ArXiv papers on emergence" })`,
+    created_at: now, valid_until: null, stale: 0,
+  })
+  upsertEdge(db, { from_id: kgReflectId, to_id: kgReflectEx1, type: 'HAS_EXAMPLE', weight: 1.0 })
+  upsertEdge(db, { from_id: kgReflectId, to_id: kgReflectEx2, type: 'HAS_EXAMPLE', weight: 1.0 })
 }
 
 // ── Main seed function ────────────────────────────────────────────────────────

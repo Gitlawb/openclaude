@@ -74,6 +74,7 @@ import { AskUserQuestionTool } from './tools/AskUserQuestionTool/AskUserQuestion
 import { KGRecallTool } from './tools/KGTool/KGRecallTool.js'
 import { KGMemorizeTool } from './tools/KGTool/KGMemorizeTool.js'
 import { KGForgetTool } from './tools/KGTool/KGForgetTool.js'
+import { KGReflectTool } from './tools/KGTool/KGReflectTool.js'
 import { LSPTool } from './tools/LSPTool/LSPTool.js'
 import { ListMcpResourcesTool } from './tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
 import { ReadMcpResourceTool } from './tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
@@ -254,6 +255,7 @@ export function getAllBaseTools(): Tools {
     KGRecallTool,
     KGMemorizeTool,
     KGForgetTool,
+    KGReflectTool,
   ]
 }
 
