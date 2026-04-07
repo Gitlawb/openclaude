@@ -19,18 +19,23 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
+      - name: Setup Bun (latest)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           scope: '@fluxluffy'
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install dependencies with Bun
+        run: bun install
 
-      - name: Build the project (using npm instead of bun)
-        run: npm run build
+      - name: Build the project with Bun
+        run: bun run build
 
       - name: Bump version (patch)
         id: bump
