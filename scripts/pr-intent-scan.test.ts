@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { scanAddedLines, type DiffLine } from './pr-intent-scan.ts'
+import { scanAddedLines, findFileOrderingFindings, type DiffLine } from './pr-intent-scan.ts'
 
 function line(content: string, overrides: Partial<DiffLine> = {}): DiffLine {
   return {
@@ -132,5 +132,112 @@ describe('scanAddedLines', () => {
     ])
 
     expect(findings.some(finding => finding.code === 'download-command')).toBe(false)
+  })
+})
+
+// ─── Helper to build fake file content maps ─────────────────────────────────
+
+function fakeReader(files: Record<string, string>) {
+  return (path: string): string => {
+    if (path in files) return files[path]
+    throw new Error(`File not found: ${path}`)
+  }
+}
+
+function tsLine(content: string, lineNo = 1): DiffLine {
+  return { file: 'src/utils/spawn.ts', line: lineNo, content }
+}
+
+describe('findFileOrderingFindings', () => {
+  test('flags write-before-spawn in the same function', () => {
+    const src = [
+      'async function handleSpawn() {',
+      '  await writeTeamFileAsync(teamName, teamFile)',
+      '  const result = await spawnInProcessTeammate(config, ctx)',
+      '  if (!result.success) throw new Error(result.error)',
+      '}',
+    ].join('\n')
+
+    const findings = findFileOrderingFindings(
+      [tsLine('', 1)],
+      fakeReader({ 'src/utils/spawn.ts': src }),
+    )
+
+    expect(findings.some(f => f.code === 'write-before-fallible-spawn')).toBe(true)
+    expect(findings[0]?.line).toBe(2)
+  })
+
+  test('does NOT flag write-after-spawn (the correct ordering)', () => {
+    const src = [
+      'async function handleSpawn() {',
+      '  const result = await spawnInProcessTeammate(config, ctx)',
+      '  if (!result.success) throw new Error(result.error)',
+      '  await writeTeamFileAsync(teamName, teamFile)',
+      '}',
+    ].join('\n')
+
+    const findings = findFileOrderingFindings(
+      [tsLine('', 1)],
+      fakeReader({ 'src/utils/spawn.ts': src }),
+    )
+
+    expect(findings.some(f => f.code === 'write-before-fallible-spawn')).toBe(false)
+  })
+
+  test('does NOT flag write and spawn in separate functions', () => {
+    const src = [
+      'async function setup() {',
+      '  await writeTeamFileAsync(teamName, teamFile)',
+      '}',
+      'async function doSpawn() {',
+      '  const result = await spawnInProcessTeammate(config, ctx)',
+      '}',
+    ].join('\n')
+
+    const findings = findFileOrderingFindings(
+      [tsLine('', 1)],
+      fakeReader({ 'src/utils/spawn.ts': src }),
+    )
+
+    expect(findings.some(f => f.code === 'write-before-fallible-spawn')).toBe(false)
+  })
+
+  test('does NOT flag non-TypeScript files', () => {
+    const findings = findFileOrderingFindings([
+      { file: 'README.md', line: 1, content: '' },
+    ])
+
+    expect(findings).toHaveLength(0)
+  })
+
+  test('does NOT flag when write and spawn are more than 100 lines apart', () => {
+    const lines: string[] = ['async function bigFn() {']
+    lines.push('  await writeTeamFileAsync(teamName, teamFile)')
+    for (let i = 0; i < 101; i++) lines.push('  // padding')
+    lines.push('  const result = await spawnInProcessTeammate(config, ctx)')
+    lines.push('}')
+
+    const findings = findFileOrderingFindings(
+      [tsLine('', 1)],
+      fakeReader({ 'src/utils/spawn.ts': lines.join('\n') }),
+    )
+
+    expect(findings.some(f => f.code === 'write-before-fallible-spawn')).toBe(false)
+  })
+
+  test('surfaces through scanAddedLines with injected reader', () => {
+    const src = [
+      'async function handleSpawn() {',
+      '  await writeTeamFileAsync(teamName, teamFile)',
+      '  const result = await spawnInProcessTeammate(config, ctx)',
+      '}',
+    ].join('\n')
+
+    const findings = scanAddedLines(
+      [tsLine('', 1)],
+      { readFile: fakeReader({ 'src/utils/spawn.ts': src }) },
+    )
+
+    expect(findings.some(f => f.code === 'write-before-fallible-spawn')).toBe(true)
   })
 })

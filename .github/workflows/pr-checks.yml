@@ -35,6 +35,13 @@ jobs:
       - name: Smoke check
         run: bun run smoke
 
+      - name: TypeScript type check
+        # Pre-existing errors exist in the repo; run with continue-on-error so
+        # reviewers see type regressions introduced by a PR without blocking the
+        # whole suite.  Treat as a hard failure once the baseline is clean.
+        run: bun run typecheck 2>&1 | tee /tmp/typecheck.txt; echo "TypeScript errors found:" $(grep -c "error TS" /tmp/typecheck.txt || true)
+        continue-on-error: true
+
       - name: Full unit test suite
         run: bun test --max-concurrency=1
 
