@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   FALLBACK_PROJECT_INSTRUCTION_FILE,
   getProjectInstructionFilePath,
+  getProjectInstructionFilePaths,
   hasProjectInstructionFile,
   isProjectInstructionFileName,
   PRIMARY_PROJECT_INSTRUCTION_FILE,
@@ -35,6 +36,15 @@ describe('projectInstructions', () => {
     )
 
     expect(filePath).toBe(join(dir, FALLBACK_PROJECT_INSTRUCTION_FILE))
+  })
+
+  test('returns both candidate root instruction paths', () => {
+    const dir = '/repo'
+
+    expect(getProjectInstructionFilePaths(dir)).toEqual([
+      join(dir, PRIMARY_PROJECT_INSTRUCTION_FILE),
+      join(dir, FALLBACK_PROJECT_INSTRUCTION_FILE),
+    ])
   })
 
   test('detects whether a repo instruction file exists', () => {

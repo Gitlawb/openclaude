@@ -44,6 +44,7 @@ import {
   analyzeContext,
   tokenStatsToStatsigMetrics,
 } from '../../utils/contextAnalysis.js'
+import { getCwd } from '../../utils/cwd.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { hasExactErrorMessage } from '../../utils/errors.js'
 import { cacheToObject } from '../../utils/fileStateCache.js'
@@ -68,6 +69,7 @@ import {
 } from '../../utils/messages.js'
 import { expandPath } from '../../utils/path.js'
 import { getPlan, getPlanFilePath } from '../../utils/plans.js'
+import { getProjectInstructionFilePaths } from '../../utils/projectInstructions.js'
 import {
   isSessionActivityTrackingActive,
   sendSessionActivitySignal,
@@ -1689,8 +1691,13 @@ function shouldExcludeFromPostCompactRestore(
   // and to also match child directory memory files (.claude/rules/*.md, etc.)
   try {
     const normalizedMemoryPaths = new Set(
-      MEMORY_TYPE_VALUES.map(type => expandPath(getMemoryPath(type))),
+      MEMORY_TYPE_VALUES.filter(type => type !== 'Project').map(type =>
+        expandPath(getMemoryPath(type)),
+      ),
     )
+    for (const path of getProjectInstructionFilePaths(getCwd())) {
+      normalizedMemoryPaths.add(expandPath(path))
+    }
 
     if (normalizedMemoryPaths.has(normalizedFilename)) {
       return true

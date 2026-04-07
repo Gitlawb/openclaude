@@ -33,7 +33,7 @@ export function getSteps(): Step[] {
     },
     {
       key: 'claudemd',
-      text: 'Set up repo instructions (/init creates CLAUDE.md; AGENTS.md also counts)',
+      text: 'Set up repo instructions (/init creates AGENTS.md; CLAUDE.md also counts)',
       isComplete: hasRepoInstructions,
       isCompletable: true,
       isEnabled: !isWorkspaceDirEmpty,
