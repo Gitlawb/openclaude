@@ -1838,7 +1838,10 @@ export function removeExtraFields(
  */
 function applyPreservedSegmentRelinks(
   messages: Map<UUID, TranscriptMessage>,
-): void {
+): {
+  relinkFailed: boolean
+} {
+  let relinkFailed = false
   type Seg = NonNullable<
     SystemCompactBoundaryMessage['compactMetadata']['preservedSegment']
   >
@@ -1863,46 +1866,100 @@ function applyPreservedSegmentRelinks(
     i++
   }
   // No seg anywhere → no-op. findUnresolvedToolUse etc. read the full map.
-  if (!lastSeg) return
+  if (!lastSeg) return { relinkFailed }
 
   // Seg stale (no-seg boundary came after): skip relink, still prune at
   // absolute — otherwise the stale preserved chain becomes a phantom leaf.
   const segIsLive = lastSegBoundaryIdx === absoluteLastBoundaryIdx
 
-  // Validate tail→head BEFORE mutating so malformed metadata is a true
-  // no-op (walk stops at headUuid, doesn't need the relink to run first).
+  // Validate tail→head BEFORE mutating so malformed metadata never keeps
+  // the full pre-compact history alive on resume. If the walk breaks, mark
+  // the relink as failed and fall through to absolute-boundary pruning.
   const preservedUuids = new Set<UUID>()
   if (segIsLive) {
     const walkSeen = new Set<UUID>()
+    const tailInTranscript = messages.has(lastSeg.tailUuid)
+    const headInTranscript = messages.has(lastSeg.headUuid)
+    const anchorInTranscript = messages.has(lastSeg.anchorUuid)
     let cur = messages.get(lastSeg.tailUuid)
     let reachedHead = false
-    while (cur && !walkSeen.has(cur.uuid)) {
+    let failureKind:
+      | 'missing_tail'
+      | 'missing_parent'
+      | 'null_parent_before_head'
+      | 'cycle_before_head'
+      | 'missing_anchor' = 'missing_tail'
+    let lastSeenUuid: UUID | undefined
+    let lastSeenType: TranscriptMessage['type'] | undefined
+    let breakParentUuid: UUID | null | undefined
+
+    while (cur) {
+      if (walkSeen.has(cur.uuid)) {
+        failureKind = 'cycle_before_head'
+        break
+      }
       walkSeen.add(cur.uuid)
       preservedUuids.add(cur.uuid)
+      lastSeenUuid = cur.uuid
+      lastSeenType = cur.type
       if (cur.uuid === lastSeg.headUuid) {
         reachedHead = true
         break
       }
-      cur = cur.parentUuid ? messages.get(cur.parentUuid) : undefined
+      breakParentUuid = cur.parentUuid
+      if (!breakParentUuid) {
+        failureKind = 'null_parent_before_head'
+        break
+      }
+      const next = messages.get(breakParentUuid)
+      if (!next) {
+        failureKind = 'missing_parent'
+        break
+      }
+      cur = next
     }
-    if (!reachedHead) {
+
+    if (!reachedHead || !anchorInTranscript) {
+      if (!anchorInTranscript && reachedHead) {
+        failureKind = 'missing_anchor'
+      }
       // tail→head walk broke — a UUID in the preserved segment isn't in the
-      // transcript. Returning here skips the prune below, so resume loads
-      // the full pre-compact history. Known cause: mid-turn-yielded
-      // attachment pushed to mutableMessages but never recordTranscript'd
-      // (SDK subprocess restarted before next turn's qe:420 flush).
+      // transcript. Fail closed: keep only the post-boundary chain instead of
+      // loading the full pre-compact history on resume.
+      relinkFailed = true
+      preservedUuids.clear()
       logEvent('tengu_relink_walk_broken', {
-        tailInTranscript: messages.has(lastSeg.tailUuid),
-        headInTranscript: messages.has(lastSeg.headUuid),
-        anchorInTranscript: messages.has(lastSeg.anchorUuid),
+        failureKind:
+          failureKind as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        tailInTranscript,
+        headInTranscript,
+        anchorInTranscript,
+        walkSteps: walkSeen.size,
+        transcriptSize: messages.size,
+        tailIndex: entryIndex.get(lastSeg.tailUuid),
+        headIndex: entryIndex.get(lastSeg.headUuid),
+        anchorIndex: entryIndex.get(lastSeg.anchorUuid),
+        lastSeenType,
+        breakParentInTranscript: Boolean(
+          breakParentUuid && messages.has(breakParentUuid),
+        ),
+        breakParentIsNull: breakParentUuid === null,
+      })
+      logForDiagnosticsNoPII('warn', 'relink_walk_broken', {
+        failureKind,
+        tailInTranscript,
+        headInTranscript,
+        anchorInTranscript,
         walkSteps: walkSeen.size,
         transcriptSize: messages.size,
       })
-      return
+      logForDebugging(
+        `[sessionStorage] preserved-segment relink failed: kind=${failureKind} tail=${lastSeg.tailUuid} head=${lastSeg.headUuid} anchor=${lastSeg.anchorUuid} lastSeen=${lastSeenUuid ?? 'none'} breakParent=${breakParentUuid ?? 'null'}`,
+      )
     }
   }
 
-  if (segIsLive) {
+  if (segIsLive && !relinkFailed) {
     const head = messages.get(lastSeg.headUuid)
     if (head) {
       messages.set(lastSeg.headUuid, {
@@ -1953,6 +2010,200 @@ function applyPreservedSegmentRelinks(
     }
   }
   for (const uuid of toDelete) messages.delete(uuid)
+  return { relinkFailed }
+}
+
+const PERSISTED_OUTPUT_TAG = Buffer.from('<persisted-output>')
+const TOOL_USE_RESULT_KEY = Buffer.from('"toolUseResult":')
+
+function isJsonWhitespaceByte(byte: number | undefined): boolean {
+  return byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d
+}
+
+function skipJsonWhitespace(buf: Buffer, index: number, end: number): number {
+  let i = index
+  while (i < end && isJsonWhitespaceByte(buf[i])) i++
+  return i
+}
+
+function findJsonValueEnd(buf: Buffer, start: number, end: number): number {
+  let i = skipJsonWhitespace(buf, start, end)
+  const first = buf[i]
+  if (first === undefined) return end
+
+  if (first === 0x22) {
+    i++
+    let escapeNext = false
+    while (i < end) {
+      const byte = buf[i]!
+      if (escapeNext) {
+        escapeNext = false
+      } else if (byte === 0x5c) {
+        escapeNext = true
+      } else if (byte === 0x22) {
+        return i + 1
+      }
+      i++
+    }
+    return end
+  }
+
+  if (first === 0x7b || first === 0x5b) {
+    const stack = [first]
+    i++
+    let inString = false
+    let escapeNext = false
+    while (i < end) {
+      const byte = buf[i]!
+      if (escapeNext) {
+        escapeNext = false
+      } else if (inString) {
+        if (byte === 0x5c) escapeNext = true
+        else if (byte === 0x22) inString = false
+      } else if (byte === 0x22) {
+        inString = true
+      } else if (byte === 0x7b || byte === 0x5b) {
+        stack.push(byte)
+      } else if (byte === 0x7d || byte === 0x5d) {
+        const open = stack.at(-1)
+        if (
+          (byte === 0x7d && open === 0x7b) ||
+          (byte === 0x5d && open === 0x5b)
+        ) {
+          stack.pop()
+          if (stack.length === 0) return i + 1
+        }
+      }
+      i++
+    }
+    return end
+  }
+
+  while (i < end) {
+    const byte = buf[i]!
+    if (byte === 0x2c || byte === 0x7d) return i
+    i++
+  }
+  return end
+}
+
+function stripPersistedToolUseResultFromLine(line: Buffer): Buffer {
+  if (
+    line.indexOf(PERSISTED_OUTPUT_TAG) === -1 ||
+    line.indexOf(TOOL_USE_RESULT_KEY) === -1
+  ) {
+    return line
+  }
+
+  let depth = 0
+  let inString = false
+  let escapeNext = false
+  const keyLen = TOOL_USE_RESULT_KEY.length
+
+  for (let i = 0; i <= line.length - keyLen; i++) {
+    const byte = line[i]!
+    if (escapeNext) {
+      escapeNext = false
+      continue
+    }
+    if (inString) {
+      if (byte === 0x5c) escapeNext = true
+      else if (byte === 0x22) inString = false
+      continue
+    }
+    if (byte === 0x22) {
+      if (
+        depth === 1 &&
+        line.compare(TOOL_USE_RESULT_KEY, 0, keyLen, i, i + keyLen) === 0
+      ) {
+        const valueEnd = findJsonValueEnd(line, i + keyLen, line.length)
+        let removeStart = i
+        let removeEnd = valueEnd
+        const afterValue = skipJsonWhitespace(line, valueEnd, line.length)
+
+        if (afterValue < line.length && line[afterValue] === 0x2c) {
+          removeEnd = afterValue + 1
+        } else {
+          let beforeKey = i - 1
+          while (beforeKey >= 0 && isJsonWhitespaceByte(line[beforeKey])) {
+            beforeKey--
+          }
+          if (beforeKey >= 0 && line[beforeKey] === 0x2c) {
+            removeStart = beforeKey
+          }
+        }
+
+        return Buffer.concat([
+          line.subarray(0, removeStart),
+          line.subarray(removeEnd),
+        ])
+      }
+      inString = true
+      continue
+    }
+    if (byte === 0x7b || byte === 0x5b) depth++
+    else if (byte === 0x7d || byte === 0x5d) depth--
+  }
+
+  return line
+}
+
+export function stripPersistedToolUseResultsFromJSONLBuffer(buf: Buffer): Buffer {
+  if (
+    buf.indexOf(PERSISTED_OUTPUT_TAG) === -1 ||
+    buf.indexOf(TOOL_USE_RESULT_KEY) === -1
+  ) {
+    return buf
+  }
+
+  const NEWLINE = 0x0a
+  const chunks: Buffer[] = []
+  let changed = false
+  let start = 0
+
+  while (start < buf.length) {
+    let end = buf.indexOf(NEWLINE, start)
+    let hasNewline = true
+    if (end === -1) {
+      end = buf.length
+      hasNewline = false
+    }
+    const line = buf.subarray(start, end)
+    const sanitized = stripPersistedToolUseResultFromLine(line)
+    if (sanitized !== line) changed = true
+    chunks.push(sanitized)
+    if (hasNewline) chunks.push(buf.subarray(end, end + 1))
+    start = end + (hasNewline ? 1 : 0)
+  }
+
+  return changed ? Buffer.concat(chunks) : buf
+}
+
+function forEachParsedJSONLBufferEntry<T>(
+  buf: Buffer,
+  visit: (entry: T) => void,
+): void {
+  const bufLen = buf.length
+  let start = 0
+
+  if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    start = 3
+  }
+
+  while (start < bufLen) {
+    let end = buf.indexOf(0x0a, start)
+    if (end === -1) end = bufLen
+
+    const line = buf.toString('utf8', start, end).trim()
+    start = end + 1
+    if (!line) continue
+
+    try {
+      visit(jsonParse(line) as T)
+    } catch {
+      // Skip malformed lines
+    }
+  }
 }
 
 /**
@@ -1982,7 +2233,7 @@ function applyPreservedSegmentRelinks(
 function applySnipRemovals(messages: Map<UUID, TranscriptMessage>): void {
   // Structural check — snipMetadata only exists on the boundary subtype.
   // Avoids the subtype literal which is in excluded-strings.txt
-  // (HISTORY_SNIP is ant-only; the literal must not leak into external builds).
+  // (HISTORY_SNIP is internal-only; the literal must not leak into external builds).
   type WithSnipMeta = { snipMetadata?: { removedUuids?: UUID[] } }
   const toDelete = new Set<UUID>()
   for (const entry of messages.values()) {
@@ -3578,15 +3829,19 @@ export async function loadTranscriptFile(
       buf = walkChainBeforeParse(buf)
     }
 
+    // Resume path: once a tool_result has been replaced with a persisted
+    // preview, loading the original toolUseResult blob back into memory is
+    // wasted work and can OOM before the replacement re-hydration runs.
+    buf = stripPersistedToolUseResultsFromJSONLBuffer(buf)
+
     // First pass: process metadata-only lines collected during the boundary scan.
     // These populate the session-scoped maps (agentSettings, modes, prNumbers,
     // etc.) for entries written before the compact boundary. Any overlap with
     // the post-boundary buffer is harmless — later values overwrite earlier ones.
     if (metadataLines && metadataLines.length > 0) {
-      const metaEntries = parseJSONL<Entry>(
+      forEachParsedJSONLBufferEntry<Entry>(
         Buffer.from(metadataLines.join('\n')),
-      )
-      for (const entry of metaEntries) {
+        entry => {
         if (entry.type === 'summary' && entry.leafUuid) {
           summaries.set(entry.leafUuid, entry.summary)
         } else if (entry.type === 'custom-title' && entry.sessionId) {
@@ -3608,10 +3863,8 @@ export async function loadTranscriptFile(
           prUrls.set(entry.sessionId, entry.prUrl)
           prRepositories.set(entry.sessionId, entry.prRepository)
         }
-      }
+      })
     }
-
-    const entries = parseJSONL<Entry>(buf)
 
     // Bridge map for legacy progress entries: progress_uuid → progress_parent_uuid.
     // PR #24099 removed progress from isTranscriptMessage, so old transcripts with
@@ -3622,7 +3875,7 @@ export async function loadTranscriptFile(
     // rewrite any subsequent message whose parentUuid lands in the bridge.
     const progressBridge = new Map<UUID, UUID | null>()
 
-    for (const entry of entries) {
+    forEachParsedJSONLBufferEntry<Entry>(buf, entry => {
       // Legacy progress check runs before the Entry-typed else-if chain —
       // progress is not in the Entry union, so checking it after TypeScript
       // has narrowed `entry` intersects to `never`.
@@ -3637,9 +3890,7 @@ export async function loadTranscriptFile(
             ? (progressBridge.get(parent) ?? null)
             : parent,
         )
-        continue
-      }
-      if (isTranscriptMessage(entry)) {
+      } else if (isTranscriptMessage(entry)) {
         if (entry.parentUuid && progressBridge.has(entry.parentUuid)) {
           entry.parentUuid = progressBridge.get(entry.parentUuid) ?? null
         }
@@ -3696,12 +3947,17 @@ export async function loadTranscriptFile(
       } else if (entry.type === 'marble-origami-snapshot') {
         contextCollapseSnapshot = entry
       }
-    }
+    })
   } catch {
     // File doesn't exist or can't be read
   }
 
-  applyPreservedSegmentRelinks(messages)
+  const { relinkFailed } = applyPreservedSegmentRelinks(messages)
+  if (relinkFailed) {
+    logForDiagnosticsNoPII('warn', 'resume_relink_fail_closed', {
+      transcriptSize: messages.size,
+    })
+  }
   applySnipRemovals(messages)
 
   // Compute leaf UUIDs once at load time

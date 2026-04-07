@@ -3,7 +3,7 @@
  * distributable JS file using Bun's bundler.
  *
  * Handles:
- * - bun:bundle feature() flags → all false (disables internal-only features)
+ * - bun:bundle feature() flags for the open build
  * - MACRO.* globals → inlined version/build-time constants
  * - src/ path aliases
  */
@@ -14,8 +14,9 @@ import { noTelemetryPlugin } from './no-telemetry-plugin'
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const version = pkg.version
 
-// Feature flags — all disabled for the open build.
-// These gate Anthropic-internal features (voice, proactive, kairos, etc.)
+// Feature flags for the open build.
+// Most Anthropic-internal features stay off; open-build features can be
+// selectively enabled here when their full source exists in the mirror.
 const featureFlags: Record<string, boolean> = {
   VOICE_MODE: false,
   PROACTIVE: false,
@@ -37,7 +38,7 @@ const featureFlags: Record<string, boolean> = {
   TRANSCRIPT_CLASSIFIER: false,
   WEB_BROWSER_TOOL: false,
   MESSAGE_ACTIONS: false,
-  BUDDY: false,
+  BUDDY: true,
   CHICAGO_MCP: false,
   COWORKER_TYPE_TELEMETRY: false,
 }
@@ -110,7 +111,7 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
         build.onLoad(
           { filter: /.*/, namespace: 'bun-bundle-shim' },
           () => ({
-            contents: `export function feature(name) { return false; }`,
+            contents: `const featureFlags = ${JSON.stringify(featureFlags)};\nexport function feature(name) { return featureFlags[name] ?? false; }`,
             loader: 'js',
           }),
         )
@@ -158,7 +159,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'modifiers-napi',
           'url-handler-napi',
           'color-diff-napi',
-          'sharp',
           '@anthropic-ai/mcpb',
           '@ant/claude-for-chrome-mcp',
           '@anthropic-ai/sandbox-runtime',
@@ -251,6 +251,103 @@ export const SeverityNumber = {};
             loader: 'js',
           }),
         )
+
+        // Pre-scan: find all missing modules that need stubbing
+        // (Bun's onResolve corrupts module graph even when returning null,
+        //  so we use exact-match resolvers instead of catch-all patterns)
+        const fs = require('fs')
+        const pathMod = require('path')
+        const srcDir = pathMod.resolve(__dirname, '..', 'src')
+        const missingModules = new Set<string>()
+        const missingModuleExports = new Map<string, Set<string>>()
+
+        // Known missing external packages
+        for (const pkg of [
+          '@ant/computer-use-mcp',
+          '@ant/computer-use-mcp/sentinelApps',
+          '@ant/computer-use-mcp/types',
+          '@ant/computer-use-swift',
+          '@ant/computer-use-input',
+        ]) {
+          missingModules.add(pkg)
+        }
+
+        // Scan source to find imports that can't resolve
+        function scanForMissingImports() {
+          function walk(dir: string) {
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = pathMod.join(dir, ent.name)
+              if (ent.isDirectory()) { walk(full); continue }
+              if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const code: string = fs.readFileSync(full, 'utf-8')
+              // Collect all imports
+              for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
+                const specifier = m[4]
+                const namedPart = m[1] || m[3] || ''
+                const names = namedPart.split(',')
+                  .map((s: string) => s.trim().replace(/^type\s+/, ''))
+                  .filter((s: string) => s && !s.startsWith('type '))
+
+                // Check src/tasks/ non-relative imports
+                if (specifier.startsWith('src/tasks/')) {
+                  const resolved = pathMod.resolve(__dirname, '..', specifier)
+                  const candidates = [
+                    resolved,
+                    `${resolved}.ts`, `${resolved}.tsx`,
+                    resolved.replace(/\.js$/, '.ts'), resolved.replace(/\.js$/, '.tsx'),
+                    pathMod.join(resolved, 'index.ts'), pathMod.join(resolved, 'index.tsx'),
+                  ]
+                  if (!candidates.some((c: string) => fs.existsSync(c))) {
+                    missingModules.add(specifier)
+                  }
+                }
+                // Check relative .js imports
+                else if (specifier.endsWith('.js') && (specifier.startsWith('./') || specifier.startsWith('../'))) {
+                  const dir2 = pathMod.dirname(full)
+                  const resolved = pathMod.resolve(dir2, specifier)
+                  const tsVariant = resolved.replace(/\.js$/, '.ts')
+                  const tsxVariant = resolved.replace(/\.js$/, '.tsx')
+                  if (!fs.existsSync(resolved) && !fs.existsSync(tsVariant) && !fs.existsSync(tsxVariant)) {
+                    missingModules.add(specifier)
+                  }
+                }
+
+                // Track named exports for missing modules
+                if (names.length > 0) {
+                  if (!missingModuleExports.has(specifier)) missingModuleExports.set(specifier, new Set())
+                  for (const n of names) missingModuleExports.get(specifier)!.add(n)
+                }
+              }
+            }
+          }
+          walk(srcDir)
+        }
+        scanForMissingImports()
+
+        // Register exact-match resolvers for each missing module
+        for (const mod of missingModules) {
+          const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({
+            path: mod,
+            namespace: 'missing-module-stub',
+          }))
+        }
+
+        build.onLoad(
+          { filter: /.*/, namespace: 'missing-module-stub' },
+          (args) => {
+            const names = missingModuleExports.get(args.path) ?? new Set()
+            const exports = [...names].map(n => `export const ${n} = noop;`).join('\n')
+            return {
+              contents: `
+const noop = () => null;
+export default noop;
+${exports}
+`,
+              loader: 'js',
+            }
+          },
+        )
       },
     },
   ],
@@ -275,6 +372,8 @@ export const SeverityNumber = {};
     '@opentelemetry/sdk-logs',
     '@opentelemetry/sdk-metrics',
     '@opentelemetry/semantic-conventions',
+    // Native image processing
+    'sharp',
     // Cloud provider SDKs
     '@aws-sdk/client-bedrock',
     '@aws-sdk/client-bedrock-runtime',

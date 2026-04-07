@@ -98,7 +98,6 @@ async function selectRelevantMemories(
     const result = await sideQuery({
       model: getDefaultSonnetModel(),
       system: SELECT_MEMORIES_SYSTEM_PROMPT,
-      skipSystemPromptPrefix: true,
       messages: [
         {
           role: 'user',

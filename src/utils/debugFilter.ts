@@ -58,7 +58,7 @@ export const parseDebugFilter = memoize(
  * - "category: message" -> ["category"]
  * - "[CATEGORY] message" -> ["category"]
  * - "MCP server \"name\": message" -> ["mcp", "name"]
- * - "[ANT-ONLY] 1P event: tengu_timer" -> ["ant-only", "1p"]
+ * - "[internal-only] 1P event: tengu_timer" -> ["internal-only", "1p"]
  *
  * Returns lowercase categories for case-insensitive matching
  */
@@ -85,7 +85,7 @@ export function extractDebugCategories(message: string): string[] {
   }
 
   // Pattern 4: Check for additional categories in the message
-  // e.g., "[ANT-ONLY] 1P event: tengu_timer" should match both "ant-only" and "1p"
+  // e.g., "[internal-only] 1P event: tengu_timer" should match both "internal-only" and "1p"
   if (message.toLowerCase().includes('1p event:')) {
     categories.push('1p')
   }

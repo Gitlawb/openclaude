@@ -5,7 +5,7 @@
  * for changes to reload them automatically.
  *
  * NOTE: User keybinding customization is currently only available for
- * Anthropic employees (USER_TYPE === 'ant'). External users always
+ * internal users (USER_TYPE === 'ant'). External users always
  * use the default bindings.
  */
 
@@ -128,7 +128,7 @@ function getDefaultParsedBindings(): ParsedBinding[] {
  * Returns merged default + user bindings along with validation warnings.
  *
  * For external users, always returns default bindings only.
- * User customization is currently gated to Anthropic employees.
+ * User customization is currently gated to internal users.
  */
 export async function loadKeybindings(): Promise<KeybindingsLoadResult> {
   const defaultBindings = getDefaultParsedBindings()
@@ -254,7 +254,7 @@ export function loadKeybindingsSync(): ParsedBinding[] {
  * Uses cached values if available.
  *
  * For external users, always returns default bindings only.
- * User customization is currently gated to Anthropic employees.
+ * User customization is currently gated to internal users.
  */
 export function loadKeybindingsSyncWithWarnings(): KeybindingsLoadResult {
   if (cachedBindings) {

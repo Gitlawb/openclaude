@@ -95,12 +95,14 @@ export async function getAnthropicClient({
   model,
   fetchOverride,
   source,
+  providerOverride,
 }: {
   apiKey?: string
   maxRetries: number
   model?: string
   fetchOverride?: ClientOptions['fetch']
   source?: string
+  providerOverride?: { model: string; baseURL: string; apiKey: string }
 }): Promise<Anthropic> {
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
@@ -153,6 +155,24 @@ export async function getAnthropicClient({
     ...(resolvedFetch && {
       fetch: resolvedFetch,
     }),
+  }
+  // Agent routing override: use per-agent provider when configured.
+  // Strip auth-related headers to prevent leaking Anthropic credentials
+  // to third-party endpoints (SSRF / credential forwarding mitigation).
+  if (providerOverride) {
+    const { createOpenAIShimClient } = await import('./openaiShim.js')
+    const safeHeaders: Record<string, string> = {}
+    for (const [k, v] of Object.entries(defaultHeaders)) {
+      const lower = k.toLowerCase()
+      if (lower === 'authorization' || lower === 'x-api-key' || lower === 'api-key') continue
+      safeHeaders[k] = v
+    }
+    return createOpenAIShimClient({
+      defaultHeaders: safeHeaders,
+      maxRetries,
+      timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
+      providerOverride,
+    }) as unknown as Anthropic
   }
   if (
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||

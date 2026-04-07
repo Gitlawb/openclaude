@@ -174,7 +174,7 @@ export function checkBridgeMinVersion(): string | null {
 
 /**
  * Default for remoteControlAtStartup when the user hasn't explicitly set it.
- * When the CCR_AUTO_CONNECT build flag is present (ant-only) and the
+ * When the CCR_AUTO_CONNECT build flag is present (internal-only) and the
  * tengu_cobalt_harbor GrowthBook gate is on, all sessions connect to CCR by
  * default — the user can still opt out by setting remoteControlAtStartup=false
  * in config (explicit settings always win over this default).

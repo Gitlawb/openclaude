@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import { getAPIProvider } from './model/providers.js'
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type {
   ContentBlock,
@@ -1765,6 +1766,7 @@ export function stripCallerFieldFromAssistantMessage(
           id: block.id,
           name: block.name,
           input: block.input,
+          ...(getAPIProvider() === 'gemini' && (block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
         }
       }),
     },
@@ -2221,21 +2223,24 @@ export function normalizeMessagesForAPI(
 
                   // When tool search is enabled, preserve all fields including 'caller'
                   if (toolSearchEnabled) {
+                    const { extra_content, ...restBlock } = block as any
                     return {
-                      ...block,
+                      ...restBlock,
                       name: canonicalName,
                       input: normalizedInput,
+                      ...(getAPIProvider() === 'gemini' && extra_content ? { extra_content } : {})
                     }
                   }
 
                   // When tool search is NOT enabled, explicitly construct tool_use
                   // block with only standard API fields to avoid sending fields like
                   // 'caller' that may be stored in sessions from tool search runs
-                  return {
+                    return {
                     type: 'tool_use' as const,
                     id: block.id,
                     name: canonicalName,
                     input: normalizedInput,
+                    ...(getAPIProvider() === 'gemini' && (block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
                   }
                 }
                 return block

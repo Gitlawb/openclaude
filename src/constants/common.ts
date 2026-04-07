@@ -2,7 +2,7 @@ import memoize from 'lodash-es/memoize.js'
 
 // This ensures you get the LOCAL date in ISO format
 export function getLocalISODate(): string {
-  // Check for ant-only date override
+  // Check for internal-only date override
   if (process.env.CLAUDE_CODE_OVERRIDE_DATE) {
     return process.env.CLAUDE_CODE_OVERRIDE_DATE
   }

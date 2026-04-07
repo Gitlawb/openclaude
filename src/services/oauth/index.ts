@@ -52,7 +52,7 @@ export class OAuthService {
     this.port = await this.authCodeListener.start()
 
     // Generate PKCE values and state
-    const codeChallenge = crypto.generateCodeChallenge(this.codeVerifier)
+    const codeChallenge = await crypto.generateCodeChallenge(this.codeVerifier)
     const state = crypto.generateState()
 
     // Build auth URLs for both automatic and manual flows

@@ -1,4 +1,4 @@
-// biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
+// biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { MODEL_ALIASES } from './aliases.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { getAPIProvider } from './providers.js'
@@ -10,6 +10,7 @@ import {
   AuthenticationError,
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
+import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -25,6 +26,25 @@ export async function validateModel(
   // Empty model is invalid
   if (!normalizedModel) {
     return { valid: false, error: 'Model name cannot be empty' }
+  }
+
+  // For Ollama provider, validate against cached model list instead of API call
+  // (skip enterprise allowlist since Ollama models are user-managed)
+  if (getAPIProvider() === 'openai' && isOllamaProvider()) {
+    const ollamaModels = getCachedOllamaModelOptions()
+    const found = ollamaModels.some(m => m.value === normalizedModel)
+    if (found) {
+      validModelCache.set(normalizedModel, true)
+      return { valid: true }
+    }
+    if (ollamaModels.length > 0) {
+      const MAX_SHOWN = 5
+      const names = ollamaModels.map(m => m.value)
+      const shown = names.slice(0, MAX_SHOWN).join(', ')
+      const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
+      return { valid: false, error: `Model '${normalizedModel}' not found on Ollama server. Available: ${shown}${suffix}` }
+    }
+    // If cache is empty, fall through to API validation
   }
 
   // Check against availableModels allowlist before any API call
