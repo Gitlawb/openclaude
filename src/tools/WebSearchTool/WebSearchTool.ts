@@ -1,4 +1,4 @@
-import type {
+ import type {
   BetaContentBlock,
   BetaWebSearchTool20250305,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
@@ -79,13 +79,110 @@ export type { WebSearchProgress } from '../../types/tools.js'
 
 import type { WebSearchProgress } from '../../types/tools.js'
 
+interface CustomApiHit {
+  title: string
+  url: string
+  source: string
+  description: string
+}
+
+interface CustomApiResponse {
+  date: string
+  query: string
+  results: Record<string, CustomApiHit[]>
+}
+
+function isCustomApiConfigured(): boolean {
+  return Boolean(process.env.WEB_SEARCH_API)
+}
+
+function shouldUseCustomApi(): boolean {
+  return isCustomApiConfigured()
+}
+
+async function runCustomApiSearch(input: Input): Promise<Output> {
+  const startTime = performance.now()
+
+  const apiUrl  = process.env.WEB_SEARCH_API!
+  const apiKey  = process.env.WEB_KEY
+  const qParam  = process.env.WEB_PARMS ?? 'q'
+
+  const url = new URL(apiUrl)
+  if (apiKey) url.searchParams.set('key', apiKey)
+  url.searchParams.set(qParam, input.query)
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      `Custom search API returned ${response.status}: ${response.statusText}`,
+    )
+  }
+
+  const data: CustomApiResponse = await response.json()
+  const results: (SearchResult | string)[] = []
+
+  for (const [engine, hits] of Object.entries(data.results ?? {})) {
+    if (!Array.isArray(hits) || hits.length === 0) continue
+
+    // Apply domain filters — mirrors the DDG / Firecrawl behaviour
+    let filtered = hits
+    if (input.blocked_domains?.length) {
+      filtered = filtered.filter(h => {
+        try {
+          const host = new URL(h.url).hostname
+          return !input.blocked_domains!.some(d => host.endsWith(d))
+        } catch { return false }
+      })
+    }
+    if (input.allowed_domains?.length) {
+      filtered = filtered.filter(h => {
+        try {
+          const host = new URL(h.url).hostname
+          return input.allowed_domains!.some(d => host.endsWith(d))
+        } catch { return false }
+      })
+    }
+
+    if (filtered.length === 0) continue
+
+    // Snippet summary string (same style as DDG path)
+    const snippets = filtered
+      .filter(h => h.description)
+      .map(h => `**${h.title}** — ${h.description} (${h.url})`)
+      .join('\n')
+    if (snippets) results.push(snippets)
+
+    // Structured hits block
+    results.push({
+      tool_use_id: `custom-search-${engine}`,
+      content: filtered.map(h => ({ title: h.title, url: h.url })),
+    })
+  }
+
+  if (results.length === 0) results.push('No results found.')
+
+  return {
+    query: input.query,
+    results,
+    durationSeconds: (performance.now() - startTime) / 1000,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Original helpers (unchanged)
+// ---------------------------------------------------------------------------
+
 function makeToolSchema(input: Input): BetaWebSearchTool20250305 {
   return {
     type: 'web_search_20250305',
     name: 'web_search',
     allowed_domains: input.allowed_domains,
     blocked_domains: input.blocked_domains,
-    max_uses: 8, // Hardcoded to 8 searches maximum
+    max_uses: 8,
   }
 }
 
@@ -95,7 +192,6 @@ function isFirecrawlEnabled(): boolean {
 
 function shouldUseFirecrawl(): boolean {
   if (!isFirecrawlEnabled()) return false
-  // Don't override native search on providers that already have it
   if (isCodexResponsesWebSearchEnabled()) return false
   const provider = getAPIProvider()
   if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') return false
@@ -108,14 +204,8 @@ function isClaudeModel(model: string): boolean {
 
 function shouldUseDuckDuckGo(): boolean {
   if (isCodexResponsesWebSearchEnabled()) return false
-
   const provider = getAPIProvider()
-  // Don't override providers/models that have native web search support.
-  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
-    return false
-  }
-
-  // Use free DDG search for non-Claude models by default.
+  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') return false
   return !isClaudeModel(getMainLoopModel())
 }
 
@@ -124,10 +214,7 @@ async function runDuckDuckGoSearch(input: Input): Promise<Output> {
 
   try {
     const { search } = await import('duck-duck-scrape')
-
-    const response = await search(input.query, {
-      safeSearch: 0,
-    })
+    const response = await search(input.query, { safeSearch: 0 })
 
     let hits = response.results.map(r => ({
       title: r.title || r.url,
@@ -140,9 +227,7 @@ async function runDuckDuckGoSearch(input: Input): Promise<Output> {
         try {
           const host = new URL(h.url).hostname
           return !input.blocked_domains!.some(d => host.endsWith(d))
-        } catch {
-          return false
-        }
+        } catch { return false }
       })
     }
 
@@ -151,9 +236,7 @@ async function runDuckDuckGoSearch(input: Input): Promise<Output> {
         try {
           const host = new URL(h.url).hostname
           return input.allowed_domains!.some(d => host.endsWith(d))
-        } catch {
-          return false
-        }
+        } catch { return false }
       })
     }
 
@@ -217,11 +300,8 @@ async function runFirecrawlSearch(input: Input): Promise<Output> {
   if (input.allowed_domains?.length) {
     hits = hits.filter(h =>
       input.allowed_domains!.some(d => {
-        try {
-          return new URL(h.url).hostname.endsWith(d)
-        } catch {
-          return false
-        }
+        try { return new URL(h.url).hostname.endsWith(d) }
+        catch { return false }
       }),
     )
   }
@@ -245,10 +325,7 @@ async function runFirecrawlSearch(input: Input): Promise<Output> {
 }
 
 function isCodexResponsesWebSearchEnabled(): boolean {
-  if (getAPIProvider() !== 'openai') {
-    return false
-  }
-
+  if (getAPIProvider() !== 'openai') return false
   const request = resolveProviderRequest({
     model: getMainLoopModel(),
     baseUrl: process.env.OPENAI_BASE_URL,
@@ -257,52 +334,32 @@ function isCodexResponsesWebSearchEnabled(): boolean {
 }
 
 function makeCodexWebSearchTool(input: Input): Record<string, unknown> {
-  const tool: Record<string, unknown> = {
-    type: 'web_search',
-  }
+  const tool: Record<string, unknown> = { type: 'web_search' }
 
   if (input.allowed_domains?.length) {
-    tool.filters = {
-      allowed_domains: input.allowed_domains,
-    }
+    tool.filters = { allowed_domains: input.allowed_domains }
   }
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   if (timezone) {
-    tool.user_location = {
-      type: 'approximate',
-      timezone,
-    }
+    tool.user_location = { type: 'approximate', timezone }
   }
 
   return tool
 }
 
 function buildCodexWebSearchInputText(input: Input): string {
-  if (!input.blocked_domains?.length) {
-    return input.query
-  }
-
-  // Responses web_search supports allowed_domains filters but not blocked domains.
-  // Convert blocked domains into common search-engine exclusion operators so the
-  // constraint still affects ranking and candidate selection.
+  if (!input.blocked_domains?.length) return input.query
   const excludedSites = input.blocked_domains.map(domain => `-site:${domain}`)
   return `${input.query} ${excludedSites.join(' ')}`
 }
 
 function buildCodexWebSearchInput(input: Input): Array<Record<string, unknown>> {
-  return [
-    {
-      type: 'message',
-      role: 'user',
-      content: [
-        {
-          type: 'input_text',
-          text: buildCodexWebSearchInputText(input),
-        },
-      ],
-    },
-  ]
+  return [{
+    type: 'message',
+    role: 'user',
+    content: [{ type: 'input_text', text: buildCodexWebSearchInputText(input) }],
+  }]
 }
 
 function buildCodexWebSearchInstructions(): string {
@@ -324,45 +381,33 @@ function makeOutputFromCodexWebSearchResponse(
 
   for (const item of output) {
     if (item?.type === 'web_search_call') {
-      const sources = Array.isArray(item.action?.sources)
-        ? item.action.sources
-        : []
+      const sources = Array.isArray(item.action?.sources) ? item.action.sources : []
       for (const source of sources) {
         if (typeof source?.url !== 'string' || !source.url) continue
         sourceMap.set(source.url, {
-          title:
-            typeof source.title === 'string' && source.title
-              ? source.title
-              : source.url,
+          title: typeof source.title === 'string' && source.title ? source.title : source.url,
           url: source.url,
         })
       }
       continue
     }
 
-    if (item?.type !== 'message' || !Array.isArray(item.content)) {
-      continue
-    }
+    if (item?.type !== 'message' || !Array.isArray(item.content)) continue
 
     for (const part of item.content) {
       if (part?.type === 'output_text' && typeof part.text === 'string') {
         const trimmed = part.text.trim()
-        if (trimmed) {
-          results.push(trimmed)
-        }
+        if (trimmed) results.push(trimmed)
       }
 
-      const annotations = Array.isArray(part?.annotations)
-        ? part.annotations
-        : []
+      const annotations = Array.isArray(part?.annotations) ? part.annotations : []
       for (const annotation of annotations) {
         if (annotation?.type !== 'url_citation') continue
         if (typeof annotation.url !== 'string' || !annotation.url) continue
         sourceMap.set(annotation.url, {
-          title:
-            typeof annotation.title === 'string' && annotation.title
-              ? annotation.title
-              : annotation.url,
+          title: typeof annotation.title === 'string' && annotation.title
+            ? annotation.title
+            : annotation.url,
           url: annotation.url,
         })
       }
@@ -371,9 +416,7 @@ function makeOutputFromCodexWebSearchResponse(
 
   if (results.length === 0 && typeof response.output_text === 'string') {
     const trimmed = response.output_text.trim()
-    if (trimmed) {
-      results.push(trimmed)
-    }
+    if (trimmed) results.push(trimmed)
   }
 
   if (sourceMap.size > 0) {
@@ -383,17 +426,10 @@ function makeOutputFromCodexWebSearchResponse(
     })
   }
 
-  return {
-    query,
-    results,
-    durationSeconds,
-  }
+  return { query, results, durationSeconds }
 }
 
-async function runCodexWebSearch(
-  input: Input,
-  signal: AbortSignal,
-): Promise<Output> {
+async function runCodexWebSearch(input: Input, signal: AbortSignal): Promise<Output> {
   const startTime = performance.now()
   const request = resolveProviderRequest({
     model: getMainLoopModel(),
@@ -421,9 +457,7 @@ async function runCodexWebSearch(
     stream: true,
   }
 
-  if (request.reasoning) {
-    body.reasoning = request.reasoning
-  }
+  if (request.reasoning) body.reasoning = request.reasoning
 
   const response = await fetch(`${request.baseUrl}/responses`, {
     method: 'POST',
@@ -444,11 +478,7 @@ async function runCodexWebSearch(
 
   const payload = await collectCodexCompletedResponse(response)
   const endTime = performance.now()
-  return makeOutputFromCodexWebSearchResponse(
-    payload,
-    input.query,
-    (endTime - startTime) / 1000,
-  )
+  return makeOutputFromCodexWebSearchResponse(payload, input.query, (endTime - startTime) / 1000)
 }
 
 function makeOutputFromSearchResponse(
@@ -456,14 +486,6 @@ function makeOutputFromSearchResponse(
   query: string,
   durationSeconds: number,
 ): Output {
-  // The result is a sequence of these blocks:
-  // - text to start -- always?
-  // [
-  //    - server_tool_use
-  //    - web_search_tool_result
-  //    - text and citation blocks intermingled
-  //  ]+  (this block repeated for each search)
-
   const results: (SearchResult | string)[] = []
   let textAcc = ''
   let inText = true
@@ -472,28 +494,21 @@ function makeOutputFromSearchResponse(
     if (block.type === 'server_tool_use') {
       if (inText) {
         inText = false
-        if (textAcc.trim().length > 0) {
-          results.push(textAcc.trim())
-        }
+        if (textAcc.trim().length > 0) results.push(textAcc.trim())
         textAcc = ''
       }
       continue
     }
 
     if (block.type === 'web_search_tool_result') {
-      // Handle error case - content is a WebSearchToolResultError
       if (!Array.isArray(block.content)) {
         const errorMessage = `Web search error: ${block.content.error_code}`
         logError(new Error(errorMessage))
         results.push(errorMessage)
         continue
       }
-      // Success case - add results to our collection
       const hits = block.content.map(r => ({ title: r.title, url: r.url }))
-      results.push({
-        tool_use_id: block.tool_use_id,
-        content: hits,
-      })
+      results.push({ tool_use_id: block.tool_use_id, content: hits })
     }
 
     if (block.type === 'text') {
@@ -506,16 +521,14 @@ function makeOutputFromSearchResponse(
     }
   }
 
-  if (textAcc.length) {
-    results.push(textAcc.trim())
-  }
+  if (textAcc.length) results.push(textAcc.trim())
 
-  return {
-    query,
-    results,
-    durationSeconds,
-  }
+  return { query, results, durationSeconds }
 }
+
+// ---------------------------------------------------------------------------
+// Tool export
+// ---------------------------------------------------------------------------
 
 export const WebSearchTool = buildTool({
   name: WEB_SEARCH_TOOL_NAME,
@@ -534,40 +547,27 @@ export const WebSearchTool = buildTool({
     return summary ? `Searching for ${summary}` : 'Searching the web'
   },
   isEnabled() {
-    if (shouldUseFirecrawl()) {
-      return true
-    }
+    // Custom API takes top priority — works with any provider/model
+    if (shouldUseCustomApi()) return true
 
-    if (shouldUseDuckDuckGo()) {
-      return true
-    }
+    if (shouldUseFirecrawl()) return true
+    if (shouldUseDuckDuckGo()) return true
 
     const provider = getAPIProvider()
     const model = getMainLoopModel()
 
-    if (isCodexResponsesWebSearchEnabled()) {
-      return true
-    }
+    if (isCodexResponsesWebSearchEnabled()) return true
+    if (provider === 'firstParty') return true
 
-    // Enable for firstParty
-    if (provider === 'firstParty') {
-      return true
-    }
-
-    // Enable for Vertex AI with supported models (Claude 4.0+)
     if (provider === 'vertex') {
-      const supportsWebSearch =
+      return (
         model.includes('claude-opus-4') ||
         model.includes('claude-sonnet-4') ||
         model.includes('claude-haiku-4')
-
-      return supportsWebSearch
+      )
     }
 
-    // Foundry only ships models that already support Web Search
-    if (provider === 'foundry') {
-      return true
-    }
+    if (provider === 'foundry') return true
 
     return false
   },
@@ -601,7 +601,9 @@ export const WebSearchTool = buildTool({
     }
   },
   async prompt() {
+    // Strip "US only" restriction when we have our own backend
     if (
+      shouldUseCustomApi() ||
       shouldUseDuckDuckGo() ||
       shouldUseFirecrawl() ||
       isCodexResponsesWebSearchEnabled()
@@ -617,31 +619,29 @@ export const WebSearchTool = buildTool({
   renderToolUseProgressMessage,
   renderToolResultMessage,
   extractSearchText() {
-    // renderToolResultMessage shows only "Did N searches in Xs" chrome —
-    // the results[] content never appears on screen. Heuristic would index
-    // string entries in results[] (phantom match). Nothing to search.
     return ''
   },
   async validateInput(input) {
     const { query, allowed_domains, blocked_domains } = input
     if (!query.length) {
-      return {
-        result: false,
-        message: 'Error: Missing query',
-        errorCode: 1,
-      }
+      return { result: false, message: 'Error: Missing query', errorCode: 1 }
     }
     if (allowed_domains?.length && blocked_domains?.length) {
       return {
         result: false,
-        message:
-          'Error: Cannot specify both allowed_domains and blocked_domains in the same request',
+        message: 'Error: Cannot specify both allowed_domains and blocked_domains in the same request',
         errorCode: 2,
       }
     }
     return { result: true }
   },
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
+ / Vertex / Foundry)
+
+    if (shouldUseCustomApi()) {
+      return { data: await runCustomApiSearch(input) }
+    }
+
     if (shouldUseFirecrawl()) {
       return { data: await runFirecrawlSearch(input) }
     }
@@ -656,6 +656,7 @@ export const WebSearchTool = buildTool({
       }
     }
 
+    // ── Native Anthropic path ────────────────────────────────────────────────
     const startTime = performance.now()
     const { query } = input
     const userMessage = createUserMessage({
@@ -663,10 +664,7 @@ export const WebSearchTool = buildTool({
     })
     const toolSchema = makeToolSchema(input)
 
-    const useHaiku = getFeatureValue_CACHED_MAY_BE_STALE(
-      'tengu_plum_vx3',
-      false,
-    )
+    const useHaiku = getFeatureValue_CACHED_MAY_BE_STALE('tengu_plum_vx3', false)
 
     const appState = context.getAppState()
     const queryStream = queryModelWithStreaming({
@@ -698,7 +696,7 @@ export const WebSearchTool = buildTool({
     let currentToolUseId = null
     let currentToolUseJson = ''
     let progressCounter = 0
-    const toolUseQueries = new Map() // Map of tool_use_id to query
+    const toolUseQueries = new Map()
 
     for await (const event of queryStream) {
       if (event.type === 'assistant') {
@@ -706,7 +704,6 @@ export const WebSearchTool = buildTool({
         continue
       }
 
-      // Track tool use ID when server_tool_use starts
       if (
         event.type === 'stream_event' &&
         event.event?.type === 'content_block_start'
@@ -715,13 +712,10 @@ export const WebSearchTool = buildTool({
         if (contentBlock && contentBlock.type === 'server_tool_use') {
           currentToolUseId = contentBlock.id
           currentToolUseJson = ''
-          // Note: The ServerToolUseBlock doesn't contain input.query
-          // The actual query comes through input_json_delta events
           continue
         }
       }
 
-      // Accumulate JSON for current tool use
       if (
         currentToolUseId &&
         event.type === 'stream_event' &&
@@ -731,47 +725,38 @@ export const WebSearchTool = buildTool({
         if (delta?.type === 'input_json_delta' && delta.partial_json) {
           currentToolUseJson += delta.partial_json
 
-          // Try to extract query from partial JSON for progress updates
           try {
-            // Look for a complete query field
             const queryMatch = currentToolUseJson.match(
               /"query"\s*:\s*"((?:[^"\\]|\\.)*)"/,
             )
             if (queryMatch && queryMatch[1]) {
-              // The regex properly handles escaped characters
-              const query = jsonParse('"' + queryMatch[1] + '"')
-
+              const q = jsonParse('"' + queryMatch[1] + '"')
               if (
                 !toolUseQueries.has(currentToolUseId) ||
-                toolUseQueries.get(currentToolUseId) !== query
+                toolUseQueries.get(currentToolUseId) !== q
               ) {
-                toolUseQueries.set(currentToolUseId, query)
+                toolUseQueries.set(currentToolUseId, q)
                 progressCounter++
                 if (onProgress) {
                   onProgress({
                     toolUseID: `search-progress-${progressCounter}`,
-                    data: {
-                      type: 'query_update',
-                      query,
-                    },
+                    data: { type: 'query_update', query: q },
                   })
                 }
               }
             }
           } catch {
-            // Ignore parsing errors for partial JSON
+            // Ignore partial JSON parse errors
           }
         }
       }
 
-      // Yield progress when search results come in
       if (
         event.type === 'stream_event' &&
         event.event?.type === 'content_block_start'
       ) {
         const contentBlock = event.event.content_block
         if (contentBlock && contentBlock.type === 'web_search_tool_result') {
-          // Get the actual query that was used for this search
           const toolUseId = contentBlock.tool_use_id
           const actualQuery = toolUseQueries.get(toolUseId) || query
           const content = contentBlock.content
@@ -791,15 +776,9 @@ export const WebSearchTool = buildTool({
       }
     }
 
-    // Process the final result
     const endTime = performance.now()
     const durationSeconds = (endTime - startTime) / 1000
-
-    const data = makeOutputFromSearchResponse(
-      allContentBlocks,
-      query,
-      durationSeconds,
-    )
+    const data = makeOutputFromSearchResponse(allContentBlocks, query, durationSeconds)
     return { data }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
@@ -807,18 +786,11 @@ export const WebSearchTool = buildTool({
 
     let formattedOutput = `Web search results for query: "${query}"\n\n`
 
-    // Process the results array - it can contain both string summaries and search result objects.
-    // Guard against null/undefined entries that can appear after JSON round-tripping
-    // (e.g., from compaction or transcript deserialization).
     ;(results ?? []).forEach(result => {
-      if (result == null) {
-        return
-      }
+      if (result == null) return
       if (typeof result === 'string') {
-        // Text summary
         formattedOutput += result + '\n\n'
       } else {
-        // Search result with links
         if (result.content?.length > 0) {
           formattedOutput += `Links: ${jsonStringify(result.content)}\n\n`
         } else {
