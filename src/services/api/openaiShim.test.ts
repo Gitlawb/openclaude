@@ -2060,7 +2060,7 @@ test('strips credentials and query params from URL in fetch network error messag
   process.env.OPENAI_BASE_URL = 'https://user:password@internal.example.test/v1?token=abc123'
   process.env.OPENAI_API_KEY = 'test-key'
   globalThis.fetch = (async () => {
-    throw new TypeError('fetch failed')
+    throw new TypeError('fetch failed https://user:password@internal.example.test/v1?token=abc123/chat/completions')
   }) as unknown as FetchType
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 

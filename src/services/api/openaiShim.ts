@@ -1165,21 +1165,27 @@ class OpenAIShimMessages {
       try {
         response = await fetch(chatCompletionsUrl, fetchInit)
       }catch (err: unknown) {
-        if (err instanceof Error && err.name === 'AbortError')  throw err
-        const cause = err instanceof Error ? err.message : String(err)
+        if(err instanceof Error && err.name === 'AbortError') throw err 
         
-        let safeUrl = chatCompletionsUrl
-        try{
-          const parsed = new URL(chatCompletionsUrl)
-          parsed.username = ''
-          parsed.password = ''
-          parsed.search = ''
-          safeUrl = parsed.toString()
-        }catch {
-          safeUrl = '[invalid URL]'
+        const sanitizedUrl = (raw: string): string => {
+          try {
+            const parsed = new URL(raw)
+            parsed.username = ''
+            parsed.password = ''
+            parsed.search = ''
+            return parsed.toString()
+          }catch {
+            return '[invalid URL]'
+          }
         }
-        throw new Error(`Network request failed for ${safeUrl} - check your provider URL and connection. Cause: ${cause}`)
+
+        const rawCause = err instanceof Error ? err.message : String(err)
+        const safeUrl = sanitizedUrl(chatCompletionsUrl)
+        const safeCause = rawCause.replace(/https?:\/\/\S+/g, match => sanitizedUrl(match))
+
+        throw new Error(`Network request failed for ${safeUrl} - check your provider URL and connection. Cause: ${safeCause}`,)
       }
+
       if (response.ok) {
         return response
       }
