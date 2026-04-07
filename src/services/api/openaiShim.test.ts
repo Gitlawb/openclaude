@@ -452,3 +452,91 @@ test('preserves image content in tool results instead of silently dropping it', 
   expect(toolMsg?.content).toContain('Screenshot captured')
   expect(toolMsg?.content).toContain('[Image]')
 })
+
+test('strips Anthropic-specific headers even when passed directly to the shim — defense in depth', async () => {
+  let capturedHeaders: Record<string, string> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = init?.headers as Record<string, string>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-2',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  // Simulate a caller that bypasses client.ts and passes Anthropic headers directly.
+  const client = createOpenAIShimClient({
+    defaultHeaders: {
+      'x-anthropic-secret': 'should-be-stripped',
+      'x-claude-session-id': 'also-stripped',
+      'User-Agent': 'openclaude/1.0',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    { model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }], max_tokens: 16, stream: false },
+    // Additional per-request Anthropic headers — also must be stripped.
+    { headers: { 'x-anthropic-per-request': 'also-bad', 'X-Custom-Ok': 'fine' } },
+  )
+
+  // Anthropic-specific headers must not reach the 3P endpoint.
+  expect(capturedHeaders).toBeDefined()
+  expect(capturedHeaders!['x-anthropic-secret']).toBeUndefined()
+  expect(capturedHeaders!['x-claude-session-id']).toBeUndefined()
+  expect(capturedHeaders!['x-anthropic-per-request']).toBeUndefined()
+
+  // Safe headers must be preserved.
+  expect(capturedHeaders!['User-Agent']).toBe('openclaude/1.0')
+  expect(capturedHeaders!['X-Custom-Ok']).toBe('fine')
+})
+
+test('does not forward cache_control blocks to 3P providers', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-3',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: [{ type: 'text', text: 'You are helpful.', cache_control: { type: 'ephemeral' } }],
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Hello', cache_control: { type: 'ephemeral' } },
+        ],
+      },
+    ],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  // cache_control must not appear anywhere in the forwarded body.
+  const bodyStr = JSON.stringify(requestBody)
+  expect(bodyStr).not.toContain('cache_control')
+  expect(bodyStr).not.toContain('ephemeral')
+
+  // The actual message content must still be forwarded correctly.
+  const msgs = requestBody?.messages as Array<{ role: string; content: unknown }>
+  const userMsg = msgs.find(m => m.role === 'user')
+  expect(typeof userMsg?.content === 'string' ? userMsg.content : JSON.stringify(userMsg?.content)).toContain('Hello')
+})
