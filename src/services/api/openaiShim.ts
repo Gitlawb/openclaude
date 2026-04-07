@@ -1021,9 +1021,11 @@ class OpenAIShimMessages {
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
-    const isGithubCopilotEndpoint = isGithubModelsMode() && githubEndpointType === 'copilot'
+    const isGithubMode = isGithubModelsMode()
+    const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
+    const isGithubCopilotEndpoint = isGithubMode && githubEndpointType === 'copilot'
 
-    if (request.transport === 'codex_responses' && isGithubCopilotEndpoint) {
+    if (isGithubWithCodexTransport) {
       const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
       if (!apiKey) {
         throw new Error(
@@ -1047,7 +1049,7 @@ class OpenAIShimMessages {
       })
     }
 
-    if (request.transport === 'codex_responses') {
+    if (request.transport === 'codex_responses' && !isGithubMode) {
       const credentials = resolveCodexApiCredentials()
       if (!credentials.apiKey) {
         const authHint = credentials.authPath

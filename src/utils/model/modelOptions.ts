@@ -35,6 +35,7 @@ import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
 import { getActiveOpenAIModelOptionsCache } from '../providerProfiles.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
+import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -364,15 +365,7 @@ function getCopilotModelOptions(): ModelOption[] {
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {
   if (getAPIProvider() === 'github') {
-    const githubModel = process.env.OPENAI_MODEL?.trim() || 'github:copilot'
-    return [
-      getDefaultOptionForUser(fastMode),
-      {
-        value: githubModel,
-        label: githubModel,
-        description: 'GitHub Models default',
-      },
-    ]
+    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
   }
 
   // When using Ollama, show models from the Ollama server instead of Claude models
@@ -481,11 +474,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
 
   // PAYG 3P: Default (Sonnet 4.5) + Sonnet (3P custom) or Sonnet 4.6/1M + Opus (3P custom) or Opus 4.1/Opus 4.6/Opus1M + Haiku + Opus 4.1
   const payg3pOptions = [getDefaultOptionForUser(fastMode)]
-
-  // GitHub Copilot provider: show all models from hardcoded registry
-  if (getAPIProvider() === 'github') {
-    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
-  }
 
   // Add Codex models for openai and codex providers
   if (getAPIProvider() === 'openai' || getAPIProvider() === 'codex') {

@@ -386,7 +386,7 @@ export function resolveProviderRequest(options?: {
     baseUrl:
       (rawBaseUrl ??
         (isGithubCopilot && transport === 'codex_responses'
-          ? DEFAULT_CODEX_BASE_URL
+          ? GITHUB_COPILOT_BASE_URL
           : (isGithubMode
             ? GITHUB_COPILOT_BASE_URL
             : DEFAULT_OPENAI_BASE_URL))
