@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { createOpenAIShimClient } from './openaiShim.ts'
-import { Type } from 'ajv/dist/compile/util.js'
-import model from 'src/commands/model/index.js'
-import { stream } from 'undici'
-import { error } from 'node:console'
 
 type FetchType = typeof globalThis.fetch
 
