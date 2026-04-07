@@ -2271,3 +2271,76 @@ test('streaming: strips leaked reasoning preamble from assistant content deltas'
 
   expect(textDeltas).toEqual(['Hey! How can I help you today?'])
 })
+
+test('streaming: strips leaked reasoning preamble when split across multiple content chunks', async () => {
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content: 'The user said "hey" - this is a simple greeting. ',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content:
+                'I should respond in a friendly, concise way.\n\nHey! How can I help you today?',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'gpt-5-mini',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hey' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const delta = (event as { delta?: { type?: string; text?: string } }).delta
+    if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      textDeltas.push(delta.text)
+    }
+  }
+
+  expect(textDeltas).toEqual(['Hey! How can I help you today?'])
+})

@@ -28,6 +28,7 @@ import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCre
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import {
   looksLikeLeakedReasoningPrefix,
+  shouldBufferPotentialReasoningPrefix,
   stripLeakedReasoningPreamble,
 } from './reasoningLeakSanitizer.js'
 import {
@@ -593,7 +594,7 @@ async function* openaiStreamToAnthropic(
   let hasEmittedThinkingStart = false
   let hasClosedThinking = false
   let activeTextBuffer = ''
-  let bufferTextUntilStop = false
+  let textBufferMode: 'none' | 'pending' | 'strip' = 'none'
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
@@ -627,7 +628,7 @@ async function* openaiStreamToAnthropic(
   const closeActiveContentBlock = async function* () {
     if (!hasEmittedContentStart) return
 
-    if (bufferTextUntilStop) {
+    if (textBufferMode !== 'none') {
       const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
       if (sanitized) {
         yield {
@@ -645,7 +646,7 @@ async function* openaiStreamToAnthropic(
     contentBlockIndex++
     hasEmittedContentStart = false
     activeTextBuffer = ''
-    bufferTextUntilStop = false
+    textBufferMode = 'none'
   }
 
   try {
@@ -711,11 +712,33 @@ async function* openaiStreamToAnthropic(
             }
             hasEmittedContentStart = true
           }
+
           if (
-            bufferTextUntilStop ||
+            textBufferMode === 'strip' ||
             looksLikeLeakedReasoningPrefix(activeTextBuffer)
           ) {
-            bufferTextUntilStop = true
+            textBufferMode = 'strip'
+            continue
+          }
+
+          if (textBufferMode === 'pending') {
+            if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
+              continue
+            }
+            yield {
+              type: 'content_block_delta',
+              index: contentBlockIndex,
+              delta: {
+                type: 'text_delta',
+                text: activeTextBuffer,
+              },
+            }
+            textBufferMode = 'none'
+            continue
+          }
+
+          if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
+            textBufferMode = 'pending'
             continue
           }
           yield {

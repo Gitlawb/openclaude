@@ -6,6 +6,7 @@ import type {
 import { sanitizeSchemaForOpenAICompat } from './openaiSchemaSanitizer.js'
 import {
   looksLikeLeakedReasoningPrefix,
+  shouldBufferPotentialReasoningPrefix,
   stripLeakedReasoningPreamble,
 } from './reasoningLeakSanitizer.js'
 
@@ -683,14 +684,14 @@ export async function* codexStreamToAnthropic(
   >()
   let activeTextBlockIndex: number | null = null
   let activeTextBuffer = ''
-  let bufferTextUntilStop = false
+  let textBufferMode: 'none' | 'pending' | 'strip' = 'none'
   let nextContentBlockIndex = 0
   let sawToolUse = false
   let finalResponse: Record<string, any> | undefined
 
   const closeActiveTextBlock = async function* () {
     if (activeTextBlockIndex === null) return
-    if (bufferTextUntilStop) {
+    if (textBufferMode !== 'none') {
       const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
       if (sanitized) {
         yield {
@@ -709,7 +710,7 @@ export async function* codexStreamToAnthropic(
     }
     activeTextBlockIndex = null
     activeTextBuffer = ''
-    bufferTextUntilStop = false
+    textBufferMode = 'none'
   }
 
   const startTextBlockIfNeeded = async function* () {
@@ -788,10 +789,31 @@ export async function* codexStreamToAnthropic(
       activeTextBuffer += payload.delta ?? ''
       if (activeTextBlockIndex !== null) {
         if (
-          bufferTextUntilStop ||
+          textBufferMode === 'strip' ||
           looksLikeLeakedReasoningPrefix(activeTextBuffer)
         ) {
-          bufferTextUntilStop = true
+          textBufferMode = 'strip'
+          continue
+        }
+
+        if (textBufferMode === 'pending') {
+          if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
+            continue
+          }
+          yield {
+            type: 'content_block_delta',
+            index: activeTextBlockIndex,
+            delta: {
+              type: 'text_delta',
+              text: activeTextBuffer,
+            },
+          }
+          textBufferMode = 'none'
+          continue
+        }
+
+        if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
+          textBufferMode = 'pending'
           continue
         }
         yield {

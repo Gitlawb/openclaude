@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   looksLikeLeakedReasoningPrefix,
+  shouldBufferPotentialReasoningPrefix,
   stripLeakedReasoningPreamble,
 } from './reasoningLeakSanitizer.ts'
 
@@ -21,6 +22,7 @@ describe('reasoning leak sanitizer', () => {
       'The user should reset their password immediately.\n\nHere are the steps...'
 
     expect(looksLikeLeakedReasoningPrefix(text)).toBe(false)
+    expect(shouldBufferPotentialReasoningPrefix(text)).toBe(false)
     expect(stripLeakedReasoningPreamble(text)).toBe(text)
   })
 })

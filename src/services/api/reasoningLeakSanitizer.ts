@@ -2,10 +2,32 @@ const EXPLICIT_REASONING_START_RE =
   /^\s*(i should\b|i need to\b|let me think\b|the task\b|the request\b)/i
 
 const EXPLICIT_REASONING_CUE_RE =
-  /\b(respond|reply|answer|greeting|small talk|need to|should|briefly|friendly)\b/i
+  /\b(respond|reply|answer|greeting|small talk|briefly|friendly|concise)\b/i
+
+const USER_META_START_RE =
+  /^\s*the user\s+(just\s+)?(said|asked|is asking|wants|wanted|mentioned|seems|appears)\b/i
 
 const USER_REASONING_RE =
-  /^\s*the user\b[\s\S]*\b(i should|i need to|let me think|respond|reply|answer|greeting|small talk|briefly|friendly)\b/i
+  /^\s*the user\s+(just\s+)?(said|asked|is asking|wants|wanted|mentioned|seems|appears)\b[\s\S]*\b(i should|i need to|let me think|respond|reply|answer|greeting|small talk|briefly|friendly|concise)\b/i
+
+export function shouldBufferPotentialReasoningPrefix(text: string): boolean {
+  const normalized = text.trim()
+  if (!normalized) return false
+
+  if (looksLikeLeakedReasoningPrefix(normalized)) {
+    return true
+  }
+
+  const hasParagraphBoundary = /\n\s*\n/.test(normalized)
+  if (hasParagraphBoundary) {
+    return false
+  }
+
+  return (
+    EXPLICIT_REASONING_START_RE.test(normalized) ||
+    USER_META_START_RE.test(normalized)
+  )
+}
 
 export function looksLikeLeakedReasoningPrefix(text: string): boolean {
   const normalized = text.trim()
