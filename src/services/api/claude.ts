@@ -331,11 +331,11 @@ export function getExtraBodyParams(betaHeaders?: string[]): JsonObject {
 }
 
 export function getPromptCachingEnabled(model: string): boolean {
-  // Prompt caching is an Anthropic-specific feature — disable for 3P providers.
-  // cache_control blocks in the request payload cause 400 on strict OpenAI-compat
-  // backends (Azure) and are silently ignored by lenient ones.
+  // Prompt caching is an Anthropic-specific feature. Third-party providers
+  // do not understand cache_control blocks and strict backends (e.g. Azure
+  // Foundry) reject or flag requests that contain them.
   const provider = getAPIProvider()
-  if (provider === 'openai' || provider === 'gemini' || provider === 'github' || provider === 'codex') {
+  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex') {
     return false
   }
 
@@ -463,7 +463,7 @@ function configureEffortParams(
     outputConfig.effort = effortValue
     betas.push(EFFORT_BETA_HEADER)
   } else if (process.env.USER_TYPE === 'ant') {
-    // Numeric effort override - ant-only (uses anthropic_internal)
+    // Numeric effort override - internal-only (uses anthropic_internal)
     const existingInternal =
       (extraBodyParams.anthropic_internal as Record<string, unknown>) || {}
     extraBodyParams.anthropic_internal = {
@@ -712,6 +712,7 @@ export type Options = {
   // so the model can pace itself. `remaining` is computed by the caller
   // (query.ts decrements across the agentic loop).
   taskBudget?: { total: number; remaining?: number }
+  providerOverride?: { model: string; baseURL: string; apiKey: string }
 }
 
 export async function queryModelWithoutStreaming({
@@ -828,6 +829,7 @@ export async function* executeNonStreamingRequest(
     model: string
     fetchOverride?: Options['fetchOverride']
     source: string
+    providerOverride?: Options['providerOverride']
   },
   retryOptions: {
     model: string
@@ -855,6 +857,7 @@ export async function* executeNonStreamingRequest(
         model: clientOptions.model,
         fetchOverride: clientOptions.fetchOverride,
         source: clientOptions.source,
+        providerOverride: clientOptions.providerOverride,
       }),
     async (anthropic, attempt, context) => {
       const start = Date.now()
@@ -1192,7 +1195,7 @@ async function* queryModel(
   // Determine if cached microcompact is enabled for this model.
   // Computed once here (in async context) and captured by paramsFromContext.
   // The beta header is also captured here to avoid a top-level import of the
-  // ant-only CACHE_EDITING_BETA_HEADER constant.
+  // internal-only CACHE_EDITING_BETA_HEADER constant.
   let cachedMCEnabled = false
   let cacheEditingBetaHeader = ''
   if (feature('CACHED_MICROCOMPACT')) {
@@ -1463,6 +1466,10 @@ async function* queryModel(
     }
   }
 
+  // Latch Sonnet 1M experiment at query start so mid-retry GB refreshes
+  // don't flip the beta header and bust the cache key.
+  const sonnet1mExpLatched = getSonnet1mExpTreatmentEnabled(options.model)
+
   const effort = resolveAppliedEffort(options.model, options.effortValue)
 
   if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
@@ -1546,11 +1553,9 @@ async function* queryModel(
   const paramsFromContext = (retryContext: RetryContext) => {
     const betasParams = [...betas]
 
-    // Append 1M beta dynamically for the Sonnet 1M experiment.
-    if (
-      !betasParams.includes(CONTEXT_1M_BETA_HEADER) &&
-      getSonnet1mExpTreatmentEnabled(retryContext.model)
-    ) {
+    // Append 1M beta from the latched experiment state (computed once before
+    // the closure to avoid mid-retry GB flips changing the cache key).
+    if (!betasParams.includes(CONTEXT_1M_BETA_HEADER) && sonnet1mExpLatched) {
       betasParams.push(CONTEXT_1M_BETA_HEADER)
     }
 
@@ -1706,6 +1711,13 @@ async function* queryModel(
 
     return {
       model: normalizeModelStringForAPI(options.model),
+      // IMPORTANT: `system` must appear before `messages` in the object literal.
+      // JSON.stringify preserves insertion order. The native Bun attestation
+      // (Attestation.zig) overwrites the FIRST `cch=00000` sentinel in the
+      // serialized body. If `messages` is serialized first and conversation
+      // history contains this literal string, the wrong occurrence is replaced,
+      // producing a different system prompt on each request and breaking cache.
+      system,
       messages: addCacheBreakpoints(
         messagesForAPI,
         enablePromptCaching,
@@ -1715,7 +1727,6 @@ async function* queryModel(
         consumedPinnedEdits,
         options.skipCacheWrite,
       ),
-      system,
       tools: allTools,
       tool_choice: options.toolChoice,
       ...(useBetas && { betas: betasParams }),
@@ -1790,6 +1801,7 @@ async function* queryModel(
           model: options.model,
           fetchOverride: options.fetchOverride,
           source: options.querySource,
+          providerOverride: options.providerOverride,
         }),
       async (anthropic, attempt, context) => {
         attemptNumber = attempt
@@ -2557,7 +2569,7 @@ async function* queryModel(
           : 'other') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
       const result = yield* executeNonStreamingRequest(
-        { model: options.model, source: options.querySource },
+        { model: options.model, source: options.querySource, providerOverride: options.providerOverride },
         {
           model: options.model,
           fallbackModel: options.fallbackModel,

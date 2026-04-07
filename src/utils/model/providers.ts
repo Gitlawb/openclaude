@@ -1,4 +1,5 @@
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from '../../services/analytics/index.js'
+import { shouldUseCodexTransport } from '../../services/api/providerConfig.js'
 import { isEnvTruthy } from '../envUtils.js'
 
 export type APIProvider =
@@ -33,16 +34,9 @@ export function usesAnthropicAccountFlow(): boolean {
   return getAPIProvider() === 'firstParty'
 }
 function isCodexModel(): boolean {
-  const model = (process.env.OPENAI_MODEL || '').toLowerCase()
-  return (
-    model === 'codexplan' ||
-    model === 'codexspark' ||
-    model === 'gpt-5.4' ||
-    model === 'gpt-5.3-codex' ||
-    model === 'gpt-5.3-codex-spark' ||
-    model === 'gpt-5.2-codex' ||
-    model === 'gpt-5.1-codex-max' ||
-    model === 'gpt-5.1-codex-mini'
+  return shouldUseCodexTransport(
+    process.env.OPENAI_MODEL || '',
+    process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
   )
 }
 

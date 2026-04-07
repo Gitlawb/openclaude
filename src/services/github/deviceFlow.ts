@@ -10,8 +10,10 @@ export const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
 export const GITHUB_DEVICE_ACCESS_TOKEN_URL =
   'https://github.com/login/oauth/access_token'
 
-/** Match runtime devsper github_oauth DEFAULT_SCOPE */
-export const DEFAULT_GITHUB_DEVICE_SCOPE = 'read:user,models:read'
+// OAuth app device flow does not accept the GitHub Models permission token
+// scope (models:read). Use an OAuth-safe default.
+const OAUTH_SAFE_GITHUB_DEVICE_SCOPE = 'read:user'
+export const DEFAULT_GITHUB_DEVICE_SCOPE = OAUTH_SAFE_GITHUB_DEVICE_SCOPE
 
 export class GitHubDeviceFlowError extends Error {
   constructor(message: string) {
@@ -51,38 +53,61 @@ export async function requestDeviceCode(options?: {
     )
   }
   const fetchFn = options?.fetchImpl ?? fetch
-  const res = await fetchFn(GITHUB_DEVICE_CODE_URL, {
-    method: 'POST',
-    headers: { Accept: 'application/json' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      scope: options?.scope ?? DEFAULT_GITHUB_DEVICE_SCOPE,
-    }),
-  })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new GitHubDeviceFlowError(
-      `Device code request failed: ${res.status} ${text}`,
-    )
+  const requestedScope =
+    options?.scope?.trim() || DEFAULT_GITHUB_DEVICE_SCOPE
+  const scopesToTry =
+    requestedScope === OAUTH_SAFE_GITHUB_DEVICE_SCOPE
+      ? [requestedScope]
+      : [requestedScope, OAUTH_SAFE_GITHUB_DEVICE_SCOPE]
+
+  let lastError = 'Device code request failed.'
+
+  for (const scope of scopesToTry) {
+    const res = await fetchFn(GITHUB_DEVICE_CODE_URL, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        scope,
+      }),
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      lastError = `Device code request failed: ${res.status} ${text}`
+      const isInvalidScope = /invalid_scope/i.test(text)
+      const canRetryWithFallback =
+        scope !== OAUTH_SAFE_GITHUB_DEVICE_SCOPE && isInvalidScope
+      if (canRetryWithFallback) {
+        continue
+      }
+      throw new GitHubDeviceFlowError(lastError)
+    }
+
+    const data = (await res.json()) as Record<string, unknown>
+    const device_code = data.device_code
+    const user_code = data.user_code
+    const verification_uri = data.verification_uri
+    if (
+      typeof device_code !== 'string' ||
+      typeof user_code !== 'string' ||
+      typeof verification_uri !== 'string'
+    ) {
+      throw new GitHubDeviceFlowError(
+        'Malformed device code response from GitHub',
+      )
+    }
+
+    return {
+      device_code,
+      user_code,
+      verification_uri,
+      expires_in: typeof data.expires_in === 'number' ? data.expires_in : 900,
+      interval: typeof data.interval === 'number' ? data.interval : 5,
+    }
   }
-  const data = (await res.json()) as Record<string, unknown>
-  const device_code = data.device_code
-  const user_code = data.user_code
-  const verification_uri = data.verification_uri
-  if (
-    typeof device_code !== 'string' ||
-    typeof user_code !== 'string' ||
-    typeof verification_uri !== 'string'
-  ) {
-    throw new GitHubDeviceFlowError('Malformed device code response from GitHub')
-  }
-  return {
-    device_code,
-    user_code,
-    verification_uri,
-    expires_in: typeof data.expires_in === 'number' ? data.expires_in : 900,
-    interval: typeof data.interval === 'number' ? data.interval : 5,
-  }
+
+  throw new GitHubDeviceFlowError(lastError)
 }
 
 export type PollOptions = {

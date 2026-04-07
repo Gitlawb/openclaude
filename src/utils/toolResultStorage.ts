@@ -726,6 +726,11 @@ function replaceToolResultContents(
             : { ...block, content: replacement }
         }),
       },
+      // Drop the original tool payload once the model-facing content has been
+      // replaced with a persisted preview. Keeping both defeats the memory
+      // savings for long sessions because the live transcript still retains
+      // the oversized structured result.
+      toolUseResult: undefined,
     }
   })
   return changed ? nextMessages : messages

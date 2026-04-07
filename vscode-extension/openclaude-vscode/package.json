@@ -1,7 +1,7 @@
 {
   "name": "openclaude-vscode",
   "displayName": "OpenClaude",
-  "description": "Sleek VS Code extension for OpenClaude with a visual Control Center and terminal-aligned theme.",
+  "description": "Practical VS Code companion for OpenClaude with project-aware launch behavior and a real Control Center.",
   "version": "0.1.1",
   "publisher": "devnull-bootloader",
   "engines": {
@@ -14,11 +14,22 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:openclaude.start",
+    "onCommand:openclaude.startInWorkspaceRoot",
     "onCommand:openclaude.openDocs",
+    "onCommand:openclaude.openSetupDocs",
+    "onCommand:openclaude.openWorkspaceProfile",
     "onCommand:openclaude.openControlCenter",
     "onView:openclaude.controlCenter"
   ],
   "main": "./src/extension.js",
+  "files": [
+    "README.md",
+    "media/**",
+    "src/extension.js",
+    "src/presentation.js",
+    "src/state.js",
+    "themes/**"
+  ],
   "contributes": {
     "commands": [
       {
@@ -27,8 +38,23 @@
         "category": "OpenClaude"
       },
       {
+        "command": "openclaude.startInWorkspaceRoot",
+        "title": "OpenClaude: Launch in Workspace Root",
+        "category": "OpenClaude"
+      },
+      {
         "command": "openclaude.openDocs",
         "title": "OpenClaude: Open Repository",
+        "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.openSetupDocs",
+        "title": "OpenClaude: Open Setup Guide",
+        "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.openWorkspaceProfile",
+        "title": "OpenClaude: Open Workspace Profile",
         "category": "OpenClaude"
       },
       {
@@ -84,7 +110,8 @@
     ]
   },
   "scripts": {
-    "lint": "node --check ./src/extension.js",
+    "test": "node --test ./src/*.test.js",
+    "lint": "node -e \"for (const file of require('node:fs').readdirSync('./src')) { if (file.endsWith('.js')) { require('node:child_process').execFileSync(process.execPath, ['--check', require('node:path').join('src', file)], { stdio: 'inherit' }); } }\"",
     "package": "npx @vscode/vsce package --no-dependencies"
   },
   "keywords": [

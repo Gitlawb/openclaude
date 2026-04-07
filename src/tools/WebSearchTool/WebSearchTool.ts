@@ -4,6 +4,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
+
 import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { queryModelWithStreaming } from '../../services/api/claude.js'
@@ -99,6 +100,100 @@ function shouldUseFirecrawl(): boolean {
   const provider = getAPIProvider()
   if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') return false
   return true
+}
+
+function isClaudeModel(model: string): boolean {
+  return /claude/i.test(model)
+}
+
+function shouldUseDuckDuckGo(): boolean {
+  if (isCodexResponsesWebSearchEnabled()) return false
+
+  const provider = getAPIProvider()
+  // Don't override providers/models that have native web search support.
+  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
+    return false
+  }
+
+  // Use free DDG search for non-Claude models by default.
+  return !isClaudeModel(getMainLoopModel())
+}
+
+async function runDuckDuckGoSearch(input: Input): Promise<Output> {
+  const startTime = performance.now()
+
+  try {
+    const { search } = await import('duck-duck-scrape')
+
+    const response = await search(input.query, {
+      safeSearch: 0,
+    })
+
+    let hits = response.results.map(r => ({
+      title: r.title || r.url,
+      url: r.url,
+      snippet: r.description,
+    }))
+
+    if (input.blocked_domains?.length) {
+      hits = hits.filter(h => {
+        try {
+          const host = new URL(h.url).hostname
+          return !input.blocked_domains!.some(d => host.endsWith(d))
+        } catch {
+          return false
+        }
+      })
+    }
+
+    if (input.allowed_domains?.length) {
+      hits = hits.filter(h => {
+        try {
+          const host = new URL(h.url).hostname
+          return input.allowed_domains!.some(d => host.endsWith(d))
+        } catch {
+          return false
+        }
+      })
+    }
+
+    const snippets = hits
+      .filter(h => h.snippet)
+      .map(h => `**${h.title}** — ${h.snippet} (${h.url})`)
+      .join('\n')
+
+    const results: Output['results'] = []
+    if (snippets) results.push(snippets)
+    results.push({
+      tool_use_id: 'duckduckgo-search',
+      content: hits.map(({ title, url }) => ({ title, url })),
+    })
+
+    return {
+      query: input.query,
+      results,
+      durationSeconds: (performance.now() - startTime) / 1000,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const isRateLimited =
+      message.includes('429') ||
+      message.includes('rate') ||
+      message.includes('CAPTCHA') ||
+      message.includes('blocked')
+
+    if (isRateLimited && isFirecrawlEnabled()) {
+      return runFirecrawlSearch(input)
+    }
+
+    return {
+      query: input.query,
+      results: [
+        'Web search temporarily unavailable — try again or add a Firecrawl API key for reliable results.',
+      ],
+      durationSeconds: (performance.now() - startTime) / 1000,
+    }
+  }
 }
 
 async function runFirecrawlSearch(input: Input): Promise<Output> {
@@ -443,6 +538,10 @@ export const WebSearchTool = buildTool({
       return true
     }
 
+    if (shouldUseDuckDuckGo()) {
+      return true
+    }
+
     const provider = getAPIProvider()
     const model = getMainLoopModel()
 
@@ -502,7 +601,11 @@ export const WebSearchTool = buildTool({
     }
   },
   async prompt() {
-    if (shouldUseFirecrawl() || isCodexResponsesWebSearchEnabled()) {
+    if (
+      shouldUseDuckDuckGo() ||
+      shouldUseFirecrawl() ||
+      isCodexResponsesWebSearchEnabled()
+    ) {
       return getWebSearchPrompt().replace(
         /\n\s*-\s*Web search is only available in the US/,
         '',
@@ -541,6 +644,10 @@ export const WebSearchTool = buildTool({
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
     if (shouldUseFirecrawl()) {
       return { data: await runFirecrawlSearch(input) }
+    }
+
+    if (shouldUseDuckDuckGo()) {
+      return { data: await runDuckDuckGoSearch(input) }
     }
 
     if (isCodexResponsesWebSearchEnabled()) {

@@ -5,6 +5,9 @@
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
  */
 
+import { isLocalProviderUrl } from '../services/api/providerConfig.js'
+import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
+
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
 const ESC = '\x1b['
@@ -99,7 +102,7 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
   if (useOpenAI) {
     const rawModel = process.env.OPENAI_MODEL || 'gpt-4o'
     const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
-    const isLocal = /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(baseUrl)
+    const isLocal = isLocalProviderUrl(baseUrl)
     let name = 'OpenAI'
     if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))       name = 'DeepSeek'
     else if (/openrouter/i.test(baseUrl))                             name = 'OpenRouter'
@@ -107,10 +110,8 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     else if (/groq/i.test(baseUrl))                                   name = 'Groq'
     else if (/mistral/i.test(baseUrl) || /mistral/i.test(rawModel))     name = 'Mistral'
     else if (/azure/i.test(baseUrl))                                  name = 'Azure OpenAI'
-    else if (/localhost:11434/i.test(baseUrl))                        name = 'Ollama'
-    else if (/localhost:1234/i.test(baseUrl))                         name = 'LM Studio'
     else if (/llama/i.test(rawModel))                                    name = 'Meta Llama'
-    else if (isLocal)                                                  name = 'Local'
+    else if (isLocal)                                                  name = getLocalOpenAICompatibleProviderLabel(baseUrl)
     
     // Resolve model alias to actual model name + reasoning effort
     let displayModel = rawModel

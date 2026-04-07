@@ -426,7 +426,7 @@ export function addBetaLLMResponseAttributes(
     }
   }
 
-  // Add thinking_output - ant-only
+  // Add thinking_output - internal-only
   if (
     process.env.USER_TYPE === 'ant' &&
     metadata.thinkingOutput !== undefined

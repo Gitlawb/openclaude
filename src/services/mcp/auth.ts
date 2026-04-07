@@ -40,7 +40,7 @@ import { logMCPDebug } from '../../utils/log.js'
 import { getPlatform } from '../../utils/platform.js'
 import { getSecureStorage } from '../../utils/secureStorage/index.js'
 import { clearKeychainCache } from '../../utils/secureStorage/macOsKeychainHelpers.js'
-import type { SecureStorageData } from '../../utils/secureStorage/types.js'
+import type { SecureStorageData } from '../../utils/secureStorage/index.js'
 import { sleep } from '../../utils/sleep.js'
 import { jsonParse, jsonStringify } from '../../utils/slowOperations.js'
 import { logEvent } from '../analytics/index.js'
@@ -573,7 +573,7 @@ export async function revokeServerTokens(
   }
 
   // Always clear local tokens, regardless of server-side revocation result.
-  clearServerTokensFromLocalStorage(serverName, serverConfig)
+  clearServerTokensFromSecureStorage(serverName, serverConfig)
 
   // When re-authenticating, preserve step-up auth state (scope + discovery)
   // so the next performMCPOAuthFlow can use cached scope instead of
@@ -617,7 +617,8 @@ export async function revokeServerTokens(
   }
 }
 
-export function clearServerTokensFromLocalStorage(
+// Utilizing platform-specific secure storage to protect sensitive tokens
+export function clearServerTokensFromSecureStorage(
   serverName: string,
   serverConfig: McpSSEServerConfig | McpHTTPServerConfig,
 ): void {
@@ -629,7 +630,7 @@ export function clearServerTokensFromLocalStorage(
   if (existingData.mcpOAuth[serverKey]) {
     delete existingData.mcpOAuth[serverKey]
     storage.update(existingData)
-    logMCPDebug(serverName, 'Cleared stored tokens')
+    logMCPDebug(serverName, 'Cleared stored tokens from secure storage')
   }
 }
 
@@ -913,7 +914,7 @@ export async function performMCPOAuthFlow(
   // Clear any existing stored credentials to ensure fresh client registration.
   // Note: this deletes the entire entry (including discoveryState/stepUpScope),
   // but we already read the cached values above.
-  clearServerTokensFromLocalStorage(serverName, serverConfig)
+  clearServerTokensFromSecureStorage(serverName, serverConfig)
 
   // Use cached step-up scope and resource metadata URL if available.
   // The transport-attached auth provider caches these when it receives a

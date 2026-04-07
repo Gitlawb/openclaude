@@ -46,6 +46,7 @@ import type { AttributionState } from './utils/commitAttribution.js'
 import { getGlobalConfig } from './utils/config.js'
 import { getCwd } from './utils/cwd.js'
 import { isBareMode, isEnvTruthy } from './utils/envUtils.js'
+import { logForDebugging } from './utils/debug.js'
 import { getFastModeState } from './utils/fastMode.js'
 import {
   type FileHistoryState,
@@ -695,9 +696,11 @@ export class QueryEngine {
         // progress are now recorded inline (their switch cases below), but
         // this flush still matters for the preservedSegment tail walk.
         // If the SDK subprocess restarts before then (claude-desktop kills
-        // between turns), tailUuid points to a never-written message →
-        // applyPreservedSegmentRelinks fails its tail→head walk → returns
-        // without pruning → resume loads full pre-compact history.
+        // between turns), tailUuid can point to a never-written message. In
+        // that case strip preservedSegment before transcript persistence so
+        // resume falls back to ordinary boundary pruning instead of relying on
+        // broken relink metadata.
+        let transcriptMessage = message
         if (
           persistSession &&
           message.type === 'system' &&
@@ -710,10 +713,21 @@ export class QueryEngine {
             )
             if (tailIdx !== -1) {
               await recordTranscript(this.mutableMessages.slice(0, tailIdx + 1))
+            } else {
+              transcriptMessage = {
+                ...message,
+                compactMetadata: {
+                  ...message.compactMetadata,
+                  preservedSegment: undefined,
+                },
+              }
+              logForDebugging(
+                `[QueryEngine] stripped preservedSegment before transcript write; missing tail ${tailUuid}`,
+              )
             }
           }
         }
-        messages.push(message)
+        messages.push(transcriptMessage)
         if (persistSession) {
           // Fire-and-forget for assistant messages. claude.ts yields one
           // assistant message per content block, then mutates the last

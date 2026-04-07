@@ -112,7 +112,19 @@ function isPrivateIpv6Address(hostname: string): boolean {
 }
 
 function asTrimmedString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed : undefined
+}
+
+// Reads an env-var-style string intended as a URL or path, rejecting both
+// empty strings and the literal string "undefined" that Windows shells can
+// write when a variable is unset-then-referenced without quotes (issue #336).
+function asEnvUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === 'undefined') return undefined
+  return trimmed
 }
 
 function readNestedString(
@@ -201,10 +213,18 @@ function parseModelDescriptor(model: string): ModelDescriptor {
   }
 }
 
-function isCodexAlias(model: string): boolean {
+export function isCodexAlias(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
   return base in CODEX_ALIAS_MODELS
+}
+
+export function shouldUseCodexTransport(
+  model: string,
+  baseUrl: string | undefined,
+): boolean {
+  const explicitBaseUrl = asEnvUrl(baseUrl)
+  return isCodexBaseUrl(explicitBaseUrl) || (!explicitBaseUrl && isCodexAlias(model))
 }
 
 export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
@@ -287,17 +307,11 @@ export function resolveProviderRequest(options?: {
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const rawBaseUrl =
-    options?.baseUrl ??
-    process.env.OPENAI_BASE_URL ??
-    process.env.OPENAI_API_BASE ??
-    undefined
-  // Use Codex transport only when:
-  // - the base URL is explicitly the Codex endpoint, OR
-  // - the model is a Codex alias AND no custom base URL has been set
-  // A custom OPENAI_BASE_URL (e.g. Azure, OpenRouter) always wins over
-  // model-name-based Codex detection to prevent auth failures (#200, #203).
+    asEnvUrl(options?.baseUrl) ??
+    asEnvUrl(process.env.OPENAI_BASE_URL) ??
+    asEnvUrl(process.env.OPENAI_API_BASE)
   const transport: ProviderTransport =
-    isCodexBaseUrl(rawBaseUrl) || (!rawBaseUrl && isCodexAlias(requestedModel))
+    shouldUseCodexTransport(requestedModel, rawBaseUrl)
       ? 'codex_responses'
       : 'chat_completions'
 
@@ -324,6 +338,30 @@ export function resolveProviderRequest(options?: {
       ).replace(/\/+$/, ''),
     reasoning,
   }
+}
+
+export function getAdditionalModelOptionsCacheScope(): string | null {
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
+    if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+      return 'firstParty'
+    }
+    return null
+  }
+
+  const request = resolveProviderRequest()
+  if (request.transport !== 'chat_completions') {
+    return null
+  }
+
+  if (!isLocalProviderUrl(request.baseUrl)) {
+    return null
+  }
+
+  return `openai:${request.baseUrl.toLowerCase()}`
 }
 
 export function resolveCodexAuthPath(

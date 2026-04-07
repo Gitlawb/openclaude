@@ -48,9 +48,10 @@ import {
   loadTranscriptFile,
   removeExtraFields,
 } from './sessionStorage.js'
+import { jsonStringify } from './slowOperations.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
 
-// Dead code elimination: ant-only tool names are conditionally required so
+// Dead code elimination: internal-only tool names are conditionally required so
 // their strings don't leak into external builds. Static imports always bundle.
 /* eslint-disable @typescript-eslint/no-require-imports */
 const BRIEF_TOOL_NAME: string | null =
@@ -71,6 +72,37 @@ const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
     ).SEND_USER_FILE_TOOL_NAME
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
+
+// Hard cap for reconstructed resume payloads before REPL boot. 8 MiB keeps
+// resume bounded well below the multi-GB failure mode we saw while leaving
+// enough room for normal compacted sessions plus resume hook context.
+const MAX_RESUME_MESSAGE_BYTES = 8 * 1024 * 1024
+
+export class ResumeTranscriptTooLargeError extends Error {
+  constructor(
+    readonly bytes: number,
+    readonly maxBytes: number,
+    readonly messageCount: number,
+  ) {
+    super(
+      `Reconstructed transcript is too large to resume safely (${(
+        bytes / (1024 * 1024)
+      ).toFixed(1)} MiB > ${(maxBytes / (1024 * 1024)).toFixed(1)} MiB, ${messageCount} messages).`,
+    )
+    this.name = 'ResumeTranscriptTooLargeError'
+  }
+}
+
+function assertResumeMessageSize(messages: Message[]): void {
+  const bytes = Buffer.byteLength(jsonStringify(messages), 'utf8')
+  if (bytes > MAX_RESUME_MESSAGE_BYTES) {
+    throw new ResumeTranscriptTooLargeError(
+      bytes,
+      MAX_RESUME_MESSAGE_BYTES,
+      messages.length,
+    )
+  }
+}
 
 /**
  * Transforms legacy attachment types to current types for backward compatibility
@@ -591,11 +623,16 @@ export async function loadConversationForResume(
     const deserialized = deserializeMessagesWithInterruptDetection(messages!)
     messages = deserialized.messages
 
+    // Reject oversized resumes before running side-effectful resume hooks.
+    assertResumeMessageSize(messages)
+
     // Process session start hooks for resume
     const hookMessages = await processSessionStartHooks('resume', { sessionId })
 
-    // Append hook messages to the conversation
+    // Append hook messages to the conversation and guard again in case hook
+    // output itself pushes the session over the safe resume limit.
     messages.push(...hookMessages)
+    assertResumeMessageSize(messages)
 
     return {
       messages,

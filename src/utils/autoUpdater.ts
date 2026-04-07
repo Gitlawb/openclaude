@@ -74,7 +74,7 @@ export async function assertMinVersion(): Promise<void> {
   }
 
   // Skip version check for third-party providers — the min version
-  // kill-switch is Anthropic-specific and should not block 3P users
+  // kill-switch is first-party-specific and should not block 3P users
   if (getAPIProvider() !== 'firstParty') {
     return
   }
@@ -417,7 +417,7 @@ export async function getGcsDistTags(): Promise<NpmDistTags> {
 }
 
 /**
- * Get version history from npm registry (ant-only feature)
+ * Get version history from npm registry (internal-only feature)
  * Returns versions sorted newest-first, limited to the specified count
  *
  * Uses NATIVE_PACKAGE_URL when available because:

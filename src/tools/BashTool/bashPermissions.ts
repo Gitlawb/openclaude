@@ -110,37 +110,16 @@ export const MAX_SUBCOMMANDS_FOR_SECURITY_CHECK = 50
 export const MAX_SUGGESTED_RULES_FOR_COMPOUND = 5
 
 /**
- * [ANT-ONLY] Log classifier evaluation results for analysis.
- * This helps us understand which classifier rules are being evaluated
- * and how the classifier is deciding on commands.
+ * Log classifier evaluation results for analysis.
+ * No-op in external builds.
  */
 function logClassifierResultForAnts(
-  command: string,
-  behavior: ClassifierBehavior,
-  descriptions: string[],
-  result: ClassifierResult,
+  _command: string,
+  _behavior: ClassifierBehavior,
+  _descriptions: string[],
+  _result: ClassifierResult,
 ): void {
-  if (process.env.USER_TYPE !== 'ant') {
-    return
-  }
-
-  logEvent('tengu_internal_bash_classifier_result', {
-    behavior:
-      behavior as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    descriptions: jsonStringify(
-      descriptions,
-    ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    matches: result.matches,
-    matchedDescription: (result.matchedDescription ??
-      '') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    confidence:
-      result.confidence as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    reason:
-      result.reason as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-    // Note: command contains code/filepaths - this is ANT-ONLY so it's OK
-    command:
-      command as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-  })
+  // Internal-only logging removed from external build.
 }
 
 /**
@@ -430,13 +409,11 @@ const SAFE_ENV_VARS = new Set([
 ])
 
 /**
- * ANT-ONLY environment variables that are safe to strip from commands.
- * These are only enabled when USER_TYPE === 'ant'.
+ * Environment variables that are safe to strip from commands.
  *
  * SECURITY: These env vars are stripped before permission-rule matching, which
  * means `DOCKER_HOST=tcp://evil.com docker ps` matches a `Bash(docker ps:*)`
- * rule after stripping. This is INTENTIONALLY ANT-ONLY (gated at line ~380)
- * and MUST NEVER ship to external users. DOCKER_HOST redirects the Docker
+ * rule after stripping. DOCKER_HOST redirects the Docker
  * daemon endpoint — stripping it defeats prefix-based permission restrictions
  * by hiding the network endpoint from the permission check. KUBECONFIG
  * similarly controls which cluster kubectl talks to. These are convenience
@@ -454,7 +431,7 @@ const ANT_ONLY_SAFE_ENV_VARS = new Set([
   'CLOUDSDK_CORE_PROJECT', // GCP project ID
   'CLUSTER', // generic cluster name
 
-  // Anthropic internal cluster selection (just names/identifiers)
+  // Internal cluster selection (just names/identifiers)
   'COO_CLUSTER', // coo cluster name
   'COO_CLUSTER_NAME', // coo cluster name (alternate)
   'COO_NAMESPACE', // coo namespace

@@ -3,7 +3,7 @@ export type ModifierKey = 'shift' | 'command' | 'control' | 'option'
 /**
  * Pre-warm the native module by loading it in advance.
  *
- * NOTE: The `modifiers-napi` package is an Anthropic-internal native addon
+ * NOTE: The `modifiers-napi` package is an internal-only native addon
  * that is not shipped with the open-source build. All calls are no-ops here
  * to avoid supply-chain risk from unverified npm packages with the same name.
  */

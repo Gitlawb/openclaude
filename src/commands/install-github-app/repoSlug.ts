@@ -1,12 +1,24 @@
 export function extractGitHubRepoSlug(value: string): string | null {
   const trimmed = value.trim()
 
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) && !trimmed.includes('github.com')) {
-    return null
+  const slugMatch = trimmed.match(
+    /^(?<owner>[^/:\s]+)\/(?<repo>[^/\s]+?)(?:\.git)?\/?$/i,
+  )
+  if (slugMatch?.groups?.owner && slugMatch.groups.repo) {
+    return `${slugMatch.groups.owner}/${slugMatch.groups.repo}`.replace(
+      /\.git$/i,
+      '',
+    )
   }
 
-  if (!trimmed.includes('github.com')) {
-    return trimmed
+  const shorthandUrlMatch = trimmed.match(
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/(?<owner>[^/:\s]+)\/(?<repo>[^/\s]+?)(?:\.git)?\/?$/i,
+  )
+  if (shorthandUrlMatch?.groups?.owner && shorthandUrlMatch.groups.repo) {
+    return `${shorthandUrlMatch.groups.owner}/${shorthandUrlMatch.groups.repo}`.replace(
+      /\.git$/i,
+      '',
+    )
   }
 
   const sshMatch = trimmed.match(
@@ -14,6 +26,10 @@ export function extractGitHubRepoSlug(value: string): string | null {
   )
   if (sshMatch?.groups?.owner && sshMatch.groups.repo) {
     return `${sshMatch.groups.owner}/${sshMatch.groups.repo}`
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    return null
   }
 
   try {

@@ -1,4 +1,5 @@
 import memoize from 'lodash-es/memoize.js'
+import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -6,9 +7,18 @@ import { join } from 'path'
 // tests that change the env var get a fresh value without explicit cache.clear.
 export const getClaudeConfigHomeDir = memoize(
   (): string => {
-    return (
-      process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
-    ).normalize('NFC')
+    if (process.env.CLAUDE_CONFIG_DIR) {
+      return process.env.CLAUDE_CONFIG_DIR.normalize('NFC')
+    }
+    const newDefault = join(homedir(), '.openclaude')
+    // Migration compatibility: if ~/.openclaude doesn't exist yet but ~/.claude
+    // does, keep using ~/.claude so existing users don't lose their data on
+    // upgrade. New installs (neither dir exists) go straight to ~/.openclaude.
+    const legacyPath = join(homedir(), '.claude')
+    if (!existsSync(newDefault) && existsSync(legacyPath)) {
+      return legacyPath.normalize('NFC')
+    }
+    return newDefault.normalize('NFC')
   },
   () => process.env.CLAUDE_CONFIG_DIR,
 )
