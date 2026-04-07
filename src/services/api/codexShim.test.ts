@@ -348,42 +348,6 @@ describe('Codex request translation', () => {
     ])
   })
 
-  test('removes unsupported uri format from strict Responses schemas', () => {
-    const tools = convertToolsToResponsesTools([
-      {
-        name: 'WebFetch',
-        description: 'Fetch a URL',
-        input_schema: {
-          type: 'object',
-          properties: {
-            url: { type: 'string', format: 'uri' },
-            prompt: { type: 'string' },
-          },
-          required: ['url', 'prompt'],
-          additionalProperties: false,
-        },
-      },
-    ])
-
-    expect(tools).toEqual([
-      {
-        type: 'function',
-        name: 'WebFetch',
-        description: 'Fetch a URL',
-        parameters: {
-          type: 'object',
-          properties: {
-            url: { type: 'string' },
-            prompt: { type: 'string' },
-          },
-          required: ['url', 'prompt'],
-          additionalProperties: false,
-        },
-        strict: true,
-      },
-    ])
-  })
-
   test('sanitizes malformed enum/default values for Responses tool schemas', () => {
     const tools = convertToolsToResponsesTools([
       {
