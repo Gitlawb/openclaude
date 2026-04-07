@@ -94,3 +94,10 @@ test('gpt-5.4 family keeps large max output overrides within provider limits', (
   expect(getMaxOutputTokensForModel('gpt-5.4-mini')).toBe(128_000)
   expect(getMaxOutputTokensForModel('gpt-5.4-nano')).toBe(128_000)
 })
+
+test('unknown openai-compatible models keep the default context window', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('some-unknown-3p-model')).toBe(200_000)
+})
