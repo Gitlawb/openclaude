@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import * as fsPromises from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -117,5 +118,27 @@ describe('OpenClaude paths', () => {
       join(homedir(), '.openclaude', 'local'),
       join(homedir(), '.claude', 'local'),
     ])
+  })
+
+  test('legacy local installs are detected when they still expose the claude binary', async () => {
+    mock.module('fs/promises', () => ({
+      ...fsPromises,
+      access: async (path: string) => {
+        if (
+          path === join(homedir(), '.claude', 'local', 'node_modules', '.bin', 'claude')
+        ) {
+          return
+        }
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      },
+    }))
+
+    const { getDetectedLocalInstallDir, localInstallationExists } =
+      await importFreshLocalInstaller()
+
+    expect(await localInstallationExists()).toBe(true)
+    expect(await getDetectedLocalInstallDir()).toBe(
+      join(homedir(), '.claude', 'local'),
+    )
   })
 })

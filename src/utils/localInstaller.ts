@@ -36,6 +36,13 @@ export function getCandidateLocalInstallDirs(options?: {
   )
 }
 
+function getCandidateLocalBinaryPaths(localInstallDir: string): string[] {
+  return [
+    join(localInstallDir, 'node_modules', '.bin', 'openclaude'),
+    join(localInstallDir, 'node_modules', '.bin', 'claude'),
+  ]
+}
+
 export function isManagedLocalInstallationPath(execPath: string): boolean {
   return (
     execPath.includes('/.openclaude/local/node_modules/') ||
@@ -166,11 +173,13 @@ export async function installOrUpdateClaudePackage(
  */
 export async function localInstallationExists(): Promise<boolean> {
   for (const localInstallDir of getCandidateLocalInstallDirs()) {
-    try {
-      await access(join(localInstallDir, 'node_modules', '.bin', 'openclaude'))
-      return true
-    } catch {
-      // Try next candidate
+    for (const binaryPath of getCandidateLocalBinaryPaths(localInstallDir)) {
+      try {
+        await access(binaryPath)
+        return true
+      } catch {
+        // Try next candidate
+      }
     }
   }
   return false
@@ -178,11 +187,13 @@ export async function localInstallationExists(): Promise<boolean> {
 
 export async function getDetectedLocalInstallDir(): Promise<string | null> {
   for (const localInstallDir of getCandidateLocalInstallDirs()) {
-    try {
-      await access(join(localInstallDir, 'node_modules', '.bin', 'openclaude'))
-      return localInstallDir
-    } catch {
-      // Try next candidate
+    for (const binaryPath of getCandidateLocalBinaryPaths(localInstallDir)) {
+      try {
+        await access(binaryPath)
+        return localInstallDir
+      } catch {
+        // Try next candidate
+      }
     }
   }
   return null
