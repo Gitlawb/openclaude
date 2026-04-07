@@ -292,7 +292,14 @@ export const inputSchema = lazySchema(() =>
   z.object({
     skill: z
       .string()
-      .describe('The skill name. E.g., "commit", "review-pr", or "pdf"'),
+      .describe(
+        'The skill name WITHOUT the leading slash. ' +
+          'When the user types /skill-name, pass skill: "skill-name" (strip the slash). ' +
+          'Examples: user types "/commit" → skill: "commit", ' +
+          'user types "/review-pr" → skill: "review-pr", ' +
+          'user types "/cufa-equity-report" → skill: "cufa-equity-report". ' +
+          'For namespaced skills use a colon: "ms-office-suite:pdf".',
+      ),
     args: z.string().optional().describe('Optional arguments for the skill'),
   }),
 )
@@ -352,6 +359,18 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
   toAutoClassifierInput: ({ skill }) => skill ?? '',
 
   async validateInput({ skill }, context): Promise<ValidationResult> {
+    // Guard against null/undefined from non-Claude function calling (e.g., GPT-5/Codex).
+    // OpenAI function calling may omit required parameters that Claude tool use always provides.
+    if (!skill || typeof skill !== 'string') {
+      return {
+        result: false,
+        message:
+          'Missing skill name. Pass the slash command name as the skill parameter ' +
+          '(e.g., skill: "commit" for /commit, skill: "review-pr" for /review-pr).',
+        errorCode: 1,
+      }
+    }
+
     // Skills are just skill names, no arguments
     const trimmed = skill.trim()
     if (!trimmed) {
