@@ -1745,6 +1745,412 @@ test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async
   expect(properties?.priority).not.toHaveProperty('default')
 })
 
+test('non-streaming: converts reasoning_content to thinking block in response', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'The answer is 42.',
+              reasoning_content: 'Let me think about this...\n\nThe calculation is straightforward.',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages.create({
+    model: 'deepseek-r1',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'What is the answer?' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const message = result as { content?: Array<Record<string, unknown>> }
+  expect(message.content).toHaveLength(2)
+  expect(message.content?.[0]).toMatchObject({
+    type: 'thinking',
+    thinking: 'Let me think about this...\n\nThe calculation is straightforward.',
+  })
+  expect(message.content?.[1]).toMatchObject({
+    type: 'text',
+    text: 'The answer is 42.',
+  })
+})
+
+test('streaming: converts delta.reasoning_content to thinking_delta events', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: 'Let me think' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: ' about this...' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'The answer is 42.' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'deepseek-r1',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'What is the answer?' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  // Check thinking block start
+  const thinkingStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'thinking',
+  )
+  expect(thinkingStart).toBeDefined()
+
+  // Check thinking deltas
+  const thinkingDeltas = events.filter(
+    event =>
+      event.type === 'content_block_delta' &&
+      typeof event.delta === 'object' &&
+      event.delta !== null &&
+      (event.delta as Record<string, unknown>).type === 'thinking_delta',
+  )
+  expect(thinkingDeltas).toHaveLength(2)
+  expect((thinkingDeltas[0] as { delta?: { thinking?: string } }).delta?.thinking).toBe('Let me think')
+  expect((thinkingDeltas[1] as { delta?: { thinking?: string } }).delta?.thinking).toBe(' about this...')
+
+  // Check text content follows after thinking
+  const textStart = events.find(
+    event =>
+      event.type === 'content_block_start' &&
+      typeof event.content_block === 'object' &&
+      event.content_block !== null &&
+      (event.content_block as Record<string, unknown>).type === 'text',
+  )
+  expect(textStart).toBeDefined()
+
+  const textDelta = events.find(
+    event =>
+      event.type === 'content_block_delta' &&
+      typeof event.delta === 'object' &&
+      event.delta !== null &&
+      (event.delta as Record<string, unknown>).type === 'text_delta',
+  ) as { delta?: { text?: string } } | undefined
+  expect(textDelta?.delta?.text).toBe('The answer is 42.')
+})
+
+test('sending: converts thinking blocks to reasoning_content field in request body', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 1,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'deepseek-r1',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'What is the answer?' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'Let me analyze this...' },
+          { type: 'text', text: 'The answer is 42.' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantMessage = messages.find(m => m.role === 'assistant')
+
+  expect(assistantMessage).toBeDefined()
+  expect(assistantMessage?.reasoning_content).toBe('Let me analyze this...')
+  expect(assistantMessage?.content).toBe('The answer is 42.')
+})
+
+test('filters out redacted_thinking blocks from text content', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'claude-3-7-sonnet',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 1,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'claude-3-7-sonnet',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'What is the answer?' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'Visible thinking' },
+          { type: 'redacted_thinking', data: 'encrypted-content' },
+          { type: 'text', text: 'The answer is 42.' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantMessage = messages.find(m => m.role === 'assistant')
+
+  expect(assistantMessage?.reasoning_content).toBe('Visible thinking')
+  expect(assistantMessage?.content).toBe('The answer is 42.')
+})
+
+test('streaming: closes thinking block before tool_calls and produces valid block lifecycle', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: 'Planning tool use' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_reason_1',
+                  type: 'function',
+                  function: { name: 'Bash', arguments: '{"command":"pwd"}' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-r1',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'deepseek-r1',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Run pwd' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const blockStarts = events.filter(e => e.type === 'content_block_start')
+  const blockStops = events.filter(e => e.type === 'content_block_stop')
+
+  const thinkingStart = blockStarts.find(
+    e =>
+      typeof e.content_block === 'object' &&
+      e.content_block !== null &&
+      (e.content_block as Record<string, unknown>).type === 'thinking',
+  )
+  const toolStart = blockStarts.find(
+    e =>
+      typeof e.content_block === 'object' &&
+      e.content_block !== null &&
+      (e.content_block as Record<string, unknown>).type === 'tool_use',
+  )
+
+  expect(thinkingStart).toBeDefined()
+  expect(toolStart).toBeDefined()
+
+  // Every started block must have a matching stop
+  expect(blockStops.length).toBe(blockStarts.length)
+
+  // Thinking block must be closed before tool block opens
+  const thinkingStartIdx = events.indexOf(thinkingStart!)
+  const toolStartIdx = events.indexOf(toolStart!)
+  const thinkingStop = blockStops.find(e => e.index === (thinkingStart as { index?: number }).index)
+  const thinkingStopIdx = events.indexOf(thinkingStop!)
+
+  expect(thinkingStopIdx).toBeGreaterThan(thinkingStartIdx)
+  expect(thinkingStopIdx).toBeLessThan(toolStartIdx)
+
+  // Thinking delta should carry the reasoning text
+  const thinkingDelta = events.find(
+    e =>
+      e.type === 'content_block_delta' &&
+      typeof e.delta === 'object' &&
+      e.delta !== null &&
+      (e.delta as Record<string, unknown>).type === 'thinking_delta',
+  ) as { delta?: { thinking?: string } } | undefined
+  expect(thinkingDelta?.delta?.thinking).toBe('Planning tool use')
+
+  // Tool block should reference the correct function
+  expect((toolStart as { content_block?: Record<string, unknown> }).content_block).toMatchObject({
+    type: 'tool_use',
+    id: 'call_reason_1',
+    name: 'Bash',
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Issue #202 — consecutive role coalescing (Devstral, Mistral strict templates)
 // ---------------------------------------------------------------------------
@@ -1908,8 +2314,6 @@ test('non-streaming: empty string content does not fall through to reasoning_con
     stream: false,
   })) as { content: Array<Record<string, unknown>> }
 
-  // reasoning_content should be a thinking block, and also used as text
-  // since content is empty string (treated as absent)
   expect(result.content).toEqual([
     { type: 'thinking', thinking: 'Chain of thought here.' },
     { type: 'text', text: 'Chain of thought here.' },
@@ -2037,7 +2441,6 @@ test('streaming: thinking block closed before tool call', async () => {
 
   const types = events.map(e => e.type)
 
-  // Verify thinking block is started, then closed, then tool call starts
   const thinkingStartIdx = types.indexOf('content_block_start')
   const firstStopIdx = types.indexOf('content_block_stop')
   const toolStartIdx = types.indexOf(
@@ -2049,9 +2452,511 @@ test('streaming: thinking block closed before tool call', async () => {
   expect(firstStopIdx).toBeGreaterThan(thinkingStartIdx)
   expect(toolStartIdx).toBeGreaterThan(firstStopIdx)
 
-  // Verify thinking block start content
   const thinkingStart = events[thinkingStartIdx] as {
     content_block?: Record<string, unknown>
   }
   expect(thinkingStart?.content_block?.type).toBe('thinking')
+})
+
+// ---------------------------------------------------------------------------
+// Real-world provider behavior tests (Kimi & DeepSeek)
+// ---------------------------------------------------------------------------
+
+test('streaming: handles DeepSeek-style null content and reasoning_content pattern', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-ds-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            index: 0,
+            delta: { content: null, role: 'assistant', reasoning_content: '' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ds-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            index: 0,
+            delta: { content: null, reasoning_content: 'Let me' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ds-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            index: 0,
+            delta: { content: null, reasoning_content: ' think...' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ds-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'The answer', reasoning_content: null },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ds-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            index: 0,
+            delta: { content: ' is 42.', reasoning_content: null },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-ds-1',
+        object: 'chat.completion.chunk',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            index: 0,
+            delta: { content: '', reasoning_content: null },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 600,
+          total_tokens: 612,
+          completion_tokens_details: { reasoning_tokens: 342 },
+        },
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'deepseek-reasoner',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'What is the answer?' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const thinkingStart = events.find(
+    e =>
+      e.type === 'content_block_start' &&
+      typeof e.content_block === 'object' &&
+      e.content_block !== null &&
+      (e.content_block as Record<string, unknown>).type === 'thinking',
+  )
+  expect(thinkingStart).toBeDefined()
+
+  const textStart = events.find(
+    e =>
+      e.type === 'content_block_start' &&
+      typeof e.content_block === 'object' &&
+      e.content_block !== null &&
+      (e.content_block as Record<string, unknown>).type === 'text',
+  )
+  expect(textStart).toBeDefined()
+
+  const textDeltas = events.filter(
+    e =>
+      e.type === 'content_block_delta' &&
+      typeof e.delta === 'object' &&
+      e.delta !== null &&
+      (e.delta as Record<string, unknown>).type === 'text_delta',
+  )
+  const fullText = textDeltas
+    .map(e => (e.delta as { text?: string }).text ?? '')
+    .join('')
+  expect(fullText).toBe('The answer is 42.')
+})
+
+test('streaming: handles Kimi-style empty content in role announcement', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-kimi-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: { content: '', role: 'assistant' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: 'Analyzing' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: ' the problem...' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'Result: 42' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 15,
+          completion_tokens: 1688,
+          total_tokens: 1703,
+        },
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'kimi-k2.5',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Calculate' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const textStarts = events.filter(
+    e =>
+      e.type === 'content_block_start' &&
+      typeof e.content_block === 'object' &&
+      e.content_block !== null &&
+      (e.content_block as Record<string, unknown>).type === 'text',
+  )
+
+  expect(textStarts.length).toBe(1)
+  expect((textStarts[0] as { content_block?: { text?: string } }).content_block?.text).toBe('')
+
+  const thinkingStart = events.find(
+    e =>
+      e.type === 'content_block_start' &&
+      typeof e.content_block === 'object' &&
+      e.content_block !== null &&
+      (e.content_block as Record<string, unknown>).type === 'thinking',
+  )
+  expect(thinkingStart).toBeDefined()
+})
+
+test('streaming: skips empty strings in both content and reasoning_content', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-empty-1',
+        object: 'chat.completion.chunk',
+        model: 'test-model',
+        choices: [
+          {
+            index: 0,
+            delta: { content: '', reasoning_content: '' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-empty-1',
+        object: 'chat.completion.chunk',
+        model: 'test-model',
+        choices: [
+          {
+            index: 0,
+            delta: { content: '', reasoning_content: 'Actual thought' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-empty-1',
+        object: 'chat.completion.chunk',
+        model: 'test-model',
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'Actual content', reasoning_content: '' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-empty-1',
+        object: 'chat.completion.chunk',
+        model: 'test-model',
+        choices: [
+          {
+            index: 0,
+            delta: { content: '', reasoning_content: '' },
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'test-model',
+      system: 'test',
+      messages: [{ role: 'user', content: 'Hello' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const thinkingDeltas = events.filter(
+    e =>
+      e.type === 'content_block_delta' &&
+      typeof e.delta === 'object' &&
+      e.delta !== null &&
+      (e.delta as Record<string, unknown>).type === 'thinking_delta',
+  )
+  expect(thinkingDeltas.length).toBe(1)
+  expect((thinkingDeltas[0] as { delta?: { thinking?: string } }).delta?.thinking).toBe('Actual thought')
+
+  const textDeltas = events.filter(
+    e =>
+      e.type === 'content_block_delta' &&
+      typeof e.delta === 'object' &&
+      e.delta !== null &&
+      (e.delta as Record<string, unknown>).type === 'text_delta',
+  )
+  expect(textDeltas.length).toBe(1)
+  expect((textDeltas[0] as { delta?: { text?: string } }).delta?.text).toBe('Actual content')
+
+  const allDeltas = events.filter(e => e.type === 'content_block_delta')
+  expect(allDeltas.length).toBe(2)
+})
+
+test('streaming: handles Kimi-style tool_calls with empty initial arguments', async () => {
+  globalThis.fetch = (async (_input, _init) => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-kimi-tool-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: 'I need to search.' },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-tool-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'search:0',
+                  type: 'function',
+                  function: { name: 'search', arguments: '' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-tool-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: { arguments: '{"' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-tool-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: { arguments: 'query' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-tool-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: { arguments: '":"Context Caching"}' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-kimi-tool-1',
+        object: 'chat.completion.chunk',
+        model: 'kimi-k2.5',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'tool_calls',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'kimi-k2.5',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'Search for something' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) {
+    events.push(event)
+  }
+
+  const thinkingStop = events.find(
+    e => e.type === 'content_block_stop' && typeof e.index === 'number',
+  )
+  expect(thinkingStop).toBeDefined()
+
+  const toolStart = events.find(
+    e =>
+      e.type === 'content_block_start' &&
+      typeof e.content_block === 'object' &&
+      e.content_block !== null &&
+      (e.content_block as Record<string, unknown>).type === 'tool_use',
+  ) as { content_block?: { id?: string; name?: string } } | undefined
+  expect(toolStart).toBeDefined()
+  expect(toolStart?.content_block?.id).toBe('search:0')
+  expect(toolStart?.content_block?.name).toBe('search')
+
+  const toolDeltas = events.filter(
+    e =>
+      e.type === 'content_block_delta' &&
+      typeof e.delta === 'object' &&
+      e.delta !== null &&
+      (e.delta as Record<string, unknown>).type === 'input_json_delta',
+  ) as Array<{ delta?: { partial_json?: string } }>
+
+  const fullArgs = toolDeltas.map(e => e.delta?.partial_json ?? '').join('')
+  expect(fullArgs).toBe('{"query":"Context Caching"}')
+
+  expect(toolDeltas.length).toBe(3)
 })

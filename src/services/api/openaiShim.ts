@@ -96,6 +96,7 @@ function sleepMs(ms: number): Promise<void> {
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content?: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+  reasoning_content?: string
   tool_calls?: Array<{
     id: string
     type: 'function'
@@ -270,10 +271,20 @@ function convertMessages(
       // Check for tool_use blocks
       if (Array.isArray(content)) {
         const toolUses = content.filter((b: { type?: string }) => b.type === 'tool_use')
-        const thinkingBlock = content.find((b: { type?: string }) => b.type === 'thinking')
+        const thinkingBlock = content.filter((b: { type?: string }) => b.type === 'thinking')
         const textContent = content.filter(
-          (b: { type?: string }) => b.type !== 'tool_use' && b.type !== 'thinking',
+          (b: { type?: string }) =>
+            b.type !== 'tool_use' && b.type !== 'thinking' && b.type !== 'redacted_thinking',
         )
+
+        // Extract reasoning_content from thinking blocks for API compatibility
+        let reasoningContent: string | undefined
+        if (thinkingBlock.length > 0) {
+          reasoningContent = thinkingBlock
+            .map((b: { thinking?: string }) => b.thinking ?? '')
+            .filter(Boolean)
+            .join('\n\n')
+        }
 
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
@@ -281,6 +292,11 @@ function convertMessages(
             const c = convertContentBlocks(textContent)
             return typeof c === 'string' ? c : Array.isArray(c) ? c.map((p: { text?: string }) => p.text ?? '').join('') : ''
           })(),
+        }
+
+        // Add reasoning_content if present (required by API when thinking is enabled)
+        if (reasoningContent) {
+          assistantMsg.reasoning_content = reasoningContent
         }
 
         if (toolUses.length > 0) {
