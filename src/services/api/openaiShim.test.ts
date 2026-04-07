@@ -1946,7 +1946,7 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
   expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
 })
 
-test('non-streaming: reasoning_content emitted as thinking block, used as text when content is null', async () => {
+test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
       JSON.stringify({
@@ -1988,7 +1988,6 @@ test('non-streaming: reasoning_content emitted as thinking block, used as text w
 
   expect(result.content).toEqual([
     { type: 'thinking', thinking: 'Let me think about this step by step.' },
-    { type: 'text', text: 'Let me think about this step by step.' },
   ])
 })
 
@@ -2034,7 +2033,6 @@ test('non-streaming: empty string content does not fall through to reasoning_con
 
   expect(result.content).toEqual([
     { type: 'thinking', thinking: 'Chain of thought here.' },
-    { type: 'text', text: 'Chain of thought here.' },
   ])
 })
 
@@ -2081,6 +2079,46 @@ test('non-streaming: real content takes precedence over reasoning_content', asyn
   expect(result.content).toEqual([
     { type: 'thinking', thinking: 'I need to calculate this.' },
     { type: 'text', text: 'The answer is 42.' },
+  ])
+})
+
+test('non-streaming: strips leaked reasoning preamble from assistant content', async () => {
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = (await client.beta.messages.create({
+    model: 'gpt-5-mini',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hey' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(result.content).toEqual([
+    { type: 'text', text: 'Hey! How can I help you today?' },
   ])
 })
 
@@ -2174,4 +2212,62 @@ test('streaming: thinking block closed before tool call', async () => {
     content_block?: Record<string, unknown>
   }
   expect(thinkingStart?.content_block?.type).toBe('thinking')
+})
+
+test('streaming: strips leaked reasoning preamble from assistant content deltas', async () => {
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content:
+                'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'gpt-5-mini',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hey' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const delta = (event as { delta?: { type?: string; text?: string } }).delta
+    if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      textDeltas.push(delta.text)
+    }
+  }
+
+  expect(textDeltas).toEqual(['Hey! How can I help you today?'])
 })

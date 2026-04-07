@@ -27,6 +27,10 @@ import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import {
+  looksLikeLeakedReasoningPrefix,
+  stripLeakedReasoningPreamble,
+} from './reasoningLeakSanitizer.js'
+import {
   codexStreamToAnthropic,
   collectCodexCompletedResponse,
   convertAnthropicMessagesToResponsesInput,
@@ -588,6 +592,8 @@ async function* openaiStreamToAnthropic(
   let hasEmittedContentStart = false
   let hasEmittedThinkingStart = false
   let hasClosedThinking = false
+  let activeTextBuffer = ''
+  let bufferTextUntilStop = false
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
@@ -617,6 +623,30 @@ async function* openaiStreamToAnthropic(
 
   const decoder = new TextDecoder()
   let buffer = ''
+
+  const closeActiveContentBlock = async function* () {
+    if (!hasEmittedContentStart) return
+
+    if (bufferTextUntilStop) {
+      const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
+      if (sanitized) {
+        yield {
+          type: 'content_block_delta',
+          index: contentBlockIndex,
+          delta: { type: 'text_delta', text: sanitized },
+        }
+      }
+    }
+
+    yield {
+      type: 'content_block_stop',
+      index: contentBlockIndex,
+    }
+    contentBlockIndex++
+    hasEmittedContentStart = false
+    activeTextBuffer = ''
+    bufferTextUntilStop = false
+  }
 
   try {
     while (true) {
@@ -672,6 +702,7 @@ async function* openaiStreamToAnthropic(
             contentBlockIndex++
             hasClosedThinking = true
           }
+          activeTextBuffer += delta.content
           if (!hasEmittedContentStart) {
             yield {
               type: 'content_block_start',
@@ -679,6 +710,13 @@ async function* openaiStreamToAnthropic(
               content_block: { type: 'text', text: '' },
             }
             hasEmittedContentStart = true
+          }
+          if (
+            bufferTextUntilStop ||
+            looksLikeLeakedReasoningPrefix(activeTextBuffer)
+          ) {
+            bufferTextUntilStop = true
+            continue
           }
           yield {
             type: 'content_block_delta',
@@ -698,12 +736,7 @@ async function* openaiStreamToAnthropic(
                 hasClosedThinking = true
               }
               if (hasEmittedContentStart) {
-                yield {
-                  type: 'content_block_stop',
-                  index: contentBlockIndex,
-                }
-                contentBlockIndex++
-                hasEmittedContentStart = false
+                yield* closeActiveContentBlock()
               }
 
               const toolBlockIndex = contentBlockIndex
@@ -786,10 +819,7 @@ async function* openaiStreamToAnthropic(
           }
           // Close any open content blocks
           if (hasEmittedContentStart) {
-            yield {
-              type: 'content_block_stop',
-              index: contentBlockIndex,
-            }
+            yield* closeActiveContentBlock()
           }
           // Close active tool calls
           for (const [, tc] of activeToolCalls) {
@@ -1383,9 +1413,9 @@ class OpenAIShimMessages {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
 
-    // Some reasoning models (e.g. GLM-5) put their reply in reasoning_content
-    // while content stays null — emit reasoning as a thinking block, then
-    // fall back to it for visible text if content is empty.
+    // Some reasoning models (e.g. GLM-5) put their chain-of-thought in
+    // reasoning_content while content stays null. Preserve it as a thinking
+    // block, but do not surface it as visible assistant text.
     const reasoningText = choice?.message?.reasoning_content
     if (typeof reasoningText === 'string' && reasoningText) {
       content.push({ type: 'thinking', thinking: reasoningText })
@@ -1393,9 +1423,12 @@ class OpenAIShimMessages {
     const rawContent =
       choice?.message?.content !== '' && choice?.message?.content != null
         ? choice?.message?.content
-        : choice?.message?.reasoning_content
+        : null
     if (typeof rawContent === 'string' && rawContent) {
-      content.push({ type: 'text', text: rawContent })
+      content.push({
+        type: 'text',
+        text: stripLeakedReasoningPreamble(rawContent),
+      })
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
       const parts: string[] = []
       for (const part of rawContent) {
@@ -1410,7 +1443,10 @@ class OpenAIShimMessages {
       }
       const joined = parts.join('\n')
       if (joined) {
-        content.push({ type: 'text', text: joined })
+        content.push({
+          type: 'text',
+          text: stripLeakedReasoningPreamble(joined),
+        })
       }
     }
 

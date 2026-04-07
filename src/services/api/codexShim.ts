@@ -4,6 +4,10 @@ import type {
   ResolvedProviderRequest,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from './openaiSchemaSanitizer.js'
+import {
+  looksLikeLeakedReasoningPrefix,
+  stripLeakedReasoningPreamble,
+} from './reasoningLeakSanitizer.js'
 
 export interface AnthropicUsage {
   input_tokens: number
@@ -678,17 +682,34 @@ export async function* codexStreamToAnthropic(
     { index: number; toolUseId: string }
   >()
   let activeTextBlockIndex: number | null = null
+  let activeTextBuffer = ''
+  let bufferTextUntilStop = false
   let nextContentBlockIndex = 0
   let sawToolUse = false
   let finalResponse: Record<string, any> | undefined
 
   const closeActiveTextBlock = async function* () {
     if (activeTextBlockIndex === null) return
+    if (bufferTextUntilStop) {
+      const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
+      if (sanitized) {
+        yield {
+          type: 'content_block_delta',
+          index: activeTextBlockIndex,
+          delta: {
+            type: 'text_delta',
+            text: sanitized,
+          },
+        }
+      }
+    }
     yield {
       type: 'content_block_stop',
       index: activeTextBlockIndex,
     }
     activeTextBlockIndex = null
+    activeTextBuffer = ''
+    bufferTextUntilStop = false
   }
 
   const startTextBlockIfNeeded = async function* () {
@@ -764,7 +785,15 @@ export async function* codexStreamToAnthropic(
 
     if (event.event === 'response.output_text.delta') {
       yield* startTextBlockIfNeeded()
+      activeTextBuffer += payload.delta ?? ''
       if (activeTextBlockIndex !== null) {
+        if (
+          bufferTextUntilStop ||
+          looksLikeLeakedReasoningPrefix(activeTextBuffer)
+        ) {
+          bufferTextUntilStop = true
+          continue
+        }
         yield {
           type: 'content_block_delta',
           index: activeTextBlockIndex,
@@ -859,7 +888,7 @@ export function convertCodexResponseToAnthropicMessage(
         if (part?.type === 'output_text') {
           content.push({
             type: 'text',
-            text: part.text ?? '',
+            text: stripLeakedReasoningPreamble(part.text ?? ''),
           })
         }
       }
