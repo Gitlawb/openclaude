@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
+import { parseOpenAIDuration } from './withRetry.js'
 
 // Helper to build a mock APIError with specific headers
 function makeError(headers: Record<string, string>): APIError {
@@ -48,8 +49,11 @@ async function importFreshWithRetryModule(
     getAPIProviderForStatsig: () => provider,
     isFirstPartyAnthropicBaseUrl: () => true,
   }))
-  return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
+  importNonce += 1
+  return import(`./withRetry.js?ts=${importNonce}`)
 }
+
+let importNonce = 0
 
 async function importWithRetryForQuotaAttemptTest(options: {
   baseProvider: 'firstParty' | 'openai' | 'github' | 'bedrock' | 'vertex' | 'gemini' | 'codex' | 'foundry'
@@ -83,43 +87,37 @@ async function importWithRetryForQuotaAttemptTest(options: {
     logEvent: () => undefined,
   }))
 
-  return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
+  importNonce += 1
+  return import(`./withRetry.js?ts=${importNonce}`)
 }
 
 // --- parseOpenAIDuration ---
 describe('parseOpenAIDuration', () => {
-  test('parses seconds: "1s" → 1000', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses seconds: "1s" -> 1000', () => {
     expect(parseOpenAIDuration('1s')).toBe(1000)
   })
 
-  test('parses minutes+seconds: "6m0s" → 360000', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses minutes+seconds: "6m0s" -> 360000', () => {
     expect(parseOpenAIDuration('6m0s')).toBe(360000)
   })
 
-  test('parses hours+minutes+seconds: "1h30m0s" → 5400000', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses hours+minutes+seconds: "1h30m0s" -> 5400000', () => {
     expect(parseOpenAIDuration('1h30m0s')).toBe(5400000)
   })
 
-  test('parses milliseconds: "500ms" → 500', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses milliseconds: "500ms" -> 500', () => {
     expect(parseOpenAIDuration('500ms')).toBe(500)
   })
 
-  test('parses minutes only: "2m" → 120000', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses minutes only: "2m" -> 120000', () => {
     expect(parseOpenAIDuration('2m')).toBe(120000)
   })
 
-  test('returns null for empty string', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('returns null for empty string', () => {
     expect(parseOpenAIDuration('')).toBeNull()
   })
 
-  test('returns null for unrecognized format', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('returns null for unrecognized format', () => {
     expect(parseOpenAIDuration('invalid')).toBeNull()
   })
 })
