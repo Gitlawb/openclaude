@@ -7,6 +7,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
@@ -15,6 +16,7 @@ const originalEnv = {
   GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
+  ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
 }
 
 const originalFetch = globalThis.fetch
@@ -70,6 +72,7 @@ beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
@@ -78,12 +81,14 @@ beforeEach(() => {
   delete process.env.GEMINI_BASE_URL
   delete process.env.GEMINI_MODEL
   delete process.env.GOOGLE_CLOUD_PROJECT
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
 })
 
 afterEach(() => {
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
@@ -92,7 +97,127 @@ afterEach(() => {
   restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
   restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
   restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
+  restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
   globalThis.fetch = originalFetch
+})
+
+test('strips canonical Anthropic headers from direct shim defaultHeaders', async () => {
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
+      'x-anthropic-additional-protection': 'true',
+      'x-claude-remote-session-id': 'remote-123',
+      'x-app': 'cli',
+      'x-client-app': 'sdk',
+      'x-safe-header': 'keep-me',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('anthropic-version')).toBeNull()
+  expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
+  expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
+  expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
+  expect(capturedHeaders?.get('x-app')).toBeNull()
+  expect(capturedHeaders?.get('x-client-app')).toBeNull()
+  expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+})
+
+test('strips canonical Anthropic headers from per-request shim headers too', async () => {
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'gpt-4o',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    {
+      headers: {
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
+        'x-safe-header': 'keep-me',
+      },
+    },
+  )
+
+  expect(capturedHeaders?.get('anthropic-version')).toBeNull()
+  expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
+  expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
 })
 
 test('preserves usage from final OpenAI stream chunk with empty choices', async () => {
