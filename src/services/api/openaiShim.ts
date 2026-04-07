@@ -1167,9 +1167,17 @@ class OpenAIShimMessages {
       }catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError')  throw err
         const cause = err instanceof Error ? err.message : String(err)
-        throw new Error (
-          `Network request failed for ${chatCompletionsUrl} — check your provider URL and connectivity. Cause: ${cause}` 
-        )
+        
+        let safeUrl = chatCompletionsUrl
+        try{
+          const parsed = new URL(chatCompletionsUrl)
+          parsed.username = ''
+          parsed.password = ''
+          safeUrl = parsed.toString()
+        }catch {
+          safeUrl = '[invalid URL]'
+        }
+        throw new Error(`Network request failed for ${safeUrl} - check your provider URL and connection. Cause: ${cause}`)
       }
       if (response.ok) {
         return response
