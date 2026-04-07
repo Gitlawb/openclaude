@@ -381,8 +381,71 @@ test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async
     | undefined
 
   expect(parameters?.additionalProperties).toBe(false)
-  expect(parameters?.required).toEqual(['priority'])
+  // No required[] in the original schema → none added (optional properties must not be forced required)
+  expect(parameters?.required).toEqual([])
   expect(properties?.priority?.type).toBe('integer')
   expect(properties?.priority?.enum).toEqual([0, 1, 2, 3])
   expect(properties?.priority).not.toHaveProperty('default')
+})
+
+test('optional tool properties are not added to required[] — fixes Groq/Azure 400 tool_use_failed', async () => {
+  // Regression test for: all optional properties being sent as required in strict mode,
+  // causing providers like Groq to reject valid tool calls where the model omits optional args.
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-4',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  // Simulates the Read tool schema: file_path is required, offset/limit/pages are optional.
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'read a file' }],
+    tools: [
+      {
+        name: 'Read',
+        description: 'Read a file',
+        input_schema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string', description: 'Absolute path to file' },
+            offset: { type: 'number', description: 'Line to start from' },
+            limit: { type: 'number', description: 'Max lines to read' },
+            pages: { type: 'string', description: 'Page range for PDFs' },
+          },
+          required: ['file_path'],
+        },
+      },
+    ],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  const parameters = (
+    requestBody?.tools as Array<{ function?: { parameters?: Record<string, unknown> } }>
+  )?.[0]?.function?.parameters
+
+  // Only the originally-required property should be in required[].
+  expect(parameters?.required).toEqual(['file_path'])
+
+  // Optional properties must NOT be in required[].
+  const required = parameters?.required as string[] | undefined
+  expect(required).not.toContain('offset')
+  expect(required).not.toContain('limit')
+  expect(required).not.toContain('pages')
+
+  // additionalProperties: false must still be present for strict-mode providers.
+  expect(parameters?.additionalProperties).toBe(false)
 })

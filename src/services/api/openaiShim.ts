@@ -288,11 +288,13 @@ function normalizeSchemaForOpenAI(
     record.properties = normalizedProps
 
     if (strict) {
-      // OpenAI strict mode requires every property to be listed in required[]
-      const allKeys = Object.keys(normalizedProps)
-      record.required = Array.from(new Set([...existingRequired, ...allKeys]))
-      // OpenAI strict mode requires additionalProperties: false on all object
-      // schemas — override unconditionally to ensure nested objects comply.
+      // Keep only the properties that were originally marked required in the schema.
+      // Adding every property to required[] (the previous behaviour) caused strict
+      // OpenAI-compatible providers (Groq, Azure, etc.) to reject tool calls because
+      // the model correctly omits optional arguments — but the provider treats them
+      // as missing required fields and returns a 400 / tool_use_failed error.
+      record.required = existingRequired.filter(k => k in normalizedProps)
+      // additionalProperties: false is still required by strict-mode providers.
       record.additionalProperties = false
     } else {
       // For Gemini: keep only existing required keys that are present in properties
