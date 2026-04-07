@@ -73,6 +73,7 @@ const getSendMessageTool = () =>
 import { AskUserQuestionTool } from './tools/AskUserQuestionTool/AskUserQuestionTool.js'
 import { KGRecallTool } from './tools/KGTool/KGRecallTool.js'
 import { KGMemorizeTool } from './tools/KGTool/KGMemorizeTool.js'
+import { KGForgetTool } from './tools/KGTool/KGForgetTool.js'
 import { LSPTool } from './tools/LSPTool/LSPTool.js'
 import { ListMcpResourcesTool } from './tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
 import { ReadMcpResourceTool } from './tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
@@ -252,6 +253,7 @@ export function getAllBaseTools(): Tools {
     // Knowledge graph tools — always enabled; read/write the agent's local graph
     KGRecallTool,
     KGMemorizeTool,
+    KGForgetTool,
   ]
 }
 
