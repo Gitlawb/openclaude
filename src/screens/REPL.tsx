@@ -778,9 +778,10 @@ export function REPL({
     return [...localTools, ...initialTools];
   }, [localTools, initialTools]);
 
-  // Initialize plugin management
+  // Initialize plugin management — skip for 3P providers to avoid REPL freeze.
+  // Plugin loading triggers heavy I/O + AppState churn that blocks the event loop.
   useManagePlugins({
-    enabled: !isRemoteSession
+    enabled: !isRemoteSession && process.env.CLAUDE_CODE_USE_OPENAI !== '1' && process.env.CLAUDE_CODE_USE_GEMINI !== '1'
   });
   const tasksV2 = useTasksV2WithCollapseEffect();
 
@@ -792,8 +793,11 @@ export function REPL({
   // accepts, and only then is the REPL component mounted and this effect runs.
   // This ensures that plugin installations from repository and user settings only
   // happen after explicit user consent to trust the current working directory.
+  // Skip plugin startup checks for 3P providers — they cause REPL freezes
+  // by triggering AppState churn and plugin sync. See issue #435.
   useEffect(() => {
     if (isRemoteSession) return;
+    if (process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === '1') return;
     void performStartupChecks(setAppState);
   }, [setAppState, isRemoteSession]);
 

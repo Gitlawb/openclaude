@@ -1983,6 +1983,12 @@ async function* executeHooks({
     return
   }
 
+  // 3P providers can't handle the extra context hooks inject. Skip all hooks
+  // to prevent silent hangs from oversized requests exceeding context limits.
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) || isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
+    return
+  }
+
   const hookEvent = hookInput.hook_event_name
   const hookName = matchQuery ? `${hookEvent}:${matchQuery}` : hookEvent
 
@@ -3014,6 +3020,10 @@ async function executeHooksOutsideREPL({
   timeoutMs: number
 }): Promise<HookOutsideReplResult[]> {
   if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
+    return []
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) || isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
     return []
   }
 

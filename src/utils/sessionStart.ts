@@ -3,7 +3,7 @@ import type { HookResultMessage } from '../types/message.js'
 import { createAttachmentMessage } from './attachments.js'
 import { logForDebugging } from './debug.js'
 import { withDiagnosticsTiming } from './diagLogs.js'
-import { isBareMode } from './envUtils.js'
+import { isBareMode, is3PProvider } from './envUtils.js'
 import { updateWatchPaths } from './hooks/fileChangedWatcher.js'
 import { shouldAllowManagedHooksOnly } from './hooks/hooksConfigSnapshot.js'
 import { executeSessionStartHooks, executeSetupHooks } from './hooks.js'
@@ -45,6 +45,13 @@ export async function processSessionStartHooks(
   // (hooks.ts:1861), but this skips the loadPluginHooks() await below too —
   // no point loading plugin hooks that'll never run.
   if (isBareMode()) {
+    return []
+  }
+
+  // 3P providers have smaller context windows. SessionStart hooks inject
+  // thousands of tokens (claude-mem alone adds 14K+). Skip for 3P.
+  if (is3PProvider()) {
+    logForDebugging('Skipping hooks for 3P provider (context window optimization)')
     return []
   }
   const hookMessages: HookResultMessage[] = []

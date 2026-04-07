@@ -2020,7 +2020,18 @@ async function run(): Promise<CommanderCommand> {
     const commandsStart = Date.now();
     // Join the promises kicked before setup() (or start fresh if
     // worktreeEnabled gated the early kick). Both memoized by cwd.
-    const [commands, agentDefinitionsResult] = await Promise.all([commandsPromise ?? getCommands(currentCwd), agentDefsPromise ?? getAgentDefinitionsWithOverrides(currentCwd)]);
+    // Add a 10-second timeout to prevent hanging on slow plugin/skill loading
+    const COMMANDS_TIMEOUT_MS = parseInt(process.env.OPENCLAUDE_COMMANDS_TIMEOUT_MS || '', 10) || 10000;
+    const commandsWithTimeout = Promise.race([
+      commandsPromise ?? getCommands(currentCwd),
+      new Promise<Awaited<ReturnType<typeof getCommands>>>((resolve) =>
+        setTimeout(() => {
+          logForDebugging(`[STARTUP] Commands loading timed out after ${COMMANDS_TIMEOUT_MS}ms, continuing with empty commands`);
+          resolve([]);
+        }, COMMANDS_TIMEOUT_MS)
+      ),
+    ]);
+    const [commands, agentDefinitionsResult] = await Promise.all([commandsWithTimeout, agentDefsPromise ?? getAgentDefinitionsWithOverrides(currentCwd)]);
     logForDebugging(`[STARTUP] Commands and agents loaded in ${Date.now() - commandsStart}ms`);
     profileCheckpoint('action_commands_loaded');
 
