@@ -11,7 +11,11 @@ import { isAwsCredentialsProviderError } from 'src/utils/aws.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logError } from 'src/utils/log.js'
 import { createSystemAPIErrorMessage } from 'src/utils/messages.js'
-import { getAPIProvider, getAPIProviderForStatsig } from 'src/utils/model/providers.js'
+import {
+  getAPIProvider,
+  getAPIProviderForStatsig,
+  type APIProvider,
+} from 'src/utils/model/providers.js'
 import {
   clearApiKeyHelperCache,
   clearAwsCredentialsCache,
@@ -44,8 +48,10 @@ import {
   checkMockRateLimitError,
   isMockRateLimitError,
 } from '../rateLimitMocking.js'
+import { enforceClientQuotaGuards } from './clientQuotaGuards.js'
 import { REPEATED_529_ERROR_MESSAGE } from './errors.js'
 import { extractConnectionErrorDetails } from './errorUtils.js'
+import { resolveProviderRequest } from './providerConfig.js'
 
 const abortError = () => new APIUserAbortError()
 
@@ -137,6 +143,11 @@ interface RetryOptions {
   maxRetries?: number
   model: string
   fallbackModel?: string
+  providerOverride?: {
+    model: string
+    baseURL: string
+    apiKey: string
+  }
   thinkingConfig: ThinkingConfig
   fastMode?: boolean
   signal?: AbortSignal
@@ -191,6 +202,7 @@ export async function* withRetry<T>(
     thinkingConfig: options.thinkingConfig,
     ...(isFastModeEnabled() && { fastMode: options.fastMode }),
   }
+  const effectiveProvider = resolveEffectiveProvider(options)
   let client: Anthropic | null = null
   let consecutive529Errors = options.initialConsecutive529Errors ?? 0
   let lastError: unknown
@@ -217,6 +229,15 @@ export async function* withRetry<T>(
           throw mockError
         }
       }
+
+      // Enforce local quota guard before client creation/refresh to avoid
+      // unnecessary auth or token-refresh work when the attempt will be
+      // delayed/blocked anyway.
+      await enforceClientQuotaGuards({
+        signal: options.signal,
+        abortError,
+        provider: effectiveProvider,
+      })
 
       // Get a fresh client instance on first attempt or after authentication errors
       // - 401 for first-party API authentication failures
@@ -453,7 +474,7 @@ export async function* withRetry<T>(
         persistentAttempt++
         // Window-based limits (e.g. 5hr Max/Pro) include a reset timestamp.
         // Wait until reset rather than polling every 5 min uselessly.
-        const resetDelay = getRateLimitResetDelayMs(error)
+        const resetDelay = getRateLimitResetDelayMs(error, effectiveProvider)
         delayMs =
           resetDelay ??
           Math.min(
@@ -533,6 +554,20 @@ export async function* withRetry<T>(
   }
 
   throw new CannotRetryError(lastError, retryContext)
+}
+
+function resolveEffectiveProvider(options: RetryOptions): APIProvider {
+  if (!options.providerOverride) {
+    return getAPIProvider()
+  }
+
+  const request = resolveProviderRequest({
+    model: options.providerOverride.model,
+    baseUrl: options.providerOverride.baseURL,
+    fallbackModel: options.model,
+  })
+
+  return request.transport === 'codex_responses' ? 'codex' : 'openai'
 }
 
 function getRetryAfter(error: unknown): string | null {
@@ -850,8 +885,10 @@ export function parseOpenAIDuration(s: string): number | null {
   return total > 0 ? total : null
 }
 
-export function getRateLimitResetDelayMs(error: APIError): number | null {
-  const provider = getAPIProvider()
+export function getRateLimitResetDelayMs(
+  error: APIError,
+  provider: APIProvider = getAPIProvider(),
+): number | null {
 
   if (provider === 'firstParty') {
     const resetHeader = error.headers?.get?.('anthropic-ratelimit-unified-reset')

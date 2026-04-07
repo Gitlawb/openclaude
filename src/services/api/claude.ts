@@ -908,6 +908,7 @@ export async function* executeNonStreamingRequest(
     {
       model: retryOptions.model,
       fallbackModel: retryOptions.fallbackModel,
+      providerOverride: clientOptions.providerOverride,
       thinkingConfig: retryOptions.thinkingConfig,
       ...(isFastModeEnabled() && { fastMode: retryOptions.fastMode }),
       signal: retryOptions.signal,
@@ -925,6 +926,18 @@ export async function* executeNonStreamingRequest(
   } while (!e.done)
 
   return e.value as BetaMessage
+}
+
+function shouldAttachClientRequestIdHeader(
+  providerOverride?: Options['providerOverride'],
+): boolean {
+  // providerOverride routes requests through OpenAI-compatible transports,
+  // so first-party-only correlation headers must not be attached.
+  if (providerOverride) {
+    return false
+  }
+
+  return getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
 }
 
 /**
@@ -1831,7 +1844,7 @@ async function* queryModel(
         // server request ID) can still be correlated with server logs.
         // First-party only — 3P providers don't log it (inc-4029 class).
         clientRequestId =
-          getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
+          shouldAttachClientRequestIdHeader(options.providerOverride)
             ? randomUUID()
             : undefined
 
@@ -1858,6 +1871,7 @@ async function* queryModel(
       {
         model: options.model,
         fallbackModel: options.fallbackModel,
+        providerOverride: options.providerOverride,
         thinkingConfig,
         ...(isFastModeEnabled() ? { fastMode: isFastMode } : false),
         signal,
@@ -2668,7 +2682,11 @@ async function* queryModel(
       try {
         // Fall back to non-streaming mode
         const result = yield* executeNonStreamingRequest(
-          { model: options.model, source: options.querySource },
+          {
+            model: options.model,
+            source: options.querySource,
+            providerOverride: options.providerOverride,
+          },
           {
             model: options.model,
             fallbackModel: options.fallbackModel,

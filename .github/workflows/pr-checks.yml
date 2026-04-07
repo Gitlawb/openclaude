@@ -2,9 +2,19 @@ name: PR Checks
 
 on:
   pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
   push:
     branches:
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: pr-checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

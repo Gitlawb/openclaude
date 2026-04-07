@@ -85,6 +85,29 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
+### Optional client-side quota guards (OpenAI-compatible/Gemini/GitHub/Codex)
+
+If you want extra protection on top of provider-side limits, enable local request guards:
+
+```bash
+export CLAUDE_CODE_CLIENT_RPM_LIMIT=30
+export CLAUDE_CODE_CLIENT_RPD_LIMIT=1500
+```
+
+Optional tuning:
+
+- `CLAUDE_CODE_CLIENT_RPM_WINDOW_MS` (default `60000`)
+- `CLAUDE_CODE_CLIENT_RPD_WARN_THRESHOLD_PCT` (default `0.9`)
+- `CLAUDE_CODE_CLIENT_RPD_STATE_FILE` (override persisted daily counter path)
+
+Notes:
+
+- Guards are opt-in and disabled by default.
+- RPD tracks outbound attempts (including retries) and resets on UTC day boundaries.
+- Near-cap RPD warnings are written to debug logs, so you may only see them when running with `--debug` or debug logging enabled.
+- If RPD state cannot be persisted (permissions/path issues), requests are blocked with a clear error.
+- When RPM is exceeded, OpenClaude waits until a slot is available.
+
 ## Setup Guides
 
 Beginner-friendly guides:

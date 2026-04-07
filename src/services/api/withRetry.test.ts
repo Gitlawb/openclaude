@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
+import { parseOpenAIDuration } from './withRetry.js'
 
 // Helper to build a mock APIError with specific headers
 function makeError(headers: Record<string, string>): APIError {
@@ -23,6 +24,7 @@ afterEach(() => {
     'CLAUDE_CODE_USE_BEDROCK',
     'CLAUDE_CODE_USE_VERTEX',
     'CLAUDE_CODE_USE_FOUNDRY',
+    'CLAUDE_CODE_UNATTENDED_RETRY',
   ]) {
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
@@ -45,44 +47,77 @@ async function importFreshWithRetryModule(
   mock.module('src/utils/model/providers.js', () => ({
     getAPIProvider: () => provider,
     getAPIProviderForStatsig: () => provider,
+    isFirstPartyAnthropicBaseUrl: () => true,
   }))
-  return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
+  importNonce += 1
+  return import(`./withRetry.js?ts=${importNonce}`)
+}
+
+let importNonce = 0
+
+async function importWithRetryForQuotaAttemptTest(options: {
+  baseProvider: 'firstParty' | 'openai' | 'github' | 'bedrock' | 'vertex' | 'gemini' | 'codex' | 'foundry'
+  enforceQuotaSpy: ReturnType<typeof mock>
+}) {
+  mock.restore()
+  mock.module('src/utils/model/providers.js', () => ({
+    getAPIProvider: () => options.baseProvider,
+    getAPIProviderForStatsig: () => options.baseProvider,
+    isFirstPartyAnthropicBaseUrl: () => true,
+  }))
+  mock.module('./clientQuotaGuards.js', () => ({
+    enforceClientQuotaGuards: options.enforceQuotaSpy,
+  }))
+  mock.module('../../utils/sleep.js', () => ({
+    sleep: async () => undefined,
+  }))
+  mock.module('../../utils/auth.js', () => ({
+    clearApiKeyHelperCache: () => undefined,
+    clearAwsCredentialsCache: () => undefined,
+    clearGcpCredentialsCache: () => undefined,
+    getClaudeAIOAuthTokens: () => undefined,
+    handleOAuth401Error: async () => undefined,
+    isClaudeAISubscriber: () => false,
+    isEnterpriseSubscriber: () => false,
+  }))
+  mock.module('../analytics/growthbook.js', () => ({
+    getFeatureValue_CACHED_MAY_BE_STALE: () => false,
+  }))
+  mock.module('../analytics/index.js', () => ({
+    logEvent: () => undefined,
+  }))
+
+  importNonce += 1
+  return import(`./withRetry.js?ts=${importNonce}`)
 }
 
 // --- parseOpenAIDuration ---
 describe('parseOpenAIDuration', () => {
-  test('parses seconds: "1s" → 1000', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses seconds: "1s" -> 1000', () => {
     expect(parseOpenAIDuration('1s')).toBe(1000)
   })
 
-  test('parses minutes+seconds: "6m0s" → 360000', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses minutes+seconds: "6m0s" -> 360000', () => {
     expect(parseOpenAIDuration('6m0s')).toBe(360000)
   })
 
-  test('parses hours+minutes+seconds: "1h30m0s" → 5400000', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses hours+minutes+seconds: "1h30m0s" -> 5400000', () => {
     expect(parseOpenAIDuration('1h30m0s')).toBe(5400000)
   })
 
-  test('parses milliseconds: "500ms" → 500', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses milliseconds: "500ms" -> 500', () => {
     expect(parseOpenAIDuration('500ms')).toBe(500)
   })
 
-  test('parses minutes only: "2m" → 120000', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('parses minutes only: "2m" -> 120000', () => {
     expect(parseOpenAIDuration('2m')).toBe(120000)
   })
 
-  test('returns null for empty string', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('returns null for empty string', () => {
     expect(parseOpenAIDuration('')).toBeNull()
   })
 
-  test('returns null for unrecognized format', async () => {
-    const { parseOpenAIDuration } = await importFreshWithRetryModule()
+  test('returns null for unrecognized format', () => {
     expect(parseOpenAIDuration('invalid')).toBeNull()
   })
 })
@@ -158,6 +193,13 @@ describe('getRateLimitResetDelayMs - OpenAI provider', () => {
     const error = makeError({ 'x-ratelimit-reset-requests': '5s' })
     expect(getRateLimitResetDelayMs(error)).toBe(5_000)
   })
+
+  test('accepts explicit provider to support override-aware retry timing', async () => {
+    const { getRateLimitResetDelayMs } =
+      await importFreshWithRetryModule('firstParty')
+    const error = makeError({ 'x-ratelimit-reset-requests': '30s' })
+    expect(getRateLimitResetDelayMs(error, 'openai')).toBe(30_000)
+  })
 })
 
 describe('getRateLimitResetDelayMs - providers without reset headers', () => {
@@ -176,5 +218,88 @@ describe('getRateLimitResetDelayMs - providers without reset headers', () => {
       await importFreshWithRetryModule('vertex')
     const error = makeError({})
     expect(getRateLimitResetDelayMs(error)).toBeNull()
+  })
+})
+
+describe('withRetry quota guard integration', () => {
+  test('enforces quota guard once per attempt using provider override transport', async () => {
+    const enforceQuotaSpy = mock(async () => undefined)
+    const { withRetry } = await importWithRetryForQuotaAttemptTest({
+      baseProvider: 'firstParty',
+      enforceQuotaSpy,
+    })
+
+    const operation = async (_client: unknown, attempt: number) => {
+      if (attempt === 1) {
+        throw new APIError(
+          429,
+          undefined,
+          'rate limit exceeded',
+          new Headers({
+            'x-should-retry': 'true',
+            'retry-after': '0',
+          }),
+        )
+      }
+      return 'ok'
+    }
+
+    const generator = withRetry(
+      async () => ({}) as any,
+      operation,
+      {
+        maxRetries: 1,
+        model: 'gpt-4o',
+        thinkingConfig: { type: 'disabled' } as any,
+        providerOverride: {
+          model: 'gpt-4o',
+          baseURL: 'https://api.openai.com/v1',
+          apiKey: 'test',
+        },
+      },
+    )
+
+    let result: string | undefined
+    while (true) {
+      const next = await generator.next()
+      if (next.done) {
+        result = next.value
+        break
+      }
+    }
+
+    expect(result).toBe('ok')
+    expect(enforceQuotaSpy).toHaveBeenCalledTimes(2)
+    for (const call of enforceQuotaSpy.mock.calls) {
+      expect(call[0]?.provider).toBe('openai')
+    }
+  })
+
+  test('blocks before client creation when quota guard rejects', async () => {
+    const enforceQuotaSpy = mock(async () => {
+      throw new Error('daily cap reached')
+    })
+    const { withRetry } = await importWithRetryForQuotaAttemptTest({
+      baseProvider: 'openai',
+      enforceQuotaSpy,
+    })
+
+    const getClientSpy = mock(async () => ({}) as any)
+    const operationSpy = mock(async () => 'ok')
+
+    const generator = withRetry(
+      getClientSpy,
+      operationSpy,
+      {
+        maxRetries: 0,
+        model: 'gpt-4o',
+        thinkingConfig: { type: 'disabled' } as any,
+      },
+    )
+
+    await expect(generator.next()).rejects.toThrow('daily cap reached')
+    expect(enforceQuotaSpy).toHaveBeenCalledTimes(1)
+    expect(getClientSpy).toHaveBeenCalledTimes(0)
+    expect(operationSpy).toHaveBeenCalledTimes(0)
   })
 })
