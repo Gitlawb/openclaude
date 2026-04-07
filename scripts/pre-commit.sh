@@ -64,11 +64,6 @@ fi
 
 # ── 4. PR ordering scan (catches write-before-spawn and other patterns) ───────
 echo "pre-commit: running pr-intent-scan on staged diff..."
-git diff --cached --unified=0 | bun run scripts/pr-intent-scan.ts \
-  --base HEAD 2>/dev/null || {
-    # Fall back to scanning the staged diff directly when HEAD doesn't exist yet
-    # (initial commit).
-    true
-  }
+git diff --cached --unified=0 | bun run scripts/pr-intent-scan.ts --base HEAD 2>/dev/null || true
 
 echo "pre-commit: all checks passed."

@@ -229,9 +229,11 @@ function makeContext(teamName = 'test-team') {
   } as unknown as import('../../Tool.js').ToolUseContext
 }
 
+type TeamMember = { name: string; backendType?: string }
+
 async function readTeamFile(
   teamName: string,
-): Promise<{ members: Array<{ name: string }> } | null> {
+): Promise<{ members: Array<TeamMember> } | null> {
   try {
     const raw = await readFile(
       join(tmpDir, 'teams', teamName, 'config.json'),
