@@ -3,6 +3,7 @@
  */
 
 import { access, chmod, writeFile } from 'fs/promises'
+import { homedir } from 'os'
 import { join } from 'path'
 import { type ReleaseChannel, saveGlobalConfig } from './config.js'
 import { getClaudeConfigHomeDir } from './envUtils.js'
@@ -19,6 +20,29 @@ import { jsonStringify } from './slowOperations.js'
 function getLocalInstallDir(): string {
   return join(getClaudeConfigHomeDir(), 'local')
 }
+
+function getLegacyLocalInstallDir(homeDir = homedir()): string {
+  return join(homeDir, '.claude', 'local')
+}
+
+export function getCandidateLocalInstallDirs(options?: {
+  configHomeDir?: string
+  homeDir?: string
+}): string[] {
+  const homeDir = options?.homeDir ?? homedir()
+  const configHomeDir = options?.configHomeDir ?? getClaudeConfigHomeDir()
+  return Array.from(
+    new Set([join(configHomeDir, 'local'), getLegacyLocalInstallDir(homeDir)]),
+  )
+}
+
+export function isManagedLocalInstallationPath(execPath: string): boolean {
+  return (
+    execPath.includes('/.openclaude/local/node_modules/') ||
+    execPath.includes('/.claude/local/node_modules/')
+  )
+}
+
 export function getLocalClaudePath(): string {
   return join(getLocalInstallDir(), 'openclaude')
 }
@@ -27,8 +51,7 @@ export function getLocalClaudePath(): string {
  * Check if we're running from our managed local installation
  */
 export function isRunningFromLocalInstallation(): boolean {
-  const execPath = process.argv[1] || ''
-  return execPath.includes('/.openclaude/local/node_modules/')
+  return isManagedLocalInstallationPath(process.argv[1] || '')
 }
 
 /**
@@ -142,12 +165,27 @@ export async function installOrUpdateClaudePackage(
  * Pure existence probe — callers use this to choose update path / UI hints.
  */
 export async function localInstallationExists(): Promise<boolean> {
-  try {
-    await access(join(getLocalInstallDir(), 'node_modules', '.bin', 'openclaude'))
-    return true
-  } catch {
-    return false
+  for (const localInstallDir of getCandidateLocalInstallDirs()) {
+    try {
+      await access(join(localInstallDir, 'node_modules', '.bin', 'openclaude'))
+      return true
+    } catch {
+      // Try next candidate
+    }
   }
+  return false
+}
+
+export async function getDetectedLocalInstallDir(): Promise<string | null> {
+  for (const localInstallDir of getCandidateLocalInstallDirs()) {
+    try {
+      await access(join(localInstallDir, 'node_modules', '.bin', 'openclaude'))
+      return localInstallDir
+    } catch {
+      // Try next candidate
+    }
+  }
+  return null
 }
 
 /**

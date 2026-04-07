@@ -1688,19 +1688,23 @@ export async function cleanupNpmInstallations(): Promise<{
     }
   }
 
-  // Check for local installation at ~/.openclaude/local
-  const localInstallDir = join(getClaudeConfigHomeDir(), 'local')
+  // Preserve compatibility with pre-migration installs under ~/.claude/local.
+  const localInstallDirs = Array.from(
+    new Set([join(getClaudeConfigHomeDir(), 'local'), join(homedir(), '.claude', 'local')]),
+  )
 
-  try {
-    await rm(localInstallDir, { recursive: true })
-    removed++
-    logForDebugging(`Removed local installation at ${localInstallDir}`)
-  } catch (error) {
-    if (!isENOENT(error)) {
-      errors.push(`Failed to remove ${localInstallDir}: ${error}`)
-      logForDebugging(`Failed to remove local installation: ${error}`, {
-        level: 'error',
-      })
+  for (const localInstallDir of localInstallDirs) {
+    try {
+      await rm(localInstallDir, { recursive: true })
+      removed++
+      logForDebugging(`Removed local installation at ${localInstallDir}`)
+    } catch (error) {
+      if (!isENOENT(error)) {
+        errors.push(`Failed to remove ${localInstallDir}: ${error}`)
+        logForDebugging(`Failed to remove local installation: ${error}`, {
+          level: 'error',
+        })
+      }
     }
   }
 

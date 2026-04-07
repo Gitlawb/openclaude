@@ -15,6 +15,7 @@ import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { execFileNoThrow } from './execFileNoThrow.js'
 import { getFsImplementation } from './fsOperations.js'
 import {
+  getDetectedLocalInstallDir,
   getShellType,
   isRunningFromLocalInstallation,
   localInstallationExists,
@@ -225,8 +226,8 @@ async function detectMultipleInstallations(): Promise<
   const installations: Array<{ type: string; path: string }> = []
 
   // Check for local installation
-  const localPath = join(getClaudeConfigHomeDir(), 'local')
-  if (await localInstallationExists()) {
+  const localPath = await getDetectedLocalInstallDir()
+  if (localPath) {
     installations.push({ type: 'npm-local', path: localPath })
   }
 

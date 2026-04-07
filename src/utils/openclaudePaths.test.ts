@@ -6,17 +6,14 @@ const originalEnv = { ...process.env }
 const originalArgv = [...process.argv]
 
 async function importFreshEnvUtils() {
-  mock.restore()
   return import(`./envUtils.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
 async function importFreshSettings() {
-  mock.restore()
   return import(`./settings/settings.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
 async function importFreshLocalInstaller() {
-  mock.restore()
   return import(`./localInstaller.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
@@ -29,16 +26,41 @@ afterEach(() => {
 describe('OpenClaude paths', () => {
   test('defaults user config home to ~/.openclaude', async () => {
     delete process.env.CLAUDE_CONFIG_DIR
-    const { getClaudeConfigHomeDir } = await importFreshEnvUtils()
+    const { resolveClaudeConfigHomeDir } = await importFreshEnvUtils()
 
-    expect(getClaudeConfigHomeDir()).toBe(join(homedir(), '.openclaude'))
+    expect(
+      resolveClaudeConfigHomeDir({
+        homeDir: homedir(),
+        openClaudeExists: true,
+        legacyClaudeExists: false,
+      }),
+    ).toBe(join(homedir(), '.openclaude'))
+  })
+
+  test('falls back to ~/.claude when legacy config exists and ~/.openclaude does not', async () => {
+    delete process.env.CLAUDE_CONFIG_DIR
+    const { resolveClaudeConfigHomeDir } = await importFreshEnvUtils()
+
+    expect(
+      resolveClaudeConfigHomeDir({
+        homeDir: homedir(),
+        openClaudeExists: false,
+        legacyClaudeExists: true,
+      }),
+    ).toBe(join(homedir(), '.claude'))
   })
 
   test('uses CLAUDE_CONFIG_DIR override when provided', async () => {
     process.env.CLAUDE_CONFIG_DIR = '/tmp/custom-openclaude'
-    const { getClaudeConfigHomeDir } = await importFreshEnvUtils()
+    const { getClaudeConfigHomeDir, resolveClaudeConfigHomeDir } =
+      await importFreshEnvUtils()
 
     expect(getClaudeConfigHomeDir()).toBe('/tmp/custom-openclaude')
+    expect(
+      resolveClaudeConfigHomeDir({
+        configDirEnv: '/tmp/custom-openclaude',
+      }),
+    ).toBe('/tmp/custom-openclaude')
   })
 
   test('project and local settings paths use .openclaude', async () => {
@@ -62,11 +84,38 @@ describe('OpenClaude paths', () => {
   })
 
   test('local installation detection matches .openclaude path', async () => {
-    process.argv[1] =
-      `${join(homedir(), '.openclaude', 'local')}/node_modules/.bin/openclaude`
-    const { isRunningFromLocalInstallation } =
+    const { isManagedLocalInstallationPath } =
       await importFreshLocalInstaller()
 
-    expect(isRunningFromLocalInstallation()).toBe(true)
+    expect(
+      isManagedLocalInstallationPath(
+        `${join(homedir(), '.openclaude', 'local')}/node_modules/.bin/openclaude`,
+      ),
+    ).toBe(true)
+  })
+
+  test('local installation detection still matches legacy .claude path', async () => {
+    const { isManagedLocalInstallationPath } =
+      await importFreshLocalInstaller()
+
+    expect(
+      isManagedLocalInstallationPath(
+        `${join(homedir(), '.claude', 'local')}/node_modules/.bin/openclaude`,
+      ),
+    ).toBe(true)
+  })
+
+  test('candidate local install dirs include both openclaude and legacy claude paths', async () => {
+    const { getCandidateLocalInstallDirs } = await importFreshLocalInstaller()
+
+    expect(
+      getCandidateLocalInstallDirs({
+        configHomeDir: join(homedir(), '.openclaude'),
+        homeDir: homedir(),
+      }),
+    ).toEqual([
+      join(homedir(), '.openclaude', 'local'),
+      join(homedir(), '.claude', 'local'),
+    ])
   })
 })
