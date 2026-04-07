@@ -8,6 +8,34 @@ import {
   validateProviderEnvOrExit,
 } from '../utils/providerValidation.js'
 
+// OpenClaude: polyfill globalThis.File for Node < 20.
+// undici v7 references `File` at module evaluation time (webidl type
+// assertions). Node 18 lacks the global, causing a ReferenceError inside
+// the bundled __commonJS require chain which deadlocks the process when a
+// proxy is configured (configureGlobalAgents → require_undici).
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+if (typeof globalThis.File === 'undefined') {
+  try {
+    // Node 18.13+ exposes File in node:buffer but not as a global.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { File: NodeFile } = require('node:buffer')
+    // @ts-expect-error -- polyfilling missing global
+    globalThis.File = NodeFile
+  } catch {
+    // Absolute fallback: stub so `MakeTypeAssertion(File)` doesn't throw.
+    // @ts-expect-error -- minimal polyfill
+    globalThis.File = class File extends Blob {
+      name: string
+      lastModified: number
+      constructor(parts: BlobPart[], name: string, opts?: FilePropertyBag) {
+        super(parts, opts)
+        this.name = name
+        this.lastModified = opts?.lastModified ?? Date.now()
+      }
+    }
+  }
+}
+
 // OpenClaude: disable experimental API betas by default.
 // Tool search (defer_loading), global cache scope, and context management
 // require internal API support not available to external accounts → 500.
