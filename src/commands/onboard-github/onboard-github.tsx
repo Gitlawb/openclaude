@@ -55,15 +55,29 @@ export function shouldForceGithubRelogin(args?: string): boolean {
   return normalized.split(/\s+/).some(arg => FORCE_RELOGIN_ARGS.has(arg))
 }
 
+const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_','ghs_', 'ghr_', 'github_pat_']
+
+function isGithubPat(token: string): boolean {
+  return GITHUB_PAT_PREFIXES.some(prefix => token.startsWith(prefix))
+}
+
 export function hasExistingGithubModelsLoginToken(
   env: NodeJS.ProcessEnv = process.env,
   storedToken?: string,
 ): boolean {
   const envToken = env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()
   if (envToken) {
+    // PATs are no longer supported - require OAuth re-auth
+    if (isGithubPat(envToken)) {
+      return false
+    }
     return true
   }
   const persisted = (storedToken ?? readGithubModelsToken())?.trim()
+  // PATs are no longer supported - require OAuth re-auth
+  if (persisted && isGithubPat(persisted)) {
+    return false
+  }
   return Boolean(persisted)
 }
 

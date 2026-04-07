@@ -17,11 +17,12 @@ function isEnvTruthy(value: string | undefined): boolean {
 
 type GithubTokenStatus = 'valid' | 'expired' | 'invalid_format'
 
-const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_', 'github_pat_']
+const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_', 'ghs_', 'ghr_', 'github_pat_']
 
 function checkGithubTokenStatus(token: string): GithubTokenStatus {
+  // PATs are no longer supported - Copilot API requires OAuth-derived tokens
   if (GITHUB_PAT_PREFIXES.some(prefix => token.startsWith(prefix))) {
-    return 'valid'
+    return 'expired'
   }
 
   const expMatch = token.match(/exp=(\d+)/)

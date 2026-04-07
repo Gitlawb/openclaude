@@ -298,7 +298,7 @@ export function isCodexBaseUrl(baseUrl: string | undefined): boolean {
  * Normalize user model string for GitHub Copilot API inference.
  * Mirrors how Copilot resolves model IDs internally.
  */
-export function normalizeGithubModelsApiModel(requestedModel: string): string {
+export function normalizeGithubCopilotModel(requestedModel: string): string {
   const noQuery = requestedModel.split('?', 1)[0] ?? requestedModel
   const segment =
     noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
@@ -310,6 +310,22 @@ export function normalizeGithubModelsApiModel(requestedModel: string): string {
   if (slashIndex !== -1) {
     return segment.slice(slashIndex + 1)
   }
+  return segment
+}
+
+/**
+ * Normalize user model string for GitHub Models API inference.
+ * Only normalizes the default alias, preserves provider-qualified models.
+ */
+export function normalizeGithubModelsApiModel(requestedModel: string): string {
+  const noQuery = requestedModel.split('?', 1)[0] ?? requestedModel
+  const segment =
+    noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
+  // Only normalize the default alias for GitHub Models
+  if (!segment || segment.toLowerCase() === 'copilot') {
+    return DEFAULT_GITHUB_MODELS_API_MODEL
+  }
+  // Preserve provider prefix for GitHub Models (e.g., "openai/gpt-4.1" stays as-is)
   return segment
 }
 
@@ -369,11 +385,12 @@ export function resolveProviderRequest(options?: {
       ? 'codex_responses'
       : 'chat_completions'
 
-  // For GitHub Models/custom endpoints, preserve model prefix (e.g., "openai/gpt-4.1")
-  // For Copilot API, normalize to real model ID
-  // For GitHub Models, also need to normalize the default alias to a real model ID
+  // For GitHub Copilot API, normalize to real model ID (e.g., "github:copilot" -> "gpt-4o")
+  // For GitHub Models/custom endpoints:
+  //   - Normalize default alias (github:copilot -> gpt-4o)
+  //   - Preserve provider-qualified models (openai/gpt-4.1 stays as-is)
   const resolvedModel = isGithubCopilot
-    ? normalizeGithubModelsApiModel(descriptor.baseModel)
+    ? normalizeGithubCopilotModel(descriptor.baseModel)
     : (isGithubModels || isGithubCustom
       ? normalizeGithubModelsApiModel(descriptor.baseModel)
       : descriptor.baseModel)

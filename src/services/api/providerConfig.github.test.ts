@@ -23,8 +23,9 @@ test.each([
   ['github:gpt-4o', 'gpt-4o'],
   ['gpt-4o', 'gpt-4o'],
   ['github:copilot?reasoning=high', DEFAULT_GITHUB_MODELS_API_MODEL],
-  ['github:openai/gpt-4.1', 'gpt-4.1'],
-  ['openai/gpt-4.1', 'gpt-4.1'],
+  // normalizeGithubModelsApiModel preserves provider prefix for models.github.ai compatibility
+  ['github:openai/gpt-4.1', 'openai/gpt-4.1'],
+  ['openai/gpt-4.1', 'openai/gpt-4.1'],
 ] as const)('normalizeGithubModelsApiModel(%s) -> %s', (input, expected) => {
   expect(normalizeGithubModelsApiModel(input)).toBe(expected)
 })
