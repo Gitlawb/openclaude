@@ -34,6 +34,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
+          cache-dependency-path: python/requirements.txt
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
