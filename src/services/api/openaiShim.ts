@@ -1102,24 +1102,10 @@ async function* injectGenerationStats(
     throw err
   }
 
-  // Stream exhausted — flush any remaining buffered message_stop
-  // First, try to wait for stats if we haven't settled yet
-  if (!statsSettled && yieldedDeltaWithoutUsage) {
-    try {
-      // Wait for stats (up to 5s timeout, but user won't see this delay
-      // since the stream already completed - this just ensures we eventually
-      // get the stats for the follow-up delta)
-      const finalStats = await statsWithTimeout
-      if (finalStats) {
-        resolved = finalStats
-        statsSettled = true
-      }
-    } catch {
-      // Ignore errors on final attempt
-    }
-  }
-
-  // Emit follow-up message_delta with stats BEFORE message_stop
+  // Stream exhausted — if stats have already resolved, inject a follow-up
+  // message_delta with the stats BEFORE message_stop. But we don't wait for
+  // stats here to avoid blocking stream completion - the 5-second timeout
+  // is handled by statsWithTimeout resolving to null.
   if (statsSettled && resolved && yieldedDeltaWithoutUsage) {
     yield {
       type: 'message_delta',
@@ -1129,7 +1115,7 @@ async function* injectGenerationStats(
     yieldedDeltaWithoutUsage = false
   }
 
-  // Finally yield the message_stop
+  // Finally yield the message_stop (always last)
   if (bufferedMessageStop) {
     yield bufferedMessageStop
   }

@@ -614,11 +614,13 @@ test('coalesces consecutive user messages to avoid alternation errors (issue #20
     stream: false,
   })
 
-  // PR #350 removed message coalescing - messages are now passed through as-is
-  expect(sentMessages?.length).toBe(3) // system + 2 user messages (no coalescing)
+  // Coalescing is still active: consecutive user messages are merged to maintain
+  // strict user↔assistant alternation required by OpenAI/vLLM/Ollama
+  expect(sentMessages?.length).toBe(2) // system + 1 coalesced user message
   expect(sentMessages?.[0]?.role).toBe('system')
   expect(sentMessages?.[1]?.role).toBe('user')
-  expect(sentMessages?.[2]?.role).toBe('user')
+  expect(sentMessages?.[1]?.content).toContain('first message')
+  expect(sentMessages?.[1]?.content).toContain('second message')
 })
 
 test('coalesces consecutive assistant messages preserving tool_calls (issue #202)', async () => {
@@ -647,9 +649,9 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
     stream: false,
   })
 
-  // PR #350 removed message coalescing - assistant messages are now passed through as-is
+  // Coalescing is still active: consecutive assistant messages are merged
   const assistantMsgs = sentMessages?.filter(m => m.role === 'assistant')
-  expect(assistantMsgs?.length).toBe(2) // two separate assistant turns (no coalescing)
+  expect(assistantMsgs?.length).toBe(1) // two assistant turns coalesced into one
 })
 
 test('prefers native token counts over standard token counts in streaming usage', async () => {
