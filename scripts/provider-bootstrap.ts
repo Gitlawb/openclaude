@@ -156,15 +156,17 @@ async function main(): Promise<void> {
     if (!builtEnv) {
       const credentials = resolveCodexApiCredentials(process.env)
       const authHint = credentials.authPath
-        ? ` or make sure ${credentials.authPath} exists`
+        ? `make sure ${credentials.authPath} exists`
         : ''
       if (!credentials.apiKey) {
         console.error('Codex profile requires an API key.')
         console.error('')
         console.error('Set CODEX_API_KEY in your .env file:')
         console.error('  CODEX_API_KEY=your-key-here')
-        console.error('')
-        console.error(`Alternative: ${authHint}`)
+        if (authHint) {
+          console.error('')
+          console.error(`Alternative: ${authHint}`)
+        }
       } else {
         console.error('Codex profile requires CHATGPT_ACCOUNT_ID or an auth.json that includes it.')
       }

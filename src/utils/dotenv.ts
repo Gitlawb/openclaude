@@ -16,7 +16,14 @@ export function loadDotEnvFile(cwd?: string): void {
   const envPath = resolve(cwd ?? process.cwd(), '.env')
   if (!existsSync(envPath)) return
 
-  const content = readFileSync(envPath, 'utf8')
+  let content: string
+  try {
+    content = readFileSync(envPath, 'utf8')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`Warning: Failed to read .env file at ${envPath}: ${message}`)
+    return
+  }
   
   for (const line of content.split('\n')) {
     const trimmed = line.trim()
@@ -34,8 +41,14 @@ export function loadDotEnvFile(cwd?: string): void {
     // Handle quoted values
     const trimmedValue = value.trim()
     if (trimmedValue.startsWith('"')) {
-      // Double-quoted: find closing quote
-      const endQuote = trimmedValue.indexOf('"', 1)
+      // Double-quoted: find unescaped closing quote
+      let endQuote = -1
+      for (let i = 1; i < trimmedValue.length; i++) {
+        if (trimmedValue[i] === '"' && trimmedValue[i - 1] !== '\\') {
+          endQuote = i
+          break
+        }
+      }
       if (endQuote !== -1) {
         value = trimmedValue.slice(1, endQuote)
         // Handle escape sequences in double-quoted strings

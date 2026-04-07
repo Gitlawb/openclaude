@@ -649,7 +649,10 @@ export async function buildLaunchEnv(options: {
     (usePersistedOpenAIConfig ? persistedOpenAIModel : undefined) ||
     defaultOpenAIModel
   // SECURITY: Use only shell/env key, never persisted
-  env.OPENAI_API_KEY = processEnv.OPENAI_API_KEY
+  // Only set if defined to avoid propagating undefined via Object.assign
+  if (processEnv.OPENAI_API_KEY) {
+    env.OPENAI_API_KEY = processEnv.OPENAI_API_KEY
+  }
   delete env.CODEX_API_KEY
   delete env.CHATGPT_ACCOUNT_ID
   delete env.CODEX_ACCOUNT_ID
