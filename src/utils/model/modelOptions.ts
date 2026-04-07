@@ -363,6 +363,18 @@ function getCopilotModelOptions(): ModelOption[] {
 }
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  if (getAPIProvider() === 'github') {
+    const githubModel = process.env.OPENAI_MODEL?.trim() || 'github:copilot'
+    return [
+      getDefaultOptionForUser(fastMode),
+      {
+        value: githubModel,
+        label: githubModel,
+        description: 'GitHub Models default',
+      },
+    ]
+  }
+
   // When using Ollama, show models from the Ollama server instead of Claude models
   if (getAPIProvider() === 'openai' && isOllamaProvider()) {
     const defaultOption = getDefaultOptionForUser(fastMode)
@@ -595,6 +607,10 @@ function getKnownModelOption(model: string): ModelOption | null {
 }
 
 export function getModelOptions(fastMode = false): ModelOption[] {
+  if (getAPIProvider() === 'github') {
+    return filterModelOptionsByAllowlist(getModelOptionsBase(fastMode))
+  }
+
   const options = getModelOptionsBase(fastMode)
 
   // Add the custom model from the ANTHROPIC_CUSTOM_MODEL_OPTION env var

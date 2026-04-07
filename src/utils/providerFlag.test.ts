@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   parseProviderFlag,
   applyProviderFlag,
@@ -23,6 +23,24 @@ const originalEnv: Record<string, string | undefined> = {}
 beforeEach(() => {
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
+    delete process.env[key]
+  }
+})
+
+const RESET_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'GEMINI_MODEL',
+] as const
+
+beforeEach(() => {
+  for (const key of RESET_KEYS) {
     delete process.env[key]
   }
 })

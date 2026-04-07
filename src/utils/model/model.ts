@@ -84,7 +84,9 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     const provider = getAPIProvider()
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
-      (provider === 'openai' || provider === 'gemini' ? process.env.OPENAI_MODEL : undefined) ||
+      (provider === 'openai' || provider === 'gemini' || provider === 'github'
+        ? process.env.OPENAI_MODEL
+        : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
       settings.model ||
       undefined
@@ -256,6 +258,10 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
+  }
+  // GitHub provider: always use the configured GitHub model
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
   }
   // Codex provider: always use the configured Codex model (default gpt-5.4)
   if (getAPIProvider() === 'codex') {

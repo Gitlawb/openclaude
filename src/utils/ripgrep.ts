@@ -1,5 +1,6 @@
 import type { ChildProcess, ExecFileException } from 'child_process'
 import { execFile, spawn } from 'child_process'
+import { existsSync } from 'fs'
 import memoize from 'lodash-es/memoize.js'
 import { homedir } from 'os'
 import * as path from 'path'
@@ -30,40 +31,72 @@ type RipgrepConfig = {
 
 type RipgrepErrorLike = Pick<NodeJS.ErrnoException, 'code' | 'message'>
 
-const getRipgrepConfig = memoize((): RipgrepConfig => {
-  const userWantsSystemRipgrep = isEnvDefinedFalsy(
-    process.env.USE_BUILTIN_RIPGREP,
-  )
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error
+}
 
-  // Try system ripgrep if user wants it
-  if (userWantsSystemRipgrep) {
-    const { cmd: systemPath } = findExecutable('rg', [])
-    if (systemPath !== 'rg') {
-      // SECURITY: Use command name 'rg' instead of systemPath to prevent PATH hijacking
-      // If we used systemPath, a malicious ./rg.exe in current directory could be executed
-      // Using just 'rg' lets the OS resolve it safely with NoDefaultCurrentDirectoryInExePath protection
-      return { mode: 'system', command: 'rg', args: [] }
-    }
+type ResolveRipgrepConfigArgs = {
+  userWantsSystemRipgrep: boolean
+  bundledMode: boolean
+  builtinCommand: string
+  builtinExists: boolean
+  systemExecutablePath: string
+  processExecPath?: string
+}
+
+export function resolveRipgrepConfig({
+  userWantsSystemRipgrep,
+  bundledMode,
+  builtinCommand,
+  builtinExists,
+  systemExecutablePath,
+  processExecPath = process.execPath,
+}: ResolveRipgrepConfigArgs): RipgrepConfig {
+  if (userWantsSystemRipgrep && systemExecutablePath !== 'rg') {
+    // SECURITY: Use command name 'rg' instead of systemExecutablePath to prevent PATH hijacking
+    return { mode: 'system', command: 'rg', args: [] }
   }
 
-  // In bundled (native) mode, ripgrep is statically compiled into bun-internal
-  // and dispatches based on argv[0]. We spawn ourselves with argv0='rg'.
-  if (isInBundledMode()) {
+  if (bundledMode) {
     return {
       mode: 'embedded',
-      command: process.execPath,
+      command: processExecPath,
       args: ['--no-config'],
       argv0: 'rg',
     }
   }
 
+  if (builtinExists) {
+    return { mode: 'builtin', command: builtinCommand, args: [] }
+  }
+
+  if (systemExecutablePath !== 'rg') {
+    return { mode: 'system', command: 'rg', args: [] }
+  }
+
+  return { mode: 'builtin', command: builtinCommand, args: [] }
+}
+
+const getRipgrepConfig = memoize((): RipgrepConfig => {
+  const userWantsSystemRipgrep = isEnvDefinedFalsy(
+    process.env.USE_BUILTIN_RIPGREP,
+  )
+  const bundledMode = isInBundledMode()
   const rgRoot = path.resolve(__dirname, 'vendor', 'ripgrep')
-  const command =
+  const builtinCommand =
     process.platform === 'win32'
       ? path.resolve(rgRoot, `${process.arch}-win32`, 'rg.exe')
       : path.resolve(rgRoot, `${process.arch}-${process.platform}`, 'rg')
+  const builtinExists = existsSync(builtinCommand)
+  const { cmd: systemExecutablePath } = findExecutable('rg', [])
 
-  return { mode: 'builtin', command, args: [] }
+  return resolveRipgrepConfig({
+    userWantsSystemRipgrep,
+    bundledMode,
+    builtinCommand,
+    builtinExists,
+    systemExecutablePath,
+  })
 })
 
 export function ripgrepCommand(): {
@@ -324,7 +357,9 @@ async function ripGrepFileCount(
       if (settled) return
       settled = true
       reject(
-        err.code === 'ENOENT' ? wrapRipgrepUnavailableError(err) : err,
+        isErrnoException(err) && err.code === 'ENOENT'
+          ? wrapRipgrepUnavailableError(err)
+          : err,
       )
     })
   })
@@ -388,7 +423,9 @@ export async function ripGrepStream(
       if (settled) return
       settled = true
       reject(
-        err.code === 'ENOENT' ? wrapRipgrepUnavailableError(err) : err,
+        isErrnoException(err) && err.code === 'ENOENT'
+          ? wrapRipgrepUnavailableError(err)
+          : err,
       )
     })
   })
@@ -436,7 +473,9 @@ export async function ripGrep(
       const CRITICAL_ERROR_CODES = ['ENOENT', 'EACCES', 'EPERM']
       if (CRITICAL_ERROR_CODES.includes(error.code as string)) {
         reject(
-          error.code === 'ENOENT' ? wrapRipgrepUnavailableError(error) : error,
+          isErrnoException(error) && error.code === 'ENOENT'
+            ? wrapRipgrepUnavailableError(error)
+            : error,
         )
         return
       }

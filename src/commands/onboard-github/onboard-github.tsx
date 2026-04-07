@@ -12,11 +12,20 @@ import {
 import type { LocalJSXCommandCall } from '../../types/command.js'
 import {
   hydrateGithubModelsTokenFromSecureStorage,
+  readGithubModelsToken,
   saveGithubModelsToken,
 } from '../../utils/githubModelsCredentials.js'
 import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js'
 
 const DEFAULT_MODEL = 'github:copilot'
+const FORCE_RELOGIN_ARGS = new Set([
+  'force',
+  '--force',
+  'relogin',
+  '--relogin',
+  'reauth',
+  '--reauth',
+])
 
 type Step = 'menu' | 'device-busy' | 'error'
 
@@ -36,6 +45,69 @@ const PROVIDER_SPECIFIC_KEYS = new Set([
   'GEMINI_ACCESS_TOKEN',
   'GEMINI_AUTH_MODE',
 ])
+
+export function shouldForceGithubRelogin(args?: string): boolean {
+  const normalized = (args ?? '').trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+  return normalized.split(/\s+/).some(arg => FORCE_RELOGIN_ARGS.has(arg))
+}
+
+export function hasExistingGithubModelsLoginToken(
+  env: NodeJS.ProcessEnv = process.env,
+  storedToken?: string,
+): boolean {
+  const envToken = env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()
+  if (envToken) {
+    return true
+  }
+  const persisted = (storedToken ?? readGithubModelsToken())?.trim()
+  return Boolean(persisted)
+}
+
+export function buildGithubOnboardingSettingsEnv(
+  model: string,
+): Record<string, string | undefined> {
+  return {
+    CLAUDE_CODE_USE_GITHUB: '1',
+    OPENAI_MODEL: model,
+    OPENAI_API_KEY: undefined,
+    OPENAI_ORG: undefined,
+    OPENAI_PROJECT: undefined,
+    OPENAI_ORGANIZATION: undefined,
+    OPENAI_BASE_URL: undefined,
+    OPENAI_API_BASE: undefined,
+    CLAUDE_CODE_USE_OPENAI: undefined,
+    CLAUDE_CODE_USE_GEMINI: undefined,
+    CLAUDE_CODE_USE_BEDROCK: undefined,
+    CLAUDE_CODE_USE_VERTEX: undefined,
+    CLAUDE_CODE_USE_FOUNDRY: undefined,
+  }
+}
+
+export function applyGithubOnboardingProcessEnv(
+  model: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  env.CLAUDE_CODE_USE_GITHUB = '1'
+  env.OPENAI_MODEL = model
+
+  delete env.OPENAI_API_KEY
+  delete env.OPENAI_ORG
+  delete env.OPENAI_PROJECT
+  delete env.OPENAI_ORGANIZATION
+  delete env.OPENAI_BASE_URL
+  delete env.OPENAI_API_BASE
+
+  delete env.CLAUDE_CODE_USE_OPENAI
+  delete env.CLAUDE_CODE_USE_GEMINI
+  delete env.CLAUDE_CODE_USE_BEDROCK
+  delete env.CLAUDE_CODE_USE_VERTEX
+  delete env.CLAUDE_CODE_USE_FOUNDRY
+  delete env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+}
 
 function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
   const currentSettings = getSettingsForSource('userSettings')
@@ -57,6 +129,32 @@ function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
   if (error) {
     return { ok: false, detail: error.message }
   }
+  return { ok: true }
+}
+
+export function activateGithubOnboardingMode(
+  model: string = DEFAULT_MODEL,
+  options?: {
+    mergeSettingsEnv?: (model: string) => { ok: boolean; detail?: string }
+    applyProcessEnv?: (model: string) => void
+    hydrateToken?: () => void
+    onChangeAPIKey?: () => void
+  },
+): { ok: boolean; detail?: string } {
+  const normalizedModel = model.trim() || DEFAULT_MODEL
+  const mergeSettingsEnv = options?.mergeSettingsEnv ?? mergeUserSettingsEnv
+  const applyProcessEnv = options?.applyProcessEnv ?? applyGithubOnboardingProcessEnv
+  const hydrateToken =
+    options?.hydrateToken ?? hydrateGithubModelsTokenFromSecureStorage
+
+  const merged = mergeSettingsEnv(normalizedModel)
+  if (!merged.ok) {
+    return merged
+  }
+
+  applyProcessEnv(normalizedModel)
+  hydrateToken()
+  options?.onChangeAPIKey?.()
   return { ok: true }
 }
 
@@ -84,10 +182,12 @@ function OnboardGithub(props: {
         setStep('error')
         return
       }
-      const merged = mergeUserSettingsEnv(model.trim() || DEFAULT_MODEL)
-      if (!merged.ok) {
+      const activated = activateGithubOnboardingMode(model, {
+        onChangeAPIKey,
+      })
+      if (!activated.ok) {
         setErrorMsg(
-          `Token saved, but settings were not updated: ${merged.detail ?? 'unknown error'}. ` +
+          `Token saved, but settings were not updated: ${activated.detail ?? 'unknown error'}. ` +
             `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.claude/settings.json manually.`,
         )
         setStep('error')
@@ -174,11 +274,11 @@ function OnboardGithub(props: {
               {deviceHint.verification_uri}
             </Text>
             <Text dimColor>
-              A browser window may have opened. Waiting for authorization…
+              A browser window may have opened. Waiting for authorization...
             </Text>
           </>
         ) : (
-          <Text dimColor>Requesting device code from GitHub…</Text>
+          <Text dimColor>Requesting device code from GitHub...</Text>
         )}
         <Spinner />
       </Box>
@@ -200,9 +300,9 @@ function OnboardGithub(props: {
     <Box flexDirection="column" gap={1}>
       <Text bold>GitHub Copilot setup</Text>
       <Text dimColor>
-        Sign in with your GitHub account to use Copilot models (GPT-4o, GPT-5,
-        Claude, Gemini, and more). Your OAuth token is stored securely and
-        exchanged for a Copilot API token automatically.
+        Stores your token in the OS credential store (macOS Keychain when available)
+        and enables CLAUDE_CODE_USE_GITHUB in your user settings - no export
+        GITHUB_TOKEN needed for future runs.
       </Text>
       <Select
         options={menuOptions}
@@ -218,7 +318,28 @@ function OnboardGithub(props: {
   )
 }
 
-export const call: LocalJSXCommandCall = async (onDone, context) => {
+export const call: LocalJSXCommandCall = async (onDone, context, args) => {
+  const forceRelogin = shouldForceGithubRelogin(args)
+  if (hasExistingGithubModelsLoginToken() && !forceRelogin) {
+    const activated = activateGithubOnboardingMode(DEFAULT_MODEL, {
+      onChangeAPIKey: context.onChangeAPIKey,
+    })
+    if (!activated.ok) {
+      onDone(
+        `GitHub token detected, but settings activation failed: ${activated.detail ?? 'unknown error'}. ` +
+          'Set CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL=github:copilot in user settings manually.',
+        { display: 'system' },
+      )
+      return null
+    }
+
+    onDone(
+      'GitHub Models already authorized. Activated GitHub Models mode using your existing token. Use /onboard-github --force to re-authenticate.',
+      { display: 'user' },
+    )
+    return null
+  }
+
   return (
     <OnboardGithub
       onDone={onDone}
