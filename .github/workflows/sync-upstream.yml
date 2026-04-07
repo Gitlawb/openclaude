@@ -1,0 +1,157 @@
+# .github/workflows/sync-upstream.yml
+#
+# AUTO-SYNC from Gitlawb/openclaude → your fork
+#
+# • Runs on first push after fork, then every 3 hours
+# • Pulls all upstream changes EXCEPT src/tools/WebSearchTool/WebSearchTool.ts
+#   (your custom version is always preserved)
+# • Opens a PR if there are changes (safe review) — or set AUTO_MERGE=true
+#   in repo vars to merge automatically
+#
+# SETUP STEPS (one-time):
+#   1. Fork https://github.com/Gitlawb/openclaude
+#   2. In your fork → Settings → Actions → General
+#      → set "Workflow permissions" to "Read and write permissions"
+#   3. Drop this file at  .github/workflows/sync-upstream.yml
+#   4. Commit your custom WebSearchTool.ts at
+#      src/tools/WebSearchTool/WebSearchTool.ts
+#   5. That's it — GitHub will pick up the schedule automatically.
+
+name: Sync Upstream openclaude
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"   # every 3 hours
+  workflow_dispatch:          # manual trigger from the Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Pull upstream changes (skip WebSearchTool)
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout your fork ──────────────────────────────────────────────
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history needed for merge
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Configure git identity ──────────────────────────────────────────
+      - name: Git config
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # ── 3. Add upstream remote ─────────────────────────────────────────────
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/Gitlawb/openclaude.git || true
+          git fetch upstream
+
+      # ── 4. Save your custom WebSearchTool before any merge ─────────────────
+      - name: Backup custom WebSearchTool
+        run: |
+          mkdir -p /tmp/backup
+          cp src/tools/WebSearchTool/WebSearchTool.ts /tmp/backup/WebSearchTool.ts
+          echo "✅ Custom WebSearchTool backed up"
+
+      # ── 5. Merge upstream/main into a sync branch ──────────────────────────
+      - name: Create sync branch & merge upstream
+        id: merge
+        run: |
+          BRANCH="sync/upstream-$(date +%Y%m%d-%H%M)"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          git checkout -b "$BRANCH"
+
+          # Attempt merge; allow unrelated histories (first sync)
+          if git merge upstream/main \
+              --no-edit \
+              --strategy-option=theirs \
+              --allow-unrelated-histories; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            git merge --abort || true
+            echo "⚠️  Merge conflict — manual resolution required."
+            exit 0
+          fi
+
+      # ── 6. Restore your custom WebSearchTool (override whatever upstream had)
+      - name: Restore custom WebSearchTool
+        if: steps.merge.outputs.merged == 'true'
+        run: |
+          cp /tmp/backup/WebSearchTool.ts src/tools/WebSearchTool/WebSearchTool.ts
+          git add src/tools/WebSearchTool/WebSearchTool.ts
+
+          # Only commit if the restore actually changed something
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: restore custom WebSearchTool after upstream sync"
+            echo "✅ Custom WebSearchTool restored and committed"
+          else
+            echo "ℹ️  WebSearchTool unchanged after sync — no extra commit needed"
+          fi
+
+      # ── 7. Check whether there's anything new to push ─────────────────────
+      - name: Check for changes
+        if: steps.merge.outputs.merged == 'true'
+        id: diff
+        run: |
+          COUNT=$(git rev-list --count origin/main..HEAD)
+          echo "commit_count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "New commits ahead of main: $COUNT"
+
+      # ── 8a. Auto-merge if AUTO_MERGE var is set ────────────────────────────
+      - name: Push directly to main (auto-merge)
+        if: >
+          steps.merge.outputs.merged == 'true' &&
+          steps.diff.outputs.commit_count != '0' &&
+          vars.AUTO_MERGE == 'true'
+        run: |
+          git checkout main
+          git merge "${{ steps.merge.outputs.branch }}" --no-edit
+          git push origin main
+          echo "✅ Auto-merged upstream changes into main"
+
+      # ── 8b. Open a PR for review (default, safe) ──────────────────────────
+      - name: Push sync branch
+        if: >
+          steps.merge.outputs.merged == 'true' &&
+          steps.diff.outputs.commit_count != '0' &&
+          vars.AUTO_MERGE != 'true'
+        run: |
+          git push origin "${{ steps.merge.outputs.branch }}"
+
+      - name: Open Pull Request
+        if: >
+          steps.merge.outputs.merged == 'true' &&
+          steps.diff.outputs.commit_count != '0' &&
+          vars.AUTO_MERGE != 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.merge.outputs.branch }}
+          base: main
+          title: "⬆️ Sync upstream openclaude (${{ github.run_id }})"
+          body: |
+            Automated sync from [Gitlawb/openclaude](https://github.com/Gitlawb/openclaude).
+
+            **Your custom `WebSearchTool.ts` has been preserved** — upstream's version was discarded.
+
+            Changes pulled from upstream:
+            - All modified files EXCEPT `src/tools/WebSearchTool/WebSearchTool.ts`
+
+            Review and merge when ready.
+          labels: "upstream-sync,automated"
+
+      # ── 9. No-op message if nothing changed ───────────────────────────────
+      - name: Nothing to sync
+        if: >
+          steps.merge.outputs.merged == 'true' &&
+          steps.diff.outputs.commit_count == '0'
+        run: echo "✅ Already up-to-date with upstream. Nothing to do."
