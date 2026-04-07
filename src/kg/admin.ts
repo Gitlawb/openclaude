@@ -75,8 +75,8 @@ function cmdForget(agentId: string, id: string): void {
 
 function cmdWipe(agentId: string): void {
   const db = getDb(agentId)
-  const { changes: nodes } = db.query(`DELETE FROM nodes`).run()
   const { changes: edges } = db.query(`DELETE FROM edges`).run()
+  const { changes: nodes } = db.query(`DELETE FROM nodes`).run()
   console.log(`Wiped ${nodes} nodes and ${edges} edges from agent "${agentId}".`)
 }
 

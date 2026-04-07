@@ -181,6 +181,59 @@ export function seedDefaults(agentId = 'default'): void {
     weight: 1.0,
   })
 
+  // ── Kiwix (ZIM offline reference library) ──────────────────────────────────
+  const kiwixToolId = upsertNode(db, {
+    type: 'tool',
+    label: 'mcp__mad-lab-memory__kiwix_search',
+    content: [
+      'Query offline ZIM archives via Kiwix (mad-lab-memory MCP server).',
+      'Available corpora on /mnt/hdd:',
+      '  - Wikipedia (115GB, English, full text)',
+      '  - StackOverflow (programming Q&A)',
+      '  - Math, Stats, Quant, RPG, SoftEng StackExchange',
+      '',
+      'Use for: authoritative definitions, algorithm explanations, established',
+      'techniques, historical context, domain knowledge. Fully offline — fast,',
+      'no rate limits, no hallucination risk on well-documented topics.',
+      '',
+      'Prefer this over web search for topics well-covered by Wikipedia or SO.',
+    ].join('\n'),
+    created_at: now,
+    valid_until: null,
+    stale: 0,
+  })
+
+  const kiwixEx1Id = upsertNode(db, {
+    type: 'example',
+    label: 'Look up an algorithm on Wikipedia',
+    content: 'mcp__mad-lab-memory__kiwix_search({ query: "Viterbi algorithm", corpus: "wikipedia" })',
+    created_at: now,
+    valid_until: null,
+    stale: 0,
+  })
+
+  const kiwixEx2Id = upsertNode(db, {
+    type: 'example',
+    label: 'Search StackOverflow for a coding pattern',
+    content: 'mcp__mad-lab-memory__kiwix_search({ query: "SQLite WAL mode concurrent reads", corpus: "stackoverflow" })',
+    created_at: now,
+    valid_until: null,
+    stale: 0,
+  })
+
+  const kiwixEx3Id = upsertNode(db, {
+    type: 'example',
+    label: 'Look up a financial concept on Quant SE',
+    content: 'mcp__mad-lab-memory__kiwix_search({ query: "Kelly criterion position sizing", corpus: "quant" })',
+    created_at: now,
+    valid_until: null,
+    stale: 0,
+  })
+
+  upsertEdge(db, { from_id: kiwixToolId, to_id: kiwixEx1Id, type: 'HAS_EXAMPLE', weight: 1.0 })
+  upsertEdge(db, { from_id: kiwixToolId, to_id: kiwixEx2Id, type: 'HAS_EXAMPLE', weight: 1.0 })
+  upsertEdge(db, { from_id: kiwixToolId, to_id: kiwixEx3Id, type: 'HAS_EXAMPLE', weight: 1.0 })
+
   console.log(`[kg] seeded agent "${agentId}" with defaults`)
 }
 
