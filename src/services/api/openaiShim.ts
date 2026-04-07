@@ -1200,6 +1200,9 @@ class OpenAIShimMessages {
 
     if (isGithubCopilot) {
       Object.assign(headers, COPILOT_HEADERS)
+    } else if (isGithubModels) {
+      headers['Accept'] = 'application/vnd.github+json'
+      headers['X-GitHub-Api-Version'] = '2022-11-28'
     }
 
     // Build the chat completions URL

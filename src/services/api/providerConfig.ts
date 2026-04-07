@@ -370,10 +370,13 @@ export function resolveProviderRequest(options?: {
       : 'chat_completions'
 
   // For GitHub Models/custom endpoints, preserve model prefix (e.g., "openai/gpt-4.1")
-  // Only normalize for Copilot API
+  // For Copilot API, normalize to real model ID
+  // For GitHub Models, also need to normalize the default alias to a real model ID
   const resolvedModel = isGithubCopilot
     ? normalizeGithubModelsApiModel(descriptor.baseModel)
-    : descriptor.baseModel
+    : (isGithubModels || isGithubCustom
+      ? normalizeGithubModelsApiModel(descriptor.baseModel)
+      : descriptor.baseModel)
 
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
