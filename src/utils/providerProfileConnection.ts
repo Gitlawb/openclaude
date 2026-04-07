@@ -28,19 +28,48 @@ function setOptionalEnvValue(key: string, value: string | undefined): void {
   }
 }
 
+function deleteEnvKeys(keys: string[]): void {
+  for (const key of keys) {
+    delete process.env[key]
+  }
+}
+
+function restoreProcessEnv(snapshot: NodeJS.ProcessEnv): void {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in snapshot)) {
+      delete process.env[key]
+    }
+  }
+
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
+}
+
 function applyProfileToProcessEnv(input: ProviderProfileInput): void {
-  delete process.env.CLAUDE_CODE_USE_GEMINI
-  delete process.env.CLAUDE_CODE_USE_GITHUB
-  delete process.env.CLAUDE_CODE_USE_BEDROCK
-  delete process.env.CLAUDE_CODE_USE_VERTEX
-  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  deleteEnvKeys([
+    'CLAUDE_CODE_USE_GEMINI',
+    'CLAUDE_CODE_USE_GITHUB',
+    'CLAUDE_CODE_USE_BEDROCK',
+    'CLAUDE_CODE_USE_VERTEX',
+    'CLAUDE_CODE_USE_FOUNDRY',
+    'OPENAI_ORG',
+    'OPENAI_PROJECT',
+    'OPENAI_ORGANIZATION',
+  ])
 
   if (input.provider === 'anthropic') {
-    delete process.env.CLAUDE_CODE_USE_OPENAI
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_API_BASE
-    delete process.env.OPENAI_MODEL
-    delete process.env.OPENAI_API_KEY
+    deleteEnvKeys([
+      'CLAUDE_CODE_USE_OPENAI',
+      'OPENAI_BASE_URL',
+      'OPENAI_API_BASE',
+      'OPENAI_MODEL',
+      'OPENAI_API_KEY',
+    ])
 
     process.env.ANTHROPIC_BASE_URL = trimValue(input.baseUrl)
     process.env.ANTHROPIC_MODEL = trimValue(input.model)
@@ -99,6 +128,6 @@ export async function testProviderProfileConnection(
       message: error instanceof Error ? error.message : String(error),
     }
   } finally {
-    process.env = previousEnv
+    restoreProcessEnv(previousEnv)
   }
 }

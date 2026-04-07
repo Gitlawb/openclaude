@@ -24,6 +24,7 @@ describe('testProviderProfileConnection', () => {
     process.env.OPENAI_BASE_URL = 'https://api.example.com/v1'
     process.env.OPENAI_MODEL = 'old-model'
     process.env.OPENAI_API_KEY = 'old-key'
+    process.env.OPENAI_ORG = 'old-org'
 
     const validateModel = mock(async (model: string) => {
       expect(model).toBe('claude-sonnet-4-6')
@@ -31,6 +32,7 @@ describe('testProviderProfileConnection', () => {
       expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
       expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
       expect(process.env.ANTHROPIC_API_KEY).toBe('anthropic-key')
+      expect(process.env.OPENAI_ORG).toBeUndefined()
       return { valid: true }
     })
 
@@ -50,6 +52,7 @@ describe('testProviderProfileConnection', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.example.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('old-model')
     expect(process.env.OPENAI_API_KEY).toBe('old-key')
+    expect(process.env.OPENAI_ORG).toBe('old-org')
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
   })
 
