@@ -856,3 +856,186 @@ test('skips generation stats fetch when x-generation-id header is absent', async
 
   expect(generationApiCalled).toBe(false)
 })
+
+test('does not send API key to invalid or non-HTTPS origins', async () => {
+  let generationApiCalled = false
+
+  function makeStreamWithGenerationId(): Response {
+    const encoder = new TextEncoder()
+    const chunks = [
+      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] })}\n\n`,
+      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ]
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(encoder.encode(chunk))
+          }
+          controller.close()
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'x-generation-id': 'gen-test-123',
+        },
+      },
+    )
+  }
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.includes('/api/v1/generation')) {
+      generationApiCalled = true
+      return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json' } })
+    }
+    return makeStreamWithGenerationId()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    providerOverride: {
+      model: 'openrouter-model',
+      baseURL: 'http://insecure-http.example.com/v1', // HTTP (not HTTPS)
+      apiKey: 'super-secret-key',
+    },
+  }) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({ model: 'openrouter-model', messages: [{ role: 'user', content: 'hi' }], stream: true })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) events.push(event)
+
+  await new Promise(r => setTimeout(r, 50))
+
+  // Should NOT call generation API for non-HTTPS origins
+  expect(generationApiCalled).toBe(false)
+
+  globalThis.fetch = originalFetch
+})
+
+test('does not send API key to URLs with embedded credentials', async () => {
+  let generationApiCalled = false
+
+  function makeStreamWithGenerationId(): Response {
+    const encoder = new TextEncoder()
+    const chunks = [
+      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] })}\n\n`,
+      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ]
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(encoder.encode(chunk))
+          }
+          controller.close()
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'x-generation-id': 'gen-test-123',
+        },
+      },
+    )
+  }
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.includes('/api/v1/generation')) {
+      generationApiCalled = true
+      return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json' } })
+    }
+    return makeStreamWithGenerationId()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    providerOverride: {
+      model: 'openrouter-model',
+      baseURL: 'https://user:pass@evil.com/v1', // Embedded credentials
+      apiKey: 'super-secret-key',
+    },
+  }) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({ model: 'openrouter-model', messages: [{ role: 'user', content: 'hi' }], stream: true })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) events.push(event)
+
+  await new Promise(r => setTimeout(r, 50))
+
+  // Should NOT call generation API for URLs with embedded credentials
+  expect(generationApiCalled).toBe(false)
+
+  globalThis.fetch = originalFetch
+})
+
+test('does not send API key to IP address origins', async () => {
+  let generationApiCalled = false
+
+  function makeStreamWithGenerationId(): Response {
+    const encoder = new TextEncoder()
+    const chunks = [
+      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] })}\n\n`,
+      `data: ${JSON.stringify({ id: '1', object: 'chat.completion.chunk', model: 'test', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ]
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(encoder.encode(chunk))
+          }
+          controller.close()
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'x-generation-id': 'gen-test-123',
+        },
+      },
+    )
+  }
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input) => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.includes('/api/v1/generation')) {
+      generationApiCalled = true
+      return new Response(JSON.stringify({ data: {} }), { headers: { 'Content-Type': 'application/json' } })
+    }
+    return makeStreamWithGenerationId()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    providerOverride: {
+      model: 'openrouter-model',
+      baseURL: 'https://192.168.1.1/v1', // IP address
+      apiKey: 'super-secret-key',
+    },
+  }) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({ model: 'openrouter-model', messages: [{ role: 'user', content: 'hi' }], stream: true })
+    .withResponse()
+
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of result.data) events.push(event)
+
+  await new Promise(r => setTimeout(r, 50))
+
+  // Should NOT call generation API for IP address origins
+  expect(generationApiCalled).toBe(false)
+
+  globalThis.fetch = originalFetch
+})
