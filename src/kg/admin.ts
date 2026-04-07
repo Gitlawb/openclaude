@@ -93,7 +93,16 @@ function cmdSeed(agentId: string): void {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const [, , command, ...rest] = process.argv
-const agentId = opt(rest, 'agent') ?? process.env.OPENCLAUDE_AGENT_ID ?? 'default'
+
+// Resolve agent ID: --agent flag, or namespace:name shorthand, or env var, or default
+// e.g. `admin.ts list --agent persona:coder`  →  persona__coder
+function resolveAgentIdFromArgs(args: string[]): string {
+  const raw = opt(args, 'agent') ?? process.env.OPENCLAUDE_AGENT_ID ?? 'default'
+  // Accept namespace:name shorthand (same format as the CLI positional arg)
+  return raw.replace(/^([\w-]+):([\w-]+)$/, '$1__$2')
+}
+
+const agentId = resolveAgentIdFromArgs(rest)
 
 switch (command) {
   case 'list':
@@ -128,11 +137,14 @@ switch (command) {
 
   default:
     console.log(`Usage:
-  list   [--agent <id>] [--type <nodeType>] [--stale]
-  show   <id>          [--agent <id>]
-  forget <id>          [--agent <id>]
-  wipe                 [--agent <id>]
-  render               [--agent <id>] [--manifest]
-  seed                 [--agent <id>]`)
+  list   [--agent <ns:name>] [--type <nodeType>] [--stale]
+  show   <id>               [--agent <ns:name>]
+  forget <id>               [--agent <ns:name>]
+  wipe                      [--agent <ns:name>]
+  render                    [--agent <ns:name>] [--manifest]
+  seed                      [--agent <ns:name>]
+
+  --agent accepts namespace:name (e.g. persona:coder, project:openclaude)
+  or a raw agent ID (e.g. default).`)
     process.exit(command ? 1 : 0)
 }

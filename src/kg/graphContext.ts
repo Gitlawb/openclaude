@@ -55,7 +55,13 @@ export async function loadGraphContext(): Promise<string | null> {
       ? renderManifest(db)
       : renderFullContext(db)
 
-    return rendered.trim() || null
+    // Prepend identity header when namespace is set so the agent knows
+    // which graph it's running from (persona:coder, project:openclaude, etc.)
+    const ns = process.env.OPENCLAUDE_KG_NAMESPACE
+    const name = process.env.OPENCLAUDE_KG_NAME
+    const header = ns && name ? `<!-- agent: ${ns}:${name} -->\n` : ''
+
+    return (header + rendered).trim() || null
   } catch (err) {
     // DB unavailable (permissions, disk full, etc.) — degrade silently so a
     // storage failure never blocks the agent from starting.

@@ -56,6 +56,32 @@ async function main(): Promise<void> {
     return;
   }
 
+  // KG agent identity: detect `namespace:name` as the first positional arg
+  // (e.g. `openclaude persona:coder`, `openclaude project:openclaude`,
+  //  `openclaude dnd:dm`). Extract it before commander sees argv so it
+  // doesn't collide with the prompt argument. Sets OPENCLAUDE_AGENT_ID and
+  // OPENCLAUDE_KG_NAMESPACE so downstream code (graphContext.ts, db.ts) can
+  // resolve the right graph without any additional plumbing.
+  //
+  // Namespace/name rules: word chars + hyphens, separated by a single colon.
+  // Short enough to be distinctive; won't match real prompts.
+  {
+    const KG_AGENT_RE = /^([\w-]+):([\w-]+)$/
+    const agentArgIdx = args.findIndex(a => KG_AGENT_RE.test(a))
+    if (agentArgIdx !== -1) {
+      const match = KG_AGENT_RE.exec(args[agentArgIdx]!)!
+      const namespace = match[1]!
+      const name = match[2]!
+      // Canonical ID: namespace__name (filesystem-safe; `:` is invalid on Windows)
+      process.env.OPENCLAUDE_AGENT_ID = `${namespace}__${name}`
+      process.env.OPENCLAUDE_KG_NAMESPACE = namespace
+      process.env.OPENCLAUDE_KG_NAME = name
+      // Strip from argv so commander doesn't see it as the prompt
+      process.argv.splice(2 + agentArgIdx, 1)
+      args.splice(agentArgIdx, 1)
+    }
+  }
+
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
