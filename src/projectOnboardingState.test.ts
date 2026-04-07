@@ -1,33 +1,12 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { join } from 'node:path'
 
-type MockProjectConfig = {
-  hasCompletedProjectOnboarding?: boolean
-  projectOnboardingSeenCount: number
-}
-
-let mockProjectConfig: MockProjectConfig
-
 function installCommonMocks(options: {
   cwd: string
   existingFiles: string[]
   isWorkspaceDirEmpty?: boolean
 }) {
   const existingFiles = new Set(options.existingFiles)
-
-  mockProjectConfig = {
-    hasCompletedProjectOnboarding: false,
-    projectOnboardingSeenCount: 0,
-  }
-
-  mock.module('./utils/config.js', () => ({
-    getCurrentProjectConfig: () => mockProjectConfig,
-    saveCurrentProjectConfig: (
-      updater: (current: MockProjectConfig) => MockProjectConfig,
-    ) => {
-      mockProjectConfig = updater(mockProjectConfig)
-    },
-  }))
 
   mock.module('./utils/cwd.js', () => ({
     getCwd: () => options.cwd,
@@ -51,7 +30,7 @@ async function importFreshProjectOnboardingState(options: {
 }) {
   mock.restore()
   installCommonMocks(options)
-  return import(`./projectOnboardingState.ts?ts=${Date.now()}-${Math.random()}`)
+  return import(`./projectOnboardingSteps.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
 afterEach(() => {
