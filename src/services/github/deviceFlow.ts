@@ -46,6 +46,8 @@ export type DeviceCodeResult = {
   interval: number
 }
 
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
 export function getGithubDeviceFlowClientId(): string {
   return (
     process.env.GITHUB_DEVICE_FLOW_CLIENT_ID?.trim() ||
@@ -60,7 +62,7 @@ function sleep(ms: number): Promise<void> {
 export async function requestDeviceCode(options?: {
   clientId?: string
   scope?: string
-  fetchImpl?: typeof fetch
+  fetchImpl?: FetchLike
 }): Promise<DeviceCodeResult> {
   const clientId = options?.clientId ?? getGithubDeviceFlowClientId()
   if (!clientId) {
@@ -72,9 +74,9 @@ export async function requestDeviceCode(options?: {
   const requestedScope =
     options?.scope?.trim() || DEFAULT_GITHUB_DEVICE_SCOPE
   const scopesToTry =
-    requestedScope === OAUTH_SAFE_GITHUB_DEVICE_SCOPE
+    requestedScope === DEFAULT_GITHUB_DEVICE_SCOPE
       ? [requestedScope]
-      : [requestedScope, OAUTH_SAFE_GITHUB_DEVICE_SCOPE]
+      : [requestedScope, DEFAULT_GITHUB_DEVICE_SCOPE]
 
   let lastError = 'Device code request failed.'
 
@@ -93,7 +95,7 @@ export async function requestDeviceCode(options?: {
       lastError = `Device code request failed: ${res.status} ${text}`
       const isInvalidScope = /invalid_scope/i.test(text)
       const canRetryWithFallback =
-        scope !== OAUTH_SAFE_GITHUB_DEVICE_SCOPE && isInvalidScope
+        scope !== DEFAULT_GITHUB_DEVICE_SCOPE && isInvalidScope
       if (canRetryWithFallback) {
         continue
       }
@@ -130,7 +132,7 @@ export type PollOptions = {
   clientId?: string
   initialInterval?: number
   timeoutSeconds?: number
-  fetchImpl?: typeof fetch
+  fetchImpl?: FetchLike
 }
 
 export async function pollAccessToken(
@@ -220,7 +222,7 @@ export async function openVerificationUri(uri: string): Promise<void> {
  */
 export async function exchangeForCopilotToken(
   oauthToken: string,
-  fetchImpl?: typeof fetch,
+  fetchImpl?: FetchLike,
 ): Promise<CopilotTokenResponse> {
   const fetchFn = fetchImpl ?? fetch
   const res = await fetchFn(COPILOT_TOKEN_URL, {

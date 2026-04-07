@@ -7,6 +7,11 @@ import {
   requestDeviceCode,
 } from './deviceFlow.js'
 
+async function importFreshModule() {
+  mock.restore()
+  return import(`./deviceFlow.ts?ts=${Date.now()}-${Math.random()}`)
+}
+
 describe('requestDeviceCode', () => {
   const originalFetch = globalThis.fetch
 

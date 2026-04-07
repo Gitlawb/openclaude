@@ -21,7 +21,6 @@ export function initBundledSkills(): void {
   registerKeybindingsSkill()
   registerDebugSkill()
   registerSimplifySkill()
-  registerSkillifySkill()
   registerBatchSkill()
   if (feature('KAIROS') || feature('KAIROS_DREAM')) {
     /* eslint-disable @typescript-eslint/no-require-imports */

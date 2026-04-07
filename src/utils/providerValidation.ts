@@ -17,7 +17,13 @@ function isEnvTruthy(value: string | undefined): boolean {
 
 type GithubTokenStatus = 'valid' | 'expired' | 'invalid_format'
 
+const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_', 'github_pat_']
+
 function checkGithubTokenStatus(token: string): GithubTokenStatus {
+  if (GITHUB_PAT_PREFIXES.some(prefix => token.startsWith(prefix))) {
+    return 'valid'
+  }
+
   const expMatch = token.match(/exp=(\d+)/)
   if (expMatch) {
     const expSeconds = Number(expMatch[1])
@@ -43,7 +49,8 @@ function checkGithubTokenStatus(token: string): GithubTokenStatus {
     }
   }
 
-  return 'invalid_format'
+  // Keep compatibility with opaque token formats that do not expose expiry.
+  return 'valid'
 }
 
 export async function getProviderValidationError(
