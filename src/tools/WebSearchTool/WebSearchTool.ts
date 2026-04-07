@@ -636,8 +636,8 @@ export const WebSearchTool = buildTool({
     return { result: true }
   },
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
- / Vertex / Foundry
-  }
+ // Vertex / Foundry
+  
 
     if (shouldUseCustomApi()) {
       return { data: await runCustomApiSearch(input) }
