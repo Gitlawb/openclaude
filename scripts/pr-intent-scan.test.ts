@@ -225,6 +225,22 @@ describe('findFileOrderingFindings', () => {
     expect(findings.some(f => f.code === 'write-before-fallible-spawn')).toBe(false)
   })
 
+  test('does NOT flag commented-out write or spawn lines', () => {
+    const src = [
+      'async function handleSpawn() {',
+      '  // await writeTeamFileAsync(teamName, teamFile)',
+      '  // const result = await spawnInProcessTeammate(config, ctx)',
+      '}',
+    ].join('\n')
+
+    const findings = findFileOrderingFindings(
+      [tsLine('', 1)],
+      fakeReader({ 'src/utils/spawn.ts': src }),
+    )
+
+    expect(findings.some(f => f.code === 'write-before-fallible-spawn')).toBe(false)
+  })
+
   test('surfaces through scanAddedLines with injected reader', () => {
     const src = [
       'async function handleSpawn() {',

@@ -351,4 +351,33 @@ describe('handleSpawnInProcess – team file atomicity', () => {
       file?.members.filter(m => m.name !== 'team-lead') ?? []
     expect(nonLeadMembers).toHaveLength(0)
   })
+
+  it('propagates a writeTeamFileAsync I/O error after spawn succeeds', async () => {
+    // Simulate a disk-full / permission error on the file write that follows a
+    // successful spawn.  The spawn task is already registered in AppState at this
+    // point — we just want to confirm the error surfaces to the caller rather
+    // than being swallowed, so the caller knows the member is not persisted.
+    spawnShouldSucceed = true
+
+    // Make the teams dir a FILE so writeTeamFileAsync cannot mkdir inside it.
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    const teamsDir = join(tmpDir, 'teams')
+    mkdirSync(teamsDir, { recursive: true })
+    // Lay a regular file at the path mkdir would need to create the team subdir.
+    writeFileSync(join(teamsDir, 'test-team'), 'blocker')
+
+    const { spawnTeammate } = await import('./spawnMultiAgent.js')
+
+    await expect(
+      spawnTeammate(
+        { name: 'canary', prompt: 'test write failure', team_name: 'test-team' },
+        makeContext(),
+      ),
+    ).rejects.toThrow()
+
+    // The file should still not contain 'canary' as a proper persisted member.
+    const file = await readTeamFile('test-team')
+    const hasGhost = file?.members.some(m => m.name === 'canary') ?? false
+    expect(hasGhost).toBe(false)
+  })
 })

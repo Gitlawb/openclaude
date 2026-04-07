@@ -407,11 +407,11 @@ export function findFileOrderingFindings(
 
     const writeLines = fileLines
       .map((text, i) => ({ text, lineNo: i + 1 }))
-      .filter(({ text }) => /\bawait\s+write\w*FileAsync\s*\(/.test(text))
+      .filter(({ text }) => /\bawait\s+write\w*FileAsync\s*\(/.test(text) && !/^\s*\/\//.test(text))
 
     const spawnLines = fileLines
       .map((text, i) => ({ text, lineNo: i + 1 }))
-      .filter(({ text }) => /\bawait\s+spawn\w*Teammate\s*\(/.test(text))
+      .filter(({ text }) => /\bawait\s+spawn\w*Teammate\s*\(/.test(text) && !/^\s*\/\//.test(text))
 
     for (const write of writeLines) {
       for (const spawn of spawnLines) {
