@@ -12,7 +12,7 @@ export const GITHUB_DEVICE_ACCESS_TOKEN_URL =
   'https://github.com/login/oauth/access_token'
 export const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token'
 
-/** Only read:user scope — models:read is a PAT permission, not an OAuth scope */
+/** Only read:user scope — required for Copilot OAuth */
 export const DEFAULT_GITHUB_DEVICE_SCOPE = 'read:user'
 
 export const COPILOT_HEADERS: Record<string, string> = {
@@ -67,7 +67,7 @@ export async function requestDeviceCode(options?: {
   const clientId = options?.clientId ?? getGithubDeviceFlowClientId()
   if (!clientId) {
     throw new GitHubDeviceFlowError(
-      'No OAuth client ID: set GITHUB_DEVICE_FLOW_CLIENT_ID or paste a PAT instead.',
+      'No OAuth client ID: set GITHUB_DEVICE_FLOW_CLIENT_ID.',
     )
   }
   const fetchFn = options?.fetchImpl ?? fetch

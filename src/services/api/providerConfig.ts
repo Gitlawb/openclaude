@@ -313,6 +313,27 @@ export function normalizeGithubModelsApiModel(requestedModel: string): string {
   return segment
 }
 
+export const GITHUB_COPILOT_BASE_URL = 'https://api.githubcopilot.com'
+export const GITHUB_MODELS_BASE_URL = 'https://models.github.ai/inference'
+
+export function getGithubEndpointType(
+  baseUrl: string | undefined,
+): 'copilot' | 'models' | 'custom' {
+  if (!baseUrl) return 'copilot'
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    if (hostname === 'api.githubcopilot.com' || hostname === 'api.githubcopilot.com'.toLowerCase()) {
+      return 'copilot'
+    }
+    if (hostname === 'models.github.ai' || hostname.endsWith('.github.ai')) {
+      return 'models'
+    }
+    return 'custom'
+  } catch {
+    return 'copilot'
+  }
+}
+
 export function resolveProviderRequest(options?: {
   model?: string
   baseUrl?: string
@@ -330,24 +351,33 @@ export function resolveProviderRequest(options?: {
     asEnvUrl(options?.baseUrl) ??
     asEnvUrl(process.env.OPENAI_BASE_URL) ??
     asEnvUrl(process.env.OPENAI_API_BASE)
+
+  const githubEndpointType = isGithubMode
+    ? getGithubEndpointType(rawBaseUrl)
+    : 'custom'
+  const isGithubCopilot = isGithubMode && githubEndpointType === 'copilot'
+  const isGithubModels = isGithubMode && githubEndpointType === 'models'
+  const isGithubCustom = isGithubMode && githubEndpointType === 'custom'
+
   const githubResolvedModel = isGithubMode
     ? normalizeGithubModelsApiModel(requestedModel)
     : requestedModel
+
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, rawBaseUrl) ||
-      (isGithubMode && shouldUseGithubResponsesApi(githubResolvedModel))
+      (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
       : 'chat_completions'
 
-  const resolvedModel =
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-      ? normalizeGithubModelsApiModel(descriptor.baseModel)
-      : descriptor.baseModel
+  // For GitHub Models/custom endpoints, preserve model prefix (e.g., "openai/gpt-4.1")
+  // Only normalize for Copilot API
+  const resolvedModel = isGithubCopilot
+    ? normalizeGithubModelsApiModel(descriptor.baseModel)
+    : descriptor.baseModel
 
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
     : descriptor.reasoning
-
 
   return {
     transport,
@@ -355,9 +385,11 @@ export function resolveProviderRequest(options?: {
     resolvedModel,
     baseUrl:
       (rawBaseUrl ??
-        (transport === 'codex_responses'
+        (isGithubCopilot && transport === 'codex_responses'
           ? DEFAULT_CODEX_BASE_URL
-          : DEFAULT_OPENAI_BASE_URL)
+          : (isGithubMode
+            ? GITHUB_COPILOT_BASE_URL
+            : DEFAULT_OPENAI_BASE_URL))
       ).replace(/\/+$/, ''),
     reasoning,
   }

@@ -41,6 +41,7 @@ import {
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
+  getGithubEndpointType,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
@@ -1019,8 +1020,11 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
-    if (request.transport === 'codex_responses' && isGithubModelsMode()) {
-      const apiKey = process.env.OPENAI_API_KEY ?? ''
+    const githubEndpointType = getGithubEndpointType(request.baseUrl)
+    const isGithubCopilotEndpoint = isGithubModelsMode() && githubEndpointType === 'copilot'
+
+    if (request.transport === 'codex_responses' && isGithubCopilotEndpoint) {
+      const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
       if (!apiKey) {
         throw new Error(
           'GitHub Copilot auth is required. Run /onboard-github to sign in.',
@@ -1117,6 +1121,10 @@ class OpenAIShimMessages {
     }
 
     const isGithub = isGithubModelsMode()
+    const githubEndpointType = getGithubEndpointType(request.baseUrl)
+    const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
+    const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
+
     if (isGithub && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
@@ -1188,7 +1196,7 @@ class OpenAIShimMessages {
       }
     }
 
-    if (isGithub) {
+    if (isGithubCopilot) {
       Object.assign(headers, COPILOT_HEADERS)
     }
 

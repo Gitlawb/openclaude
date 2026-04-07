@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 async function importFreshModule() {
+  mock.restore()
   return import(`./githubModelsCredentials.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
@@ -12,8 +13,11 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     GH_TOKEN: process.env.GH_TOKEN,
   }
 
-  afterEach(() => {
+  beforeEach(() => {
     mock.restore()
+  })
+
+  afterEach(() => {
     for (const [k, v] of Object.entries(orig)) {
       if (v === undefined) {
         delete process.env[k as keyof typeof orig]
@@ -48,6 +52,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     }))
 
     mock.module('../services/github/deviceFlow.js', () => ({
+      DEFAULT_GITHUB_DEVICE_SCOPE: 'read:user',
       exchangeForCopilotToken: async () => ({
         token: `tid=fresh;exp=${futureExp};sku=free`,
         expires_at: futureExp,
@@ -97,6 +102,7 @@ describe('refreshGithubModelsTokenIfNeeded', () => {
     }))
 
     mock.module('../services/github/deviceFlow.js', () => ({
+      DEFAULT_GITHUB_DEVICE_SCOPE: 'read:user',
       exchangeForCopilotToken: exchangeSpy,
     }))
 
