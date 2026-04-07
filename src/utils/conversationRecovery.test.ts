@@ -11,8 +11,42 @@ import {
 
 const tempDirs: string[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
+const originalProviderEnv = {
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
+}
 const sessionId = '00000000-0000-4000-8000-000000001999'
 const ts = '2026-04-02T00:00:00.000Z'
+
+function restoreProviderEnv() {
+  for (const [key, value] of Object.entries(originalProviderEnv)) {
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
+}
+
+function clearProviderEnv() {
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+}
+
+function setProviderEnv(provider: 'openai' | 'bedrock') {
+  clearProviderEnv()
+  if (provider === 'openai') process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  if (provider === 'bedrock') process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+}
+
 
 function id(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -47,12 +81,7 @@ async function writeJsonl(entry: unknown): Promise<string> {
 
 afterEach(async () => {
   process.env.CLAUDE_CODE_SIMPLE = originalSimple
-  delete process.env.CLAUDE_CODE_USE_OPENAI
-  delete process.env.CLAUDE_CODE_USE_GEMINI
-  delete process.env.CLAUDE_CODE_USE_GITHUB
-  delete process.env.CLAUDE_CODE_USE_BEDROCK
-  delete process.env.CLAUDE_CODE_USE_VERTEX
-  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  restoreProviderEnv()
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
@@ -119,7 +148,7 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     user(id(13), 'follow up'),
   ]
 
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  setProviderEnv('openai')
   const thirdParty = deserializeMessagesWithInterruptDetection(serializedMessages as never[])
   const thirdPartyAssistantMessages = thirdParty.messages.filter(
     message => message.type === 'assistant',
@@ -136,8 +165,7 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
   ).not.toContain('only hidden reasoning')
 
-  delete process.env.CLAUDE_CODE_USE_OPENAI
-  process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+  setProviderEnv('bedrock')
   const anthropicCompatible = deserializeMessagesWithInterruptDetection(serializedMessages as never[])
   const anthropicAssistantMessages = anthropicCompatible.messages.filter(
     message => message.type === 'assistant',
