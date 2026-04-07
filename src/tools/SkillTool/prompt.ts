@@ -192,6 +192,11 @@ Important:
 - Do not invoke a skill that is already running
 - Do not use this tool for built-in CLI commands (like /help, /clear, etc.)
 - If you see a <${COMMAND_NAME_TAG}> tag in the current conversation turn, the skill has ALREADY been loaded - follow the instructions directly instead of calling this tool again
+
+IMPORTANT for OpenAI/GPT function calling:
+- The \`skill\` parameter is REQUIRED — never omit it or pass null/undefined
+- Strip the leading \`/\`: "/commit" → skill: "commit", "/review-pr" → skill: "review-pr"
+- When the user types \`/skill-name\`, always call this tool with skill: "skill-name"
 `
 })
 
