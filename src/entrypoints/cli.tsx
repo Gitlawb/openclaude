@@ -96,6 +96,13 @@ async function main(): Promise<void> {
     }
   }
 
+  // Load .env file early so API keys are available for provider setup
+  // Shell environment variables take precedence over .env values
+  {
+    const { loadDotEnvFile } = await import('../utils/dotenv.js')
+    loadDotEnvFile()
+  }
+
   // Enable configs first so we can read settings
   {
     const { enableConfigs } = await import('../utils/config.js')

@@ -1,32 +1,33 @@
 // @ts-nocheck
 import {
-  resolveCodexApiCredentials,
+    resolveCodexApiCredentials,
 } from '../src/services/api/providerConfig.js'
 import {
-  getGoalDefaultOpenAIModel,
-  normalizeRecommendationGoal,
-  recommendOllamaModel,
-} from '../src/utils/providerRecommendation.ts'
-import {
-  buildAtomicChatProfileEnv,
-  buildCodexProfileEnv,
-  buildGeminiProfileEnv,
-  buildOllamaProfileEnv,
-  buildOpenAIProfileEnv,
-  createProfileFile,
-  saveProfileFile,
-  selectAutoProfile,
-  type ProfileFile,
-  type ProviderProfile,
+    buildAtomicChatProfileEnv,
+    buildCodexProfileEnv,
+    buildGeminiProfileEnv,
+    buildOllamaProfileEnv,
+    buildOpenAIProfileEnv,
+    createProfileFile,
+    saveProfileFile,
+    selectAutoProfile,
+    type ProfileFile,
+    type ProviderProfile,
 } from '../src/utils/providerProfile.ts'
 import {
-  getAtomicChatChatBaseUrl,
-  getOllamaChatBaseUrl,
-  hasLocalAtomicChat,
-  hasLocalOllama,
-  listAtomicChatModels,
-  listOllamaModels,
+    getGoalDefaultOpenAIModel,
+    normalizeRecommendationGoal,
+    recommendOllamaModel,
+} from '../src/utils/providerRecommendation.ts'
+import {
+    getAtomicChatChatBaseUrl,
+    getOllamaChatBaseUrl,
+    hasLocalAtomicChat,
+    hasLocalOllama,
+    listAtomicChatModels,
+    listOllamaModels,
 } from './provider-discovery.ts'
+import { loadDotEnvFile } from '../src/utils/dotenv.ts'
 
 function parseArg(name: string): string | null {
   const args = process.argv.slice(2)
@@ -53,14 +54,34 @@ async function resolveOllamaModel(
   return recommended?.name ?? null
 }
 
+function printSecurityNote(): void {
+  console.log('')
+  console.log('SECURITY NOTE:')
+  console.log('  API keys are NOT stored in the profile file.')
+  console.log('  Set your API key in the .env file:')
+  console.log('    GEMINI_API_KEY=your-key-here')
+  console.log('    OPENAI_API_KEY=your-key-here')
+  console.log('    CODEX_API_KEY=your-key-here')
+  console.log('')
+}
+
 async function main(): Promise<void> {
+  // Load .env file so API keys are available for validation
+  loadDotEnvFile()
+
   const provider = parseProviderArg()
   const argModel = parseArg('--model')
   const argBaseUrl = parseArg('--base-url')
-  const argApiKey = parseArg('--api-key')
   const goal = normalizeRecommendationGoal(
     parseArg('--goal') || process.env.OPENCLAUDE_PROFILE_GOAL,
   )
+
+  // Warn if deprecated --api-key is used
+  if (parseArg('--api-key')) {
+    console.warn('WARNING: --api-key is deprecated for security reasons.')
+    console.warn('         API keys should be set in the .env file instead.')
+    console.warn('')
+  }
 
   let selected: ProviderProfile
   let resolvedOllamaModel: string | null = null
@@ -80,12 +101,16 @@ async function main(): Promise<void> {
     const builtEnv = buildGeminiProfileEnv({
       model: argModel || null,
       baseUrl: argBaseUrl || null,
-      apiKey: argApiKey || null,
+      apiKey: null, // Keys come from .env, not args
       processEnv: process.env,
     })
 
     if (!builtEnv) {
-      console.error('Gemini profile requires an API key. Use --api-key or set GEMINI_API_KEY.')
+      console.error('Gemini profile requires an API key.')
+      console.error('')
+      console.error('Set GEMINI_API_KEY in your .env file:')
+      console.error('  GEMINI_API_KEY=your-key-here')
+      console.error('')
       console.error('Get a free key at: https://aistudio.google.com/apikey')
       process.exit(1)
     }
@@ -124,21 +149,22 @@ async function main(): Promise<void> {
     const builtEnv = buildCodexProfileEnv({
       model: argModel,
       baseUrl: argBaseUrl,
-      apiKey: argApiKey || process.env.CODEX_API_KEY || null,
+      apiKey: null, // Keys come from .env, not args
       processEnv: process.env,
     })
 
     if (!builtEnv) {
-      const credentials = resolveCodexApiCredentials(
-        argApiKey
-          ? { ...process.env, CODEX_API_KEY: argApiKey }
-          : process.env,
-      )
+      const credentials = resolveCodexApiCredentials(process.env)
       const authHint = credentials.authPath
         ? ` or make sure ${credentials.authPath} exists`
         : ''
       if (!credentials.apiKey) {
-        console.error(`Codex profile requires CODEX_API_KEY${authHint}.`)
+        console.error('Codex profile requires an API key.')
+        console.error('')
+        console.error('Set CODEX_API_KEY in your .env file:')
+        console.error('  CODEX_API_KEY=your-key-here')
+        console.error('')
+        console.error(`Alternative: ${authHint}`)
       } else {
         console.error('Codex profile requires CHATGPT_ACCOUNT_ID or an auth.json that includes it.')
       }
@@ -151,12 +177,15 @@ async function main(): Promise<void> {
       goal,
       model: argModel || null,
       baseUrl: argBaseUrl || null,
-      apiKey: argApiKey || process.env.OPENAI_API_KEY || null,
+      apiKey: null, // Keys come from .env, not args
       processEnv: process.env,
     })
 
     if (!builtEnv) {
-      console.error('OpenAI profile requires a real API key. Use --api-key or set OPENAI_API_KEY.')
+      console.error('OpenAI profile requires an API key.')
+      console.error('')
+      console.error('Set OPENAI_API_KEY in your .env file:')
+      console.error('  OPENAI_API_KEY=your-key-here')
       process.exit(1)
     }
 
@@ -171,9 +200,12 @@ async function main(): Promise<void> {
   console.log(`Goal: ${goal}`)
   console.log(`Model: ${profile.env.GEMINI_MODEL || profile.env.OPENAI_MODEL || getGoalDefaultOpenAIModel(goal)}`)
   console.log(`Path: ${outputPath}`)
+  
+  printSecurityNote()
+  
   console.log('Next: bun run dev:profile')
 }
 
 await main()
 
-export {}
+export { }

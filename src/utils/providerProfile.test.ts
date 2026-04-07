@@ -119,12 +119,12 @@ test('openai launch ignores codex shell transport hints', async () => {
 })
 
 test('openai launch ignores codex persisted transport hints', async () => {
+  // SECURITY: Profile should not contain API keys - they come from processEnv
   const env = await buildLaunchEnv({
     profile: 'openai',
     persisted: profile('openai', {
       OPENAI_BASE_URL: 'https://chatgpt.com/backend-api/codex',
       OPENAI_MODEL: 'codexplan',
-      OPENAI_API_KEY: 'sk-persisted',
     }),
     goal: 'balanced',
     processEnv: {
@@ -138,21 +138,23 @@ test('openai launch ignores codex persisted transport hints', async () => {
 })
 
 test('matching persisted gemini env is reused for gemini launch', async () => {
+  // SECURITY: API key comes from processEnv (.env), not from persisted profile
   const env = await buildLaunchEnv({
     profile: 'gemini',
     persisted: profile('gemini', {
       GEMINI_MODEL: 'gemini-2.5-flash',
-      GEMINI_API_KEY: 'gem-persisted',
       GEMINI_BASE_URL: 'https://example.test/v1beta/openai',
     }),
     goal: 'balanced',
-    processEnv: {},
+    processEnv: {
+      GEMINI_API_KEY: 'gem-from-env',
+    },
   })
 
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
-  assert.equal(env.GEMINI_API_KEY, 'gem-persisted')
+  assert.equal(env.GEMINI_API_KEY, 'gem-from-env')
   assert.equal(env.GEMINI_BASE_URL, 'https://example.test/v1beta/openai')
 })
 
@@ -192,23 +194,24 @@ test('gemini launch ignores mismatched persisted openai env and strips other pro
 })
 
 test('matching persisted codex env is reused for codex launch', async () => {
+  // SECURITY: API key comes from processEnv (.env), not from persisted profile
   const env = await buildLaunchEnv({
     profile: 'codex',
     persisted: profile('codex', {
       OPENAI_BASE_URL: 'https://chatgpt.com/backend-api/codex',
       OPENAI_MODEL: 'codexspark',
-      CODEX_API_KEY: 'codex-persisted',
       CHATGPT_ACCOUNT_ID: 'acct_persisted',
     }),
     goal: 'balanced',
     processEnv: {
+      CODEX_API_KEY: 'codex-from-env',
       CODEX_AUTH_JSON_PATH: missingCodexAuthPath,
     },
   })
 
   assert.equal(env.OPENAI_BASE_URL, 'https://chatgpt.com/backend-api/codex')
   assert.equal(env.OPENAI_MODEL, 'codexspark')
-  assert.equal(env.CODEX_API_KEY, 'codex-persisted')
+  assert.equal(env.CODEX_API_KEY, 'codex-from-env')
   assert.equal(env.CHATGPT_ACCOUNT_ID, 'acct_persisted')
 })
 
@@ -256,12 +259,13 @@ test('codex launch ignores mismatched persisted openai env', async () => {
 })
 
 test('codex launch ignores placeholder codex env keys', async () => {
+  // SECURITY: Profile should not contain API keys
+  // When processEnv has a placeholder, the key should be undefined
   const env = await buildLaunchEnv({
     profile: 'codex',
     persisted: profile('codex', {
       OPENAI_BASE_URL: 'https://chatgpt.com/backend-api/codex',
       OPENAI_MODEL: 'codexspark',
-      CODEX_API_KEY: 'codex-persisted',
       CHATGPT_ACCOUNT_ID: 'acct_persisted',
     }),
     goal: 'balanced',
@@ -271,7 +275,8 @@ test('codex launch ignores placeholder codex env keys', async () => {
     },
   })
 
-  assert.equal(env.CODEX_API_KEY, 'codex-persisted')
+  // Placeholder 'SUA_CHAVE' is sanitized to undefined
+  assert.equal(env.CODEX_API_KEY, undefined)
   assert.equal(env.CHATGPT_ACCOUNT_ID, 'acct_persisted')
 })
 
@@ -347,17 +352,17 @@ test('codex profiles require a chatgpt account id', () => {
   assert.equal(env, null)
 })
 
-test('gemini profiles accept google api key fallback', () => {
+test('gemini profiles accept google api key fallback but do not store it', () => {
   const env = buildGeminiProfileEnv({
     processEnv: {
       GOOGLE_API_KEY: 'gem-live',
     },
   })
 
+  // SECURITY: API keys are NOT stored in profile - they come from .env at runtime
   assert.deepEqual(env, {
     GEMINI_AUTH_MODE: 'api-key',
     GEMINI_MODEL: 'gemini-2.0-flash',
-    GEMINI_API_KEY: 'gem-live',
   })
 })
 
@@ -399,9 +404,10 @@ test('saveProfileFile writes a profile that loadProfileFile can read back', () =
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-profile-file-'))
 
   try {
+    // SECURITY: Profile file should NOT contain API keys
     const persisted = createProfileFile('openai', {
-      OPENAI_API_KEY: 'sk-test',
       OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
     })
 
     const filePath = saveProfileFile(persisted, { cwd })
@@ -418,17 +424,19 @@ test('saveProfileFile writes a profile that loadProfileFile can read back', () =
 })
 
 test('buildStartupEnvFromProfile applies persisted gemini settings when no provider is explicitly selected', async () => {
+  // SECURITY: API key comes from processEnv (.env), not from persisted profile
   const env = await buildStartupEnvFromProfile({
     persisted: profile('gemini', {
-      GEMINI_API_KEY: 'gem-test',
       GEMINI_MODEL: 'gemini-2.5-flash',
     }),
-    processEnv: {},
+    processEnv: {
+      GEMINI_API_KEY: 'gem-from-env',
+    },
   })
 
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
-  assert.equal(env.GEMINI_API_KEY, 'gem-test')
+  assert.equal(env.GEMINI_API_KEY, 'gem-from-env')
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
 })
 
@@ -510,9 +518,9 @@ test('buildStartupEnvFromProfile treats explicit falsey provider flags as user i
     CLAUDE_CODE_USE_OPENAI: '0',
   }
 
+  // SECURITY: Profile should not contain API keys
   const env = await buildStartupEnvFromProfile({
     persisted: profile('gemini', {
-      GEMINI_API_KEY: 'gem-persisted',
       GEMINI_MODEL: 'gemini-2.5-flash',
     }),
     processEnv,
@@ -565,10 +573,10 @@ test('openai profiles ignore codex shell transport hints', () => {
     },
   })
 
+  // SECURITY: API keys are NOT stored in profile
   assert.deepEqual(env, {
     OPENAI_BASE_URL: 'https://api.openai.com/v1',
     OPENAI_MODEL: 'gpt-4o',
-    OPENAI_API_KEY: 'sk-live',
   })
 })
 
@@ -583,25 +591,27 @@ test('openai profiles ignore poisoned shell model and base url values', () => {
     },
   })
 
+  // SECURITY: API keys are NOT stored in profile
   assert.deepEqual(env, {
     OPENAI_BASE_URL: 'https://api.openai.com/v1',
     OPENAI_MODEL: 'gpt-4o',
-    OPENAI_API_KEY: 'sk-live',
   })
 })
 
 test('startup env ignores poisoned persisted openai model and base url', async () => {
+  // SECURITY: API key comes from processEnv (.env), not from persisted profile
   const env = await buildStartupEnvFromProfile({
     persisted: profile('openai', {
-      OPENAI_API_KEY: 'sk-live',
       OPENAI_MODEL: 'sk-live',
       OPENAI_BASE_URL: 'sk-live',
     }),
-    processEnv: {},
+    processEnv: {
+      OPENAI_API_KEY: 'sk-from-env',
+    },
   })
 
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
-  assert.equal(env.OPENAI_API_KEY, 'sk-live')
+  assert.equal(env.OPENAI_API_KEY, 'sk-from-env')
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
 })

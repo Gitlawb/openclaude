@@ -1,0 +1,39 @@
+#!/bin/bash
+# OpenClaude wrapper that loads .env before execution
+# Usage: ./bin/oc [args...]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="$PROJECT_DIR/.env"
+
+# Load .env if it exists
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  while IFS='=' read -r key value || [ -n "$key" ]; do
+    # Skip comments and empty lines
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$key" ]] && continue
+    
+    # Trim whitespace
+    key=$(echo "$key" | xargs)
+    value=$(echo "$value" | xargs)
+    
+    # Skip if no value
+    [[ -z "$value" ]] && continue
+    
+    # Remove surrounding quotes if present
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    
+    # Export only if not already set (shell takes precedence)
+    if [ -z "${!key+x}" ]; then
+      export "$key=$value"
+    fi
+  done < "$ENV_FILE"
+  set +a
+fi
+
+# Run openclaude with all passed arguments
+exec openclaude "$@"

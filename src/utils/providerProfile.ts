@@ -7,13 +7,13 @@ import {
   resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../services/api/providerConfig.ts'
+import { readGeminiAccessToken } from './geminiCredentials.ts'
+import { getOllamaChatBaseUrl } from './providerDiscovery.ts'
 import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
   type RecommendationGoal,
 } from './providerRecommendation.ts'
-import { readGeminiAccessToken } from './geminiCredentials.ts'
-import { getOllamaChatBaseUrl } from './providerDiscovery.ts'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
@@ -250,9 +250,8 @@ export function buildGeminiProfileEnv(options: {
       DEFAULT_GEMINI_MODEL,
   }
 
-  if (authMode === 'api-key' && key) {
-    env.GEMINI_API_KEY = key
-  }
+  // SECURITY: Do NOT store API keys in profile file
+  // Keys will be read from .env or shell environment at runtime
 
   const baseUrl =
     sanitizeProviderConfigValue(options.baseUrl, { GEMINI_API_KEY: key }, processEnv) ||
@@ -299,6 +298,8 @@ export function buildOpenAIProfileEnv(options: {
   })
   const useShellOpenAIConfig = shellOpenAIRequest.transport === 'chat_completions'
 
+  // SECURITY: Do NOT store API keys in profile file
+  // Keys will be read from .env or shell environment at runtime
   return {
     OPENAI_BASE_URL:
       sanitizeProviderConfigValue(
@@ -316,7 +317,6 @@ export function buildOpenAIProfileEnv(options: {
       ) ||
       (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
       defaultModel,
-    OPENAI_API_KEY: key,
   }
 }
 
@@ -336,16 +336,13 @@ export function buildCodexProfileEnv(options: {
     return null
   }
 
+  // SECURITY: Do NOT store API keys in profile file
+  // Keys will be read from .env or shell environment at runtime
   const env: ProfileEnv = {
     OPENAI_BASE_URL: options.baseUrl || DEFAULT_CODEX_BASE_URL,
     OPENAI_MODEL: options.model || 'codexplan',
+    CHATGPT_ACCOUNT_ID: credentials.accountId,
   }
-
-  if (key) {
-    env.CODEX_API_KEY = key
-  }
-
-  env.CHATGPT_ACCOUNT_ID = credentials.accountId
 
   return env
 }
@@ -481,10 +478,11 @@ export async function buildLaunchEnv(options: {
   const storedGeminiAccessToken =
     options.readGeminiAccessToken?.() ?? readGeminiAccessToken()
 
+  // SECURITY: API keys are read ONLY from processEnv (shell or .env file)
+  // Never from persisted profile file
   const shellGeminiKey = sanitizeApiKey(
     processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY,
   )
-  const persistedGeminiKey = sanitizeApiKey(persistedEnv.GEMINI_API_KEY)
   const persistedGeminiAuthMode = persistedEnv.GEMINI_AUTH_MODE
 
   if (options.profile === 'gemini') {
@@ -510,9 +508,9 @@ export async function buildLaunchEnv(options: {
       persistedGeminiAuthMode === 'adc'
         ? persistedGeminiAuthMode
         : 'api-key'
-    const geminiKey = shellGeminiKey || persistedGeminiKey
-    if (geminiAuthMode === 'api-key' && geminiKey) {
-      env.GEMINI_API_KEY = geminiKey
+    // SECURITY: Use only shell/env key, never persisted
+    if (geminiAuthMode === 'api-key' && shellGeminiKey) {
+      env.GEMINI_API_KEY = shellGeminiKey
     } else {
       delete env.GEMINI_API_KEY
     }
@@ -601,9 +599,8 @@ export async function buildLaunchEnv(options: {
     env.OPENAI_MODEL = persistedOpenAIModel || 'codexplan'
     delete env.OPENAI_API_KEY
 
-    const codexKey =
-      sanitizeApiKey(processEnv.CODEX_API_KEY) ||
-      sanitizeApiKey(persistedEnv.CODEX_API_KEY)
+    // SECURITY: Use only shell/env key, never persisted
+    const codexKey = sanitizeApiKey(processEnv.CODEX_API_KEY)
     const liveCodexCredentials = resolveCodexApiCredentials(processEnv)
     const codexAccountId =
       processEnv.CHATGPT_ACCOUNT_ID ||
@@ -651,7 +648,8 @@ export async function buildLaunchEnv(options: {
     (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
     (usePersistedOpenAIConfig ? persistedOpenAIModel : undefined) ||
     defaultOpenAIModel
-  env.OPENAI_API_KEY = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
+  // SECURITY: Use only shell/env key, never persisted
+  env.OPENAI_API_KEY = processEnv.OPENAI_API_KEY
   delete env.CODEX_API_KEY
   delete env.CHATGPT_ACCOUNT_ID
   delete env.CODEX_ACCOUNT_ID
