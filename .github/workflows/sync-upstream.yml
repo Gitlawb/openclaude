@@ -1,28 +1,16 @@
 # .github/workflows/sync-upstream.yml
 #
 # AUTO-SYNC from Gitlawb/openclaude → your fork
-#
-# • Runs on first push after fork, then every 3 hours
-# • Pulls all upstream changes EXCEPT src/tools/WebSearchTool/WebSearchTool.ts
-#   (your custom version is always preserved)
-# • Opens a PR if there are changes (safe review) — or set AUTO_MERGE=true
-#   in repo vars to merge automatically
-#
-# SETUP STEPS (one-time):
-#   1. Fork https://github.com/Gitlawb/openclaude
-#   2. In your fork → Settings → Actions → General
-#      → set "Workflow permissions" to "Read and write permissions"
-#   3. Drop this file at  .github/workflows/sync-upstream.yml
-#   4. Commit your custom WebSearchTool.ts at
-#      src/tools/WebSearchTool/WebSearchTool.ts
-#   5. That's it — GitHub will pick up the schedule automatically.
+# • Preserves ALL your custom files (including package.json, package-lock.json, etc.)
+# • Never lets upstream delete or overwrite npm-related files
+# • Opens PR for safe review (or auto-merges if AUTO_MERGE=true)
 
 name: Sync Upstream openclaude
 
 on:
   schedule:
-    - cron: "0 */3 * * *"   # every 3 hours
-  workflow_dispatch:          # manual trigger from the Actions tab
+    - cron: "0 */6 * * *"   # every 6 hours (less aggressive)
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -30,37 +18,40 @@ permissions:
 
 jobs:
   sync:
-    name: Pull upstream changes (skip WebSearchTool)
+    name: Pull upstream changes (protect npm files)
     runs-on: ubuntu-latest
 
     steps:
-      # ── 1. Checkout your fork ──────────────────────────────────────────────
       - name: Checkout fork
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # full history needed for merge
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 2. Configure git identity ──────────────────────────────────────────
       - name: Git config
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      # ── 3. Add upstream remote ─────────────────────────────────────────────
       - name: Add upstream remote
         run: |
           git remote add upstream https://github.com/Gitlawb/openclaude.git || true
           git fetch upstream
 
-      # ── 4. Save your custom WebSearchTool before any merge ─────────────────
-      - name: Backup custom WebSearchTool
+      # ── Backup ALL your files that should never be overwritten ─────────────
+      - name: Backup custom & npm files
         run: |
           mkdir -p /tmp/backup
-          cp src/tools/WebSearchTool/WebSearchTool.ts /tmp/backup/WebSearchTool.ts
-          echo "✅ Custom WebSearchTool backed up"
+          # Add any files/folders you want to fully protect here
+          cp -r package.json /tmp/backup/ 2>/dev/null || true
+          cp -r package-lock.json /tmp/backup/ 2>/dev/null || true
+          cp -r src/tools/WebSearchTool/WebSearchTool.ts /tmp/backup/ 2>/dev/null || true
+          
+          # Add more custom files here if needed, e.g.:
+          # cp -r your-custom-folder/ /tmp/backup/ 2>/dev/null || true
+          
+          echo "✅ Protected files backed up"
 
-      # ── 5. Merge upstream/main into a sync branch ──────────────────────────
       - name: Create sync branch & merge upstream
         id: merge
         run: |
@@ -69,44 +60,57 @@ jobs:
 
           git checkout -b "$BRANCH"
 
-          # Attempt merge; allow unrelated histories (first sync)
+          # Merge upstream but let our version win on conflicts (strategy-option=ours)
           if git merge upstream/main \
               --no-edit \
-              --strategy-option=theirs \
+              --strategy-option=ours \
               --allow-unrelated-histories; then
             echo "merged=true" >> "$GITHUB_OUTPUT"
           else
             echo "merged=false" >> "$GITHUB_OUTPUT"
             git merge --abort || true
-            echo "⚠️  Merge conflict — manual resolution required."
+            echo "⚠️ Merge conflict — manual resolution required."
             exit 0
           fi
 
-      # ── 6. Restore your custom WebSearchTool (override whatever upstream had)
-      - name: Restore custom WebSearchTool
+      # ── Restore protected files (prevents deletion + overwrite) ───────────
+      - name: Restore protected files
         if: steps.merge.outputs.merged == 'true'
         run: |
-          cp /tmp/backup/WebSearchTool.ts src/tools/WebSearchTool/WebSearchTool.ts
-          git add src/tools/WebSearchTool/WebSearchTool.ts
-
-          # Only commit if the restore actually changed something
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: restore custom WebSearchTool after upstream sync"
-            echo "✅ Custom WebSearchTool restored and committed"
-          else
-            echo "ℹ️  WebSearchTool unchanged after sync — no extra commit needed"
+          # Restore npm files
+          if [ -f /tmp/backup/package.json ]; then
+            cp /tmp/backup/package.json package.json
+            git add package.json
+          fi
+          if [ -f /tmp/backup/package-lock.json ]; then
+            cp /tmp/backup/package-lock.json package-lock.json
+            git add package-lock.json
           fi
 
-      # ── 7. Check whether there's anything new to push ─────────────────────
+          # Restore your custom WebSearchTool
+          if [ -f /tmp/backup/WebSearchTool.ts ]; then
+            mkdir -p src/tools/WebSearchTool
+            cp /tmp/backup/WebSearchTool.ts src/tools/WebSearchTool/WebSearchTool.ts
+            git add src/tools/WebSearchTool/WebSearchTool.ts
+          fi
+
+          # Commit only if something actually changed
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: restore protected files after upstream sync (package.json + custom tools)"
+            echo "✅ Protected files restored"
+          else
+            echo "ℹ️ No changes to protected files"
+          fi
+
       - name: Check for changes
         if: steps.merge.outputs.merged == 'true'
         id: diff
         run: |
           COUNT=$(git rev-list --count origin/main..HEAD)
           echo "commit_count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "New commits ahead of main: $COUNT"
+          echo "New commits ahead: $COUNT"
 
-      # ── 8a. Auto-merge if AUTO_MERGE var is set ────────────────────────────
+      # Auto-merge if enabled
       - name: Push directly to main (auto-merge)
         if: >
           steps.merge.outputs.merged == 'true' &&
@@ -116,9 +120,9 @@ jobs:
           git checkout main
           git merge "${{ steps.merge.outputs.branch }}" --no-edit
           git push origin main
-          echo "✅ Auto-merged upstream changes into main"
+          echo "✅ Auto-merged upstream changes"
 
-      # ── 8b. Open a PR for review (default, safe) ──────────────────────────
+      # Safe PR mode (default)
       - name: Push sync branch
         if: >
           steps.merge.outputs.merged == 'true' &&
@@ -141,17 +145,17 @@ jobs:
           body: |
             Automated sync from [Gitlawb/openclaude](https://github.com/Gitlawb/openclaude).
 
-            **Your custom `WebSearchTool.ts` has been preserved** — upstream's version was discarded.
+            **Protected files preserved:**
+            - `package.json`
+            - `package-lock.json`
+            - `src/tools/WebSearchTool/WebSearchTool.ts`
+            - Any other custom files you added to the backup step
 
-            Changes pulled from upstream:
-            - All modified files EXCEPT `src/tools/WebSearchTool/WebSearchTool.ts`
-
-            Review and merge when ready.
+            Upstream changes applied where possible. No deletions or overwrites of your npm/publishing files.
           labels: "upstream-sync,automated"
 
-      # ── 9. No-op message if nothing changed ───────────────────────────────
       - name: Nothing to sync
         if: >
           steps.merge.outputs.merged == 'true' &&
           steps.diff.outputs.commit_count == '0'
-        run: echo "✅ Already up-to-date with upstream. Nothing to do."
+        run: echo "✅ Already up-to-date with upstream."
