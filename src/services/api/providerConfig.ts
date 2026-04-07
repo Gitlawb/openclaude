@@ -9,6 +9,8 @@ export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 /** Default GitHub Models API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'openai/gpt-4.1'
+export const DEFAULT_MINIMAX_BASE_URL = 'https://api.minimax.io/v1'
+export const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7'
 
 const CODEX_ALIAS_MODELS: Record<
   string,
@@ -300,11 +302,12 @@ export function resolveProviderRequest(options?: {
   reasoningEffortOverride?: ReasoningEffort
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+  const isMiniMaxMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MINIMAX)
   const requestedModel =
     options?.model?.trim() ||
     process.env.OPENAI_MODEL?.trim() ||
     options?.fallbackModel?.trim() ||
-    (isGithubMode ? 'github:copilot' : 'gpt-4o')
+    (isGithubMode ? 'github:copilot' : isMiniMaxMode ? DEFAULT_MINIMAX_MODEL : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const rawBaseUrl =
     asEnvUrl(options?.baseUrl) ??
@@ -334,7 +337,9 @@ export function resolveProviderRequest(options?: {
       (rawBaseUrl ??
         (transport === 'codex_responses'
           ? DEFAULT_CODEX_BASE_URL
-          : DEFAULT_OPENAI_BASE_URL)
+          : isMiniMaxMode
+            ? DEFAULT_MINIMAX_BASE_URL
+            : DEFAULT_OPENAI_BASE_URL)
       ).replace(/\/+$/, ''),
     reasoning,
   }
@@ -346,7 +351,8 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MINIMAX)) {
       return 'firstParty'
     }
     return null

@@ -53,6 +53,7 @@ type SecretValueSource = Partial<{
   GEMINI_API_KEY: string
   GOOGLE_API_KEY: string
   GEMINI_ACCESS_TOKEN: string
+  MINIMAX_API_KEY: string
 }>
 
 const GITHUB_MODELS_DEFAULT_BASE = 'https://models.github.ai/inference'
@@ -219,6 +220,10 @@ function isGeminiMode(): boolean {
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
     hasGeminiApiHost(process.env.OPENAI_BASE_URL)
   )
+}
+
+function isMiniMaxMode(): boolean {
+  return isEnvTruthy(process.env.CLAUDE_CODE_USE_MINIMAX)
 }
 
 function convertMessages(
@@ -1099,8 +1104,12 @@ class OpenAIShimMessages {
     }
 
     const isGemini = isGeminiMode()
+    const isMiniMax = isMiniMaxMode()
     const apiKey =
-      this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+      this.providerOverride?.apiKey ??
+      (isMiniMax ? process.env.MINIMAX_API_KEY : undefined) ??
+      process.env.OPENAI_API_KEY ??
+      ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
