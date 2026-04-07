@@ -1165,9 +1165,10 @@ class OpenAIShimMessages {
       try {
         response = await fetch(chatCompletionsUrl, fetchInit)
       }catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError')  throw err
         const cause = err instanceof Error ? err.message : String(err)
         throw new Error (
-          `Network request failed for ${chatCompletionsUrl} -` + `check OPENAI_BASE_URL connection. Cause: ${cause}` 
+          `Network request failed for ${chatCompletionsUrl} — check your provider URL and connectivity. Cause: ${cause}` 
         )
       }
       if (response.ok) {
