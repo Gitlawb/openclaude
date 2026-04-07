@@ -1173,6 +1173,7 @@ class OpenAIShimMessages {
           const parsed = new URL(chatCompletionsUrl)
           parsed.username = ''
           parsed.password = ''
+          parsed.search = ''
           safeUrl = parsed.toString()
         }catch {
           safeUrl = '[invalid URL]'
