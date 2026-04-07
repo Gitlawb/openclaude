@@ -77,5 +77,3 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
     'Reconstructed transcript is too large to resume safely',
   )
 })
-
-
