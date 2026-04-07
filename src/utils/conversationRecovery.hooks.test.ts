@@ -69,3 +69,93 @@ test('loadConversationForResume rejects oversized transcripts before resume hook
   )
   expect(hookSpy).not.toHaveBeenCalled()
 })
+
+test('deserializeMessagesWithInterruptDetection strips thinking blocks only for OpenAI-compatible providers', async () => {
+  const serializedMessages = [
+    user(id(10), 'hello'),
+    {
+      type: 'assistant',
+      uuid: id(11),
+      parentUuid: id(10),
+      timestamp: ts,
+      cwd: '/tmp',
+      sessionId,
+      version: 'test',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'secret reasoning' },
+          { type: 'text', text: 'visible reply' },
+        ],
+      },
+    },
+    {
+      type: 'assistant',
+      uuid: id(12),
+      parentUuid: id(11),
+      timestamp: ts,
+      cwd: '/tmp',
+      sessionId,
+      version: 'test',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'thinking', thinking: 'only hidden reasoning' }],
+      },
+    },
+    user(id(13), 'follow up'),
+  ]
+
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => 'openai',
+    isOpenAICompatibleProvider: (provider: string) =>
+      provider === 'openai' ||
+      provider === 'gemini' ||
+      provider === 'github' ||
+      provider === 'codex',
+  }))
+
+  const openaiModule = await import(`./conversationRecovery.ts?provider=openai-${Date.now()}`)
+  const thirdParty = openaiModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
+  const thirdPartyAssistantMessages = thirdParty.messages.filter(
+    message => message.type === 'assistant',
+  )
+
+  expect(thirdPartyAssistantMessages).toHaveLength(2)
+  expect(thirdPartyAssistantMessages[0]?.message?.content).toEqual([
+    { type: 'text', text: 'visible reply' },
+  ])
+  expect(
+    JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
+  ).not.toContain('secret reasoning')
+  expect(
+    JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
+  ).not.toContain('only hidden reasoning')
+
+  mock.restore()
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => 'bedrock',
+    isOpenAICompatibleProvider: (provider: string) =>
+      provider === 'openai' ||
+      provider === 'gemini' ||
+      provider === 'github' ||
+      provider === 'codex',
+  }))
+
+  const bedrockModule = await import(`./conversationRecovery.ts?provider=bedrock-${Date.now()}`)
+  const anthropicCompatible = bedrockModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
+  const anthropicAssistantMessages = anthropicCompatible.messages.filter(
+    message => message.type === 'assistant',
+  )
+
+  expect(anthropicAssistantMessages).toHaveLength(2)
+  expect(anthropicAssistantMessages[0]?.message?.content).toEqual([
+    { type: 'thinking', thinking: 'secret reasoning' },
+    { type: 'text', text: 'visible reply' },
+  ])
+  expect(
+    JSON.stringify(anthropicAssistantMessages.map(message => message.message?.content)),
+  ).toContain('secret reasoning')
+  expect(
+    JSON.stringify(anthropicAssistantMessages.map(message => message.message?.content)),
+  ).not.toContain('only hidden reasoning')
+})
