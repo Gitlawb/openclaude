@@ -95,9 +95,21 @@ test('gpt-5.4 family keeps large max output overrides within provider limits', (
   expect(getMaxOutputTokensForModel('gpt-5.4-nano')).toBe(128_000)
 })
 
-test('unknown openai-compatible models keep the default context window', () => {
+test('MiniMax-M2.7 uses explicit provider-specific context and output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
 
-  expect(getContextWindowForModel('some-unknown-3p-model')).toBe(200_000)
+  expect(getContextWindowForModel('MiniMax-M2.7')).toBe(204_800)
+  expect(getModelMaxOutputTokens('MiniMax-M2.7')).toEqual({
+    default: 131_072,
+    upperLimit: 131_072,
+  })
+  expect(getMaxOutputTokensForModel('MiniMax-M2.7')).toBe(131_072)
+})
+
+test('unknown openai-compatible models still use the conservative fallback window', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('some-unknown-3p-model')).toBe(8_000)
 })
