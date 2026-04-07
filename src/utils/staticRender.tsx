@@ -97,8 +97,12 @@ export function renderToAnsiString(node: React.ReactNode, columns?: number): Pro
       patchConsole: false
     });
 
-    // Wait for the component to exit naturally
-    await instance.waitUntilExit();
+    // Wait for the component to exit naturally, with a timeout guard so
+    // tests never hang indefinitely if a render error prevents exit().
+    await Promise.race([
+      instance.waitUntilExit(),
+      new Promise<void>(resolve => setTimeout(resolve, 3000)),
+    ]);
 
     // Extract only the first frame's content to avoid duplication
     // (Ink outputs multiple frames in non-TTY mode)

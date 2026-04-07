@@ -1,4 +1,4 @@
-import { describe, expect, test, afterEach } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   parseProviderFlag,
   applyProviderFlag,
@@ -8,18 +8,26 @@ import {
 
 const originalEnv = { ...process.env }
 
+const RESET_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'GEMINI_MODEL',
+] as const
+
+beforeEach(() => {
+  for (const key of RESET_KEYS) {
+    delete process.env[key]
+  }
+})
+
 afterEach(() => {
-  for (const key of [
-    'CLAUDE_CODE_USE_OPENAI',
-    'CLAUDE_CODE_USE_GEMINI',
-    'CLAUDE_CODE_USE_GITHUB',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'CLAUDE_CODE_USE_VERTEX',
-    'OPENAI_BASE_URL',
-    'OPENAI_API_KEY',
-    'OPENAI_MODEL',
-    'GEMINI_MODEL',
-  ]) {
+  for (const key of RESET_KEYS) {
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
   }
