@@ -9,7 +9,10 @@ const sessionTranscriptModule = feature('KAIROS')
 
 import { APIUserAbortError } from '@anthropic-ai/sdk'
 import { markPostCompaction } from 'src/bootstrap/state.js'
-import { getInvokedSkillsForAgent } from '../../bootstrap/state.js'
+import {
+  getInvokedSkillsForAgent,
+  getOriginalCwd,
+} from '../../bootstrap/state.js'
 import type { QuerySource } from '../../constants/querySource.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { Tool, ToolUseContext } from '../../Tool.js'
@@ -44,7 +47,6 @@ import {
   analyzeContext,
   tokenStatsToStatsigMetrics,
 } from '../../utils/contextAnalysis.js'
-import { getCwd } from '../../utils/cwd.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { hasExactErrorMessage } from '../../utils/errors.js'
 import { cacheToObject } from '../../utils/fileStateCache.js'
@@ -1695,7 +1697,7 @@ function shouldExcludeFromPostCompactRestore(
         expandPath(getMemoryPath(type)),
       ),
     )
-    for (const path of getProjectInstructionFilePaths(getCwd())) {
+    for (const path of getProjectInstructionFilePaths(getOriginalCwd())) {
       normalizedMemoryPaths.add(expandPath(path))
     }
 
