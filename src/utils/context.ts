@@ -74,7 +74,7 @@ export function getContextWindowForModel(
 
   // OpenAI-compatible provider — use known context windows for the model.
   // Unknown models get a conservative 8k default so auto-compact triggers
-  // before hitting a hard context_window_exceeded error (issue #248 finding 3).
+  // before hitting a hard context_window_exceeded error.
   const isOpenAIProvider =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
