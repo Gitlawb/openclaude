@@ -1,7 +1,7 @@
 export function shouldRunStartupChecks(
   isRemoteSession: boolean,
   hasStarted: boolean,
-  promptTypingSuppressionActive: boolean,
+  isPromptInputActive: boolean,
 ): boolean {
-  return !isRemoteSession && !hasStarted && !promptTypingSuppressionActive
+  return !isRemoteSession && !hasStarted && !isPromptInputActive
 }

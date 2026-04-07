@@ -1341,7 +1341,7 @@ export function REPL({
       !shouldRunStartupChecks(
         isRemoteSession,
         startupChecksStartedRef.current,
-        promptTypingSuppressionActive,
+        isPromptInputActive,
       )
     ) {
       return;
@@ -1352,7 +1352,7 @@ export function REPL({
         !shouldRunStartupChecks(
           isRemoteSession,
           startupChecksStartedRef.current,
-          promptTypingSuppressionActive,
+          isPromptInputActive,
         )
       ) {
         return;
@@ -1363,7 +1363,7 @@ export function REPL({
     }, PROMPT_SUPPRESSION_MS);
 
     return () => clearTimeout(timeout);
-  }, [setAppState, isRemoteSession, promptTypingSuppressionActive]);
+  }, [setAppState, isRemoteSession, isPromptInputActive]);
 
   const insertTextRef = useRef<{
     insert: (text: string) => void;

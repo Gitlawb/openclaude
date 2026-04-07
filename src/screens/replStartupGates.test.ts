@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test'
 import { shouldRunStartupChecks } from './replStartupGates.js'
 
 describe('shouldRunStartupChecks', () => {
-  it('blocks startup checks while the prompt is actively typing or seeded', () => {
+  it('blocks startup checks while the user is actively typing', () => {
     expect(shouldRunStartupChecks(false, false, true)).toBe(false)
   })
 
