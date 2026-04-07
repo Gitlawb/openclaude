@@ -295,6 +295,22 @@ Coverage output is written to `coverage/lcov.info`, and OpenClaude also generate
 
 The repo includes a VS Code extension in [`vscode-extension/openclaude-vscode`](vscode-extension/openclaude-vscode) for OpenClaude launch integration, provider-aware control-center UI, and theme support.
 
+## Skill Files
+
+OpenClaude reads markdown skill files from `~/.claude/skills/` (the same standard location as Claude Code). Skill files give the agent specialized expertise for specific technologies — frameworks, databases, testing tools, deployment workflows, and more.
+
+[Claude Skills Hub](https://clskills.in) maintains a free, open library of 2,300+ ready-to-use skill files across 71 categories. Every skill works with OpenClaude and any LLM provider it supports (OpenAI, Gemini, Ollama, DeepSeek, GitHub Models, etc.).
+
+Quick install example:
+
+```bash
+mkdir -p ~/.claude/skills
+curl -o ~/.claude/skills/docker-compose.md https://clskills.in/skills/docker/docker-compose.md
+curl -o ~/.claude/skills/react-testing.md https://clskills.in/skills/testing/react-testing.md
+```
+
+Browse all skills at [clskills.in/browse](https://clskills.in/browse).
+
 ## Security
 
 If you believe you found a security issue, see [SECURITY.md](SECURITY.md).
