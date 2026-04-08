@@ -1,111 +1,50 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-function installCommonMocks(options: {
-  cwd: string
-  existingFiles: string[]
-  isWorkspaceDirEmpty?: boolean
-}) {
-  const existingFiles = new Set(options.existingFiles)
+import {
+  getSteps,
+  isProjectOnboardingComplete,
+} from './projectOnboardingSteps.js'
+import { runWithCwdOverride } from './utils/cwd.js'
 
-  mock.module('./utils/cwd.js', () => ({
-    getCwd: () => options.cwd,
-  }))
+let tempDir: string | undefined
 
-  mock.module('./utils/file.js', () => ({
-    isDirEmpty: () => options.isWorkspaceDirEmpty ?? false,
-  }))
-
-  // Mock the whole fsOperations module but re-export all named exports so that
-  // other test files in the same Bun process don't get "Export not found" errors
-  // for safeResolvePath / isDuplicatePath / etc.
-  // We keep a module-level activeFs variable inside the mock closure so that
-  // setFsImplementation/setOriginalFsImplementation still work across calls.
-  let _activeFs = {
-    existsSync: (filePath: string) => existingFiles.has(filePath),
+afterEach(async () => {
+  if (tempDir) {
+    await rm(tempDir, { recursive: true, force: true })
+    tempDir = undefined
   }
-  mock.module('./utils/fsOperations.js', () => {
-    // Stub only what projectOnboardingSteps actually calls:
-    //   getFsImplementation().existsSync
-    // All other exports are stubs that throw if called, so callers that truly
-    // need them will fail loudly rather than silently returning undefined.
-    const notImpl =
-      (name: string) =>
-      (..._args: unknown[]) => {
-        throw new Error(`fsOperations.${name} not implemented in test stub`)
-      }
-    return {
-      getFsImplementation: () => _activeFs,
-      setFsImplementation: (impl: typeof _activeFs) => {
-        _activeFs = impl
-      },
-      setOriginalFsImplementation: () => {
-        _activeFs = {
-          existsSync: (filePath: string) => existingFiles.has(filePath),
-        }
-      },
-      // Re-export stubs for all other named exports so the module shape is
-      // preserved and other test files importing them don't get SyntaxError.
-      safeResolvePath: notImpl('safeResolvePath'),
-      isDuplicatePath: notImpl('isDuplicatePath'),
-      resolveDeepestExistingAncestorSync: notImpl(
-        'resolveDeepestExistingAncestorSync',
-      ),
-      getPathsForPermissionCheck: notImpl('getPathsForPermissionCheck'),
-      NodeFsOperations: {},
-      readFileRange: notImpl('readFileRange'),
-      tailFile: notImpl('tailFile'),
-      readLinesReverse: notImpl('readLinesReverse'),
-    }
-  })
-}
-
-async function importFreshProjectOnboardingState(options: {
-  cwd: string
-  existingFiles: string[]
-  isWorkspaceDirEmpty?: boolean
-}) {
-  mock.restore()
-  installCommonMocks(options)
-  return import(`./projectOnboardingSteps.ts?ts=${Date.now()}-${Math.random()}`)
-}
-
-afterEach(() => {
-  mock.restore()
 })
 
 describe('project onboarding completion', () => {
   test('is incomplete when neither AGENTS.md nor CLAUDE.md exists', async () => {
-    const cwd = '/repo'
-    const { getSteps, isProjectOnboardingComplete } =
-      await importFreshProjectOnboardingState({
-        cwd,
-        existingFiles: [],
-      })
+    tempDir = await mkdtemp(join(tmpdir(), 'project-onboarding-'))
 
-    expect(isProjectOnboardingComplete()).toBe(false)
-    expect(getSteps()[1]?.text).toContain('AGENTS.md')
+    await runWithCwdOverride(tempDir, async () => {
+      expect(isProjectOnboardingComplete()).toBe(false)
+      expect(getSteps()[1]?.text).toContain('/init')
+      expect(getSteps()[1]?.text).toContain('AGENTS.md')
+      expect(getSteps()[1]?.text).toContain('CLAUDE.md')
+    })
   })
 
   test('is complete when only CLAUDE.md exists', async () => {
-    const cwd = '/repo'
-    const { isProjectOnboardingComplete } =
-      await importFreshProjectOnboardingState({
-        cwd,
-        existingFiles: [join(cwd, 'CLAUDE.md')],
-      })
+    tempDir = await mkdtemp(join(tmpdir(), 'project-onboarding-'))
+    await writeFile(join(tempDir, 'CLAUDE.md'), '# CLAUDE.md\n')
 
-    expect(isProjectOnboardingComplete()).toBe(true)
+    await runWithCwdOverride(tempDir, async () => {
+      expect(isProjectOnboardingComplete()).toBe(true)
+    })
   })
 
   test('is complete when only AGENTS.md exists', async () => {
-    const cwd = '/repo'
-    const { isProjectOnboardingComplete } =
-      await importFreshProjectOnboardingState({
-        cwd,
-        existingFiles: [join(cwd, 'AGENTS.md')],
-      })
+    tempDir = await mkdtemp(join(tmpdir(), 'project-onboarding-'))
+    await writeFile(join(tempDir, 'AGENTS.md'), '# AGENTS.md\n')
 
-    expect(isProjectOnboardingComplete()).toBe(true)
+    await runWithCwdOverride(tempDir, async () => {
+      expect(isProjectOnboardingComplete()).toBe(true)
+    })
   })
 })
