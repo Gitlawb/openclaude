@@ -20,6 +20,7 @@ const version = pkg.version
 // Most Anthropic-internal features stay off; open-build features can be
 // selectively enabled here when their full source exists in the mirror.
 const featureFlags: Record<string, boolean> = {
+<<<<<<< HEAD
   // ── Disabled: require Anthropic infrastructure or missing source ─────
   VOICE_MODE: false,              // Push-to-talk STT via claude.ai OAuth endpoint
   PROACTIVE: false,               // Autonomous agent mode (missing proactive/ module)
@@ -60,6 +61,30 @@ const featureFlags: Record<string, boolean> = {
   VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
   PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
   HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts
+  VOICE_MODE: false,
+  PROACTIVE: false,
+  KAIROS: false,
+  BRIDGE_MODE: false,
+  DAEMON: false,
+  AGENT_TRIGGERS: false,
+  MONITOR_TOOL: false,
+  ABLATION_BASELINE: false,
+  DUMP_SYSTEM_PROMPT: false,
+  CACHED_MICROCOMPACT: false,
+  COORDINATOR_MODE: false,
+  CONTEXT_COLLAPSE: false,
+  COMMIT_ATTRIBUTION: false,
+  TEAMMEM: false,
+  UDS_INBOX: false,
+  BG_SESSIONS: false,
+  AWAY_SUMMARY: false,
+  TRANSCRIPT_CLASSIFIER: false,
+  WEB_BROWSER_TOOL: false,
+  MESSAGE_ACTIONS: false,
+  BUDDY: true,
+  CHICAGO_MCP: false,
+  COWORKER_TYPE_TELEMETRY: false,
+  KAIROS_CHANNELS: true,              // Channel messaging (Telegram, Discord, iMessage) via MCP
 }
 
 // ── Pre-process: replace feature() calls with boolean literals ──────

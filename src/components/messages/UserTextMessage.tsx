@@ -235,7 +235,7 @@ export function UserTextMessage(t0) {
       return t2;
     }
   }
-  if (feature("KAIROS") || feature("KAIROS_CHANNELS")) {
+  if (true /* channels enabled */) {
     if (param.text.includes("<channel source=\"")) {
       let t1;
       if ($[40] === Symbol.for("react.memo_cache_sentinel")) {

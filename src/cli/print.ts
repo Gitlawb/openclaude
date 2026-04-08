@@ -1664,7 +1664,7 @@ function runHeadlessStreaming(
       // handler re-runs the full gate); just avoids dead buttons.
       let capabilities: { experimental?: Record<string, unknown> } | undefined
       if (
-        (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+        true /* channels enabled */ &&
         connection.type === 'connected' &&
         connection.capabilities.experimental
       ) {
@@ -1850,9 +1850,18 @@ function runHeadlessStreaming(
       : undefined
 
   // Abort the current operation when a 'now' priority message arrives.
+  // Also wake the run loop when channel messages (priority 'next') arrive
+  // while the model is idle — without this, channel notifications enqueued
+  // between runs would sit in the queue until the next SDK message.
   subscribeToCommandQueue(() => {
     if (abortController && getCommandsByMaxPriority('now').length > 0) {
       abortController.abort('interrupt')
+    }
+    // Channel messages and other 'next' priority items: kick off run() if idle.
+    // run() checks `running` and returns immediately if already active, so this
+    // is safe to call unconditionally.
+    if (!running && hasCommandsInQueue()) {
+      void run()
     }
   })
 
@@ -1992,7 +2001,7 @@ function runHeadlessStreaming(
           // (setNotificationHandler replaces, not stacks) and no-ops for
           // non-allowlisted servers (one feature-flag check).
           for (const client of allMcpClients) {
-            reregisterChannelHandlerAfterReconnect(client)
+            reregisterChannelHandlerAfterReconnect(client, setAppState)
           }
 
           const allTools = buildAllTools(appState)
@@ -3183,7 +3192,7 @@ function runHeadlessStreaming(
             }
             if (result.client.type === 'connected') {
               registerElicitationHandlers([result.client])
-              reregisterChannelHandlerAfterReconnect(result.client)
+              reregisterChannelHandlerAfterReconnect(result.client, setAppState)
               sendControlResponseSuccess(message)
             } else {
               const errorMessage =
@@ -3274,7 +3283,7 @@ function runHeadlessStreaming(
             }))
             if (result.client.type === 'connected') {
               registerElicitationHandlers([result.client])
-              reregisterChannelHandlerAfterReconnect(result.client)
+              reregisterChannelHandlerAfterReconnect(result.client, setAppState)
               sendControlResponseSuccess(message)
             } else {
               const errorMessage =
@@ -3296,6 +3305,7 @@ function runHeadlessStreaming(
               ...dynamicMcpState.clients,
             ],
             output,
+            setAppState,
           )
         } else if (message.request.subtype === 'mcp_authenticate') {
           const { serverName } = message.request
@@ -4654,6 +4664,7 @@ function handleChannelEnable(
   serverName: string,
   connectionPool: readonly MCPServerConnection[],
   output: Stream<StdoutMessage>,
+  setAppState: (f: (prev: AppState) => AppState) => void,
 ): void {
   const respondError = (error: string) =>
     output.enqueue({
@@ -4661,7 +4672,7 @@ function handleChannelEnable(
       response: { subtype: 'error', request_id: requestId, error },
     })
 
-  if (!(feature('KAIROS') || feature('KAIROS_CHANNELS'))) {
+  if (false /* channels always enabled */) {
     return respondError('channels feature not available in this build')
   }
 
@@ -4715,6 +4726,27 @@ function handleChannelEnable(
     `${entry.name}@${entry.marketplace}` as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
   logMCPDebug(serverName, 'Channel notifications registered')
   logEvent('tengu_mcp_channel_enable', { plugin: pluginId })
+
+  // Auto-allow all tools from this channel server so the user
+  // isn't prompted every time Claude replies via the channel.
+  {
+    const serverRule = getMcpPrefix(serverName).slice(0, -2) // strip trailing __
+    setAppState(prev => {
+      const sessionRules =
+        prev.toolPermissionContext.alwaysAllowRules.session ?? []
+      if (sessionRules.includes(serverRule)) return prev
+      return {
+        ...prev,
+        toolPermissionContext: {
+          ...prev.toolPermissionContext,
+          alwaysAllowRules: {
+            ...prev.toolPermissionContext.alwaysAllowRules,
+            session: [...sessionRules, serverRule],
+          },
+        },
+      }
+    })
+  }
 
   // Identical enqueue shape to the interactive register block in
   // useManageMCPConnections. drainCommandQueue processes it between turns —
@@ -4775,8 +4807,9 @@ function handleChannelEnable(
  */
 function reregisterChannelHandlerAfterReconnect(
   connection: MCPServerConnection,
+  setAppState: (f: (prev: AppState) => AppState) => void,
 ): void {
-  if (!(feature('KAIROS') || feature('KAIROS_CHANNELS'))) return
+  if (false /* channels always enabled */) return
   if (connection.type !== 'connected') return
 
   const gate = gateChannelServer(
@@ -4785,6 +4818,26 @@ function reregisterChannelHandlerAfterReconnect(
     connection.config.pluginSource,
   )
   if (gate.action !== 'register') return
+
+  // Auto-allow all tools from this channel server (same as handleChannelEnable)
+  {
+    const serverRule = getMcpPrefix(connection.name).slice(0, -2)
+    setAppState(prev => {
+      const sessionRules =
+        prev.toolPermissionContext.alwaysAllowRules.session ?? []
+      if (sessionRules.includes(serverRule)) return prev
+      return {
+        ...prev,
+        toolPermissionContext: {
+          ...prev.toolPermissionContext,
+          alwaysAllowRules: {
+            ...prev.toolPermissionContext.alwaysAllowRules,
+            session: [...sessionRules, serverRule],
+          },
+        },
+      }
+    })
+  }
 
   const entry = findChannelEntry(connection.name, getAllowedChannels())
   const pluginId =

@@ -169,7 +169,7 @@ export function useManageMCPConnections(
     null,
   )
   if (
-    (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+    true /* channels enabled */ &&
     channelPermCallbacksRef.current === null
   ) {
     channelPermCallbacksRef.current = createChannelPermissionCallbacks()
@@ -177,7 +177,7 @@ export function useManageMCPConnections(
   // Store callbacks in AppState so interactiveHandler.ts can reach them via
   // ctx.toolUseContext.getAppState(). One-time set — the ref is stable.
   useEffect(() => {
-    if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
+    if (true /* channels enabled */) {
       const callbacks = channelPermCallbacksRef.current
       if (!callbacks) return
       // GrowthBook runtime gate — separate from channels so channels can
@@ -470,7 +470,7 @@ export function useManageMCPConnections(
           // Channel push: notifications/claude/channel → enqueue().
           // Gate decides whether to register the handler; connection stays
           // up either way (allowedMcpServers controls that).
-          if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
+          if (true /* channels enabled */) {
             const gate = gateChannelServer(
               client.name,
               client.capabilities,
@@ -504,6 +504,30 @@ export function useManageMCPConnections(
             switch (gate.action) {
               case 'register':
                 logMCPDebug(client.name, 'Channel notifications registered')
+
+                // Auto-allow all tools from this channel server so the user
+                // isn't prompted every time Claude replies via the channel.
+                // The server-level rule (e.g. "mcp__plugin_telegram_telegram")
+                // matches all tools from that server via toolMatchesRule().
+                {
+                  const serverRule = getMcpPrefix(client.name).slice(0, -2) // strip trailing __
+                  store.setState(prev => {
+                    const sessionRules =
+                      prev.toolPermissionContext.alwaysAllowRules.session ?? []
+                    if (sessionRules.includes(serverRule)) return prev
+                    return {
+                      ...prev,
+                      toolPermissionContext: {
+                        ...prev.toolPermissionContext,
+                        alwaysAllowRules: {
+                          ...prev.toolPermissionContext.alwaysAllowRules,
+                          session: [...sessionRules, serverRule],
+                        },
+                      },
+                    }
+                  })
+                }
+
                 client.client.setNotificationHandler(
                   ChannelMessageNotificationSchema(),
                   async notification => {

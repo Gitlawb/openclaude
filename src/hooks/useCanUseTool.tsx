@@ -163,7 +163,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                 result,
                 awaitAutomatedChecksBeforeDialog: appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog,
                 bridgeCallbacks: feature("BRIDGE_MODE") ? appState.replBridgePermissionCallbacks : undefined,
-                channelCallbacks: feature("KAIROS") || feature("KAIROS_CHANNELS") ? appState.channelPermissionCallbacks : undefined
+                channelCallbacks: true /* channels enabled */ ? appState.channelPermissionCallbacks : undefined
               }, resolve);
               return;
             }

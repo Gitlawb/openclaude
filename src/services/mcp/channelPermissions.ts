@@ -24,17 +24,13 @@
  */
 
 import { jsonStringify } from '../../utils/slowOperations.js'
-import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 
 /**
- * GrowthBook runtime gate — separate from the channels gate (tengu_harbor)
- * so channels can ship without permission-relay riding along (Kenneth: "no
- * bake time if it goes out tomorrow"). Default false; flip without a release.
- * Checked once at useManageMCPConnections mount — mid-session flag changes
- * don't apply until restart.
+ * Permission relay gate. OpenClaude: always enabled — the implementation
+ * is complete and tested. No GrowthBook dependency.
  */
 export function isChannelPermissionRelayEnabled(): boolean {
-  return getFeatureValue_CACHED_MAY_BE_STALE('tengu_harbor_permissions', false)
+  return true
 }
 
 export type ChannelPermissionResponse = {
