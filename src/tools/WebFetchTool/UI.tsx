@@ -54,11 +54,14 @@ export function renderToolResultMessage(
   const durationSec = (output.durationMs / 1000);
   const timeDisplay = durationSec >= 1 ? `${Math.round(durationSec)}s` : `${Math.round(durationSec * 1000)}ms`;
 
+  let hostname: string
+  try { hostname = new URL(output.url).hostname } catch { hostname = output.url }
+
   if (verbose) {
     return <Box flexDirection="column">
         <MessageResponse height={1}>
           <Text>
-            Fetched <Text bold>{formattedSize}</Text> from {new URL(output.url).hostname} ({output.code} {output.codeText}) in {timeDisplay}
+            Fetched <Text bold>{formattedSize}</Text> from {hostname} ({output.code} {output.codeText}) in {timeDisplay}
           </Text>
         </MessageResponse>
         <Box flexDirection="column">
