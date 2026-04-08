@@ -257,10 +257,19 @@ export function deserializeMessagesWithInterruptDetection(
       filteredToolUses,
     ) as NormalizedMessage[]
 
+    // Strip thinking/redacted_thinking content blocks from assistant messages
+    // when resuming against a 3P provider. These Anthropic-specific blocks cause
+    // 400 errors or context corruption on OpenAI-compatible providers (issue #248 finding 5).
+    const provider = getAPIProvider()
+    const isThirdPartyProvider = provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex' && provider !== 'foundry'
+    const thinkingStripped = isThirdPartyProvider
+      ? stripThinkingBlocks(filteredThinking)
+      : filteredThinking
+
     // Filter out assistant messages with only whitespace text content.
     // This can happen when model outputs "\n\n" before thinking, user cancels mid-stream.
     const filteredMessages = filterWhitespaceOnlyAssistantMessages(
-      filteredThinking,
+      thinkingStripped,
     ) as NormalizedMessage[]
 
     const internalState = detectTurnInterruption(filteredMessages)

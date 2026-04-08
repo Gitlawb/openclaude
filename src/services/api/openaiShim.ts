@@ -221,10 +221,12 @@ function convertContentBlocks(
         // handled separately
         break
       case 'thinking':
-        // Append thinking as text with a marker for models that support reasoning
-        if (block.thinking) {
-          parts.push({ type: 'text', text: `<thinking>${block.thinking}</thinking>` })
-        }
+      case 'redacted_thinking':
+        // Strip thinking blocks for OpenAI-compatible providers.
+        // These are Anthropic-specific content types that 3P providers
+        // don't understand. Serializing them as <thinking> text corrupts
+        // multi-turn context: the model sees the tags as part of its
+        // previous reply and may mimic or misattribute them.
         break
       default:
         if (block.text) {
