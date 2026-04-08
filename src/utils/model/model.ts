@@ -260,11 +260,6 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
-  // GitHub provider (legacy duplicate check - already handled above)
-  if (getAPIProvider() === 'github') {
-    const settings = getSettings_DEPRECATED() || {}
-    return settings.model || process.env.OPENAI_MODEL || 'github:copilot'
-  }
   // Codex provider: always use the configured Codex model (default gpt-5.4)
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.4'

@@ -1,4 +1,5 @@
 import {
+  getGithubEndpointType,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
@@ -19,10 +20,16 @@ type GithubTokenStatus = 'valid' | 'expired' | 'invalid_format'
 
 const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_', 'ghs_', 'ghr_', 'github_pat_']
 
-function checkGithubTokenStatus(token: string): GithubTokenStatus {
-  // PATs are no longer supported - Copilot API requires OAuth-derived tokens
+function checkGithubTokenStatus(
+  token: string,
+  endpointType: 'copilot' | 'models' | 'custom' = 'copilot',
+): GithubTokenStatus {
+  // PATs work with GitHub Models but not with Copilot API
   if (GITHUB_PAT_PREFIXES.some(prefix => token.startsWith(prefix))) {
-    return 'expired'
+    if (endpointType === 'copilot') {
+      return 'expired'
+    }
+    return 'valid'
   }
 
   const expMatch = token.match(/exp=(\d+)/)
@@ -82,7 +89,8 @@ export async function getProviderValidationError(
         'Run /onboard-github in the CLI to sign in with your GitHub account.\n' +
         'This will store your OAuth token securely and enable Copilot models.'
     }
-    const status = checkGithubTokenStatus(token)
+    const endpointType = getGithubEndpointType(env.OPENAI_BASE_URL)
+    const status = checkGithubTokenStatus(token, endpointType)
     if (status === 'expired') {
       return 'GitHub Copilot token has expired.\n' +
         'Run /onboard-github to sign in again and get a fresh token.'

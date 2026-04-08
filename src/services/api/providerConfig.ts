@@ -338,7 +338,7 @@ export function getGithubEndpointType(
   if (!baseUrl) return 'copilot'
   try {
     const hostname = new URL(baseUrl).hostname.toLowerCase()
-    if (hostname === 'api.githubcopilot.com' || hostname === 'api.githubcopilot.com'.toLowerCase()) {
+    if (hostname === 'api.githubcopilot.com') {
       return 'copilot'
     }
     if (hostname === 'models.github.ai' || hostname.endsWith('.github.ai')) {
