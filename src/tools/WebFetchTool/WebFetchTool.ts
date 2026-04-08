@@ -13,25 +13,9 @@ import {
   renderToolUseMessage,
   renderToolUseProgressMessage,
 } from './UI.js'
-import {
-  applyPromptToMarkdown,
-  type FetchedContent,
-  getURLMarkdownContent,
-  isPreapprovedUrl,
-  MAX_MARKDOWN_LENGTH,
-} from './utils.js'
-
-function isFirecrawlEnabled(): boolean {
-  return Boolean(process.env.FIRECRAWL_API_KEY)
-}
-
-async function scrapeWithFirecrawl(url: string): Promise<{ markdown: string; bytes: number }> {
-  const { FirecrawlClient } = await import('@mendable/firecrawl-js')
-  const app = new FirecrawlClient({ apiKey: process.env.FIRECRAWL_API_KEY! })
-  const result = await app.scrape(url, { formats: ['markdown'] })
-  const markdown = (result as { markdown?: string }).markdown ?? ''
-  return { markdown, bytes: Buffer.byteLength(markdown) }
-}
+import { applyPromptToMarkdown, isPreapprovedUrl, MAX_MARKDOWN_LENGTH } from './utils.js'
+import { runFetch, getProviderMode, getAvailableProviders } from './providers/index.js'
+import type { RedirectInfo } from './providers/types.js'
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
@@ -235,67 +219,44 @@ ${DESCRIPTION}`
       })
     }
 
-    emitProgress(`Resolving ${new URL(url).hostname}…`)
+    const mode = getProviderMode()
+    const hostname = (() => { try { return new URL(url).hostname } catch { return url } })()
+    emitProgress(`Fetching ${hostname} via ${mode}…`)
 
-    if (isFirecrawlEnabled()) {
-      emitProgress('Scraping with Firecrawl…')
-      const { markdown, bytes } = await scrapeWithFirecrawl(url)
-      const isPreapproved = isPreapprovedUrl(url)
-      emitProgress('Processing content…')
-      const result = await applyPromptToMarkdown(
-        prompt,
-        markdown,
-        abortController.signal,
-        isNonInteractiveSession,
-        isPreapproved,
-      )
-      return {
-        data: {
-          bytes,
-          code: 200,
-          codeText: 'OK',
-          result,
-          durationMs: Date.now() - start,
-          url,
-        } satisfies Output,
-      }
-    }
+    // Use provider system to fetch
+    const response = await runFetch(url, abortController.signal)
 
-    emitProgress('Fetching content…')
-    const response = await getURLMarkdownContent(url, abortController)
-
-    // Check if we got a redirect to a different host
+    // Check if we got a cross-host redirect
     if ('type' in response && response.type === 'redirect') {
+      const redirect = response as RedirectInfo
       const statusText =
-        response.statusCode === 301
+        redirect.statusCode === 301
           ? 'Moved Permanently'
-          : response.statusCode === 308
+          : redirect.statusCode === 308
             ? 'Permanent Redirect'
-            : response.statusCode === 307
+            : redirect.statusCode === 307
               ? 'Temporary Redirect'
               : 'Found'
 
       const message = `REDIRECT DETECTED: The URL redirects to a different host.
 
-Original URL: ${response.originalUrl}
-Redirect URL: ${response.redirectUrl}
-Status: ${response.statusCode} ${statusText}
+Original URL: ${redirect.originalUrl}
+Redirect URL: ${redirect.redirectUrl}
+Status: ${redirect.statusCode} ${statusText}
 
 To complete your request, I need to fetch content from the redirected URL. Please use WebFetch again with these parameters:
-- url: "${response.redirectUrl}"
+- url: "${redirect.redirectUrl}"
 - prompt: "${prompt}"`
 
-      const output: Output = {
-        bytes: Buffer.byteLength(message),
-        code: response.statusCode,
-        codeText: statusText,
-        result: message,
-        durationMs: Date.now() - start,
-        url,
-      }
-
       return {
-        data: output,
+        data: {
+          bytes: Buffer.byteLength(message),
+          code: redirect.statusCode,
+          codeText: statusText,
+          result: message,
+          durationMs: Date.now() - start,
+          url,
+        } satisfies Output,
       }
     }
 
@@ -308,7 +269,7 @@ To complete your request, I need to fetch content from the redirected URL. Pleas
       contentType,
       persistedPath,
       persistedSize,
-    } = response as FetchedContent
+    } = response
 
     const isPreapproved = isPreapprovedUrl(url)
 

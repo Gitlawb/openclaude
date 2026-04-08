@@ -5,7 +5,7 @@ const originalEnv = { ...process.env }
 
 async function importFreshModule() {
   mock.restore()
-  return import(`./utils.ts?ts=${Date.now()}-${Math.random()}`)
+  return import(`./providers/default.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
 beforeEach(() => {
