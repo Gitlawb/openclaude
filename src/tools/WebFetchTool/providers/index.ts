@@ -53,7 +53,7 @@ export function getAvailableProviders(): FetchProvider[] {
   return ALL_PROVIDERS.filter(p => p.isConfigured())
 }
 
-function getChain(mode: ProviderMode): FetchProvider[] {
+export function getProviderChain(mode: ProviderMode): FetchProvider[] {
   if (mode === 'auto') return ALL_PROVIDERS.filter(p => p.isConfigured())
   const p = PROVIDER_BY_NAME[mode]
   return p ? [p] : []
@@ -61,7 +61,7 @@ function getChain(mode: ProviderMode): FetchProvider[] {
 
 export async function runFetch(url: string, signal?: AbortSignal): Promise<FetchResult | RedirectInfo> {
   const mode = getProviderMode()
-  const chain = getChain(mode)
+  const chain = getProviderChain(mode)
   if (chain.length === 0) throw new Error(`No fetch providers for mode "${mode}". Check env vars.`)
 
   if (mode !== 'auto' && mode !== 'custom') {
