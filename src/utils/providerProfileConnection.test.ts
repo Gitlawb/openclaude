@@ -114,6 +114,27 @@ describe('testProviderProfileConnection', () => {
     expect(process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR).toBe('3')
   })
 
+  test('returns error message when validateModel throws', async () => {
+    const { testProviderProfileConnection } = await importFreshModule()
+
+    const validateModel = mock(async () => {
+      throw new Error('Network timeout')
+    })
+
+    const result = await testProviderProfileConnection(
+      {
+        provider: 'openai',
+        name: 'Throwing provider',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'some-model',
+        apiKey: 'key',
+      },
+      { validateModel },
+    )
+
+    expect(result).toEqual({ ok: false, message: 'Network timeout' })
+  })
+
   test('requires model and base url before testing', async () => {
     const { testProviderProfileConnection } = await importFreshModule()
 

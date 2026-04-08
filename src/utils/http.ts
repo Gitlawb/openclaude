@@ -16,7 +16,7 @@ import { getWorkload } from './workloadContext.js'
 
 // WARNING: We rely on `claude-cli` in the user agent for log filtering.
 // Please do NOT change this without making sure that logging also gets updated!
-export function shouldUseClaudeCodeUserAgent(
+function shouldUseClaudeCodeUserAgent(
   baseUrl: string | undefined,
 ): boolean {
   if (!baseUrl) {

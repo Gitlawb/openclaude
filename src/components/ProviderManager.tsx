@@ -216,6 +216,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [formStepIndex, setFormStepIndex] = React.useState(0)
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const [isTestingConnection, setIsTestingConnection] = React.useState(false)
+  const testEpochRef = React.useRef(0)
   const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
   const [errorMessage, setErrorMessage] = React.useState<string | undefined>()
 
@@ -463,6 +464,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   async function testAndPersistDraft(): Promise<void> {
+    const epoch = ++testEpochRef.current
     setIsTestingConnection(true)
     setErrorMessage(undefined)
 
@@ -475,6 +477,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     const result = await testProviderProfileConnection(payload)
+
+    // Discard the result if the user navigated away or started a new test.
+    if (epoch !== testEpochRef.current) return
+
     setIsTestingConnection(false)
 
     if (!result.ok) {
@@ -517,7 +523,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     if (screen === 'confirm-save') {
       if (isTestingConnection) {
-        return
+        // Invalidate the in-flight test so its result is discarded.
+        ++testEpochRef.current
+        setIsTestingConnection(false)
       }
       setScreen('form')
       return

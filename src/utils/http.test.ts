@@ -33,4 +33,20 @@ describe('getUserAgent', () => {
 
     expect(userAgent).toStartWith('claude-cli/')
   })
+
+  test('uses claude-cli user agent when no baseUrl provided', async () => {
+    const { getUserAgent } = await importFreshHttpModule()
+
+    const userAgent = getUserAgent()
+
+    expect(userAgent).toStartWith('claude-cli/')
+  })
+
+  test('uses claude-cli user agent for malformed URLs', async () => {
+    const { getUserAgent } = await importFreshHttpModule()
+
+    const userAgent = getUserAgent('not-a-url')
+
+    expect(userAgent).toStartWith('claude-cli/')
+  })
 })
