@@ -124,6 +124,12 @@ function addAdditionalPropertiesFalse(schema: Record<string, unknown>): Record<s
     delete out.maxItems
     delete out.uniqueItems
   }
+  // Strip string constraints unsupported by Cerebras strict mode
+  // (pattern = regex, format = e.g. "date-time" / "uuid" — both rejected)
+  if (out.type === 'string') {
+    delete out.pattern
+    delete out.format
+  }
   if (out.type === 'object' && !('additionalProperties' in out)) {
     out.additionalProperties = false
   }
@@ -235,6 +241,12 @@ const TOOL_DIRECTORY: Record<string, string> = {
   AskUserQuestion: 'Ask the user a clarifying question',
   Agent:           'Spawn a sub-agent to handle a complex sub-task',
 }
+
+/**
+ * Derived from TOOL_DIRECTORY so the two are always in sync.
+ * Any tool added to TOOL_DIRECTORY is automatically considered essential.
+ */
+const ESSENTIAL_TOOL_NAMES = new Set(Object.keys(TOOL_DIRECTORY))
 
 /** The single meta-tool sent during phase-1 of ShimToolSearch */
 const REQUEST_TOOLS_SCHEMA: OpenAITool = {
@@ -924,6 +936,7 @@ function logCallTokens(
   model: string,
 ): void {
   if (!rawUsage) return
+  if (!isEnvTruthy(process.env.CEREBRAS_LOG_TOKENS)) return
   const inp = rawUsage.prompt_tokens ?? 0
   const out = rawUsage.completion_tokens ?? 0
   const cached = rawUsage.prompt_tokens_details?.cached_tokens ?? 0
@@ -1443,7 +1456,9 @@ class OpenAIShimMessages {
       })(),
     }
 
-    process.stderr.write('[ShimToolSearch] phase-1: no tool schemas sent\n')
+    if (isEnvTruthy(process.env.OPENAI_SHIM_DEBUG)) {
+      process.stderr.write('[ShimToolSearch] phase-1: no tool schemas sent\n')
+    }
     const phase1Response = await this._doOpenAIRequest(request, phase1Params, options)
     const phase1Data = await phase1Response.json() as {
       id?: string; model?: string
@@ -1465,7 +1480,9 @@ class OpenAIShimMessages {
 
     if (!toolCall) {
       // Model answered directly — no tools needed this turn
-      process.stderr.write('[ShimToolSearch] phase-1 answered directly (0 tool tokens charged)\n')
+      if (isEnvTruthy(process.env.OPENAI_SHIM_DEBUG)) {
+        process.stderr.write('[ShimToolSearch] phase-1 answered directly (0 tool tokens charged)\n')
+      }
       const result = this._convertNonStreamingResponse(phase1Data, request.resolvedModel)
       if (params.stream) {
         // Wrap as synthetic stream so caller gets what it expects
@@ -1656,13 +1673,9 @@ class OpenAIShimMessages {
         // For 3P providers (Groq, DeepSeek, etc.), limit tools to essential ones.
         // Full tool set (~50 tools) can exceed 100KB and triggers 413 errors on
         // free-tier providers with limited context/rate budgets (e.g. Groq 6K TPM).
-        const ESSENTIAL_TOOLS = new Set([
-          'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
-          'TodoWrite', 'AskUserQuestion', 'Agent',
-        ])
         const isOpenAIShim = isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) || isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
         if (isOpenAIShim) {
-          const essentialOnly = converted.filter(t => ESSENTIAL_TOOLS.has(t.function.name))
+          const essentialOnly = converted.filter(t => ESSENTIAL_TOOL_NAMES.has(t.function.name))
           let toolSet = essentialOnly.length > 0 ? essentialOnly : converted
 
           // Task-aware tool selection: narrow down further based on the user message.
@@ -1787,17 +1800,49 @@ class OpenAIShimMessages {
 
     if (isCerebrasBaseUrl(request.baseUrl)) {
       const model = (body.model as string | undefined) ?? ''
-      // Strict mode (constrained decoding) only for models that support it.
-      // gpt-oss-120b and zai-glm-4.7 use constrained decoding; qwen uses standard sampling.
-      const supportsStrictMode = model.includes('gpt-oss') || model.includes('glm')
-      if (supportsStrictMode && Array.isArray(body.tools)) {
+      const isGptOss = model.includes('gpt-oss')
+      const isGlm    = model.includes('glm')
+      const isQwen   = model.includes('qwen')
+
+      // Strict mode (constrained decoding): gpt-oss and zai-glm only.
+      // qwen uses standard sampling — strict mode returns 422 for qwen.
+      if ((isGptOss || isGlm) && Array.isArray(body.tools)) {
         body.tools = applyStrictModeToTools(body.tools as OpenAITool[])
       }
-      // reasoning_effort: gpt-oss-120b and zai-glm-4.7 only.
-      // qwen-3-235b does NOT support this parameter (returns 422).
-      const reasoningEffort = process.env.CEREBRAS_REASONING_EFFORT ?? 'medium'
-      if (supportsStrictMode) {
-        body.reasoning_effort = reasoningEffort
+
+      // reasoning_effort:
+      //   gpt-oss-120b: "low" | "medium" (default) | "high"
+      //   zai-glm-4.7:  reasoning is ON by default; only "none" disables it
+      //   qwen-3-235b:  not supported — returns 422
+      if (isGptOss) {
+        body.reasoning_effort = process.env.CEREBRAS_REASONING_EFFORT ?? 'medium'
+      } else if (isGlm && process.env.CEREBRAS_REASONING_EFFORT === 'none') {
+        body.reasoning_effort = 'none'  // explicitly disable GLM reasoning if requested
+      }
+
+      // reasoning_format:
+      //   Qwen3 default is "raw" — <think>...</think> tags appear in content.
+      //   In multi-turn agentic context, this pollutes history and wastes tokens.
+      //   "hidden" drops thinking text from the response (tokens still generated).
+      //   Configurable via CEREBRAS_REASONING_FORMAT env var.
+      if (isQwen && (body as Record<string,unknown>).reasoning_format === undefined) {
+        ;(body as Record<string,unknown>).reasoning_format =
+          process.env.CEREBRAS_REASONING_FORMAT ?? 'hidden'
+      }
+
+      // parallel_tool_calls: Cerebras defaults to true (parallel calls enabled).
+      // For agentic coding (read → edit → run), parallel execution is unsafe —
+      // a Write before a Read finishes can corrupt output. Force sequential.
+      if (Array.isArray(body.tools) && (body.tools as unknown[]).length > 0) {
+        ;(body as Record<string,unknown>).parallel_tool_calls = false
+      }
+
+      // max_completion_tokens: Cerebras rate-limiter estimates budget based on
+      // this field, falling back to full MSL − input (up to 60K+) if absent.
+      // Set a sensible default to avoid burning through free-tier TPM quota.
+      if (body.max_completion_tokens === undefined) {
+        ;(body as Record<string,unknown>).max_completion_tokens =
+          isGptOss ? 16_384 : 8_192
       }
     }
 

@@ -36,8 +36,16 @@ def is_cerebras_configured() -> bool:
     return bool(get_cerebras_api_key())
 
 
+# Module-level client singleton — avoids creating a new TCP connection on each call.
+_cerebras_client = None
+
+
 def get_cerebras_client():
-    """Return a Cerebras SDK client, or raise if SDK not installed."""
+    """Return a cached Cerebras SDK client, or raise if SDK not installed."""
+    global _cerebras_client
+    if _cerebras_client is not None:
+        return _cerebras_client
+
     try:
         from cerebras.cloud.sdk import Cerebras
     except ImportError as e:
@@ -51,7 +59,8 @@ def get_cerebras_client():
             f"CEREBRAS_API_KEY not set. Get a free key at https://cloud.cerebras.ai"
         )
 
-    return Cerebras(api_key=api_key)
+    _cerebras_client = Cerebras(api_key=api_key)
+    return _cerebras_client
 
 
 async def check_cerebras_running() -> bool:
@@ -72,20 +81,13 @@ async def check_cerebras_running() -> bool:
 
 
 async def list_cerebras_models() -> list[str]:
-    """Return available model IDs from the Cerebras API."""
+    """Return available model IDs from the Cerebras API using the SDK."""
+    import asyncio
     try:
-        import httpx
-        api_key = get_cerebras_api_key()
-        if not api_key:
-            return []
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{CEREBRAS_BASE_URL}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return [m["id"] for m in data.get("data", [])]
+        client = get_cerebras_client()
+        loop = asyncio.get_running_loop()
+        models = await loop.run_in_executor(None, lambda: list(client.models.list()))
+        return [m.id for m in models]
     except Exception as e:
         logger.warning(f"Could not list Cerebras models: {e}")
         return []
@@ -110,7 +112,7 @@ async def cerebras_chat_stream(
         stream=True,
     )
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     # SDK iterator is synchronous — run each `next()` in a thread to avoid
     # blocking the event loop.
     sentinel = object()
