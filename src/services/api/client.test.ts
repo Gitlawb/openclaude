@@ -19,6 +19,7 @@ const originalEnv = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
+  GEMINI_AUTH_MODE: process.env.GEMINI_AUTH_MODE,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
@@ -42,6 +43,7 @@ beforeEach(() => {
   process.env.GEMINI_API_KEY = 'gemini-test-key'
   process.env.GEMINI_MODEL = 'gemini-2.0-flash'
   process.env.GEMINI_BASE_URL = 'https://gemini.example/v1beta/openai'
+  process.env.GEMINI_AUTH_MODE = 'api-key'
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.GOOGLE_API_KEY
@@ -60,6 +62,7 @@ afterEach(() => {
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
   restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
+  restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)

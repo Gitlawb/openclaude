@@ -43,6 +43,10 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   }
+  // For GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
+  }
   return getDefaultHaikuModel()
 }
 
@@ -137,6 +141,10 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.4'
   }
+  // GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
+  }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // even when values match, since 3P availability lags firstParty and
   // these will diverge again at the next model launch.
@@ -163,6 +171,10 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.4'
   }
+  // GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
+  }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (getAPIProvider() !== 'firstParty') {
     return getModelStrings().sonnet45
@@ -175,10 +187,6 @@ export function getDefaultHaikuModel(): ModelName {
   if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
   }
-  // Gemini provider
-  if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
-  }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
@@ -186,6 +194,14 @@ export function getDefaultHaikuModel(): ModelName {
   // Codex provider
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.4'
+  }
+  // GitHub Copilot provider
+  if (getAPIProvider() === 'github') {
+    return process.env.OPENAI_MODEL || 'github:copilot'
+  }
+  // Gemini provider
+  if (getAPIProvider() === 'gemini') {
+    return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -231,6 +247,11 @@ export function getRuntimeMainLoopModel(params: {
  * @returns The default model setting to use
  */
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
+  // GitHub Copilot provider: check settings.model first, then env, then default
+  if (getAPIProvider() === 'github') {
+    const settings = getSettings_DEPRECATED() || {}
+    return settings.model || process.env.OPENAI_MODEL || 'github:copilot'
+  }
   // Gemini provider: always use the configured Gemini model
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash'
@@ -238,10 +259,6 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
-  }
-  // GitHub provider: always use the configured GitHub model
-  if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
   }
   // Codex provider: always use the configured Codex model (default gpt-5.4)
   if (getAPIProvider() === 'codex') {
@@ -426,8 +443,33 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
  * if the model is not recognized as a public model.
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
-  // For OpenAI/Gemini/Codex providers, show the actual model name not a Claude alias
-  if (getAPIProvider() === 'openai' || getAPIProvider() === 'gemini' || getAPIProvider() === 'codex') {
+  // For OpenAI/Gemini/Codex/GitHub providers, show the actual model name not a Claude alias
+  if (getAPIProvider() === 'openai' || getAPIProvider() === 'gemini' || getAPIProvider() === 'codex' || getAPIProvider() === 'github') {
+    // Return display names for known GitHub Copilot models
+    const copilotModelNames: Record<string, string> = {
+      'gpt-5.4': 'GPT-5.4',
+      'gpt-5.4-mini': 'GPT-5.4 mini',
+      'gpt-5.3-codex': 'GPT-5.3 Codex',
+      'gpt-5.2-codex': 'GPT-5.2 Codex',
+      'gpt-5.2': 'GPT-5.2',
+      'gpt-5.1-codex': 'GPT-5.1 Codex',
+      'gpt-5.1-codex-max': 'GPT-5.1 Codex max',
+      'gpt-5.1-codex-mini': 'GPT-5.1 Codex mini',
+      'gpt-4o': 'GPT-4o',
+      'gpt-4.1': 'GPT-4.1',
+      'claude-opus-4.6': 'Claude Opus 4.6',
+      'claude-opus-4.5': 'Claude Opus 4.5',
+      'claude-sonnet-4.6': 'Claude Sonnet 4.6',
+      'claude-sonnet-4.5': 'Claude Sonnet 4.5',
+      'claude-haiku-4.5': 'Claude Haiku 4.5',
+      'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
+      'gemini-3-flash-preview': 'Gemini 3 Flash',
+      'gemini-2.5-pro': 'Gemini 2.5 Pro',
+      'grok-code-fast-1': 'Grok Code Fast 1',
+    }
+    if (copilotModelNames[model]) {
+      return copilotModelNames[model]
+    }
     return null
   }
   switch (model) {
@@ -483,6 +525,10 @@ export function renderModelName(model: ModelName): string {
   const publicName = getPublicModelDisplayName(model)
   if (publicName) {
     return publicName
+  }
+  // Handle GitHub Copilot special model aliases
+  if (model === 'github:copilot') {
+    return 'GPT-4o'
   }
   if (process.env.USER_TYPE === 'ant') {
     const resolved = parseUserSpecifiedModel(model)

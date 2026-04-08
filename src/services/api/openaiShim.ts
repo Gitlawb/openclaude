@@ -15,9 +15,9 @@
  *   OPENAI_MODEL=gpt-4o              — default model override
  *   CODEX_API_KEY / ~/.codex/auth.json — Codex auth for codexplan/codexspark
  *
- * GitHub Models (models.github.ai), OpenAI-compatible:
+ * GitHub Copilot API (api.githubcopilot.com), OpenAI-compatible:
  *   CLAUDE_CODE_USE_GITHUB=1         — enable GitHub inference (no need for USE_OPENAI)
- *   GITHUB_TOKEN or GH_TOKEN         — PAT with models access (mapped to Bearer auth)
+ *   GITHUB_TOKEN or GH_TOKEN         — Copilot API token (mapped to Bearer auth)
  *   OPENAI_MODEL                     — optional; use github:copilot or openai/gpt-4.1 style IDs
  */
 
@@ -29,7 +29,9 @@ import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubMod
 import {
   codexStreamToAnthropic,
   collectCodexCompletedResponse,
+  convertAnthropicMessagesToResponsesInput,
   convertCodexResponseToAnthropicMessage,
+  convertToolsToResponsesTools,
   performCodexRequest,
   type AnthropicStreamEvent,
   type AnthropicUsage,
@@ -39,6 +41,7 @@ import {
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
+  getGithubEndpointType,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
@@ -55,12 +58,18 @@ type SecretValueSource = Partial<{
   GEMINI_ACCESS_TOKEN: string
 }>
 
-const GITHUB_MODELS_DEFAULT_BASE = 'https://models.github.ai/inference'
-const GITHUB_API_VERSION = '2022-11-28'
+const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
+
+const COPILOT_HEADERS: Record<string, string> = {
+  'User-Agent': 'GitHubCopilotChat/0.26.7',
+  'Editor-Version': 'vscode/1.99.3',
+  'Editor-Plugin-Version': 'copilot-chat/0.26.7',
+  'Copilot-Integration-Id': 'vscode-chat',
+}
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
@@ -970,8 +979,9 @@ class OpenAIShimMessages {
       httpResponse = response
 
       if (params.stream) {
+        const isResponsesStream = response.url?.includes('/responses')
         return new OpenAIShimStream(
-          request.transport === 'codex_responses'
+          (request.transport === 'codex_responses' || isResponsesStream)
             ? codexStreamToAnthropic(response, request.resolvedModel)
             : openaiStreamToAnthropic(response, request.resolvedModel),
         )
@@ -985,8 +995,38 @@ class OpenAIShimMessages {
         )
       }
 
-      const data = await response.json()
-      return self._convertNonStreamingResponse(data, request.resolvedModel)
+      const isResponsesNonStream = response.url?.includes('/responses')
+      if (isResponsesNonStream || (request.transport === 'chat_completions' && isGithubModelsMode())) {
+        const contentType = response.headers.get('content-type') ?? ''
+        if (contentType.includes('application/json')) {
+          const parsed = await response.json() as Record<string, unknown>
+          if (
+            parsed &&
+            typeof parsed === 'object' &&
+            ('output' in parsed || 'incomplete_details' in parsed)
+          ) {
+            return convertCodexResponseToAnthropicMessage(
+              parsed,
+              request.resolvedModel,
+            )
+          }
+          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+        }
+      }
+
+      const contentType = response.headers.get('content-type') ?? ''
+      if (contentType.includes('application/json')) {
+        const data = await response.json()
+        return self._convertNonStreamingResponse(data, request.resolvedModel)
+      }
+
+      const textBody = await response.text().catch(() => '')
+      throw APIError.generate(
+        response.status,
+        undefined,
+        `OpenAI API error ${response.status}: unexpected response: ${textBody.slice(0, 500)}`,
+        response.headers as unknown as Headers,
+      )
     })()
 
       ; (promise as unknown as Record<string, unknown>).withResponse =
@@ -1008,7 +1048,36 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
-    if (request.transport === 'codex_responses') {
+    const githubEndpointType = getGithubEndpointType(request.baseUrl)
+    const isGithubMode = isGithubModelsMode()
+    const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
+    const isGithubCopilotEndpoint = isGithubMode && githubEndpointType === 'copilot'
+
+    if (isGithubWithCodexTransport) {
+      const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+      if (!apiKey) {
+        throw new Error(
+          'GitHub Copilot auth is required. Run /onboard-github to sign in.',
+        )
+      }
+
+      return performCodexRequest({
+        request,
+        credentials: {
+          apiKey,
+          source: 'env',
+        },
+        params,
+        defaultHeaders: {
+          ...this.defaultHeaders,
+          ...(options?.headers ?? {}),
+          ...COPILOT_HEADERS,
+        },
+        signal: options?.signal,
+      })
+    }
+
+    if (request.transport === 'codex_responses' && !isGithubMode) {
       const credentials = resolveCodexApiCredentials()
       if (!credentials.apiKey) {
         const authHint = credentials.authPath
@@ -1082,6 +1151,10 @@ class OpenAIShimMessages {
     }
 
     const isGithub = isGithubModelsMode()
+    const githubEndpointType = getGithubEndpointType(request.baseUrl)
+    const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
+    const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
+
     if (isGithub && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
@@ -1147,15 +1220,17 @@ class OpenAIShimMessages {
       const geminiCredential = await resolveGeminiCredential(process.env)
       if (geminiCredential.kind !== 'none') {
         headers.Authorization = `Bearer ${geminiCredential.credential}`
-        if (geminiCredential.projectId) {
+        if (geminiCredential.kind !== 'api-key' && 'projectId' in geminiCredential && geminiCredential.projectId) {
           headers['x-goog-user-project'] = geminiCredential.projectId
         }
       }
     }
 
-    if (isGithub) {
-      headers.Accept = 'application/vnd.github.v3+json'
-      headers['X-GitHub-Api-Version'] = GITHUB_API_VERSION
+    if (isGithubCopilot) {
+      Object.assign(headers, COPILOT_HEADERS)
+    } else if (isGithubModels) {
+      headers['Accept'] = 'application/vnd.github+json'
+      headers['X-GitHub-Api-Version'] = '2022-11-28'
     }
 
     // Build the chat completions URL
@@ -1207,9 +1282,82 @@ class OpenAIShimMessages {
         await sleepMs(delaySec * 1000)
         continue
       }
+      // Read body exactly once here — Response body is a stream that can only
+      // be consumed a single time.
       const errorBody = await response.text().catch(() => 'unknown error')
       const rateHint =
         isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
+
+      // If GitHub Copilot returns error about /chat/completions,
+      // try the /responses endpoint (needed for GPT-5+ models)
+      if (isGithub && response.status === 400) {
+        if (errorBody.includes('/chat/completions') || errorBody.includes('not accessible')) {
+          const responsesUrl = `${request.baseUrl}/responses`
+          const responsesBody: Record<string, unknown> = {
+            model: request.resolvedModel,
+            input: convertAnthropicMessagesToResponsesInput(
+              params.messages as Array<{
+                role?: string
+                message?: { role?: string; content?: unknown }
+                content?: unknown
+              }>,
+            ),
+            stream: params.stream ?? false,
+          }
+
+          if (!Array.isArray(responsesBody.input) || responsesBody.input.length === 0) {
+            responsesBody.input = [
+              {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: '' }],
+              },
+            ]
+          }
+
+          const systemText = convertSystemPrompt(params.system)
+          if (systemText) {
+            responsesBody.instructions = systemText
+          }
+
+          if (body.max_tokens !== undefined) {
+            responsesBody.max_output_tokens = body.max_tokens
+          }
+
+          if (params.tools && params.tools.length > 0) {
+            const convertedTools = convertToolsToResponsesTools(
+              params.tools as Array<{
+                name?: string
+                description?: string
+                input_schema?: Record<string, unknown>
+              }>,
+            )
+            if (convertedTools.length > 0) {
+              responsesBody.tools = convertedTools
+            }
+          }
+
+          const responsesResponse = await fetch(responsesUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(responsesBody),
+            signal: options?.signal,
+          })
+          if (responsesResponse.ok) {
+            return responsesResponse
+          }
+          const responsesErrorBody = await responsesResponse.text().catch(() => 'unknown error')
+          let responsesErrorResponse: object | undefined
+          try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
+          throw APIError.generate(
+            responsesResponse.status,
+            responsesErrorResponse,
+            `OpenAI API error ${responsesResponse.status}: ${responsesErrorBody}`,
+            responsesResponse.headers,
+          )
+        }
+      }
+
       let errorResponse: object | undefined
       try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
       throw APIError.generate(
@@ -1377,7 +1525,7 @@ export function createOpenAIShimClient(options: {
       process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
     }
   } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
-    process.env.OPENAI_BASE_URL ??= GITHUB_MODELS_DEFAULT_BASE
+    process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE
     process.env.OPENAI_API_KEY ??=
       process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
   }
