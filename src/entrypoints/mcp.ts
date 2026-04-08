@@ -52,6 +52,22 @@ export function getCombinedTools(
   return [...mcpTools, ...deduplicatedBuiltins]
 }
 
+export async function loadReexposedMcpTools(): Promise<{
+  mcpClients: MCPServerConnection[]
+  mcpTools: InternalTool[]
+}> {
+  const mcpClients: MCPServerConnection[] = []
+  const mcpTools: InternalTool[] = []
+
+  // Load configured MCP clients and their tools
+  await getMcpToolsCommandsAndResources(({ client, tools: clientTools }) => {
+    mcpClients.push(client)
+    mcpTools.push(...clientTools)
+  })
+
+  return { mcpClients, mcpTools }
+}
+
 export async function startMCPServer(
   cwd: string,
   debug: boolean,
@@ -76,16 +92,7 @@ export async function startMCPServer(
     },
   )
 
-  const mcpClients: MCPServerConnection[] = []
-  const mcpTools: InternalTool[] = []
-
-  // Load configured MCP clients and their tools
-  await getMcpToolsCommandsAndResources(({ client, tools: clientTools }) => {
-    if (client.type === 'connected') {
-      mcpClients.push(client)
-      mcpTools.push(...clientTools)
-    }
-  })
+  const { mcpClients, mcpTools } = await loadReexposedMcpTools()
 
   server.setRequestHandler(
     ListToolsRequestSchema,
@@ -117,7 +124,7 @@ export async function startMCPServer(
                 tools,
                 agents: [],
               }),
-              inputSchema: zodToJsonSchema(tool.inputSchema) as ToolInput,
+              inputSchema: (tool.inputJSONSchema ?? zodToJsonSchema(tool.inputSchema)) as ToolInput,
               outputSchema,
             }
           }),
@@ -188,16 +195,32 @@ export async function startMCPServer(
           }),
         )
 
+        let content: CallToolResult['content']
+        const data = finalResult.data as string | { type: string; text?: string; source?: { type: string; media_type: string; data: string } }[] | unknown
+
+        if (typeof data === 'string') {
+          content = [{ type: 'text', text: data }]
+        } else if (Array.isArray(data)) {
+          content = data.map((block: any) => {
+            if (block.type === 'text') {
+              return { type: 'text', text: block.text || '' }
+            } else if (block.type === 'image' && block.source) {
+              return {
+                type: 'image',
+                data: block.source.data,
+                mimeType: block.source.media_type,
+              }
+            } else {
+              return { type: 'text', text: jsonStringify(block) }
+            }
+          }) as CallToolResult['content']
+        } else {
+          content = [{ type: 'text', text: jsonStringify(data) }]
+        }
+
         return {
-          content: [
-            {
-              type: 'text' as const,
-              text:
-                typeof finalResult === 'string'
-                  ? finalResult
-                  : jsonStringify(finalResult.data),
-            },
-          ],
+          content,
+          isError: !!(finalResult as any).isError,
         }
       } catch (error) {
         logError(error)
