@@ -5,6 +5,7 @@ import {
   type ProviderProfile,
 } from './config.js'
 import type { ModelOption } from './model/modelOptions.js'
+import { EXPLICIT_PROVIDER_ENV_VAR } from './providerEnvSelection.js'
 
 export type ProviderPreset =
   | 'anthropic'
@@ -256,6 +257,7 @@ function hasProviderSelectionFlags(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return (
+    processEnv[EXPLICIT_PROVIDER_ENV_VAR] !== undefined ||
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
     processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||

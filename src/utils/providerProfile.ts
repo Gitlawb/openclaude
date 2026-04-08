@@ -412,6 +412,10 @@ export function hasExplicitProviderSelection(
     return true
   }
 
+  if (processEnv.CLAUDE_CODE_EXPLICIT_PROVIDER?.trim()) {
+    return true
+  }
+
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||

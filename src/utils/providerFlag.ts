@@ -1,3 +1,8 @@
+import {
+  clearProviderSelectionFlags,
+  EXPLICIT_PROVIDER_ENV_VAR,
+} from './providerEnvSelection.js'
+
 /**
  * --provider CLI flag support.
  *
@@ -76,6 +81,9 @@ export function applyProviderFlag(
       error: `Unknown provider "${provider}". Valid providers: ${VALID_PROVIDERS.join(', ')}`,
     }
   }
+
+  clearProviderSelectionFlags()
+  process.env[EXPLICIT_PROVIDER_ENV_VAR] = provider
 
   const model = parseModelFlag(args)
 

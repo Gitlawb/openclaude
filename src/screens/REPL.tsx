@@ -238,6 +238,7 @@ import { usePromptsFromClaudeInChrome } from 'src/hooks/usePromptsFromClaudeInCh
 import { getTipToShowOnSpinner, recordShownTip } from 'src/services/tips/tipScheduler.js';
 import type { Theme } from 'src/utils/theme.js';
 import { isPromptTypingSuppressionActive } from './replInputSuppression.js';
+import { shouldStartStartupChecks } from './replStartupGates.js';
 import { checkAndDisableBypassPermissionsIfNeeded, checkAndDisableAutoModeIfNeeded, useKickOffCheckAndDisableBypassPermissionsIfNeeded, useKickOffCheckAndDisableAutoModeIfNeeded } from 'src/utils/permissions/bypassPermissionsKillswitch.js';
 import { SandboxManager } from 'src/utils/sandbox/sandbox-adapter.js';
 import { SANDBOX_NETWORK_ACCESS_TOOL_NAME } from 'src/cli/structuredIO.js';
@@ -784,19 +785,6 @@ export function REPL({
   });
   const tasksV2 = useTasksV2WithCollapseEffect();
 
-  // Start background plugin installations
-
-  // SECURITY: This code is guaranteed to run ONLY after the "trust this folder" dialog
-  // has been confirmed by the user. The trust dialog is shown in cli.tsx (line ~387)
-  // before the REPL component is rendered. The dialog blocks execution until the user
-  // accepts, and only then is the REPL component mounted and this effect runs.
-  // This ensures that plugin installations from repository and user settings only
-  // happen after explicit user consent to trust the current working directory.
-  useEffect(() => {
-    if (isRemoteSession) return;
-    void performStartupChecks(setAppState);
-  }, [setAppState, isRemoteSession]);
-
   // Allow Claude in Chrome MCP to send prompts through MCP notifications
   // and sync permission mode changes to the Chrome extension
   usePromptsFromClaudeInChrome(isRemoteSession ? EMPTY_MCP_CLIENTS : mcpClients, toolPermissionContext.mode);
@@ -1337,12 +1325,31 @@ export function REPL({
   const [inputValue, setInputValueRaw] = useState(() => consumeEarlyInput());
   const inputValueRef = useRef(inputValue);
   inputValueRef.current = inputValue;
+  const startupChecksStartedRef = useRef(false);
   const promptTypingSuppressionActive = isPromptTypingSuppressionActive(isPromptInputActive, inputValue);
   const insertTextRef = useRef<{
     insert: (text: string) => void;
     setInputWithCursor: (value: string, cursor: number) => void;
     cursorOffset: number;
   } | null>(null);
+
+  // Start background plugin installations after the initial input window is idle.
+  // SECURITY: This still runs only after the "trust this folder" dialog has been
+  // confirmed because the REPL is not mounted until that dialog completes.
+  useEffect(() => {
+    if (
+      !shouldStartStartupChecks({
+        isRemoteSession,
+        promptTypingSuppressionActive,
+        startupChecksStarted: startupChecksStartedRef.current,
+      })
+    ) {
+      return;
+    }
+
+    startupChecksStartedRef.current = true;
+    void performStartupChecks(setAppState);
+  }, [isRemoteSession, promptTypingSuppressionActive, setAppState]);
 
   // Wrap setInputValue to co-locate suppression state updates.
   // Both setState calls happen in the same synchronous context so React

@@ -9,6 +9,7 @@ async function importFreshProvidersModule() {
 const originalEnv = { ...process.env }
 
 const RESTORED_KEYS = [
+  'CLAUDE_CODE_EXPLICIT_PROVIDER',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'CLAUDE_CODE_USE_OPENAI',
@@ -142,6 +143,29 @@ describe('applyProviderProfileToProcessEnv', () => {
 })
 
 describe('applyActiveProviderProfileFromConfig', () => {
+  test('does not override explicit anthropic startup selection', async () => {
+    const { applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_EXPLICIT_PROVIDER = 'anthropic'
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_github',
+          baseUrl: 'https://api.githubcopilot.com',
+          model: 'github:copilot',
+        }),
+      ],
+      activeProviderProfileId: 'saved_github',
+    } as any)
+
+    expect(applied).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_EXPLICIT_PROVIDER).toBe('anthropic')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+  })
+
   test('does not override explicit startup provider selection', async () => {
     const { applyActiveProviderProfileFromConfig } =
       await importFreshProviderProfileModules()

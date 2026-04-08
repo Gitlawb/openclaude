@@ -9,11 +9,13 @@ import {
 const originalEnv = { ...process.env }
 
 const RESET_KEYS = [
+  'CLAUDE_CODE_EXPLICIT_PROVIDER',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
   'OPENAI_BASE_URL',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
@@ -83,6 +85,16 @@ describe('applyProviderFlag - openai', () => {
     applyProviderFlag('openai', ['--model', 'gpt-4o'])
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
   })
+
+  test('clears a previously persisted GitHub flag', () => {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+
+    const result = applyProviderFlag('openai', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  })
 })
 
 describe('applyProviderFlag - gemini', () => {
@@ -102,6 +114,16 @@ describe('applyProviderFlag - github', () => {
   test('sets CLAUDE_CODE_USE_GITHUB=1', () => {
     const result = applyProviderFlag('github', [])
     expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+  })
+
+  test('clears a previously set OpenAI flag', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    const result = applyProviderFlag('github', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
   })
 })
@@ -148,6 +170,19 @@ describe('applyProviderFlag - invalid provider', () => {
     const result = applyProviderFlag('unknown-provider', [])
     expect(result.error).toContain('unknown-provider')
     expect(result.error).toContain(VALID_PROVIDERS.join(', '))
+  })
+})
+
+describe('applyProviderFlag - anthropic', () => {
+  test('clears third-party provider flags', () => {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    const result = applyProviderFlag('anthropic', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
   })
 })
 
