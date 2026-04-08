@@ -80,8 +80,16 @@ function getAutoBackgroundMs(): number {
 
 // Base input schema without multi-agent parameters
 const baseInputSchema = lazySchema(() => z.object({
-  description: z.string().describe('A short (3-5 word) description of the task'),
-  prompt: z.string().describe('The task for the agent to perform'),
+  description: z.string().describe(
+    'REQUIRED. A short (3-5 word) description of the task. ' +
+    'This parameter must always be provided — never omit it. ' +
+    'Example: "search for files" or "fix the bug in login".'
+  ),
+  prompt: z.string().describe(
+    'REQUIRED. The full task description for the agent to perform. ' +
+    'This parameter must always be provided — never omit it. ' +
+    'Example: "Find all TypeScript files that import from react and list their paths."'
+  ),
   subagent_type: z.string().optional().describe('The type of specialized agent to use for this task'),
   model: z.enum(['sonnet', 'opus', 'haiku']).optional().describe("Optional model override for this agent. Takes precedence over the agent definition's model frontmatter. If omitted, uses the agent definition's model, or inherits from the parent."),
   run_in_background: z.boolean().optional().describe('Set to true to run this agent in the background. You will be notified when it completes.')

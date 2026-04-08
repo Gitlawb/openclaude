@@ -30,7 +30,11 @@ import {
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
-    query: z.string().min(2).describe('The search query to use'),
+    query: z.string().min(2).describe(
+      'REQUIRED. The search query to use (minimum 2 characters). ' +
+      'This parameter must always be provided — never omit it. ' +
+      'Example: "TypeScript best practices 2024" or "how to fix CORS error".'
+    ),
     allowed_domains: z
       .array(z.string())
       .optional()

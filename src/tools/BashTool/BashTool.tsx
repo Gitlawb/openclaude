@@ -225,7 +225,11 @@ const isBackgroundTasksDisabled =
 // eslint-disable-next-line custom-rules/no-process-env-top-level -- Intentional: schema must be defined at module load
 isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS);
 const fullInputSchema = lazySchema(() => z.strictObject({
-  command: z.string().describe('The command to execute'),
+  command: z.string().describe(
+    'REQUIRED. The shell command to execute. ' +
+    'This parameter must always be provided — never omit it. ' +
+    'Example: "ls -la" or "npm install" or "git status".'
+  ),
   timeout: semanticNumber(z.number().optional()).describe(`Optional timeout in milliseconds (max ${getMaxTimeoutMs()})`),
   description: z.string().optional().describe(`Clear, concise description of what this command does in active voice. Never use words like "complex" or "risk" in the description - just describe what it does.
 

@@ -25,7 +25,11 @@ import {
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
-    pattern: z.string().describe('The glob pattern to match files against'),
+    pattern: z.string().describe(
+      'REQUIRED. The glob pattern to match files against. ' +
+      'This parameter must always be provided — never omit it. ' +
+      'Example: "**/*.ts" or "src/**/*.tsx" or "*.json".'
+    ),
     path: z
       .string()
       .optional()

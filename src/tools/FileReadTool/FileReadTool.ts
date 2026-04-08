@@ -226,7 +226,11 @@ function detectSessionFileType(
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
-    file_path: z.string().describe('The absolute path to the file to read'),
+    file_path: z.string().describe(
+      'REQUIRED. The absolute path to the file to read (must be absolute, not relative). ' +
+      'Example: "/home/user/project/src/index.ts" or "C:\\\\Users\\\\user\\\\project\\\\index.ts". ' +
+      'This parameter must always be provided — never omit it.'
+    ),
     offset: semanticNumber(z.number().int().nonnegative().optional()).describe(
       'The line number to start reading from. Only provide if the file is too large to read at once',
     ),

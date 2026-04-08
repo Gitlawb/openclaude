@@ -35,7 +35,9 @@ const inputSchema = lazySchema(() =>
     pattern: z
       .string()
       .describe(
-        'The regular expression pattern to search for in file contents',
+        'REQUIRED. The regular expression pattern to search for in file contents. ' +
+        'This parameter must always be provided — never omit it. ' +
+        'Example: "function\\\\s+\\\\w+" or "import.*from" or "TODO".',
       ),
     path: z
       .string()

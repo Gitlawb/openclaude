@@ -35,8 +35,16 @@ async function scrapeWithFirecrawl(url: string): Promise<{ markdown: string; byt
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
-    url: z.string().url().describe('The URL to fetch content from'),
-    prompt: z.string().describe('The prompt to run on the fetched content'),
+    url: z.string().url().describe(
+      'REQUIRED. The URL to fetch content from. ' +
+      'This parameter must always be provided — never omit it. ' +
+      'Example: "https://example.com/page" or "https://docs.example.com/api".'
+    ),
+    prompt: z.string().describe(
+      'REQUIRED. The prompt/question to answer using the fetched content. ' +
+      'This parameter must always be provided — never omit it. ' +
+      'Example: "What are the main features described on this page?" or "Summarize the API documentation."'
+    ),
   }),
 )
 type InputSchema = ReturnType<typeof inputSchema>

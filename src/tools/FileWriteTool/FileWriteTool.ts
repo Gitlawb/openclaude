@@ -58,9 +58,16 @@ const inputSchema = lazySchema(() =>
     file_path: z
       .string()
       .describe(
-        'The absolute path to the file to write (must be absolute, not relative)',
+        'REQUIRED. The absolute path to the file to write (must be absolute, not relative). ' +
+          'Example: "/home/user/project/src/index.ts" or "C:\\\\Users\\\\user\\\\project\\\\index.ts". ' +
+          'This parameter must always be provided — never omit it.',
       ),
-    content: z.string().describe('The content to write to the file'),
+    content: z
+      .string()
+      .describe(
+        'REQUIRED. The full content to write to the file. ' +
+          'This parameter must always be provided — never omit it.',
+      ),
   }),
 )
 type InputSchema = ReturnType<typeof inputSchema>

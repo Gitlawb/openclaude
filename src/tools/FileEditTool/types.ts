@@ -5,12 +5,20 @@ import { semanticBoolean } from '../../utils/semanticBoolean.js'
 // The input schema with optional replace_all
 const inputSchema = lazySchema(() =>
   z.strictObject({
-    file_path: z.string().describe('The absolute path to the file to modify'),
-    old_string: z.string().describe('The text to replace'),
+    file_path: z.string().describe(
+      'REQUIRED. The absolute path to the file to modify (must be absolute, not relative). ' +
+      'Example: "/home/user/project/src/index.ts" or "C:\\\\Users\\\\user\\\\project\\\\index.ts". ' +
+      'This parameter must always be provided — never omit it.'
+    ),
+    old_string: z.string().describe(
+      'REQUIRED. The exact text to find and replace in the file. ' +
+      'This parameter must always be provided — never omit it.'
+    ),
     new_string: z
       .string()
       .describe(
-        'The text to replace it with (must be different from old_string)',
+        'REQUIRED. The text to replace old_string with (must be different from old_string). ' +
+        'This parameter must always be provided — never omit it.',
       ),
     replace_all: semanticBoolean(
       z.boolean().default(false).optional(),
