@@ -6,9 +6,33 @@ import {
   useRef,
   useState,
 } from 'react'
-import { isDeepStrictEqual } from 'util'
 import OptionMap from './option-map.js'
 import type { OptionWithDescription } from './select.js'
+
+/**
+ * Compare two option arrays for structural equality on properties that
+ * affect navigation behavior. ReactNode `label` and function `onChange`
+ * are intentionally excluded — they are identity-unstable (new reference
+ * each render) but don't change navigation semantics.
+ */
+export function optionsNavigateEqual<T>(
+  a: OptionWithDescription<T>[],
+  b: OptionWithDescription<T>[],
+): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const ao = a[i]!
+    const bo = b[i]!
+    if (
+      ao.value !== bo.value ||
+      ao.disabled !== bo.disabled ||
+      ao.type !== bo.type
+    ) {
+      return false
+    }
+  }
+  return true
+}
 
 type State<T> = {
   /**
@@ -524,7 +548,7 @@ export function useSelectNavigation<T>({
 
   const [lastOptions, setLastOptions] = useState(options)
 
-  if (options !== lastOptions && !isDeepStrictEqual(options, lastOptions)) {
+  if (options !== lastOptions && !optionsNavigateEqual(options, lastOptions)) {
     dispatch({
       type: 'reset',
       state: createDefaultState({

@@ -238,6 +238,7 @@ import { usePromptsFromClaudeInChrome } from 'src/hooks/usePromptsFromClaudeInCh
 import { getTipToShowOnSpinner, recordShownTip } from 'src/services/tips/tipScheduler.js';
 import type { Theme } from 'src/utils/theme.js';
 import { isPromptTypingSuppressionActive } from './replInputSuppression.js';
+import { shouldRunStartupChecks } from './replStartupGates.js';
 import { checkAndDisableBypassPermissionsIfNeeded, checkAndDisableAutoModeIfNeeded, useKickOffCheckAndDisableBypassPermissionsIfNeeded, useKickOffCheckAndDisableAutoModeIfNeeded } from 'src/utils/permissions/bypassPermissionsKillswitch.js';
 import { SandboxManager } from 'src/utils/sandbox/sandbox-adapter.js';
 import { SANDBOX_NETWORK_ACCESS_TOOL_NAME } from 'src/cli/structuredIO.js';
@@ -792,10 +793,8 @@ export function REPL({
   // accepts, and only then is the REPL component mounted and this effect runs.
   // This ensures that plugin installations from repository and user settings only
   // happen after explicit user consent to trust the current working directory.
-  useEffect(() => {
-    if (isRemoteSession) return;
-    void performStartupChecks(setAppState);
-  }, [setAppState, isRemoteSession]);
+  // Deferring startup checks is handled below (after promptTypingSuppressionActive
+  // is declared) to avoid temporal dead zone issues.
 
   // Allow Claude in Chrome MCP to send prompts through MCP notifications
   // and sync permission mode changes to the Chrome extension
@@ -1429,6 +1428,25 @@ export function REPL({
   const activeRemote = sshRemote.isRemoteMode ? sshRemote : directConnect.isRemoteMode ? directConnect : remoteSession;
   const [pastedContents, setPastedContents] = useState<Record<number, PastedContent>>({});
   const [submitCount, setSubmitCount] = useState(0);
+
+  // Defer startup checks until the user has submitted their first message.
+  // A timeout or grace period is insufficient (issue #363): if the user pauses
+  // before typing, startup checks can still fire and recommendation dialogs
+  // steal focus. Only the user's first submission guarantees the prompt was
+  // the first thing they interacted with.
+  const startupChecksStartedRef = React.useRef(false);
+  const hasHadFirstSubmission = (submitCount ?? 0) > 0;
+  useEffect(() => {
+    if (isRemoteSession) return;
+    if (startupChecksStartedRef.current) return;
+    if (!shouldRunStartupChecks({
+      isRemoteSession,
+      hasStarted: startupChecksStartedRef.current,
+      hasHadFirstSubmission,
+    })) return;
+    startupChecksStartedRef.current = true;
+    void performStartupChecks(setAppState);
+  }, [setAppState, isRemoteSession, hasHadFirstSubmission]);
   // Ref instead of state to avoid triggering React re-renders on every
   // streaming text_delta. The spinner reads this via its animation timer.
   const responseLengthRef = useRef(0);
@@ -2061,13 +2079,14 @@ export function REPL({
     if (allowDialogsWithAnimation && showRemoteCallout) return 'remote-callout';
 
     // LSP plugin recommendation (lowest priority - non-blocking suggestion)
-    if (allowDialogsWithAnimation && lspRecommendation) return 'lsp-recommendation';
+    // Suppress during startup window to prevent stealing focus from the prompt (issue #363)
+    if (allowDialogsWithAnimation && lspRecommendation && startupChecksStartedRef.current) return 'lsp-recommendation';
 
     // Plugin hint from CLI/SDK stderr (same priority band as LSP rec)
-    if (allowDialogsWithAnimation && hintRecommendation) return 'plugin-hint';
+    if (allowDialogsWithAnimation && hintRecommendation && startupChecksStartedRef.current) return 'plugin-hint';
 
     // Desktop app upsell (max 3 launches, lowest priority)
-    if (allowDialogsWithAnimation && showDesktopUpsellStartup) return 'desktop-upsell';
+    if (allowDialogsWithAnimation && showDesktopUpsellStartup && startupChecksStartedRef.current) return 'desktop-upsell';
     return undefined;
   }
   const focusedInputDialog = getFocusedInputDialog();
