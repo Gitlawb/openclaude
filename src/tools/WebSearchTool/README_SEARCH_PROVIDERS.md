@@ -24,12 +24,10 @@ OpenClaude supports multiple search backends through a provider adapter system.
 ## Quick Start
 
 ```bash
-# Pick one provider and set its key:
-
 # Tavily (recommended for AI — fast, RAG-ready)
 export TAVILY_API_KEY=tvly-your-key
 
-# Exa (neural search, great for semantic queries)
+# Exa (neural search, semantic queries)
 export EXA_API_KEY=your-exa-key
 
 # Brave (traditional web search, good coverage)
@@ -67,6 +65,322 @@ export WEB_SEARCH_PROVIDER=tavily
 # Try everything, fall through gracefully
 export WEB_SEARCH_PROVIDER=auto
 ```
+
+## Provider Request & Response Formats
+
+### Tavily
+
+```bash
+export TAVILY_API_KEY=tvly-your-key
+```
+
+**Request:**
+```
+POST https://api.tavily.com/search
+Authorization: Bearer tvly-your-key
+Content-Type: application/json
+
+{"query": "search terms", "max_results": 10, "include_answer": false}
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "title": "Result Title",
+      "url": "https://example.com/page",
+      "content": "Full text snippet from the page...",
+      "score": 0.95
+    }
+  ]
+}
+```
+
+### Exa
+
+```bash
+export EXA_API_KEY=your-exa-key
+```
+
+**Request:**
+```
+POST https://api.exa.ai/search
+x-api-key: your-exa-key
+Content-Type: application/json
+
+{"query": "search terms", "numResults": 10, "type": "auto"}
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "title": "Result Title",
+      "url": "https://example.com/page",
+      "snippet": "A short summary of the page content...",
+      "score": 0.89
+    }
+  ]
+}
+```
+
+### You.com
+
+```bash
+export YOU_API_KEY=your-you-key
+```
+
+**Request:**
+```
+GET https://api.ydc-index.io/v1/search?query=search+terms
+X-API-Key: your-you-key
+```
+
+**Response:**
+```json
+{
+  "results": {
+    "web": [
+      {
+        "title": "Result Title",
+        "url": "https://example.com/page",
+        "snippets": ["First snippet from the page...", "Second snippet..."],
+        "description": "Page description"
+      }
+    ]
+  }
+}
+```
+
+### Jina
+
+```bash
+export JINA_API_KEY=your-jina-key
+```
+
+**Request:**
+```
+GET https://s.jina.ai/?q=search+terms
+Authorization: Bearer your-jina-key
+Accept: application/json
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "title": "Result Title",
+      "url": "https://example.com/page",
+      "description": "Snippet from the page..."
+    }
+  ]
+}
+```
+
+### Bing
+
+```bash
+export BING_API_KEY=your-bing-key
+```
+
+**Request:**
+```
+GET https://api.bing.microsoft.com/v7.0/search?q=search+terms&count=10
+Ocp-Apim-Subscription-Key: your-bing-key
+```
+
+**Response:**
+```json
+{
+  "webPages": {
+    "value": [
+      {
+        "name": "Result Title",
+        "url": "https://example.com/page",
+        "snippet": "A short excerpt from the page...",
+        "displayUrl": "example.com/page"
+      }
+    ]
+  }
+}
+```
+
+### Mojeek
+
+```bash
+export MOJEEK_API_KEY=your-mojeek-key
+```
+
+**Request:**
+```
+GET https://www.mojeek.com/search?q=search+terms&fmt=json
+Authorization: Bearer your-mojeek-key
+```
+
+**Response:**
+```json
+{
+  "response": {
+    "results": [
+      {
+        "title": "Result Title",
+        "url": "https://example.com/page",
+        "snippet": "Excerpt from the page..."
+      }
+    ]
+  }
+}
+```
+
+### Linkup
+
+```bash
+export LINKUP_API_KEY=your-linkup-key
+```
+
+**Request:**
+```
+POST https://api.linkup.so/v1/search
+Authorization: Bearer your-linkup-key
+Content-Type: application/json
+
+{"q": "search terms", "search_type": "standard"}
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "name": "Result Title",
+      "url": "https://example.com/page",
+      "snippet": "A short description of the result..."
+    }
+  ]
+}
+```
+
+### SearXNG (Built-in Preset)
+
+```bash
+export WEB_PROVIDER=searxng
+export WEB_SEARCH_API=https://search.example.com/search
+```
+
+**Request:**
+```
+GET https://search.example.com/search?q=search+terms
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "title": "Result Title",
+      "url": "https://example.com/page",
+      "content": "Snippet from the page...",
+      "engine": "google"
+    }
+  ]
+}
+```
+
+### Google Custom Search (Built-in Preset)
+
+```bash
+export WEB_PROVIDER=google
+export WEB_KEY=your-google-api-key
+```
+
+**Request:**
+```
+GET https://www.googleapis.com/customsearch/v1?q=search+terms
+Authorization: Bearer your-google-api-key
+```
+
+**Response:**
+```json
+{
+  "items": [
+    {
+      "title": "Result Title",
+      "link": "https://example.com/page",
+      "snippet": "A short excerpt...",
+      "displayLink": "example.com"
+    }
+  ]
+}
+```
+
+### Brave (Built-in Preset)
+
+```bash
+export WEB_PROVIDER=brave
+export WEB_KEY=your-brave-key
+```
+
+**Request:**
+```
+GET https://api.search.brave.com/res/v1/web/search?q=search+terms
+X-Subscription-Token: your-brave-key
+```
+
+**Response:**
+```json
+{
+  "web": {
+    "results": [
+      {
+        "title": "Result Title",
+        "url": "https://example.com/page",
+        "description": "Page description..."
+      }
+    ]
+  }
+}
+```
+
+### SerpAPI (Built-in Preset)
+
+```bash
+export WEB_PROVIDER=serpapi
+export WEB_KEY=your-serpapi-key
+```
+
+**Request:**
+```
+GET https://serpapi.com/search.json?q=search+terms
+Authorization: Bearer your-serpapi-key
+```
+
+**Response:**
+```json
+{
+  "organic_results": [
+    {
+      "title": "Result Title",
+      "link": "https://example.com/page",
+      "snippet": "A short excerpt...",
+      "displayed_link": "example.com"
+    }
+  ]
+}
+```
+
+### DuckDuckGo (Default Fallback)
+
+No configuration needed. Uses the `duck-duck-scrape` npm package.
+
+```bash
+# Set as explicit-only backend
+export WEB_SEARCH_PROVIDER=ddg
+```
+
+---
 
 ## Custom API Configuration
 
