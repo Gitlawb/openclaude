@@ -72,7 +72,7 @@ const COPILOT_HEADERS: Record<string, string> = {
 }
 
 // Groq request compaction constants — calibrated for the free tier 6K TPM limit.
-// Token estimate uses bytes/2 (conservative: 1 token ≈ 4 chars ≈ 4 bytes for English).
+// Token estimate uses bytes/4 (conservative: 1 token ≈ 4 chars ≈ 4 bytes for English).
 const GROQ_MAX_REQUEST_TOKENS = 6_000
 const GROQ_TARGET_PROMPT_TOKENS = 3_500
 const GROQ_COMPLETION_TOKEN_SAFETY_MARGIN = 500
@@ -307,7 +307,7 @@ function predictNeededTools(messages: unknown[]): Set<string> | null {
   const tools = new Set<string>()
 
   // Bash: execution, builds, tests, git, package management
-  if (/\brun\b|\bexecut|\bbuild|\btest\b|\binstall\b|\bnpm\b|\bpip\b|\bgit\b|\bcompil|\bscript|\bdocker|\bpython\b|\bnode\b|\blonde\b/.test(t)) tools.add('Bash')
+  if (/\brun\b|\bexecut|\bbuild|\btest\b|\binstall\b|\bnpm\b|\bpip\b|\bgit\b|\bcompil|\bscript|\bdocker|\bpython\b|\bnode\b/.test(t)) tools.add('Bash')
   // Read: reading/showing file content
   if (/\bread\b|\bshow\b|\bcontent|\blook at|\bopen\b|\bcat\b|\bwhat is in|\bwhat does.*file/.test(t)) tools.add('Read')
   // Write: creating new files
@@ -1431,8 +1431,15 @@ class OpenAIShimMessages {
       ...params,
       stream: false, // collect fully to check for request_tools call
       tools: [{ name: REQUEST_TOOLS_SCHEMA.function.name, description: REQUEST_TOOLS_SCHEMA.function.description, input_schema: REQUEST_TOOLS_SCHEMA.function.parameters as Record<string,unknown> }] as unknown as typeof params.tools,
-      system: (typeof params.system === 'string' ? params.system : '') +
-        `\n\nAvailable tools (call request_tools first to load schemas before using any tool):\n${allToolNames}`,
+      system: (() => {
+        const base = typeof params.system === 'string'
+          ? params.system
+          : Array.isArray(params.system)
+            ? (params.system as Array<{ type?: string; text?: string }>)
+                .filter(b => b.type === 'text').map(b => b.text ?? '').join('\n')
+            : ''
+        return base + `\n\nAvailable tools (call request_tools first to load schemas before using any tool):\n${allToolNames}`
+      })(),
     }
 
     process.stderr.write('[ShimToolSearch] phase-1: no tool schemas sent\n')
@@ -1469,7 +1476,10 @@ class OpenAIShimMessages {
     // Model requested specific tools
     let requestedNames: string[] = []
     try { requestedNames = JSON.parse(toolCall.function.arguments).tools ?? [] } catch { /**/ }
-    process.stderr.write(`[ShimToolSearch] phase-1 requested tools: ${requestedNames.join(', ')}\n`)
+    // Fallback: if parse failed or returned empty, send all essential tools
+    if (requestedNames.length === 0) {
+      requestedNames = Object.keys(TOOL_DIRECTORY)
+    }
 
     // Phase-2: re-invoke with only the requested tool schemas
     const phase2Params: ShimCreateParams = {
@@ -1647,7 +1657,7 @@ class OpenAIShimMessages {
         // free-tier providers with limited context/rate budgets (e.g. Groq 6K TPM).
         const ESSENTIAL_TOOLS = new Set([
           'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
-          'TodoWrite', 'AskUserQuestion',
+          'TodoWrite', 'AskUserQuestion', 'Agent',
         ])
         const isOpenAIShim = isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) || isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
         if (isOpenAIShim) {
@@ -1801,8 +1811,16 @@ class OpenAIShimMessages {
         process.stderr.write(`[DEBUG]   tool ${t.function.name}: ${sz}KB\n`)
       }
     }
-    if (bodySizeKB > 5000) {
-      process.stderr.write(`[DEBUG] LARGE REQUEST — system: ${JSON.stringify((body as Record<string,unknown>).messages)?.slice(0,200)}\n`)
+    if (bodySizeKB > 5000 &&
+        isEnvTruthy(process.env.OPENAI_SHIM_DEBUG_LARGE_REQUESTS)) {
+      const messages = (body as Record<string,unknown>).messages
+      const messageCount = Array.isArray(messages) ? messages.length : 0
+      const messagesSizeKB = messages === undefined
+        ? 0
+        : Math.round(JSON.stringify(messages).length / 1024)
+      process.stderr.write(
+        `[DEBUG] LARGE REQUEST — payload: ${bodySizeKB}KB, messages: ${messageCount}, messagesSize: ${messagesSizeKB}KB\n`,
+      )
     }
 
     const fetchInit = {

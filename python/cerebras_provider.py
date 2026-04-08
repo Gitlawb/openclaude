@@ -51,7 +51,6 @@ def get_cerebras_client():
             f"CEREBRAS_API_KEY not set. Get a free key at https://cloud.cerebras.ai"
         )
 
-    from cerebras.cloud.sdk import Cerebras
     return Cerebras(api_key=api_key)
 
 
