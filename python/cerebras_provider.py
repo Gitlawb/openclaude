@@ -100,6 +100,7 @@ async def cerebras_chat_stream(
     Stream a chat completion from Cerebras using the native SDK.
     Yields text chunks as they arrive.
     """
+    import asyncio
     client = get_cerebras_client()
 
     stream = client.chat.completions.create(
@@ -109,7 +110,15 @@ async def cerebras_chat_stream(
         stream=True,
     )
 
-    for chunk in stream:
+    loop = asyncio.get_event_loop()
+    # SDK iterator is synchronous — run each `next()` in a thread to avoid
+    # blocking the event loop.
+    sentinel = object()
+    sync_iter = iter(stream)
+    while True:
+        chunk = await loop.run_in_executor(None, next, sync_iter, sentinel)
+        if chunk is sentinel:
+            break
         delta = chunk.choices[0].delta
         if delta and delta.content:
             yield delta.content

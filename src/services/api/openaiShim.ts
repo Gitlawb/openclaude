@@ -233,6 +233,7 @@ const TOOL_DIRECTORY: Record<string, string> = {
   Grep:            'Search file contents with regex',
   TodoWrite:       'Create/update structured task list',
   AskUserQuestion: 'Ask the user a clarifying question',
+  Agent:           'Spawn a sub-agent to handle a complex sub-task',
 }
 
 /** The single meta-tool sent during phase-1 of ShimToolSearch */
@@ -1748,7 +1749,7 @@ class OpenAIShimMessages {
     // OpenRouter requires HTTP-Referer header
     const isOpenRouter = request.baseUrl.includes('openrouter.ai')
     if (isOpenRouter) {
-      headers['HTTP-Referer'] = 'https://openrouter.ai/'
+      headers['HTTP-Referer'] = 'https://github.com/Gitlawb/openclaude'
       headers['X-Title'] = 'OpenClaude'
     }
 
@@ -1803,7 +1804,9 @@ class OpenAIShimMessages {
     const bodyStr = JSON.stringify(body)
     const bodySizeKB = Math.round(bodyStr.length / 1024)
     const toolCount = Array.isArray((body as Record<string,unknown>).tools) ? ((body as Record<string,unknown>).tools as unknown[]).length : 0
-    process.stderr.write(`[DEBUG] Request payload: ${bodySizeKB}KB, ${toolCount} tools\n`)
+    if (process.env.DUMP_TOOLS || process.env.OPENAI_SHIM_DEBUG) {
+      process.stderr.write(`[DEBUG] Request payload: ${bodySizeKB}KB, ${toolCount} tools\n`)
+    }
     if (Array.isArray((body as Record<string,unknown>).tools) && process.env.DUMP_TOOLS) {
       const tools = (body as Record<string,unknown>).tools as OpenAITool[]
       for (const t of tools) {
