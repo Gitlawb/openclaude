@@ -11,23 +11,26 @@ export type APIProvider =
   | 'gemini'
   | 'github'
   | 'codex'
+  | 'minimax'
 
 export function getAPIProvider(): APIProvider {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     ? 'gemini'
     : isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
       ? 'github'
-      : isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
-        ? isCodexModel()
-          ? 'codex'
-          : 'openai'
-        : isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)
-          ? 'bedrock'
-          : isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)
-            ? 'vertex'
-            : isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
-              ? 'foundry'
-              : 'firstParty'
+      : isEnvTruthy(process.env.CLAUDE_CODE_USE_MINIMAX)
+        ? 'minimax'
+        : isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
+          ? isCodexModel()
+            ? 'codex'
+            : 'openai'
+          : isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)
+            ? 'bedrock'
+            : isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)
+              ? 'vertex'
+              : isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
+                ? 'foundry'
+                : 'firstParty'
 }
 
 export function usesAnthropicAccountFlow(): boolean {
