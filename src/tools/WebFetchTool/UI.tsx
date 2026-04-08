@@ -6,6 +6,7 @@ import type { ToolProgressData } from '../../Tool.js';
 import type { ProgressMessage } from '../../types/message.js';
 import { formatFileSize, truncate } from '../../utils/format.js';
 import type { Output } from './WebFetchTool.js';
+
 export function renderToolUseMessage({
   url,
   prompt
@@ -26,40 +27,54 @@ export function renderToolUseMessage({
   }
   return url;
 }
-export function renderToolUseProgressMessage(): React.ReactNode {
+
+export function renderToolUseProgressMessage(
+  progressMessages: ProgressMessage<ToolProgressData>[],
+): React.ReactNode {
+  if (progressMessages.length > 0) {
+    const lastProgress = progressMessages[progressMessages.length - 1];
+    if (lastProgress?.data && typeof lastProgress.data === 'object' && 'step' in lastProgress.data) {
+      const step = (lastProgress.data as { step: string }).step;
+      return <MessageResponse height={1}>
+        <Text dimColor>{step}</Text>
+      </MessageResponse>;
+    }
+  }
   return <MessageResponse height={1}>
       <Text dimColor>Fetching…</Text>
     </MessageResponse>;
 }
-export function renderToolResultMessage({
-  bytes,
-  code,
-  codeText,
-  result
-}: Output, _progressMessagesForMessage: ProgressMessage<ToolProgressData>[], {
-  verbose
-}: {
-  verbose: boolean;
-}): React.ReactNode {
-  const formattedSize = formatFileSize(bytes);
+
+export function renderToolResultMessage(
+  output: Output,
+  _progressMessagesForMessage: ProgressMessage<ToolProgressData>[],
+  { verbose }: { verbose: boolean },
+): React.ReactNode {
+  const formattedSize = formatFileSize(output.bytes);
+  const durationSec = (output.durationMs / 1000);
+  const timeDisplay = durationSec >= 1 ? `${Math.round(durationSec)}s` : `${Math.round(durationSec * 1000)}ms`;
+
   if (verbose) {
     return <Box flexDirection="column">
         <MessageResponse height={1}>
           <Text>
-            Received <Text bold>{formattedSize}</Text> ({code} {codeText})
+            Fetched <Text bold>{formattedSize}</Text> from {new URL(output.url).hostname} ({output.code} {output.codeText}) in {timeDisplay}
           </Text>
         </MessageResponse>
         <Box flexDirection="column">
-          <Text>{result}</Text>
+          <Text>{output.result}</Text>
         </Box>
       </Box>;
   }
-  return <MessageResponse height={1}>
-      <Text>
-        Received <Text bold>{formattedSize}</Text> ({code} {codeText})
-      </Text>
-    </MessageResponse>;
+  return <Box justifyContent="space-between" width="100%">
+      <MessageResponse height={1}>
+        <Text>
+          Fetched <Text bold>{formattedSize}</Text> in {timeDisplay}
+        </Text>
+      </MessageResponse>
+    </Box>;
 }
+
 export function getToolUseSummary(input: Partial<{
   url: string;
   prompt: string;

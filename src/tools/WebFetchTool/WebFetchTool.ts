@@ -220,12 +220,28 @@ ${DESCRIPTION}`
   async call(
     { url, prompt },
     { abortController, options: { isNonInteractiveSession } },
+    _canUseTool,
+    _parentMessage,
+    onProgress,
   ) {
     const start = Date.now()
+    let progressCounter = 0
+
+    const emitProgress = (step: string) => {
+      progressCounter++
+      onProgress?.({
+        toolUseID: `fetch-progress-${progressCounter}`,
+        data: { step },
+      })
+    }
+
+    emitProgress(`Resolving ${new URL(url).hostname}…`)
 
     if (isFirecrawlEnabled()) {
+      emitProgress('Scraping with Firecrawl…')
       const { markdown, bytes } = await scrapeWithFirecrawl(url)
       const isPreapproved = isPreapprovedUrl(url)
+      emitProgress('Processing content…')
       const result = await applyPromptToMarkdown(
         prompt,
         markdown,
@@ -245,6 +261,7 @@ ${DESCRIPTION}`
       }
     }
 
+    emitProgress('Fetching content…')
     const response = await getURLMarkdownContent(url, abortController)
 
     // Check if we got a redirect to a different host
@@ -282,6 +299,7 @@ To complete your request, I need to fetch content from the redirected URL. Pleas
       }
     }
 
+    emitProgress('Processing content…')
     const {
       content,
       bytes,
@@ -356,11 +374,18 @@ To complete your request, I need to fetch content from the redirected URL. Pleas
       data: output,
     }
   },
-  mapToolResultToToolResultBlockParam({ result }, toolUseID) {
+  mapToolResultToToolResultBlockParam({ result, url, bytes, code, codeText, durationMs }, toolUseID) {
+    const formattedSize = formatFileSize(bytes)
+    const durationSec = (durationMs / 1000).toFixed(1)
+
+    let formattedOutput = `Web fetch result for: ${url}\n`
+    formattedOutput += `Status: ${code} ${codeText} | Size: ${formattedSize} | Duration: ${durationSec}s\n\n`
+    formattedOutput += result
+
     return {
       tool_use_id: toolUseID,
       type: 'tool_result',
-      content: result,
+      content: formattedOutput,
     }
   },
 } satisfies ToolDef<InputSchema, Output>)
