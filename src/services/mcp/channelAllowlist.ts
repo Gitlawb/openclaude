@@ -1,8 +1,9 @@
 /**
  * Approved channel plugins allowlist. --channels plugin:name@marketplace
  * entries only register if {marketplace, plugin} is on this list. server:
- * entries are allowed directly in OpenClaude. The
- * --dangerously-load-development-channels flag bypasses for both kinds.
+ * entries can be specified directly in OpenClaude, but only dev-flagged
+ * server entries register via --dangerously-load-development-channels. The
+ * flag bypasses the allowlist for both kinds.
  *
  * OpenClaude: hardcoded allowlist replaces GrowthBook-sourced list.
  * Custom channels work via --dangerously-load-development-channels.
