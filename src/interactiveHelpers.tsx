@@ -247,32 +247,19 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   // dev channels to any --channels list already set in main.tsx. Org policy
   // is NOT bypassed — gateChannelServer() still runs; this flag only exists
   // to sidestep the --channels approved-server allowlist.
-  if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
-    // gateChannelServer and ChannelsNotice read tengu_harbor after this
-    // function returns. A cold disk cache (fresh install, or first run after
-    // the flag was added server-side) defaults to false and silently drops
-    // channel notifications for the whole session — gh#37026.
-    // checkGate_CACHED_OR_BLOCKING returns immediately if disk already says
-    // true; only blocks on a cold/stale-false cache (awaits the same memoized
-    // initializeGrowthBook promise fired earlier). Also warms the
-    // isChannelsEnabled() check in the dev-channels dialog below.
-    if (getAllowedChannels().length > 0 || (devChannels?.length ?? 0) > 0) {
-      await checkGate_CACHED_OR_BLOCKING('tengu_harbor');
-    }
+  if (true /* channels enabled */) {
+    // OpenClaude: no GrowthBook warm-up needed — isChannelsEnabled() is
+    // hardcoded true. The original checkGate_CACHED_OR_BLOCKING call is
+    // removed (stubbed to always return false in the no-telemetry build).
     if (devChannels && devChannels.length > 0) {
-      const [{
+      const {
         isChannelsEnabled
-      }, {
-        getClaudeAIOAuthTokens
-      }] = await Promise.all([import('./services/mcp/channelAllowlist.js'), import('./utils/auth.js')]);
-      // Skip the dialog when channels are blocked (tengu_harbor off or no
-      // OAuth) — accepting then immediately seeing "not available" in
-      // ChannelsNotice is worse than no dialog. Append entries anyway so
-      // ChannelsNotice renders the blocked branch with the dev entries
-      // named. dev:true here is for the flag label in ChannelsNotice
-      // (hasNonDev check); the allowlist bypass it also grants is moot
-      // since the gate blocks upstream.
-      if (!isChannelsEnabled() || !getClaudeAIOAuthTokens()?.accessToken) {
+      } = await import('./services/mcp/channelAllowlist.js');
+      // Skip the dialog only when channels are globally disabled (shouldn't
+      // happen in OpenClaude since isChannelsEnabled() returns true).
+      // Always show the confirmation dialog — dev channels bypass the
+      // allowlist and carry prompt-injection risk.
+      if (!isChannelsEnabled()) {
         setAllowedChannels([...getAllowedChannels(), ...devChannels.map(c => ({
           ...c,
           dev: true
