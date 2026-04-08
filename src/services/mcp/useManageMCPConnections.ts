@@ -616,14 +616,15 @@ export function useManageMCPConnections(
                 // we're here with those kinds, the user asked for it.
                 if (
                   gate.kind !== 'capability' &&
-                  gate.kind !== 'session' &&
                   !channelWarnedKindsRef.current.has(gate.kind) &&
                   (gate.kind === 'marketplace' ||
                     gate.kind === 'allowlist' ||
+                    gate.kind === 'session' ||
                     entry !== undefined)
                 ) {
                   channelWarnedKindsRef.current.add(gate.kind)
                   // disabled/auth/policy get custom toast copy (shorter, actionable);
+                  // session explains --channels is needed;
                   // marketplace/allowlist reuse the gate's reason verbatim
                   // since it already names the mismatch.
                   const text =
@@ -633,7 +634,9 @@ export function useManageMCPConnections(
                         ? 'Channels require claude.ai authentication · run /login'
                         : gate.kind === 'policy'
                           ? 'Channels are not enabled for your org · have an administrator set channelsEnabled: true in managed settings'
-                          : gate.reason
+                          : gate.kind === 'session'
+                            ? `Channel server ${client.name} connected but not in --channels list · restart with --channels to enable`
+                            : gate.reason
                   addNotification({
                     key: `channels-blocked-${gate.kind}`,
                     priority: 'high',
