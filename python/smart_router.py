@@ -128,6 +128,14 @@ def build_default_providers() -> list[Provider]:
             big_model=big if "gemini" not in big and "gpt" not in big else "llama3:8b",
             small_model=small if "gemini" not in small and "gpt" not in small else "llama3:8b",
         ),
+        Provider(
+            name="cerebras",
+            ping_url="https://api.cerebras.ai/v1/models",
+            api_key_env="CEREBRAS_API_KEY",
+            cost_per_1k_tokens=0.00035,  # gpt-oss-120b: $0.35/M input + $0.75/M output avg
+            big_model="gpt-oss-120b",
+            small_model="llama3.1-8b",
+        ),
     ]
 
 

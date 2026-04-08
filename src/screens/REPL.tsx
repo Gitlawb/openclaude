@@ -779,9 +779,10 @@ export function REPL({
     return [...localTools, ...initialTools];
   }, [localTools, initialTools]);
 
-  // Initialize plugin management
+  // Initialize plugin management — skip for 3P providers to avoid REPL freeze.
+  // Plugin loading triggers heavy I/O + AppState churn that blocks the event loop.
   useManagePlugins({
-    enabled: !isRemoteSession
+    enabled: !isRemoteSession && process.env.CLAUDE_CODE_USE_OPENAI !== '1' && process.env.CLAUDE_CODE_USE_GEMINI !== '1'
   });
   const tasksV2 = useTasksV2WithCollapseEffect();
 

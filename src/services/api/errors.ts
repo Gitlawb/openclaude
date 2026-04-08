@@ -665,8 +665,29 @@ export function getAssistantMessageFromError(
   }
 
   // Check for request too large errors (413 status)
-  // This typically happens when a large PDF + conversation context exceeds the 32MB API limit
+  // This typically happens when a large PDF + conversation context exceeds the 32MB API limit,
+  // OR when a 3P provider (Groq etc.) rejects the request for exceeding token/rate limits.
   if (error instanceof APIError && error.status === 413) {
+    const lowerMessage = error.message.toLowerCase()
+    const looksLikeTokenRateLimit =
+      lowerMessage.includes('tokens per minute') ||
+      lowerMessage.includes('"code":"rate_limit_exceeded"') ||
+      lowerMessage.includes('"type":"tokens"') ||
+      lowerMessage.includes('request_too_large') ||
+      lowerMessage.includes('context_length_exceeded')
+
+    if (looksLikeTokenRateLimit) {
+      const stripped = error.message.replace(/^413\s+/, '')
+      const innerMessage = stripped.match(/"message"\s*:\s*"([^"]*)"/)?.[1]
+      const detail = innerMessage || stripped
+
+      return createAssistantAPIErrorMessage({
+        content: `API Error: Token limit exceeded for this provider request · ${detail}. Try /compact, reduce enabled tools, or use a provider/model with higher limits.`,
+        error: 'rate_limit',
+        errorDetails: error.message,
+      })
+    }
+
     return createAssistantAPIErrorMessage({
       content: getRequestTooLargeErrorMessage(),
       error: 'invalid_request',

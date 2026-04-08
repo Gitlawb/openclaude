@@ -73,6 +73,8 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'codellama:13b':              16_384,
   'llama3.2:1b':              128_000,
   'qwen3:8b':                 128_000,
+  'qwen3:14b':                  32_768,
+  'qwen3:30b-a3b':              32_768,
   'codestral':                 32_768,
 }
 
@@ -141,6 +143,8 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'codellama:13b':              4_096,
   'llama3.2:1b':                4_096,
   'qwen3:8b':                   8_192,
+  'qwen3:14b':                  8_192,
+  'qwen3:30b-a3b':              8_192,
   'codestral':                   8_192,
 }
 

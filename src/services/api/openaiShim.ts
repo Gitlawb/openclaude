@@ -71,6 +71,13 @@ const COPILOT_HEADERS: Record<string, string> = {
   'Copilot-Integration-Id': 'vscode-chat',
 }
 
+// Groq request compaction constants — calibrated for the free tier 6K TPM limit.
+// Token estimate uses bytes/2 (conservative: 1 token ≈ 4 chars ≈ 4 bytes for English).
+const GROQ_MAX_REQUEST_TOKENS = 6_000
+const GROQ_TARGET_PROMPT_TOKENS = 3_500
+const GROQ_COMPLETION_TOKEN_SAFETY_MARGIN = 500
+const GROQ_TOKEN_ESTIMATE_DIVISOR = 4
+
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 }
@@ -83,6 +90,249 @@ function hasGeminiApiHost(baseUrl: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+function isGroqBaseUrl(baseUrl: string): boolean {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return hostname === 'groq.com' || hostname.endsWith('.groq.com')
+  } catch {
+    return baseUrl.toLowerCase().includes('groq.com')
+  }
+}
+
+function isCerebrasBaseUrl(baseUrl: string): boolean {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return hostname === 'api.cerebras.ai' || hostname.endsWith('.cerebras.ai')
+  } catch {
+    return baseUrl.toLowerCase().includes('cerebras.ai')
+  }
+}
+
+/**
+ * Recursively add `additionalProperties: false` to every object node in a
+ * JSON Schema. Required by Cerebras strict mode (constrained decoding).
+ * Also strips array keywords unsupported by constrained decoding engines
+ * (minItems, maxItems, uniqueItems).
+ */
+function addAdditionalPropertiesFalse(schema: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...schema }
+  // Strip array-constraint keywords that constrained decoding engines reject
+  if (out.type === 'array') {
+    delete out.minItems
+    delete out.maxItems
+    delete out.uniqueItems
+  }
+  if (out.type === 'object' && !('additionalProperties' in out)) {
+    out.additionalProperties = false
+  }
+  if (out.properties && typeof out.properties === 'object') {
+    const props: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(out.properties as Record<string, unknown>)) {
+      props[k] = v && typeof v === 'object' && !Array.isArray(v)
+        ? addAdditionalPropertiesFalse(v as Record<string, unknown>)
+        : v
+    }
+    out.properties = props
+  }
+  if (out.items && typeof out.items === 'object' && !Array.isArray(out.items)) {
+    out.items = addAdditionalPropertiesFalse(out.items as Record<string, unknown>)
+  }
+  return out
+}
+
+/**
+ * Apply Cerebras strict mode to tool definitions:
+ * - adds `strict: true` inside `function` (enables constrained decoding)
+ * - recursively adds `additionalProperties: false` to all schema objects
+ * This prevents malformed tool calls and saves tokens from retries.
+ */
+function applyStrictModeToTools(tools: OpenAITool[]): OpenAITool[] {
+  return tools.map(tool => ({
+    ...tool,
+    function: {
+      ...tool.function,
+      strict: true,
+      parameters: tool.function.parameters
+        ? addAdditionalPropertiesFalse(tool.function.parameters as Record<string, unknown>)
+        : { type: 'object', properties: {}, additionalProperties: false },
+    },
+  }))
+}
+
+// ---------------------------------------------------------------------------
+// Open Tool Search — reverse-engineered lightweight tool discovery for 3P models
+// ---------------------------------------------------------------------------
+
+/**
+ * Keep only the first sentence of a tool description (up to maxLen chars).
+ * 235B models already know what Bash/Read/Write/etc. do by name.
+ * The fat Anthropic descriptions (500–2000 words) waste tokens on 3P providers.
+ */
+function truncateToolDescription(text: string, maxLen = 200): string {
+  if (!text || text.length <= maxLen) return text
+  // Try to cut at a sentence boundary in a generous window
+  const window = text.slice(0, maxLen + 80)
+  const match = window.match(/^[\s\S]{30,}?[.!?](\s|\n|$)/)
+  if (match && match[0].length <= maxLen + 20) return match[0].trim()
+  // Fall back to word boundary
+  return text.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+}
+
+/**
+ * Strip description/title from parameter schemas while preserving structure.
+ * Models still get type/required/properties/enum — enough to generate valid calls.
+ */
+function stripParamDescriptions(schema: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(schema)) {
+    // Only description/title at PROPERTY level (not top-level function description)
+    if (k === 'description' || k === 'title') continue
+    if (Array.isArray(v)) {
+      out[k] = v.map(item =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? stripParamDescriptions(item as Record<string, unknown>)
+          : item,
+      )
+    } else if (v && typeof v === 'object') {
+      out[k] = stripParamDescriptions(v as Record<string, unknown>)
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
+/**
+ * Minify tool schemas for 3P providers — dramatically reduces token usage:
+ *   Bash:      11.4KB → ~0.4KB  (function desc truncated, param descs stripped)
+ *   TodoWrite:  9.6KB → ~1.2KB
+ *   Aggregate:   36KB → ~5KB    (before task selection)
+ * The model name alone (Bash, Read, Write…) carries enough semantics for
+ * a 235B model to select and call tools correctly.
+ */
+function minifyToolSchemas(tools: OpenAITool[]): OpenAITool[] {
+  return tools.map(tool => ({
+    ...tool,
+    function: {
+      ...tool.function,
+      description: truncateToolDescription(tool.function.description),
+      parameters: stripParamDescriptions(tool.function.parameters as Record<string, unknown>),
+    },
+  }))
+}
+
+/** One-line descriptions for the tool directory injected during phase-1 of ShimToolSearch */
+const TOOL_DIRECTORY: Record<string, string> = {
+  Bash:            'Execute shell commands (build, test, install, git, etc.)',
+  Read:            'Read file contents',
+  Write:           'Create or overwrite a file',
+  Edit:            'Make targeted edits to an existing file',
+  Glob:            'List files matching a pattern',
+  Grep:            'Search file contents with regex',
+  TodoWrite:       'Create/update structured task list',
+  AskUserQuestion: 'Ask the user a clarifying question',
+}
+
+/** The single meta-tool sent during phase-1 of ShimToolSearch */
+const REQUEST_TOOLS_SCHEMA: OpenAITool = {
+  type: 'function',
+  function: {
+    name: 'request_tools',
+    description: 'Request the full schema for one or more tools before using them. Call this first if you need to use any tools.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tools: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+      },
+      required: ['tools'],
+    },
+  },
+}
+
+/**
+ * Keyword heuristics to predict which tools a request needs.
+ * Returns a Set of tool names. An empty Set means "uncertain — send all tools".
+ * This is conservative: false positives (sending extra tools) are fine;
+ * false negatives (missing a needed tool) would break the task.
+ */
+function predictNeededTools(messages: unknown[]): Set<string> | null {
+  // Extract the last genuine user query from messages.
+  // Openclaude wraps user messages with <system-reminder> XML blocks;
+  // strip those to get to the actual user text.
+  function extractUserQuery(text: string): string {
+    // Remove <system-reminder>...</system-reminder> blocks
+    return text
+      .replace(/<system-reminder[\s\S]*?<\/system-reminder>/gi, '')
+      .replace(/<context[\s\S]*?<\/context>/gi, '')
+      .trim()
+  }
+
+  let lastUserText = ''
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: string; content?: unknown }
+    if (m.role !== 'user') continue
+    let rawText = ''
+    if (typeof m.content === 'string') {
+      rawText = m.content
+    } else if (Array.isArray(m.content)) {
+      const parts = (m.content as Array<{ type?: string; text?: string }>)
+        .filter(p => p.type === 'text')
+        .map(p => p.text ?? '')
+      rawText = parts.join(' ')
+    }
+    const clean = extractUserQuery(rawText)
+    if (clean) {
+      lastUserText = clean
+      break
+    }
+  }
+  if (!lastUserText) return null
+
+  const t = lastUserText.toLowerCase()
+
+  // Pure conversational / no-tools signals
+  const isConversational = /^(what|who|why|how|when|where|explain|describe|tell me|is it|can you|do you|list|summarize|overview|difference between|compare|pros and cons)/.test(t.trim())
+    && !/file|code|function|class|test|build|run|install|create|write|edit|implement|fix|debug/.test(t)
+
+  if (isConversational) {
+    // Might not need tools at all — phase-1 ShimToolSearch territory
+    return new Set([])
+  }
+
+  const tools = new Set<string>()
+
+  // Bash: execution, builds, tests, git, package management
+  if (/\brun\b|\bexecut|\bbuild|\btest\b|\binstall\b|\bnpm\b|\bpip\b|\bgit\b|\bcompil|\bscript|\bdocker|\bpython\b|\bnode\b|\blonde\b/.test(t)) tools.add('Bash')
+  // Read: reading/showing file content
+  if (/\bread\b|\bshow\b|\bcontent|\blook at|\bopen\b|\bcat\b|\bwhat is in|\bwhat does.*file/.test(t)) tools.add('Read')
+  // Write: creating new files
+  if (/\bcreate\b|\bwrite\b|\bnew file|\bgenerat|\bscaffold|\binitializ|\btouch\b/.test(t)) tools.add('Write')
+  // Edit: modifying existing files
+  if (/\bedit\b|\bmodif|\bchange\b|\bfix\b|\bupdat|\brefactor|\breplace|\bimpleme|\badd.*to\b|\bremove\b|\bdelet.*from/.test(t)) tools.add('Edit')
+  // Grep: searching content
+  if (/\bsearch\b|\bfind\b|\bgrep\b|\blook for\b|\bwhere is\b|\boccurrenc|\bwhich file/.test(t)) { tools.add('Grep'); tools.add('Glob') }
+  // Glob: file listing
+  if (/\blist.*file|\bfind.*file|\bfiles in|\bwhat files|\blist.*dir|\bls\b/.test(t)) tools.add('Glob')
+  // TodoWrite: planning
+  if (/\btodo\b|\bplan\b|\btask list|\btrack\b|\bprogress\b/.test(t)) tools.add('TodoWrite')
+
+  // If it's an implementation task, assume the full write suite
+  if (/\bimplement\b|\bbuild.*feature|\badd.*feature|\bwrite.*function|\bwrite.*class|\bcreate.*function|\bcreate.*class/.test(t)) {
+    tools.add('Bash'); tools.add('Write'); tools.add('Edit'); tools.add('Read')
+  }
+
+  // Always add Bash and AskUserQuestion for implementation/coding tasks
+  if (tools.has('Edit') || tools.has('Write')) {
+    tools.add('Bash')
+    tools.add('Read')
+  }
+
+  return tools.size > 0 ? tools : null  // null = uncertain, use all tools
 }
 
 function formatRetryAfterHint(response: Response): string {
@@ -123,6 +373,102 @@ interface OpenAITool {
     parameters: Record<string, unknown>
     strict?: boolean
   }
+}
+
+// ---------------------------------------------------------------------------
+// Groq payload compaction helpers
+// ---------------------------------------------------------------------------
+
+function estimateJsonBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length
+}
+
+function estimateGroqPromptTokens(value: unknown): number {
+  return Math.ceil(estimateJsonBytes(value) / GROQ_TOKEN_ESTIMATE_DIVISOR)
+}
+
+function stripSchemaAnnotations(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(item => stripSchemaAnnotations(item))
+  if (!value || typeof value !== 'object') return value
+  const record = value as Record<string, unknown>
+  const reduced: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(record)) {
+    // Strip "description" only when it's a string annotation, not when it's
+    // a parameter definition object (e.g. BashTool's "description" parameter).
+    if (key === 'description' && typeof child === 'string') continue
+    reduced[key] = stripSchemaAnnotations(child)
+  }
+  return reduced
+}
+
+function stripToolSchemaDescriptions(tools: OpenAITool[]): OpenAITool[] {
+  return stripSchemaAnnotations(tools) as OpenAITool[]
+}
+
+function compactPayloadForGroq(body: Record<string, unknown>): void {
+  let promptTokens = estimateGroqPromptTokens(body)
+  if (promptTokens <= GROQ_TARGET_PROMPT_TOKENS) return
+
+  if (Array.isArray(body.tools)) {
+    body.tools = stripToolSchemaDescriptions(body.tools as OpenAITool[]) as typeof body.tools
+    promptTokens = estimateGroqPromptTokens(body)
+  }
+  if (promptTokens <= GROQ_TARGET_PROMPT_TOKENS) return
+
+  if (Array.isArray(body.messages)) {
+    const messages = [
+      ...(body.messages as Array<{ role?: string } & Record<string, unknown>>),
+    ]
+
+    while (promptTokens > GROQ_TARGET_PROMPT_TOKENS) {
+      const firstNonSystemIndex = messages.findIndex(
+        (message, index) =>
+          message.role !== 'system' && index < messages.length - 1,
+      )
+      if (firstNonSystemIndex === -1) break
+
+      messages.splice(firstNonSystemIndex, 1)
+      body.messages = messages
+      promptTokens = estimateGroqPromptTokens(body)
+    }
+  }
+  if (promptTokens <= GROQ_TARGET_PROMPT_TOKENS) return
+
+  if (body.tools) {
+    delete body.tools
+    body.tool_choice = 'none'
+    promptTokens = estimateGroqPromptTokens(body)
+  }
+  if (promptTokens <= GROQ_TARGET_PROMPT_TOKENS) return
+
+  if (Array.isArray(body.messages)) {
+    const messages = body.messages as Array<
+      { role?: string } & Record<string, unknown>
+    >
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find(message => message.role === 'user')
+    const lastMessage = lastUserMessage ?? messages[messages.length - 1]
+    body.messages = lastMessage ? [lastMessage] : []
+  }
+}
+
+function clampGroqMaxTokens(body: Record<string, unknown>): void {
+  const currentMaxTokens =
+    typeof body.max_tokens === 'number'
+      ? body.max_tokens
+      : typeof body.max_completion_tokens === 'number'
+        ? body.max_completion_tokens
+        : 4000
+
+  const estimatedPromptTokens = estimateGroqPromptTokens(body)
+  const availableCompletionTokens =
+    GROQ_MAX_REQUEST_TOKENS -
+    estimatedPromptTokens -
+    GROQ_COMPLETION_TOKEN_SAFETY_MARGIN
+
+  body.max_tokens = Math.min(currentMaxTokens, Math.max(1, availableCompletionTokens))
+  delete body.max_completion_tokens
 }
 
 function convertSystemPrompt(
@@ -521,6 +867,9 @@ interface OpenAIStreamChunk {
     prompt_tokens_details?: {
       cached_tokens?: number
     }
+    completion_tokens_details?: {
+      reasoning_tokens?: number
+    }
   }
 }
 
@@ -563,6 +912,29 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
     }
     return null
   }
+}
+
+/**
+ * Log per-call token breakdown to stderr for analysis.
+ * Shows reasoning overhead, cache hits, and net-new tokens charged against quota.
+ */
+function logCallTokens(
+  rawUsage: OpenAIStreamChunk['usage'] | undefined,
+  model: string,
+): void {
+  if (!rawUsage) return
+  const inp = rawUsage.prompt_tokens ?? 0
+  const out = rawUsage.completion_tokens ?? 0
+  const cached = rawUsage.prompt_tokens_details?.cached_tokens ?? 0
+  const reasoning = rawUsage.completion_tokens_details?.reasoning_tokens ?? 0
+  const total = rawUsage.total_tokens ?? (inp + out)
+  const netNew = inp - cached
+  process.stderr.write(
+    `[TOKENS] model=${model} in=${inp} out=${out}` +
+    (reasoning > 0 ? ` reason=${reasoning}` : '') +
+    (cached > 0 ? ` cache_hit=${cached}` : '') +
+    ` total=${total} net_new=${netNew}\n`,
+  )
 }
 
 /**
@@ -885,6 +1257,7 @@ async function* openaiStreamToAnthropic(
             ...(chunkUsage ? { usage: chunkUsage } : {}),
           }
           if (chunkUsage) {
+            logCallTokens(chunk.usage, model)
             hasEmittedFinalUsage = true
           }
         }
@@ -901,6 +1274,7 @@ async function* openaiStreamToAnthropic(
           delta: { stop_reason: lastStopReason, stop_sequence: null },
           usage: chunkUsage,
         }
+        logCallTokens(chunk.usage, model)
         hasEmittedFinalUsage = true
       }
     }
@@ -951,6 +1325,26 @@ class OpenAIShimMessages {
 
     const promise = (async () => {
       const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
+
+      // ---------------------------------------------------------------------------
+      // ShimToolSearch: two-phase protocol for Cerebras (our open tool_reference)
+      // When heuristic detects a conversational/no-tool turn, skip all tool schemas
+      // on the first call. The model may answer directly (saving ~8K tokens) or
+      // call request_tools([...]) to declare what it needs, then we inject only
+      // those schemas and re-invoke.
+      // ---------------------------------------------------------------------------
+      if (
+        isCerebrasBaseUrl(request.baseUrl) &&
+        params.tools && (params.tools as unknown[]).length > 0
+      ) {
+        const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
+        const predicted = predictNeededTools(msgs)
+        // predicted empty set = confident no-tool turn → use two-phase protocol
+        if (predicted !== null && predicted.size === 0) {
+          return await self._shimToolSearchCreate(request, params, options)
+        }
+      }
+
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
@@ -1017,6 +1411,106 @@ class OpenAIShimMessages {
         }
 
     return promise
+  }
+
+  private async _shimToolSearchCreate(
+    request: ReturnType<typeof resolveProviderRequest>,
+    params: ShimCreateParams,
+    options?: { signal?: AbortSignal; headers?: Record<string, string> },
+  ) {
+    // Build a compact tool directory to inject into the system prompt
+    const allToolNames = (
+      params.tools as Array<{ name: string; description?: string }> ?? []
+    )
+      .filter(t => t.name in TOOL_DIRECTORY)
+      .map(t => `- ${t.name}: ${TOOL_DIRECTORY[t.name] ?? ''}`)
+      .join('\n')
+
+    // Phase-1 params: replace full tools with single meta-tool + tool directory
+    const phase1Params: ShimCreateParams = {
+      ...params,
+      stream: false, // collect fully to check for request_tools call
+      tools: [{ name: REQUEST_TOOLS_SCHEMA.function.name, description: REQUEST_TOOLS_SCHEMA.function.description, input_schema: REQUEST_TOOLS_SCHEMA.function.parameters as Record<string,unknown> }] as unknown as typeof params.tools,
+      system: (typeof params.system === 'string' ? params.system : '') +
+        `\n\nAvailable tools (call request_tools first to load schemas before using any tool):\n${allToolNames}`,
+    }
+
+    process.stderr.write('[ShimToolSearch] phase-1: no tool schemas sent\n')
+    const phase1Response = await this._doOpenAIRequest(request, phase1Params, options)
+    const phase1Data = await phase1Response.json() as {
+      id?: string; model?: string
+      choices?: Array<{
+        message?: {
+          content?: string | null
+          tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>
+        }
+        finish_reason?: string
+      }>
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+    }
+
+    logCallTokens(phase1Data.usage as OpenAIStreamChunk['usage'] | undefined, phase1Data.model ?? request.resolvedModel)
+
+    const toolCall = phase1Data.choices?.[0]?.message?.tool_calls?.find(
+      tc => tc.function.name === 'request_tools',
+    )
+
+    if (!toolCall) {
+      // Model answered directly — no tools needed this turn
+      process.stderr.write('[ShimToolSearch] phase-1 answered directly (0 tool tokens charged)\n')
+      const result = this._convertNonStreamingResponse(phase1Data, request.resolvedModel)
+      if (params.stream) {
+        // Wrap as synthetic stream so caller gets what it expects
+        return new OpenAIShimStream(this._syntheticStream(result))
+      }
+      return result
+    }
+
+    // Model requested specific tools
+    let requestedNames: string[] = []
+    try { requestedNames = JSON.parse(toolCall.function.arguments).tools ?? [] } catch { /**/ }
+    process.stderr.write(`[ShimToolSearch] phase-1 requested tools: ${requestedNames.join(', ')}\n`)
+
+    // Phase-2: re-invoke with only the requested tool schemas
+    const phase2Params: ShimCreateParams = {
+      ...params, // restore original params (stream, etc.)
+      tools: (params.tools as Array<{ name: string; description?: string; input_schema?: Record<string,unknown> }>)
+        .filter(t => requestedNames.includes(t.name)) as unknown as typeof params.tools,
+      // Append tool call + result to messages so model knows tools are now loaded
+      messages: [
+        ...params.messages,
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: toolCall.id, name: 'request_tools', input: { tools: requestedNames } }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: toolCall.id, content: 'Tool schemas loaded. You may now call the requested tools.' }],
+        },
+      ],
+    }
+
+    const phase2Response = await this._doRequest(request, phase2Params, options)
+    if (params.stream) {
+      return new OpenAIShimStream(openaiStreamToAnthropic(phase2Response, request.resolvedModel))
+    }
+    const data2 = await phase2Response.json()
+    return this._convertNonStreamingResponse(data2, request.resolvedModel)
+  }
+
+  private async *_syntheticStream(msg: ReturnType<OpenAIShimMessages['_convertNonStreamingResponse']>): AsyncGenerator<AnthropicStreamEvent> {
+    yield { type: 'message_start', message: { id: msg.id, type: 'message', role: 'assistant', content: [], model: msg.model, stop_reason: null, stop_sequence: null, usage: msg.usage } }
+    let blockIdx = 0
+    for (const block of msg.content) {
+      yield { type: 'content_block_start', index: blockIdx, content_block: block as { type: string; text: string } }
+      if (block.type === 'text') {
+        yield { type: 'content_block_delta', index: blockIdx, delta: { type: 'text_delta', text: (block as { text: string }).text } }
+      }
+      yield { type: 'content_block_stop', index: blockIdx }
+      blockIdx++
+    }
+    yield { type: 'message_delta', delta: { stop_reason: msg.stop_reason as 'end_turn', stop_sequence: null }, usage: msg.usage }
+    yield { type: 'message_stop' }
   }
 
   private async _doRequest(
@@ -1148,7 +1642,39 @@ class OpenAIShimMessages {
         }>,
       )
       if (converted.length > 0) {
-        body.tools = converted
+        // For 3P providers (Groq, DeepSeek, etc.), limit tools to essential ones.
+        // Full tool set (~50 tools) can exceed 100KB and triggers 413 errors on
+        // free-tier providers with limited context/rate budgets (e.g. Groq 6K TPM).
+        const ESSENTIAL_TOOLS = new Set([
+          'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
+          'TodoWrite', 'AskUserQuestion',
+        ])
+        const isOpenAIShim = isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) || isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+        if (isOpenAIShim) {
+          const essentialOnly = converted.filter(t => ESSENTIAL_TOOLS.has(t.function.name))
+          let toolSet = essentialOnly.length > 0 ? essentialOnly : converted
+
+          // Task-aware tool selection: narrow down further based on the user message.
+          // Conservative — only filter when we're confident; default to all essential tools.
+          if (isCerebrasBaseUrl(request.baseUrl)) {
+            const predicted = predictNeededTools(
+              Array.isArray(body.messages) ? body.messages as unknown[] : [],
+            )
+            if (predicted && predicted.size > 0) {
+              const narrowed = toolSet.filter(t => predicted.has(t.function.name))
+              // Always include AskUserQuestion for clarifications
+              const askTool = toolSet.find(t => t.function.name === 'AskUserQuestion')
+              if (askTool && !narrowed.find(t => t.function.name === 'AskUserQuestion')) narrowed.push(askTool)
+              if (narrowed.length > 0 && narrowed.length < toolSet.length) toolSet = narrowed
+            }
+            // Minify tool schemas: truncate description + strip param descriptions
+            toolSet = minifyToolSchemas(toolSet)
+          }
+
+          body.tools = toolSet
+        } else {
+          body.tools = converted
+        }
         if (params.tool_choice) {
           const tc = params.tool_choice as { type?: string; name?: string }
           if (tc.type === 'auto') {
@@ -1209,6 +1735,13 @@ class OpenAIShimMessages {
       headers['X-GitHub-Api-Version'] = '2022-11-28'
     }
 
+    // OpenRouter requires HTTP-Referer header
+    const isOpenRouter = request.baseUrl.includes('openrouter.ai')
+    if (isOpenRouter) {
+      headers['HTTP-Referer'] = 'https://openrouter.ai/'
+      headers['X-Title'] = 'OpenClaude'
+    }
+
     // Build the chat completions URL
     // Azure Cognitive Services / Azure OpenAI require a deployment-specific path
     // and an api-version query parameter.
@@ -1231,10 +1764,51 @@ class OpenAIShimMessages {
       chatCompletionsUrl = `${request.baseUrl}/chat/completions`
     }
 
+    if (isGroqBaseUrl(request.baseUrl)) {
+      delete body.stream_options
+      compactPayloadForGroq(body)
+      clampGroqMaxTokens(body)
+      // Apply strict mode on remaining tools after compaction (constrained decoding)
+      if (Array.isArray(body.tools)) {
+        body.tools = applyStrictModeToTools(body.tools as OpenAITool[])
+      }
+    }
+
+    if (isCerebrasBaseUrl(request.baseUrl)) {
+      const model = (body.model as string | undefined) ?? ''
+      // Strict mode (constrained decoding) only for models that support it.
+      // gpt-oss-120b and zai-glm-4.7 use constrained decoding; qwen uses standard sampling.
+      const supportsStrictMode = model.includes('gpt-oss') || model.includes('glm')
+      if (supportsStrictMode && Array.isArray(body.tools)) {
+        body.tools = applyStrictModeToTools(body.tools as OpenAITool[])
+      }
+      // reasoning_effort: gpt-oss-120b and zai-glm-4.7 only.
+      // qwen-3-235b does NOT support this parameter (returns 422).
+      const reasoningEffort = process.env.CEREBRAS_REASONING_EFFORT ?? 'medium'
+      if (supportsStrictMode) {
+        body.reasoning_effort = reasoningEffort
+      }
+    }
+
+    const bodyStr = JSON.stringify(body)
+    const bodySizeKB = Math.round(bodyStr.length / 1024)
+    const toolCount = Array.isArray((body as Record<string,unknown>).tools) ? ((body as Record<string,unknown>).tools as unknown[]).length : 0
+    process.stderr.write(`[DEBUG] Request payload: ${bodySizeKB}KB, ${toolCount} tools\n`)
+    if (Array.isArray((body as Record<string,unknown>).tools) && process.env.DUMP_TOOLS) {
+      const tools = (body as Record<string,unknown>).tools as OpenAITool[]
+      for (const t of tools) {
+        const sz = Math.round(JSON.stringify(t).length / 1024 * 10) / 10
+        process.stderr.write(`[DEBUG]   tool ${t.function.name}: ${sz}KB\n`)
+      }
+    }
+    if (bodySizeKB > 5000) {
+      process.stderr.write(`[DEBUG] LARGE REQUEST — system: ${JSON.stringify((body as Record<string,unknown>).messages)?.slice(0,200)}\n`)
+    }
+
     const fetchInit = {
       method: 'POST' as const,
       headers,
-      body: JSON.stringify(body),
+      body: bodyStr,
       signal: options?.signal,
     }
 
@@ -1376,6 +1950,9 @@ class OpenAIShimMessages {
         prompt_tokens_details?: {
           cached_tokens?: number
         }
+        completion_tokens_details?: {
+          reasoning_tokens?: number
+        }
       }
     },
     model: string,
@@ -1448,6 +2025,7 @@ class OpenAIShimMessages {
       })
     }
 
+    logCallTokens(data.usage as OpenAIStreamChunk['usage'] | undefined, data.model ?? model)
     return {
       id: data.id ?? makeMessageId(),
       type: 'message',

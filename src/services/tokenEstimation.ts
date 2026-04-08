@@ -158,6 +158,12 @@ export async function countMessagesTokensWithAPI(
         })
       }
 
+      // OpenRouter doesn't support Anthropic countTokens API - only OpenAI chat/completions
+      if (process.env.OPENAI_BASE_URL?.includes('openrouter.ai')) {
+        // Return null to skip token estimation for OpenRouter
+        return null
+      }
+
       const anthropic = await getAnthropicClient({
         maxRetries: 1,
         model,

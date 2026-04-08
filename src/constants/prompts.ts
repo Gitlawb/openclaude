@@ -453,6 +453,29 @@ export async function getSystemPrompt(
     ]
   }
 
+  // Trimmed system prompt for 3P providers (Groq, DeepSeek, OpenAI, Gemini, etc.)
+  // Full Claude prompt is ~13K+ tokens which exceeds free-tier rate limits (e.g. Groq 6K TPM).
+  // This compact version keeps essential coding-agent behavior while staying well under limits.
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) || isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
+    const cwd = getCwd()
+    const isGit = await getIsGit()
+    const envItems = [
+      `Primary working directory: ${cwd}`,
+      isGit ? `Is a git repository: true` : null,
+      `Platform: ${osType().toLowerCase()}`,
+      `Date: ${getSessionStartDate()}`,
+    ].filter(Boolean).join('\n - ')
+
+    return [
+      `You are OpenClaude, a coding-agent CLI. Use tools immediately — never describe what you will do, just do it. Never invent tool names.
+
+Available tools: Bash (shell/git), Read, Write, Edit, Glob, Grep, Agent, TodoWrite, AskUserQuestion.
+For git: use Bash with git commands. Read files before editing. Keep changes minimal.
+
+Environment: ${envItems}`,
+    ]
+  }
+
   const cwd = getCwd()
   const [skillToolCommands, outputStyleConfig, envInfo] = await Promise.all([
     getSkillToolCommands(cwd),

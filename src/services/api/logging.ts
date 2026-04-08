@@ -477,8 +477,8 @@ function logAPISuccess({
       : {}),
     messageCount,
     messageTokens,
-    inputTokens: usage.input_tokens,
-    outputTokens: usage.output_tokens,
+    inputTokens: usage?.input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
     cachedInputTokens: usage.cache_read_input_tokens ?? 0,
     uncachedInputTokens: usage.cache_creation_input_tokens ?? 0,
     durationMs: durationMs,
@@ -717,7 +717,7 @@ export function logAPISuccessAndDuration({
   // Log API request event for OTLP
   void logOTelEvent('api_request', {
     model,
-    input_tokens: String(usage.input_tokens),
+    input_tokens: String(usage?.input_tokens ?? 0),
     output_tokens: String(usage.output_tokens),
     cache_read_tokens: String(usage.cache_read_input_tokens),
     cache_creation_tokens: String(usage.cache_creation_input_tokens),
@@ -763,8 +763,8 @@ export function logAPISuccessAndDuration({
   // Pass the span to correctly match responses to requests when beta tracing is enabled
   endLLMRequestSpan(llmSpan, {
     success: true,
-    inputTokens: usage.input_tokens,
-    outputTokens: usage.output_tokens,
+    inputTokens: usage?.input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
     cacheReadTokens: usage.cache_read_input_tokens,
     cacheCreationTokens: usage.cache_creation_input_tokens,
     attempt,

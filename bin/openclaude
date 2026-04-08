@@ -11,8 +11,18 @@ import { existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 
+import { loadLauncherEnv } from './launcher-env.mjs'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
+const packageRoot = join(__dirname, '..')
+
+loadLauncherEnv({
+  cwd: process.cwd(),
+  env: process.env,
+  packageRoot,
+})
+
+const distPath = join(packageRoot, 'dist', 'cli.mjs')
 
 if (existsSync(distPath)) {
   await import(pathToFileURL(distPath).href)
