@@ -84,6 +84,17 @@ export function safeHostname(url: string | undefined): string | undefined {
   try { return new URL(url).hostname } catch { return undefined }
 }
 
+/**
+ * Check if a hostname exactly matches a domain or is a subdomain of it.
+ * Example: hostMatchesDomain('sub.example.com', 'example.com') → true
+ *          hostMatchesDomain('badexample.com', 'example.com') → false
+ */
+export function hostMatchesDomain(host: string, domain: string): boolean {
+  if (host === domain) return true
+  // Subdomain: must end with `.domain` (not just `domain`)
+  return host.endsWith('.' + domain)
+}
+
 export function applyDomainFilters(
   hits: SearchHit[],
   input: SearchInput,
@@ -93,14 +104,14 @@ export function applyDomainFilters(
     out = out.filter(h => {
       const host = safeHostname(h.url)
       if (!host) return true // can't confirm blocked → keep
-      return !input.blocked_domains!.some(d => host.endsWith(d))
+      return !input.blocked_domains!.some(d => hostMatchesDomain(host, d))
     })
   }
   if (input.allowed_domains?.length) {
     out = out.filter(h => {
       const host = safeHostname(h.url)
       if (!host) return false // can't confirm allowed → drop
-      return input.allowed_domains!.some(d => host.endsWith(d))
+      return input.allowed_domains!.some(d => hostMatchesDomain(host, d))
     })
   }
   return out

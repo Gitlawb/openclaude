@@ -88,6 +88,45 @@ describe('getProviderChain', () => {
 })
 
 // ---------------------------------------------------------------------------
+// AbortError stops the chain
+// ---------------------------------------------------------------------------
+
+describe('runSearch', () => {
+  test('AbortError stops the chain immediately in auto mode', async () => {
+    // Use AbortController to cancel
+    const controller = new AbortController()
+    controller.abort() // cancel immediately
+
+    await expect(
+      // Dynamic import to avoid circular issues
+      import('./index.js').then(m =>
+        m.runSearch({ query: 'test' }, controller.signal),
+      ),
+    ).rejects.toThrow()
+  })
+
+  test('explicit mode fails fast when provider is not configured', async () => {
+    // Save and clear tavily key
+    const saved = process.env.TAVILY_API_KEY
+    delete process.env.TAVILY_API_KEY
+    const savedProvider = process.env.WEB_SEARCH_PROVIDER
+    process.env.WEB_SEARCH_PROVIDER = 'tavily'
+
+    try {
+      const { runSearch } = await import('./index.js')
+      await expect(runSearch({ query: 'test' })).rejects.toThrow(
+        /not configured/i,
+      )
+    } finally {
+      if (saved !== undefined) process.env.TAVILY_API_KEY = saved
+      else delete process.env.TAVILY_API_KEY
+      if (savedProvider !== undefined) process.env.WEB_SEARCH_PROVIDER = savedProvider
+      else delete process.env.WEB_SEARCH_PROVIDER
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // getAvailableProviders
 // ---------------------------------------------------------------------------
 

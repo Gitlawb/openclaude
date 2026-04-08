@@ -412,10 +412,25 @@ function makeOutputFromSearchResponse(
 
 /**
  * Returns true when we should use the adapter-based provider system.
- * This is true for any mode except "native".
+ *
+ * In auto mode: native/first-party/Codex paths take precedence.
+ *   → Only falls back to adapter if no native path is available.
+ * In explicit adapter modes (tavily, ddg, custom, etc.): always true.
+ * In native mode: never true.
  */
 function shouldUseAdapterProvider(): boolean {
-  return getProviderMode() !== 'native'
+  const mode = getProviderMode()
+  if (mode === 'native') return false
+  if (mode !== 'auto') return true // explicit adapter mode (tavily, ddg, custom, etc.)
+
+  // Auto mode: native/first-party/Codex take precedence over adapter
+  if (isCodexResponsesWebSearchEnabled()) return false
+  const provider = getAPIProvider()
+  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
+    return false
+  }
+  // No native path available — fall back to adapter
+  return getAvailableProviders().length > 0
 }
 
 // ---------------------------------------------------------------------------

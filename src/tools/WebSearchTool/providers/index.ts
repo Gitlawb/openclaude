@@ -38,7 +38,7 @@ import { mojeekProvider } from './mojeek.js'
 import { linkupProvider } from './linkup.js'
 
 export { type SearchInput, type SearchProvider, type ProviderOutput, type SearchHit } from './types.js'
-export { applyDomainFilters, safeHostname } from './types.js'
+export { applyDomainFilters, safeHostname, hostMatchesDomain } from './types.js'
 export { extractHits } from './custom.js'
 
 // ---------------------------------------------------------------------------
@@ -146,11 +146,29 @@ export async function runSearch(
 
   const errors: Error[] = []
 
+  // Explicit provider mode: fail fast if the provider isn't configured
+  if (mode !== 'auto' && mode !== 'native') {
+    const provider = chain[0]
+    if (provider && !provider.isConfigured()) {
+      throw new Error(
+        `Search provider "${mode}" is not configured. ` +
+        `Set the required environment variable (e.g. ${mode.toUpperCase()}_API_KEY) ` +
+        `or switch to WEB_SEARCH_PROVIDER=auto.`,
+      )
+    }
+  }
+
   for (const provider of chain) {
     try {
       return await provider.search(input, signal)
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
+
+      // Cancellation must stop immediately — don't fall through to other providers
+      if (error.name === 'AbortError' || signal?.aborted) {
+        throw error
+      }
+
       errors.push(error)
 
       // Specific mode: fail loudly, no fallback

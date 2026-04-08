@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { applyDomainFilters, normalizeHit, safeHostname } from './types.js'
+import { applyDomainFilters, hostMatchesDomain, normalizeHit, safeHostname } from './types.js'
 
 // ---------------------------------------------------------------------------
 // safeHostname
@@ -28,6 +28,34 @@ describe('safeHostname', () => {
 
   test('returns undefined for relative path', () => {
     expect(safeHostname('/path/only')).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// hostMatchesDomain
+// ---------------------------------------------------------------------------
+
+describe('hostMatchesDomain', () => {
+  test('exact match', () => {
+    expect(hostMatchesDomain('example.com', 'example.com')).toBe(true)
+  })
+
+  test('subdomain match', () => {
+    expect(hostMatchesDomain('sub.example.com', 'example.com')).toBe(true)
+    expect(hostMatchesDomain('deep.sub.example.com', 'example.com')).toBe(true)
+  })
+
+  test('suffix collision is blocked (badexample.com ≠ example.com)', () => {
+    expect(hostMatchesDomain('badexample.com', 'example.com')).toBe(false)
+  })
+
+  test('different domain', () => {
+    expect(hostMatchesDomain('other.com', 'example.com')).toBe(false)
+  })
+
+  test('partial word collision is blocked', () => {
+    expect(hostMatchesDomain('notexample.com', 'example.com')).toBe(false)
+    expect(hostMatchesDomain('xample.com', 'example.com')).toBe(false)
   })
 })
 
@@ -169,5 +197,33 @@ describe('applyDomainFilters', () => {
     })
     expect(result).toHaveLength(1)
     expect(result[0].url).toBe('https://example.com/page')
+  })
+
+  test('does NOT match suffix collision (badexample.com blocked does not affect example.com)', () => {
+    const hits = [
+      { title: 'good', url: 'https://example.com/page' },
+      { title: 'collision', url: 'https://badexample.com/page' },
+    ]
+    const blocked = applyDomainFilters(hits, {
+      query: 'test',
+      blocked_domains: ['example.com'],
+    })
+    // Only exact/subdomain of example.com is blocked, not badexample.com
+    expect(blocked).toHaveLength(1)
+    expect(blocked[0].url).toBe('https://badexample.com/page')
+  })
+
+  test('allowed_domains does NOT match suffix collision', () => {
+    const hits = [
+      { title: 'good', url: 'https://example.com/page' },
+      { title: 'collision', url: 'https://badexample.com/page' },
+    ]
+    const allowed = applyDomainFilters(hits, {
+      query: 'test',
+      allowed_domains: ['example.com'],
+    })
+    // Only exact/subdomain of example.com is allowed
+    expect(allowed).toHaveLength(1)
+    expect(allowed[0].url).toBe('https://example.com/page')
   })
 })
