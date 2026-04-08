@@ -462,7 +462,33 @@ export WEB_JSON_PATH=response.payload.results
 
 ## Retry
 
-Failed requests (network errors, 5xx) are retried once after 500ms. Client errors (4xx) are not retried.
+Failed requests (network errors, 5xx) are retried once after 500ms. Client errors (4xx) are not retried. Custom requests have a default 15s timeout.
+
+## Custom Provider Security Guardrails
+
+The custom provider enforces the following guardrails by default:
+
+| Guardrail | Default | Override |
+|-----------|---------|----------|
+| HTTPS-only | ✅ | `WEB_CUSTOM_ALLOW_HTTP=true` |
+| Block private IPs / localhost | ✅ | `WEB_CUSTOM_ALLOW_PRIVATE=true` |
+| Header allowlist | ✅ | `WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true` |
+| Max POST body | 300 KB | `WEB_CUSTOM_MAX_BODY_KB=<kb>` |
+| Request timeout | 15s | `WEB_CUSTOM_TIMEOUT_SEC=<seconds>` |
+| Audit log (one-time warning) | ✅ | — |
+
+### Self-hosted SearXNG example
+
+```bash
+export WEB_PROVIDER=searxng
+export WEB_SEARCH_API=https://search.mydomain.com/search
+export WEB_CUSTOM_ALLOW_PRIVATE=true   # needed if SearXNG is on a private IP
+```
+
+### Header allowlist
+
+By default only these headers are permitted:
+`accept`, `accept-encoding`, `accept-language`, `authorization`, `cache-control`, `content-type`, `if-modified-since`, `if-none-match`, `ocp-apim-subscription-key`, `user-agent`, `x-api-key`, `x-subscription-token`, `x-tenant-id`
 
 ## Adding a Provider
 
