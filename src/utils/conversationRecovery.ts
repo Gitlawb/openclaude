@@ -181,6 +181,7 @@ export type DeserializeResult = {
 /**
  * Remove thinking/redacted_thinking content blocks from assistant messages.
  * Messages that become empty after stripping are removed entirely.
+ * Must run before filterUnresolvedToolUses to avoid orphaned tool_result blocks.
  */
 function stripThinkingBlocks(messages: NormalizedMessage[]): NormalizedMessage[] {
   return messages.reduce<NormalizedMessage[]>((acc, msg) => {
@@ -235,9 +236,18 @@ export function deserializeMessagesWithInterruptDetection(
       }
     }
 
+    // Strip thinking blocks BEFORE filtering tool uses when resuming against a 3P
+    // provider. A thinking-only assistant message removed after filterUnresolvedToolUses
+    // would leave its paired tool_result orphaned, causing a 400 on resume.
+    const provider = getAPIProvider()
+    const isThirdPartyProvider = provider === 'openai' || provider === 'gemini' || provider === 'github' || provider === 'codex'
+    const preProcessed = isThirdPartyProvider
+      ? stripThinkingBlocks(migratedMessages as NormalizedMessage[])
+      : migratedMessages
+
     // Filter out unresolved tool uses and any synthetic messages that follow them
     const filteredToolUses = filterUnresolvedToolUses(
-      migratedMessages,
+      preProcessed,
     ) as NormalizedMessage[]
 
     // Filter out orphaned thinking-only assistant messages that can cause API errors

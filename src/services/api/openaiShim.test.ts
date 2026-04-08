@@ -1812,6 +1812,163 @@ test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async
   expect(properties?.priority).not.toHaveProperty('default')
 })
 
+test('preserves image content in tool results instead of silently dropping it', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'I see the screenshot' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'take a screenshot' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'screenshot' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: [
+              { type: 'text', text: 'Screenshot captured' },
+              { type: 'image', source: { type: 'url', url: 'https://example.com/screenshot.png' } },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const msgs = requestBody?.messages as Array<{ role: string; content: string }>
+  const toolMsg = msgs.find(m => m.role === 'tool')
+
+  expect(toolMsg?.content).toContain('Screenshot captured')
+  expect(toolMsg?.content).toContain('[Image]')
+})
+
+test('strips Anthropic-specific headers even when passed directly to the shim — defense in depth', async () => {
+  let capturedHeaders: Record<string, string> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = init?.headers as Record<string, string>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-2',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {
+      'x-anthropic-secret': 'should-be-stripped',
+      'x-claude-session-id': 'also-stripped',
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
+      'User-Agent': 'openclaude/1.0',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    { model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }], max_tokens: 16, stream: false },
+    {
+      headers: {
+        'x-anthropic-per-request': 'also-bad',
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'tools-2024-09-04',
+        'X-Custom-Ok': 'fine',
+      },
+    },
+  )
+
+  expect(capturedHeaders).toBeDefined()
+  expect(capturedHeaders!['x-anthropic-secret']).toBeUndefined()
+  expect(capturedHeaders!['x-claude-session-id']).toBeUndefined()
+  expect(capturedHeaders!['x-anthropic-per-request']).toBeUndefined()
+  expect(capturedHeaders!['anthropic-version']).toBeUndefined()
+  expect(capturedHeaders!['anthropic-beta']).toBeUndefined()
+  expect(capturedHeaders!['User-Agent']).toBe('openclaude/1.0')
+  expect(capturedHeaders!['X-Custom-Ok']).toBe('fine')
+})
+
+test('does not forward cache_control blocks to 3P providers', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-3',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: [{ type: 'text', text: 'You are helpful.', cache_control: { type: 'ephemeral' } }],
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Hello', cache_control: { type: 'ephemeral' } },
+        ],
+      },
+    ],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  const bodyStr = JSON.stringify(requestBody)
+  expect(bodyStr).not.toContain('cache_control')
+  expect(bodyStr).not.toContain('ephemeral')
+
+  const msgs = requestBody?.messages as Array<{ role: string; content: unknown }>
+  const userMsg = msgs.find(m => m.role === 'user')
+  expect(typeof userMsg?.content === 'string' ? userMsg.content : JSON.stringify(userMsg?.content)).toContain('Hello')
+})
+
 // ---------------------------------------------------------------------------
 // Issue #202 — consecutive role coalescing (Devstral, Mistral strict templates)
 // ---------------------------------------------------------------------------

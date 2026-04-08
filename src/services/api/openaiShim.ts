@@ -94,6 +94,32 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+/**
+ * Removes Anthropic-specific headers from a headers map before forwarding to
+ * third-party providers. Acts as a last-resort defense-in-depth guard: the
+ * primary filtering happens in client.ts when the shim client is created, but
+ * this ensures that headers injected later (e.g. via options.headers on
+ * individual requests) are also scrubbed regardless of call path.
+ */
+function filterAnthropicHeaders(headers: Record<string, string>): Record<string, string> {
+  const safe: Record<string, string> = {}
+  for (const [k, v] of Object.entries(headers)) {
+    const lower = k.toLowerCase()
+    if (
+      lower.startsWith('x-anthropic') ||
+      lower.startsWith('x-claude') ||
+      lower.startsWith('anthropic-') ||
+      lower === 'x-app' ||
+      lower === 'x-client-app' ||
+      lower === 'authorization' ||
+      lower === 'x-api-key' ||
+      lower === 'api-key'
+    ) continue
+    safe[k] = v
+  }
+  return safe
+}
+
 // ---------------------------------------------------------------------------
 // Types — minimal subset of Anthropic SDK types we need to produce
 // ---------------------------------------------------------------------------
@@ -934,7 +960,10 @@ class OpenAIShimMessages {
   private providerOverride?: { model: string; baseURL: string; apiKey: string }
 
   constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
-    this.defaultHeaders = defaultHeaders
+    // Filter at construction time so Anthropic-specific headers can never
+    // reach a 3P endpoint regardless of how the shim client was created,
+    // including providerOverride-based routing that bypasses client.ts.
+    this.defaultHeaders = filterAnthropicHeaders(defaultHeaders)
     this.reasoningEffort = reasoningEffort
     this.providerOverride = providerOverride
   }
@@ -1076,7 +1105,8 @@ class OpenAIShimMessages {
         params,
         defaultHeaders: {
           ...this.defaultHeaders,
-          ...(options?.headers ?? {}),
+          // Filter per-request headers for the same reason as _doOpenAIRequest.
+          ...filterAnthropicHeaders(options?.headers ?? {}),
         },
         signal: options?.signal,
       })
@@ -1168,7 +1198,9 @@ class OpenAIShimMessages {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...this.defaultHeaders,
-      ...(options?.headers ?? {}),
+      // Filter per-request headers: last-resort guard against Anthropic-specific
+      // headers reaching 3P endpoints even when passed via options.headers directly.
+      ...filterAnthropicHeaders(options?.headers ?? {}),
     }
 
     const isGemini = isGeminiMode()
