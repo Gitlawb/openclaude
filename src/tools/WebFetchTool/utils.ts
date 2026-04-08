@@ -422,6 +422,8 @@ export async function getURLMarkdownContent(
       // Expected user-facing failures - re-throw without logging as internal error
       throw e
     }
+    // Non-domain errors (network issues, etc.) are logged but we proceed
+    // with the fetch — fail-open for the blocklist preflight check.
     logError(e)
   }
 
@@ -476,8 +478,8 @@ export async function getURLMarkdownContent(
     contentBytes = bytes
   }
 
-  // Store the fetched content in cache. Note that it's stored under
-  // the original URL, not the upgraded or redirected URL.
+  // Store the fetched content in cache under both the original and upgraded
+  // URLs so that http:// and https:// variants both hit the cache.
   const entry: CacheEntry = {
     bytes,
     code: response.status,
@@ -489,6 +491,9 @@ export async function getURLMarkdownContent(
   }
   // lru-cache requires positive integers; clamp to 1 for empty responses.
   URL_CACHE.set(url, entry, { size: Math.max(1, contentBytes) })
+  if (upgradedUrl !== url) {
+    URL_CACHE.set(upgradedUrl, entry, { size: Math.max(1, contentBytes) })
+  }
   return entry
 }
 
@@ -499,12 +504,12 @@ export async function applyPromptToMarkdown(
   isNonInteractiveSession: boolean,
   isPreapprovedDomain: boolean,
 ): Promise<string> {
+  const wasTruncated = markdownContent.length > MAX_MARKDOWN_LENGTH
   // Truncate content to avoid "Prompt is too long" errors from the secondary model
-  const truncatedContent =
-    markdownContent.length > MAX_MARKDOWN_LENGTH
-      ? markdownContent.slice(0, MAX_MARKDOWN_LENGTH) +
-        '\n\n[Content truncated due to length...]'
-      : markdownContent
+  const truncatedContent = wasTruncated
+    ? markdownContent.slice(0, MAX_MARKDOWN_LENGTH) +
+      '\n\n[Content truncated due to length...]'
+    : markdownContent
 
   const modelPrompt = makeSecondaryModelPrompt(
     truncatedContent,
@@ -531,11 +536,24 @@ export async function applyPromptToMarkdown(
   }
 
   const { content } = assistantMessage.message
+  let result: string
   if (content.length > 0) {
     const contentBlock = content[0]
     if ('text' in contentBlock!) {
-      return contentBlock.text
+      result = contentBlock.text
+    } else {
+      result = 'No response from model'
     }
+  } else {
+    result = 'No response from model'
   }
-  return 'No response from model'
+
+  // Notify the main model that content was truncated — Haiku may not
+  // mention this in its response, but Claude needs to know.
+  if (wasTruncated) {
+    result +=
+      '\n\n[NOTE: The fetched content was truncated before processing because it exceeded the size limit. Some content at the end was not included.]'
+  }
+
+  return result
 }

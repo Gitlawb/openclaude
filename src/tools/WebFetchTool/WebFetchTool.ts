@@ -225,12 +225,13 @@ ${DESCRIPTION}`
 
     if (isFirecrawlEnabled()) {
       const { markdown, bytes } = await scrapeWithFirecrawl(url)
+      const isPreapproved = isPreapprovedUrl(url)
       const result = await applyPromptToMarkdown(
         prompt,
         markdown,
         abortController.signal,
         isNonInteractiveSession,
-        false,
+        isPreapproved,
       )
       return {
         data: {
@@ -314,23 +315,18 @@ To complete your request, I need to fetch content from the redirected URL. Pleas
     const shouldReturnRaw = isCodeContentType || isRawCodeUrl
 
     let result: string
-    if (
-      (isPreapproved || shouldReturnRaw) &&
-      (contentType.includes('text/markdown') || shouldReturnRaw) &&
+    if (shouldReturnRaw && content.length < MAX_MARKDOWN_LENGTH) {
+      // Code/raw content: return full content directly, skip Haiku summarization.
+      result = content
+    } else if (
+      isPreapproved &&
+      contentType.includes('text/markdown') &&
       content.length < MAX_MARKDOWN_LENGTH
     ) {
+      // Preapproved markdown: return as-is (trusted source).
       result = content
-    } else if (content.length < MAX_MARKDOWN_LENGTH) {
-      result = await applyPromptToMarkdown(
-        prompt,
-        content,
-        abortController.signal,
-        isNonInteractiveSession,
-        isPreapproved,
-      )
     } else {
-      // Content exceeds MAX_MARKDOWN_LENGTH — still process through Haiku
-      // but note truncation. With the 2M limit this is rare (e.g. massive files).
+      // Everything else: pass through Haiku for summarization.
       result = await applyPromptToMarkdown(
         prompt,
         content,
