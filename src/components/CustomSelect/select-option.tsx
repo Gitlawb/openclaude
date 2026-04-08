@@ -37,9 +37,15 @@ export type SelectOptionProps = {
    * Set false when a child declares its own cursor (e.g. BaseTextInput).
    */
   readonly declareCursor?: boolean;
+
+  /**
+   * Callback when the mouse enters this option.
+   * Used to enable hover-based focus tracking.
+   */
+  readonly onMouseEnter?: () => void;
 };
 export function SelectOption(t0) {
-  const $ = _c(8);
+  const $ = _c(9);
   const {
     isFocused,
     isSelected,
@@ -47,7 +53,8 @@ export function SelectOption(t0) {
     description,
     shouldShowDownArrow,
     shouldShowUpArrow,
-    declareCursor
+    declareCursor,
+    onMouseEnter
   } = t0;
   let t1;
   if ($[0] !== children || $[1] !== declareCursor || $[2] !== description || $[3] !== isFocused || $[4] !== isSelected || $[5] !== shouldShowDownArrow || $[6] !== shouldShowUpArrow) {
@@ -63,5 +70,14 @@ export function SelectOption(t0) {
   } else {
     t1 = $[7];
   }
-  return t1;
+  let t2;
+  if ($[8] !== t1 || ($[9] !== onMouseEnter)) {
+    t2 = <Box onMouseEnter={onMouseEnter}>{t1}</Box>;
+    $[8] = t1;
+    $[9] = onMouseEnter;
+    $[10] = t2;
+  } else {
+    t2 = $[10];
+  }
+  return t2;
 }
