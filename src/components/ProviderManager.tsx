@@ -1033,6 +1033,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'Local LM Studio endpoint',
       },
       {
+        value: 'dashscope-cn',
+        label: 'Alibaba Coding Plan (China)',
+        description: 'Alibaba DashScope China endpoint',
+      },
+      {
+        value: 'dashscope-intl',
+        label: 'Alibaba Coding Plan',
+        description: 'Alibaba DashScope International endpoint',
+      },
+      {
         value: 'custom',
         label: 'Custom',
         description: 'Any OpenAI-compatible provider',
