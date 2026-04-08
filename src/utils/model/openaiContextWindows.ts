@@ -57,6 +57,12 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'gemini-2.5-pro':         1_048_576,
   'gemini-2.5-flash':       1_048_576,
 
+  // Cerebras Cloud (all models support 131,072 tokens context)
+  'gpt-oss-120b':             131_072,
+  'qwen-3-235b-a22b-instruct-2507': 131_072,
+  'llama3.1-8b':              131_072,
+  'zai-glm-4.7':              131_072,
+
   // Ollama local models
   // Llama 3.1+ models support 128k context natively (Meta official specs).
   // Ollama defaults to num_ctx=8192 but users can configure higher values.
@@ -128,6 +134,12 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'gemini-2.0-flash':          8_192,
   'gemini-2.5-pro':           65_536,
   'gemini-2.5-flash':         65_536,
+
+  // Cerebras Cloud
+  'gpt-oss-120b':              16_384,
+  'qwen-3-235b-a22b-instruct-2507': 8_192,
+  'llama3.1-8b':                8_192,
+  'zai-glm-4.7':               16_384,
 
   // Ollama local models (conservative safe defaults)
   'llama3.3:70b':               4_096,

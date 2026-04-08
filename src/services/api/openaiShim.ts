@@ -145,6 +145,17 @@ function addAdditionalPropertiesFalse(schema: Record<string, unknown>): Record<s
   if (out.items && typeof out.items === 'object' && !Array.isArray(out.items)) {
     out.items = addAdditionalPropertiesFalse(out.items as Record<string, unknown>)
   }
+  // Recurse into schema composition keywords (anyOf, oneOf, allOf).
+  // Without this, strict mode would miss nested object branches and cause 422.
+  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+    if (Array.isArray(out[key])) {
+      out[key] = (out[key] as unknown[]).map(item =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? addAdditionalPropertiesFalse(item as Record<string, unknown>)
+          : item,
+      )
+    }
+  }
   return out
 }
 
