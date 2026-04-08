@@ -10,7 +10,3 @@ GEMINI.md
 package-lock.json
 /.claude
 coverage/
-.claude-index/
-.idea/
-CLAUDE.md
-*.tgz

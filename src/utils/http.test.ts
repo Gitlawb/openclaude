@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
+
+// MACRO.* are build-time constants injected by the bundler (see scripts/build.ts).
+// Provide a minimal stub so tests can import http.ts without a full build.
+beforeAll(() => {
+  // @ts-expect-error — build-time macro stub
+  globalThis.MACRO ??= { VERSION: '0.0.0-test' }
+})
 
 const originalEnv = { ...process.env }
 
