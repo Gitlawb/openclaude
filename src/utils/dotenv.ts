@@ -52,12 +52,16 @@ export function loadDotEnvFile(cwd?: string): void {
       if (endQuote !== -1) {
         value = trimmedValue.slice(1, endQuote)
         // Handle escape sequences in double-quoted strings
+        // IMPORTANT: Process \\ FIRST using a placeholder to preserve literal backslashes
+        // This ensures "C:\\new\\path" stays as "C:\new\path" not "C:\n..."
+        const BACKSLASH_PLACEHOLDER = '\x00BACKSLASH\x00'
         value = value
+          .replace(/\\\\/g, BACKSLASH_PLACEHOLDER)
           .replace(/\\n/g, '\n')
           .replace(/\\r/g, '\r')
           .replace(/\\t/g, '\t')
           .replace(/\\"/g, '"')
-          .replace(/\\\\/g, '\\')
+          .replace(new RegExp(BACKSLASH_PLACEHOLDER, 'g'), '\\')
       } else {
         value = trimmedValue.slice(1)
       }

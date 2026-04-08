@@ -128,6 +128,40 @@ test('loadDotEnvFile handles escaped quotes in double-quoted values', () => {
   }
 })
 
+test('loadDotEnvFile preserves literal backslashes in Windows paths', () => {
+  const tempDir = createTempDir()
+  const envContent = `CODEX_AUTH_JSON_PATH="C:\\\\new\\\\auth.json"`
+  writeFileSync(join(tempDir, '.env'), envContent)
+  
+  const originalPath = process.env.CODEX_AUTH_JSON_PATH
+  delete process.env.CODEX_AUTH_JSON_PATH
+  
+  try {
+    loadDotEnvFile(tempDir)
+    assert.equal(process.env.CODEX_AUTH_JSON_PATH, 'C:\\new\\auth.json')
+  } finally {
+    process.env.CODEX_AUTH_JSON_PATH = originalPath
+    cleanup(tempDir)
+  }
+})
+
+test('loadDotEnvFile handles mixed escapes correctly', () => {
+  const tempDir = createTempDir()
+  const envContent = `MIXED="line1\\nC:\\\\path\\\\file.txt"`
+  writeFileSync(join(tempDir, '.env'), envContent)
+  
+  const originalMixed = process.env.MIXED
+  delete process.env.MIXED
+  
+  try {
+    loadDotEnvFile(tempDir)
+    assert.equal(process.env.MIXED, 'line1\nC:\\path\\file.txt')
+  } finally {
+    process.env.MIXED = originalMixed
+    cleanup(tempDir)
+  }
+})
+
 test('loadDotEnvFile does not override existing env vars', () => {
   const tempDir = createTempDir()
   const envContent = `FOO=from-file`

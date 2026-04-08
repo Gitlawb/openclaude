@@ -2,9 +2,9 @@
 # OpenClaude wrapper that loads .env before execution
 # Usage: ./bin/oc [args...]
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-ENV_FILE="$PROJECT_DIR/.env"
+# Load .env from the CURRENT WORKING DIRECTORY, not the wrapper location
+# This ensures each project can have its own .env configuration
+ENV_FILE="${PWD}/.env"
 
 # Load .env if it exists
 if [ -f "$ENV_FILE" ]; then
