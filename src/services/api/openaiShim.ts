@@ -1070,7 +1070,7 @@ class OpenAIShimMessages {
         params,
         defaultHeaders: {
           ...this.defaultHeaders,
-          ...(options?.headers ?? {}),
+          ...filterAnthropicHeaders(options?.headers),
           ...COPILOT_HEADERS,
         },
         signal: options?.signal,
