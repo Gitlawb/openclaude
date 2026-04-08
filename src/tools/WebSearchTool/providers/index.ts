@@ -18,6 +18,9 @@
  *
  * "auto" mode is the only mode that silently falls through to the next provider.
  * All other modes throw on failure — no silent backend switching.
+ *
+ * NOTE: "custom" is NOT included in the "auto" fallback chain.
+ *       It is only used when WEB_SEARCH_PROVIDER=custom is explicitly selected.
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
@@ -41,12 +44,13 @@ export { extractHits } from './custom.js'
 // ---------------------------------------------------------------------------
 // All registered providers — order matters for auto mode
 // ---------------------------------------------------------------------------
-// Priority: custom → firecrawl → tavily → exa → you → jina → bing → mojeek
-//           → linkup → ddg
+// Priority: firecrawl → tavily → exa → you → jina → bing → mojeek → linkup → ddg
 // DDG is last because it's free but rate-limited.
+// NOTE: customProvider is intentionally excluded from the auto chain.
+//       It is only available when WEB_SEARCH_PROVIDER=custom is explicitly set.
+//       This prevents the generic outbound provider from silently becoming the default backend.
 
 const ALL_PROVIDERS: SearchProvider[] = [
-  customProvider,
   firecrawlProvider,
   tavilyProvider,
   exaProvider,

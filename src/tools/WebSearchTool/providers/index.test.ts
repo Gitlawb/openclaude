@@ -55,6 +55,17 @@ describe('getProviderChain', () => {
     expect(chain.some(p => p.name === 'duckduckgo')).toBe(true)
   })
 
+  test('auto mode does NOT include custom provider', () => {
+    const chain = getProviderChain('auto')
+    expect(chain.some(p => p.name === 'custom')).toBe(false)
+  })
+
+  test('custom mode explicitly returns custom provider', () => {
+    const chain = getProviderChain('custom' as ProviderMode)
+    expect(chain).toHaveLength(1)
+    expect(chain[0].name).toBe('custom')
+  })
+
   test('specific mode returns exactly one provider', () => {
     const chain = getProviderChain('tavily' as ProviderMode)
     expect(chain).toHaveLength(1)
@@ -84,6 +95,11 @@ describe('getAvailableProviders', () => {
   test('always includes duckduckgo (no API key required)', () => {
     const providers = getAvailableProviders()
     expect(providers.some(p => p.name === 'duckduckgo')).toBe(true)
+  })
+
+  test('does NOT include custom in available providers (auto chain)', () => {
+    const providers = getAvailableProviders()
+    expect(providers.some(p => p.name === 'custom')).toBe(false)
   })
 
   test('includes providers when API keys are set', () => {

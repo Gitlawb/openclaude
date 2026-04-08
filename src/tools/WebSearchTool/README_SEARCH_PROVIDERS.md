@@ -51,12 +51,14 @@ export WEB_SEARCH_API=https://search.example.com/search
 | `auto` (default) | Try all configured providers in order, fall through on failure |
 | `tavily` | Tavily only — throws on failure |
 | `exa` | Exa only — throws on failure |
-| `custom` | Custom API only — throws on failure |
+| `custom` | Custom API only — throws on failure. **Not in the auto chain** — must be explicitly selected |
 | `firecrawl` | Firecrawl only — throws on failure |
 | `ddg` | DuckDuckGo only — throws on failure |
 | `native` | Anthropic native / Codex only |
 
-**Auto mode priority:** custom → firecrawl → tavily → exa → you → jina → bing → mojeek → linkup → ddg
+**Auto mode priority:** firecrawl → tavily → exa → you → jina → bing → mojeek → linkup → ddg
+
+> **Note:** The `custom` provider is excluded from the `auto` chain. It is only used when `WEB_SEARCH_PROVIDER=custom` is explicitly set. This prevents the generic outbound provider from silently becoming the default backend.
 
 ```bash
 # Fail loudly if Tavily is down (don't silently switch backends)
