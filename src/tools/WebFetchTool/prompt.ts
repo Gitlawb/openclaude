@@ -8,6 +8,12 @@ export const DESCRIPTION = `
 - Returns the model's response about the content
 - Use this tool when you need to retrieve and analyze web content
 
+IMPORTANT — USE AFTER WEB SEARCH:
+  - This tool is the natural follow-up to WebSearch. After searching, use WebFetch on the most relevant result URL(s) to get the full page content.
+  - WebSearch snippets are previews only — WebFetch gives you the actual full content.
+  - Your prompt should describe EXACTLY what to extract (e.g., "extract the full API documentation", "get all code examples", "read the complete article").
+  - For code files, raw text, or documentation pages, the full content is returned without summarization.
+
 Usage notes:
   - IMPORTANT: If an MCP-provided web fetch tool is available, prefer using that tool instead of this one, as it may have fewer restrictions.
   - The URL must be a fully-formed valid URL

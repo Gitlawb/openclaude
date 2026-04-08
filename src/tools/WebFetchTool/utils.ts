@@ -125,8 +125,13 @@ const DOMAIN_CHECK_TIMEOUT_MS = 10_000
 // common client defaults (axios=5, follow-redirects=21, Chrome=20).
 const MAX_REDIRECTS = 10
 
-// Truncate to not spend too many tokens
-export const MAX_MARKDOWN_LENGTH = 100_000
+// Truncation limit for content passed to the secondary model (Haiku).
+// Increased from 100K to 2M chars to support reading full source code files,
+// large documentation, and long articles without losing the tail end.
+// The secondary model's own context window is the effective ceiling;
+// Haiku 3.5 supports ~200K input tokens (~800K chars), so 2M is a safe upper
+// bound that still prevents runaway memory use.
+export const MAX_MARKDOWN_LENGTH = 2_000_000
 
 export function isPreapprovedUrl(url: string): boolean {
   try {

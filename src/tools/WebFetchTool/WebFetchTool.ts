@@ -78,8 +78,8 @@ function webFetchToolInputToPermissionRuleContent(input: {
 export const WebFetchTool = buildTool({
   name: WEB_FETCH_TOOL_NAME,
   searchHint: 'fetch and extract content from a URL',
-  // 100K chars - tool result persistence threshold
-  maxResultSizeChars: 100_000,
+  // 2M chars - tool result persistence threshold (matches MAX_MARKDOWN_LENGTH)
+  maxResultSizeChars: 2_000_000,
   shouldDefer: true,
   async description(input) {
     const { url } = input as { url: string }
@@ -293,14 +293,44 @@ To complete your request, I need to fetch content from the redirected URL. Pleas
 
     const isPreapproved = isPreapprovedUrl(url)
 
+    // Detect code/source content types that should bypass Haiku summarization
+    // and return full content directly — the user wants to read the actual code,
+    // not a summary of it.
+    const isCodeContentType =
+      contentType.includes('text/plain') ||
+      contentType.includes('text/x-') ||
+      contentType.includes('application/json') ||
+      contentType.includes('application/javascript') ||
+      contentType.includes('application/typescript') ||
+      contentType.includes('application/xml') ||
+      contentType.includes('application/x-sh')
+
+    // GitHub raw content URLs, gitlab raw, bitbucket raw — always code
+    const isRawCodeUrl =
+      /\/raw\//.test(url) ||
+      url.includes('raw.githubusercontent.com') ||
+      url.includes('/plain/')
+
+    const shouldReturnRaw = isCodeContentType || isRawCodeUrl
+
     let result: string
     if (
-      isPreapproved &&
-      contentType.includes('text/markdown') &&
+      (isPreapproved || shouldReturnRaw) &&
+      (contentType.includes('text/markdown') || shouldReturnRaw) &&
       content.length < MAX_MARKDOWN_LENGTH
     ) {
       result = content
+    } else if (content.length < MAX_MARKDOWN_LENGTH) {
+      result = await applyPromptToMarkdown(
+        prompt,
+        content,
+        abortController.signal,
+        isNonInteractiveSession,
+        isPreapproved,
+      )
     } else {
+      // Content exceeds MAX_MARKDOWN_LENGTH — still process through Haiku
+      // but note truncation. With the 2M limit this is rare (e.g. massive files).
       result = await applyPromptToMarkdown(
         prompt,
         content,

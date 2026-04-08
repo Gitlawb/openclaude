@@ -11,6 +11,13 @@ export function getWebSearchPrompt(): string {
 - Use this tool for accessing information beyond Claude's knowledge cutoff
 - Searches are performed automatically within a single API call
 
+IMPORTANT — CHAIN WITH WEB FETCH:
+  - WebSearch returns snippets (short previews), NOT full page content.
+  - After searching, you MUST use WebFetch to retrieve the full content of the most relevant URL(s) before answering.
+  - Do NOT answer from snippets alone when the user needs detailed information, code, documentation, or full article text.
+  - The search results include URLs — pass those URLs to WebFetch with a prompt describing what to extract.
+  - Example chain: WebSearch("React hooks documentation") → pick best URL → WebFetch(url, "extract the full code examples and API reference") → answer.
+
 CRITICAL REQUIREMENT - You MUST follow this:
   - After answering the user's question, you MUST include a "Sources:" section at the end of your response
   - In the Sources section, list all relevant URLs from the search results as markdown hyperlinks: [Title](URL)

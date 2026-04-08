@@ -801,7 +801,9 @@ export const WebSearchTool = buildTool({
     })
 
     formattedOutput +=
-      '\nREMINDER: You MUST include the sources above in your response to the user using markdown hyperlinks.'
+      '\nREMINDER: You MUST include the sources above in your response to the user using markdown hyperlinks.\n'
+    formattedOutput +=
+      '\nNOTE: The results above are snippets (short previews). If the user needs detailed information, code, or full content, use WebFetch on the most relevant URL(s) above before answering.'
 
     return {
       tool_use_id: toolUseID,
