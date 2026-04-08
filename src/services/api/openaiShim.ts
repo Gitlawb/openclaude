@@ -62,6 +62,9 @@ const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
+const CEREBRAS_429_MAX_RETRIES = 3
+const CEREBRAS_429_BASE_DELAY_SEC = 2
+const CEREBRAS_429_MAX_DELAY_SEC = 30
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
 
 const COPILOT_HEADERS: Record<string, string> = {
@@ -885,6 +888,7 @@ interface OpenAIStreamChunk {
       role?: string
       content?: string | null
       reasoning_content?: string | null
+      reasoning?: string | null  // Cerebras 'parsed' format uses this field
       tool_calls?: Array<{
         index: number
         id?: string
@@ -1052,10 +1056,11 @@ async function* openaiStreamToAnthropic(
       for (const choice of chunk.choices ?? []) {
         const delta = choice.delta
 
-        // Reasoning models (e.g. GLM-5, DeepSeek) may stream chain-of-thought
-        // in `reasoning_content` before the actual reply appears in `content`.
-        // Emit reasoning as a thinking block and content as a text block.
-        if (delta.reasoning_content != null && delta.reasoning_content !== '') {
+        // Reasoning models stream chain-of-thought before the final reply.
+        // DeepSeek-style APIs use `reasoning_content`; Cerebras 'parsed' format
+        // uses `reasoning`.  Check both to handle either convention.
+        const reasoningDelta = delta.reasoning ?? delta.reasoning_content
+        if (reasoningDelta != null && reasoningDelta !== '') {
           if (!hasEmittedThinkingStart) {
             yield {
               type: 'content_block_start',
@@ -1067,7 +1072,7 @@ async function* openaiStreamToAnthropic(
           yield {
             type: 'content_block_delta',
             index: contentBlockIndex,
-            delta: { type: 'thinking_delta', thinking: delta.reasoning_content },
+            delta: { type: 'thinking_delta', thinking: reasoningDelta },
           }
         }
 
@@ -1870,10 +1875,11 @@ class OpenAIShimMessages {
 
       // max_completion_tokens: Cerebras rate-limiter estimates budget based on
       // this field, falling back to full MSL − input (up to 60K+) if absent.
-      // Set a sensible default to avoid burning through free-tier TPM quota.
+      // Set per-model defaults matching OPENAI_MAX_OUTPUT_TOKENS to avoid
+      // burning free-tier TPM quota.  Llama keeps 8K (its actual limit).
       if (body.max_completion_tokens === undefined) {
         ;(body as Record<string,unknown>).max_completion_tokens =
-          isGptOss ? 16_384 : 8_192
+          (isGptOss || isGlm || isQwen) ? 16_384 : 8_192
       }
     }
 
@@ -1909,7 +1915,12 @@ class OpenAIShimMessages {
       signal: options?.signal,
     }
 
-    const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
+    const isCerebras = isCerebrasBaseUrl(request.baseUrl)
+    const maxAttempts = isGithub
+      ? GITHUB_429_MAX_RETRIES
+      : isCerebras
+        ? CEREBRAS_429_MAX_RETRIES
+        : 1
     let response: Response | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       response = await fetch(chatCompletionsUrl, fetchInit)
@@ -1917,15 +1928,22 @@ class OpenAIShimMessages {
         return response
       }
       if (
-        isGithub &&
+        (isGithub || isCerebras) &&
         response.status === 429 &&
         attempt < maxAttempts - 1
       ) {
+        // Consume body to free the connection before retrying.
         await response.text().catch(() => {})
-        const delaySec = Math.min(
-          GITHUB_429_BASE_DELAY_SEC * 2 ** attempt,
-          GITHUB_429_MAX_DELAY_SEC,
-        )
+        // Respect Retry-After header if present; otherwise exponential backoff.
+        const retryAfter = response.headers.get('retry-after')
+        let delaySec: number
+        if (retryAfter && !isNaN(Number(retryAfter))) {
+          delaySec = Math.min(Number(retryAfter), isCerebras ? CEREBRAS_429_MAX_DELAY_SEC : GITHUB_429_MAX_DELAY_SEC)
+        } else {
+          const base = isCerebras ? CEREBRAS_429_BASE_DELAY_SEC : GITHUB_429_BASE_DELAY_SEC
+          const cap = isCerebras ? CEREBRAS_429_MAX_DELAY_SEC : GITHUB_429_MAX_DELAY_SEC
+          delaySec = Math.min(base * 2 ** attempt, cap)
+        }
         await sleepMs(delaySec * 1000)
         continue
       }
@@ -1933,7 +1951,7 @@ class OpenAIShimMessages {
       // be consumed a single time.
       const errorBody = await response.text().catch(() => 'unknown error')
       const rateHint =
-        isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
+        (isGithub || isCerebras) && response.status === 429 ? formatRetryAfterHint(response) : ''
 
       // If GitHub Copilot returns error about /chat/completions,
       // try the /responses endpoint (needed for GPT-5+ models)
@@ -2033,6 +2051,7 @@ class OpenAIShimMessages {
             | null
             | Array<{ type?: string; text?: string }>
           reasoning_content?: string | null
+          reasoning?: string | null  // Cerebras 'parsed' format
           tool_calls?: Array<{
             id: string
             function: { name: string; arguments: string }
@@ -2057,17 +2076,16 @@ class OpenAIShimMessages {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
 
-    // Some reasoning models (e.g. GLM-5) put their reply in reasoning_content
-    // while content stays null — emit reasoning as a thinking block, then
-    // fall back to it for visible text if content is empty.
-    const reasoningText = choice?.message?.reasoning_content
+    // Reasoning models put chain-of-thought in a separate field.
+    // DeepSeek uses `reasoning_content`; Cerebras 'parsed' uses `reasoning`.
+    const reasoningText = choice?.message?.reasoning ?? choice?.message?.reasoning_content
     if (typeof reasoningText === 'string' && reasoningText) {
       content.push({ type: 'thinking', thinking: reasoningText })
     }
     const rawContent =
       choice?.message?.content !== '' && choice?.message?.content != null
         ? choice?.message?.content
-        : choice?.message?.reasoning_content
+        : choice?.message?.reasoning ?? choice?.message?.reasoning_content
     if (typeof rawContent === 'string' && rawContent) {
       content.push({ type: 'text', text: rawContent })
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
