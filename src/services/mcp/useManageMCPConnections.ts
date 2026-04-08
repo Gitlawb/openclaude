@@ -505,27 +505,40 @@ export function useManageMCPConnections(
               case 'register':
                 logMCPDebug(client.name, 'Channel notifications registered')
 
-                // Auto-allow all tools from this channel server so the user
-                // isn't prompted every time Claude replies via the channel.
-                // The server-level rule (e.g. "mcp__plugin_telegram_telegram")
-                // matches all tools from that server via toolMatchesRule().
-                {
-                  const serverRule = getMcpPrefix(client.name).slice(0, -2) // strip trailing __
+                // Only auto-allow the minimal set of known channel reply tools,
+                // and only for official non-dev plugin channel entries. Avoid
+                // granting a server-level rule, which would implicitly trust
+                // every tool exposed by the registered server.
+                if (entry?.kind === 'plugin' && entry?.dev !== true) {
+                  const toolPrefix = getMcpPrefix(client.name)
+                  const channelToolRules = [
+                    `${toolPrefix}reply`,
+                    `${toolPrefix}send`,
+                  ]
+
                   store.setState(prev => {
                     const sessionRules =
                       prev.toolPermissionContext.alwaysAllowRules.session ?? []
-                    if (sessionRules.includes(serverRule)) return prev
+                    const nextRules = channelToolRules.filter(
+                      rule => !sessionRules.includes(rule),
+                    )
+                    if (nextRules.length === 0) return prev
                     return {
                       ...prev,
                       toolPermissionContext: {
                         ...prev.toolPermissionContext,
                         alwaysAllowRules: {
                           ...prev.toolPermissionContext.alwaysAllowRules,
-                          session: [...sessionRules, serverRule],
+                          session: [...sessionRules, ...nextRules],
                         },
                       },
                     }
                   })
+                } else {
+                  logMCPDebug(
+                    client.name,
+                    'Skipping channel tool auto-allow for non-plugin or dev entry',
+                  )
                 }
 
                 client.client.setNotificationHandler(

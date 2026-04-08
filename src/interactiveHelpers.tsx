@@ -12,7 +12,7 @@ import { isSynchronizedOutputSupported } from './ink/terminal.js';
 import type { RenderOptions, Root, TextProps } from './ink.js';
 import { KeybindingSetup } from './keybindings/KeybindingProviderSetup.js';
 import { startDeferredPrefetches } from './main.js';
-import { checkGate_CACHED_OR_BLOCKING, initializeGrowthBook, resetGrowthBook } from './services/analytics/growthbook.js';
+import { initializeGrowthBook, resetGrowthBook } from './services/analytics/growthbook.js';
 import { isQualifiedForGrove } from './services/api/grove.js';
 import { handleMcpjsonServerApprovals } from './services/mcpServerApproval.js';
 import { AppStateProvider } from './state/AppState.js';
@@ -245,9 +245,9 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   }
 
   // --dangerously-load-development-channels confirmation. On accept, append
-  // dev channels to any --channels list already set in main.tsx. Org policy
-  // is NOT bypassed — gateChannelServer() still runs; this flag only exists
-  // to sidestep the --channels approved-server allowlist.
+  // dev channels to any --channels list already set in main.tsx.
+  // gateChannelServer() still runs; this flag only sidesteps the hardcoded
+  // plugin allowlist (server-kind entries always need it).
   if (true /* channels enabled */) {
     // OpenClaude: no GrowthBook warm-up needed — isChannelsEnabled() is
     // hardcoded true. The original checkGate_CACHED_OR_BLOCKING call is

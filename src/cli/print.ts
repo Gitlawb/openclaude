@@ -4727,25 +4727,37 @@ function handleChannelEnable(
   logMCPDebug(serverName, 'Channel notifications registered')
   logEvent('tengu_mcp_channel_enable', { plugin: pluginId })
 
-  // Auto-allow all tools from this channel server so the user
-  // isn't prompted every time Claude replies via the channel.
-  {
-    const serverRule = getMcpPrefix(serverName).slice(0, -2) // strip trailing __
+  // Only auto-allow the minimal set of known channel reply tools,
+  // and only for official non-dev plugin channel entries.
+  if (entry?.kind === 'plugin' && entry?.dev !== true) {
+    const toolPrefix = getMcpPrefix(serverName)
+    const channelToolRules = [
+      `${toolPrefix}reply`,
+      `${toolPrefix}send`,
+    ]
     setAppState(prev => {
       const sessionRules =
         prev.toolPermissionContext.alwaysAllowRules.session ?? []
-      if (sessionRules.includes(serverRule)) return prev
+      const nextRules = channelToolRules.filter(
+        rule => !sessionRules.includes(rule),
+      )
+      if (nextRules.length === 0) return prev
       return {
         ...prev,
         toolPermissionContext: {
           ...prev.toolPermissionContext,
           alwaysAllowRules: {
             ...prev.toolPermissionContext.alwaysAllowRules,
-            session: [...sessionRules, serverRule],
+            session: [...sessionRules, ...nextRules],
           },
         },
       }
     })
+  } else {
+    logMCPDebug(
+      serverName,
+      'Skipping channel tool auto-allow for non-plugin or dev entry',
+    )
   }
 
   // Identical enqueue shape to the interactive register block in
@@ -4819,27 +4831,40 @@ function reregisterChannelHandlerAfterReconnect(
   )
   if (gate.action !== 'register') return
 
-  // Auto-allow all tools from this channel server (same as handleChannelEnable)
-  {
-    const serverRule = getMcpPrefix(connection.name).slice(0, -2)
+  const entry = findChannelEntry(connection.name, getAllowedChannels())
+
+  // Only auto-allow the minimal set of known channel reply tools,
+  // and only for official non-dev plugin channel entries.
+  if (entry?.kind === 'plugin' && entry?.dev !== true) {
+    const toolPrefix = getMcpPrefix(connection.name)
+    const channelToolRules = [
+      `${toolPrefix}reply`,
+      `${toolPrefix}send`,
+    ]
     setAppState(prev => {
       const sessionRules =
         prev.toolPermissionContext.alwaysAllowRules.session ?? []
-      if (sessionRules.includes(serverRule)) return prev
+      const nextRules = channelToolRules.filter(
+        rule => !sessionRules.includes(rule),
+      )
+      if (nextRules.length === 0) return prev
       return {
         ...prev,
         toolPermissionContext: {
           ...prev.toolPermissionContext,
           alwaysAllowRules: {
             ...prev.toolPermissionContext.alwaysAllowRules,
-            session: [...sessionRules, serverRule],
+            session: [...sessionRules, ...nextRules],
           },
         },
       }
     })
+  } else {
+    logMCPDebug(
+      connection.name,
+      'Skipping channel tool auto-allow for non-plugin or dev entry',
+    )
   }
-
-  const entry = findChannelEntry(connection.name, getAllowedChannels())
   const pluginId =
     entry?.kind === 'plugin'
       ? (`${entry.name}@${entry.marketplace}` as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)

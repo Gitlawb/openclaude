@@ -304,11 +304,18 @@ export function gateChannelServer(
       }
     }
   } else {
-    // server-kind: in original Claude Code, server entries always fail the
-    // allowlist (schema is plugin-only). OpenClaude: allow server-kind
-    // entries since the user explicitly opted in via --channels. The session
-    // allowlist check above (findChannelEntry) already verified the server
-    // was named in --channels.
+    // server-kind entries are never covered by the plugin allowlist, so keep
+    // the original safety boundary: manually configured MCP servers must be
+    // marked as development entries before they can register for inbound
+    // channel notifications.
+    if (!entry.dev) {
+      return {
+        action: 'skip',
+        kind: 'allowlist',
+        reason:
+          'server entries require --dangerously-load-development-channels before they can register as channels',
+      }
+    }
   }
 
   return { action: 'register' }

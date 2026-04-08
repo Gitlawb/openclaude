@@ -3830,8 +3830,8 @@ async function run(): Promise<CommanderCommand> {
     program.addOption(new Option('--assistant', 'Force assistant mode (Agent SDK daemon use)').hideHelp());
   }
   if (true /* channels enabled */) {
-    program.addOption(new Option('--channels <servers...>', 'MCP servers whose channel notifications (inbound push) should register this session. Space-separated server names.').hideHelp());
-    program.addOption(new Option('--dangerously-load-development-channels <servers...>', 'Load channel servers not on the approved allowlist. For local channel development only. Shows a confirmation dialog at startup.').hideHelp());
+    program.addOption(new Option('--channels <channel-spec...>', 'MCP channel specs whose channel notifications (inbound push) should register this session. Each entry must be explicitly tagged, for example server:<name> or plugin:<name>@<marketplace>.').hideHelp());
+    program.addOption(new Option('--dangerously-load-development-channels <channel-spec...>', 'Load channel specs not on the approved allowlist. Each entry must be explicitly tagged, for example server:<name> or plugin:<name>@<marketplace>. For local channel development only. Shows a confirmation dialog at startup.').hideHelp());
   }
 
   // Teammate identity options (set by leader when spawning tmux teammates)
