@@ -1,214 +1,156 @@
-# Web Search Tool — Providers & Custom API Support
+# Web Search Providers
 
-## Architecture
+OpenClaude supports multiple search backends through a provider adapter system.
 
-Search backends are implemented as **provider adapters**, each with a common interface:
+## Supported Providers
 
-```
-src/tools/WebSearchTool/
-├── providers/
-│   ├── types.ts          — SearchProvider interface, shared types
-│   ├── duckduckgo.ts     — DuckDuckGo adapter
-│   ├── firecrawl.ts      — Firecrawl adapter
-│   ├── custom.ts         — Custom API adapter (supports all backends)
-│   └── index.ts          — Provider registry, selection, fallback logic
-├── WebSearchTool.ts      — Tool definition, shared formatting
-├── prompt.ts             — (unchanged)
-└── UI.tsx                — (unchanged)
-```
-
-Each adapter implements:
-- `isConfigured()` — returns true when required env vars are present
-- `search(input)` — performs the search, returns normalized `SearchHit[]`
-- `name` — human-readable label for logging / tool_use_id
-
-**Shared logic** (domain filtering, snippet formatting, result-block construction) lives in the tool layer, not in adapters.
-
----
-
-## Provider Selection
-
-`WEB_SEARCH_PROVIDER` controls which backend to use:
-
-| Mode | Behavior |
-|---|---|
-| `auto` (default) | Try providers in order, fall through on failure |
-| `custom` | Use custom API only — throw on failure |
-| `firecrawl` | Use Firecrawl only — throw on failure |
-| `ddg` | Use DuckDuckGo only — throw on failure |
-| `native` | Use Anthropic native / Codex only — throw on failure |
-
-**Fallback semantics:**
-- `auto` mode is the **only** mode that silently falls through to the next provider
-- All specific modes **fail loudly** — no silent backend switching
-
----
+| Provider | Env Var | Auth Header | Method |
+|---|---|---|---|
+| Custom API | `WEB_SEARCH_API` | Configurable | GET/POST |
+| SearXNG | `WEB_PROVIDER=searxng` | — | GET |
+| Google | `WEB_PROVIDER=google` | `Authorization: Bearer` | GET |
+| Brave | `WEB_PROVIDER=brave` | `X-Subscription-Token` | GET |
+| SerpAPI | `WEB_PROVIDER=serpapi` | `Authorization: Bearer` | GET |
+| Firecrawl | `FIRECRAWL_API_KEY` | Internal | SDK |
+| Tavily | `TAVILY_API_KEY` | `Authorization: Bearer` | POST |
+| Exa | `EXA_API_KEY` | `x-api-key` | POST |
+| You.com | `YOU_API_KEY` | `X-API-Key` | GET |
+| Jina | `JINA_API_KEY` | `Authorization: Bearer` | GET |
+| Bing | `BING_API_KEY` | `Ocp-Apim-Subscription-Key` | GET |
+| Mojeek | `MOJEEK_API_KEY` | `Authorization: Bearer` | GET |
+| Linkup | `LINKUP_API_KEY` | `Authorization: Bearer` | POST |
+| DuckDuckGo | *(default)* | — | SDK |
 
 ## Quick Start
 
-### Built-in Providers
-
 ```bash
-# SearXNG (self-hosted, no key)
-export WEB_PROVIDER=searxng
-export WEB_SEARCH_API="https://search.example.com/search"  # optional override
+# Pick one provider and set its key:
 
-# Google Custom Search
-export WEB_PROVIDER=google
-export WEB_KEY="YOUR_GOOGLE_API_KEY"
+# Tavily (recommended for AI — fast, RAG-ready)
+export TAVILY_API_KEY=tvly-your-key
 
-# Brave Search
+# Exa (neural search, great for semantic queries)
+export EXA_API_KEY=your-exa-key
+
+# Brave (traditional web search, good coverage)
 export WEB_PROVIDER=brave
-export WEB_KEY="YOUR_BRAVE_API_KEY"
+export WEB_KEY=your-brave-key
 
-# SerpAPI
-export WEB_PROVIDER=serpapi
-export WEB_KEY="YOUR_SERPAPI_KEY"
+# Bing
+export BING_API_KEY=your-bing-key
+
+# Self-hosted SearXNG (free, private)
+export WEB_PROVIDER=searxng
+export WEB_SEARCH_API=https://search.example.com/search
 ```
 
-| Preset | Default URL | Auth Header |
-|---|---|---|
-| `searxng` | `http://localhost:8080/search` | *(none)* |
-| `google` | `https://www.googleapis.com/customsearch/v1` | `Authorization: Bearer` |
-| `brave` | `https://api.search.brave.com/res/v1/web/search` | `X-Subscription-Token` |
-| `serpapi` | `https://serpapi.com/search.json` | `Authorization: Bearer` |
+## Provider Selection Mode
 
-### Custom Endpoint
+`WEB_SEARCH_PROVIDER` controls fallback behavior:
+
+| Mode | Behavior |
+|---|---|
+| `auto` (default) | Try all configured providers in order, fall through on failure |
+| `tavily` | Tavily only — throws on failure |
+| `exa` | Exa only — throws on failure |
+| `custom` | Custom API only — throws on failure |
+| `firecrawl` | Firecrawl only — throws on failure |
+| `ddg` | DuckDuckGo only — throws on failure |
+| `native` | Anthropic native / Codex only |
+
+**Auto mode priority:** custom → firecrawl → tavily → exa → you → jina → bing → mojeek → linkup → ddg
 
 ```bash
-export WEB_SEARCH_API="https://my-search-api.com/v2/search"
-export WEB_KEY="my-secret-key"
-export WEB_PARMS="query"
+# Fail loudly if Tavily is down (don't silently switch backends)
+export WEB_SEARCH_PROVIDER=tavily
+
+# Try everything, fall through gracefully
+export WEB_SEARCH_PROVIDER=auto
 ```
 
----
+## Custom API Configuration
 
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `WEB_SEARCH_PROVIDER` | `auto` | Provider selection mode |
-| `WEB_SEARCH_API` | — | Base URL of your search endpoint |
-| `WEB_PROVIDER` | — | Built-in preset name |
-| `WEB_KEY` | — | API key (sent in headers, **never** in query string) |
-| `WEB_PARMS` | `q` | Query parameter name |
-| `WEB_METHOD` | `GET` | HTTP method (`GET` or `POST`) |
-| `WEB_URL_TEMPLATE` | — | URL template with `{query}` for path embedding |
-| `WEB_PARAMS` | — | Extra static query params as JSON |
-| `WEB_BODY_TEMPLATE` | — | Custom POST body with `{query}` placeholder |
-| `WEB_AUTH_HEADER` | `Authorization` | Header name for the API key |
-| `WEB_AUTH_SCHEME` | `Bearer` | Prefix before the key |
-| `WEB_HEADERS` | — | Extra headers as `"Name: value; Name2: value2"` |
-| `WEB_JSON_PATH` | — | Dot-path to the results array in response JSON |
-
----
-
-## Request Construction
-
-### Mode 1: Standard Param (default)
+### Standard GET
 
 ```
 GET https://api.example.com/search?q=hello
-Authorization: Bearer <key>
-```
-
-### Mode 2: Query in URL Path
-
-```
-GET https://api.example.com/v2/search/hello/results
 ```
 
 ```bash
-export WEB_URL_TEMPLATE="https://api.example.com/v2/search/{query}/results"
+export WEB_SEARCH_API=https://api.example.com/search
+export WEB_PARMS=q
 ```
 
-### Mode 3: POST with Custom Body
+### Query in URL Path
+
+```
+GET https://api.example.com/v2/search/hello
+```
+
+```bash
+export WEB_URL_TEMPLATE=https://api.example.com/v2/search/{query}
+```
+
+### POST with Custom Body
 
 ```
 POST https://api.example.com/v1/query
 Content-Type: application/json
-Authorization: Bearer <key>
 
-{"input": {"text": "hello", "lang": "en"}, "options": {"max_results": 20}}
+{"input": {"text": "hello"}}
 ```
 
 ```bash
+export WEB_SEARCH_API=https://api.example.com/v1/query
 export WEB_METHOD=POST
-export WEB_BODY_TEMPLATE='{"input":{"text":"{query}","lang":"en"},"options":{"max_results":20}}'
+export WEB_BODY_TEMPLATE='{"input":{"text":"{query}"}}'
 ```
 
-### Mode 4: Extra Static Params
+### Extra Static Params
 
 ```bash
-export WEB_PARAMS='{"lang":"en","format":"json","count":"10"}'
+export WEB_PARAMS='{"lang":"en","count":"10"}'
 ```
 
-Merged into the URL query string alongside the search param.
+## Auth
 
----
+API keys are sent in HTTP headers, **never** in query strings.
 
-## Auth — Headers, Never Query Strings
+```bash
+# Default: Authorization: Bearer <key>
+export WEB_KEY=your-key
 
-API keys are always sent in HTTP headers, **never** in the URL.
+# Custom header
+export WEB_AUTH_HEADER=X-Api-Key
+export WEB_AUTH_SCHEME=""
 
-| Config | Result |
-|---|---|
-| Default | `Authorization: Bearer <key>` |
-| `WEB_AUTH_HEADER=X-Api-Key` | `X-Api-Key: Bearer <key>` |
-| `WEB_AUTH_SCHEME=""` | `Authorization: <key>` |
-| `WEB_AUTH_HEADER=X-Api-Key WEB_AUTH_SCHEME=""` | `X-Api-Key: <key>` |
+# Extra headers
+export WEB_HEADERS="X-Tenant: acme; Accept: application/json"
+```
 
----
+## Response Parsing
 
-## Response Parsing — Flexible
-
-Auto-detects many common response shapes:
-
-### Supported Formats
+The tool auto-detects many response formats:
 
 ```jsonc
-// Nested map (original format)
-{ "results": { "engine_name": [{ "title": "...", "url": "..." }] } }
-
-// Flat array under common keys
-{ "results": [{ "title": "...", "url": "..." }] }
-{ "items": [{ "title": "...", "link": "..." }] }
-{ "data": [{ "name": "...", "href": "..." }] }
-{ "hits": [{ "headline": "...", "uri": "..." }] }
-
-// Bare array
-[{ "title": "...", "url": "..." }]
-
-// Deeply nested — use WEB_JSON_PATH
-{ "data": { "search": { "results": [...] } } }
+{ "results": [{ "title": "...", "url": "..." }] }     // flat array
+{ "items": [{ "title": "...", "link": "..." }] }       // Google-style
+{ "results": { "engine": [{ "title": "...", "url": "..." }] } }  // nested map
+[{ "title": "...", "url": "..." }]                      // bare array
 ```
 
-### Field Name Aliases
+Field name aliases: `title`/`headline`/`name`, `url`/`link`/`href`, `description`/`snippet`/`content`
 
-| Field | Accepted Names |
-|---|---|
-| Title | `title`, `headline`, `name`, `heading` |
-| URL | `url`, `link`, `href`, `uri`, `permalink` |
-| Description | `description`, `snippet`, `content`, `preview`, `summary`, `text`, `body` |
-| Source | `source`, `domain`, `displayLink`, `displayed_link`, `engine` |
+For deeply nested responses:
+```bash
+export WEB_JSON_PATH=response.payload.results
+```
 
----
+## Retry
 
-## Retry & Fallback
+Failed requests (network errors, 5xx) are retried once after 500ms. Client errors (4xx) are not retried.
 
-### Automatic Retry
-
-If a request fails (network error, 5xx), it is **automatically retried once** after a 500ms delay. Client errors (4xx) are not retried.
-
-### Graceful Fallback (auto mode only)
-
-**Priority chain:** Custom API → Firecrawl → DuckDuckGo → Codex → Native Anthropic
-
-In `auto` mode, failures log an error and try the next provider. In specific modes, the provider throws immediately on failure.
-
----
-
-## Adding a New Provider
+## Adding a Provider
 
 1. Create `providers/myprovider.ts`:
 
@@ -218,17 +160,12 @@ import { applyDomainFilters, type ProviderOutput } from './types.js'
 
 export const myProvider: SearchProvider = {
   name: 'myprovider',
-
-  isConfigured() {
-    return Boolean(process.env.MYPROVIDER_API_KEY)
-  },
-
+  isConfigured() { return Boolean(process.env.MYPROVIDER_API_KEY) },
   async search(input: SearchInput): Promise<ProviderOutput> {
     const start = performance.now()
-    // ... call API, extract hits ...
-    const hits = applyDomainFilters(rawHits, input)
+    // ... call API, map to SearchHit[] ...
     return {
-      hits,
+      hits: applyDomainFilters(hits, input),
       providerName: 'myprovider',
       durationSeconds: (performance.now() - start) / 1000,
     }
@@ -236,30 +173,4 @@ export const myProvider: SearchProvider = {
 }
 ```
 
-2. Add it to `providers/index.ts`:
-
-```typescript
-import { myProvider } from './myprovider.js'
-
-const ALL_PROVIDERS: SearchProvider[] = [
-  customProvider,
-  firecrawlProvider,
-  duckduckgoProvider,
-  myProvider, // ← add here
-]
-```
-
-3. Update `PROVIDER_BY_NAME` and `ProviderMode` type in `index.ts`.
-
-That's it — no changes needed in `WebSearchTool.ts`.
-
----
-
-## Existing Providers (unchanged)
-
-| Provider | Env Var | Notes |
-|---|---|---|
-| DuckDuckGo | *(default)* | Free, no API key needed, rate-limited |
-| Firecrawl | `FIRECRAWL_API_KEY` | Premium, reliable |
-| Native Anthropic | *(firstParty/vertex)* | Requires Anthropic API, US only |
-| Codex/OpenAI | `OPENAI_BASE_URL` + `CODEX_API_KEY` | OpenAI responses backend |
+2. Register in `providers/index.ts` — add import and push to `ALL_PROVIDERS`.

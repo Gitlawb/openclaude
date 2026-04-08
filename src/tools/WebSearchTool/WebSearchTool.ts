@@ -410,18 +410,12 @@ function makeOutputFromSearchResponse(
 // Helper: should we use adapter-based providers?
 // ---------------------------------------------------------------------------
 
+/**
+ * Returns true when we should use the adapter-based provider system.
+ * This is true for any mode except "native".
+ */
 function shouldUseAdapterProvider(): boolean {
-  const mode = getProviderMode()
-  // Specific modes: custom, firecrawl, ddg → use adapter
-  if (mode === 'custom' || mode === 'firecrawl' || mode === 'ddg') return true
-  // Auto mode: use adapter if any provider is available
-  if (mode === 'auto') return getAvailableProviders().length > 0
-  return false
-}
-
-function shouldUseNativeSearch(): boolean {
-  const provider = getAPIProvider()
-  return provider === 'firstParty' || provider === 'vertex' || provider === 'foundry'
+  return getProviderMode() !== 'native'
 }
 
 // ---------------------------------------------------------------------------
@@ -447,12 +441,12 @@ export const WebSearchTool = buildTool({
   isEnabled() {
     const mode = getProviderMode()
 
-    // Explicit provider modes: enabled if that provider is configured
-    if (mode === 'custom' || mode === 'firecrawl' || mode === 'ddg') {
+    // Specific provider mode: enabled if any adapter is configured
+    if (mode !== 'auto' && mode !== 'native') {
       return getAvailableProviders().length > 0
     }
 
-    // Auto mode: check all paths
+    // Auto/native mode: check all paths
     if (getAvailableProviders().length > 0) return true
     if (isCodexResponsesWebSearchEnabled()) return true
 
@@ -511,11 +505,8 @@ export const WebSearchTool = buildTool({
     }
   },
   async prompt() {
-    const mode = getProviderMode()
-    if (
-      mode !== 'native' &&
-      (shouldUseAdapterProvider() || isCodexResponsesWebSearchEnabled())
-    ) {
+    // Strip "US only" when using non-native backends
+    if (shouldUseAdapterProvider() || isCodexResponsesWebSearchEnabled()) {
       return getWebSearchPrompt().replace(
         /\n\s*-\s*Web search is only available in the US/,
         '',

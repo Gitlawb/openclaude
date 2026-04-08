@@ -167,12 +167,9 @@ function buildRequest(query: string) {
   // --- Headers ---
   const headers: Record<string, string> = {
     ...buildAuthHeadersForPreset(config.preset),
-    ...Object.fromEntries(
-      Object.entries(parseExtraParams())
-        .filter(([k]) => k.startsWith('X-') || k.startsWith('Accept'))
-    ),
   }
-  // Merge WEB_HEADERS
+
+  // Merge WEB_HEADERS ("Name: value; Name2: value2")
   const rawExtra = process.env.WEB_HEADERS
   if (rawExtra) {
     for (const pair of rawExtra.split(';')) {
