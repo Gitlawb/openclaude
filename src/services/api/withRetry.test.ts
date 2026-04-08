@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
 import { parseOpenAIDuration } from './withRetry.js'
 
@@ -16,16 +16,32 @@ function makeError(headers: Record<string, string>): APIError {
 
 // Save/restore env vars between tests
 const originalEnv = { ...process.env }
+
+const envKeys = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'OPENAI_MODEL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+] as const
+
 afterEach(() => {
-  for (const key of [
-    'CLAUDE_CODE_USE_OPENAI',
-    'CLAUDE_CODE_USE_GEMINI',
-    'CLAUDE_CODE_USE_GITHUB',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'CLAUDE_CODE_USE_VERTEX',
-    'CLAUDE_CODE_USE_FOUNDRY',
+  // Restore the original env keys plus any additional test-specific keys
+  for (const key of [...envKeys, 'CLAUDE_CODE_UNATTENDED_RETRY']) {
+    if (originalEnv[key] === undefined) delete process.env[key]
+    else process.env[key] = originalEnv[key]
+  }
+  mock.restore()
+})
     'CLAUDE_CODE_UNATTENDED_RETRY',
   ]) {
+=======
+  for (const key of envKeys) {
+>>>>>>> ad724dc (Improve GitHub Copilot provider: official OAuth onboarding, Copilot API routing, and test hardening and auto refresh token logic (#288))
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
   }

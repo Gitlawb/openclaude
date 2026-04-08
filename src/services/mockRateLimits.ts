@@ -1,6 +1,11 @@
 // Mock rate limits for testing [internal-only]
 // The external build keeps this module as a stable no-op surface so imports
 // remain valid without exposing internal-only rate-limit simulation behavior.
+// This allows testing various rate limit scenarios without hitting actual limits
+//
+// WARNING: This is for internal testing/demo purposes only!
+// The mock headers may not exactly match the API specification or real-world behavior.
+// Always validate against actual API responses before relying on this for production features.
 
 import { setMockBillingAccessOverride } from '../utils/billing.js'
 import type { OverageDisabledReason } from './claudeAiLimits.js'

@@ -96,15 +96,16 @@ async function main(): Promise<void> {
     }
   }
 
+  // Enable configs first so we can read settings
   {
     const { enableConfigs } = await import('../utils/config.js')
     enableConfigs()
+  }
+
+  // Apply settings.env from user settings (includes GitHub provider settings from /onboard-github)
+  {
     const { applySafeConfigEnvironmentVariables } = await import('../utils/managedEnv.js')
     applySafeConfigEnvironmentVariables()
-    const { hydrateGeminiAccessTokenFromSecureStorage } = await import('../utils/geminiCredentials.js')
-    hydrateGeminiAccessTokenFromSecureStorage()
-    const { hydrateGithubModelsTokenFromSecureStorage } = await import('../utils/githubModelsCredentials.js')
-    hydrateGithubModelsTokenFromSecureStorage()
   }
 
   const startupEnv = await buildStartupEnvFromProfile({
@@ -119,6 +120,16 @@ async function main(): Promise<void> {
     } else {
       applyProfileEnvToProcessEnv(process.env, startupEnv)
     }
+  }
+
+  // Hydrate GitHub credentials after profile is applied so CLAUDE_CODE_USE_GITHUB from profile is available
+  {
+    const {
+      hydrateGithubModelsTokenFromSecureStorage,
+      refreshGithubModelsTokenIfNeeded,
+    } = await import('../utils/githubModelsCredentials.js')
+    await refreshGithubModelsTokenIfNeeded()
+    hydrateGithubModelsTokenFromSecureStorage()
   }
 
   await validateProviderEnvOrExit()

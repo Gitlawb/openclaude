@@ -2,9 +2,9 @@ import * as React from 'react'
 import { useCallback, useState } from 'react'
 import { Select } from '../../components/CustomSelect/select.js'
 import { Spinner } from '../../components/Spinner.js'
-import TextInput from '../../components/TextInput.js'
 import { Box, Text } from '../../ink.js'
 import {
+  exchangeForCopilotToken,
   openVerificationUri,
   pollAccessToken,
   requestDeviceCode,
@@ -15,7 +15,7 @@ import {
   readGithubModelsToken,
   saveGithubModelsToken,
 } from '../../utils/githubModelsCredentials.js'
-import { updateSettingsForSource } from '../../utils/settings/settings.js'
+import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js'
 
 const DEFAULT_MODEL = 'github:copilot'
 const FORCE_RELOGIN_ARGS = new Set([
@@ -27,11 +27,25 @@ const FORCE_RELOGIN_ARGS = new Set([
   '--reauth',
 ])
 
-type Step =
-  | 'menu'
-  | 'device-busy'
-  | 'pat'
-  | 'error'
+type Step = 'menu' | 'device-busy' | 'error'
+
+const PROVIDER_SPECIFIC_KEYS = new Set([
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'OPENAI_API_KEY',
+  'OPENAI_MODEL',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'GEMINI_BASE_URL',
+  'GEMINI_MODEL',
+  'GEMINI_ACCESS_TOKEN',
+  'GEMINI_AUTH_MODE',
+])
 
 export function shouldForceGithubRelogin(args?: string): boolean {
   const normalized = (args ?? '').trim().toLowerCase()
@@ -41,15 +55,29 @@ export function shouldForceGithubRelogin(args?: string): boolean {
   return normalized.split(/\s+/).some(arg => FORCE_RELOGIN_ARGS.has(arg))
 }
 
+const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_','ghs_', 'ghr_', 'github_pat_']
+
+function isGithubPat(token: string): boolean {
+  return GITHUB_PAT_PREFIXES.some(prefix => token.startsWith(prefix))
+}
+
 export function hasExistingGithubModelsLoginToken(
   env: NodeJS.ProcessEnv = process.env,
   storedToken?: string,
 ): boolean {
   const envToken = env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()
   if (envToken) {
+    // PATs are no longer supported - require OAuth re-auth
+    if (isGithubPat(envToken)) {
+      return false
+    }
     return true
   }
   const persisted = (storedToken ?? readGithubModelsToken())?.trim()
+  // PATs are no longer supported - require OAuth re-auth
+  if (persisted && isGithubPat(persisted)) {
+    return false
+  }
   return Boolean(persisted)
 }
 
@@ -97,8 +125,21 @@ export function applyGithubOnboardingProcessEnv(
 }
 
 function mergeUserSettingsEnv(model: string): { ok: boolean; detail?: string } {
+  const currentSettings = getSettingsForSource('userSettings')
+  const currentEnv = currentSettings?.env ?? {}
+
+  const newEnv: Record<string, string> = {}
+  for (const [key, value] of Object.entries(currentEnv)) {
+    if (!PROVIDER_SPECIFIC_KEYS.has(key)) {
+      newEnv[key] = value
+    }
+  }
+
+  newEnv.CLAUDE_CODE_USE_GITHUB = '1'
+  newEnv.OPENAI_MODEL = model
+
   const { error } = updateSettingsForSource('userSettings', {
-    env: buildGithubOnboardingSettingsEnv(model) as any,
+    env: newEnv,
   })
   if (error) {
     return { ok: false, detail: error.message }
@@ -143,12 +184,14 @@ function OnboardGithub(props: {
     user_code: string
     verification_uri: string
   } | null>(null)
-  const [patDraft, setPatDraft] = useState('')
-  const [cursorOffset, setCursorOffset] = useState(0)
 
   const finalize = useCallback(
-    async (token: string, model: string = DEFAULT_MODEL) => {
-      const saved = saveGithubModelsToken(token)
+    async (
+      token: string,
+      model: string = DEFAULT_MODEL,
+      oauthToken?: string,
+    ) => {
+      const saved = saveGithubModelsToken(token, oauthToken)
       if (!saved.success) {
         setErrorMsg(saved.warning ?? 'Could not save token to secure storage.')
         setStep('error')
@@ -165,8 +208,18 @@ function OnboardGithub(props: {
         setStep('error')
         return
       }
+      // Clear stale provider-specific env vars from the current session
+      // so resolveProviderRequest() doesn't pick up a previous provider's
+      // base URL or key after onboarding completes.
+      for (const key of PROVIDER_SPECIFIC_KEYS) {
+        delete process.env[key]
+      }
+      process.env.CLAUDE_CODE_USE_GITHUB = '1'
+      process.env.OPENAI_MODEL = model.trim() || DEFAULT_MODEL
+      hydrateGithubModelsTokenFromSecureStorage()
+      onChangeAPIKey()
       onDone(
-        'GitHub Models onboard complete. Token stored in secure storage; user settings updated. Restart if the model does not switch.',
+        'GitHub Copilot onboard complete. Copilot token and OAuth token stored in secure storage (Windows/Linux: ~/.claude/.credentials.json, macOS: Keychain fallback to ~/.claude/.credentials.json); user settings updated. Restart if the model does not switch.',
         { display: 'user' },
       )
     },
@@ -184,11 +237,12 @@ function OnboardGithub(props: {
         verification_uri: device.verification_uri,
       })
       await openVerificationUri(device.verification_uri)
-      const token = await pollAccessToken(device.device_code, {
+      const oauthToken = await pollAccessToken(device.device_code, {
         initialInterval: device.interval,
         timeoutSeconds: device.expires_in,
       })
-      await finalize(token, DEFAULT_MODEL)
+      const copilotToken = await exchangeForCopilotToken(oauthToken)
+      await finalize(copilotToken.token, DEFAULT_MODEL, oauthToken)
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e))
       setStep('error')
@@ -227,7 +281,7 @@ function OnboardGithub(props: {
   if (step === 'device-busy') {
     return (
       <Box flexDirection="column" gap={1}>
-        <Text>GitHub device login</Text>
+        <Text>GitHub Copilot sign-in</Text>
         {deviceHint ? (
           <>
             <Text>
@@ -246,42 +300,10 @@ function OnboardGithub(props: {
     )
   }
 
-  if (step === 'pat') {
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Text>Paste a GitHub personal access token with access to GitHub Models.</Text>
-        <Text dimColor>Input is masked. Enter to submit; Esc to go back.</Text>
-        <TextInput
-          value={patDraft}
-          mask="*"
-          onChange={setPatDraft}
-          onSubmit={async (value: string) => {
-            const t = value.trim()
-            if (!t) {
-              return
-            }
-            await finalize(t, DEFAULT_MODEL)
-          }}
-          onExit={() => {
-            setStep('menu')
-            setPatDraft('')
-          }}
-          columns={80}
-          cursorOffset={cursorOffset}
-          onChangeCursorOffset={setCursorOffset}
-        />
-      </Box>
-    )
-  }
-
   const menuOptions = [
     {
-      label: 'Sign in with browser (device code)',
+      label: 'Sign in with browser',
       value: 'device' as const,
-    },
-    {
-      label: 'Paste personal access token',
-      value: 'pat' as const,
     },
     {
       label: 'Cancel',
@@ -291,7 +313,7 @@ function OnboardGithub(props: {
 
   return (
     <Box flexDirection="column" gap={1}>
-      <Text bold>GitHub Models setup</Text>
+      <Text bold>GitHub Copilot setup</Text>
       <Text dimColor>
         Stores your token in the OS credential store (macOS Keychain when available)
         and enables CLAUDE_CODE_USE_GITHUB in your user settings - no export
@@ -302,10 +324,6 @@ function OnboardGithub(props: {
         onChange={(v: string) => {
           if (v === 'cancel') {
             onDone('GitHub onboard cancelled', { display: 'system' })
-            return
-          }
-          if (v === 'pat') {
-            setStep('pat')
             return
           }
           void runDeviceFlow()
