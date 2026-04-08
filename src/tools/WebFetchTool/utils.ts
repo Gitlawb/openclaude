@@ -112,9 +112,14 @@ const MAX_URL_LENGTH = 2000
 // request or user from overwhelming the system."
 const MAX_HTTP_CONTENT_LENGTH = 10 * 1024 * 1024
 
-// Timeout for the main HTTP fetch request (60 seconds).
+// Timeout for the main HTTP fetch request (60 seconds default, configurable via WEB_FETCH_TIMEOUT_SEC).
 // Prevents hanging indefinitely on slow/unresponsive servers.
-const FETCH_TIMEOUT_MS = 60_000
+const DEFAULT_FETCH_TIMEOUT_SECONDS = 60
+
+function getFetchTimeoutMs(): number {
+  const envVal = Number(process.env.WEB_FETCH_TIMEOUT_SEC)
+  return (Number.isFinite(envVal) && envVal > 0 ? envVal : DEFAULT_FETCH_TIMEOUT_SECONDS) * 1000
+}
 
 // Timeout for the domain blocklist preflight check (10 seconds).
 const DOMAIN_CHECK_TIMEOUT_MS = 10_000
@@ -279,64 +284,86 @@ export async function getWithPermittedRedirects(
   if (depth > MAX_REDIRECTS) {
     throw new Error(`Too many redirects (exceeded ${MAX_REDIRECTS})`)
   }
-  try {
-    return await axios.get(url, {
-      signal,
-      timeout: FETCH_TIMEOUT_MS,
-      maxRedirects: 0,
-      responseType: 'arraybuffer',
-      maxContentLength: MAX_HTTP_CONTENT_LENGTH,
-      headers: {
-        Accept: 'text/markdown, text/html, */*',
-        'User-Agent': getWebFetchUserAgent(),
-      },
-    })
-  } catch (error) {
-    if (
-      axios.isAxiosError(error) &&
-      error.response &&
-      [301, 302, 307, 308].includes(error.response.status)
-    ) {
-      const redirectLocation = error.response.headers.location
-      if (!redirectLocation) {
-        throw new Error('Redirect missing Location header')
-      }
 
-      // Resolve relative URLs against the original URL
-      const redirectUrl = new URL(redirectLocation, url).toString()
+  const fetchTimeoutMs = getFetchTimeoutMs()
+  let lastError: unknown
 
-      if (redirectChecker(url, redirectUrl)) {
-        // Recursively follow the permitted redirect
-        return getWithPermittedRedirects(
-          redirectUrl,
-          signal,
-          redirectChecker,
-          depth + 1,
-        )
-      } else {
-        // Return redirect information to the caller
-        return {
-          type: 'redirect',
-          originalUrl: url,
-          redirectUrl,
-          statusCode: error.response.status,
+  // Retry once on 5xx or network errors (same pattern as WebSearch custom provider)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await axios.get(url, {
+        signal,
+        timeout: fetchTimeoutMs,
+        maxRedirects: 0,
+        responseType: 'arraybuffer',
+        maxContentLength: MAX_HTTP_CONTENT_LENGTH,
+        headers: {
+          Accept: 'text/markdown, text/html, */*',
+          'User-Agent': getWebFetchUserAgent(),
+        },
+      })
+    } catch (error) {
+      lastError = error
+
+      // Redirects are not errors to retry — handle immediately
+      if (
+        axios.isAxiosError(error) &&
+        error.response &&
+        [301, 302, 307, 308].includes(error.response.status)
+      ) {
+        const redirectLocation = error.response.headers.location
+        if (!redirectLocation) {
+          throw new Error('Redirect missing Location header')
+        }
+
+        // Resolve relative URLs against the original URL
+        const redirectUrl = new URL(redirectLocation, url).toString()
+
+        if (redirectChecker(url, redirectUrl)) {
+          return getWithPermittedRedirects(
+            redirectUrl,
+            signal,
+            redirectChecker,
+            depth + 1,
+          )
+        } else {
+          return {
+            type: 'redirect',
+            originalUrl: url,
+            redirectUrl,
+            statusCode: error.response.status,
+          }
         }
       }
-    }
 
-    // Detect egress proxy blocks: the proxy returns 403 with
-    // X-Proxy-Error: blocked-by-allowlist when egress is restricted
-    if (
-      axios.isAxiosError(error) &&
-      error.response?.status === 403 &&
-      error.response.headers['x-proxy-error'] === 'blocked-by-allowlist'
-    ) {
-      const hostname = new URL(url).hostname
-      throw new EgressBlockedError(hostname)
-    }
+      // Egress proxy blocks — don't retry
+      if (
+        axios.isAxiosError(error) &&
+        error.response?.status === 403 &&
+        error.response.headers['x-proxy-error'] === 'blocked-by-allowlist'
+      ) {
+        const hostname = new URL(url).hostname
+        throw new EgressBlockedError(hostname)
+      }
 
-    throw error
+      // Abort — don't retry
+      if (signal?.aborted || (axios.isAxiosError(error) && error.code === 'ERR_CANCELED')) {
+        throw error
+      }
+
+      // Retry on 5xx or network errors (no response = network error)
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined
+      const isRetryable = status === undefined || (status >= 500 && status < 600)
+      if (attempt === 0 && isRetryable) {
+        await new Promise(r => setTimeout(r, 500))
+        continue
+      }
+
+      throw error
+    }
   }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 function isRedirectInfo(
