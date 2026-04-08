@@ -61,20 +61,22 @@ function frameFromLines(
   }
 }
 
-test('ghostty main-screen rewrite paints initial content without full terminal reset', () => {
+test('ghostty main-screen rewrite paints prompt content without full terminal reset when width is stable', () => {
   const { stylePool, charPool, hyperlinkPool, log } = createHarness()
-  const prev = frameFromLines(stylePool, charPool, hyperlinkPool, [])
+  const prev = frameFromLines(stylePool, charPool, hyperlinkPool, ['      '])
   const next = frameFromLines(stylePool, charPool, hyperlinkPool, ['prompt'])
 
   const diff = log.render(prev, next, false, true, true)
   const stdout = collectStdout(diff)
 
   expect(diff.some(patch => patch.type === 'clearTerminal')).toBe(false)
-  expect(diff.some(patch => patch.type === 'clear')).toBe(false)
+  expect(diff.some(patch => patch.type === 'clear' && patch.count === 1)).toBe(
+    true,
+  )
   expect(stdout).toContain('prompt')
 })
 
-test('ghostty main-screen rewrite clears the previous prompt block before repainting', () => {
+test('ghostty main-screen rewrite clears only the changed prompt tail before repainting', () => {
   const { stylePool, charPool, hyperlinkPool, log } = createHarness()
   const prev = frameFromLines(
     stylePool,
@@ -93,9 +95,31 @@ test('ghostty main-screen rewrite clears the previous prompt block before repain
   const stdout = collectStdout(diff)
 
   expect(diff.some(patch => patch.type === 'clearTerminal')).toBe(false)
-  expect(diff.some(patch => patch.type === 'clear' && patch.count === 2)).toBe(
+  expect(diff.some(patch => patch.type === 'clear' && patch.count === 1)).toBe(
     true,
   )
-  expect(stdout).toContain('status')
+  expect(stdout).toContain('abcd')
+})
+
+test('ghostty main-screen rewrite falls back to incremental diff for larger changes', () => {
+  const { stylePool, charPool, hyperlinkPool, log } = createHarness()
+  const prev = frameFromLines(
+    stylePool,
+    charPool,
+    hyperlinkPool,
+    ['row 0', 'row 1', 'row 2', 'row 3', 'row 4', '> abc'],
+  )
+  const next = frameFromLines(
+    stylePool,
+    charPool,
+    hyperlinkPool,
+    ['row 0 updated', 'row 1', 'row 2', 'row 3', 'row 4', '> abcd'],
+  )
+
+  const diff = log.render(prev, next, false, true, true)
+  const stdout = collectStdout(diff)
+
+  expect(diff.some(patch => patch.type === 'clear')).toBe(false)
+  expect(stdout).toContain('updated')
   expect(stdout).toContain('abcd')
 })

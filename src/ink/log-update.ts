@@ -131,10 +131,6 @@ export class LogUpdate {
       return this.renderFullFrame(next)
     }
 
-    if (!altScreen && rewriteMainScreen) {
-      return rewriteMainScreenFrame(prev, next, this.options.stylePool)
-    }
-
     const startTime = performance.now()
     const stylePool = this.options.stylePool
 
@@ -149,6 +145,13 @@ export class LogUpdate {
       (prev.viewport.width !== 0 && next.viewport.width !== prev.viewport.width)
     ) {
       return fullResetSequence_CAUSES_FLICKER(next, 'resize', stylePool)
+    }
+
+    if (!altScreen && rewriteMainScreen) {
+      const rewriteStartY = findMainScreenRewriteStart(prev.screen, next.screen)
+      if (rewriteStartY !== null) {
+        return rewriteMainScreenFrame(prev, next, stylePool, rewriteStartY)
+      }
     }
 
     // DECSTBM scroll optimization: when a ScrollBox's scrollTop changed,
@@ -450,22 +453,71 @@ function rewriteMainScreenFrame(
   prev: Frame,
   next: Frame,
   stylePool: StylePool,
+  startY: number,
 ): Diff {
   const diff: Diff = []
+  const clearCount = prev.screen.height - startY
 
-  if (prev.screen.height > 0) {
+  if (clearCount > 0) {
     const clearStartY = prev.screen.height - 1
     const clearCursor = new VirtualScreen(prev.cursor, next.viewport.width)
     moveCursorTo(clearCursor, 0, clearStartY)
     diff.push(...clearCursor.diff)
-    diff.push({ type: 'clear', count: prev.screen.height })
+    diff.push({ type: 'clear', count: clearCount })
   }
 
-  const screen = new VirtualScreen({ x: 0, y: 0 }, next.viewport.width)
-  renderFrame(screen, next, stylePool)
+  const screen = new VirtualScreen(
+    clearCount > 0 ? { x: 0, y: startY } : prev.cursor,
+    next.viewport.width,
+  )
+  renderFrameSlice(screen, next, startY, next.screen.height, stylePool)
   restoreMainScreenCursor(screen, next)
 
   return [...diff, ...screen.diff]
+}
+
+const MAX_MAIN_SCREEN_REWRITE_ROWS = 6
+
+function findMainScreenRewriteStart(prev: Screen, next: Screen): number | null {
+  const commonHeight = Math.min(prev.height, next.height)
+  let firstChangedY = commonHeight
+
+  for (let y = 0; y < commonHeight; y += 1) {
+    if (!rowsEqual(prev, next, y)) {
+      firstChangedY = y
+      break
+    }
+  }
+
+  const rewriteRows = Math.max(prev.height, next.height) - firstChangedY
+  if (rewriteRows <= 0) {
+    return null
+  }
+
+  return rewriteRows <= MAX_MAIN_SCREEN_REWRITE_ROWS ? firstChangedY : null
+}
+
+function rowsEqual(prev: Screen, next: Screen, y: number): boolean {
+  if (prev.width !== next.width) {
+    return false
+  }
+
+  if (prev.softWrap[y] !== next.softWrap[y]) {
+    return false
+  }
+
+  const rowStart = y * prev.width
+  const rowEnd = rowStart + prev.width
+  for (let index = rowStart; index < rowEnd; index += 1) {
+    if (
+      prev.cells64[index] !== next.cells64[index] ||
+      prev.noSelect[index] !== next.noSelect[index]
+    ) {
+      return false
+    }
+  }
+
+  return true
 }
 
 function transitionHyperlink(
