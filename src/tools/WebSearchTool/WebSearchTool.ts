@@ -93,6 +93,22 @@ function isFirecrawlEnabled(): boolean {
   return Boolean(process.env.FIRECRAWL_API_KEY)
 }
 
+function isExaEnabled(): boolean {
+  return Boolean(process.env.EXA_API_KEY)
+}
+
+function shouldUseExa(): boolean {
+  if (!isExaEnabled()) return false
+  if (isCodexResponsesWebSearchEnabled()) return false
+
+  const provider = getAPIProvider()
+  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
+    return false
+  }
+
+  return true
+}
+
 function shouldUseFirecrawl(): boolean {
   if (!isFirecrawlEnabled()) return false
   // Don't override native search on providers that already have it
@@ -241,6 +257,119 @@ async function runFirecrawlSearch(input: Input): Promise<Output> {
     query: input.query,
     results,
     durationSeconds: (performance.now() - startTime) / 1000,
+  }
+}
+
+type ExaSearchResult = {
+  title?: string
+  url?: string
+  highlights?: string[]
+  summary?: string
+}
+
+type ExaSearchResponse = {
+  results?: ExaSearchResult[]
+}
+
+function makeExaPayload(input: Input): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    query: input.query,
+    type: 'auto',
+    numResults: 10,
+    contents: {
+      highlights: {
+        maxCharacters: 4000,
+      },
+    },
+  }
+
+  if (input.allowed_domains?.length) {
+    payload.includeDomains = input.allowed_domains
+  }
+
+  if (input.blocked_domains?.length) {
+    payload.excludeDomains = input.blocked_domains
+  }
+
+  return payload
+}
+
+function makeExaErrorOutput(input: Input, startTime: number): Output {
+  return {
+    query: input.query,
+    results: [
+      'Web search temporarily unavailable — verify EXA_API_KEY or try again shortly.',
+    ],
+    durationSeconds: (performance.now() - startTime) / 1000,
+  }
+}
+
+async function runExaSearch(
+  input: Input,
+  signal?: AbortSignal,
+): Promise<Output> {
+  const startTime = performance.now()
+
+  try {
+    const response = await fetch('https://api.exa.ai/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.EXA_API_KEY!,
+      },
+      body: JSON.stringify(makeExaPayload(input)),
+      signal,
+    })
+
+    if (!response.ok) {
+      return makeExaErrorOutput(input, startTime)
+    }
+
+    const data = (await response.json()) as ExaSearchResponse
+    const exaResults = Array.isArray(data.results) ? data.results : []
+
+    const snippets = exaResults
+      .map(result => {
+        const title = result.title || result.url
+        if (!title || !result.url) return null
+
+        const highlight =
+          Array.isArray(result.highlights) && result.highlights.length > 0
+            ? result.highlights[0]
+            : result.summary
+
+        if (!highlight) return null
+        return `**${title}** — ${highlight} (${result.url})`
+      })
+      .filter((line): line is string => Boolean(line))
+      .join('\n')
+
+    const hits = exaResults
+      .map(result => {
+        if (!result.url) return null
+        return {
+          title: result.title || result.url,
+          url: result.url,
+        }
+      })
+      .filter((hit): hit is { title: string; url: string } => Boolean(hit))
+
+    const results: Output['results'] = []
+    if (snippets) {
+      results.push(snippets)
+    }
+    results.push({
+      tool_use_id: 'exa-search',
+      content: hits,
+    })
+
+    return {
+      query: input.query,
+      results,
+      durationSeconds: (performance.now() - startTime) / 1000,
+    }
+  } catch {
+    return makeExaErrorOutput(input, startTime)
   }
 }
 
@@ -534,6 +663,10 @@ export const WebSearchTool = buildTool({
     return summary ? `Searching for ${summary}` : 'Searching the web'
   },
   isEnabled() {
+    if (shouldUseExa()) {
+      return true
+    }
+
     if (shouldUseFirecrawl()) {
       return true
     }
@@ -602,6 +735,7 @@ export const WebSearchTool = buildTool({
   },
   async prompt() {
     if (
+      shouldUseExa() ||
       shouldUseDuckDuckGo() ||
       shouldUseFirecrawl() ||
       isCodexResponsesWebSearchEnabled()
@@ -642,6 +776,12 @@ export const WebSearchTool = buildTool({
     return { result: true }
   },
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
+    if (shouldUseExa()) {
+      return {
+        data: await runExaSearch(input, context.abortController.signal),
+      }
+    }
+
     if (shouldUseFirecrawl()) {
       return { data: await runFirecrawlSearch(input) }
     }

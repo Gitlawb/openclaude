@@ -166,7 +166,15 @@ When no routing match is found, the global provider remains the fallback.
 
 By default, `WebSearch` works on non-Anthropic models using DuckDuckGo. This gives GPT-4o, DeepSeek, Gemini, Ollama, and other OpenAI-compatible providers a free web search path out of the box.
 
-> **Note:** DuckDuckGo fallback works by scraping search results and may be rate-limited, blocked, or subject to DuckDuckGo's Terms of Service. If you want a more reliable supported option, configure Firecrawl.
+> **Note:** DuckDuckGo fallback works by scraping search results and may be rate-limited, blocked, or subject to DuckDuckGo's Terms of Service. If you want a more reliable supported option, configure Exa or Firecrawl.
+
+Set an [Exa](https://exa.ai) API key to use Exa-backed web search on non-native provider paths:
+
+```bash
+export EXA_API_KEY=your-key-here
+```
+
+When `EXA_API_KEY` is set, OpenClaude uses Exa for `WebSearch` on OpenAI-compatible non-native backends.
 
 For Anthropic-native backends and Codex responses, OpenClaude keeps the native provider web search behavior.
 
