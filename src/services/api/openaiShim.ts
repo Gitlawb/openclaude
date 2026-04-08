@@ -156,6 +156,17 @@ function addAdditionalPropertiesFalse(schema: Record<string, unknown>): Record<s
       )
     }
   }
+  // Recurse into $defs (Cerebras supports $ref with $defs for reusable schema
+  // components). Each definition may contain objects needing additionalProperties.
+  if (out.$defs && typeof out.$defs === 'object') {
+    const defs: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(out.$defs as Record<string, unknown>)) {
+      defs[k] = v && typeof v === 'object' && !Array.isArray(v)
+        ? addAdditionalPropertiesFalse(v as Record<string, unknown>)
+        : v
+    }
+    out.$defs = defs
+  }
   return out
 }
 
@@ -1832,13 +1843,22 @@ class OpenAIShimMessages {
       }
 
       // reasoning_format:
-      //   Qwen3 default is "raw" — <think>...</think> tags appear in content.
-      //   In multi-turn agentic context, this pollutes history and wastes tokens.
-      //   "hidden" drops thinking text from the response (tokens still generated).
-      //   Configurable via CEREBRAS_REASONING_FORMAT env var.
-      if (isQwen && (body as Record<string,unknown>).reasoning_format === undefined) {
+      //   GPT-OSS default is text_parsed, GLM default is text_parsed.
+      //   Force 'parsed' so reasoning always goes to the separate `reasoning`
+      //   field (which our openaiStreamToAnthropic handler reads).
+      //   Qwen3 instruct-2507 on Cerebras is a *non-thinking* variant — it will
+      //   not generate <think> tags regardless.  Do NOT send reasoning_format
+      //   for Qwen; the parameter may trigger 422 on a non-thinking model.
+      if ((isGptOss || isGlm) && (body as Record<string,unknown>).reasoning_format === undefined) {
         ;(body as Record<string,unknown>).reasoning_format =
-          process.env.CEREBRAS_REASONING_FORMAT ?? 'hidden'
+          process.env.CEREBRAS_REASONING_FORMAT ?? 'parsed'
+      }
+
+      // clear_thinking: GLM-specific.  Default is true (drop reasoning from
+      // prior turns).  For agentic coding where tool-call reasoning informs
+      // later decisions, Cerebras docs recommend false to preserve context.
+      if (isGlm) {
+        ;(body as Record<string,unknown>).clear_thinking = false
       }
 
       // parallel_tool_calls: Cerebras defaults to true (parallel calls enabled).

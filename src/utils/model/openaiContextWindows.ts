@@ -57,9 +57,11 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'gemini-2.5-pro':         1_048_576,
   'gemini-2.5-flash':       1_048_576,
 
-  // Cerebras Cloud (all models support 131,072 tokens context)
+  // Cerebras Cloud
+  // gpt-oss, llama, glm: 131K context on all tiers.
+  // qwen-3-235b: 65K on free tier, 131K on paid — use 65K as safe default.
   'gpt-oss-120b':             131_072,
-  'qwen-3-235b-a22b-instruct-2507': 131_072,
+  'qwen-3-235b-a22b-instruct-2507': 65_536,
   'llama3.1-8b':              131_072,
   'zai-glm-4.7':              131_072,
 
@@ -135,9 +137,9 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'gemini-2.5-pro':           65_536,
   'gemini-2.5-flash':         65_536,
 
-  // Cerebras Cloud
+  // Cerebras Cloud (conservative defaults for rate-limit budget)
   'gpt-oss-120b':              16_384,
-  'qwen-3-235b-a22b-instruct-2507': 8_192,
+  'qwen-3-235b-a22b-instruct-2507': 32_768, // free tier allows 32K max output
   'llama3.1-8b':                8_192,
   'zai-glm-4.7':               16_384,
 

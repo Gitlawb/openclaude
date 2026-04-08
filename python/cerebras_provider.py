@@ -121,6 +121,8 @@ async def cerebras_chat_stream(
         chunk = await loop.run_in_executor(None, next, sync_iter, sentinel)
         if chunk is sentinel:
             break
+        if not chunk.choices:
+            continue  # skip usage-only or empty chunks
         delta = chunk.choices[0].delta
         if delta and delta.content:
             yield delta.content
@@ -132,13 +134,19 @@ async def cerebras_chat(
     max_tokens: int = 8192,
 ) -> str:
     """Non-streaming chat completion. Returns full response text."""
+    import asyncio
     client = get_cerebras_client()
+    loop = asyncio.get_running_loop()
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_completion_tokens=max_tokens,
-        stream=False,
+    # SDK call is synchronous — run in executor to avoid blocking the event loop.
+    response = await loop.run_in_executor(
+        None,
+        lambda: client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_completion_tokens=max_tokens,
+            stream=False,
+        ),
     )
 
     return response.choices[0].message.content or ""
