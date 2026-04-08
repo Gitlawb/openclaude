@@ -87,6 +87,18 @@ export function is3PProvider(): boolean {
 }
 
 /**
+ * Returns true for 3P providers with severely limited context windows or
+ * token budgets where injecting session-start hooks would overflow the budget.
+ * Cerebras (128K context) and most large 3P providers are fine — only
+ * providers like Groq (6K TPM free tier) need hooks skipped.
+ */
+export function isSmallContextProvider(): boolean {
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) return false
+  const baseUrl = (process.env.OPENAI_BASE_URL ?? '').toLowerCase()
+  return baseUrl.includes('groq.com')
+}
+
+/**
  * Parses an array of environment variable strings into a key-value object
  * @param envVars Array of strings in KEY=VALUE format
  * @returns Object with key-value pairs
