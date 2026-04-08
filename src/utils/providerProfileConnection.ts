@@ -35,16 +35,23 @@ function setOptionalEnvValue(key: string, value: string | undefined): void {
   }
 }
 
-// OAuth-related env vars that must be suppressed during connection tests
+// Auth-related env vars that must be suppressed during connection tests
 // so that the entered API key is actually validated instead of being
-// bypassed by an active Claude.ai subscriber session.
+// bypassed by an active Claude.ai subscriber session or a pre-existing
+// bearer token.
 //
 // These correspond to the token sources checked in auth.ts
-// (getAuthTokenSource / getClaudeAIOAuthTokens).  If a new OAuth env var
+// (getAuthTokenSource / getClaudeAIOAuthTokens) and the bearer-token
+// fallback in client.ts (configureApiKeyHeaders).  If a new auth env var
 // is added there, it should be added here as well.
-const OAUTH_ENV_KEYS = [
+//
+// LIMITATION: If the user authenticated via keychain/secure-storage OAuth
+// (not env vars), the memoized token from getClaudeAIOAuthTokens() will
+// still be used.  The env var suppression only covers env-var-based auth.
+const AUTH_ENV_KEYS_TO_SUPPRESS = [
   'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR',
+  'ANTHROPIC_AUTH_TOKEN',
 ]
 
 function deleteEnvKeys(keys: string[]): void {
@@ -136,7 +143,7 @@ export async function testProviderProfileConnection(
   try {
     // Suppress OAuth tokens so getAnthropicClient() falls through to
     // API-key auth, ensuring the entered key is actually exercised.
-    deleteEnvKeys(OAUTH_ENV_KEYS)
+    deleteEnvKeys(AUTH_ENV_KEYS_TO_SUPPRESS)
 
     applyProfileToProcessEnv({
       ...input,

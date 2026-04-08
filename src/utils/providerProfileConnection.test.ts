@@ -86,21 +86,23 @@ describe('testProviderProfileConnection', () => {
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
-  test('suppresses OAuth tokens during validation so API key is exercised', async () => {
+  test('suppresses auth tokens during validation so API key is exercised', async () => {
     const { testProviderProfileConnection } = await importFreshModule()
     process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-token-value'
     process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR = '3'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'bearer-token-value'
 
     const validateModel = mock(async () => {
       expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined()
       expect(process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR).toBeUndefined()
+      expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
       return { valid: true }
     })
 
     const result = await testProviderProfileConnection(
       {
         provider: 'anthropic',
-        name: 'Test OAuth Bypass',
+        name: 'Test Auth Bypass',
         baseUrl: 'https://api.anthropic.com',
         model: 'claude-sonnet-4-6',
         apiKey: 'my-api-key',
@@ -109,9 +111,33 @@ describe('testProviderProfileConnection', () => {
     )
 
     expect(result).toEqual({ ok: true })
-    // OAuth env vars should be restored after the test
+    // Auth env vars should be restored after the test
     expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth-token-value')
     expect(process.env.CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR).toBe('3')
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe('bearer-token-value')
+  })
+
+  test('forwards abort signal to validateModel', async () => {
+    const { testProviderProfileConnection } = await importFreshModule()
+    const controller = new AbortController()
+
+    const validateModel = mock(async (_model: string, opts?: { signal?: AbortSignal }) => {
+      expect(opts?.signal).toBe(controller.signal)
+      return { valid: true }
+    })
+
+    const result = await testProviderProfileConnection(
+      {
+        provider: 'openai',
+        name: 'Signal test',
+        baseUrl: 'https://api.example.com/v1',
+        model: 'test-model',
+        apiKey: 'key',
+      },
+      { validateModel, signal: controller.signal },
+    )
+
+    expect(result).toEqual({ ok: true })
   })
 
   test('returns error message when validateModel throws', async () => {
