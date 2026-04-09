@@ -107,9 +107,9 @@ test('MiniMax-M2.7 uses explicit provider-specific context and output caps', () 
   expect(getMaxOutputTokensForModel('MiniMax-M2.7')).toBe(131_072)
 })
 
-test('unknown openai-compatible models still use the conservative fallback window', () => {
+test('unknown openai-compatible models use the 128k fallback window', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
 
-  expect(getContextWindowForModel('some-unknown-3p-model')).toBe(8_000)
+  expect(getContextWindowForModel('some-unknown-3p-model')).toBe(128_000)
 })

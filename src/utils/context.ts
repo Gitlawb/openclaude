@@ -73,8 +73,9 @@ export function getContextWindowForModel(
   }
 
   // OpenAI-compatible provider — use known context windows for the model.
-  // Unknown models get a conservative 8k default so auto-compact triggers
-  // before hitting a hard context_window_exceeded error.
+  // Unknown models get a 128k default. Most modern models (2024+) support at
+  // least 128k; the old 8k default caused aggressive auto-compaction that
+  // degraded the experience for any model not explicitly in the table.
   const isOpenAIProvider =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
@@ -85,10 +86,10 @@ export function getContextWindowForModel(
       return openaiWindow
     }
     console.error(
-      `[context] Warning: model "${model}" not in context window table — using conservative 8k default. ` +
+      `[context] Warning: model "${model}" not in context window table — using 128k default. ` +
       'Add it to src/utils/model/openaiContextWindows.ts for accurate compaction.',
     )
-    return 8_000
+    return 128_000
   }
 
   const cap = getModelCapability(model)

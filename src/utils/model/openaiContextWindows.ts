@@ -74,6 +74,12 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'llama3.2:1b':              128_000,
   'qwen3:8b':                 128_000,
   'codestral':                 32_768,
+
+  // GLM (Zhipu AI) — Anthropic-compatible via ZAI endpoint
+  'glm-5.1':                  200_000,
+  'glm-4.7':                  200_000,
+  'glm-4.5-air':              200_000,
+  'glm-5-turbo':              200_000,
 }
 
 /**
@@ -142,6 +148,12 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'llama3.2:1b':                4_096,
   'qwen3:8b':                   8_192,
   'codestral':                   8_192,
+
+  // GLM (Zhipu AI)
+  'glm-5.1':                   16_384,
+  'glm-4.7':                   16_384,
+  'glm-4.5-air':                8_192,
+  'glm-5-turbo':                8_192,
 }
 
 function lookupByModel<T>(table: Record<string, T>, model: string): T | undefined {

@@ -86,6 +86,43 @@ export const COST_HAIKU_45 = {
   webSearchRequests: 0.01,
 } as const satisfies ModelCosts
 
+// GLM (Zhipu AI) pricing tiers — via ZAI Anthropic-compatible endpoint
+// GLM-5.1: premium tier ($3 input / $12 output per Mtok)
+export const COST_GLM_5_1 = {
+  inputTokens: 3,
+  outputTokens: 12,
+  promptCacheWriteTokens: 3.75,
+  promptCacheReadTokens: 0.3,
+  webSearchRequests: 0,
+} as const satisfies ModelCosts
+
+// GLM-4.7: standard tier ($2 input / $8 output per Mtok)
+export const COST_GLM_4_7 = {
+  inputTokens: 2,
+  outputTokens: 8,
+  promptCacheWriteTokens: 2.5,
+  promptCacheReadTokens: 0.2,
+  webSearchRequests: 0,
+} as const satisfies ModelCosts
+
+// GLM-4.5-Air: economy tier ($0.50 input / $2 output per Mtok)
+export const COST_GLM_4_5_AIR = {
+  inputTokens: 0.5,
+  outputTokens: 2,
+  promptCacheWriteTokens: 0.625,
+  promptCacheReadTokens: 0.05,
+  webSearchRequests: 0,
+} as const satisfies ModelCosts
+
+// GLM-5-Turbo: fast economy tier ($0.30 input / $1.20 output per Mtok)
+export const COST_GLM_5_TURBO = {
+  inputTokens: 0.3,
+  outputTokens: 1.2,
+  promptCacheWriteTokens: 0.375,
+  promptCacheReadTokens: 0.03,
+  webSearchRequests: 0,
+} as const satisfies ModelCosts
+
 const DEFAULT_UNKNOWN_MODEL_COST = COST_TIER_5_25
 
 /**
@@ -123,6 +160,12 @@ export const MODEL_COSTS: Record<ModelShortName, ModelCosts> = {
     COST_TIER_5_25,
   [firstPartyNameToCanonical(CLAUDE_OPUS_4_6_CONFIG.firstParty)]:
     COST_TIER_5_25,
+
+  // GLM (Zhipu AI) — via ZAI Anthropic-compatible endpoint
+  'glm-5.1': COST_GLM_5_1,
+  'glm-4.7': COST_GLM_4_7,
+  'glm-4.5-air': COST_GLM_4_5_AIR,
+  'glm-5-turbo': COST_GLM_5_TURBO,
 }
 
 /**

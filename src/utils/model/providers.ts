@@ -1,3 +1,29 @@
+// ---------------------------------------------------------------------------
+// ZAI (Zhipu AI) — GLM models via Anthropic-compatible endpoint
+//
+// ZAI provides an Anthropic-compatible API for GLM models. It uses the
+// existing firstParty/Anthropic code path with a custom base URL.
+//
+// Configuration (set these environment variables):
+//   ANTHROPIC_API_KEY=your-zai-api-key        # or ZAI_API_KEY via a wrapper
+//   ANTHROPIC_BASE_URL=https://api.z.ai/api/paas/v4          # General endpoint
+//   # or: ANTHROPIC_BASE_URL=https://api.z.ai/api/coding/paas/v4  # Coding Plan (preserved thinking)
+//   ANTHROPIC_DEFAULT_SONNET_MODEL=glm-4.7
+//   ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.1
+//   ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5-turbo
+//
+// GLM features via ZAI:
+//   - Interleaved thinking: supported by default since GLM-4.5
+//   - Preserved thinking: enabled by default on the Coding Plan endpoint
+//   - Authentication: Bearer token (ZAI API key passed as ANTHROPIC_API_KEY)
+//
+// Available GLM models:
+//   glm-5.1      — 200K context, premium tier
+//   glm-4.7      — 200K context, standard tier
+//   glm-4.5-air  — 200K context, economy tier
+//   glm-5-turbo  — 200K context, fast economy tier
+// ---------------------------------------------------------------------------
+
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from '../../services/analytics/index.js'
 import { shouldUseCodexTransport } from '../../services/api/providerConfig.js'
 import { isEnvTruthy } from '../envUtils.js'
