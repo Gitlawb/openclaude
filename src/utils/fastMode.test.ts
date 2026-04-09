@@ -81,9 +81,6 @@ function installCommonMocks(options?: {
 
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'firstParty',
-    getAPIProviderForStatsig: () => 'firstParty',
-    usesAnthropicAccountFlow: () => true,
-    isFirstPartyAnthropicBaseUrl: () => true,
   }))
 
   mock.module('./privacyLevel.js', () => ({

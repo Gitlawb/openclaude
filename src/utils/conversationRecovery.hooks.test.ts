@@ -107,14 +107,6 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
 
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'openai',
-    getAPIProviderForStatsig: () => 'openai',
-    usesAnthropicAccountFlow: () => false,
-    isFirstPartyAnthropicBaseUrl: () => false,
-    isOpenAICompatibleProvider: (provider: string) =>
-      provider === 'openai' ||
-      provider === 'gemini' ||
-      provider === 'github' ||
-      provider === 'codex',
   }))
 
   const openaiModule = await import(`./conversationRecovery.ts?provider=openai-${Date.now()}`)
@@ -137,14 +129,6 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   mock.restore()
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'bedrock',
-    getAPIProviderForStatsig: () => 'bedrock',
-    usesAnthropicAccountFlow: () => false,
-    isFirstPartyAnthropicBaseUrl: () => false,
-    isOpenAICompatibleProvider: (provider: string) =>
-      provider === 'openai' ||
-      provider === 'gemini' ||
-      provider === 'github' ||
-      provider === 'codex',
   }))
 
   const bedrockModule = await import(`./conversationRecovery.ts?provider=bedrock-${Date.now()}`)
