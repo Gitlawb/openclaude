@@ -1,2 +1,0 @@
-// Stub
-export default null
