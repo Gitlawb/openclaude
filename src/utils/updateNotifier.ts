@@ -30,13 +30,13 @@ export async function notifyUpdates(): Promise<void> {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.log(
         chalk.green(`
-A new version of Open Claude is available: \${latestVersion} (current: \${currentVersion})
+A new version of Open Claude is available: ${latestVersion} (current: ${currentVersion})
 To update, please run:
-    npm install -g \${MACRO.PACKAGE_URL}
+    npm install -g ${MACRO.PACKAGE_URL}
 `),
       )
     }
   } catch (error) {
-    logForDebugging(`notifyUpdates failed: \${error}`)
+    logForDebugging(`notifyUpdates failed: ${error}`)
   }
 }
