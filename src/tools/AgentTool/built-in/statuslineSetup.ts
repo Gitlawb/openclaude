@@ -110,10 +110,11 @@ How to use the statusLine command:
    To display both 5-hour and 7-day limits when available:
    - input=$(cat); five=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty'); week=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty'); out=""; [ -n "$five" ] && out="5h:$(printf '%.0f' "$five")%"; [ -n "$week" ] && out="$out 7d:$(printf '%.0f' "$week")%"; echo "$out"
 
-2. For longer commands, you can save a new file in the user's ~/.claude directory, e.g.:
-   - ~/.claude/statusline-command.sh and reference that file in the settings.
+2. For longer commands, save a new file alongside the user's existing settings home instead of creating a new config directory.
+   - Prefer the currently used config home if one already exists.
+   - In most existing setups this will be ~/.claude/statusline-command.sh.
 
-3. Update the user's ~/.claude/settings.json with:
+3. Update the user's resolved settings file with:
    {
      "statusLine": {
        "type": "command", 
@@ -121,7 +122,10 @@ How to use the statusLine command:
      }
    }
 
-4. If ~/.claude/settings.json is a symlink, update the target file instead.
+4. Use the existing config home already in use by the installation.
+   - Prefer the settings file that already exists.
+   - If the settings file is a symlink, update the target file instead.
+   - Do not create a second parallel settings home just because another directory name also exists.
 
 Guidelines:
 - Preserve existing settings when updating
