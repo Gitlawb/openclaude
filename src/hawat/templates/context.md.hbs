@@ -1,0 +1,66 @@
+# Project Context - {{projectName}}
+
+*Auto-injected at session start via SessionStart hook*
+
+## Project Overview
+
+{{#if description}}
+{{description}}
+{{else}}
+[Brief description of what this project does]
+{{/if}}
+
+## Current State
+
+- **Phase**: [Development/Testing/Production]
+- **Active Work**: [Current focus areas]
+- **Known Issues**: [Any blockers or concerns]
+
+## Key Patterns
+
+{{#if-eq projectType "node"}}
+- Modules: ES Modules (import/export)
+- Style: [Your style guide - prettier/eslint]
+- Testing: Jest/Vitest
+{{else}}
+{{#if-eq projectType "typescript"}}
+- Modules: ES Modules with TypeScript
+- Style: [Your style guide - prettier/eslint]
+- Testing: Jest/Vitest with ts-jest
+{{else}}
+{{#if-eq projectType "python"}}
+- Structure: [src layout / flat]
+- Style: PEP 8, Black formatted
+- Testing: pytest
+{{else}}
+{{#if-eq projectType "go"}}
+- Structure: Standard Go layout
+- Style: gofmt
+- Testing: go test
+{{else}}
+{{#if-eq projectType "rust"}}
+- Structure: Cargo workspace
+- Style: rustfmt
+- Testing: cargo test
+{{else}}
+[Document your key patterns]
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+
+## Recent Decisions
+
+- {{current-date}}: Initialized with Hawat orchestration
+
+## File Organization
+
+```
+[Add your project structure here]
+```
+
+---
+
+*Update this file to maintain session context*
+*Last updated: {{current-date}}*

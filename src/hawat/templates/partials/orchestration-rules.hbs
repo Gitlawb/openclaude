@@ -1,0 +1,186 @@
+## Orchestration Rules
+
+### Task Management
+
+#### TodoWrite Rules
+
+1. **Use TodoWrite for any task with 3+ steps**
+   - Track progress visibly
+   - Break complex work into atomic items
+   - Provide user visibility into progress
+
+2. **Mark todos complete only when fully verified**
+   - Code compiles/runs
+   - Tests pass (if applicable)
+   - Quality checks pass
+   - Deliverable matches requirement
+
+3. **Never stop with incomplete todos**
+   - Continue until all items done
+   - Or explicitly blocked and documented
+   - User must see clear status
+
+4. **Break complex work into atomic tasks**
+   - One clear deliverable per todo
+   - Verifiable completion criteria
+   - Independent when possible
+
+#### Atomic Task Definition
+
+Each todo item must have:
+- **Single deliverable**: One thing that gets done
+- **Clear completion**: Know when it's finished
+- **Verifiable outcome**: Can prove it worked
+
+#### Examples
+
+**Good Todo Items**:
+- "Create user authentication endpoint"
+- "Add validation for email field"
+- "Write tests for login flow"
+- "Fix type error in utils.ts:45"
+
+**Bad Todo Items**:
+- "Work on authentication" (too vague)
+- "Fix stuff" (not specific)
+- "Make it better" (not verifiable)
+- "Various improvements" (not atomic)
+
+---
+
+### Error Recovery Protocol
+
+#### 3-Strikes Rule
+
+After **3 consecutive failures** on the same operation, execute recovery protocol.
+
+```
+Strike 1 → Attempt operation
+Strike 2 → Retry with adjustments
+Strike 3 → Retry again
+         │
+         ▼ (3rd failure)
+    ┌─────────┐
+    │  STOP   │ → Halt all modifications immediately
+    └────┬────┘
+         │
+    ┌─────────┐
+    │ STATUS  │ → Run git status to assess current state
+    └────┬────┘
+         │
+    ┌─────────┐
+    │ REVERT  │ → Use git restore (safer than git checkout)
+    └────┬────┘
+         │
+    ┌─────────┐
+    │DOCUMENT │ → Record what was attempted and what failed
+    └────┬────┘
+         │
+    ┌─────────┐
+    │ CONSULT │ → Task(Plan, opus) for alternative strategy
+    └────┬────┘
+         │
+    ┌─────────┐
+    │ESCALATE │ → AskUserQuestion if still stuck
+    └─────────┘
+```
+
+#### Recovery Actions Explained
+
+| Action | What To Do |
+|--------|------------|
+| **STOP** | Immediately halt all file modifications. Do not attempt any more changes. |
+| **STATUS** | Run `git status` to see what files are modified before reverting. |
+| **REVERT** | Run `git restore .` or `git restore <file>` to discard changes (safer than `git checkout`). For staged changes, run `git restore --staged .` first. |
+| **DOCUMENT** | In your response, clearly state: what was attempted, what failed, error messages. |
+| **CONSULT** | Use `Task(subagent_type="Plan", model="opus")` to get alternative approach. |
+| **ESCALATE** | Use `AskUserQuestion` to get user guidance on how to proceed. |
+
+#### Safe Recovery Commands (Git Projects)
+
+Always follow this sequence when reverting:
+
+```bash
+# Step 1: Check current state
+git status
+
+# Step 2: Unstage any staged changes
+git restore --staged .
+
+# Step 3: Discard working directory changes
+git restore .
+
+# Alternative: Restore specific file only
+git restore --staged <file>
+git restore <file>
+```
+
+**Why `git restore` instead of `git checkout`?**
+- `git restore` is the modern replacement (Git 2.23+)
+- Clearer intent: restore is explicitly for restoring files
+- Safer: `git checkout` can switch branches if used incorrectly
+- Avoids accidental branch operations when recovering from errors
+
+#### Recovery for Non-Git Projects
+
+If the project is not using git version control:
+
+1. **Check for backups**: Look for `.bak` files created by Hawat or your editor
+2. **List recent backups**:
+   ```bash
+   find . -name "*.bak" -mmin -60    # Backups from last hour
+   find . -name "*.backup" -type f   # Alternative backup extension
+   ```
+3. **Restore from backup**:
+   ```bash
+   cp file.bak file                  # Restore single file
+   ```
+4. **If no backups exist**: Use AskUserQuestion immediately to get guidance
+5. **Be extra cautious**: Without version control, changes are harder to recover
+
+**Important**: For non-git projects, consider creating manual backups before risky operations:
+```bash
+cp important-file.js important-file.js.bak
+```
+
+#### What Counts as a Failure
+
+- Edit operation fails (string not found)
+- Build/compile fails
+- Tests fail after changes
+- Type checking fails
+- Lint errors not resolvable
+- Command returns error code
+- File operation errors
+
+#### What Does NOT Reset Strike Count
+
+- Trying a different approach to same problem
+- Making small adjustments to failing code
+- Retrying with minor modifications
+
+#### What DOES Reset Strike Count
+
+- Moving to a completely different task
+- User provides new direction
+- Successfully completing an operation
+- Explicit user override
+
+#### Never Allowed
+
+- Continue hoping errors will resolve
+- Delete or skip failing tests
+- Ignore type errors or warnings
+- Leave code in broken state
+- Make changes without understanding context
+- Commit broken code
+
+---
+
+### Context Management
+
+- Read CLAUDE.md at session start
+- Update .claude/context.md for persistent state
+- Use .claude/checkpoint.md for long-running tasks
+- Check .claude/critical-context.md after compaction
+- Preserve context across session boundaries

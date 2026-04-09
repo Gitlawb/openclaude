@@ -1,0 +1,188 @@
+## Hawat Skills (Claude Code 2.1+)
+
+### Available Skills
+
+Hawat provides 11 specialized skills that can be invoked with `/hawat-<skill>`:
+
+#### Core Skills (Phase 4)
+
+| Skill | Context | Purpose |
+|-------|---------|---------|
+| `hawat-orchestrate` | main | Main workflow coordination and task management |
+| `hawat-explore` | **forked** | Isolated codebase exploration (doesn't pollute context) |
+| `hawat-validate` | main | Pre-completion quality gates and verification |
+
+#### Extended Skills (Phase 5)
+
+| Skill | Context | Purpose |
+|-------|---------|---------|
+| `hawat-lsp` | **forked** | Semantic code operations (go-to-definition, find references) |
+| `hawat-refactor` | **forked** | AST-grep structural code transformations |
+| `hawat-checkpoint` | main | Session state checkpointing and recovery |
+| `hawat-tdd` | **forked** | Test-driven development workflow |
+| `hawat-parallel-explore` | **forked** | Multiple parallel exploration queries |
+| `hawat-incremental-refactor` | **forked** | Per-file refactoring with verification |
+| `hawat-doc-sync` | main | Documentation synchronization with code |
+| `hawat-quality-gate` | main | Pre-completion quality verification |
+
+### Forked Context (Key Feature)
+
+The `hawat-explore` skill uses **forked context**, a Claude Code 2.1 feature:
+
+```yaml
+---
+name: hawat-explore
+context: fork                    # Isolated context
+---
+```
+
+**Benefits:**
+- Exploration doesn't consume main session context
+- Can read 50+ files without context bloat
+- Only summarized results return to main session
+- Perfect for research and discovery tasks
+
+### Using Skills
+
+**Invoke a skill:**
+```
+/hawat-explore Find all API endpoints and their handlers
+```
+
+**Skill-specific hooks fire automatically:**
+- PreToolUse: Validate commands before execution
+- Stop: Cleanup and notification when skill completes
+
+### Skill Frontmatter Hooks
+
+Skills can define hooks directly in their frontmatter (Claude Code 2.1):
+
+```yaml
+---
+name: my-skill
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: "echo 'Validating...'"
+  PostToolUse:
+    - matcher: Edit|Write
+      hooks:
+        - type: command
+          command: "npm run lint $FILE"
+  Stop:
+    - type: command
+      command: "echo 'Skill complete'"
+---
+```
+
+**Available Hook Events:**
+| Event | Trigger | Use Case |
+|-------|---------|----------|
+| `PreToolUse` | Before tool execution | Validation, safety checks |
+| `PostToolUse` | After tool execution | Formatting, linting, logging |
+| `Stop` | Skill completion | Cleanup, notifications |
+
+---
+
+## Permission Patterns (Claude Code 2.1 Wildcards)
+
+### Wildcard Syntax
+
+Claude Code 2.1 supports flexible wildcard permissions:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm *)",           // All npm commands
+      "Bash(git *)",           // All git commands
+      "Bash(*--help)",         // Any help command
+      "Bash(*--version)",      // Any version check
+      "Bash(*-h)"              // Short help flags
+    ],
+    "deny": [
+      "Bash(rm -rf *)",        // Block recursive delete
+      "Bash(sudo *)",          // Block privilege escalation
+      "Bash(curl * | sh)"      // Block pipe to shell
+    ]
+  }
+}
+```
+
+### Pattern Examples
+
+| Pattern | Matches | Examples |
+|---------|---------|----------|
+| `Bash(npm *)` | Any npm command | `npm install`, `npm test`, `npm run build` |
+| `Bash(git *)` | Any git command | `git status`, `git commit -m "..."` |
+| `Bash(*--help)` | Help flags | `node --help`, `npm --help` |
+| `Bash(*-v)` | Version flags | `node -v`, `python -v` |
+
+### Deny Patterns (Security)
+
+These patterns are always blocked for safety:
+
+| Pattern | Reason |
+|---------|--------|
+| `Bash(rm -rf /)` | Prevents root deletion |
+| `Bash(sudo *)` | Prevents privilege escalation |
+| `Bash(curl * \| sh)` | Prevents remote code execution |
+| `Bash(eval *)` | Prevents arbitrary code execution |
+| `Read(**/.env*)` | Protects secrets |
+| `Write(**/.ssh/**)` | Protects SSH keys |
+
+### Project-Type Specific
+
+Your project type ({{projectType}}) has these allowed patterns:
+
+{{#if-eq projectType "node"}}
+```
+Bash(npm *)     - Package management
+Bash(npx *)     - Package execution
+Bash(node *)    - Node runtime
+Bash(yarn *)    - Yarn package manager
+Bash(pnpm *)    - PNPM package manager
+Bash(jest *)    - Jest testing
+Bash(eslint *)  - Linting
+Bash(prettier *)- Formatting
+Bash(tsc *)     - TypeScript compiler
+```
+{{else}}
+{{#if-eq projectType "python"}}
+```
+Bash(python *)  - Python runtime
+Bash(pip *)     - Package management
+Bash(pytest *)  - Testing
+Bash(poetry *)  - Poetry package manager
+Bash(uv *)      - UV package manager
+Bash(black *)   - Formatting
+Bash(ruff *)    - Linting
+Bash(mypy *)    - Type checking
+```
+{{else}}
+{{#if-eq projectType "go"}}
+```
+Bash(go *)      - Go toolchain
+Bash(make *)    - Makefile execution
+Bash(gofmt *)   - Formatting
+Bash(golint *)  - Linting
+```
+{{else}}
+{{#if-eq projectType "rust"}}
+```
+Bash(cargo *)   - Cargo package manager
+Bash(rustc *)   - Rust compiler
+Bash(rustfmt *) - Formatting
+Bash(clippy *)  - Linting
+Bash(rustup *)  - Toolchain management
+```
+{{else}}
+```
+Bash(make *)    - Makefile execution
+```
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}

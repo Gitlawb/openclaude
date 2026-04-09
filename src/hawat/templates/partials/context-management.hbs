@@ -1,0 +1,270 @@
+## Context Management
+
+### Why Context Management Matters
+
+Claude Code has limited context window. Without proactive management:
+- Important information gets lost during compaction
+- Long tasks lose track of objectives
+- Session continuity breaks down
+
+---
+
+### Proactive Context Preservation
+
+#### Strategy 1: Summarize Early
+
+Don't wait for context pressure. Summarize proactively.
+
+**After Exploration**:
+```markdown
+## Exploration Summary
+- Found auth code in: src/auth/
+- Key files: login.ts, session.ts, middleware.ts
+- Pattern: JWT with refresh tokens
+- Dependency: jsonwebtoken@9.0.0
+```
+
+**After Implementation**:
+```markdown
+## Implementation Summary
+- Added validation to src/api/users.ts
+- Created schema in src/validators/user.ts
+- Updated tests in tests/users.test.ts
+- All tests passing
+```
+
+**Before Context Grows**:
+- If working on long task, summarize progress periodically
+- Don't let important details exist only in conversation history
+
+#### Strategy 2: File-Based Memory
+
+Store important information in project files, not conversation.
+
+**Good Practices**:
+```markdown
+# Store decisions in files
+Write to .claude/context.md: "Chose JWT over sessions because..."
+
+# Reference paths, not content
+"Authentication logic is in src/auth/login.ts:45"
+NOT
+"The authentication code is: [50 lines of code]"
+
+# Keep CLAUDE.md updated
+Add project-specific notes to CLAUDE.md as discovered
+```
+
+**Memory Hierarchy**:
+| Location | Use For | Survives |
+|----------|---------|----------|
+| Response text | Immediate communication | No |
+| TodoWrite | Task tracking | Yes |
+| .claude/context.md | Session context | Yes |
+| .claude/critical-context.md | Critical info | Compaction |
+| CLAUDE.md | Permanent project rules | Always |
+
+#### Strategy 3: Structured Responses
+
+Keep responses focused and scannable.
+
+**Good Structure**:
+```markdown
+## Summary
+[2-3 sentences]
+
+## Changes
+- File 1: [change]
+- File 2: [change]
+
+## Next Steps
+1. [Step]
+2. [Step]
+```
+
+**Bad Structure**:
+```
+Long paragraph explaining everything that was done
+in great detail with lots of words that could be
+summarized more concisely and formatted better for
+scanning and retention of key information...
+```
+
+---
+
+### Context Pressure Signs
+
+Watch for these warning signs:
+
+| Sign | Action |
+|------|--------|
+| Responses being truncated | Summarize immediately |
+| Losing track of objectives | Write objectives to file |
+| Forgetting earlier decisions | Document decisions in file |
+| Repeated exploration of same areas | Note results in context.md |
+
+---
+
+### Recovery from Context Loss
+
+If context has been compacted:
+
+1. **Read project files**: CLAUDE.md, .claude/context.md
+2. **Check todos**: Understand work in progress
+3. **Ask user**: If critical info was lost
+4. **Re-explore**: If necessary, but minimize
+
+---
+
+### Critical Context Preservation
+
+#### What MUST Be Preserved
+
+These items should never be lost:
+
+| Item | Why Critical | How to Preserve |
+|------|--------------|-----------------|
+| **Current objectives** | Core purpose of work | Write to context.md |
+| **File paths being modified** | Can't continue without | Note in responses |
+| **Key decisions made** | Maintain consistency | Document rationale |
+| **Error history** | Avoid repeat failures | Log in context.md |
+| **User requirements** | Must deliver correctly | Reference in todos |
+
+#### Preservation Locations
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                 PRESERVATION HIERARCHY                   │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  CLAUDE.md                                              │
+│  └── Permanent project rules                            │
+│      Survives everything                                │
+│                                                         │
+│  .claude/critical-context.md                            │
+│  └── Injected during PreCompact hook                    │
+│      Survives compaction                                │
+│                                                         │
+│  .claude/context.md                                     │
+│  └── Injected at session start                          │
+│      Survives new sessions                              │
+│                                                         │
+│  TodoWrite                                              │
+│  └── Task tracking                                      │
+│      Persists across conversation                       │
+│                                                         │
+│  Response text                                          │
+│  └── Immediate communication                            │
+│      May be compacted                                   │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### critical-context.md Template
+
+```markdown
+# Critical Context
+
+## NEVER FORGET
+- This project uses Hawat orchestration
+- Follow patterns in src/patterns/
+{{#if-eq projectType "node"}}
+- Run `npm test` before completing
+{{else}}
+{{#if-eq projectType "typescript"}}
+- Run `npm test` and `npx tsc --noEmit` before completing
+{{else}}
+{{#if-eq projectType "python"}}
+- Run `pytest` before completing
+{{else}}
+{{#if-eq projectType "go"}}
+- Run `go test ./...` before completing
+{{else}}
+{{#if-eq projectType "rust"}}
+- Run `cargo test` before completing
+{{else}}
+- Run quality checks before completing
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+
+## CURRENT OBJECTIVE
+[Single clear statement of what we're trying to accomplish]
+
+## FILES IN PROGRESS
+- src/api/users.ts - Adding validation
+- src/validators/user.ts - New file
+
+## DECISIONS MADE
+- Using Zod for validation (matches existing pattern)
+- Error format: { error: string, field: string }
+
+## BLOCKERS / ISSUES
+- [None currently]
+```
+
+#### When to Write Critical Context
+
+**Always write when**:
+- Starting a complex multi-step task
+- Making architectural decisions
+- Before any risky operations
+- When context is getting long
+- Before expected compaction
+
+**Update when**:
+- Completing major milestones
+- Making new decisions
+- Encountering issues
+- Changing direction
+
+#### Critical Context Checklist
+
+```markdown
+Before Complex Work:
+☐ Objective written to critical-context.md
+☐ Key file paths noted
+☐ Any constraints documented
+
+During Work:
+☐ Decisions documented as made
+☐ Issues logged when encountered
+☐ Progress noted at milestones
+
+Before Compaction (if possible):
+☐ Current state summarized
+☐ Next steps noted
+☐ Critical info in file (not just conversation)
+```
+
+#### Recovery After Context Loss
+
+If critical information was lost:
+
+1. **Check Files First**:
+   ```bash
+   cat .claude/critical-context.md
+   cat .claude/context.md
+   cat CLAUDE.md  # Project-specific section
+   ```
+
+2. **Check Todos**:
+   - What was in progress?
+   - What was completed?
+
+3. **Check Git**:
+   ```bash
+   git status
+   git log --oneline -5
+   git diff
+   ```
+
+4. **Ask User**:
+   - "It seems I've lost some context. Can you remind me what we were working on?"
+   - Provide what you DO know to help them help you
+
+5. **Re-establish**:
+   - Write recovered context to file
+   - Prevent loss next time

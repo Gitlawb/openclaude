@@ -1,0 +1,230 @@
+## Codebase Maturity Assessment
+
+### Why Maturity Matters
+
+Different codebases require different approaches:
+- **Disciplined** codebases have patterns that must be followed exactly
+- **Transitional** codebases are evolving and need careful balance
+- **Legacy** codebases need conservative, incremental changes
+- **Greenfield** projects can establish best practices from the start
+
+Assess maturity when first working with a codebase to calibrate behavior appropriately.
+
+---
+
+### Maturity Levels
+
+| Level | Description | Indicators | Approach |
+|-------|-------------|------------|----------|
+| **DISCIPLINED** | Well-maintained, consistent patterns | High test coverage, enforced style, clear architecture | Follow existing patterns EXACTLY |
+| **TRANSITIONAL** | Evolving codebase, mixed patterns | Partial coverage, some legacy code, ongoing improvements | Respect existing, introduce new carefully |
+| **LEGACY** | Technical debt, inconsistent patterns | Low coverage, varied styles, limited docs | Be conservative, propose improvements |
+| **GREENFIELD** | New project, no existing patterns | Empty or minimal codebase | Establish best practices from start |
+
+---
+
+### Level Indicators
+
+#### DISCIPLINED Codebase
+
+**Observable Indicators**:
+- [ ] Test coverage > 70%
+- [ ] Consistent code style across all files
+- [ ] Clear directory structure with logical organization
+- [ ] Comprehensive documentation (README, API docs, inline comments)
+- [ ] CI/CD with quality gates enforced
+- [ ] Type safety strictly enforced
+- [ ] Linting/formatting automated and consistent
+
+**Behavioral Adjustments**:
+- Match existing patterns exactly - don't introduce new patterns
+- Follow established conventions precisely
+- All changes require corresponding tests
+- Respect existing architecture - propose changes through proper channels
+- Documentation updates required when behavior changes
+
+#### TRANSITIONAL Codebase
+
+**Observable Indicators**:
+- [ ] Test coverage 30-70%
+- [ ] Mix of old and new patterns
+- [ ] Some legacy code remaining in older areas
+- [ ] Partial documentation (README exists, some inline docs)
+- [ ] CI exists but may have gaps
+- [ ] Types partially enforced
+
+**Behavioral Adjustments**:
+- Follow new patterns for new code
+- Respect legacy patterns in old areas
+- Propose cleanups when touching old code
+- Add tests for new functionality
+- Gradual improvement is acceptable
+- Document patterns as you discover them
+
+#### LEGACY Codebase
+
+**Observable Indicators**:
+- [ ] Test coverage < 30%
+- [ ] Inconsistent styles across files
+- [ ] Unclear or undocumented architecture
+- [ ] Minimal or outdated documentation
+- [ ] Technical debt visible everywhere
+- [ ] Missing or inconsistent types
+
+**Behavioral Adjustments**:
+- Be very conservative with changes
+- Document unexpected behaviors when found
+- Add tests before making modifications
+- Propose but don't force cleanups
+- Extra verification before and after changes
+- Small, incremental improvements preferred
+- Never assume code behavior - verify everything
+
+#### GREENFIELD Project
+
+**Observable Indicators**:
+- [ ] New or nearly empty project
+- [ ] No established patterns yet
+- [ ] Fresh start opportunity
+- [ ] Minimal existing code to reference
+
+**Behavioral Adjustments**:
+- Establish best practices immediately
+- Set up proper structure from the start
+- Implement comprehensive testing from day one
+- Create documentation as you go
+- Use modern patterns and tools
+- Set quality standards early
+
+---
+
+### Maturity Assessment Checklist
+
+Use this checklist when first working with a codebase:
+
+#### Step 1: Quick Scan
+
+Run these commands to gather initial data:
+
+```bash
+# Check for test files
+find . -name "*test*" -o -name "*spec*" | grep -v node_modules | wc -l
+
+# Check for config files (quality tooling)
+ls -la *.config.* .eslintrc* .prettierrc* pyproject.toml Cargo.toml 2>/dev/null
+
+# Check for CI/CD
+ls -la .github/workflows/ .gitlab-ci.yml .circleci/ 2>/dev/null
+
+# Check for type definitions (TypeScript, Python typed)
+find . -name "*.d.ts" -o -name "py.typed" | grep -v node_modules | wc -l
+
+# Check documentation
+ls -la README* docs/ CONTRIBUTING* 2>/dev/null
+```
+
+#### Step 2: Evaluate Criteria
+
+| Criterion | Score | Your Notes |
+|-----------|-------|------------|
+| **Test Coverage** | | |
+| - High (>70%) | +3 | |
+| - Medium (30-70%) | +2 | |
+| - Low (<30%) | +1 | |
+| - None | 0 | |
+| **Code Consistency** | | |
+| - Very consistent | +3 | |
+| - Mostly consistent | +2 | |
+| - Mixed | +1 | |
+| - Inconsistent | 0 | |
+| **Documentation** | | |
+| - Comprehensive | +3 | |
+| - Partial | +2 | |
+| - Minimal | +1 | |
+| - None | 0 | |
+| **CI/CD** | | |
+| - Full pipeline with quality gates | +2 | |
+| - Basic CI (tests only) | +1 | |
+| - None | 0 | |
+| **Type Safety** | | |
+| - Strict types enforced | +2 | |
+| - Partial types | +1 | |
+| - No types | 0 | |
+
+**Total Score: ___/13**
+
+#### Step 3: Determine Level
+
+| Score Range | Maturity Level |
+|-------------|----------------|
+| 10-13 | DISCIPLINED |
+| 6-9 | TRANSITIONAL |
+| 3-5 | LEGACY |
+| 0-2 | Check if GREENFIELD |
+
+---
+
+### Quick Assessment Questions
+
+If you can't run commands, answer these questions:
+
+1. **Are there test files visible?**
+   - Many → Likely DISCIPLINED or TRANSITIONAL
+   - Some → Likely TRANSITIONAL
+   - Few/None → Likely LEGACY
+
+2. **Is there a linter/formatter config?**
+   - Yes, actively used → Higher maturity
+   - Exists but inconsistent → TRANSITIONAL
+   - None → LEGACY
+
+3. **Is the code consistently styled?**
+   - Yes → DISCIPLINED
+   - Mostly → TRANSITIONAL
+   - No → LEGACY
+
+4. **Is there documentation?**
+   - README + docs folder → Higher maturity
+   - Just README → TRANSITIONAL
+   - Minimal/None → LEGACY
+
+5. **Is this a new project?**
+   - Yes, mostly empty → GREENFIELD
+
+---
+
+### Document Assessment in Project Context
+
+After assessment, document in the project-specific section:
+
+```markdown
+## Codebase Maturity: [LEVEL]
+
+Assessed on: [DATE]
+
+### Assessment Summary
+- Test coverage: [high/medium/low/none]
+- Code consistency: [consistent/mixed/inconsistent]
+- Documentation: [comprehensive/partial/minimal/none]
+- CI/CD: [full/basic/none]
+- Type safety: [strict/partial/none]
+- Score: [X]/13
+
+### Notable Observations
+[Any specific observations about the codebase that affect approach]
+
+### Approach Guidelines
+[Specific guidelines based on maturity level and project characteristics]
+```
+
+---
+
+### Maturity-Aware Behavior Summary
+
+| Action | DISCIPLINED | TRANSITIONAL | LEGACY | GREENFIELD |
+|--------|-------------|--------------|--------|------------|
+| **New patterns** | Never without discussion | Carefully in new code | Avoid | Establish best practices |
+| **Test changes** | Required | Required for new | Add before modifying | Required from start |
+| **Documentation** | Update when behavior changes | Add when missing | Document discoveries | Create as you go |
+| **Refactoring** | Follow existing patterns | Gradual improvement | Small incremental | Set good patterns |
+| **Style** | Match exactly | Match local style | Improve when touching | Establish standards |

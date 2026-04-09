@@ -1,0 +1,122 @@
+## Checkpoint System
+
+Checkpoints preserve session state for recovery and continuity.
+Use them before risky operations and at regular intervals.
+
+### Checkpoint Triggers
+
+Create checkpoints at:
+
+| Trigger | When | Why |
+|---------|------|-----|
+| **Time** | Every 30 minutes | Regular state preservation |
+| **Milestone** | After phase completion | Mark progress points |
+| **Risk** | Before refactoring | Enable rollback |
+| **Request** | User asks to save | Explicit preservation |
+
+### Checkpoint Location
+
+```
+.claude/
+├── checkpoint.md           # Current session checkpoint
+├── critical-context.md     # Survives context compaction
+└── context.md              # Session context
+```
+
+### Checkpoint Contents
+
+A checkpoint captures:
+
+1. **Objective** - What we're trying to accomplish
+2. **Git State** - Current branch and status
+3. **Todo State** - Active, completed, pending todos
+4. **Files in Progress** - What's being modified
+5. **Critical Decisions** - Important choices made
+6. **Next Steps** - Where to resume
+
+### Using the Checkpoint Skill
+
+To create a checkpoint:
+```
+/hawat-checkpoint
+```
+
+To recover from a checkpoint:
+```
+Read .claude/checkpoint.md and resume from the documented state.
+```
+
+### Checkpoint Template
+
+```markdown
+# Session Checkpoint
+
+**Created**: 2026-01-08T12:34:56Z
+**Branch**: feature/new-feature
+**Objective**: Implement user authentication
+
+## Git Status
+M src/auth.ts
+M src/middleware.ts
+?? src/auth.test.ts
+
+## Active Todos
+| Status | Task |
+|--------|------|
+| ✅ | Set up auth middleware |
+| 🔄 | Implement login endpoint |
+| ⏳ | Add logout functionality |
+| ⏳ | Write tests |
+
+## Files in Progress
+- `src/auth.ts`: Implementing JWT validation
+- `src/middleware.ts`: Adding auth middleware to routes
+
+## Critical Decisions
+1. Using JWT over sessions for stateless auth
+2. Token expiry set to 24 hours
+3. Refresh tokens stored in httpOnly cookies
+
+## Recovery Instructions
+1. Check git status for uncommitted changes
+2. Resume implementing login endpoint
+3. JWT signing key is in .env (don't commit)
+
+## Next Steps
+- [ ] Complete login endpoint implementation
+- [ ] Add error handling for invalid credentials
+- [ ] Write integration tests
+```
+
+### Recovery Workflow
+
+When resuming from a checkpoint:
+
+```
+1. Read checkpoint file
+2. Verify git state matches
+3. Review any uncommitted changes
+4. Restore todo state
+5. Continue from "Next Steps"
+```
+
+### Automatic Checkpoints
+
+Hooks can create automatic checkpoints:
+
+```json
+{
+  "hooks": {
+    "PreCompact": [
+      {"type": "command", "command": "cat .claude/critical-context.md"}
+    ]
+  }
+}
+```
+
+### Best Practices
+
+- **Checkpoint before refactoring** - Easy rollback if things break
+- **Include rationale** - Future you needs context
+- **Keep it current** - Stale checkpoints are useless
+- **Don't over-checkpoint** - Every 30 min is usually enough

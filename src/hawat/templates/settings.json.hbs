@@ -1,0 +1,254 @@
+{{!-- Settings template. Paths reference the config directory set in PROVIDER_CONFIG.
+    Default: .claude (Claude Code). Override PROVIDER_CONFIG for other engines. --}}
+{
+  "hooks": {
+{{#if useHooks}}
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "{{configDirName}}/scripts/validate-bash-command.sh \"$COMMAND\""}
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {"type": "command", "command": "{{configDirName}}/scripts/pre-edit-check.sh \"$FILE\""}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+{{#if-eq projectType "node"}}
+          {"type": "command", "command": "npx prettier --write \"$FILE\" 2>/dev/null || true"},
+          {"type": "command", "command": "npx eslint --fix \"$FILE\" 2>/dev/null || true"},
+{{else}}
+{{#if-eq projectType "typescript"}}
+          {"type": "command", "command": "npx prettier --write \"$FILE\" 2>/dev/null || true"},
+          {"type": "command", "command": "npx eslint --fix \"$FILE\" 2>/dev/null || true"},
+{{else}}
+{{#if-eq projectType "python"}}
+          {"type": "command", "command": "black \"$FILE\" 2>/dev/null || true"},
+          {"type": "command", "command": "ruff check --fix \"$FILE\" 2>/dev/null || true"},
+{{else}}
+{{#if-eq projectType "go"}}
+          {"type": "command", "command": "gofmt -w \"$FILE\" 2>/dev/null || true"},
+          {"type": "command", "command": "go vet \"$(dirname \"$FILE\")\" 2>/dev/null || true"},
+{{else}}
+{{#if-eq projectType "rust"}}
+          {"type": "command", "command": "rustfmt \"$FILE\" 2>/dev/null || true"},
+          {"type": "command", "command": "cargo clippy --fix --allow-dirty --allow-staged 2>/dev/null || true"},
+{{else}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+          {"type": "command", "command": "{{configDirName}}/scripts/post-edit-log.sh \"$FILE\""}
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {"type": "command", "command": "{{configDirName}}/scripts/error-detector.sh \"$TOOL_NAME\" \"$EXIT_CODE\""}
+        ]
+      }
+    ],
+    "SessionStart": [
+      {"type": "command", "command": "cat {{configDirName}}/context.md 2>/dev/null || true"}
+    ],
+    "Stop": [
+      {"type": "command", "command": "{{configDirName}}/scripts/notify-idle.sh"}
+    ],
+    "PreCompact": [
+      {"type": "command", "command": "cat {{configDirName}}/critical-context.md 2>/dev/null || true"}
+    ]
+{{/if}}
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ls *)",
+      "Bash(cat *.md)",
+      "Bash(cat *.txt)",
+      "Bash(cat *.json)",
+      "Bash(cat *.yml)",
+      "Bash(cat *.yaml)",
+      "Bash(cat *.toml)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(which *)",
+      "Bash(pwd)",
+      "Bash(echo *)",
+      "Bash(wc *)",
+      "Bash(diff *)",
+      "Bash(git *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(touch *)",
+      "Bash(*--help)",
+      "Bash(*--version)",
+      "Bash(*-h)",
+      "Bash(*-v)",
+{{#if-eq projectType "node"}}
+      "Bash(npm *)",
+      "Bash(npx eslint *)",
+      "Bash(npx prettier *)",
+      "Bash(npx jest *)",
+      "Bash(npx vitest *)",
+      "Bash(npx tsc *)",
+      "Bash(npx tsx *)",
+      "Bash(node *)",
+      "Bash(yarn *)",
+      "Bash(pnpm *)",
+      "Bash(jest *)",
+      "Bash(eslint *)",
+      "Bash(prettier *)",
+      "Bash(tsc *)",
+      "Bash(vitest *)",
+      "Bash(tsx *)"
+{{else}}
+{{#if-eq projectType "typescript"}}
+      "Bash(npm *)",
+      "Bash(npx eslint *)",
+      "Bash(npx prettier *)",
+      "Bash(npx jest *)",
+      "Bash(npx vitest *)",
+      "Bash(npx tsc *)",
+      "Bash(npx tsx *)",
+      "Bash(node *)",
+      "Bash(yarn *)",
+      "Bash(pnpm *)",
+      "Bash(jest *)",
+      "Bash(eslint *)",
+      "Bash(prettier *)",
+      "Bash(tsc *)",
+      "Bash(vitest *)",
+      "Bash(tsx *)"
+{{else}}
+{{#if-eq projectType "python"}}
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)",
+      "Bash(pytest *)",
+      "Bash(poetry *)",
+      "Bash(pdm *)",
+      "Bash(uv *)",
+      "Bash(black *)",
+      "Bash(ruff *)",
+      "Bash(mypy *)",
+      "Bash(pyright *)"
+{{else}}
+{{#if-eq projectType "go"}}
+      "Bash(go *)",
+      "Bash(make *)",
+      "Bash(gofmt *)",
+      "Bash(golint *)",
+      "Bash(golangci-lint *)",
+      "Bash(air *)"
+{{else}}
+{{#if-eq projectType "rust"}}
+      "Bash(cargo *)",
+      "Bash(rustc *)",
+      "Bash(rustfmt *)",
+      "Bash(clippy *)",
+      "Bash(rustup *)"
+{{else}}
+      "Bash(make *)"
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf ~/*)",
+      "Bash(rm -rf $HOME)",
+      "Bash(rm -rf $HOME/*)",
+      "Bash(curl * | sh)",
+      "Bash(curl * | bash)",
+      "Bash(wget * | sh)",
+      "Bash(wget * | bash)",
+      "Bash(bash -c *curl*)",
+      "Bash(bash -c *wget*)",
+      "Bash(chmod 777 *)",
+      "Bash(chmod -R 777 *)",
+      "Bash(sudo *)",
+      "Bash(su *)",
+      "Bash(su)",
+      "Bash(eval *)",
+      "Bash(exec *)",
+      "Bash(env *)",
+      "Bash(dd if=*)",
+      "Bash(mkfs *)",
+      "Bash(:(){:|:&};:)",
+      "Bash(> /dev/*)",
+      "Bash(\\rm *)",
+      "Bash(\\sudo *)",
+      "Bash(\\eval *)",
+      "Bash(\\exec *)",
+      "Bash(\\dd *)",
+      "Bash(npx *bash*)",
+      "Bash(npx *sh*)",
+      "Bash(npx *curl*)",
+      "Bash(npx *wget*)",
+      "Bash('rm' *)",
+      "Bash(\"rm\" *)",
+      "Bash('sudo' *)",
+      "Bash(\"sudo\" *)",
+      "Bash('eval' *)",
+      "Bash(\"eval\" *)",
+      "Bash(command rm *)",
+      "Bash(command sudo *)",
+      "Bash(command eval *)",
+      "Bash(command exec *)",
+      "Bash(command dd *)",
+      "Bash(/bin/rm *)",
+      "Bash(/usr/bin/rm *)",
+      "Bash(/bin/dd *)",
+      "Bash(/usr/bin/dd *)",
+      "Bash(/bin/su *)",
+      "Bash(/bin/su)",
+      "Bash(/usr/bin/sudo *)",
+      "Bash(%72m *)",
+      "Bash(%73udo *)",
+      "Bash(%65val *)",
+      "Bash(%64d *)",
+      "Bash(*%72m -rf*)",
+      "Bash(*%73udo*)",
+      "Bash(*%65val*)",
+      "Bash(builtin eval *)",
+      "Bash(builtin exec *)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(.env.local)",
+      "Read(.env.production)",
+      "Read(**/secrets/**)",
+      "Read(**/.git/config)",
+      "Read(**/*credentials*)",
+      "Read(**/*password*)",
+      "Read(**/.ssh/**)",
+      "Read(**/.aws/**)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Write(.env)",
+      "Write(.env.*)",
+      "Write(.env.local)",
+      "Write(.env.production)",
+      "Write(**/secrets/**)",
+      "Write(**/.git/config)",
+      "Write(**/*credentials*)",
+      "Write(**/.ssh/**)",
+      "Write(**/*.pem)",
+      "Write(**/*.key)"
+    ]
+  }
+}

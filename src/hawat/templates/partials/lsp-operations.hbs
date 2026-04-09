@@ -1,0 +1,122 @@
+## LSP Operations
+
+Hawat supports semantic code operations through LSP (Language Server Protocol).
+These provide accurate, language-aware navigation and refactoring.
+
+### Available Operations
+
+| Operation | Description | Fallback |
+|-----------|-------------|----------|
+| **Go to Definition** | Jump to symbol definition | Grep search |
+| **Find References** | All usages of a symbol | Grep search |
+| **Get Diagnostics** | Errors and warnings | Compiler output |
+| **Hover Info** | Documentation and types | Doc comments |
+| **Rename Symbol** | Safe cross-project rename | ast-grep or sed |
+
+### MCP Language Server Integration
+
+If `mcp-language-server` is configured, semantic operations are automatic:
+
+```json
+{
+  "mcpServers": {
+    "language-server": {
+      "command": "mcp-language-server",
+      "args": ["--workspace", "/path/to/project", "--lsp", "gopls"]
+    }
+  }
+}
+```
+
+**Supported Language Servers:**
+- **Go**: gopls
+- **Rust**: rust-analyzer
+- **Python**: pyright
+- **TypeScript/JavaScript**: typescript-language-server
+- **C/C++**: clangd
+
+### CLI Fallbacks
+
+When LSP MCP is not available, use CLI tools:
+
+{{#if-eq projectType "node"}}
+```bash
+# TypeScript/JavaScript
+npx tsc --noEmit                    # Diagnostics
+grep -rn "function NAME" src/        # Find definition
+grep -rn "symbolName" src/           # Find references
+```
+{{else}}
+{{#if-eq projectType "typescript"}}
+```bash
+# TypeScript
+npx tsc --noEmit                    # Diagnostics
+grep -rn "function NAME" src/        # Find definition
+grep -rn "symbolName" src/           # Find references
+```
+{{else}}
+{{#if-eq projectType "python"}}
+```bash
+# Python
+pyright . --outputjson              # Diagnostics
+grep -rn "def NAME\|class NAME" .   # Find definition
+grep -rn "symbolName" .             # Find references
+python -m pydoc module.Symbol       # Documentation
+```
+{{else}}
+{{#if-eq projectType "go"}}
+```bash
+# Go
+go vet ./...                        # Diagnostics
+go doc package.Symbol               # Documentation
+grep -rn "func NAME" .              # Find definition
+grep -rn "symbolName" .             # Find references
+```
+{{else}}
+{{#if-eq projectType "rust"}}
+```bash
+# Rust
+cargo check                         # Diagnostics
+cargo doc --open                    # Documentation
+grep -rn "fn NAME\|struct NAME" src/ # Find definition
+grep -rn "symbolName" src/          # Find references
+```
+{{else}}
+```bash
+# Generic fallback
+grep -rn "function\|def\|func NAME" . # Find definition
+grep -rn "symbolName" .               # Find references
+```
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+
+### Using the hawat-lsp Skill
+
+For complex semantic operations, invoke the LSP skill:
+
+```
+/hawat-lsp
+
+Find all references to the UserService class
+```
+
+The skill will:
+1. Try LSP MCP first (if configured)
+2. Fall back to language-specific CLI tools
+3. Use grep-based search as last resort
+
+### Rename Safety
+
+For safe cross-project renames, prefer this order:
+
+1. **LSP rename** (most accurate)
+2. **ast-grep** (AST-aware, safe)
+3. **sed/grep** (text-based, requires review)
+
+```bash
+# Safe rename with ast-grep
+ast-grep --pattern 'oldName' --rewrite 'newName' --lang typescript src/
+```

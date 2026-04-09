@@ -1,0 +1,238 @@
+## Exploration Patterns
+
+### Parallel Agent Pattern
+
+When exploration is needed, launch multiple agents in a **SINGLE message** for efficiency:
+
+```
+┌─────────────────────────────────────────┐
+│     SINGLE MESSAGE WITH MULTIPLE TASKS   │
+│                                         │
+│  Task(Explore, sonnet, "internal query") │
+│  Task(general-purpose, sonnet, "research")│
+│                                         │
+│  → Both execute in parallel              │
+│  → Results returned together             │
+└─────────────────────────────────────────┘
+```
+
+---
+
+### Pattern: Internal + External Search
+
+**Use When**: Need both codebase context and external documentation.
+
+```javascript
+// Launch both in the SAME message
+Task({
+  subagent_type: "Explore",
+  model: "sonnet",
+  prompt: `## 1. TASK
+Search for all implementations of user authentication.
+
+## 2. EXPECTED OUTCOME
+- File paths with auth-related code
+- Function/class names
+- Brief description of each approach
+
+## 3. CONTEXT
+- Files: src/**/*.ts
+- Looking for: login, logout, session, token handling
+
+## 4. MUST DO
+- Search all source files
+- Include test files if they show usage patterns
+
+## 5. MUST NOT DO
+- Do NOT modify files
+- Do NOT analyze node_modules
+
+## 7. SUCCESS CRITERIA
+- [ ] All auth-related files found
+- [ ] Patterns identified`
+})
+
+Task({
+  subagent_type: "general-purpose",
+  model: "sonnet",
+  prompt: `## 1. TASK
+Research best practices for JWT refresh token rotation.
+
+## 2. EXPECTED OUTCOME
+- Key recommendations
+- Security considerations
+- Common implementation patterns
+
+## 3. CONTEXT
+- Building Node.js/Express backend
+- Using JWT for authentication
+
+## 4. MUST DO
+- Focus on security best practices
+- Include token storage recommendations
+
+## 5. MUST NOT DO
+- Don't provide full implementation code
+- Don't recommend specific libraries without justification
+
+## 7. SUCCESS CRITERIA
+- [ ] Best practices identified
+- [ ] Security concerns addressed`
+})
+```
+
+---
+
+### Pattern: Multi-Location Search
+
+**Use When**: Need to search multiple areas of codebase.
+
+```javascript
+// Launch all in same message for parallel execution
+Task(Explore, sonnet, "Search src/api/ for endpoint definitions")
+Task(Explore, sonnet, "Search src/middleware/ for auth checks")
+Task(Explore, sonnet, "Search src/utils/ for validation helpers")
+```
+
+---
+
+### Pattern: Code + Tests Search
+
+**Use When**: Understanding both implementation and expected behavior.
+
+```javascript
+// Both searches run in parallel
+Task(Explore, sonnet, "Find UserService class implementation")
+Task(Explore, sonnet, "Find tests for UserService")
+```
+
+---
+
+### Anti-Patterns
+
+**DON'T**: Launch agents sequentially when parallel would work
+
+```javascript
+// BAD - Sequential, slow
+result1 = Task(Explore, sonnet, "query 1")
+// ... wait ...
+result2 = Task(Explore, sonnet, "query 2")
+
+// GOOD - Parallel, fast (same message)
+Task(Explore, sonnet, "query 1")
+Task(Explore, sonnet, "query 2")
+```
+
+**DON'T**: Use heavy models for simple exploration
+
+```javascript
+// BAD - opus for simple search
+Task(Explore, opus, "Find config files")
+
+// GOOD - sonnet is sufficient for exploration
+Task(Explore, sonnet, "Find config files")
+```
+
+---
+
+### Convergent Search Strategy
+
+Exploration should be efficient. Know when to stop.
+
+#### Termination Conditions
+
+| Condition | Description | Action |
+|-----------|-------------|--------|
+| **Convergence** | Same info from multiple sources | Stop exploring |
+| **Sufficiency** | Enough context to proceed | Stop exploring |
+| **Iteration Limit** | 2 searches with no new useful info | Stop exploring |
+| **Explicit Answer** | Direct answer found | Stop exploring |
+
+#### Convergence Detection
+
+Exploration has converged when:
+- Multiple agents return same files
+- Internal and external search align
+- Repeated patterns emerge
+
+**Example**:
+```
+Search 1: Found auth in src/auth/login.ts, src/auth/logout.ts
+Search 2: Found auth in src/auth/login.ts, src/auth/session.ts
+Search 3: Found auth in src/auth/login.ts, src/auth/logout.ts
+
+→ Convergence: src/auth/ is clearly the auth location
+→ Stop exploring, proceed to implementation
+```
+
+#### Sufficiency Check
+
+Before continuing exploration, ask:
+
+1. **Do I know WHERE to make changes?**
+   - Yes → Sufficient for implementation
+   - No → Continue exploring
+
+2. **Do I know WHAT changes to make?**
+   - Yes → Sufficient for implementation
+   - No → May need external research
+
+3. **Do I understand the PATTERNS to follow?**
+   - Yes → Sufficient for implementation
+   - No → Continue exploring or ask user
+
+#### Iteration Limit
+
+```
+Round 1: Search for X
+         → Found files A, B, C
+
+Round 2: Search for more context on A
+         → Found same info as Round 1 (no new data)
+
+→ Iteration limit reached
+→ Proceed with what we have
+```
+
+**Maximum 2-3 exploration rounds** unless:
+- User explicitly asks for more
+- New information keeps emerging
+- Critical context still missing
+
+#### Decision Tree
+
+```
+┌─────────────────────────────────┐
+│   After Each Exploration Round   │
+└─────────────────────────────────┘
+              │
+              ▼
+    ┌─────────────────┐
+    │ Is convergence  │
+    │ achieved?       │──Yes──→ STOP: Proceed to implementation
+    └─────────────────┘
+              │ No
+              ▼
+    ┌─────────────────┐
+    │ Is context      │
+    │ sufficient?     │──Yes──→ STOP: Proceed to implementation
+    └─────────────────┘
+              │ No
+              ▼
+    ┌─────────────────┐
+    │ Reached         │
+    │ iteration limit?│──Yes──→ STOP: Proceed with current info
+    └─────────────────┘           or ask user for guidance
+              │ No
+              ▼
+         CONTINUE: Launch next round
+```
+
+#### Exploration Scope Guide
+
+| Scope | When to Use | Max Iterations |
+|-------|-------------|----------------|
+| **Narrow** | Known file/function | 1 |
+| **Medium** | Known directory | 2 |
+| **Wide** | Unknown location | 3 |
+| **Research** | External docs needed | 2 |

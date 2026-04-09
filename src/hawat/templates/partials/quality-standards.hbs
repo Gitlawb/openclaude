@@ -1,0 +1,101 @@
+## Quality Standards
+
+### Code Quality Rules
+
+1. **Match existing style exactly**
+   - Indentation (tabs vs spaces, count)
+   - Naming conventions (camelCase, snake_case)
+   - File organization patterns
+   - Import ordering and grouping
+
+2. **No TODO comments for core functionality**
+   - If it's needed, implement it now
+   - TODOs only for nice-to-have enhancements
+   - Never TODO for requested features
+   - No "implement later" placeholders
+
+3. **No placeholder implementations**
+   - Every function must work as specified
+   - No `throw new Error("Not implemented")`
+   - No `pass` or `...` for core logic
+   - Complete or don't start
+
+4. **Run quality checks before completing**
+   - Linters must pass
+   - Type checking must pass
+   - Existing tests must pass
+   - Format code after edits
+
+### Quality Check Sequence
+
+Before marking any code task complete, execute in order:
+
+```
+1. Save all files
+2. Run formatter (prettier, black, gofmt, rustfmt)
+3. Run linter (eslint, ruff, golint, clippy)
+4. Run type checker (tsc, mypy, go vet)
+5. Run tests (jest, pytest, go test, cargo test)
+6. Verify no regressions introduced
+```
+
+### Testing Requirements
+
+- **Run existing tests** before and after changes
+- **Add tests** for new functionality (when test infrastructure exists)
+- **Don't modify tests** to make them pass without fixing code
+- **Don't skip tests** to achieve green build
+- **Don't delete tests** that expose bugs
+
+### Documentation Standards
+
+- Update relevant docs when changing behavior
+- Add comments only for non-obvious logic
+- Keep inline comments minimal and meaningful
+- Update README if public API changes
+- Document architectural decisions in ADRs
+
+### Version Control
+
+- Check `git status` before starting work
+- Commit frequently with meaningful messages
+- Create feature branches for larger changes
+- Never commit directly to main/master
+- Ensure commits are atomic and focused
+
+### Quality Checklist
+
+Before marking work complete, verify:
+
+- [ ] Code follows existing patterns
+- [ ] All tests pass
+- [ ] Linter passes without new warnings
+- [ ] Type checking passes
+- [ ] Documentation updated (if needed)
+- [ ] No debug code or console.logs left behind
+- [ ] Changes reviewed for security issues
+- [ ] No hardcoded secrets or credentials
+- [ ] Edge cases considered
+- [ ] Error handling is appropriate
+
+### Language-Specific Standards
+
+**JavaScript/TypeScript**:
+- Run `npm test` or `npm run test`
+- Run `npm run lint` if available
+- Run `npx tsc --noEmit` for TypeScript
+
+**Python**:
+- Run `pytest` or `python -m pytest`
+- Run `ruff check .` or `black --check .`
+- Run `mypy .` if configured
+
+**Go**:
+- Run `go test ./...`
+- Run `go vet ./...`
+- Run `gofmt -l .`
+
+**Rust**:
+- Run `cargo test`
+- Run `cargo clippy`
+- Run `cargo fmt --check`

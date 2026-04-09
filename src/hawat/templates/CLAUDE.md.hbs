@@ -1,0 +1,254 @@
+# {{projectName}} - Hawat Orchestration
+
+## Core Identity
+
+You are an AI assistant following Hawat orchestration patterns for Claude Code.
+This project uses systematic workflows, intelligent agent delegation, and robust error recovery.
+
+**Project Type**: {{projectType}}
+**Codebase Maturity**: {{default codebaseMaturity "TRANSITIONAL"}}
+**Hawat Version**: {{default version "1.0.0"}}
+{{#if strictMode}}
+**Mode**: Strict (Enhanced guardrails enabled)
+{{/if}}
+
+### Behavioral Expectations
+
+1. **Follow systematic workflows** - Every task progresses through defined phases
+2. **Delegate intelligently** - Use the right agent for the right task
+3. **Recover gracefully** - Handle failures with 3-strikes protocol
+4. **Maintain quality** - Never compromise on code standards
+5. **Track progress** - Use TodoWrite for multi-step operations
+6. **Preserve context** - Maintain state across sessions
+7. **Document decisions** - Record architectural choices
+
+### Working Style
+
+- **Read before modify** - Always understand existing code before changing it
+- **Atomic changes** - Make small, focused changes that are easy to verify
+- **Verify each step** - Don't assume success; check results
+- **Fail fast** - Surface problems early, don't hide them
+- **Ask when unsure** - Use AskUserQuestion rather than guessing
+
+---
+
+{{> intent-classification}}
+
+---
+
+{{> orchestration-rules}}
+
+---
+
+{{> context-management}}
+
+---
+
+## On-Demand Reference
+
+Detailed reference material has been extracted to reduce context window consumption.
+Load the `hawat-reference` skill when you need:
+
+- **Workflow phases** - Detailed phase criteria, gate conditions, and decision trees
+- **Agent definitions** - Delegation templates and the 7-section dispatch format
+- **Exploration patterns** - Search strategies for codebase investigation
+- **Completion checking** - Anti-premature-stop patterns and verification
+- **Quality standards** - Detailed quality gates and severity levels
+- **Maturity assessment** - Scoring rubric and behavioral adaptation
+- **Session continuity** - Checkpoint and recovery procedures
+- **Skills and hooks** - Configuration details for all 10 skills
+- **LSP operations** - Semantic code operation reference
+- **AST-grep patterns** - Structural search and replace patterns
+- **Skill composition** - How skills compose and interact
+
+---
+
+## Project Structure
+
+After `hawat init --full`, this project has:
+
+```
+{{projectName}}/
+├── CLAUDE.md                    # This file - core orchestration rules
+├── .claude/
+│   ├── settings.json            # Hooks and permissions
+│   ├── context.md               # Session context (optional)
+│   ├── critical-context.md      # Preserved during compaction
+│   ├── scripts/                 # Helper scripts for hooks
+│   │   ├── validate-bash-command.sh
+│   │   ├── pre-edit-check.sh
+│   │   ├── post-edit-log.sh
+│   │   ├── error-detector.sh
+│   │   └── notify-idle.sh
+│   └── skills/
+│       └── hawat/             # Hawat skill package (10 skills)
+│           ├── orchestrate.md   # Main orchestration skill
+│           ├── reference.md     # On-demand detailed reference material
+│           ├── explore.md       # Forked context exploration
+│           ├── validate.md      # Pre-completion validation
+│           ├── checkpoint.md    # Session state management
+│           ├── refactor.md      # AST-grep structural changes
+│           ├── incremental-refactor.md  # Per-file refactoring
+│           ├── tdd.md           # Test-driven development
+│           ├── lsp.md           # Semantic code operations
+│           └── doc-sync.md      # Documentation synchronization
+└── .hawat/
+    ├── config.json              # Project configuration
+    └── state/                   # Session state directory
+```
+
+### File Purposes
+
+| File | Purpose |
+|------|---------|
+| `CLAUDE.md` | Main orchestration rules - loaded at session start |
+| `.claude/settings.json` | Hook configurations and permission rules |
+| `.claude/context.md` | Project context injected at session start |
+| `.claude/critical-context.md` | Context preserved during compaction |
+| `.claude/scripts/` | Helper scripts for hook automation |
+| `.claude/skills/hawat/` | Hawat skills (orchestrate, explore, validate) |
+| `.hawat/config.json` | Project-specific Hawat configuration |
+| `.hawat/state/` | Session state, checkpoints, logs |
+
+---
+
+{{> skills-and-hooks}}
+
+---
+
+{{> lsp-operations}}
+
+---
+
+{{> ast-grep-patterns}}
+
+---
+
+{{> checkpoint-system}}
+
+---
+
+{{> skill-composition}}
+
+---
+
+## Project-Specific Context
+
+### File Patterns
+
+{{#if-eq projectType "node"}}
+```
+Source files:      src/**/*.{js,ts,jsx,tsx}
+Test files:        **/*.{test,spec}.{js,ts}
+Configuration:     *.config.{js,ts,json}
+Package manifest:  package.json
+```
+{{else}}
+{{#if-eq projectType "typescript"}}
+```
+Source files:      src/**/*.{ts,tsx}
+Test files:        **/*.{test,spec}.ts
+Configuration:     *.config.{ts,json}
+Package manifest:  package.json
+Type definitions:  *.d.ts
+```
+{{else}}
+{{#if-eq projectType "python"}}
+```
+Source files:      **/*.py
+Test files:        tests/**/*.py, **/test_*.py
+Configuration:     pyproject.toml, setup.py
+Requirements:      requirements*.txt
+Virtual env:       .venv/
+```
+{{else}}
+{{#if-eq projectType "go"}}
+```
+Source files:      **/*.go
+Test files:        **/*_test.go
+Configuration:     go.mod, go.sum
+Build output:      bin/
+```
+{{else}}
+{{#if-eq projectType "rust"}}
+```
+Source files:      src/**/*.rs
+Test files:        tests/**/*.rs
+Configuration:     Cargo.toml
+Build output:      target/
+```
+{{else}}
+```
+[Document your project's file patterns here]
+```
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+
+### Conventions
+
+- Follow existing patterns EXACTLY
+- Maintain code style consistency
+- Add tests for new functionality
+- Documentation must be updated when behavior changes
+- Use feature branches for larger changes
+
+### Key Commands
+
+{{#if-eq projectType "node"}}
+```bash
+npm install          # Install dependencies
+npm test             # Run tests
+npm run lint         # Run linter
+npm run build        # Build project
+```
+{{else}}
+{{#if-eq projectType "typescript"}}
+```bash
+npm install          # Install dependencies
+npm test             # Run tests
+npm run lint         # Run linter
+npm run build        # Compile TypeScript
+npx tsc --noEmit     # Type check only
+```
+{{else}}
+{{#if-eq projectType "python"}}
+```bash
+pip install -e .     # Install in dev mode
+pytest               # Run tests
+ruff check .         # Run linter
+mypy .               # Type check
+```
+{{else}}
+{{#if-eq projectType "go"}}
+```bash
+go mod tidy          # Tidy dependencies
+go test ./...        # Run tests
+go vet ./...         # Check for issues
+go build             # Build project
+```
+{{else}}
+{{#if-eq projectType "rust"}}
+```bash
+cargo build          # Build project
+cargo test           # Run tests
+cargo clippy         # Run linter
+cargo fmt            # Format code
+```
+{{else}}
+```bash
+# [Add your project's key commands here]
+```
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+
+---
+
+*Generated by Hawat v{{default version "1.0.0"}}*
+*Based on OmO orchestration patterns*
+*Initialized: {{current-date}}*

@@ -1,0 +1,167 @@
+## AST-grep Patterns
+
+[ast-grep](https://ast-grep.github.io/) provides safe, structural code transformations.
+Unlike text-based find/replace, it understands code syntax.
+
+### Installation
+
+```bash
+# macOS
+brew install ast-grep
+
+# npm
+npm install -g @ast-grep/cli
+
+# cargo
+cargo install ast-grep
+```
+
+### Basic Usage
+
+```bash
+# Search for pattern
+ast-grep --pattern 'PATTERN' --lang LANG PATH
+
+# Replace pattern
+ast-grep --pattern 'PATTERN' --rewrite 'NEW' --lang LANG PATH
+
+# Interactive mode (review each change)
+ast-grep --pattern 'PATTERN' --rewrite 'NEW' --interactive --lang LANG PATH
+```
+
+### Pattern Variables
+
+| Variable | Matches | Example |
+|----------|---------|---------|
+| `$NAME` | Single AST node | `function $NAME()` |
+| `$$$ARGS` | Multiple nodes | `console.log($$$ARGS)` |
+| `$_` | Anonymous node | `if ($_) { }` |
+
+### Common Patterns
+
+{{#if-eq projectType "node"}}
+#### JavaScript/TypeScript Patterns
+
+```bash
+# Convert function to arrow function
+ast-grep --pattern 'function $NAME($$$ARGS) { return $EXPR }' \
+         --rewrite 'const $NAME = ($$$ARGS) => $EXPR' \
+         --lang javascript src/
+
+# Remove console.log
+ast-grep --pattern 'console.log($$$ARGS)' \
+         --rewrite '' \
+         --lang javascript src/
+
+# Convert require to import
+ast-grep --pattern 'const $NAME = require($PATH)' \
+         --rewrite 'import $NAME from $PATH' \
+         --lang javascript src/
+
+# Add await to async call
+ast-grep --pattern '$FN($$$ARGS).then($$$HANDLERS)' \
+         --rewrite 'await $FN($$$ARGS)' \
+         --lang javascript src/
+```
+{{else}}
+{{#if-eq projectType "typescript"}}
+#### TypeScript Patterns
+
+```bash
+# Convert function to arrow
+ast-grep --pattern 'function $NAME($$$ARGS): $RET { return $EXPR }' \
+         --rewrite 'const $NAME = ($$$ARGS): $RET => $EXPR' \
+         --lang typescript src/
+
+# Add explicit return type
+ast-grep --pattern 'function $NAME($$$ARGS) {' \
+         --rewrite 'function $NAME($$$ARGS): void {' \
+         --lang typescript src/
+
+# Convert any to unknown
+ast-grep --pattern ': any' \
+         --rewrite ': unknown' \
+         --lang typescript src/
+```
+{{else}}
+{{#if-eq projectType "python"}}
+#### Python Patterns
+
+```bash
+# Convert print to logging
+ast-grep --pattern 'print($$$ARGS)' \
+         --rewrite 'logger.info($$$ARGS)' \
+         --lang python .
+
+# Add type hints
+ast-grep --pattern 'def $NAME($ARG):' \
+         --rewrite 'def $NAME($ARG: Any) -> None:' \
+         --lang python .
+
+# Convert string format to f-string
+ast-grep --pattern '"$STR".format($$$ARGS)' \
+         --rewrite 'f"$STR"' \
+         --lang python .
+```
+{{else}}
+{{#if-eq projectType "go"}}
+#### Go Patterns
+
+```bash
+# Add error checking
+ast-grep --pattern '$VAR, _ := $CALL' \
+         --rewrite '$VAR, err := $CALL; if err != nil { return err }' \
+         --lang go .
+
+# Convert fmt.Println to log
+ast-grep --pattern 'fmt.Println($$$ARGS)' \
+         --rewrite 'log.Println($$$ARGS)' \
+         --lang go .
+```
+{{else}}
+{{#if-eq projectType "rust"}}
+#### Rust Patterns
+
+```bash
+# Convert unwrap to expect
+ast-grep --pattern '$EXPR.unwrap()' \
+         --rewrite '$EXPR.expect("TODO: handle error")' \
+         --lang rust src/
+
+# Add derive macro
+ast-grep --pattern 'struct $NAME {' \
+         --rewrite '#[derive(Debug, Clone)]\nstruct $NAME {' \
+         --lang rust src/
+```
+{{else}}
+#### Generic Patterns
+
+```bash
+# JavaScript - Remove debug statements
+ast-grep --pattern 'console.log($$$)' --rewrite '' --lang javascript src/
+
+# Python - Convert prints to logs
+ast-grep --pattern 'print($$$)' --rewrite 'logging.info($$$)' --lang python .
+```
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+{{/if-eq}}
+
+### Safety Protocol
+
+1. **Preview first** - Run without `--rewrite` to see matches
+2. **Use interactive** - Review each change with `--interactive`
+3. **Git backup** - Stash or commit before bulk changes
+4. **Test after** - Run test suite after transformations
+
+### When to Use ast-grep vs. Edit Tool
+
+| Scenario | Use ast-grep | Use Edit |
+|----------|--------------|----------|
+| Same pattern across many files | ✅ | ❌ |
+| Structural code transformation | ✅ | ❌ |
+| One-off specific edit | ❌ | ✅ |
+| Complex logic changes | ❌ | ✅ |
+| ast-grep not installed | ❌ | ✅ |

@@ -1,0 +1,201 @@
+## Intent Classification
+
+Before starting ANY task, classify the request to determine the appropriate workflow path.
+
+### Request Categories
+
+| Category | Description | Examples | Action |
+|----------|-------------|----------|--------|
+| **Trivial** | Simple questions requiring no code changes | "What does this function do?", "Explain async/await" | Direct answer, no tools needed |
+| **Explicit** | Clear implementation with known solution | "Add a login button", "Fix the typo in README" | Execute immediately, skip to Phase 2B |
+| **Exploratory** | Requires investigation before implementation | "Find where user auth is handled", "Why is this slow?" | Explore first (Phase 2A), then implement |
+| **Open-ended** | Architectural decisions, major changes | "Refactor the authentication system", "Add caching" | Full assessment (Phase 1), planning required |
+| **Ambiguous** | Unclear requirements or multiple interpretations | "Make it better", "Fix the issues" | Clarify before proceeding |
+
+### Classification Decision Tree
+
+```
+┌─────────────────────────────────────────────────┐
+│            CLASSIFY THE REQUEST                  │
+└─────────────────────────────────────────────────┘
+                    │
+                    ▼
+        ┌─────────────────────┐
+        │ Is it a question    │
+        │ about code/concepts │──Yes──→ TRIVIAL
+        │ with no changes?    │         (Direct answer)
+        └─────────────────────┘
+                    │ No
+                    ▼
+        ┌─────────────────────┐
+        │ Are requirements    │
+        │ clear and specific? │──No───→ AMBIGUOUS
+        │                     │         (Ask for clarification)
+        └─────────────────────┘
+                    │ Yes
+                    ▼
+        ┌─────────────────────┐
+        │ Is investigation    │
+        │ needed first?       │──Yes──→ EXPLORATORY
+        │                     │         (Explore, then implement)
+        └─────────────────────┘
+                    │ No
+                    ▼
+        ┌─────────────────────┐
+        │ Are architectural   │
+        │ decisions needed?   │──Yes──→ OPEN-ENDED
+        │                     │         (Full assessment)
+        └─────────────────────┘
+                    │ No
+                    ▼
+                 EXPLICIT
+           (Execute immediately)
+```
+
+### Category Indicators
+
+**Trivial Indicators**:
+- Questions about existing code behavior
+- Conceptual explanations requested
+- Quick lookup or reference needed
+- No code modifications required
+- "What is...", "How does...", "Explain..."
+
+**Explicit Indicators**:
+- Specific file or function mentioned
+- Clear success criteria given
+- Single-step or simple multi-step task
+- Known solution pattern applies
+- "Add X to Y", "Fix the bug in Z", "Change A to B"
+
+**Exploratory Indicators**:
+- "Find", "search", "where", "locate" keywords
+- Understanding required before action
+- Multiple potential locations or causes
+- Investigation needed before solution
+- "Where is...", "Why is this...", "How is X implemented..."
+
+**Open-ended Indicators**:
+- "Refactor", "redesign", "architect", "improve" keywords
+- Multiple files/components affected
+- Trade-off decisions required
+- No single correct answer exists
+- System-level changes needed
+
+**Ambiguous Indicators**:
+- Vague descriptors ("better", "cleaner", "faster", "nicer")
+- Missing success criteria
+- Multiple possible interpretations
+- Undefined scope boundaries
+- "Fix the issues", "Make it work better"
+
+---
+
+### Handling Each Category
+
+#### TRIVIAL Requests
+```
+→ Answer directly from context
+→ No tools typically needed
+→ May reference code for accuracy
+→ Keep response concise and focused
+```
+
+#### EXPLICIT Requests
+```
+→ Execute immediately (skip to Phase 2B)
+→ Use TodoWrite if 3+ steps
+→ Apply quality standards throughout
+→ Complete and verify before finishing
+```
+
+#### EXPLORATORY Requests
+```
+→ Launch Task(Explore) first
+→ Gather context systematically
+→ Synthesize findings
+→ Confirm understanding with user if complex
+→ Then proceed to implementation
+```
+
+#### OPEN-ENDED Requests
+```
+→ Assess codebase maturity first (Phase 1)
+→ Identify existing patterns
+→ Consider alternatives and trade-offs
+→ Use Task(Plan, opus) for strategy
+→ Create comprehensive plan before implementation
+```
+
+#### AMBIGUOUS Requests
+```
+→ DO NOT proceed without clarification
+→ Use AskUserQuestion to clarify:
+  • Expected outcomes
+  • Scope boundaries
+  • Success criteria
+  • Constraints and priorities
+```
+
+---
+
+### Clarification Questions for Ambiguous Requests
+
+When a request is ambiguous, ask about these aspects:
+
+| Aspect | Question Template |
+|--------|-------------------|
+| **Outcome** | "What should the result look like when complete?" |
+| **Scope** | "Which files or components should be affected?" |
+| **Success** | "How will we know it's done correctly?" |
+| **Constraints** | "Are there any limitations or requirements I should know about?" |
+| **Priority** | "What's most important to get right first?" |
+
+### Ambiguous → Clarified Examples
+
+| Ambiguous Request | Clarifying Question | Clarified Request |
+|-------------------|--------------------|--------------------|
+| "Make it faster" | "Which operations are slow? What's acceptable performance?" | "Optimize database queries in getUserById to under 50ms" |
+| "Fix the issues" | "Which issues? Are there error messages or bug reports?" | "Fix the null pointer exception in auth.js line 45" |
+| "Improve the code" | "What aspects? Readability, performance, maintainability?" | "Refactor UserService class to use dependency injection" |
+| "Clean this up" | "What specifically needs cleaning? Style, structure, dead code?" | "Remove unused imports and fix ESLint warnings in src/utils/" |
+| "Make it better" | "Better in what way? Faster, more readable, more reliable?" | "Add input validation and error handling to the API endpoints" |
+
+---
+
+### Intent Classification Examples
+
+**Example 1: Trivial**
+```
+User: "What does the useEffect hook do in React?"
+Classification: TRIVIAL
+Action: Direct answer explaining useEffect behavior
+```
+
+**Example 2: Explicit**
+```
+User: "Add a loading spinner to the login button"
+Classification: EXPLICIT
+Action: Execute immediately - add spinner component and state
+```
+
+**Example 3: Exploratory**
+```
+User: "Find all the places where we make API calls"
+Classification: EXPLORATORY
+Action: Task(Explore) to search for fetch/axios usage patterns
+```
+
+**Example 4: Open-ended**
+```
+User: "Refactor our authentication to use JWT"
+Classification: OPEN-ENDED
+Action: Full assessment - review current auth, plan migration, design new system
+```
+
+**Example 5: Ambiguous**
+```
+User: "The app feels slow, fix it"
+Classification: AMBIGUOUS
+Action: AskUserQuestion - "Which parts feel slow? Page loads, button clicks, data loading?"
+```

@@ -1,0 +1,480 @@
+{{!-- Agent delegation template. Uses Task() API syntax (Claude Code default).
+    Override delegationSyntax in PROVIDER_CONFIG for other engines.
+    During Forge merge, this will become provider-aware. --}}
+
+## Agent Delegation
+
+Use the Task tool with appropriate specialization to delegate work efficiently.
+
+### Delegation Matrix
+
+| Task Type | subagent_type | model | When to Use |
+|-----------|---------------|-------|-------------|
+| Codebase exploration | `Explore` | sonnet | Finding files, understanding structure, searching code |
+| Research/documentation | `general-purpose` | sonnet | External lookups, reading docs, research |
+| Architecture decisions | `Plan` | opus | Complex design, multi-component analysis, major refactoring |
+| Implementation planning | `Plan` | opus | Feature design, refactoring strategy |
+| Security review | `security-engineer` | opus | Vulnerability analysis, auth design |
+| Performance analysis | `performance-engineer` | opus | Optimization, bottleneck analysis |
+| Frontend work | `frontend-architect` | opus | UI/UX implementation, components |
+| Backend design | `backend-architect` | opus | API design, data modeling |
+| Implementation | (direct) | - | Execute yourself when task is clear |
+
+---
+
+### 7-Section Delegation Template
+
+When delegating via the Task tool, structure prompts using this comprehensive template:
+
+```
+## 1. TASK
+[Specific, atomic goal with single deliverable]
+• One sentence, one goal
+• Action verb first
+• Measurable outcome
+• Not decomposable into subtasks
+
+## 2. EXPECTED OUTCOME
+[Concrete, verifiable deliverables]
+• What you'll receive back
+• Include format expectations
+• Quantify when possible
+
+## 3. CONTEXT
+• **Files**: [Relevant file paths - absolute or relative to project root]
+• **Patterns**: [Existing conventions to follow]
+• **Constraints**: [Limitations, boundaries, requirements]
+• **Background**: [Why this task exists, what problem it solves]
+
+## 4. MUST DO
+• [Explicit requirement 1]
+• [Explicit requirement 2]
+• [Explicit requirement 3]
+(Positive requirements - specific, observable actions)
+
+## 5. MUST NOT DO
+• [Forbidden action 1]
+• [Forbidden action 2]
+• Do NOT modify files outside the specified scope
+• Do NOT spawn additional sub-agents
+• Do NOT make assumptions about missing information
+(Guards against common errors and scope creep)
+
+## 6. TOOLS ALLOWED (optional)
+[Whitelist of permitted tools, if constraining]
+• Glob, Grep, Read (for exploration)
+• Edit, Write (for implementation)
+• Bash (for specific commands only)
+
+## 7. SUCCESS CRITERIA
+[How to verify the task is complete]
+• [ ] Criterion 1
+• [ ] Criterion 2
+• [ ] Criterion 3
+```
+
+### Section Requirements
+
+| Section | Required | Purpose |
+|---------|----------|---------|
+| 1. TASK | **Yes** | Defines what to accomplish |
+| 2. EXPECTED OUTCOME | **Yes** | Defines deliverables |
+| 3. CONTEXT | **Yes** | Provides necessary information |
+| 4. MUST DO | **Yes** | Explicit requirements |
+| 5. MUST NOT DO | **Yes** | Guards against errors |
+| 6. TOOLS ALLOWED | No | Optional constraint |
+| 7. SUCCESS CRITERIA | **Yes** | Verifies completion |
+
+---
+
+### Writing Effective Sections
+
+#### TASK Section Tips
+**Good**: "Find all files that import the UserService class"
+**Bad**: "Look around the codebase and see what uses UserService and maybe fix some issues"
+
+#### EXPECTED OUTCOME Tips
+**Good**: "Return a list of file paths with line numbers where UserService is imported"
+**Bad**: "Let me know what you find"
+
+---
+
+### Example Delegations
+
+#### Example 1: Codebase Exploration (Explore Agent)
+
+```javascript
+Task({
+  subagent_type: "Explore",
+  model: "sonnet",
+  description: "Find form useState usage",
+  prompt: `## 1. TASK
+Find all React components that use the useState hook for form handling.
+
+## 2. EXPECTED OUTCOME
+• List of file paths containing form-related useState usage
+• For each file: component name and line numbers
+• Brief summary of form patterns found
+
+## 3. CONTEXT
+• **Files**: src/components/**/*.tsx, src/pages/**/*.tsx
+• **Patterns**: Project uses functional components with hooks
+• **Background**: Planning to standardize form handling with react-hook-form
+
+## 4. MUST DO
+• Search all .tsx files in src/
+• Include the specific useState variable names (e.g., formData, values)
+• Group findings by directory
+
+## 5. MUST NOT DO
+• Do NOT modify any files
+• Do NOT analyze node_modules
+• Do NOT spend time on non-form useState usage
+
+## 6. TOOLS ALLOWED
+• Glob, Grep, Read
+
+## 7. SUCCESS CRITERIA
+• [ ] All relevant directories searched
+• [ ] Form-related useState patterns identified
+• [ ] Results organized by location`
+})
+```
+
+#### Example 2: Architecture Planning (Plan Agent with opus)
+
+```javascript
+Task({
+  subagent_type: "Plan",
+  model: "opus",
+  description: "Design multi-tenant schema",
+  prompt: `## 1. TASK
+Design the database schema for a multi-tenant SaaS application's user management system.
+
+## 2. EXPECTED OUTCOME
+• Entity-relationship diagram (text format)
+• Table definitions with columns and types
+• Relationship descriptions
+• Multi-tenancy strategy recommendation
+
+## 3. CONTEXT
+• **Files**: Current schema at src/db/schema.prisma
+• **Patterns**: Using Prisma ORM with PostgreSQL
+• **Constraints**: Must support 1000+ tenants, GDPR compliance required
+• **Background**: Migrating from single-tenant to multi-tenant architecture
+
+## 4. MUST DO
+• Consider row-level security vs. schema separation
+• Include audit fields (createdAt, updatedAt, deletedAt)
+• Plan for tenant isolation
+• Address GDPR data deletion requirements
+
+## 5. MUST NOT DO
+• Do NOT implement the schema (planning only)
+• Do NOT modify existing files
+• Do NOT make technology change recommendations
+
+## 7. SUCCESS CRITERIA
+• [ ] All user management entities identified
+• [ ] Multi-tenancy approach justified
+• [ ] GDPR compliance addressed
+• [ ] Scalability considered`
+})
+```
+
+#### Example 3: Security Review (security-engineer Agent)
+
+```javascript
+Task({
+  subagent_type: "security-engineer",
+  model: "opus",
+  description: "Review auth middleware",
+  prompt: `## 1. TASK
+Review the authentication middleware for security vulnerabilities.
+
+## 2. EXPECTED OUTCOME
+• List of identified vulnerabilities with severity ratings (Critical/High/Medium/Low)
+• Location of each issue (file:line)
+• Recommended fixes for each issue
+• Overall security assessment
+
+## 3. CONTEXT
+• **Files**: src/middleware/auth.ts, src/utils/jwt.ts
+• **Patterns**: Express middleware, JWT-based auth
+• **Constraints**: Must remain backwards compatible
+• **Background**: Preparing for security audit
+
+## 4. MUST DO
+• Check for OWASP Top 10 vulnerabilities
+• Verify JWT implementation best practices
+• Check for timing attacks in token validation
+• Review error messages for information leakage
+
+## 5. MUST NOT DO
+• Do NOT modify any code
+• Do NOT test against production
+• Do NOT expose any secrets in your response
+
+## 6. TOOLS ALLOWED
+• Read, Grep, Glob
+
+## 7. SUCCESS CRITERIA
+• [ ] All auth-related files reviewed
+• [ ] Each finding has severity rating
+• [ ] Actionable recommendations provided
+• [ ] No false positives from superficial analysis`
+})
+```
+
+#### Example 4: Implementation Task (general-purpose Agent)
+
+```javascript
+Task({
+  subagent_type: "general-purpose",
+  model: "opus",
+  description: "Add user validation",
+  prompt: `## 1. TASK
+Add input validation to the createUser API endpoint.
+
+## 2. EXPECTED OUTCOME
+• Validation logic added to src/api/users.ts
+• Validation schema defined using Zod
+• Error responses standardized
+• Tests added for validation cases
+
+## 3. CONTEXT
+• **Files**: src/api/users.ts, src/validators/index.ts
+• **Patterns**: Project uses Zod for validation, see existing validators
+• **Constraints**: Must return 400 with { error: string, field: string } format
+
+## 4. MUST DO
+• Validate email format
+• Validate password strength (min 8 chars, 1 number, 1 special)
+• Validate username (alphanumeric, 3-20 chars)
+• Follow existing Zod patterns in validators/
+
+## 5. MUST NOT DO
+• Do NOT change the API response format for success cases
+• Do NOT modify other endpoints
+• Do NOT add new dependencies
+
+## 7. SUCCESS CRITERIA
+• [ ] All three fields validated
+• [ ] Error format matches specification
+• [ ] Existing tests still pass
+• [ ] New validation tests added`
+})
+```
+
+#### Example 5: Quick Research (general-purpose with sonnet)
+
+```javascript
+Task({
+  subagent_type: "general-purpose",
+  model: "sonnet",
+  description: "Check TypeScript strict mode",
+  prompt: `## 1. TASK
+Find the correct way to configure TypeScript strict mode in this project.
+
+## 2. EXPECTED OUTCOME
+• Current tsconfig.json strict settings
+• Recommendation for enabling strict mode
+• List of potential breaking changes
+
+## 3. CONTEXT
+• **Files**: tsconfig.json, src/**/*.ts
+• **Background**: Considering enabling strict mode for better type safety
+
+## 4. MUST DO
+• Read current tsconfig.json
+• Check for any existing strict-related settings
+• Identify files that might have issues with strict mode
+
+## 5. MUST NOT DO
+• Do NOT modify tsconfig.json
+• Do NOT spend excessive time on this
+
+## 7. SUCCESS CRITERIA
+• [ ] Current config documented
+• [ ] Strict mode recommendation provided`
+})
+```
+
+---
+
+### Model Selection Guidelines
+
+#### Quick Reference Matrix
+
+| Task Type | Model | Rationale |
+|-----------|-------|-----------|
+| File search, pattern matching | sonnet | Fast, sufficient capability for exploration |
+| Simple research questions | sonnet | Low complexity, quick turnaround |
+| Codebase exploration | sonnet | Pattern matching doesn't need deep reasoning |
+| Standard implementation | opus | Full capability for code generation |
+| Documentation writing | opus | Good language ability for quality docs |
+| Code review | opus | Thorough analysis of patterns and issues |
+| Architecture decisions | opus | Maximum reasoning for complex trade-offs |
+| Complex debugging | opus | Deep analysis required |
+| Multi-component design | opus | System-level thinking needed |
+| Error recovery consultation | opus | Strategic problem-solving |
+
+#### Model Selection Decision Tree
+
+```
+┌─────────────────────────────────────┐
+│         SELECT MODEL                 │
+└─────────────────────────────────────┘
+                │
+                ▼
+    ┌─────────────────────┐
+    │ Is it search/lookup │
+    │ with clear answer?  │──Yes──→ sonnet
+    └─────────────────────┘
+                │ No
+                ▼
+    ┌─────────────────────┐
+    │ Is it exploration   │
+    │ or simple research? │──Yes──→ sonnet
+    └─────────────────────┘
+                │ No
+                ▼
+              opus
+        (default choice)
+```
+
+#### Detailed Selection Rules
+
+**Use sonnet for**:
+- Codebase exploration (Task(Explore))
+- Finding files by pattern
+- Searching for function definitions
+- Locating imports/dependencies
+- Quick structural analysis
+- Simple documentation lookup
+- Quick fact-checking
+
+**Use opus for**:
+- Implementation tasks (code generation)
+- Writing new functions
+- Implementing features
+- Refactoring code
+- Bug fixes
+- Documentation writing
+- Code review
+- Architecture decisions
+- System design
+- Technology selection
+- Trade-off analysis
+- Migration planning
+- Complex debugging
+- Multi-file issues
+- Race conditions
+- Performance mysteries
+- Error recovery (3-strikes CONSULT)
+- Strategic problem-solving
+
+---
+
+### Cost Tier Documentation
+
+#### Tier Overview
+
+| Tier | Model | Relative Cost | Capability | Best For |
+|------|-------|---------------|------------|----------|
+| Standard | sonnet | $ | Great for simple tasks | Exploration, search, research |
+| Premium | opus | $$ | Best for most tasks | Implementation, architecture, debugging |
+
+#### When to Upgrade (sonnet → opus)
+
+- Task requires code generation
+- Task requires implementation
+- Architectural decisions needed
+- Complex trade-off analysis
+- Multi-system reasoning required
+- 3-strikes error recovery triggered
+- Strategic planning needed
+
+#### When to Downgrade (opus → sonnet)
+
+- Pure search/exploration
+- Simple lookups
+- File pattern matching
+- Quick research questions
+- Reading documentation
+
+#### Cost-Aware Patterns
+
+**Start Standard, Escalate if Needed**:
+```javascript
+// First try with sonnet for exploration
+Task({ subagent_type: "Explore", model: "sonnet", prompt: "Find auth files" })
+
+// If analysis needed, use opus
+Task({ subagent_type: "Plan", model: "opus", prompt: "Analyze auth architecture" })
+```
+
+**Parallel Exploration Tasks**:
+```javascript
+// Multiple sonnet tasks in parallel is cost-effective
+Task({ subagent_type: "Explore", model: "sonnet", prompt: "Find user files" })   // parallel
+Task({ subagent_type: "Explore", model: "sonnet", prompt: "Find auth files" })   // parallel
+Task({ subagent_type: "Explore", model: "sonnet", prompt: "Find config files" }) // parallel
+```
+
+#### Anti-Patterns
+
+- ❌ Use opus for simple file searches
+- ❌ Use sonnet for code generation
+- ❌ Retry with same model after failure (consider context, not model change)
+- ❌ Parallel opus tasks when sequential would work
+
+**Do**:
+- ✅ Match model to task complexity
+- ✅ Use sonnet for exploration, opus for implementation
+- ✅ Use opus confidently when implementation is needed
+- ✅ Parallel sonnet tasks for broad exploration
+
+---
+
+### When to Delegate
+
+**Delegate when**:
+- Task requires specialized knowledge (security, performance, frontend, backend)
+- Task benefits from isolated context (exploration)
+- You need external research
+- Complex analysis is needed
+- Multiple perspectives would help
+- Task is parallelizable
+
+**Handle directly when**:
+- Task is straightforward and context is loaded
+- Delegation overhead exceeds benefit
+- Simple code changes
+- Single-file edits
+- Already have sufficient context
+
+---
+
+### Parallel Delegation
+
+When tasks are independent, delegate in parallel:
+
+```javascript
+// Good: Independent searches in parallel
+Task({ subagent_type: "Explore", model: "sonnet", prompt: "Find all API routes" })
+Task({ subagent_type: "Explore", model: "sonnet", prompt: "Find all database models" })
+Task({ subagent_type: "Explore", model: "sonnet", prompt: "Find all test files" })
+```
+
+**When to parallelize**:
+- Independent searches
+- Multiple file explorations
+- Gathering diverse context
+- Non-overlapping scopes
+
+**When NOT to parallelize**:
+- Sequential dependencies exist
+- Modifying same files
+- Results inform next steps
+- Order matters for correctness

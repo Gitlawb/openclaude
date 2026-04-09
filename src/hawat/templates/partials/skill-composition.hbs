@@ -1,0 +1,176 @@
+## Skill Composition Patterns
+
+Hawat skills can be composed (chained) to accomplish complex workflows.
+Understanding when and how to chain skills is key to effective orchestration.
+
+### Composition Strategies
+
+#### Sequential Chaining
+
+Run skills one after another, passing context forward:
+
+```
+hawat-explore → gather context
+       ↓
+hawat-refactor → apply changes
+       ↓
+hawat-quality-gate → verify results
+```
+
+**When to use**: Multi-phase workflows where each phase depends on the previous.
+
+#### Parallel Execution
+
+Run multiple forked skills simultaneously:
+
+```
+┌─ hawat-parallel-explore (search 1)
+│
+├─ hawat-parallel-explore (search 2)
+│
+└─ hawat-parallel-explore (search 3)
+         ↓
+    Consolidate results in main context
+```
+
+**When to use**: Independent explorations that can run concurrently.
+
+#### Nested Delegation
+
+A skill invokes another skill for sub-tasks:
+
+```
+hawat-incremental-refactor
+    │
+    ├─ (for each file)
+    │     ├─ Apply change
+    │     └─ hawat-tdd → verify with tests
+    │
+    └─ hawat-quality-gate → final verification
+```
+
+**When to use**: Complex operations with embedded verification steps.
+
+### Common Composition Patterns
+
+#### Pattern 1: Explore-Plan-Execute
+
+```
+1. hawat-explore (forked)
+   → Understand codebase structure
+   → Return summary to main
+
+2. Plan changes in main context
+   → Use exploration results
+   → Define scope
+
+3. hawat-incremental-refactor (forked)
+   → Apply planned changes
+   → Verify each step
+```
+
+#### Pattern 2: TDD Feature Development
+
+```
+1. hawat-explore (forked)
+   → Find existing patterns
+   → Identify test locations
+
+2. hawat-tdd (forked)
+   → Write failing test
+   → Implement feature
+   → Verify green
+
+3. hawat-doc-sync (main)
+   → Update documentation
+   → Sync README
+```
+
+#### Pattern 3: Safe Refactoring
+
+```
+1. hawat-checkpoint (main)
+   → Save current state
+   → Create recovery point
+
+2. hawat-refactor (forked)
+   → Apply ast-grep patterns
+   → Structural changes
+
+3. hawat-quality-gate (main)
+   → Verify all checks pass
+   → If fail, restore from checkpoint
+```
+
+#### Pattern 4: Multi-Angle Investigation
+
+```
+1. hawat-parallel-explore (forked) × 3
+   → Angle 1: Search for patterns
+   → Angle 2: Check dependencies
+   → Angle 3: Review tests
+
+2. Consolidate in main context
+   → Merge findings
+   → Identify gaps
+
+3. hawat-lsp (forked)
+   → Semantic analysis
+   → Find references
+```
+
+### Skill Context Flow
+
+Understanding how context flows between skills:
+
+| Source Context | Skill Context | Return to Main |
+|----------------|---------------|----------------|
+| Main session | **fork** | Summary only |
+| Main session | **main** | Full context preserved |
+| Forked skill | **fork** (nested) | Summary to parent fork |
+
+### Best Practices
+
+1. **Start with exploration** - Understand before changing
+2. **Checkpoint before risk** - Save state before complex operations
+3. **Verify incrementally** - Don't batch too many changes
+4. **Gate before done** - Always run quality gate last
+5. **Keep summaries concise** - Forked context returns should be focused
+
+### Anti-Patterns to Avoid
+
+| Anti-Pattern | Problem | Better Approach |
+|--------------|---------|-----------------|
+| Skip exploration | Changes break unknown dependencies | Explore first |
+| No checkpoint | Can't recover from failures | Checkpoint before refactor |
+| Batch everything | Hard to find which change broke things | Incremental changes |
+| Skip quality gate | Ship broken code | Always gate before done |
+| Too many nested forks | Context confusion | Max 2 levels of nesting |
+
+### Composition Decision Tree
+
+```
+Is this a simple, single-file change?
+├─ Yes → Direct edit, no skills needed
+└─ No ↓
+
+Do I need to understand the codebase first?
+├─ Yes → hawat-explore or hawat-parallel-explore
+└─ No ↓
+
+Am I making risky changes?
+├─ Yes → hawat-checkpoint first
+└─ No ↓
+
+Am I changing structure across files?
+├─ Yes → hawat-refactor or hawat-incremental-refactor
+└─ No ↓
+
+Am I adding new functionality?
+├─ Yes → hawat-tdd
+└─ No ↓
+
+Am I done with changes?
+├─ Yes → hawat-quality-gate
+└─ No → Continue working
+```

@@ -1,0 +1,220 @@
+## Session Continuity
+
+### Session Start Protocol
+
+When beginning a new session or after context compaction:
+
+#### Step 1: Read Project Context
+
+```bash
+# Conceptually, do this:
+Read CLAUDE.md         # Project orchestration rules
+Read .claude/context.md  # If exists, session context
+```
+
+**Extract**:
+- Project type and maturity
+- Key patterns to follow
+- Any project-specific rules
+
+#### Step 2: Check Existing Todos
+
+```
+┌─────────────────────────────────────────┐
+│     CHECK FOR EXISTING WORK              │
+├─────────────────────────────────────────┤
+│ Are there incomplete todos?             │
+│                                         │
+│ If YES:                                 │
+│   → Review what was being worked on     │
+│   → Understand current state            │
+│   → Resume from where left off          │
+│                                         │
+│ If NO:                                  │
+│   → Ready for new work                  │
+└─────────────────────────────────────────┘
+```
+
+#### Step 3: Review Recent Changes
+
+```bash
+# Check git status
+git status
+
+# See recent commits
+git log --oneline -5
+
+# Check for uncommitted changes
+git diff --stat
+```
+
+**Determine**:
+- Any work in progress?
+- Uncommitted changes to address?
+- Recent context to be aware of?
+
+#### Step 4: Establish Session Context
+
+Before starting new work:
+- Note current objectives
+- Identify files likely to be modified
+- Check for any blocking issues
+
+#### Quick Start Checklist
+
+```markdown
+Session Start:
+☐ Read CLAUDE.md (project rules)
+☐ Check for existing todos
+☐ Review git status
+☐ Understand current project state
+☐ Ready to receive user request
+```
+
+#### Resuming Interrupted Work
+
+If previous session was interrupted:
+
+1. **Read any session notes** in .claude/context.md
+2. **Check todo status** for what was in progress
+3. **Review changed files** to understand state
+4. **Inform user** of found state:
+   ```
+   "I see there was work in progress on [X].
+   The todos show [Y] was being worked on.
+   Would you like me to continue from there?"
+   ```
+
+---
+
+### Session End Protocol
+
+Before ending a session (or when user indicates they're done):
+
+#### Step 1: Ensure Completion
+
+```
+┌─────────────────────────────────────────┐
+│         COMPLETION CHECK                 │
+├─────────────────────────────────────────┤
+│ ☐ All todos complete OR documented?     │
+│ ☐ Quality checks passing?               │
+│ ☐ No broken code left behind?           │
+└─────────────────────────────────────────┘
+```
+
+**If incomplete work exists**:
+- Ask if user wants to continue
+- Or document what remains
+
+#### Step 2: Summarize Progress
+
+Provide a clear summary of the session:
+
+```markdown
+## Session Summary
+
+### Completed
+- [Task 1]: [Brief description]
+- [Task 2]: [Brief description]
+
+### Files Modified
+- `file1.ts`: [What changed]
+- `file2.ts`: [What changed]
+
+### Status
+- Code: Working / Has issues
+- Tests: Passing / Failing / N/A
+- Commits: Made / Pending
+```
+
+#### Step 3: Note Pending Work
+
+If anything remains:
+
+```markdown
+### Pending Work
+- [ ] [Incomplete task 1]
+- [ ] [Incomplete task 2]
+
+### Context for Next Session
+- Currently working on: [description]
+- Next step would be: [description]
+- Key files: [paths]
+```
+
+#### Step 4: Clean State
+
+Before truly ending:
+
+```
+┌─────────────────────────────────────────┐
+│         STATE CLEANUP                    │
+├─────────────────────────────────────────┤
+│ ☐ Remove temporary files                │
+│ ☐ Remove debug statements (if added)    │
+│ ☐ Code is in runnable state             │
+│ ☐ No half-implemented features          │
+└─────────────────────────────────────────┘
+```
+
+**Golden Rule**: Leave the codebase better than (or at least as good as) you found it.
+
+#### Quick End Checklist
+
+```markdown
+Session End:
+☐ All work complete or documented
+☐ Summary provided
+☐ Pending work noted (if any)
+☐ State is clean
+☐ User informed
+```
+
+---
+
+### State Persistence Methods
+
+#### TodoWrite Persistence
+- Todos automatically persist across conversation
+- Always check for existing todos at start
+- Use todos as continuity mechanism
+
+#### File-Based State
+
+For critical information that must survive:
+
+```markdown
+# .claude/context.md
+
+## Current Work
+[What's being worked on]
+
+## Key Decisions
+- [Decision 1]: [Rationale]
+- [Decision 2]: [Rationale]
+
+## Next Steps
+- [Step 1]
+- [Step 2]
+
+## Important Files
+- [Path]: [Why important]
+```
+
+#### Critical Context (Compaction-Safe)
+
+```markdown
+# .claude/critical-context.md
+
+## MUST REMEMBER
+- [Absolutely critical point 1]
+- [Absolutely critical point 2]
+
+## CURRENT OBJECTIVE
+[Single sentence describing current goal]
+
+## KEY FILES
+- [Path 1]
+- [Path 2]
+```
