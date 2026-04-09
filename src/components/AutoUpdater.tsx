@@ -200,7 +200,7 @@ export function AutoUpdater({
       {(autoUpdaterResult?.status === 'install_failed' || autoUpdaterResult?.status === 'no_permissions') && <Text color="error" wrap="truncate">
           ✗ Auto-update failed &middot; Try <Text bold>openclaude doctor</Text> or{' '}
           <Text bold>
-            {hasLocalInstall ? `cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}` : `npm install -g ${MACRO.PACKAGE_URL}@latest`}
+            {hasLocalInstall ? `cd ~/.openclaude/local && npm update ${MACRO.PACKAGE_URL}` : `npm i -g ${MACRO.PACKAGE_URL}`}
           </Text>
         </Text>}
     </Box>;

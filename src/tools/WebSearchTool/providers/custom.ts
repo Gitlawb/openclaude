@@ -22,7 +22,7 @@
  * 3. Built-in allowlist of header names — arbitrary headers require
  *    WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true
  * 4. Max body size guard (300 KB for POST)
- * 5. Request timeout (default 15s, configurable via WEB_CUSTOM_TIMEOUT_SEC)
+ * 5. Request timeout (default 120s, configurable via WEB_CUSTOM_TIMEOUT_SEC)
  * 6. Audit log on first custom search (one-time warning)
  */
 
@@ -117,7 +117,7 @@ const BUILT_IN_PROVIDERS: Record<string, ProviderPreset> = {
 const DEFAULT_MAX_BODY_KB = 300
 
 /** Default request timeout in seconds. */
-const DEFAULT_TIMEOUT_SECONDS = 15
+const DEFAULT_TIMEOUT_SECONDS = 120
 
 /** Header names that are always allowed (case-insensitive). */
 const SAFE_HEADER_NAMES = new Set([
@@ -455,7 +455,7 @@ export const customProvider: SearchProvider = {
   name: 'custom',
 
   isConfigured() {
-    return Boolean(process.env.WEB_SEARCH_API || process.env.WEB_PROVIDER)
+    return Boolean(process.env.WEB_SEARCH_API || process.env.WEB_PROVIDER || process.env.WEB_URL_TEMPLATE)
   },
 
   async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {

@@ -411,6 +411,29 @@ function makeOutputFromSearchResponse(
 // ---------------------------------------------------------------------------
 
 /**
+ * Returns true for transient errors that are safe to fall through on in auto mode
+ * (network failures, timeouts, HTTP 5xx). Config and guardrail errors return false.
+ */
+function isTransientError(err: unknown): boolean {
+  if (!(err instanceof Error)) return true
+  const msg = err.message.toLowerCase()
+  // Guardrail / config errors — must surface
+  if (msg.includes('must use https')) return false
+  if (msg.includes('private/reserved address')) return false
+  if (msg.includes('not in the safe allowlist')) return false
+  if (msg.includes('exceeds') && msg.includes('bytes')) return false
+  if (msg.includes('not a valid url')) return false
+  if (msg.includes('is not configured')) return false
+  // Transient errors — safe to fall through
+  if (err.name === 'AbortError') return true
+  if (msg.includes('timed out')) return true
+  if (msg.includes('fetch failed') || msg.includes('econnrefused') || msg.includes('enotfound')) return true
+  if (msg.includes('returned 5')) return true // HTTP 5xx
+  // Unknown — treat as transient to preserve auto-mode fallback semantics
+  return true
+}
+
+/**
  * Returns true when we should use the adapter-based provider system.
  *
  * In auto mode: native/first-party/Codex paths take precedence.
@@ -563,15 +586,32 @@ export const WebSearchTool = buildTool({
     //   - "auto": tries each provider, falls through on failure
     //   - specific mode: runs one provider, throws on failure
     if (shouldUseAdapterProvider()) {
-      const providerOutput = await runSearch(
-        {
-          query: input.query,
-          allowed_domains: input.allowed_domains,
-          blocked_domains: input.blocked_domains,
-        },
-        context.abortController.signal,
-      )
-      return { data: formatProviderOutput(providerOutput, input.query) }
+      const mode = getProviderMode()
+      const isExplicitAdapter = mode !== 'auto'
+      try {
+        const providerOutput = await runSearch(
+          {
+            query: input.query,
+            allowed_domains: input.allowed_domains,
+            blocked_domains: input.blocked_domains,
+          },
+          context.abortController.signal,
+        )
+        // Explicit adapter: return even 0 hits (no silent native fallback)
+        if (isExplicitAdapter || providerOutput.hits.length > 0) {
+          return { data: formatProviderOutput(providerOutput, input.query) }
+        }
+        // Auto mode with 0 hits: fall through to native
+      } catch (err) {
+        // Explicit adapter: throw the real error (no silent native fallback)
+        if (isExplicitAdapter) throw err
+        // Auto mode: only fall through on transient errors (network, timeout, 5xx).
+        // Config / guardrail errors (SSRF, HTTPS, bad URL, etc.) must surface.
+        if (!isTransientError(err)) throw err
+        console.error(
+          `[web-search] Adapter failed, falling through to native: ${err}`,
+        )
+      }
     }
 
     // --- Codex / OpenAI Responses path ---
