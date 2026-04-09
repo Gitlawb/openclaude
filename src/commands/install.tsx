@@ -39,7 +39,7 @@ type InstallState = {
   message: string;
   warnings?: string[];
 };
-function getInstallationPath(): string {
+export function getInstallationPath(): string {
   const isWindows = env.platform === 'win32';
   const homeDir = homedir();
   if (isWindows) {
