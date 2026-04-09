@@ -74,7 +74,7 @@ class PtySessionTransport implements TerminalTransport {
     this.id = session.id
 
     const nodeExec = resolveNodeExecutable()
-    const args = [getCliEntrypoint(), '--continue']
+    const args = [getCliEntrypoint()]
 
     this.ptyProcess = pty.spawn(nodeExec, args, {
       name: 'xterm-color',
