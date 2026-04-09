@@ -30,6 +30,7 @@ import session from './commands/session/index.js'
 import skills from './commands/skills/index.js'
 import status from './commands/status/index.js'
 import tasks from './commands/tasks/index.js'
+import { hawatInit, hawatDoctor, hawatInstall, hawatUpdate, hawatUninstall } from './commands/hawat/index.js'
 import securityReview from './commands/security-review.js'
 import terminalSetup from './commands/terminalSetup/index.js'
 import theme from './commands/theme/index.js'
@@ -251,6 +252,11 @@ const COMMANDS = memoize((): Command[] => [
   tasks,
   ...(workflowsCmd ? [workflowsCmd] : []),
   ...(torch ? [torch] : []),
+  hawatInit,
+  hawatDoctor,
+  hawatInstall,
+  hawatUpdate,
+  hawatUninstall,
   ...(process.env.USER_TYPE === 'ant' && !process.env.IS_DEMO
     ? INTERNAL_ONLY_COMMANDS
     : []),
