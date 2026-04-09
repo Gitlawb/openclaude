@@ -1642,7 +1642,7 @@ export function Config({
           channel: channel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
         });
       }} />}
-        </Dialog> : showSubmenu === 'ChannelDowngrade' ? <ChannelDowngradeDialog currentVersion={MACRO.VERSION} onChoice={(choice: ChannelDowngradeChoice) => {
+        </Dialog> : showSubmenu === 'ChannelDowngrade' ? <ChannelDowngradeDialog currentVersion={(typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0')} onChoice={(choice: ChannelDowngradeChoice) => {
       setShowSubmenu(null);
       setTabsHidden(false);
       if (choice === 'cancel') {
@@ -1659,7 +1659,7 @@ export function Config({
       };
       if (choice === 'stay') {
         // User wants to stay on current version until stable catches up
-        newSettings.minimumVersion = MACRO.VERSION;
+        newSettings.minimumVersion = (typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0');
       }
       updateSettingsForSource('userSettings', newSettings);
       setSettingsData(prev_27 => ({

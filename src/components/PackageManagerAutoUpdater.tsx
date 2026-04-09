@@ -31,23 +31,24 @@ export function PackageManagerAutoUpdater(t0) {
       if (isAutoUpdaterDisabled()) {
         return;
       }
+      const currentVersion = typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0';
       const [channel, pm] = await Promise.all([Promise.resolve(getInitialSettings()?.autoUpdatesChannel ?? "latest"), getPackageManager()]);
       setPackageManager(pm);
       let latest = await getLatestVersionFromGcs(channel);
       const maxVersion = await getMaxVersion();
       if (maxVersion && latest && gt(latest, maxVersion)) {
         logForDebugging(`PackageManagerAutoUpdater: maxVersion ${maxVersion} is set, capping update from ${latest} to ${maxVersion}`);
-        if (gte(MACRO.VERSION, maxVersion)) {
-          logForDebugging(`PackageManagerAutoUpdater: current version ${MACRO.VERSION} is already at or above maxVersion ${maxVersion}, skipping update`);
+        if (gte(currentVersion, maxVersion)) {
+          logForDebugging(`PackageManagerAutoUpdater: current version ${currentVersion} is already at or above maxVersion ${maxVersion}, skipping update`);
           setUpdateAvailable(false);
           return;
         }
         latest = maxVersion;
       }
-      const hasUpdate = latest && !gte(MACRO.VERSION, latest) && !shouldSkipVersion(latest);
+      const hasUpdate = latest && !gte(currentVersion, latest) && !shouldSkipVersion(latest);
       setUpdateAvailable(!!hasUpdate);
       if (hasUpdate) {
-        logForDebugging(`PackageManagerAutoUpdater: Update available ${MACRO.VERSION} -> ${latest}`);
+        logForDebugging(`PackageManagerAutoUpdater: Update available ${currentVersion} -> ${latest}`);
       }
     };
     $[0] = t1;
@@ -76,7 +77,7 @@ export function PackageManagerAutoUpdater(t0) {
   const updateCommand = packageManager === "homebrew" ? "brew upgrade claude-code" : packageManager === "winget" ? "winget upgrade Anthropic.ClaudeCode" : packageManager === "apk" ? "apk upgrade claude-code" : "your package manager update command";
   let t4;
   if ($[3] !== verbose) {
-    t4 = verbose && <Text dimColor={true} wrap="truncate">currentVersion: {MACRO.VERSION}</Text>;
+    t4 = verbose && <Text dimColor={true} wrap="truncate">currentVersion: {typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0'}</Text>;
     $[3] = verbose;
     $[4] = t4;
   } else {

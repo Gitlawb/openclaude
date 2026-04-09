@@ -105,6 +105,7 @@ This will ensure you have access to the latest features and improvements.
   }
 }
 
+
 /**
  * Returns the maximum allowed version for the current user type.
  * For ants, returns the `ant` field (dev version format).

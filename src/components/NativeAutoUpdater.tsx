@@ -87,14 +87,14 @@ export function NativeAutoUpdater({
     // Log the start of an auto-update check for funnel analysis
     logEvent('tengu_native_auto_updater_start', {});
     try {
+      const currentVersion = typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0';
       // Check if current version is above the max allowed version
       const maxVersion = await getMaxVersion();
-      if (maxVersion && gt(MACRO.VERSION, maxVersion)) {
+      if (maxVersion && gt(currentVersion, maxVersion)) {
         const msg = await getMaxVersionMessage();
         setMaxVersionIssue(msg ?? 'affects your version');
       }
       const result = await installLatest(channel);
-      const currentVersion = MACRO.VERSION;
       const latencyMs = Date.now() - startTime;
 
       // Handle lock contention gracefully - just return without treating as error

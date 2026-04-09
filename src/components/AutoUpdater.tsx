@@ -53,7 +53,7 @@ export function AutoUpdater({
       logForDebugging('AutoUpdater: Skipping update check in test/dev environment');
       return;
     }
-    const currentVersion = MACRO.VERSION;
+    const currentVersion = typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0';
     const channel = getInitialSettings()?.autoUpdatesChannel ?? 'latest';
     let latestVersion = await getLatestVersion(channel);
     const isDisabled = isAutoUpdaterDisabled();

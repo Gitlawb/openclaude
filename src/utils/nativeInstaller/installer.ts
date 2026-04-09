@@ -507,6 +507,7 @@ async function updateLatest(
 
   logForDebugging(`Checking for native installer update to version ${version}`)
 
+  const currentVersion = typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0';
   // Check if max version is set (server-side kill switch for auto-updates)
   if (!forceReinstall) {
     const maxVersion = await getMaxVersion()
@@ -515,9 +516,9 @@ async function updateLatest(
         `Native installer: maxVersion ${maxVersion} is set, capping update from ${version} to ${maxVersion}`,
       )
       // If we're already at or above maxVersion, skip the update entirely
-      if (gte(MACRO.VERSION, maxVersion)) {
+      if (gte(currentVersion, maxVersion)) {
         logForDebugging(
-          `Native installer: current version ${MACRO.VERSION} is already at or above maxVersion ${maxVersion}, skipping update`,
+          `Native installer: current version ${currentVersion} is already at or above maxVersion ${maxVersion}, skipping update`,
         )
         logEvent('tengu_native_update_skipped_max_version', {
           latency_ms: Date.now() - startTime,
@@ -537,7 +538,7 @@ async function updateLatest(
   // is invalid (e.g., empty/corrupted from a failed install), or we're running via npx.
   if (
     !forceReinstall &&
-    version === MACRO.VERSION &&
+    version === currentVersion &&
     (await versionIsAvailable(version)) &&
     (await isPossibleClaudeBinary(executablePath))
   ) {
