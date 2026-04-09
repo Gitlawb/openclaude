@@ -125,6 +125,7 @@ export class LogUpdate {
     next: Frame,
     altScreen = false,
     decstbmSafe = true,
+    rewriteMainScreen = false,
   ): Diff {
     if (!this.options.isTTY) {
       return this.renderFullFrame(next)
@@ -144,6 +145,13 @@ export class LogUpdate {
       (prev.viewport.width !== 0 && next.viewport.width !== prev.viewport.width)
     ) {
       return fullResetSequence_CAUSES_FLICKER(next, 'resize', stylePool)
+    }
+
+    if (!altScreen && rewriteMainScreen) {
+      const rewriteStartY = findMainScreenRewriteStart(prev.screen, next.screen)
+      if (rewriteStartY !== null) {
+        return rewriteMainScreenFrame(prev, next, stylePool, rewriteStartY)
+      }
     }
 
     // DECSTBM scroll optimization: when a ScrollBox's scrollTop changed,
@@ -420,34 +428,8 @@ export class LogUpdate {
     // Main screen: if cursor needs to be past the last line of content
     // (typical: cursor.y = screen.height), emit \n to create that line
     // since cursor movement can't create new lines.
-    if (altScreen) {
-      // no-op; next frame's CSI H anchors cursor
-    } else if (next.cursor.y >= next.screen.height) {
-      // Move to column 0 of current line, then emit newlines to reach target row
-      screen.txn(prev => {
-        const rowsToCreate = next.cursor.y - prev.y
-        if (rowsToCreate > 0) {
-          // Use CR to resolve pending wrap (if any) without advancing
-          // to the next line, then LF to create each new row.
-          const patches: Diff = new Array<Diff[number]>(1 + rowsToCreate)
-          patches[0] = CARRIAGE_RETURN
-          for (let i = 0; i < rowsToCreate; i++) {
-            patches[1 + i] = NEWLINE
-          }
-          return [patches, { dx: -prev.x, dy: rowsToCreate }]
-        }
-        // At or past target row - need to move cursor to correct position
-        const dy = next.cursor.y - prev.y
-        if (dy !== 0 || prev.x !== next.cursor.x) {
-          // Use CR to clear pending wrap (if any), then cursor move
-          const patches: Diff = [CARRIAGE_RETURN]
-          patches.push({ type: 'cursorMove', x: next.cursor.x, y: dy })
-          return [patches, { dx: next.cursor.x - prev.x, dy }]
-        }
-        return [[], { dx: 0, dy: 0 }]
-      })
-    } else {
-      moveCursorTo(screen, next.cursor.x, next.cursor.y)
+    if (!altScreen) {
+      restoreMainScreenCursor(screen, next)
     }
 
     const elapsed = performance.now() - startTime
@@ -465,6 +447,77 @@ export class LogUpdate {
       ? [...scrollPatch, ...screen.diff]
       : screen.diff
   }
+}
+
+function rewriteMainScreenFrame(
+  prev: Frame,
+  next: Frame,
+  stylePool: StylePool,
+  startY: number,
+): Diff {
+  const diff: Diff = []
+  const clearCount = prev.screen.height - startY
+
+  if (clearCount > 0) {
+    const clearStartY = prev.screen.height - 1
+    const clearCursor = new VirtualScreen(prev.cursor, next.viewport.width)
+    moveCursorTo(clearCursor, 0, clearStartY)
+    diff.push(...clearCursor.diff)
+    diff.push({ type: 'clear', count: clearCount })
+  }
+
+  const screen = new VirtualScreen(
+    clearCount > 0 ? { x: 0, y: startY } : prev.cursor,
+    next.viewport.width,
+  )
+  renderFrameSlice(screen, next, startY, next.screen.height, stylePool)
+  restoreMainScreenCursor(screen, next)
+
+  return [...diff, ...screen.diff]
+}
+
+const MAX_MAIN_SCREEN_REWRITE_ROWS = 6
+
+function findMainScreenRewriteStart(prev: Screen, next: Screen): number | null {
+  const commonHeight = Math.min(prev.height, next.height)
+  let firstChangedY = commonHeight
+
+  for (let y = 0; y < commonHeight; y += 1) {
+    if (!rowsEqual(prev, next, y)) {
+      firstChangedY = y
+      break
+    }
+  }
+
+  const rewriteRows = Math.max(prev.height, next.height) - firstChangedY
+  if (rewriteRows <= 0) {
+    return null
+  }
+
+  return rewriteRows <= MAX_MAIN_SCREEN_REWRITE_ROWS ? firstChangedY : null
+}
+
+function rowsEqual(prev: Screen, next: Screen, y: number): boolean {
+  if (prev.width !== next.width) {
+    return false
+  }
+
+  if (prev.softWrap[y] !== next.softWrap[y]) {
+    return false
+  }
+
+  const rowStart = y * prev.width
+  const rowEnd = rowStart + prev.width
+  for (let index = rowStart; index < rowEnd; index += 1) {
+    if (
+      prev.cells64[index] !== next.cells64[index] ||
+      prev.noSelect[index] !== next.noSelect[index]
+    ) {
+      return false
+    }
+  }
+
+  return true
 }
 
 function transitionHyperlink(
@@ -620,6 +673,37 @@ function renderFrameSlice(
   transitionHyperlink(screen.diff, currentHyperlink, undefined)
 
   return screen
+}
+
+function restoreMainScreenCursor(screen: VirtualScreen, next: Frame): void {
+  if (next.cursor.y >= next.screen.height) {
+    // Move to column 0 of current line, then emit newlines to reach target row
+    screen.txn(prev => {
+      const rowsToCreate = next.cursor.y - prev.y
+      if (rowsToCreate > 0) {
+        // Use CR to resolve pending wrap (if any) without advancing
+        // to the next line, then LF to create each new row.
+        const patches: Diff = new Array<Diff[number]>(1 + rowsToCreate)
+        patches[0] = CARRIAGE_RETURN
+        for (let i = 0; i < rowsToCreate; i++) {
+          patches[1 + i] = NEWLINE
+        }
+        return [patches, { dx: -prev.x, dy: rowsToCreate }]
+      }
+      // At or past target row - need to move cursor to correct position
+      const dy = next.cursor.y - prev.y
+      if (dy !== 0 || prev.x !== next.cursor.x) {
+        // Use CR to clear pending wrap (if any), then cursor move
+        const patches: Diff = [CARRIAGE_RETURN]
+        patches.push({ type: 'cursorMove', x: next.cursor.x, y: dy })
+        return [patches, { dx: next.cursor.x - prev.x, dy }]
+      }
+      return [[], { dx: 0, dy: 0 }]
+    })
+    return
+  }
+
+  moveCursorTo(screen, next.cursor.x, next.cursor.y)
 }
 
 type Delta = { dx: number; dy: number }

@@ -54,7 +54,10 @@ export function renderToolUseMessage({
   if (!skill) {
     return null;
   }
-  // Look up the command to check if it came from the legacy /commands folder
+  // Only legacy /commands_DEPRECATED entries need the command lookup so we can
+  // preserve the slash-prefixed display. Plugin skills already carry the
+  // invoked skill name in `skill`, so transcript/history rendering does not
+  // need plugin command metadata.
   const command = commands?.find(c => c.name === skill);
   const displayName = command?.loadedFrom === 'commands_DEPRECATED' ? `/${skill}` : skill;
   return displayName;

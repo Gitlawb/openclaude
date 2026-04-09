@@ -115,7 +115,10 @@ export default class App extends PureComponent<Props, State> {
   keyParseState = INITIAL_STATE;
   // Timer for flushing incomplete escape sequences
   incompleteEscapeTimer: NodeJS.Timeout | null = null;
-  stdinMode: 'readable' | 'data' = process.env.OPENCLAUDE_USE_READABLE_STDIN === '1' ? 'readable' : 'data';
+  // Default to readable-mode stdin (legacy Ink behavior). The data-mode path
+  // is kept as an explicit opt-in because some terminals can enter a state
+  // where startup input appears frozen when data mode is the default.
+  stdinMode: 'readable' | 'data' = process.env.OPENCLAUDE_USE_DATA_STDIN === '1' || process.env.OPENCLAUDE_USE_READABLE_STDIN === '0' ? 'data' : 'readable';
   // Timeout durations for incomplete sequences (ms)
   readonly NORMAL_TIMEOUT = 50; // Short timeout for regular esc sequences
   readonly PASTE_TIMEOUT = 500; // Longer timeout for paste operations
