@@ -61,6 +61,40 @@ function checkGithubTokenStatus(
   return 'valid'
 }
 
+type GithubEndpointType = 'copilot' | 'models' | 'custom'
+
+function githubAuthError(
+  endpointType: GithubEndpointType,
+  kind: 'missing' | 'expired' | 'invalid',
+): string {
+  if (endpointType === 'copilot') {
+    switch (kind) {
+      case 'missing':
+        return 'GitHub Copilot authentication required.\n' +
+          'Run /onboard-github in the CLI to sign in with your GitHub account.\n' +
+          'This will store your OAuth token securely and enable Copilot models.'
+      case 'expired':
+        return 'GitHub Copilot token has expired.\n' +
+          'Run /onboard-github to sign in again and get a fresh token.'
+      case 'invalid':
+        return 'GitHub Copilot token is invalid or corrupted.\n' +
+          'Run /onboard-github to sign in again with your GitHub account.'
+    }
+  }
+  // GitHub Models, custom, or future endpoint types
+  switch (kind) {
+    case 'missing':
+      return 'GITHUB_TOKEN or GH_TOKEN is required for your GitHub endpoint.\n' +
+        'Set one of these environment variables to a valid token.'
+    case 'expired':
+      return 'GitHub token has expired.\n' +
+        'Set a fresh GITHUB_TOKEN or GH_TOKEN.'
+    case 'invalid':
+      return 'GitHub token is invalid or corrupted.\n' +
+        'Check your GITHUB_TOKEN or GH_TOKEN.'
+  }
+}
+
 export async function getProviderValidationError(
   env: NodeJS.ProcessEnv = process.env,
   options?: {
@@ -84,20 +118,16 @@ export async function getProviderValidationError(
 
   if (useGithub && !useOpenAI) {
     const token = (env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()) ?? ''
-    if (!token) {
-      return 'GitHub Copilot authentication required.\n' +
-        'Run /onboard-github in the CLI to sign in with your GitHub account.\n' +
-        'This will store your OAuth token securely and enable Copilot models.'
-    }
     const endpointType = getGithubEndpointType(env.OPENAI_BASE_URL)
+    if (!token) {
+      return githubAuthError(endpointType, 'missing')
+    }
     const status = checkGithubTokenStatus(token, endpointType)
     if (status === 'expired') {
-      return 'GitHub Copilot token has expired.\n' +
-        'Run /onboard-github to sign in again and get a fresh token.'
+      return githubAuthError(endpointType, 'expired')
     }
     if (status === 'invalid_format') {
-      return 'GitHub Copilot token is invalid or corrupted.\n' +
-        'Run /onboard-github to sign in again with your GitHub account.'
+      return githubAuthError(endpointType, 'invalid')
     }
     return null
   }
@@ -175,16 +205,19 @@ export async function validateProviderEnvOrExit(
   const error = await getProviderValidationError(env)
   if (!error) return
 
-  // For GitHub auth errors in interactive REPL mode, warn instead of exiting
-  // so the user can run /onboard-github from within the CLI.
-  const isGithubAuthError =
+  // For GitHub Copilot auth errors in interactive REPL mode, warn instead of
+  // exiting so the user can run /onboard-github from within the CLI.
+  // Only applies to the Copilot endpoint — GitHub Models and custom endpoints
+  // have no in-CLI recovery path, so they should still hard-exit.
+  const isGithubCopilotAuthError =
     isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB) &&
     !isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI) &&
+    getGithubEndpointType(env.OPENAI_BASE_URL) === 'copilot' &&
     (error.includes('authentication required') ||
       error.includes('token has expired') ||
       error.includes('token is invalid'))
 
-  if (isGithubAuthError && isInteractiveReplMode()) {
+  if (isGithubCopilotAuthError && isInteractiveReplMode()) {
     console.error(`Warning: ${error}\n`)
     return
   }
