@@ -1,4 +1,5 @@
 import {
+  getGithubEndpointType,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
@@ -13,6 +14,51 @@ function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
   const normalized = value.trim().toLowerCase()
   return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
+}
+
+type GithubTokenStatus = 'valid' | 'expired' | 'invalid_format'
+
+const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_', 'ghs_', 'ghr_', 'github_pat_']
+
+function checkGithubTokenStatus(
+  token: string,
+  endpointType: 'copilot' | 'models' | 'custom' = 'copilot',
+): GithubTokenStatus {
+  // PATs work with GitHub Models but not with Copilot API
+  if (GITHUB_PAT_PREFIXES.some(prefix => token.startsWith(prefix))) {
+    if (endpointType === 'copilot') {
+      return 'expired'
+    }
+    return 'valid'
+  }
+
+  const expMatch = token.match(/exp=(\d+)/)
+  if (expMatch) {
+    const expSeconds = Number(expMatch[1])
+    if (!Number.isNaN(expSeconds)) {
+      return Date.now() >= expSeconds * 1000 ? 'expired' : 'valid'
+    }
+  }
+
+  const parts = token.split('.')
+  const looksLikeJwt =
+    parts.length === 3 && parts.every(part => /^[A-Za-z0-9_-]+$/.test(part))
+  if (looksLikeJwt) {
+    try {
+      const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+      const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+      const json = Buffer.from(padded, 'base64').toString('utf8')
+      const parsed = JSON.parse(json)
+      if (parsed && typeof parsed === 'object' && parsed.exp) {
+        return Date.now() >= (parsed.exp as number) * 1000 ? 'expired' : 'valid'
+      }
+    } catch {
+      return 'invalid_format'
+    }
+  }
+
+  // Keep compatibility with opaque token formats that do not expose expiry.
+  return 'valid'
 }
 
 export async function getProviderValidationError(
@@ -40,7 +86,19 @@ export async function getProviderValidationError(
   if (useGithub && !useOpenAI) {
     const token = (env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()) ?? ''
     if (!token) {
-      return 'GITHUB_TOKEN or GH_TOKEN is required when CLAUDE_CODE_USE_GITHUB=1.'
+      return 'GitHub Copilot authentication required.\n' +
+        'Run /onboard-github in the CLI to sign in with your GitHub account.\n' +
+        'This will store your OAuth token securely and enable Copilot models.'
+    }
+    const endpointType = getGithubEndpointType(env.OPENAI_BASE_URL)
+    const status = checkGithubTokenStatus(token, endpointType)
+    if (status === 'expired') {
+      return 'GitHub Copilot token has expired.\n' +
+        'Run /onboard-github to sign in again and get a fresh token.'
+    }
+    if (status === 'invalid_format') {
+      return 'GitHub Copilot token is invalid or corrupted.\n' +
+        'Run /onboard-github to sign in again with your GitHub account.'
     }
     return null
   }

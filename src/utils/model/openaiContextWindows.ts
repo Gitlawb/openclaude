@@ -44,6 +44,10 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'mistral-large-latest':     131_072,
   'mistral-small-latest':     131_072,
 
+  // MiniMax
+  'MiniMax-M2.7':             204_800,
+  'minimax-m2.7':             204_800,
+
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':1_048_576,
   'google/gemini-2.5-pro':  1_048_576,
@@ -109,6 +113,10 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   // Mistral
   'mistral-large-latest':     32_768,
   'mistral-small-latest':     32_768,
+
+  // MiniMax
+  'MiniMax-M2.7':            131_072,
+  'minimax-m2.7':            131_072,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':   8_192,

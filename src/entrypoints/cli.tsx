@@ -3,7 +3,10 @@ import {
   applyProfileEnvToProcessEnv,
   buildStartupEnvFromProfile,
 } from '../utils/providerProfile.js'
-import { getProviderValidationError } from '../utils/providerValidation.js'
+import {
+  getProviderValidationError,
+  validateProviderEnvOrExit,
+} from '../utils/providerValidation.js'
 
 // OpenClaude: polyfill globalThis.File for Node < 20.
 // undici v7 references `File` at module evaluation time (webidl type
@@ -93,15 +96,16 @@ async function main(): Promise<void> {
     }
   }
 
+  // Enable configs first so we can read settings
   {
     const { enableConfigs } = await import('../utils/config.js')
     enableConfigs()
+  }
+
+  // Apply settings.env from user settings (includes GitHub provider settings from /onboard-github)
+  {
     const { applySafeConfigEnvironmentVariables } = await import('../utils/managedEnv.js')
     applySafeConfigEnvironmentVariables()
-    const { hydrateGeminiAccessTokenFromSecureStorage } = await import('../utils/geminiCredentials.js')
-    hydrateGeminiAccessTokenFromSecureStorage()
-    const { hydrateGithubModelsTokenFromSecureStorage } = await import('../utils/githubModelsCredentials.js')
-    hydrateGithubModelsTokenFromSecureStorage()
   }
 
   const startupEnv = await buildStartupEnvFromProfile({
@@ -118,13 +122,17 @@ async function main(): Promise<void> {
     }
   }
 
-  const interactiveStartupProviderError = await getProviderValidationError(
-    process.env,
-    { allowInteractiveRecovery: true },
-  )
-  if (interactiveStartupProviderError) {
-    console.error(`Warning: ${interactiveStartupProviderError}`)
+  // Hydrate GitHub credentials after profile is applied so CLAUDE_CODE_USE_GITHUB from profile is available
+  {
+    const {
+      hydrateGithubModelsTokenFromSecureStorage,
+      refreshGithubModelsTokenIfNeeded,
+    } = await import('../utils/githubModelsCredentials.js')
+    await refreshGithubModelsTokenIfNeeded()
+    hydrateGithubModelsTokenFromSecureStorage()
   }
+
+  await validateProviderEnvOrExit()
 
   // Print the gradient startup screen before the Ink UI loads
   const { printStartupScreen } = await import('../components/StartupScreen.js')
