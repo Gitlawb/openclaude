@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeEach } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 
 // The feature() function from bun:bundle is shimmed at build time.
 // In tests, it's not available, so we test the getRepoMapContext logic

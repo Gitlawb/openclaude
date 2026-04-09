@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
+import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { invalidateCache, buildRepoMap } from './index.js'
@@ -134,7 +134,6 @@ describe('renderer', () => {
 
     // Every file header in the output should have its signatures listed
     for (const header of fileHeaders) {
-      const fileName = header.slice(0, -1) // remove trailing ':'
       // The file must have at least one signature line after it
       const headerIdx = result.map.indexOf(header)
       const afterHeader = result.map.slice(headerIdx + header.length)

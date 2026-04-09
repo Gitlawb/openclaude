@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { readdirSync, statSync } from 'fs'
+import { readdirSync } from 'fs'
 import { join, relative } from 'path'
 import type { SupportedLanguage } from './types.js'
 

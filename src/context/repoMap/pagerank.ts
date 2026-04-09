@@ -20,8 +20,6 @@ export function rankFiles(
 ): RankedFile[] {
   if (graph.order === 0) return []
 
-  // Build personalization vector
-  const focusSet = new Set(focusFiles)
   const hasPersonalization = focusFiles.length > 0
 
   // graphology-pagerank accepts getEdgeWeight option

@@ -1,8 +1,7 @@
-import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import { cpSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { z } from 'zod/v4'
 import { initParser } from '../../context/repoMap/parser.js'
 import { invalidateCache } from '../../context/repoMap/index.js'
 import { RepoMapTool } from './RepoMapTool.js'
@@ -29,24 +28,6 @@ beforeAll(async () => {
   await initParser()
 })
 
-// Minimal context stub for tool.call
-function makeContext(root: string) {
-  // Patch getCwd to return our test root
-  process.env.__TEST_CWD_OVERRIDE = root
-  return {
-    abortController: new AbortController(),
-    getAppState: () => ({
-      toolPermissionContext: {
-        mode: 'default' as const,
-        additionalWorkingDirectories: new Map(),
-        alwaysAllowRules: {},
-        alwaysDenyRules: {},
-        alwaysAskRules: {},
-        isBypassPermissionsModeAvailable: false,
-      },
-    }),
-  } as any
-}
 
 describe('RepoMapTool schema', () => {
   test('validates a minimal input {}', () => {
