@@ -36,6 +36,14 @@ If the install later reports `ripgrep not found`, install ripgrep system-wide an
 openclaude
 ```
 
+OpenClaude stores its own config under `~/.openclaude` by default.
+This avoids pulling Claude Code plugins, caches, and settings from `~/.claude`, which can cause startup or input issues in the fork.
+If you intentionally want to reuse the legacy Claude Code home, opt in explicitly:
+
+```bash
+OPENCLAUDE_USE_LEGACY_CLAUDE_HOME=1 openclaude
+```
+
 Inside OpenClaude:
 
 - run `/provider` for guided provider setup and saved profiles

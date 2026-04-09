@@ -10,17 +10,25 @@ export const getClaudeConfigHomeDir = memoize(
     if (process.env.CLAUDE_CONFIG_DIR) {
       return process.env.CLAUDE_CONFIG_DIR.normalize('NFC')
     }
-    const newDefault = join(homedir(), '.openclaude')
-    // Migration compatibility: if ~/.openclaude doesn't exist yet but ~/.claude
-    // does, keep using ~/.claude so existing users don't lose their data on
-    // upgrade. New installs (neither dir exists) go straight to ~/.openclaude.
+
+    const openClaudeDefault = join(homedir(), '.openclaude')
     const legacyPath = join(homedir(), '.claude')
-    if (!existsSync(newDefault) && existsSync(legacyPath)) {
+
+    // OpenClaude should use its own config home by default.
+    // Reusing ~/.claude pulls in Claude Code plugins, caches, settings, and
+    // marketplace state, which can cause startup errors and input issues in the
+    // fork. Users who explicitly want to share the legacy directory can opt in.
+    if (
+      isEnvTruthy(process.env.OPENCLAUDE_USE_LEGACY_CLAUDE_HOME) &&
+      existsSync(legacyPath)
+    ) {
       return legacyPath.normalize('NFC')
     }
-    return newDefault.normalize('NFC')
+
+    return openClaudeDefault.normalize('NFC')
   },
-  () => process.env.CLAUDE_CONFIG_DIR,
+  () =>
+    `${process.env.CLAUDE_CONFIG_DIR ?? ''}:${process.env.OPENCLAUDE_USE_LEGACY_CLAUDE_HOME ?? ''}`,
 )
 
 export function getTeamsDir(): string {
