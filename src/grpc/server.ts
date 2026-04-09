@@ -40,7 +40,7 @@ export class GrpcServer {
       grpc.ServerCredentials.createInsecure(),
       (error, boundPort) => {
         if (error) {
-          console.error('Failed to start gRPC server', error)
+          console.error('Failed to start gRPC server')
           return
         }
         console.log(`gRPC Server running at ${host}:${boundPort}`)
@@ -225,7 +225,7 @@ export class GrpcServer {
           call.end()
         }
       } catch (err: any) {
-        console.error("Error processing stream:", err)
+        console.error('Error processing stream')
         call.write({
           error: {
             message: err.message || "Internal server error",

@@ -13,6 +13,7 @@ const execFileNoThrowMock = mock(
 
 mock.module('../../utils/execFileNoThrow.js', () => ({
   execFileNoThrow: execFileNoThrowMock,
+  execFileNoThrowWithCwd: execFileNoThrowMock,
 }))
 
 mock.module('../../utils/tempfile.js', () => ({
@@ -25,6 +26,21 @@ async function importFreshOscModule() {
 
 async function flushClipboardCopy(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0))
+}
+
+async function waitForExecCall(
+  command: string,
+  attempts = 20,
+): Promise<(typeof execFileNoThrowMock.mock.calls)[number] | undefined> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const call = execFileNoThrowMock.mock.calls.find(([cmd]) => cmd === command)
+    if (call) {
+      return call
+    }
+    await flushClipboardCopy()
+  }
+
+  return undefined
 }
 
 describe('Windows clipboard fallback', () => {
@@ -62,9 +78,7 @@ describe('Windows clipboard fallback', () => {
     await setClipboard('Привет мир')
     await flushClipboardCopy()
 
-    const windowsCall = execFileNoThrowMock.mock.calls.find(
-      ([cmd]) => cmd === 'powershell',
-    )
+    const windowsCall = await waitForExecCall('powershell')
 
     expect(windowsCall?.[2]).toMatchObject({
       stdin: 'ignore',

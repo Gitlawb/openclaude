@@ -28,6 +28,13 @@ import {
   renderToolUseProgressMessage,
 } from './UI.js'
 
+import {
+  runSearch,
+  getProviderMode,
+  getAvailableProviders,
+  type ProviderOutput,
+} from './providers/index.js'
+
 const inputSchema = lazySchema(() =>
   z.strictObject({
     query: z.string().min(2).describe('The search query to use'),
@@ -79,6 +86,39 @@ export type { WebSearchProgress } from '../../types/tools.js'
 
 import type { WebSearchProgress } from '../../types/tools.js'
 
+// ---------------------------------------------------------------------------
+// Shared formatting: ProviderOutput → Output
+// ---------------------------------------------------------------------------
+
+function formatProviderOutput(po: ProviderOutput, query: string): Output {
+  const results: (SearchResult | string)[] = []
+
+  const snippets = po.hits
+    .filter(h => h.description)
+    .map(h => `**${h.title}** — ${h.description} (${h.url})`)
+    .join('\n')
+  if (snippets) results.push(snippets)
+
+  if (po.hits.length > 0) {
+    results.push({
+      tool_use_id: `${po.providerName}-search`,
+      content: po.hits.map(h => ({ title: h.title, url: h.url })),
+    })
+  }
+
+  if (results.length === 0) results.push('No results found.')
+
+  return {
+    query,
+    results,
+    durationSeconds: po.durationSeconds,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Native Anthropic + Codex paths (unchanged, tightly coupled to SDK)
+// ---------------------------------------------------------------------------
+
 function makeToolSchema(input: Input): BetaWebSearchTool20250305 {
   return {
     type: 'web_search_20250305',
@@ -89,159 +129,8 @@ function makeToolSchema(input: Input): BetaWebSearchTool20250305 {
   }
 }
 
-function isFirecrawlEnabled(): boolean {
-  return Boolean(process.env.FIRECRAWL_API_KEY)
-}
-
-function shouldUseFirecrawl(): boolean {
-  if (!isFirecrawlEnabled()) return false
-  // Don't override native search on providers that already have it
-  if (isCodexResponsesWebSearchEnabled()) return false
-  const provider = getAPIProvider()
-  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') return false
-  return true
-}
-
 function isClaudeModel(model: string): boolean {
   return /claude/i.test(model)
-}
-
-function shouldUseDuckDuckGo(): boolean {
-  if (isCodexResponsesWebSearchEnabled()) return false
-
-  const provider = getAPIProvider()
-  // Don't override providers/models that have native web search support.
-  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
-    return false
-  }
-
-  // Use free DDG search for non-Claude models by default.
-  return !isClaudeModel(getMainLoopModel())
-}
-
-async function runDuckDuckGoSearch(input: Input): Promise<Output> {
-  const startTime = performance.now()
-
-  try {
-    const { search } = await import('duck-duck-scrape')
-
-    const response = await search(input.query, {
-      safeSearch: 0,
-    })
-
-    let hits = response.results.map(r => ({
-      title: r.title || r.url,
-      url: r.url,
-      snippet: r.description,
-    }))
-
-    if (input.blocked_domains?.length) {
-      hits = hits.filter(h => {
-        try {
-          const host = new URL(h.url).hostname
-          return !input.blocked_domains!.some(d => host.endsWith(d))
-        } catch {
-          return false
-        }
-      })
-    }
-
-    if (input.allowed_domains?.length) {
-      hits = hits.filter(h => {
-        try {
-          const host = new URL(h.url).hostname
-          return input.allowed_domains!.some(d => host.endsWith(d))
-        } catch {
-          return false
-        }
-      })
-    }
-
-    const snippets = hits
-      .filter(h => h.snippet)
-      .map(h => `**${h.title}** — ${h.snippet} (${h.url})`)
-      .join('\n')
-
-    const results: Output['results'] = []
-    if (snippets) results.push(snippets)
-    results.push({
-      tool_use_id: 'duckduckgo-search',
-      content: hits.map(({ title, url }) => ({ title, url })),
-    })
-
-    return {
-      query: input.query,
-      results,
-      durationSeconds: (performance.now() - startTime) / 1000,
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const isRateLimited =
-      message.includes('429') ||
-      message.includes('rate') ||
-      message.includes('CAPTCHA') ||
-      message.includes('blocked')
-
-    if (isRateLimited && isFirecrawlEnabled()) {
-      return runFirecrawlSearch(input)
-    }
-
-    return {
-      query: input.query,
-      results: [
-        'Web search temporarily unavailable — try again or add a Firecrawl API key for reliable results.',
-      ],
-      durationSeconds: (performance.now() - startTime) / 1000,
-    }
-  }
-}
-
-async function runFirecrawlSearch(input: Input): Promise<Output> {
-  const startTime = performance.now()
-  const { FirecrawlClient } = await import('@mendable/firecrawl-js')
-  const app = new FirecrawlClient({ apiKey: process.env.FIRECRAWL_API_KEY! })
-
-  let query = input.query
-  if (input.blocked_domains?.length) {
-    const exclusions = input.blocked_domains.map(d => `-site:${d}`).join(' ')
-    query = `${query} ${exclusions}`
-  }
-
-  const data = await app.search(query, { limit: 10 })
-
-  let hits = (data.web ?? []).map((r: { url: string; title?: string }) => ({
-    title: r.title ?? r.url,
-    url: r.url,
-  }))
-
-  if (input.allowed_domains?.length) {
-    hits = hits.filter(h =>
-      input.allowed_domains!.some(d => {
-        try {
-          return new URL(h.url).hostname.endsWith(d)
-        } catch {
-          return false
-        }
-      }),
-    )
-  }
-
-  const snippets = (data.web ?? [])
-    .filter((r: { description?: string }) => r.description)
-    .map((r: { url: string; title?: string; description?: string }) =>
-      `**${r.title ?? r.url}** — ${r.description} (${r.url})`,
-    )
-    .join('\n')
-
-  const results: Output['results'] = []
-  if (snippets) results.push(snippets)
-  results.push({ tool_use_id: 'firecrawl-search', content: hits })
-
-  return {
-    query: input.query,
-    results,
-    durationSeconds: (performance.now() - startTime) / 1000,
-  }
 }
 
 function isCodexResponsesWebSearchEnabled(): boolean {
@@ -517,6 +406,60 @@ function makeOutputFromSearchResponse(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helper: should we use adapter-based providers?
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true for transient errors that are safe to fall through on in auto mode
+ * (network failures, timeouts, HTTP 5xx). Config and guardrail errors return false.
+ */
+function isTransientError(err: unknown): boolean {
+  if (!(err instanceof Error)) return true
+  const msg = err.message.toLowerCase()
+  // Guardrail / config errors — must surface
+  if (msg.includes('must use https')) return false
+  if (msg.includes('private/reserved address')) return false
+  if (msg.includes('not in the safe allowlist')) return false
+  if (msg.includes('exceeds') && msg.includes('bytes')) return false
+  if (msg.includes('not a valid url')) return false
+  if (msg.includes('is not configured')) return false
+  // Transient errors — safe to fall through
+  if (err.name === 'AbortError') return true
+  if (msg.includes('timed out')) return true
+  if (msg.includes('fetch failed') || msg.includes('econnrefused') || msg.includes('enotfound')) return true
+  if (msg.includes('returned 5')) return true // HTTP 5xx
+  // Unknown — treat as transient to preserve auto-mode fallback semantics
+  return true
+}
+
+/**
+ * Returns true when we should use the adapter-based provider system.
+ *
+ * In auto mode: native/first-party/Codex paths take precedence.
+ *   → Only falls back to adapter if no native path is available.
+ * In explicit adapter modes (tavily, ddg, custom, etc.): always true.
+ * In native mode: never true.
+ */
+function shouldUseAdapterProvider(): boolean {
+  const mode = getProviderMode()
+  if (mode === 'native') return false
+  if (mode !== 'auto') return true // explicit adapter mode (tavily, ddg, custom, etc.)
+
+  // Auto mode: native/first-party/Codex take precedence over adapter
+  if (isCodexResponsesWebSearchEnabled()) return false
+  const provider = getAPIProvider()
+  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
+    return false
+  }
+  // No native path available — fall back to adapter
+  return getAvailableProviders().length > 0
+}
+
+// ---------------------------------------------------------------------------
+// Tool export
+// ---------------------------------------------------------------------------
+
 export const WebSearchTool = buildTool({
   name: WEB_SEARCH_TOOL_NAME,
   searchHint: 'search the web for current information',
@@ -534,20 +477,19 @@ export const WebSearchTool = buildTool({
     return summary ? `Searching for ${summary}` : 'Searching the web'
   },
   isEnabled() {
-    if (shouldUseFirecrawl()) {
-      return true
+    const mode = getProviderMode()
+
+    // Specific provider mode: enabled if any adapter is configured
+    if (mode !== 'auto' && mode !== 'native') {
+      return getAvailableProviders().length > 0
     }
 
-    if (shouldUseDuckDuckGo()) {
-      return true
-    }
+    // Auto/native mode: check all paths
+    if (getAvailableProviders().length > 0) return true
+    if (isCodexResponsesWebSearchEnabled()) return true
 
     const provider = getAPIProvider()
     const model = getMainLoopModel()
-
-    if (isCodexResponsesWebSearchEnabled()) {
-      return true
-    }
 
     // Enable for firstParty
     if (provider === 'firstParty') {
@@ -601,11 +543,8 @@ export const WebSearchTool = buildTool({
     }
   },
   async prompt() {
-    if (
-      shouldUseDuckDuckGo() ||
-      shouldUseFirecrawl() ||
-      isCodexResponsesWebSearchEnabled()
-    ) {
+    // Strip "US only" when using non-native backends
+    if (shouldUseAdapterProvider() || isCodexResponsesWebSearchEnabled()) {
       return getWebSearchPrompt().replace(
         /\n\s*-\s*Web search is only available in the US/,
         '',
@@ -642,20 +581,47 @@ export const WebSearchTool = buildTool({
     return { result: true }
   },
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
-    if (shouldUseFirecrawl()) {
-      return { data: await runFirecrawlSearch(input) }
+    // --- Adapter-based providers (custom, firecrawl, ddg) ---
+    // runSearch handles fallback semantics based on WEB_SEARCH_PROVIDER mode:
+    //   - "auto": tries each provider, falls through on failure
+    //   - specific mode: runs one provider, throws on failure
+    if (shouldUseAdapterProvider()) {
+      const mode = getProviderMode()
+      const isExplicitAdapter = mode !== 'auto'
+      try {
+        const providerOutput = await runSearch(
+          {
+            query: input.query,
+            allowed_domains: input.allowed_domains,
+            blocked_domains: input.blocked_domains,
+          },
+          context.abortController.signal,
+        )
+        // Explicit adapter: return even 0 hits (no silent native fallback)
+        if (isExplicitAdapter || providerOutput.hits.length > 0) {
+          return { data: formatProviderOutput(providerOutput, input.query) }
+        }
+        // Auto mode with 0 hits: fall through to native
+      } catch (err) {
+        // Explicit adapter: throw the real error (no silent native fallback)
+        if (isExplicitAdapter) throw err
+        // Auto mode: only fall through on transient errors (network, timeout, 5xx).
+        // Config / guardrail errors (SSRF, HTTPS, bad URL, etc.) must surface.
+        if (!isTransientError(err)) throw err
+        console.error(
+          `[web-search] Adapter failed, falling through to native: ${err}`,
+        )
+      }
     }
 
-    if (shouldUseDuckDuckGo()) {
-      return { data: await runDuckDuckGoSearch(input) }
-    }
-
+    // --- Codex / OpenAI Responses path ---
     if (isCodexResponsesWebSearchEnabled()) {
       return {
         data: await runCodexWebSearch(input, context.abortController.signal),
       }
     }
 
+    // --- Native Anthropic path (firstParty / vertex / foundry) ---
     const startTime = performance.now()
     const { query } = input
     const userMessage = createUserMessage({
@@ -715,8 +681,6 @@ export const WebSearchTool = buildTool({
         if (contentBlock && contentBlock.type === 'server_tool_use') {
           currentToolUseId = contentBlock.id
           currentToolUseJson = ''
-          // Note: The ServerToolUseBlock doesn't contain input.query
-          // The actual query comes through input_json_delta events
           continue
         }
       }
@@ -733,12 +697,10 @@ export const WebSearchTool = buildTool({
 
           // Try to extract query from partial JSON for progress updates
           try {
-            // Look for a complete query field
             const queryMatch = currentToolUseJson.match(
               /"query"\s*:\s*"((?:[^"\\]|\\.)*)"/,
             )
             if (queryMatch && queryMatch[1]) {
-              // The regex properly handles escaped characters
               const query = jsonParse('"' + queryMatch[1] + '"')
 
               if (
@@ -771,7 +733,6 @@ export const WebSearchTool = buildTool({
       ) {
         const contentBlock = event.event.content_block
         if (contentBlock && contentBlock.type === 'web_search_tool_result') {
-          // Get the actual query that was used for this search
           const toolUseId = contentBlock.tool_use_id
           const actualQuery = toolUseQueries.get(toolUseId) || query
           const content = contentBlock.content

@@ -17,16 +17,23 @@ const tempDirs: string[] = []
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
 }
 
 afterEach(() => {
+  if (originalEnv.OPENAI_BASE_URL === undefined) delete process.env.OPENAI_BASE_URL
+  else process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
+
+  if (originalEnv.OPENAI_API_BASE === undefined) delete process.env.OPENAI_API_BASE
+  else process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
+
+  if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) delete process.env.CLAUDE_CODE_USE_GITHUB
+  else process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
+
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()
     if (dir) rmSync(dir, { recursive: true, force: true })
   }
-
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
 })
 
 function createTempAuthJson(payload: Record<string, unknown>): string {
@@ -71,6 +78,7 @@ describe('Codex provider config', () => {
   test('resolves codexplan alias to Codex transport with reasoning', () => {
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
+    delete process.env.CLAUDE_CODE_USE_GITHUB
 
     const resolved = resolveProviderRequest({ model: 'codexplan' })
     expect(resolved.transport).toBe('codex_responses')
@@ -194,6 +202,117 @@ describe('Codex request translation', () => {
             value: { type: 'string' },
           },
           required: ['value'],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    ])
+  })
+
+  test('preserves Grep tool pattern field in Codex strict schemas', () => {
+    const tools = convertToolsToResponsesTools([
+      {
+        name: 'Grep',
+        description: 'Search file contents',
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Search pattern' },
+            path: { type: 'string' },
+          },
+          required: ['pattern'],
+          additionalProperties: false,
+        },
+      },
+    ])
+
+    expect(tools).toEqual([
+      {
+        type: 'function',
+        name: 'Grep',
+        description: 'Search file contents',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Search pattern' },
+            path: { type: 'string' },
+          },
+          required: ['pattern', 'path'],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    ])
+  })
+
+  test('preserves Glob tool pattern field in Codex strict schemas', () => {
+    const tools = convertToolsToResponsesTools([
+      {
+        name: 'Glob',
+        description: 'Find files by pattern',
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Glob pattern' },
+            path: { type: 'string' },
+          },
+          required: ['pattern'],
+          additionalProperties: false,
+        },
+      },
+    ])
+
+    expect(tools).toEqual([
+      {
+        type: 'function',
+        name: 'Glob',
+        description: 'Find files by pattern',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Glob pattern' },
+            path: { type: 'string' },
+          },
+          required: ['pattern', 'path'],
+          additionalProperties: false,
+        },
+        strict: true,
+      },
+    ])
+  })
+
+  test('strips validator pattern keyword but keeps string field named pattern in Codex schemas', () => {
+    const tools = convertToolsToResponsesTools([
+      {
+        name: 'RegexProbe',
+        description: 'Probe regex schema handling',
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: {
+              type: 'string',
+              pattern: '^[a-z]+$',
+            },
+          },
+          required: ['pattern'],
+          additionalProperties: false,
+        },
+      },
+    ])
+
+    expect(tools).toEqual([
+      {
+        type: 'function',
+        name: 'RegexProbe',
+        description: 'Probe regex schema handling',
+        parameters: {
+          type: 'object',
+          properties: {
+            pattern: {
+              type: 'string',
+            },
+          },
+          required: ['pattern'],
           additionalProperties: false,
         },
         strict: true,
@@ -346,6 +465,37 @@ describe('Codex request translation', () => {
     ])
   })
 
+  test('strips leaked reasoning preamble from completed Codex text responses', () => {
+    const message = convertCodexResponseToAnthropicMessage(
+      {
+        id: 'resp_1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [
+              {
+                type: 'output_text',
+                text:
+                  'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+              },
+            ],
+          },
+        ],
+        usage: { input_tokens: 12, output_tokens: 4 },
+      },
+      'gpt-5.4',
+    )
+
+    expect(message.content).toEqual([
+      {
+        type: 'text',
+        text: 'Hey! How can I help you today?',
+      },
+    ])
+  })
+
   test('translates Codex SSE text stream into Anthropic events', async () => {
     const responseText = [
       'event: response.output_item.added',
@@ -375,5 +525,45 @@ describe('Codex request translation', () => {
       'message_delta',
       'message_stop',
     ])
+  })
+
+  test('strips leaked reasoning preamble from Codex SSE text stream', async () => {
+    const responseText = [
+      'event: response.output_item.added',
+      'data: {"type":"response.output_item.added","item":{"id":"msg_1","type":"message","status":"in_progress","content":[],"role":"assistant"},"output_index":0,"sequence_number":0}',
+      '',
+      'event: response.content_part.added',
+      'data: {"type":"response.content_part.added","content_index":0,"item_id":"msg_1","output_index":0,"part":{"type":"output_text","text":""},"sequence_number":1}',
+      '',
+      'event: response.output_text.delta',
+      'data: {"type":"response.output_text.delta","content_index":0,"delta":"The user just said \\"hey\\" - a simple greeting. I should respond briefly and friendly.\\n\\nHey! How can I help you today?","item_id":"msg_1","output_index":0,"sequence_number":2}',
+      '',
+      'event: response.output_item.done',
+      'data: {"type":"response.output_item.done","item":{"id":"msg_1","type":"message","status":"completed","content":[{"type":"output_text","text":"The user just said \\"hey\\" - a simple greeting. I should respond briefly and friendly.\\n\\nHey! How can I help you today?"}],"role":"assistant"},"output_index":0,"sequence_number":3}',
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","model":"gpt-5.4","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The user just said \\"hey\\" - a simple greeting. I should respond briefly and friendly.\\n\\nHey! How can I help you today?"}]}],"usage":{"input_tokens":2,"output_tokens":1}},"sequence_number":4}',
+      '',
+    ].join('\n')
+
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(responseText))
+        controller.close()
+      },
+    })
+
+    const textDeltas: string[] = []
+    for await (const event of codexStreamToAnthropic(
+      new Response(stream),
+      'gpt-5.4',
+    )) {
+      const delta = (event as { delta?: { type?: string; text?: string } }).delta
+      if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+        textDeltas.push(delta.text)
+      }
+    }
+
+    expect(textDeltas).toEqual(['Hey! How can I help you today?'])
   })
 })

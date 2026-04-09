@@ -2,9 +2,13 @@ import { expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execFileNoThrowWithCwd } from './execFileNoThrow.js'
+
+async function importFreshExecFileNoThrowModule() {
+  return import(`./execFileNoThrow.ts?ts=${Date.now()}-${Math.random()}`)
+}
 
 test('execFileNoThrowWithCwd rejects shell-like executable names', async () => {
+  const { execFileNoThrowWithCwd } = await importFreshExecFileNoThrowModule()
   const result = await execFileNoThrowWithCwd('openclaude && whoami', [])
 
   expect(result.code).toBe(1)
@@ -12,6 +16,7 @@ test('execFileNoThrowWithCwd rejects shell-like executable names', async () => {
 })
 
 test('execFileNoThrowWithCwd rejects cwd values with control characters', async () => {
+  const { execFileNoThrowWithCwd } = await importFreshExecFileNoThrowModule()
   const result = await execFileNoThrowWithCwd(process.execPath, ['--version'], {
     cwd: 'C:\\repo\nmalicious',
   })
@@ -21,6 +26,7 @@ test('execFileNoThrowWithCwd rejects cwd values with control characters', async 
 })
 
 test('execFileNoThrowWithCwd rejects arguments with control characters', async () => {
+  const { execFileNoThrowWithCwd } = await importFreshExecFileNoThrowModule()
   const result = await execFileNoThrowWithCwd(process.execPath, [
     '--version\nmalicious',
   ])
@@ -30,6 +36,7 @@ test('execFileNoThrowWithCwd rejects arguments with control characters', async (
 })
 
 test('execFileNoThrowWithCwd rejects environment entries with control characters', async () => {
+  const { execFileNoThrowWithCwd } = await importFreshExecFileNoThrowModule()
   const result = await execFileNoThrowWithCwd(process.execPath, ['--version'], {
     env: {
       ...process.env,
@@ -45,6 +52,7 @@ test('execFileNoThrowWithCwd preserves Windows .cmd compatibility', async () => 
   if (process.platform !== 'win32') {
     return
   }
+  const { execFileNoThrowWithCwd } = await importFreshExecFileNoThrowModule()
 
   const dir = mkdtempSync(join(tmpdir(), 'openclaude-execfile-'))
   const file = join(dir, 'hello.cmd')

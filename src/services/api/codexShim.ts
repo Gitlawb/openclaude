@@ -4,6 +4,11 @@ import type {
   ResolvedProviderRequest,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from './openaiSchemaSanitizer.js'
+import {
+  looksLikeLeakedReasoningPrefix,
+  shouldBufferPotentialReasoningPrefix,
+  stripLeakedReasoningPreamble,
+} from './reasoningLeakSanitizer.js'
 
 export interface AnthropicUsage {
   input_tokens: number
@@ -678,17 +683,34 @@ export async function* codexStreamToAnthropic(
     { index: number; toolUseId: string }
   >()
   let activeTextBlockIndex: number | null = null
+  let activeTextBuffer = ''
+  let textBufferMode: 'none' | 'pending' | 'strip' = 'none'
   let nextContentBlockIndex = 0
   let sawToolUse = false
   let finalResponse: Record<string, any> | undefined
 
   const closeActiveTextBlock = async function* () {
     if (activeTextBlockIndex === null) return
+    if (textBufferMode !== 'none') {
+      const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
+      if (sanitized) {
+        yield {
+          type: 'content_block_delta',
+          index: activeTextBlockIndex,
+          delta: {
+            type: 'text_delta',
+            text: sanitized,
+          },
+        }
+      }
+    }
     yield {
       type: 'content_block_stop',
       index: activeTextBlockIndex,
     }
     activeTextBlockIndex = null
+    activeTextBuffer = ''
+    textBufferMode = 'none'
   }
 
   const startTextBlockIfNeeded = async function* () {
@@ -764,7 +786,36 @@ export async function* codexStreamToAnthropic(
 
     if (event.event === 'response.output_text.delta') {
       yield* startTextBlockIfNeeded()
+      activeTextBuffer += payload.delta ?? ''
       if (activeTextBlockIndex !== null) {
+        if (
+          textBufferMode === 'strip' ||
+          looksLikeLeakedReasoningPrefix(activeTextBuffer)
+        ) {
+          textBufferMode = 'strip'
+          continue
+        }
+
+        if (textBufferMode === 'pending') {
+          if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
+            continue
+          }
+          yield {
+            type: 'content_block_delta',
+            index: activeTextBlockIndex,
+            delta: {
+              type: 'text_delta',
+              text: activeTextBuffer,
+            },
+          }
+          textBufferMode = 'none'
+          continue
+        }
+
+        if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
+          textBufferMode = 'pending'
+          continue
+        }
         yield {
           type: 'content_block_delta',
           index: activeTextBlockIndex,
@@ -859,7 +910,7 @@ export function convertCodexResponseToAnthropicMessage(
         if (part?.type === 'output_text') {
           content.push({
             type: 'text',
-            text: part.text ?? '',
+            text: stripLeakedReasoningPreamble(part.text ?? ''),
           })
         }
       }

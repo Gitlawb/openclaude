@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 type MockStorageData = Record<string, unknown>
 
 const originalEnv = { ...process.env }
+const originalArgv = [...process.argv]
 let storageState: MockStorageData = {}
 
 async function importFreshModule() {
@@ -27,11 +28,14 @@ async function importFreshModule() {
 
 beforeEach(() => {
   process.env = { ...originalEnv }
+  delete process.env.CLAUDE_CODE_SIMPLE
+  process.argv = originalArgv.filter(arg => arg !== '--bare')
   storageState = {}
 })
 
 afterEach(() => {
   process.env = { ...originalEnv }
+  process.argv = [...originalArgv]
   storageState = {}
   mock.restore()
 })

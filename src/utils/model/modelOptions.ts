@@ -37,6 +37,7 @@ import { getActiveOpenAIModelOptionsCache } from '../providerProfiles.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
 import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -353,7 +354,22 @@ function getCodexModelOptions(): ModelOption[] {
 
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
+
+import { getAllCopilotModels } from './copilotModels.js'
+
+function getCopilotModelOptions(): ModelOption[] {
+  return getAllCopilotModels().map(m => ({
+    value: m.id,
+    label: m.name,
+    description: `${m.family}${m.reasoning ? ' · Reasoning' : ''}${m.tool_call ? ' · Tool call' : ''} · ${Math.round(m.limit.context / 1000)}K context`,
+  }))
+}
+
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  if (getAPIProvider() === 'github') {
+    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
+  }
+
   // When using Ollama, show models from the Ollama server instead of Claude models
   if (getAPIProvider() === 'openai' && isOllamaProvider()) {
     const defaultOption = getDefaultOptionForUser(fastMode)
@@ -601,6 +617,10 @@ function getKnownModelOption(model: string): ModelOption | null {
 }
 
 export function getModelOptions(fastMode = false): ModelOption[] {
+  if (getAPIProvider() === 'github') {
+    return filterModelOptionsByAllowlist(getModelOptionsBase(fastMode))
+  }
+
   const options = getModelOptionsBase(fastMode)
 
   // Add the custom model from the ANTHROPIC_CUSTOM_MODEL_OPTION env var

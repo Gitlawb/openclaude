@@ -13,6 +13,7 @@ const originalSimple = process.env.CLAUDE_CODE_SIMPLE
 const sessionId = '00000000-0000-4000-8000-000000001999'
 const ts = '2026-04-02T00:00:00.000Z'
 
+
 function id(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 }
@@ -76,4 +77,3 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
     'Reconstructed transcript is too large to resume safely',
   )
 })
-

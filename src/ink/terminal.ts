@@ -135,6 +135,13 @@ export function setXtversionName(name: string): void {
   if (xtversionName === undefined) xtversionName = name
 }
 
+export function isGhosttyTerminal(): boolean {
+  if (process.env.NODE_ENV === 'test') return false
+  if (process.env.TERM_PROGRAM === 'ghostty') return true
+  if (process.env.TERM === 'xterm-ghostty') return true
+  return xtversionName?.toLowerCase().startsWith('ghostty') ?? false
+}
+
 /** True if running in an xterm.js-based terminal (VS Code, Cursor, Windsurf
  *  integrated terminals). Combines TERM_PROGRAM env check (fast, sync, but
  *  not forwarded over SSH) with the XTVERSION probe result (async, survives
@@ -143,6 +150,20 @@ export function setXtversionName(name: string): void {
 export function isXtermJs(): boolean {
   if (process.env.TERM_PROGRAM === 'vscode') return true
   return xtversionName?.startsWith('xterm.js') ?? false
+}
+
+/** Ghostty currently repaints main-screen prompt updates more reliably
+ *  without DEC 2026 synchronized output. Prefer explicit terminal identity
+ *  (TERM_PROGRAM/TERM or XTVERSION) in real sessions, but keep tests
+ *  deterministic by disabling the env-based detection under NODE_ENV=test. */
+export function shouldSkipMainScreenSyncMarkers(): boolean {
+  return isGhosttyTerminal()
+}
+
+/** Ghostty's main-screen prompt updates are currently more reliable when we
+ *  bypass the incremental diff path and rewrite the visible prompt block. */
+export function shouldUseMainScreenRewrite(): boolean {
+  return isGhosttyTerminal()
 }
 
 // Terminals known to correctly implement the Kitty keyboard protocol

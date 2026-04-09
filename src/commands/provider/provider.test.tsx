@@ -52,7 +52,11 @@ async function renderFinalFrame(node: React.ReactNode): Promise<string> {
     patchConsole: false,
   })
 
-  await instance.waitUntilExit()
+  // Timeout guard: if render throws before exit effect fires, don't hang
+  await Promise.race([
+    instance.waitUntilExit(),
+    new Promise<void>(resolve => setTimeout(resolve, 3000)),
+  ])
   return stripAnsi(extractLastFrame(getOutput()))
 }
 
@@ -273,6 +277,21 @@ test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Co
   expect(summary.providerLabel).toBe('Local OpenAI-compatible')
   expect(summary.modelLabel).toBe('gpt-5.4')
   expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
+})
+
+test('buildCurrentProviderSummary recognizes GitHub Models mode', () => {
+  const summary = buildCurrentProviderSummary({
+    processEnv: {
+      CLAUDE_CODE_USE_GITHUB: '1',
+      OPENAI_MODEL: 'github:copilot',
+      OPENAI_BASE_URL: 'https://models.github.ai/inference',
+    },
+    persisted: null,
+  })
+
+  expect(summary.providerLabel).toBe('GitHub Models')
+  expect(summary.modelLabel).toBe('github:copilot')
+  expect(summary.endpointLabel).toBe('https://models.github.ai/inference')
 })
 
 test('getProviderWizardDefaults ignores poisoned current provider values', () => {

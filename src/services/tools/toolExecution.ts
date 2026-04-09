@@ -43,6 +43,7 @@ import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/prompt.js'
 import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
 import { POWERSHELL_TOOL_NAME } from '../../tools/PowerShellTool/toolName.js'
+import { SKILL_TOOL_NAME } from '../../tools/SkillTool/constants.js'
 import { parseGitCommitId } from '../../tools/shared/gitOperationTracking.js'
 import {
   isDeferredTool,
@@ -596,6 +597,31 @@ export function buildSchemaNotSentHint(
   )
 }
 
+export function getSchemaValidationErrorOverride(
+  tool: Tool,
+  input: unknown,
+): string | null {
+  if (tool.name !== SKILL_TOOL_NAME || !input || typeof input !== 'object') {
+    return null
+  }
+
+  const skill = (input as { skill?: unknown }).skill
+  if (skill === undefined || skill === null) {
+    return 'Missing skill name. Pass the slash command name as the skill parameter (e.g., skill: "commit" for /commit, skill: "review-pr" for /review-pr).'
+  }
+
+  return null
+}
+
+export function getSchemaValidationToolUseResult(
+  tool: Tool,
+  input: unknown,
+  fallbackMessage?: string,
+): string {
+  const override = getSchemaValidationErrorOverride(tool, input)
+  return `InputValidationError: ${override ?? fallbackMessage ?? ''}`
+}
+
 async function checkPermissionsAndCallTool(
   tool: Tool,
   toolUseID: string,
@@ -614,7 +640,9 @@ async function checkPermissionsAndCallTool(
   // Validate input types with zod (surprisingly, the model is not great at generating valid input)
   const parsedInput = tool.inputSchema.safeParse(input)
   if (!parsedInput.success) {
-    let errorContent = formatZodValidationError(tool.name, parsedInput.error)
+    const fallbackErrorContent = formatZodValidationError(tool.name, parsedInput.error)
+    let errorContent =
+      getSchemaValidationErrorOverride(tool, input) ?? fallbackErrorContent
 
     const schemaHint = buildSchemaNotSentHint(
       tool,
@@ -672,7 +700,11 @@ async function checkPermissionsAndCallTool(
               tool_use_id: toolUseID,
             },
           ],
-          toolUseResult: `InputValidationError: ${parsedInput.error.message}`,
+          toolUseResult: getSchemaValidationToolUseResult(
+            tool,
+            input,
+            parsedInput.error.message,
+          ),
           sourceToolAssistantUUID: assistantMessage.uuid,
         }),
       },

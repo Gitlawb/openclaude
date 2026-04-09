@@ -8,11 +8,11 @@ import { getAPIProvider } from '../utils/model/providers.js'
 import { getWorkload } from '../utils/workloadContext.js'
 
 const DEFAULT_PREFIX =
-  `You are OpenClaude, an open-source fork of Claude Code.`
+  `You are OpenClaude, an open-source coding agent and CLI.`
 const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX =
-  `You are OpenClaude, an open-source fork of Claude Code, running within the Claude Agent SDK.`
+  `You are OpenClaude, an open-source coding agent and CLI running within the Claude Agent SDK.`
 const AGENT_SDK_PREFIX =
-  `You are a Claude agent running in OpenClaude, built on the Claude Agent SDK.`
+  `You are OpenClaude, built on the Claude Agent SDK.`
 
 const CLI_SYSPROMPT_PREFIX_VALUES = [
   DEFAULT_PREFIX,
