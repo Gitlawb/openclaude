@@ -11,8 +11,16 @@ export type APIProvider =
   | 'gemini'
   | 'github'
   | 'codex'
+  | 'nvidia-nim'
+  | 'minimax'
 
 export function getAPIProvider(): APIProvider {
+  if (isEnvTruthy(process.env.NVIDIA_NIM)) {
+    return 'nvidia-nim'
+  }
+  if (isEnvTruthy(process.env.MINIMAX_API_KEY)) {
+    return 'minimax'
+  }
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     ? 'gemini'
     : isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)

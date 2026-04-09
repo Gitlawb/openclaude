@@ -931,8 +931,11 @@ class OpenAIShimMessages {
     }
 
     const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+    const isMiniMax = !!process.env.MINIMAX_API_KEY
     const apiKey =
-      this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+      this.providerOverride?.apiKey ??
+      process.env.OPENAI_API_KEY ??
+      (isMiniMax ? process.env.MINIMAX_API_KEY : '')
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false

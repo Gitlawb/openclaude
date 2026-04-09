@@ -327,6 +327,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         label: 'Custom',
         description: 'Any OpenAI-compatible provider',
       },
+      {
+        value: 'nvidia-nim',
+        label: 'NVIDIA NIM',
+        description: 'NVIDIA NIM endpoint',
+      },
+      {
+        value: 'minimax',
+        label: 'MiniMax',
+        description: 'MiniMax API endpoint',
+      },
       ...(mode === 'first-run'
         ? [
             {

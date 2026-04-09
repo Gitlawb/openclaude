@@ -20,6 +20,8 @@ export type ProviderPreset =
   | 'openrouter'
   | 'lmstudio'
   | 'custom'
+  | 'nvidia-nim'
+  | 'minimax'
 
 export type ProviderProfileInput = {
   provider?: ProviderProfile['provider']
@@ -227,6 +229,24 @@ export function getProviderPresetDefaults(
         model: process.env.OPENAI_MODEL ?? DEFAULT_OLLAMA_MODEL,
         apiKey: process.env.OPENAI_API_KEY ?? '',
         requiresApiKey: false,
+      }
+    case 'nvidia-nim':
+      return {
+        provider: 'openai',
+        name: 'NVIDIA NIM',
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+        model: 'nvidia/nemotron-mini-4b-instruct',
+        apiKey: process.env.NVIDIA_API_KEY ?? '',
+        requiresApiKey: true,
+      }
+    case 'minimax':
+      return {
+        provider: 'openai',
+        name: 'MiniMax',
+        baseUrl: 'https://api.minimax.io/v1',
+        model: 'MiniMax-M2',
+        apiKey: process.env.MINIMAX_API_KEY ?? '',
+        requiresApiKey: true,
       }
     case 'ollama':
     default:

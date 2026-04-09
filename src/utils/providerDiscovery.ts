@@ -105,6 +105,14 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     ) {
       return 'text-generation-webui'
     }
+    // Check for NVIDIA NIM
+    if (host.includes('nvidia') || haystack.includes('nvidia') || host.includes('integrate.api.nvidia')) {
+      return 'NVIDIA NIM'
+    }
+    // Check for MiniMax (both api.minimax.io and api.minimax.chat)
+    if (host.includes('minimax') || haystack.includes('minimax')) {
+      return 'MiniMax'
+    }
   } catch {
     // Fall back to the generic label when the base URL is malformed.
   }

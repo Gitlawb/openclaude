@@ -104,7 +104,9 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
     const isLocal = isLocalProviderUrl(baseUrl)
     let name = 'OpenAI'
-    if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))       name = 'DeepSeek'
+    if (/nvidia/i.test(baseUrl) || /nvidia/i.test(rawModel) || process.env.NVIDIA_NIM)       name = 'NVIDIA NIM'
+    else if (/minimax/i.test(baseUrl) || /minimax/i.test(rawModel) || process.env.MINIMAX_API_KEY)       name = 'MiniMax'
+    else if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))       name = 'DeepSeek'
     else if (/openrouter/i.test(baseUrl))                             name = 'OpenRouter'
     else if (/together/i.test(baseUrl))                               name = 'Together AI'
     else if (/groq/i.test(baseUrl))                                   name = 'Groq'
