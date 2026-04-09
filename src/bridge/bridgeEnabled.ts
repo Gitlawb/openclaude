@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../config/forgeFeatureFlags.js'
 import {
   checkGate_CACHED_OR_BLOCKING,
   getDynamicConfig_CACHED_MAY_BE_STALE,

@@ -9,7 +9,7 @@
  * - Cleanup on completion or abort
  */
 
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { getSystemPrompt } from '../../constants/prompts.js'
 import { TEAMMATE_MESSAGE_TAG } from '../../constants/xml.js'

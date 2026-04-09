@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import type { QuerySource } from '../../constants/querySource.js'
 import { clearSystemPromptSections } from '../../constants/systemPromptSections.js'
 import { getUserContext } from '../../context.js'

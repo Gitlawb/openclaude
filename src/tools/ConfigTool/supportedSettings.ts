@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import { getRemoteControlAtStartup } from '../../utils/config.js'
 import {
   EDITOR_MODES,

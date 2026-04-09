@@ -1,5 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import { basename } from 'path';
 import React, { useRef } from 'react';
 import { useMinDisplayTime } from '../../hooks/useMinDisplayTime.js';

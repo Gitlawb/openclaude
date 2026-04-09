@@ -3,7 +3,7 @@
  * Tracks access to session memory and transcript files via Read, Grep, Glob tools.
  * Also tracks memdir file access via Read, Grep, Glob, Edit, and Write tools.
  */
-import { feature } from 'bun:bundle'
+import { feature } from '../config/forgeFeatureFlags.js'
 import { registerHookCallbacks } from '../bootstrap/state.js'
 import type { HookInput, HookJSONOutput } from '../entrypoints/agentSdkTypes.js'
 import {

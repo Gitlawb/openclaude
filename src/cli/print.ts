@@ -1,5 +1,5 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
-import { feature } from 'bun:bundle'
+import { feature } from '../config/forgeFeatureFlags.js'
 import { readFile, stat } from 'fs/promises'
 import { dirname } from 'path'
 import {

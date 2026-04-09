@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle';
+import { feature } from '../config/forgeFeatureFlags.js'
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNotifications } from '../context/notifications.js';

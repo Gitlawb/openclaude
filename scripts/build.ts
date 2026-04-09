@@ -268,6 +268,28 @@ ${exports}
     },
   ],
   external: [
+    // OpenTelemetry — packages removed from package.json but kept as external
+    // because some source files still import them (code paths are dead at runtime
+    // thanks to no-telemetry-plugin, but the bundler still needs to handle them)
+    '@opentelemetry/api',
+    '@opentelemetry/api-logs',
+    '@opentelemetry/core',
+    '@opentelemetry/exporter-trace-otlp-grpc',
+    '@opentelemetry/exporter-trace-otlp-http',
+    '@opentelemetry/exporter-trace-otlp-proto',
+    '@opentelemetry/exporter-logs-otlp-http',
+    '@opentelemetry/exporter-logs-otlp-proto',
+    '@opentelemetry/exporter-logs-otlp-grpc',
+    '@opentelemetry/exporter-metrics-otlp-proto',
+    '@opentelemetry/exporter-metrics-otlp-grpc',
+    '@opentelemetry/exporter-metrics-otlp-http',
+    '@opentelemetry/exporter-prometheus',
+    '@opentelemetry/resources',
+    '@opentelemetry/sdk-trace-base',
+    '@opentelemetry/sdk-trace-node',
+    '@opentelemetry/sdk-logs',
+    '@opentelemetry/sdk-metrics',
+    '@opentelemetry/semantic-conventions',
     // Native image processing
     'sharp',
     // Cloud provider SDKs

@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import { getInvokedSkillsForAgent } from '../../bootstrap/state.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import {

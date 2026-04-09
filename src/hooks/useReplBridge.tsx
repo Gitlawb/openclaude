@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle';
+import { feature } from '../config/forgeFeatureFlags.js'
 import React, { useCallback, useEffect, useRef } from 'react';
 import { setMainLoopModelOverride } from '../bootstrap/state.js';
 import { type BridgePermissionCallbacks, type BridgePermissionResponse, isBridgePermissionResponse } from '../bridge/bridgePermissionCallbacks.js';

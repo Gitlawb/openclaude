@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import type { TextBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import React, { useContext, useMemo } from 'react';
 import { getKairosActive, getUserMsgOptIn } from '../../bootstrap/state.js';

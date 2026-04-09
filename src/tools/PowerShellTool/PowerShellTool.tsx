@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import { copyFile, stat as fsStat, truncate as fsTruncate, link } from 'fs/promises';
 import * as React from 'react';

@@ -1,5 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import useStdin from '../../ink/hooks/use-stdin.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';

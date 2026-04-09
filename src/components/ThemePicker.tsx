@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle';
+import { feature } from '../config/forgeFeatureFlags.js'
 import type { StructuredPatchHunk } from 'diff';
 import * as React from 'react';
 import { useExitOnCtrlCDWithKeybindings } from '../hooks/useExitOnCtrlCDWithKeybindings.js'

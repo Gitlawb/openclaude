@@ -1,5 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
+import { feature } from '../config/forgeFeatureFlags.js'
 import React, { useContext, useEffect, useState, useSyncExternalStore } from 'react';
 import { MailboxProvider } from '../context/mailbox.js';
 import { useEffectEventCompat } from '../hooks/useEffectEventCompat.js';

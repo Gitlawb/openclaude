@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../config/forgeFeatureFlags.js'
 import { satisfies } from 'src/utils/semver.js'
 import { isRunningWithBun } from '../utils/bundledMode.js'
 import { getPlatform } from '../utils/platform.js'

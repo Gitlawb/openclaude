@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import { useMemo } from 'react'
 import { useCommandQueue } from 'src/hooks/useCommandQueue.js'
 import { useAppState } from 'src/state/AppState.js'

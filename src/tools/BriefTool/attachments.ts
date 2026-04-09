@@ -5,7 +5,7 @@
  * (axios, crypto, auth utils) remains tree-shakeable from non-bridge builds.
  */
 
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import { stat } from 'fs/promises'
 
 import type { ValidationResult } from '../../Tool.js'

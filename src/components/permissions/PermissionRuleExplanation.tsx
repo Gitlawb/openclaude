@@ -1,5 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import chalk from 'chalk';
 import React from 'react';
 import { Ansi, Box, Text } from '../../ink.js';

@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../../../config/forgeFeatureFlags.js'
 import type { PendingClassifierCheck } from '../../../types/permissions.js'
 import { logError } from '../../../utils/log.js'
 import type { PermissionDecision } from '../../../utils/permissions/PermissionResult.js'

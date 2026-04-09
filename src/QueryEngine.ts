@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from './config/forgeFeatureFlags.js'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { randomUUID } from 'crypto'
 import last from 'lodash-es/last.js'

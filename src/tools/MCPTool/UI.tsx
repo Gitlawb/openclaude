@@ -1,5 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import figures from 'figures';
 import * as React from 'react';
 import type { z } from 'zod/v4';

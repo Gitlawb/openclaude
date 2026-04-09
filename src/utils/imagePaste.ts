@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../config/forgeFeatureFlags.js'
 import { randomBytes } from 'crypto'
 import { execa } from 'execa'
 import { basename, extname, isAbsolute, join } from 'path'

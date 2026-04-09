@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import type { PartialCompactDirection } from '../../types/message.js'
 
 // Dead code elimination: conditional import for proactive mode

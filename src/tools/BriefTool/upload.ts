@@ -12,7 +12,7 @@
  * isImage}, so local-terminal and same-machine-desktop render unaffected.
  */
 
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import axios from 'axios'
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'

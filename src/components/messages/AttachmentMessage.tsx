@@ -26,7 +26,7 @@ import { isShutdownApproved } from '../../utils/teammateMailbox.js';
 import { CtrlOToExpand } from '../CtrlOToExpand.js';
 import FullWidthRow from '../design-system/FullWidthRow.js';
 import { FilePathLink } from '../FilePathLink.js';
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import { useSelectedMessageBg } from '../messageActions.js';
 type Props = {
   addMargin: boolean;

@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import { access } from 'fs/promises'
 import { tmpdir as osTmpdir } from 'os'
 import { join as nativeJoin } from 'path'

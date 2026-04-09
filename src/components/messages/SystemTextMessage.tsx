@@ -1,7 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { Box, Text, type TextProps } from '../../ink.js';
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import * as React from 'react';
 import { useState } from 'react';
 import sample from 'lodash-es/sample.js';

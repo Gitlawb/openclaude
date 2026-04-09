@@ -13,7 +13,7 @@
  * initExtractMemories() in beforeEach to get a fresh closure.
  */
 
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 import { basename } from 'path'
 import { getIsRemoteMode } from '../../bootstrap/state.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'

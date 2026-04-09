@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle';
+import { feature } from '../../../config/forgeFeatureFlags.js'
 import figures from 'figures';
 import * as React from 'react';
 import { SentryErrorBoundary } from 'src/components/SentryErrorBoundary.js';

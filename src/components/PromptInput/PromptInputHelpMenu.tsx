@@ -1,5 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
+import { feature } from '../../config/forgeFeatureFlags.js'
 import * as React from 'react';
 import { Box, Text } from 'src/ink.js';
 import { getPlatform } from 'src/utils/platform.js';

@@ -39,7 +39,7 @@ import {
   getTeamName,
   isTeammate,
 } from '../../utils/teammate.js'
-import { feature } from 'bun:bundle'
+import { feature } from '../../config/forgeFeatureFlags.js'
 
 /**
  * Marker type for verifying analytics metadata doesn't contain sensitive data
