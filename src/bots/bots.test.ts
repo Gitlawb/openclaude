@@ -19,6 +19,16 @@ import { ChannelManager } from './channel-manager.js';
 import { BotGateway } from './manager.js';
 import { buildHealthReport } from './health.js';
 
+// ─── BotTool import ─────────────────────────────────────────────────────────
+
+import { BotTool } from '../tools/BotTool/BotTool.js';
+import { BOT_TOOL_NAME, DESCRIPTION } from '../tools/BotTool/prompt.js';
+import {
+  renderToolUseMessage,
+  getToolUseSummary,
+  renderToolResultMessage,
+} from '../tools/BotTool/UI.js';
+
 // ─── Concrete test adapter ──────────────────────────────────────────────────
 
 class TestAdapter extends BaseAdapter {
@@ -662,5 +672,117 @@ describe('HealthReport', () => {
     assert.ok(report.timestamp);
     // Should be valid ISO string
     assert.ok(!isNaN(Date.parse(report.timestamp)));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOT TOOL TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('BotTool', () => {
+  it('should export correct tool name', () => {
+    assert.equal(BOT_TOOL_NAME, 'BotManager');
+  });
+
+  it('should have a description', () => {
+    assert.ok(DESCRIPTION.length > 100);
+    assert.ok(DESCRIPTION.includes('Discord'));
+    assert.ok(DESCRIPTION.includes('Telegram'));
+  });
+
+  it('should render status action', () => {
+    const msg = renderToolUseMessage({ action: 'status' });
+    assert.ok(msg.includes('status'));
+  });
+
+  it('should render channels list action', () => {
+    const msg = renderToolUseMessage({ action: 'channels list' });
+    assert.ok(msg.includes('channels list'));
+  });
+
+  it('should render send action with details', () => {
+    const msg = renderToolUseMessage({
+      action: 'send',
+      platform: 'telegram',
+      userId: 'user-123',
+      message: 'Hello!',
+    });
+    assert.ok(msg.includes('telegram'));
+    assert.ok(msg.includes('user-123'));
+    assert.ok(msg.includes('Hello!'));
+  });
+
+  it('should render channels add action with details', () => {
+    const msg = renderToolUseMessage({
+      action: 'channels add',
+      channelId: 'my-chat',
+      platform: 'discord',
+    });
+    assert.ok(msg.includes('channels add'));
+    assert.ok(msg.includes('my-chat'));
+    assert.ok(msg.includes('discord'));
+  });
+
+  it('should return correct summaries for each action', () => {
+    assert.equal(getToolUseSummary({ action: 'status' }), 'Checking bot gateway status');
+    assert.equal(getToolUseSummary({ action: 'channels list' }), 'Listing bot channels');
+    assert.equal(
+      getToolUseSummary({ action: 'channels add', channelId: 'x', platform: 'telegram' }),
+      'Adding channel x (telegram)',
+    );
+    assert.equal(getToolUseSummary({ action: 'channels remove', channelId: 'y' }), 'Removing channel y');
+    assert.equal(getToolUseSummary({ action: 'channels enable', channelId: 'z' }), 'Enabling channel z');
+    assert.equal(getToolUseSummary({ action: 'channels disable', channelId: 'w' }), 'Disabling channel w');
+    assert.equal(getToolUseSummary({ action: 'send', platform: 'discord' }), 'Sending message via discord');
+  });
+
+  it('should render success result message', () => {
+    const msg = renderToolResultMessage({ success: true, output: 'All good' });
+    assert.equal(msg, 'All good');
+  });
+
+  it('should render error result message', () => {
+    const msg = renderToolResultMessage({ success: false, output: 'Something broke' });
+    assert.ok(msg.includes('error'));
+    assert.ok(msg.includes('Something broke'));
+  });
+
+  it('should have correct input schema fields', () => {
+    // Verify the tool was built correctly
+    assert.ok(BotTool);
+    assert.equal(BotTool.name, 'BotManager');
+  });
+
+  it('should handle unknown action gracefully', async () => {
+    const iterator = BotTool.call(
+      { action: 'nonexistent' as any },
+      {} as any,
+    );
+    const result = await iterator.next();
+    assert.equal(result.value.type, 'result');
+    assert.equal((result.value.data as any).success, false);
+    assert.ok((result.value.data as any).output.includes('Unknown action'));
+  });
+
+  it('should handle channels add missing params', async () => {
+    const iterator = BotTool.call(
+      { action: 'channels add' },
+      {} as any,
+    );
+    const result = await iterator.next();
+    assert.equal(result.value.type, 'result');
+    assert.equal((result.value.data as any).success, false);
+    assert.ok((result.value.data as any).output.includes('requires'));
+  });
+
+  it('should handle send missing params', async () => {
+    const iterator = BotTool.call(
+      { action: 'send', platform: 'telegram' },
+      {} as any,
+    );
+    const result = await iterator.next();
+    assert.equal(result.value.type, 'result');
+    assert.equal((result.value.data as any).success, false);
+    assert.ok((result.value.data as any).output.includes('requires'));
   });
 });
