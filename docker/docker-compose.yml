@@ -1,0 +1,38 @@
+# Docker Compose for OpenClaude Bot Gateway
+# 24/7 deployment with auto-restart
+
+version: '3.8'
+
+services:
+  bot-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: openclaude-bots
+    restart: always
+    ports:
+      - "${HEALTH_PORT:-3000}:3000"
+    volumes:
+      - openclaude-data:/home/openclaude/.openclaude
+    env_file:
+      - ../.env
+    environment:
+      - NODE_ENV=production
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - HEALTH_PORT=3000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  openclaude-data:
+    driver: local

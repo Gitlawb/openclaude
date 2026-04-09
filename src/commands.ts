@@ -156,6 +156,8 @@ import sandboxToggle from './commands/sandbox-toggle/index.js'
 import chrome from './commands/chrome/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
+import botsGateway from './commands/bots-gateway/index.js'
+import botsChannels from './commands/bots-channels/index.js'
 import { logError } from './utils/log.js'
 import { toError } from './utils/errors.js'
 import { logForDebugging } from './utils/debug.js'
@@ -268,6 +270,8 @@ const COMMANDS = memoize((): Command[] => [
   autoFix,
   branch,
   btw,
+  botsGateway,
+  botsChannels,
   chrome,
   clear,
   color,

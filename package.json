@@ -1,7 +1,7 @@
 {
   "name": "@gitlawb/openclaude",
   "version": "0.1.8",
-  "description": "Claude Code opened to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
+  "description": "Claude Code opened to any LLM \u2014 OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
     "openclaude": "./bin/openclaude"
@@ -48,7 +48,10 @@
     "doctor:report": "bun run scripts/system-check.ts --out reports/doctor-runtime.json",
     "hardening:check": "bun run smoke && bun run doctor:runtime",
     "hardening:strict": "bun run typecheck && bun run hardening:check",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "bots": "bun run src/bots/gateway-entry.ts",
+    "bots:docker": "cd docker && docker compose up -d",
+    "bots:pm2": "pm2 start ecosystem.config.cjs"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "0.3.0",
@@ -86,6 +89,7 @@
     "commander": "12.1.0",
     "cross-spawn": "7.0.6",
     "diff": "8.0.3",
+    "discord.js": "^14.26.2",
     "duck-duck-scrape": "^2.2.7",
     "emoji-regex": "10.6.0",
     "env-paths": "3.0.0",
@@ -95,6 +99,7 @@
     "fuse.js": "7.1.0",
     "get-east-asian-width": "1.5.0",
     "google-auth-library": "9.15.1",
+    "grammy": "^1.42.0",
     "https-proxy-agent": "7.0.6",
     "ignore": "7.0.5",
     "indent-string": "5.0.0",
