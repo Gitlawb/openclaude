@@ -400,12 +400,12 @@ export async function update() {
       if (useLocalUpdate) {
         process.stderr.write('Try manually updating with:\n')
         process.stderr.write(
-          `  cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}\n`,
+          `  cd ~/.openclaude/local && npm update ${MACRO.PACKAGE_URL}\n`,
         )
       } else {
         process.stderr.write('Try running with sudo or fix npm permissions\n')
         process.stderr.write(
-          'Or consider using native installation with: claude install\n',
+          'Or consider using native installation with: openclaude install\n',
         )
       }
       await gracefulShutdown(1)
@@ -415,11 +415,11 @@ export async function update() {
       if (useLocalUpdate) {
         process.stderr.write('Try manually updating with:\n')
         process.stderr.write(
-          `  cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}\n`,
+          `  cd ~/.openclaude/local && npm update ${MACRO.PACKAGE_URL}\n`,
         )
       } else {
         process.stderr.write(
-          'Or consider using native installation with: claude install\n',
+          'Or consider using native installation with: openclaude install\n',
         )
       }
       await gracefulShutdown(1)

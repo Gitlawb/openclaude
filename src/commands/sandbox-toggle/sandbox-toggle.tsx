@@ -65,7 +65,7 @@ export async function call(onDone: (result?: string) => void, _context: unknown,
 
       // Get the local settings path and make it relative to cwd
       const localSettingsPath = getSettingsFilePathForSource('localSettings');
-      const relativePath = localSettingsPath ? relative(getCwdState(), localSettingsPath) : '.claude/settings.local.json';
+      const relativePath = localSettingsPath ? relative(getCwdState(), localSettingsPath) : '.openclaude/settings.local.json';
       const message = color('success', themeName)(`Added "${cleanPattern}" to excluded commands in ${relativePath}`);
       onDone(message);
       return null;

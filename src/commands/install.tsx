@@ -39,16 +39,16 @@ type InstallState = {
   message: string;
   warnings?: string[];
 };
-function getInstallationPath(): string {
+export function getInstallationPath(): string {
   const isWindows = env.platform === 'win32';
   const homeDir = homedir();
   if (isWindows) {
     // Convert to Windows-style path
-    const windowsPath = join(homeDir, '.local', 'bin', 'claude.exe');
+    const windowsPath = join(homeDir, '.local', 'bin', 'openclaude.exe');
     // Replace forward slashes with backslashes for Windows display
     return windowsPath.replace(/\//g, '\\');
   }
-  return '~/.local/bin/claude';
+  return '~/.local/bin/openclaude';
 }
 function SetupNotes(t0) {
   const $ = _c(5);
