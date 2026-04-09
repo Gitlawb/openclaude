@@ -1,10 +1,10 @@
 # LiteLLM Setup
 
-OpenClaude can connect to LiteLLM through LiteLLM's OpenAI-compatible proxy.
+Atreides Forge can connect to LiteLLM through LiteLLM's OpenAI-compatible proxy.
 
 ## Overview
 
-LiteLLM is an open-source LLM gateway that provides a unified API to 100+ model providers. By running the LiteLLM Proxy, you can route OpenClaude requests through LiteLLM to access any of its supported providers — all while using OpenClaude's existing OpenAI-compatible provider path.
+LiteLLM is an open-source LLM gateway that provides a unified API to 100+ model providers. By running the LiteLLM Proxy, you can route Atreides Forge requests through LiteLLM to access any of its supported providers — all while using Atreides Forge's existing OpenAI-compatible provider path.
 
 ## Prerequisites
 
@@ -55,7 +55,7 @@ litellm --config litellm_config.yaml --port 4000
 
 The proxy will start at `http://localhost:4000` by default.
 
-## 2. Point OpenClaude to LiteLLM
+## 2. Point Atreides Forge to LiteLLM
 
 ### Option A: Environment Variables
 
@@ -64,14 +64,14 @@ export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_BASE_URL=http://localhost:4000
 export OPENAI_API_KEY=<your-master-key-or-placeholder>
 export OPENAI_MODEL=<your-litellm-model-alias>
-openclaude
+forge
 ```
 
 Replace `<your-litellm-model-alias>` with a model name from your `litellm_config.yaml` (e.g., `gpt-4o`, `claude-sonnet-4`, `gemini-2.5-flash`).
 
 ### Option B: Using /provider
 
-1. Run `openclaude`
+1. Run `forge`
 2. Type `/provider` to open the provider setup flow
 3. Choose the **OpenAI-compatible** option
 4. When prompted for the API key, enter the key required by your LiteLLM proxy
@@ -112,20 +112,20 @@ litellm_settings:
 # Start proxy with a master key
 litellm --config litellm_config.yaml --port 4000 --master_key sk-my-master-key
 
-# Connect OpenClaude
+# Connect Atreides Forge
 export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_BASE_URL=http://localhost:4000
 export OPENAI_API_KEY=sk-my-master-key
 export OPENAI_MODEL=gpt-4o
-openclaude
+forge
 ```
 
 ## 4. Notes
 
 - `OPENAI_MODEL` must match the **LiteLLM model alias** defined in your config, not the upstream raw provider model name.
 - If your proxy requires authentication, use the proxy key (or `master_key`) in `OPENAI_API_KEY`.
-- LiteLLM's OpenAI-compatible endpoint accepts the same request format as OpenAI, so OpenClaude works without any code changes.
-- You can switch between any provider configured in LiteLLM by simply changing the `OPENAI_MODEL` value — no need to reconfigure OpenClaude.
+- LiteLLM's OpenAI-compatible endpoint accepts the same request format as OpenAI, so Atreides Forge works without any code changes.
+- You can switch between any provider configured in LiteLLM by simply changing the `OPENAI_MODEL` value — no need to reconfigure Atreides Forge.
 
 ## 5. Troubleshooting
 

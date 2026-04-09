@@ -127,7 +127,7 @@ export async function generateSessionTitle(
 
     // Fallback: When using 3P providers without a compatible schema,
     // default to the application name.
-    return 'Open Claude'
+    return 'Atreides Forge'
   }
 }
 

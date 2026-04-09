@@ -420,7 +420,7 @@ export async function fetchCodexUsage(): Promise<CodexUsageData> {
       Accept: 'application/json',
       Authorization: `Bearer ${credentials.apiKey}`,
       'chatgpt-account-id': credentials.accountId,
-      originator: 'openclaude',
+      originator: 'forge',
     },
     signal: AbortSignal.timeout(5000),
   })

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * OpenClaude — Claude Code with any LLM
+ * Atreides Forge — Claude Code with any LLM
  *
  * If dist/cli.mjs exists (built), run that.
  * Otherwise, tell the user to build first or use `bun run dev`.
@@ -18,7 +18,7 @@ if (existsSync(distPath)) {
   await import(pathToFileURL(distPath).href)
 } else {
   console.error(`
-  openclaude: dist/cli.mjs not found.
+  forge: dist/cli.mjs not found.
 
   Build first:
     bun run build

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package openclaude.v1;
+package forge.v1;
 
 // Main Agent Service
 service AgentService {

@@ -217,7 +217,7 @@ function copyNative(text: string): void {
       // boundary. Write UTF-8 text to a temp file and let PowerShell read it
       // directly as UTF-8 before calling Set-Clipboard.
       void (async () => {
-        const tempPath = generateTempFilePath('openclaude-clipboard', '.txt')
+        const tempPath = generateTempFilePath('forge-clipboard', '.txt')
         const escapedTempPath = tempPath.replace(/'/g, "''")
         try {
           await writeFile(tempPath, text, { encoding: 'utf8' })

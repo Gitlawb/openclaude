@@ -1,6 +1,6 @@
-# OpenClaude Local Agent Playbook
+# Atreides Forge Local Agent Playbook
 
-This playbook is a practical guide to run OpenClaude with a local model (Ollama), work safely, and get strong day-to-day results.
+This playbook is a practical guide to run Atreides Forge with a local model (Ollama), work safely, and get strong day-to-day results.
 
 ## 1. What You Have
 
@@ -27,7 +27,7 @@ bun run dev:fast
 bun run dev:code
 ```
 
-If everything is healthy, OpenClaude starts directly.
+If everything is healthy, Atreides Forge starts directly.
 
 ## 3. One-Time Setup (If Needed)
 
@@ -37,7 +37,7 @@ If everything is healthy, OpenClaude starts directly.
 bun run profile:init -- --provider ollama --model llama3.1:8b
 ```
 
-Or let OpenClaude recommend the best local model for your goal:
+Or let Atreides Forge recommend the best local model for your goal:
 
 ```powershell
 bun run profile:init -- --provider ollama --goal coding
@@ -52,7 +52,7 @@ bun run profile:recommend -- --goal coding --benchmark
 ### 3.2 Confirm profile file
 
 ```powershell
-Get-Content .\.openclaude-profile.json
+Get-Content .\.forge-profile.json
 ```
 
 ### 3.3 Validate environment
@@ -132,7 +132,7 @@ Cause:
 Fix:
 
 ```powershell
-cd C:\Users\Lucas Pedry\Documents\openclaude\openclaude
+cd C:\Users\Lucas Pedry\Documents\forge\forge
 bun run dev:profile
 ```
 
@@ -260,7 +260,7 @@ bun run profile:init -- --provider ollama --goal coding
 
 - Run `doctor:runtime` before debugging provider issues.
 - Prefer `dev:profile` over manual env edits.
-- Keep `.openclaude-profile.json` local (already gitignored).
+- Keep `.forge-profile.json` local (already gitignored).
 - Use `doctor:report` before asking for help so you have a reproducible snapshot.
 
 ## 10. Quick Recovery Checklist

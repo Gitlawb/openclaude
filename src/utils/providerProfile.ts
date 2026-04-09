@@ -15,7 +15,7 @@ import {
 import { readGeminiAccessToken } from './geminiCredentials.ts'
 import { getOllamaChatBaseUrl } from './providerDiscovery.ts'
 
-export const PROFILE_FILE_NAME = '.openclaude-profile.json'
+export const PROFILE_FILE_NAME = '.forge-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/openai'
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
@@ -681,7 +681,7 @@ export async function buildStartupEnvFromProfile(options?: {
     persisted,
     goal:
       options?.goal ??
-      normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
+      normalizeRecommendationGoal(processEnv.FORGE_PROFILE_GOAL),
     processEnv,
     getOllamaChatBaseUrl:
       options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,

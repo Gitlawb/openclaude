@@ -88,7 +88,7 @@ function compactBoundary(
 }
 
 async function writeJsonl(entries: unknown[]): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'openclaude-session-storage-'))
+  const dir = await mkdtemp(join(tmpdir(), 'forge-session-storage-'))
   tempDirs.push(dir)
   const filePath = join(dir, 'session.jsonl')
   await writeFile(filePath, `${entries.map(e => JSON.stringify(e)).join('\n')}\n`)

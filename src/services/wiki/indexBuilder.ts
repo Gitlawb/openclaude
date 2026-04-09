@@ -49,7 +49,7 @@ export async function rebuildWikiIndex(cwd: string): Promise<void> {
 
   const content = `# ${basename(cwd)} Wiki
 
-This wiki is maintained by OpenClaude as a durable project knowledge layer.
+This wiki is maintained by Atreides Forge as a durable project knowledge layer.
 
 ## Core Pages
 

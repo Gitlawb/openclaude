@@ -3,7 +3,7 @@ import * as protoLoader from '@grpc/proto-loader'
 import path from 'path'
 import * as readline from 'readline'
 
-const PROTO_PATH = path.resolve(import.meta.dirname, '../src/proto/openclaude.proto')
+const PROTO_PATH = path.resolve(import.meta.dirname, '../src/proto/forge.proto')
 
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   keepCase: true,
@@ -14,7 +14,7 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 })
 
 const protoDescriptor = grpc.loadPackageDefinition(packageDefinition) as any
-const openclaudeProto = protoDescriptor.openclaude.v1
+const forgeProto = protoDescriptor.forge.v1
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -30,7 +30,7 @@ function askQuestion(query: string): Promise<string> {
 async function main() {
   const host = process.env.GRPC_HOST || 'localhost'
   const port = process.env.GRPC_PORT || '50051'
-  const client = new openclaudeProto.AgentService(
+  const client = new forgeProto.AgentService(
     `${host}:${port}`,
     grpc.credentials.createInsecure()
   )
@@ -113,7 +113,7 @@ async function main() {
     })
   }
 
-  console.log('\x1b[32mOpenClaude gRPC CLI\x1b[0m')
+  console.log('\x1b[32mAtreides Forge gRPC CLI\x1b[0m')
   console.log('\x1b[90mType /exit to quit.\x1b[0m')
   promptUser()
 }

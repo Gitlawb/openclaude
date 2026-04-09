@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "openclaude",
+      "name": "forge",
       "dependencies": {
         "@alcalzone/ansi-tokenize": "0.3.0",
         "@anthropic-ai/bedrock-sdk": "0.26.4",

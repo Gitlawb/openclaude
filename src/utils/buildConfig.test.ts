@@ -3,9 +3,9 @@ import { isAntEmployee } from './buildConfig.ts'
 
 // Finding #42-2: process.env.USER_TYPE === 'ant' is checked directly in multiple
 // places, allowing any external user to activate Anthropic-internal code paths.
-// In OpenClaude, this must always be false regardless of env var.
+// In Atreides Forge, this must always be false regardless of env var.
 
-test('isAntEmployee always returns false in OpenClaude regardless of USER_TYPE env var', () => {
+test('isAntEmployee always returns false in Atreides Forge regardless of USER_TYPE env var', () => {
   const original = process.env.USER_TYPE
   process.env.USER_TYPE = 'ant'
   expect(isAntEmployee()).toBe(false)

@@ -1,7 +1,7 @@
 {
-  "name": "openclaude-vscode",
-  "displayName": "OpenClaude",
-  "description": "Practical VS Code companion for OpenClaude with project-aware launch behavior and a real Control Center.",
+  "name": "forge-vscode",
+  "displayName": "Atreides Forge",
+  "description": "Practical VS Code companion for Atreides Forge with project-aware launch behavior and a real Control Center.",
   "version": "0.1.1",
   "publisher": "devnull-bootloader",
   "engines": {
@@ -13,13 +13,13 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:openclaude.start",
-    "onCommand:openclaude.startInWorkspaceRoot",
-    "onCommand:openclaude.openDocs",
-    "onCommand:openclaude.openSetupDocs",
-    "onCommand:openclaude.openWorkspaceProfile",
-    "onCommand:openclaude.openControlCenter",
-    "onView:openclaude.controlCenter"
+    "onCommand:forge.start",
+    "onCommand:forge.startInWorkspaceRoot",
+    "onCommand:forge.openDocs",
+    "onCommand:forge.openSetupDocs",
+    "onCommand:forge.openWorkspaceProfile",
+    "onCommand:forge.openControlCenter",
+    "onView:forge.controlCenter"
   ],
   "main": "./src/extension.js",
   "files": [
@@ -33,79 +33,79 @@
   "contributes": {
     "commands": [
       {
-        "command": "openclaude.start",
-        "title": "OpenClaude: Launch in Terminal",
-        "category": "OpenClaude"
+        "command": "forge.start",
+        "title": "Atreides Forge: Launch in Terminal",
+        "category": "Atreides Forge"
       },
       {
-        "command": "openclaude.startInWorkspaceRoot",
-        "title": "OpenClaude: Launch in Workspace Root",
-        "category": "OpenClaude"
+        "command": "forge.startInWorkspaceRoot",
+        "title": "Atreides Forge: Launch in Workspace Root",
+        "category": "Atreides Forge"
       },
       {
-        "command": "openclaude.openDocs",
-        "title": "OpenClaude: Open Repository",
-        "category": "OpenClaude"
+        "command": "forge.openDocs",
+        "title": "Atreides Forge: Open Repository",
+        "category": "Atreides Forge"
       },
       {
-        "command": "openclaude.openSetupDocs",
-        "title": "OpenClaude: Open Setup Guide",
-        "category": "OpenClaude"
+        "command": "forge.openSetupDocs",
+        "title": "Atreides Forge: Open Setup Guide",
+        "category": "Atreides Forge"
       },
       {
-        "command": "openclaude.openWorkspaceProfile",
-        "title": "OpenClaude: Open Workspace Profile",
-        "category": "OpenClaude"
+        "command": "forge.openWorkspaceProfile",
+        "title": "Atreides Forge: Open Workspace Profile",
+        "category": "Atreides Forge"
       },
       {
-        "command": "openclaude.openControlCenter",
-        "title": "OpenClaude: Open Control Center",
-        "category": "OpenClaude"
+        "command": "forge.openControlCenter",
+        "title": "Atreides Forge: Open Control Center",
+        "category": "Atreides Forge"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "openclaude",
-          "title": "OpenClaude",
-          "icon": "media/openclaude.svg"
+          "id": "forge",
+          "title": "Atreides Forge",
+          "icon": "media/forge.svg"
         }
       ]
     },
     "views": {
-      "openclaude": [
+      "forge": [
         {
-          "id": "openclaude.controlCenter",
+          "id": "forge.controlCenter",
           "name": "Control Center",
           "type": "webview"
         }
       ]
     },
     "configuration": {
-      "title": "OpenClaude",
+      "title": "Atreides Forge",
       "properties": {
-        "openclaude.launchCommand": {
+        "forge.launchCommand": {
           "type": "string",
-          "default": "openclaude",
-          "description": "Command run in the integrated terminal when launching OpenClaude."
+          "default": "forge",
+          "description": "Command run in the integrated terminal when launching Atreides Forge."
         },
-        "openclaude.terminalName": {
+        "forge.terminalName": {
           "type": "string",
-          "default": "OpenClaude",
-          "description": "Integrated terminal tab name for OpenClaude sessions."
+          "default": "Atreides Forge",
+          "description": "Integrated terminal tab name for Atreides Forge sessions."
         },
-        "openclaude.useOpenAIShim": {
+        "forge.useOpenAIShim": {
           "type": "boolean",
           "default": false,
-          "description": "Optionally set CLAUDE_CODE_USE_OPENAI=1 in launched OpenClaude terminals."
+          "description": "Optionally set CLAUDE_CODE_USE_OPENAI=1 in launched Atreides Forge terminals."
         }
       }
     },
     "themes": [
       {
-        "label": "OpenClaude Terminal Black",
+        "label": "Atreides Forge Terminal Black",
         "uiTheme": "vs-dark",
-        "path": "./themes/OpenClaude-Terminal-Black.json"
+        "path": "./themes/Atreides Forge-Terminal-Black.json"
       }
     ]
   },
@@ -115,7 +115,7 @@
     "package": "npx @vscode/vsce package --no-dependencies"
   },
   "keywords": [
-    "openclaude",
+    "forge",
     "terminal",
     "theme",
     "cli",
@@ -123,7 +123,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gitlawb/openclaude"
+    "url": "https://github.com/ambitious-realism/forge"
   },
   "license": "MIT"
 }

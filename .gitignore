@@ -4,7 +4,7 @@ dist/
 .env
 .env.*
 !.env.example
-.openclaude-profile.json
+.forge-profile.json
 reports/
 GEMINI.md
 package-lock.json

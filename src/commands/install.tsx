@@ -44,11 +44,11 @@ export function getInstallationPath(): string {
   const homeDir = homedir();
   if (isWindows) {
     // Convert to Windows-style path
-    const windowsPath = join(homeDir, '.local', 'bin', 'openclaude.exe');
+    const windowsPath = join(homeDir, '.local', 'bin', 'forge.exe');
     // Replace forward slashes with backslashes for Windows display
     return windowsPath.replace(/\//g, '\\');
   }
-  return '~/.local/bin/openclaude';
+  return '~/.local/bin/forge';
 }
 function SetupNotes(t0) {
   const $ = _c(5);

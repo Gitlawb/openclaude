@@ -552,7 +552,7 @@ export async function performCodexRequest(options: {
   if (options.credentials.accountId) {
     headers['chatgpt-account-id'] = options.credentials.accountId
   }
-  headers.originator ??= 'openclaude'
+  headers.originator ??= 'forge'
 
   const response = await fetch(`${options.request.baseUrl}/responses`, {
     method: 'POST',

@@ -37,7 +37,7 @@ afterEach(() => {
 })
 
 function createTempAuthJson(payload: Record<string, unknown>): string {
-  const dir = mkdtempSync(join(tmpdir(), 'openclaude-codex-'))
+  const dir = mkdtempSync(join(tmpdir(), 'forge-codex-'))
   tempDirs.push(dir)
   const authPath = join(dir, 'auth.json')
   writeFileSync(authPath, JSON.stringify(payload), 'utf8')

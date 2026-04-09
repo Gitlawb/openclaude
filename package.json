@@ -1,10 +1,10 @@
 {
-  "name": "@gitlawb/openclaude",
+  "name": "@atreides/forge",
   "version": "0.1.8",
   "description": "Claude Code opened to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
-    "openclaude": "./bin/openclaude"
+    "forge": "./bin/forge"
   },
   "files": [
     "bin/",

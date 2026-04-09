@@ -28,7 +28,7 @@ export function WelcomeV2() {
     let t7;
     let t8;
     if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-      t0 = <Text><Text color="claude">{"Welcome to Open Claude"} </Text><Text dimColor={true}>v{MACRO.DISPLAY_VERSION ?? MACRO.VERSION} </Text></Text>;
+      t0 = <Text><Text color="claude">{"Welcome to Atreides Forge"} </Text><Text dimColor={true}>v{MACRO.DISPLAY_VERSION ?? MACRO.VERSION} </Text></Text>;
       t1 = <Text>{"\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026"}</Text>;
       t2 = <Text>{"                                                          "}</Text>;
       t3 = <Text>{"                                                          "}</Text>;
@@ -113,7 +113,7 @@ export function WelcomeV2() {
   let t5;
   let t6;
   if ($[18] === Symbol.for("react.memo_cache_sentinel")) {
-    t0 = <Text><Text color="claude">{"Welcome to Open Claude"} </Text><Text dimColor={true}>v{MACRO.DISPLAY_VERSION ?? MACRO.VERSION} </Text></Text>;
+    t0 = <Text><Text color="claude">{"Welcome to Atreides Forge"} </Text><Text dimColor={true}>v{MACRO.DISPLAY_VERSION ?? MACRO.VERSION} </Text></Text>;
     t1 = <Text>{"\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026\u2026"}</Text>;
     t2 = <Text>{"                                                          "}</Text>;
     t3 = <Text>{"     *                                       \u2588\u2588\u2588\u2588\u2588\u2593\u2593\u2591     "}</Text>;

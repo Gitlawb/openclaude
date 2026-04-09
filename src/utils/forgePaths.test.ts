@@ -24,73 +24,73 @@ afterEach(() => {
   mock.restore()
 })
 
-describe('OpenClaude paths', () => {
-  test('defaults user config home to ~/.openclaude', async () => {
+describe('Atreides Forge paths', () => {
+  test('defaults user config home to ~/.forge', async () => {
     delete process.env.CLAUDE_CONFIG_DIR
     const { resolveClaudeConfigHomeDir } = await importFreshEnvUtils()
 
     expect(
       resolveClaudeConfigHomeDir({
         homeDir: homedir(),
-        openClaudeExists: true,
+        forgeExists: true,
         legacyClaudeExists: false,
       }),
-    ).toBe(join(homedir(), '.openclaude'))
+    ).toBe(join(homedir(), '.forge'))
   })
 
-  test('falls back to ~/.claude when legacy config exists and ~/.openclaude does not', async () => {
+  test('falls back to ~/.claude when legacy config exists and ~/.forge does not', async () => {
     delete process.env.CLAUDE_CONFIG_DIR
     const { resolveClaudeConfigHomeDir } = await importFreshEnvUtils()
 
     expect(
       resolveClaudeConfigHomeDir({
         homeDir: homedir(),
-        openClaudeExists: false,
+        forgeExists: false,
         legacyClaudeExists: true,
       }),
     ).toBe(join(homedir(), '.claude'))
   })
 
   test('uses CLAUDE_CONFIG_DIR override when provided', async () => {
-    process.env.CLAUDE_CONFIG_DIR = '/tmp/custom-openclaude'
+    process.env.CLAUDE_CONFIG_DIR = '/tmp/custom-forge'
     const { getClaudeConfigHomeDir, resolveClaudeConfigHomeDir } =
       await importFreshEnvUtils()
 
-    expect(getClaudeConfigHomeDir()).toBe('/tmp/custom-openclaude')
+    expect(getClaudeConfigHomeDir()).toBe('/tmp/custom-forge')
     expect(
       resolveClaudeConfigHomeDir({
-        configDirEnv: '/tmp/custom-openclaude',
+        configDirEnv: '/tmp/custom-forge',
       }),
-    ).toBe('/tmp/custom-openclaude')
+    ).toBe('/tmp/custom-forge')
   })
 
-  test('project and local settings paths use .openclaude', async () => {
+  test('project and local settings paths use .forge', async () => {
     const { getRelativeSettingsFilePathForSource } = await importFreshSettings()
 
     expect(getRelativeSettingsFilePathForSource('projectSettings')).toBe(
-      '.openclaude/settings.json',
+      '.forge/settings.json',
     )
     expect(getRelativeSettingsFilePathForSource('localSettings')).toBe(
-      '.openclaude/settings.local.json',
+      '.forge/settings.local.json',
     )
   })
 
-  test('local installer uses openclaude wrapper path', async () => {
+  test('local installer uses forge wrapper path', async () => {
     delete process.env.CLAUDE_CONFIG_DIR
     const { getLocalClaudePath } = await importFreshLocalInstaller()
 
     expect(getLocalClaudePath()).toBe(
-      join(homedir(), '.openclaude', 'local', 'openclaude'),
+      join(homedir(), '.forge', 'local', 'forge'),
     )
   })
 
-  test('local installation detection matches .openclaude path', async () => {
+  test('local installation detection matches .forge path', async () => {
     const { isManagedLocalInstallationPath } =
       await importFreshLocalInstaller()
 
     expect(
       isManagedLocalInstallationPath(
-        `${join(homedir(), '.openclaude', 'local')}/node_modules/.bin/openclaude`,
+        `${join(homedir(), '.forge', 'local')}/node_modules/.bin/forge`,
       ),
     ).toBe(true)
   })
@@ -101,21 +101,21 @@ describe('OpenClaude paths', () => {
 
     expect(
       isManagedLocalInstallationPath(
-        `${join(homedir(), '.claude', 'local')}/node_modules/.bin/openclaude`,
+        `${join(homedir(), '.claude', 'local')}/node_modules/.bin/forge`,
       ),
     ).toBe(true)
   })
 
-  test('candidate local install dirs include both openclaude and legacy claude paths', async () => {
+  test('candidate local install dirs include both forge and legacy claude paths', async () => {
     const { getCandidateLocalInstallDirs } = await importFreshLocalInstaller()
 
     expect(
       getCandidateLocalInstallDirs({
-        configHomeDir: join(homedir(), '.openclaude'),
+        configHomeDir: join(homedir(), '.forge'),
         homeDir: homedir(),
       }),
     ).toEqual([
-      join(homedir(), '.openclaude', 'local'),
+      join(homedir(), '.forge', 'local'),
       join(homedir(), '.claude', 'local'),
     ])
   })

@@ -9,8 +9,8 @@ test('truncateMiddle keeps the profile filename visible', () => {
   const { truncateMiddle } = loadPresentation();
 
   assert.equal(
-    truncateMiddle('/Users/example/projects/openclaude/workspace/.openclaude-profile.json', 30),
-    '.../.openclaude-profile.json',
+    truncateMiddle('/Users/example/projects/forge/workspace/.forge-profile.json', 30),
+    '.../.forge-profile.json',
   );
 });
 
@@ -18,8 +18,8 @@ test('truncateMiddle keeps the filename visible for Windows-style paths', () => 
   const { truncateMiddle } = loadPresentation();
 
   assert.equal(
-    truncateMiddle('C:\\Users\\example\\openclaude\\workspace\\.openclaude-profile.json', 30),
-    '...\\.openclaude-profile.json',
+    truncateMiddle('C:\\Users\\example\\forge\\workspace\\.forge-profile.json', 30),
+    '...\\.forge-profile.json',
   );
 });
 
@@ -50,7 +50,7 @@ test('buildActionModel hides workspace-profile action when no profile exists', (
 
   assert.deepEqual(model.primary, {
     id: 'launch',
-    label: 'Launch OpenClaude',
+    label: 'Launch Atreides Forge',
     detail: 'Use the resolved project-aware launch directory',
     tone: 'accent',
     disabled: false,
@@ -63,13 +63,13 @@ test('buildActionModel includes workspace-profile action when a profile exists',
 
   const model = buildActionModel({
     canLaunchInWorkspaceRoot: true,
-    workspaceProfilePath: 'C:\\Users\\example\\openclaude\\workspace\\.openclaude-profile.json',
+    workspaceProfilePath: 'C:\\Users\\example\\forge\\workspace\\.forge-profile.json',
   });
 
   assert.deepEqual(model.openProfile, {
     id: 'openProfile',
     label: 'Open Workspace Profile',
-    detail: 'Inspect ...\\.openclaude-profile.json',
+    detail: 'Inspect ...\\.forge-profile.json',
     tone: 'neutral',
     disabled: false,
   });
@@ -78,18 +78,18 @@ test('buildActionModel includes workspace-profile action when a profile exists',
 function createStatus(overrides = {}) {
   return {
     installed: true,
-    executable: 'openclaude',
-    launchCommand: 'openclaude --project-aware',
-    terminalName: 'OpenClaude',
+    executable: 'forge',
+    launchCommand: 'forge --project-aware',
+    terminalName: 'Atreides Forge',
     shimEnabled: false,
-    workspaceFolder: '/workspace/openclaude',
+    workspaceFolder: '/workspace/forge',
     workspaceSourceLabel: 'active editor workspace',
-    launchCwd: '/workspace/openclaude',
-    launchCwdLabel: '/workspace/openclaude',
+    launchCwd: '/workspace/forge',
+    launchCwdLabel: '/workspace/forge',
     canLaunchInWorkspaceRoot: true,
     profileStatusLabel: 'Found',
-    profileStatusHint: '/workspace/openclaude/.openclaude-profile.json',
-    workspaceProfilePath: '/workspace/openclaude/.openclaude-profile.json',
+    profileStatusHint: '/workspace/forge/.forge-profile.json',
+    workspaceProfilePath: '/workspace/forge/.forge-profile.json',
     providerState: {
       label: 'Codex',
       detail: 'gpt-5.4',
@@ -166,14 +166,14 @@ test('buildControlCenterViewModel uses a concise project summary before full pat
         {
           key: 'workspace',
           label: 'Workspace folder',
-          summary: 'openclaude',
-          detail: '/workspace/openclaude · active editor workspace',
+          summary: 'forge',
+          detail: '/workspace/forge · active editor workspace',
         },
         {
           key: 'profileStatus',
           label: 'Workspace profile',
           summary: 'Found',
-          detail: '/workspace/openclaude/.openclaude-profile.json',
+          detail: '/workspace/forge/.forge-profile.json',
           tone: 'neutral',
         },
       ],
@@ -183,9 +183,9 @@ test('buildControlCenterViewModel uses a concise project summary before full pat
       rows: [
         {
           key: 'runtime',
-          label: 'OpenClaude executable',
+          label: 'Atreides Forge executable',
           summary: 'Installed',
-          detail: 'openclaude',
+          detail: 'forge',
           tone: 'positive',
         },
         {
@@ -208,8 +208,8 @@ test('buildControlCenterViewModel keeps launch command only in summary cards', (
   assert.deepEqual(viewModel.summaryCards.find(card => card.key === 'launchCommand'), {
     key: 'launchCommand',
     label: 'Launch command',
-    value: 'openclaude --project-aware',
-    detail: 'Integrated terminal: OpenClaude',
+    value: 'forge --project-aware',
+    detail: 'Integrated terminal: Atreides Forge',
   });
 
   assert.equal(

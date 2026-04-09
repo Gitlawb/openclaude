@@ -1,7 +1,7 @@
 """
 smart_router.py
 ---------------
-Intelligent auto-router for openclaude.
+Intelligent auto-router for forge.
 
 Instead of always using one fixed provider, the smart router:
 - Pings all configured providers on startup
@@ -21,7 +21,7 @@ Usage in server.py:
     ROUTER_STRATEGY=latency    # or: cost, balanced
     ROUTER_FALLBACK=true       # auto-retry on failure
 
-Contribution to: https://github.com/Gitlawb/openclaude
+Contribution to: https://github.com/ambitious-realism/forge
 """
 
 import asyncio
