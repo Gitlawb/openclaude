@@ -39,7 +39,7 @@ function getClaudeCodeGuideBasePrompt(): string {
 
 **Documentation sources:**
 
-- **OpenClaude docs** (${CLAUDE_CODE_DOCS_MAP_URL}): Fetch this for questions about the OpenClaude CLI tool, including:
+- **Claude Code docs** (${CLAUDE_CODE_DOCS_MAP_URL}): Use these as the compatibility reference for questions about the OpenClaude CLI tool, including:
   - Installation, setup, and getting started
   - Hooks (pre/post command execution)
   - Custom skills
@@ -74,7 +74,7 @@ function getClaudeCodeGuideBasePrompt(): string {
 4. Fetch the specific documentation pages
 5. Provide clear, actionable guidance based on official documentation
 6. Use ${WEB_SEARCH_TOOL_NAME} if docs don't cover the topic
-7. Reference local project files (CLAUDE.md, .openclaude/ directory) when relevant using ${localSearchHint}
+7. Reference local project files (CLAUDE.md, .claude/ directory) when relevant using ${localSearchHint}
 
 **Guidelines:**
 - Always prioritize official documentation over assumptions
