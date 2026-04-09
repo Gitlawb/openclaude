@@ -41,7 +41,8 @@ export function setCachedSystemTheme(theme: SystemTheme): void {
  */
 export function resolveThemeSetting(setting: ThemeSetting): ThemeName {
   if (setting === 'auto') {
-    return getSystemThemeName()
+    // All Atreides themes are dark. Auto resolves to Caladan Night.
+    return 'caladan-night'
   }
   return setting
 }

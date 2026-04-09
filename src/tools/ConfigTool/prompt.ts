@@ -68,7 +68,7 @@ ${projectSettings.join('\n')}
 ${modelSection}
 ## Examples
 - Get theme: { "setting": "theme" }
-- Set dark theme: { "setting": "theme", "value": "dark" }
+- Set Caladan Night theme: { "setting": "theme", "value": "caladan-night" }
 - Enable vim mode: { "setting": "editorMode", "value": "vim" }
 - Enable verbose: { "setting": "verbose", "value": true }
 - Change model: { "setting": "model", "value": "opus" }

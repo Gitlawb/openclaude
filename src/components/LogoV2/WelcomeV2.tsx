@@ -17,7 +17,8 @@ export function WelcomeV2() {
     }
     return t0;
   }
-  if (["light", "light-daltonized", "light-ansi"].includes(theme)) {
+  // All Atreides themes are dark. No light theme branch needed.
+  if (false) {
     let t0;
     let t1;
     let t2;
@@ -206,7 +207,8 @@ function AppleTerminalWelcomeV2(t0) {
     theme,
     welcomeMessage
   } = t0;
-  const isLightTheme = ["light", "light-daltonized", "light-ansi"].includes(theme);
+  // All Atreides themes are dark. No light theme branch needed.
+  const isLightTheme = false;
   if (isLightTheme) {
     let t1;
     if ($[0] !== welcomeMessage) {

@@ -117,24 +117,15 @@ export function ThemePicker({
       ...(feature("AUTO_THEME")
         ? [{ label: "Auto (match terminal)", value: "auto" as const }]
         : []), { 
-        label: "Dark mode",
-        value: "dark" as const 
+        label: "Caladan Night — Deep navy, storm blue",
+        value: "caladan-night" as const 
       }, { 
-        label: "Light mode",
-        value: "light" as const 
+        label: "Atreides Dawn — Warm amber, gold",
+        value: "atreides-dawn" as const 
       }, {
-        label: "Dark mode (colorblind-friendly)",
-        value: "dark-daltonized" as const,
-      }, {
-        label: "Light mode (colorblind-friendly)",
-        value: "light-daltonized" as const,
-      }, { 
-        label: "Dark mode (ANSI colors only)",
-        value: "dark-ansi" as const 
-      }, {
-        label: "Light mode (ANSI colors only)",
-        value: "light-ansi" as const 
-      },],
+        label: "Imperial Ember — Deep red, copper",
+        value: "imperial-ember" as const,
+      }],
     [],
   )
 
