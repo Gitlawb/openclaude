@@ -1158,6 +1158,7 @@ class OpenAIShimMessages {
       model: request.resolvedModel,
       messages: openaiMessages,
       stream: params.stream ?? false,
+      store: false,
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
@@ -1332,6 +1333,7 @@ class OpenAIShimMessages {
               }>,
             ),
             stream: params.stream ?? false,
+            store: false,
           }
 
           if (!Array.isArray(responsesBody.input) || responsesBody.input.length === 0) {
