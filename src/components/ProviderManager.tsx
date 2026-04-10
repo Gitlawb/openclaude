@@ -15,6 +15,7 @@ import {
   type ProviderProfileInput,
   updateProviderProfile,
 } from '../utils/providerProfiles.js'
+import { testProviderProfileConnection } from '../utils/providerProfileConnection.js'
 import {
   clearGithubModelsToken,
   GITHUB_MODELS_HYDRATED_ENV_MARKER,
@@ -42,7 +43,9 @@ type Props = {
 type Screen =
   | 'menu'
   | 'select-preset'
+  | 'select-custom-provider-mode'
   | 'form'
+  | 'confirm-save'
   | 'select-active'
   | 'select-edit'
   | 'select-delete'
@@ -109,6 +112,10 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
     model: defaults.model,
     apiKey: defaults.apiKey ?? '',
   }
+}
+
+function providerModeLabel(provider: ProviderProfile['provider']): string {
+  return provider === 'anthropic' ? 'Anthropic' : 'OpenAI-compatible'
 }
 
 function profileSummary(profile: ProviderProfile, isActive: boolean): string {
@@ -208,6 +215,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   )
   const [formStepIndex, setFormStepIndex] = React.useState(0)
   const [cursorOffset, setCursorOffset] = React.useState(0)
+  const [isTestingConnection, setIsTestingConnection] = React.useState(false)
+  const testEpochRef = React.useRef(0)
+  const testAbortRef = React.useRef<AbortController | null>(null)
   const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
   const [errorMessage, setErrorMessage] = React.useState<string | undefined>()
 
@@ -364,8 +374,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     return null
   }
 
-  function startCreateFromPreset(preset: ProviderPreset): void {
-    const defaults = getProviderPresetDefaults(preset)
+  function startCreateFromPreset(
+    preset: ProviderPreset,
+    options?: {
+      provider?: ProviderProfile['provider']
+    },
+  ): void {
+    const defaults = getProviderPresetDefaults(preset, options)
     const nextDraft = {
       name: defaults.name,
       baseUrl: defaults.baseUrl,
@@ -377,6 +392,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setDraft(nextDraft)
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
+    setIsTestingConnection(false)
     setErrorMessage(undefined)
     setScreen('form')
   }
@@ -393,6 +409,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setDraft(nextDraft)
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
+    setIsTestingConnection(false)
     setErrorMessage(undefined)
     setScreen('form')
   }
@@ -442,8 +459,41 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     setEditingProfileId(null)
     setFormStepIndex(0)
+    setIsTestingConnection(false)
     setErrorMessage(undefined)
     setScreen('menu')
+  }
+
+  async function testAndPersistDraft(): Promise<void> {
+    const epoch = ++testEpochRef.current
+    const abort = new AbortController()
+    testAbortRef.current = abort
+    setIsTestingConnection(true)
+    setErrorMessage(undefined)
+
+    const payload: ProviderProfileInput = {
+      provider: draftProvider,
+      name: draft.name,
+      baseUrl: draft.baseUrl,
+      model: draft.model,
+      apiKey: draft.apiKey,
+    }
+
+    const result = await testProviderProfileConnection(payload, {
+      signal: abort.signal,
+    })
+
+    // Discard the result if the user navigated away or started a new test.
+    if (epoch !== testEpochRef.current) return
+
+    setIsTestingConnection(false)
+
+    if (!result.ok) {
+      setErrorMessage(result.message)
+      return
+    }
+
+    persistDraft()
   }
 
   function handleFormSubmit(value: string): void {
@@ -470,11 +520,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    persistDraft()
+    setScreen('confirm-save')
   }
 
   function handleBackFromForm(): void {
     setErrorMessage(undefined)
+
+    if (screen === 'confirm-save') {
+      if (isTestingConnection) {
+        // Abort the in-flight request and invalidate its result.
+        testAbortRef.current?.abort()
+        ++testEpochRef.current
+        setIsTestingConnection(false)
+      }
+      setScreen('form')
+      return
+    }
 
     if (formStepIndex > 0) {
       const nextIndex = formStepIndex - 1
@@ -494,7 +555,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   useKeybinding('confirm:no', handleBackFromForm, {
     context: 'Settings',
-    isActive: screen === 'form',
+    isActive: screen === 'form' || screen === 'confirm-save',
   })
 
   function renderPresetSelection(): React.ReactNode {
@@ -562,7 +623,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       {
         value: 'custom',
         label: 'Custom',
-        description: 'Any OpenAI-compatible provider',
+        description: 'Custom Anthropic or OpenAI-compatible provider',
       },
       ...(mode === 'first-run'
         ? [
@@ -590,6 +651,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               closeWithCancelled('Provider setup skipped')
               return
             }
+            if (value === 'custom') {
+              setScreen('select-custom-provider-mode')
+              return
+            }
             startCreateFromPreset(value as ProviderPreset)
           }}
           onCancel={() => {
@@ -605,6 +670,41 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     )
   }
 
+  function renderCustomProviderModeSelection(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          Choose API mode
+        </Text>
+        <Text dimColor>
+          Custom providers can use Anthropic native API mode or OpenAI-compatible
+          API mode.
+        </Text>
+        <Select
+          options={[
+            {
+              value: 'anthropic',
+              label: 'Anthropic',
+              description: 'Native Anthropic API with x-api-key auth',
+            },
+            {
+              value: 'openai',
+              label: 'OpenAI-compatible',
+              description: 'Chat/completions style APIs such as OpenAI, OpenRouter, or local gateways',
+            },
+          ]}
+          onChange={value =>
+            startCreateFromPreset('custom', {
+              provider: value as ProviderProfile['provider'],
+            })
+          }
+          onCancel={() => setScreen('select-preset')}
+          visibleOptionCount={2}
+        />
+      </Box>
+    )
+  }
+
   function renderForm(): React.ReactNode {
     return (
       <Box flexDirection="column" gap={1}>
@@ -613,10 +713,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         </Text>
         <Text dimColor>{currentStep.helpText}</Text>
         <Text dimColor>
-          Provider type:{' '}
-          {draftProvider === 'anthropic'
-            ? 'Anthropic native API'
-            : 'OpenAI-compatible API'}
+          API mode: {providerModeLabel(draftProvider)}
         </Text>
         <Text dimColor>
           Step {formStepIndex + 1} of {FORM_STEPS.length}: {currentStep.label}
@@ -644,6 +741,76 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text dimColor>
           Press Enter to continue. Press Esc to go back.
         </Text>
+      </Box>
+    )
+  }
+
+  function renderConfirmSave(): React.ReactNode {
+    const summaryKey =
+      draft.apiKey.trim().length > 0 ? 'API key configured' : 'No API key'
+
+    if (isTestingConnection) {
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Text color="remember" bold>
+            Testing provider connection
+          </Text>
+          <Text dimColor>
+            Running a minimal validation request against {draft.model}.
+          </Text>
+        </Box>
+      )
+    }
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          Confirm provider profile
+        </Text>
+        <Text dimColor>
+          Review the profile, then either test it before saving or save
+          directly.
+        </Text>
+        <Box flexDirection="column">
+          <Text dimColor>Name: {draft.name}</Text>
+          <Text dimColor>API mode: {providerModeLabel(draftProvider)}</Text>
+          <Text dimColor>Base URL: {draft.baseUrl}</Text>
+          <Text dimColor>Model: {draft.model}</Text>
+          <Text dimColor>{summaryKey}</Text>
+        </Box>
+        {errorMessage ? <Text color="error">{errorMessage}</Text> : null}
+        <Select
+          options={[
+            {
+              value: 'test-save',
+              label: 'Test and save',
+              description: 'Run a live validation request first; save only if it succeeds',
+            },
+            {
+              value: 'save',
+              label: 'Save without testing',
+              description: 'Write the profile immediately',
+            },
+            {
+              value: 'back',
+              label: 'Back',
+              description: 'Return to the form',
+            },
+          ]}
+          onChange={value => {
+            if (value === 'test-save') {
+              void testAndPersistDraft()
+              return
+            }
+            if (value === 'save') {
+              persistDraft()
+              return
+            }
+            setScreen('form')
+          }}
+          onCancel={handleBackFromForm}
+          visibleOptionCount={3}
+        />
       </Box>
     )
   }
@@ -823,8 +990,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     case 'select-preset':
       content = renderPresetSelection()
       break
+    case 'select-custom-provider-mode':
+      content = renderCustomProviderModeSelection()
+      break
     case 'form':
       content = renderForm()
+      break
+    case 'confirm-save':
+      content = renderConfirmSave()
       break
     case 'select-active':
       content = renderProfileSelection(

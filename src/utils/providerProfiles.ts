@@ -116,6 +116,9 @@ function getModelCacheByProfile(
 
 export function getProviderPresetDefaults(
   preset: ProviderPreset,
+  options?: {
+    provider?: ProviderProfile['provider']
+  },
 ): ProviderPresetDefaults {
   switch (preset) {
     case 'anthropic':
@@ -218,6 +221,17 @@ export function getProviderPresetDefaults(
         requiresApiKey: false,
       }
     case 'custom':
+      if (options?.provider === 'anthropic') {
+        return {
+          provider: 'anthropic',
+          name: 'Custom Anthropic',
+          baseUrl:
+            process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
+          model: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
+          apiKey: process.env.ANTHROPIC_API_KEY ?? '',
+          requiresApiKey: true,
+        }
+      }
       return {
         provider: 'openai',
         name: 'Custom OpenAI-compatible',

@@ -16,7 +16,41 @@ import { getWorkload } from './workloadContext.js'
 
 // WARNING: We rely on `claude-cli` in the user agent for log filtering.
 // Please do NOT change this without making sure that logging also gets updated!
-export function getUserAgent(): string {
+//
+// Providers listed here receive a `claude-code/` user-agent instead of the
+// default `claude-cli/` prefix.  These are third-party Anthropic-compatible
+// coding endpoints that do NOT flow through Anthropic's log infrastructure,
+// so the prefix swap has no impact on 1P log filtering.
+//
+// To add a new provider, append a { hostname, pathPrefix } entry.
+const CLAUDE_CODE_UA_HOSTS: ReadonlyArray<{
+  hostname: string
+  pathPrefix: RegExp
+}> = [{ hostname: 'api.kimi.com', pathPrefix: /^\/coding(?:\/|$)/i }]
+
+function shouldUseClaudeCodeUserAgent(
+  baseUrl: string | undefined,
+): boolean {
+  if (!baseUrl) {
+    return false
+  }
+
+  try {
+    const url = new URL(baseUrl)
+    const host = url.hostname.toLowerCase()
+    return CLAUDE_CODE_UA_HOSTS.some(
+      (h) => h.hostname === host && h.pathPrefix.test(url.pathname),
+    )
+  } catch {
+    return false
+  }
+}
+
+export function getUserAgent(baseUrl?: string): string {
+  if (shouldUseClaudeCodeUserAgent(baseUrl)) {
+    return getClaudeCodeUserAgent()
+  }
+
   const agentSdkVersion = process.env.CLAUDE_AGENT_SDK_VERSION
     ? `, agent-sdk/${process.env.CLAUDE_AGENT_SDK_VERSION}`
     : ''

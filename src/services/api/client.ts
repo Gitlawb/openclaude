@@ -108,9 +108,11 @@ export async function getAnthropicClient({
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
   const customHeaders = getCustomHeaders()
+  const anthropicBaseUrl =
+    providerOverride?.baseURL ?? process.env.ANTHROPIC_BASE_URL
   const defaultHeaders: { [key: string]: string } = {
     'x-app': 'cli',
-    'User-Agent': getUserAgent(),
+    'User-Agent': getUserAgent(anthropicBaseUrl),
     'X-Claude-Code-Session-Id': getSessionId(),
     ...customHeaders,
     ...(containerId ? { 'x-claude-remote-container-id': containerId } : {}),

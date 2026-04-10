@@ -16,10 +16,22 @@ import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js
 const validModelCache = new Map<string, boolean>()
 
 /**
+ * Clear the validation cache so the next validateModel() call makes a real
+ * API request.  Used by connection-test flows where the same model name may
+ * need to be validated against different providers / credentials.
+ */
+export function clearValidModelCache(): void {
+  validModelCache.clear()
+}
+
+/**
  * Validates a model by attempting an actual API call.
+ * An optional AbortSignal can be passed to cancel the request early
+ * (e.g. when the user presses Esc during a connection test).
  */
 export async function validateModel(
   model: string,
+  options?: { signal?: AbortSignal },
 ): Promise<{ valid: boolean; error?: string }> {
   const normalizedModel = model.trim()
 
@@ -78,6 +90,7 @@ export async function validateModel(
       model: normalizedModel,
       max_tokens: 1,
       maxRetries: 0,
+      signal: options?.signal,
       querySource: 'model_validation',
       messages: [
         {

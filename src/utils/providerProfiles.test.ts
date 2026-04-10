@@ -3,7 +3,7 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { ProviderProfile } from './config.js'
 
 async function importFreshProvidersModule() {
-  return import(`./model/providers.ts?ts=${Date.now()}-${Math.random()}`)
+  return import(`./model/providers.js?ts=${Date.now()}-${Math.random()}`)
 }
 
 const originalEnv = { ...process.env }
@@ -356,6 +356,23 @@ describe('getProviderPresetDefaults', () => {
 
     expect(defaults.baseUrl).toBe('http://localhost:11434/v1')
     expect(defaults.model).toBe('llama3.1:8b')
+  })
+
+  test('custom preset can default to anthropic mode', async () => {
+    delete process.env.ANTHROPIC_BASE_URL
+    delete process.env.ANTHROPIC_MODEL
+    delete process.env.ANTHROPIC_API_KEY
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('custom', {
+      provider: 'anthropic',
+    })
+
+    expect(defaults.provider).toBe('anthropic')
+    expect(defaults.name).toBe('Custom Anthropic')
+    expect(defaults.baseUrl).toBe('https://api.anthropic.com')
+    expect(defaults.model).toBe('claude-sonnet-4-6')
+    expect(defaults.requiresApiKey).toBe(true)
   })
 })
 
