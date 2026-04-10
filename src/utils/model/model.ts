@@ -24,6 +24,7 @@ import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { getAPIProvider } from './providers.js'
+import { getPersistedModelSettingForProvider, resolveSettingsModelProvider } from './providerModelSettings.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
@@ -60,16 +61,17 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
 }
 
 /**
- * Helper to get the model from /model (including via /config), the --model flag, environment variable,
- * or the saved settings. The returned value can be a model alias if that's what the user specified.
+ * Helper to get the model from /model (including via /config), the --model flag, provider-specific
+ * saved settings, environment variables, or the legacy global settings.model field. The returned
+ * value can be a model alias if that's what the user specified.
  * Undefined if the user didn't configure anything, in which case we fall back to
  * the default (null).
  *
  * Priority order within this function:
  * 1. Model override during session (from /model command) - highest priority
- * 2. Model override at startup (from --model flag)
- * 3. ANTHROPIC_MODEL environment variable
- * 4. Settings (from user's saved settings)
+ * 2. Model override at startup (from --model flag, stored in mainLoopModelOverride)
+ * 3. Provider-specific saved settings (providerModels, then compatible legacy settings.model)
+ * 4. Provider environment variable
  */
 export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
   let specifiedModel: ModelSetting | undefined
@@ -79,17 +81,20 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel = modelOverride
   } else {
     const settings = getSettings_DEPRECATED() || {}
-    // Read the model env var that matches the active provider to prevent
-    // cross-provider leaks (e.g. ANTHROPIC_MODEL sent to the OpenAI API).
-    const provider = getAPIProvider()
-    specifiedModel =
+    const provider = resolveSettingsModelProvider()
+    const envModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
-      (provider === 'openai' || provider === 'gemini' || provider === 'github'
+      (provider === 'openai' || provider === 'codex' || provider === 'github'
         ? process.env.OPENAI_MODEL
         : undefined) ||
-      (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
-      settings.model ||
-      undefined
+      (provider === 'firstParty' ||
+      provider === 'bedrock' ||
+      provider === 'vertex' ||
+      provider === 'foundry'
+        ? process.env.ANTHROPIC_MODEL
+        : undefined)
+    specifiedModel =
+      getPersistedModelSettingForProvider({ settings, provider }) || envModel
   }
 
   // Ignore the user-specified model if it's not in the availableModels allowlist.
@@ -106,8 +111,8 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
  * Model Selection Priority Order:
  * 1. Model override during session (from /model command) - highest priority
  * 2. Model override at startup (from --model flag)
- * 3. ANTHROPIC_MODEL environment variable
- * 4. Settings (from user's saved settings)
+ * 3. Provider-specific saved settings
+ * 4. Provider environment variable
  * 5. Built-in default
  *
  * @returns The resolved model name to use

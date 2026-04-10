@@ -376,6 +376,21 @@ export const SettingsSchema = lazySchema(() =>
         .string()
         .optional()
         .describe('Override the default model used by Claude Code'),
+      providerModels: z
+        .object({
+          firstParty: z.string().optional(),
+          bedrock: z.string().optional(),
+          vertex: z.string().optional(),
+          foundry: z.string().optional(),
+          openai: z.string().optional(),
+          gemini: z.string().optional(),
+          github: z.string().optional(),
+          codex: z.string().optional(),
+        })
+        .optional()
+        .describe(
+          'Provider-specific persisted model selections used by /model. These override built-in provider defaults without leaking between providers.',
+        ),
       // Enterprise allowlist of models
       availableModels: z
         .array(z.string())
