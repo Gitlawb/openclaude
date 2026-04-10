@@ -13,7 +13,7 @@ import {
 } from 'src/tools/AgentTool/constants.js'
 import { getAnthropicApiKeyWithSource } from '../auth.js'
 import { getCwd } from '../cwd.js'
-import { getFastModeState } from '../fastMode.js'
+import { getProviderFastModeState } from '../providerFastMode.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 
 // TODO(next-minor): remove this translation once SDK consumers have migrated
@@ -91,6 +91,9 @@ export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
       require('../udsMessaging.js').getUdsMessagingSocketPath()
     /* eslint-enable @typescript-eslint/no-require-imports */
   }
-  initMessage.fast_mode_state = getFastModeState(inputs.model, inputs.fastMode)
+  initMessage.fast_mode_state = getProviderFastModeState(
+    inputs.model,
+    inputs.fastMode,
+  )
   return initMessage
 }

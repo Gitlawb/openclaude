@@ -10,13 +10,14 @@ import { useAppState, useSetAppState } from '../../state/AppState.js';
 import type { LocalJSXCommandCall } from '../../types/command.js';
 import type { EffortValue } from '../../utils/effort.js';
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
-import { clearFastModeCooldown, isFastModeAvailable, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
+import { clearFastModeCooldown } from '../../utils/fastMode.js';
 import { MODEL_ALIASES } from '../../utils/model/aliases.js';
 import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1mAccess.js';
 import type { ModelOption } from '../../utils/model/modelOptions.js';
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js';
 import { resolveModelSettingForTarget, resolveProviderSelectionTargetOption } from '../../utils/model/providerTargets.js';
 import { getAPIProvider } from '../../utils/model/providers.js';
+import { getInitialProviderFastModeSetting, isFastModeSupportedForModel, isFastModeSupportedForProviderModel, isFastModeToggleAvailable, isFastModeToggleEnabled } from '../../utils/providerFastMode.js';
 import { getActiveOpenAIModelOptionsCache, setActiveOpenAIModelOptionsCache } from '../../utils/providerProfiles.js';
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
@@ -43,6 +44,9 @@ function ModelPickerWrapper(t0) {
     const target = resolveProviderSelectionTargetOption(selection.targetKey);
     const resolvedModel = target ? resolveModelSettingForTarget(target, selection.model) : (selection.model ?? mainLoopModel ?? getDefaultMainLoopModelSetting());
     const targetChanged = selection.targetKey !== providerSelectionTargetKey;
+    const targetFastMode = targetChanged ? getInitialProviderFastModeSetting(resolvedModel, {
+      targetKey: selection.targetKey
+    }) : undefined;
     logEvent("tengu_model_command_menu", {
       action: (selection.model ?? 'default') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       from_model: mainLoopModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -55,6 +59,9 @@ function ModelPickerWrapper(t0) {
       mainLoopModelForSession: null,
       effortValue: selection.effort,
       ...(targetChanged ? {
+        fastMode: targetFastMode
+      } : {}),
+      ...(targetChanged ? {
         authVersion: prev.authVersion + 1
       } : {})
     }));
@@ -63,15 +70,24 @@ function ModelPickerWrapper(t0) {
       message = message + ` · effort ${chalk.bold(String(selection.effort))}`;
     }
     let wasFastModeToggledOn = undefined;
-    if (isFastModeEnabled()) {
+    if (targetChanged) {
+      if (targetFastMode) {
+        message = message + " \xB7 Fast mode ON";
+        wasFastModeToggledOn = true;
+      } else if (isFastMode) {
+        wasFastModeToggledOn = false;
+      }
+    } else if (isFastModeToggleEnabled()) {
       clearFastModeCooldown();
-      if (!isFastModeSupportedByModel(resolvedModel) && isFastMode) {
+      if (!isFastModeSupportedForProviderModel(target?.provider, resolvedModel) && isFastMode) {
         setAppState(prev => ({
           ...prev,
           fastMode: false
         }));
         wasFastModeToggledOn = false;
-      } else if (isFastModeSupportedByModel(resolvedModel) && isFastModeAvailable() && isFastMode) {
+      } else if (isFastModeSupportedForProviderModel(target?.provider, resolvedModel) && isFastModeToggleAvailable({
+        provider: target?.provider
+      }) && isFastMode) {
         message = message + " \xB7 Fast mode ON";
         wasFastModeToggledOn = true;
       }
@@ -174,16 +190,16 @@ function SetModelAndClose({
       }));
       let message = `Set model to ${chalk.bold(renderModelLabel(modelValue))}`;
       let wasFastModeToggledOn = undefined;
-      if (isFastModeEnabled()) {
+      if (isFastModeToggleEnabled()) {
         clearFastModeCooldown();
-        if (!isFastModeSupportedByModel(modelValue) && isFastMode) {
+        if (!isFastModeSupportedForModel(modelValue) && isFastMode) {
           setAppState(prev_0 => ({
             ...prev_0,
             fastMode: false
           }));
           wasFastModeToggledOn = false;
           // Do not update fast mode in settings since this is an automatic downgrade
-        } else if (isFastModeSupportedByModel(modelValue) && isFastMode) {
+        } else if (isFastModeSupportedForModel(modelValue) && isFastMode) {
           message += ` · Fast mode ON`;
           wasFastModeToggledOn = true;
         }

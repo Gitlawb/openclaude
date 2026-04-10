@@ -526,6 +526,10 @@ export async function performCodexRequest(options: {
     body.reasoning = options.request.reasoning
   }
 
+  if (options.request.serviceTier) {
+    body.service_tier = options.request.serviceTier
+  }
+
   const isTargetModel =
     options.request.resolvedModel?.toLowerCase().includes('gpt') ||
     options.request.resolvedModel?.toLowerCase().includes('codex')

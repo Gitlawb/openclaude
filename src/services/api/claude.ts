@@ -173,6 +173,7 @@ import {
   isFastModeEnabled,
   isFastModeSupportedByModel,
 } from 'src/utils/fastMode.js'
+import { getCodexServiceTierForFastMode } from 'src/utils/providerFastMode.js'
 import { returnValue } from 'src/utils/generators.js'
 import { headlessProfilerCheckpoint } from 'src/utils/headlessProfiler.js'
 import { isMcpInstructionsDeltaEnabled } from 'src/utils/mcpInstructionsDelta.js'
@@ -1412,6 +1413,11 @@ async function* queryModel(
     !isFastModeCooldown() &&
     isFastModeSupportedByModel(options.model) &&
     !!options.fastMode
+  const codexServiceTier = getCodexServiceTierForFastMode({
+    enabled: options.fastMode,
+    provider: getAPIProvider(),
+  })
+  const isProviderFastMode = isFastMode || codexServiceTier !== undefined
 
   // Sticky-on latches for dynamic beta headers. Each header, once first
   // sent, keeps being sent for the rest of the session so mid-session
@@ -1514,7 +1520,7 @@ async function* queryModel(
     options.model,
     newContext,
     messagesForAPI,
-    isFastMode,
+    isProviderFastMode,
   )
 
   const startIncludingRetries = Date.now()
@@ -1771,7 +1777,7 @@ async function* queryModel(
         queryTracking: options.queryTracking,
         thinkingType: logThinkingType,
         effortValue: logEffortValue,
-        fastMode: isFastMode,
+        fastMode: isProviderFastMode,
         previousRequestId,
       })
     })
@@ -1789,7 +1795,7 @@ async function* queryModel(
   let maxOutputTokens = 0
   let responseHeaders: globalThis.Headers | undefined = undefined
   let research: unknown = undefined
-  let isFastModeRequest = isFastMode // Keep separate state as it may change if falling back
+  let isFastModeRequest = isProviderFastMode // Keep separate state as it may change if falling back
   let isAdvisorInProgress = false
 
   try {
@@ -1799,13 +1805,14 @@ async function* queryModel(
         getAnthropicClient({
           maxRetries: 0, // Disabled auto-retry in favor of manual implementation
           model: options.model,
+          serviceTier: codexServiceTier,
           fetchOverride: options.fetchOverride,
           source: options.querySource,
           providerOverride: options.providerOverride,
         }),
       async (anthropic, attempt, context) => {
         attemptNumber = attempt
-        isFastModeRequest = context.fastMode ?? false
+        isFastModeRequest = context.fastMode ?? codexServiceTier !== undefined
         start = Date.now()
         attemptStartTimes.push(start)
         // Client has been created by withRetry's getClient() call. This fires

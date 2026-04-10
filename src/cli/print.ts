@@ -168,11 +168,14 @@ import {
 import { settingsChangeDetector } from 'src/utils/settings/changeDetector.js'
 import { applySettingsChange } from 'src/utils/settings/applySettingsChange.js'
 import {
-  isFastModeAvailable,
-  isFastModeEnabled,
   isFastModeSupportedByModel,
-  getFastModeState,
 } from 'src/utils/fastMode.js'
+import {
+  getInitialProviderFastModeSetting,
+  getProviderFastModeState,
+  isFastModeToggleAvailable,
+  isFastModeToggleEnabled,
+} from 'src/utils/providerFastMode.js'
 import {
   isAutoModeGateEnabled,
   getAutoModeUnavailableNotification,
@@ -522,10 +525,15 @@ export async function runHeadless(
 
     // In headless mode, also sync the denormalized fastMode field from
     // settings. The TUI manages fastMode via the UI so it skips this.
-    if (isFastModeEnabled()) {
+    if (isFastModeToggleEnabled()) {
       setAppState(prev => {
-        const s = prev.settings as Record<string, unknown>
-        const fastMode = s.fastMode === true && !s.fastModePerSessionOptIn
+        const fastMode = getInitialProviderFastModeSetting(
+          prev.mainLoopModel,
+          {
+            settings: getSettings_DEPRECATED(),
+            targetKey: prev.providerSelectionTargetKey,
+          },
+        )
         return { ...prev, fastMode }
       })
     }
@@ -4481,9 +4489,12 @@ async function handleInitializeRequest(
     pid: process.pid,
   }
 
-  if (isFastModeEnabled() && isFastModeAvailable()) {
+  if (
+    isFastModeToggleEnabled() &&
+    (isFastModeToggleAvailable() || getAppState().fastMode)
+  ) {
     const appState = getAppState()
-    initResponse.fast_mode_state = getFastModeState(
+    initResponse.fast_mode_state = getProviderFastModeState(
       options.userSpecifiedModel ?? null,
       appState.fastMode,
     )

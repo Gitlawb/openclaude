@@ -5,8 +5,18 @@
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
  */
 
-import { isLocalProviderUrl } from '../services/api/providerConfig.js'
+import {
+  DEFAULT_CODEX_BASE_URL,
+  DEFAULT_OPENAI_BASE_URL,
+  isLocalProviderUrl,
+  resolveProviderRequest,
+} from '../services/api/providerConfig.js'
+import { getPersistedEffortSettingForProvider } from '../utils/model/providerModelSettings.js'
+import { getAPIProvider } from '../utils/model/providers.js'
+import { formatCodexModelDisplay } from '../utils/model/codexDisplay.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
+import { getInitialProviderFastModeSetting } from '../utils/providerFastMode.js'
+import { getInitialSettings } from '../utils/settings/settings.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
@@ -82,9 +92,11 @@ const LOGO_CLAUDE = [
 // ─── Provider detection ───────────────────────────────────────────────────────
 
 function detectProvider(): { name: string; model: string; baseUrl: string; isLocal: boolean } {
+  const apiProvider = getAPIProvider()
   const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
   const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
+  const settings = getInitialSettings()
 
   if (useGemini) {
     const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
@@ -99,9 +111,30 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     return { name: 'GitHub Copilot', model, baseUrl, isLocal: false }
   }
 
+  if (apiProvider === 'codex') {
+    const model = process.env.OPENAI_MODEL || 'codexplan'
+    const baseUrl = process.env.OPENAI_BASE_URL || DEFAULT_CODEX_BASE_URL
+    return {
+      name: 'Codex',
+      model: formatCodexModelDisplay({
+        model,
+        effortValue: getPersistedEffortSettingForProvider({
+          settings,
+          provider: 'codex',
+        }),
+        fastMode: getInitialProviderFastModeSetting(model, {
+          provider: 'codex',
+          settings,
+        }),
+      }),
+      baseUrl,
+      isLocal: isLocalProviderUrl(baseUrl),
+    }
+  }
+
   if (useOpenAI) {
     const rawModel = process.env.OPENAI_MODEL || 'gpt-4o'
-    const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+    const baseUrl = process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL
     const isLocal = isLocalProviderUrl(baseUrl)
     let name = 'OpenAI'
     if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))       name = 'DeepSeek'
@@ -112,30 +145,13 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     else if (/azure/i.test(baseUrl))                                  name = 'Azure OpenAI'
     else if (/llama/i.test(rawModel))                                    name = 'Meta Llama'
     else if (isLocal)                                                  name = getLocalOpenAICompatibleProviderLabel(baseUrl)
-    
-    // Resolve model alias to actual model name + reasoning effort
-    let displayModel = rawModel
-    const codexAliases: Record<string, { model: string; reasoningEffort?: string }> = {
-      codexplan: { model: 'gpt-5.4', reasoningEffort: 'high' },
-      'gpt-5.4': { model: 'gpt-5.4', reasoningEffort: 'high' },
-      'gpt-5.3-codex': { model: 'gpt-5.3-codex', reasoningEffort: 'high' },
-      'gpt-5.3-codex-spark': { model: 'gpt-5.3-codex-spark' },
-      codexspark: { model: 'gpt-5.3-codex-spark' },
-      'gpt-5.2-codex': { model: 'gpt-5.2-codex', reasoningEffort: 'high' },
-      'gpt-5.1-codex-max': { model: 'gpt-5.1-codex-max', reasoningEffort: 'high' },
-      'gpt-5.1-codex-mini': { model: 'gpt-5.1-codex-mini' },
-      'gpt-5.4-mini': { model: 'gpt-5.4-mini', reasoningEffort: 'medium' },
-      'gpt-5.2': { model: 'gpt-5.2', reasoningEffort: 'medium' },
+
+    const resolved = resolveProviderRequest({ model: rawModel, baseUrl })
+    let displayModel = resolved.resolvedModel
+    if (resolved.reasoning?.effort) {
+      displayModel = `${displayModel} (${resolved.reasoning.effort})`
     }
-    const alias = rawModel.toLowerCase()
-    if (alias in codexAliases) {
-      const resolved = codexAliases[alias]
-      displayModel = resolved.model
-      if (resolved.reasoningEffort) {
-        displayModel = `${displayModel} (${resolved.reasoningEffort})`
-      }
-    }
-    
+
     return { name, model: displayModel, baseUrl, isLocal }
   }
 

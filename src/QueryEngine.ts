@@ -47,7 +47,7 @@ import { getGlobalConfig } from './utils/config.js'
 import { getCwd } from './utils/cwd.js'
 import { isBareMode, isEnvTruthy } from './utils/envUtils.js'
 import { logForDebugging } from './utils/debug.js'
-import { getFastModeState } from './utils/fastMode.js'
+import { getProviderFastModeState } from './utils/providerFastMode.js'
 import {
   type FileHistoryState,
   fileHistoryEnabled,
@@ -630,7 +630,7 @@ export class QueryEngine {
         usage: this.totalUsage,
         modelUsage: getModelUsage(),
         permission_denials: this.permissionDenials,
-        fast_mode_state: getFastModeState(
+        fast_mode_state: getProviderFastModeState(
           mainLoopModel,
           initialAppState.fastMode,
         ),
@@ -875,7 +875,7 @@ export class QueryEngine {
               usage: this.totalUsage,
               modelUsage: getModelUsage(),
               permission_denials: this.permissionDenials,
-              fast_mode_state: getFastModeState(
+              fast_mode_state: getProviderFastModeState(
                 mainLoopModel,
                 initialAppState.fastMode,
               ),
@@ -1005,7 +1005,7 @@ export class QueryEngine {
           usage: this.totalUsage,
           modelUsage: getModelUsage(),
           permission_denials: this.permissionDenials,
-          fast_mode_state: getFastModeState(
+          fast_mode_state: getProviderFastModeState(
             mainLoopModel,
             initialAppState.fastMode,
           ),
@@ -1048,7 +1048,7 @@ export class QueryEngine {
             usage: this.totalUsage,
             modelUsage: getModelUsage(),
             permission_denials: this.permissionDenials,
-            fast_mode_state: getFastModeState(
+            fast_mode_state: getProviderFastModeState(
               mainLoopModel,
               initialAppState.fastMode,
             ),
@@ -1107,7 +1107,7 @@ export class QueryEngine {
         usage: this.totalUsage,
         modelUsage: getModelUsage(),
         permission_denials: this.permissionDenials,
-        fast_mode_state: getFastModeState(
+        fast_mode_state: getProviderFastModeState(
           mainLoopModel,
           initialAppState.fastMode,
         ),
@@ -1161,7 +1161,7 @@ export class QueryEngine {
       modelUsage: getModelUsage(),
       permission_denials: this.permissionDenials,
       structured_output: structuredOutputFromTool,
-      fast_mode_state: getFastModeState(
+      fast_mode_state: getProviderFastModeState(
         mainLoopModel,
         initialAppState.fastMode,
       ),

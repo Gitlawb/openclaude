@@ -7,6 +7,7 @@ import {
   convertAnthropicMessagesToResponsesInput,
   convertCodexResponseToAnthropicMessage,
   convertToolsToResponsesTools,
+  performCodexRequest,
 } from './codexShim.js'
 import {
   DEFAULT_CODEX_BASE_URL,
@@ -15,6 +16,7 @@ import {
 } from './providerConfig.js'
 
 const tempDirs: string[] = []
+const originalFetch = globalThis.fetch
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
@@ -30,6 +32,8 @@ afterEach(() => {
 
   if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) delete process.env.CLAUDE_CODE_USE_GITHUB
   else process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
+
+  globalThis.fetch = originalFetch
 
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()
@@ -88,6 +92,16 @@ describe('Codex provider config', () => {
     expect(resolved.reasoning).toEqual({ effort: 'high' })
   })
 
+  test('applies explicit Codex service tiers to resolved requests', () => {
+    const resolved = resolveProviderRequest({
+      model: 'gpt-5.4',
+      serviceTierOverride: 'priority',
+    })
+
+    expect(resolved.transport).toBe('codex_responses')
+    expect(resolved.serviceTier).toBe('priority')
+  })
+
   test('does not force Codex transport when a local non-Codex base URL is explicit', () => {
     const resolved = resolveProviderRequest({
       model: 'codexplan',
@@ -139,6 +153,42 @@ describe('Codex provider config', () => {
 })
 
 describe('Codex request translation', () => {
+  test('forwards service tier to the Codex responses payload', async () => {
+    let requestBody: Record<string, unknown> | undefined
+    globalThis.fetch = (async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      return new Response('event: response.completed\ndata: {"response":{"status":"completed"}}\n\n', {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream',
+        },
+      })
+    }) as typeof fetch
+
+    await performCodexRequest({
+      request: {
+        transport: 'codex_responses',
+        requestedModel: 'gpt-5.4',
+        resolvedModel: 'gpt-5.4',
+        baseUrl: DEFAULT_CODEX_BASE_URL,
+        serviceTier: 'priority',
+      },
+      credentials: {
+        apiKey: 'test-token',
+        source: 'env',
+      },
+      params: {
+        model: 'gpt-5.4',
+        messages: [],
+        stream: true,
+        max_tokens: 256,
+      } as any,
+      defaultHeaders: {},
+    })
+
+    expect(requestBody?.service_tier).toBe('priority')
+  })
+
   test('normalizes optional parameters into strict Responses schemas', () => {
     const tools = convertToolsToResponsesTools([
       {

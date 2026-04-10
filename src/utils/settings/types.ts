@@ -402,11 +402,12 @@ export const SettingsSchema = lazySchema(() =>
           z.object({
             model: z.string().optional(),
             effortLevel: z.enum(PERSISTED_EFFORT_LEVELS).optional(),
+            serviceTier: z.enum(['fast']).optional(),
           }),
         )
         .optional()
         .describe(
-          'Provider-target scoped model and effort selections. Keys may be provider families or future profile-scoped targets. This is the canonical persisted state for /model and /effort.',
+          'Provider-target scoped model, effort, and fast-mode selections. Keys may be provider families or future profile-scoped targets. This is the canonical persisted state for /model, /effort, and provider-aware /fast.',
         ),
       activeProviderTarget: z
         .string()

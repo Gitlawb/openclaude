@@ -1,5 +1,6 @@
 import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk'
 import { randomUUID } from 'crypto'
+import type { ProviderServiceTier } from './providerConfig.js'
 import {
   checkAndRefreshOAuthTokenIfNeeded,
   getAnthropicApiKey,
@@ -93,6 +94,7 @@ export async function getAnthropicClient({
   apiKey,
   maxRetries,
   model,
+  serviceTier,
   fetchOverride,
   source,
   providerOverride,
@@ -100,6 +102,7 @@ export async function getAnthropicClient({
   apiKey?: string
   maxRetries: number
   model?: string
+  serviceTier?: ProviderServiceTier
   fetchOverride?: ClientOptions['fetch']
   source?: string
   providerOverride?: { model: string; baseURL: string; apiKey: string }
@@ -171,6 +174,7 @@ export async function getAnthropicClient({
       defaultHeaders: safeHeaders,
       maxRetries,
       timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
+      serviceTier,
       providerOverride,
     }) as unknown as Anthropic
   }
@@ -184,6 +188,7 @@ export async function getAnthropicClient({
       defaultHeaders,
       maxRetries,
       timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
+      serviceTier,
     }) as unknown as Anthropic
   }
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)) {

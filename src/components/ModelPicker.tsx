@@ -4,7 +4,8 @@ import * as React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { useExitOnCtrlCDWithKeybindings } from 'src/hooks/useExitOnCtrlCDWithKeybindings.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
-import { FAST_MODE_MODEL_DISPLAY, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled } from 'src/utils/fastMode.js';
+import { FAST_MODE_MODEL_DISPLAY } from 'src/utils/fastMode.js';
+import { isFastModeCooldownForProvider, isFastModeToggleAvailable, isFastModeToggleEnabled, resolveFastModeProvider } from 'src/utils/providerFastMode.js';
 import { Box, Text } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { useAppState, useSetAppState } from '../state/AppState.js';
@@ -230,9 +231,10 @@ export function ModelPicker(t0) {
       });
       if (!skipSettingsWrite) {
         const userSettings = getSettingsForSource("userSettings") || {};
-        const effortLevel = resolvePickerEffortPersistence(effort, getDefaultEffortLevelForOption(value_0), getPersistedEffortSettingForProvider({
+        const persistedEffort = getPersistedEffortSettingForProvider({
           settings: userSettings
-        }), hasToggledEffort);
+        });
+        const effortLevel = resolvePickerEffortPersistence(effort, getDefaultEffortLevelForOption(value_0), persistedEffort !== undefined ? convertEffortValueToLevel(persistedEffort) : undefined, hasToggledEffort);
         const persistable = toPersistableEffort(effortLevel);
         updateSettingsForSource("userSettings", {
           ...buildProviderModelSettingsUpdate({
@@ -341,7 +343,7 @@ export function ModelPicker(t0) {
   }
   let t25;
   if ($[67] !== showFastModeNotice) {
-    t25 = isFastModeEnabled() ? showFastModeNotice ? <Box marginBottom={1}><Text dimColor={true}>Fast mode is <Text bold={true}>ON</Text> and available with{" "}{FAST_MODE_MODEL_DISPLAY} only (/fast). Switching to other models turn off fast mode.</Text></Box> : isFastModeAvailable() && !isFastModeCooldown() ? <Box marginBottom={1}><Text dimColor={true}>Use <Text bold={true}>/fast</Text> to turn on Fast mode ({FAST_MODE_MODEL_DISPLAY} only).</Text></Box> : null : null;
+    t25 = getFastModeNotice(showFastModeNotice);
     $[67] = showFastModeNotice;
     $[68] = t25;
   } else {
@@ -401,7 +403,7 @@ function _temp2(s_0) {
   return s_0.effortValue;
 }
 function _temp(s) {
-  return isFastModeEnabled() ? s.fastMode : false;
+  return isFastModeToggleEnabled() ? s.fastMode : false;
 }
 function resolveOptionModel(value?: string): string | undefined {
   if (!value) return undefined;
@@ -449,4 +451,17 @@ function getDefaultEffortLevelForOption(value?: string): EffortLevel {
   const resolved = resolveOptionModel(value) ?? getDefaultMainLoopModel();
   const defaultValue = getDefaultEffortForModel(resolved);
   return defaultValue !== undefined ? convertEffortValueToLevel(defaultValue) : 'high';
+}
+function getFastModeNotice(showFastModeNotice?: boolean): React.ReactNode {
+  const provider = resolveFastModeProvider();
+  if (!provider || !isFastModeToggleEnabled({ provider })) {
+    return null;
+  }
+  if (provider === 'codex') {
+    return <Box marginBottom={1}><Text dimColor={true}>Use <Text bold={true}>/fast</Text> to switch this Codex target between normal and fast{showFastModeNotice ? '. Fast mode is currently ON.' : '.'}</Text></Box>;
+  }
+  if (showFastModeNotice) {
+    return <Box marginBottom={1}><Text dimColor={true}>Fast mode is <Text bold={true}>ON</Text> and available with{" "}{FAST_MODE_MODEL_DISPLAY} only (/fast). Switching to other models turn off fast mode.</Text></Box>;
+  }
+  return isFastModeToggleAvailable({ provider }) && !isFastModeCooldownForProvider({ provider }) ? <Box marginBottom={1}><Text dimColor={true}>Use <Text bold={true}>/fast</Text> to turn on Fast mode ({FAST_MODE_MODEL_DISPLAY} only).</Text></Box> : null;
 }

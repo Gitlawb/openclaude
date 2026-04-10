@@ -39,10 +39,11 @@ import { SandboxManager } from 'src/utils/sandbox/sandbox-adapter.js';
 import { useShowGuestPassesUpsell, incrementGuestPassesSeenCount } from './GuestPassesUpsell.js';
 import { useShowOverageCreditUpsell, incrementOverageCreditUpsellSeenCount, createOverageCreditFeed } from './OverageCreditUpsell.js';
 import { plural } from '../../utils/stringUtils.js';
-import { useAppState } from '../../state/AppState.js';
+import { type AppState, useAppState } from '../../state/AppState.js';
 import { getEffortSuffix } from '../../utils/effort.js';
 import { getAPIProvider } from '../../utils/model/providers.js';
 import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
+import { formatCodexModelDisplay } from '../../utils/model/codexDisplay.js';
 import { renderModelSetting } from '../../utils/model/model.js';
 const LEFT_PANEL_MAX_WIDTH = 50;
 export function LogoV2() {
@@ -72,6 +73,7 @@ export function LogoV2() {
   const showGuestPassesUpsell = useShowGuestPassesUpsell();
   const showOverageCreditUpsell = useShowOverageCreditUpsell();
   const agent = useAppState(_temp);
+  const fastMode = useAppState((s: AppState) => s.fastMode);
   const effortValue = useAppState(_temp2);
   const config = getGlobalConfig();
   let changelog;
@@ -159,7 +161,12 @@ export function LogoV2() {
   }
   useEffect(t7, t8);
   const model = useMainLoopModel();
-  const fullModelDisplayName = renderModelSetting(model);
+  const isCodexProvider = getAPIProvider() === 'codex';
+  const fullModelDisplayName = isCodexProvider ? formatCodexModelDisplay({
+    model,
+    effortValue,
+    fastMode
+  }) : renderModelSetting(model);
   const {
     version,
     cwd,
@@ -167,7 +174,7 @@ export function LogoV2() {
     agentName: agentNameFromSettings
   } = getLogoDisplayData();
   const agentName = agent ?? agentNameFromSettings;
-  const effortSuffix = getEffortSuffix(model, effortValue);
+  const effortSuffix = isCodexProvider ? '' : getEffortSuffix(model, effortValue);
   const t9 = fullModelDisplayName + effortSuffix;
   let t10;
   if ($[13] !== t9) {

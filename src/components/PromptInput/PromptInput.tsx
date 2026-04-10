@@ -64,7 +64,7 @@ import type { EffortLevel } from '../../utils/effort.js';
 import { env } from '../../utils/env.js';
 import { errorMessage } from '../../utils/errors.js';
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
-import { getFastModeUnavailableReason, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
+import { getFastModeUnavailableReasonForProvider, isFastModeCooldownForProvider, isFastModeSupportedForModel, isFastModeToggleAvailable, isFastModeToggleEnabled, resolveFastModeProvider, shouldShowFastModeIcon } from '../../utils/providerFastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import type { PromptInputHelpers } from '../../utils/handlePromptSubmit.js';
 import { extractDraggedFilePaths } from '../../utils/dragDropPaths.js';
@@ -327,7 +327,7 @@ function PromptInput({
   const mainLoopModel_ = useAppState(s => s.mainLoopModel);
   const mainLoopModelForSession = useAppState(s => s.mainLoopModelForSession);
   const thinkingEnabled = useAppState(s => s.thinkingEnabled);
-  const isFastMode = useAppState(s => isFastModeEnabled() ? s.fastMode : false);
+  const isFastMode = useAppState(s => isFastModeToggleEnabled() ? s.fastMode : false);
   const effortValue = useAppState(s => s.effortValue);
   const viewedTeammate = getViewedTeammateTask(store.getState());
   const viewingAgentName = viewedTeammate?.identity.agentName;
@@ -1711,7 +1711,7 @@ function PromptInput({
   // Fast mode keybinding is only active when fast mode is enabled and available
   useKeybinding('chat:fastMode', handleFastModePicker, {
     context: 'Chat',
-    isActive: !isModalOverlayActive && isFastModeEnabled() && isFastModeAvailable()
+    isActive: !isModalOverlayActive && isFastModeToggleEnabled() && isFastModeToggleAvailable()
   });
 
   // Handle help:dismiss keybinding (ESC closes help menu)
@@ -1989,8 +1989,8 @@ function PromptInput({
     }
   });
   const swarmBanner = useSwarmBanner();
-  const fastModeCooldown = isFastModeEnabled() ? isFastModeCooldown() : false;
-  const showFastIcon = isFastModeEnabled() ? isFastMode && (isFastModeAvailable() || fastModeCooldown) : false;
+  const fastModeCooldown = isFastModeCooldownForProvider();
+  const showFastIcon = shouldShowFastModeIcon(isFastMode ?? false);
   const showFastIconHint = useShowFastIconHint(showFastIcon ?? false);
 
   // Show effort notification on startup and when effort changes.
@@ -2050,7 +2050,7 @@ function PromptInput({
   const handleModelSelect = useCallback((model: string | null, _effort: EffortLevel | undefined) => {
     let wasFastModeDisabled = false;
     setAppState(prev => {
-      wasFastModeDisabled = isFastModeEnabled() && !isFastModeSupportedByModel(model) && !!prev.fastMode;
+      wasFastModeDisabled = isFastModeToggleEnabled() && !isFastModeSupportedForModel(model) && !!prev.fastMode;
       return {
         ...prev,
         mainLoopModel: model,
@@ -2089,7 +2089,7 @@ function PromptInput({
   const modelPickerElement = useMemo(() => {
     if (!showModelPicker) return null;
     return <Box flexDirection="column" marginTop={1}>
-        <ModelPicker initial={mainLoopModel_} sessionModel={mainLoopModelForSession} onSelect={handleModelSelect} onCancel={handleModelCancel} isStandaloneCommand showFastModeNotice={isFastModeEnabled() && isFastMode && isFastModeSupportedByModel(mainLoopModel_) && isFastModeAvailable()} />
+        <ModelPicker initial={mainLoopModel_} sessionModel={mainLoopModelForSession} onSelect={handleModelSelect} onCancel={handleModelCancel} isStandaloneCommand showFastModeNotice={isFastModeToggleEnabled() && isFastMode && isFastModeSupportedForModel(mainLoopModel_) && isFastModeToggleAvailable()} />
       </Box>;
   }, [showModelPicker, mainLoopModel_, mainLoopModelForSession, handleModelSelect, handleModelCancel]);
   const handleFastModeSelect = useCallback((result?: string) => {
@@ -2108,7 +2108,7 @@ function PromptInput({
   const fastModePickerElement = useMemo(() => {
     if (!showFastModePicker) return null;
     return <Box flexDirection="column" marginTop={1}>
-        <FastModePicker onDone={handleFastModeSelect} unavailableReason={getFastModeUnavailableReason()} />
+        <FastModePicker onDone={handleFastModeSelect} provider={resolveFastModeProvider()} unavailableReason={getFastModeUnavailableReasonForProvider()} />
       </Box>;
   }, [showFastModePicker, handleFastModeSelect]);
 

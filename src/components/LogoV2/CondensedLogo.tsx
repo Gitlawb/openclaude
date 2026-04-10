@@ -5,12 +5,14 @@ import { useMainLoopModel } from '../../hooks/useMainLoopModel.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { stringWidth } from '../../ink/stringWidth.js';
 import { Box, Text } from '../../ink.js';
-import { useAppState } from '../../state/AppState.js';
+import { type AppState, useAppState } from '../../state/AppState.js';
 import { getEffortSuffix } from '../../utils/effort.js';
 import { truncate } from '../../utils/format.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { formatModelAndBilling, getLogoDisplayData, truncatePath } from '../../utils/logoV2Utils.js';
+import { formatCodexModelDisplay } from '../../utils/model/codexDisplay.js';
 import { renderModelSetting } from '../../utils/model/model.js';
+import { getAPIProvider } from '../../utils/model/providers.js';
 import { OffscreenFreeze } from '../OffscreenFreeze.js';
 import { AnimatedClawd } from './AnimatedClawd.js';
 import { Clawd } from './Clawd.js';
@@ -22,9 +24,15 @@ export function CondensedLogo() {
     columns
   } = useTerminalSize();
   const agent = useAppState(_temp);
+  const fastMode = useAppState((s: AppState) => s.fastMode);
   const effortValue = useAppState(_temp2);
   const model = useMainLoopModel();
-  const modelDisplayName = renderModelSetting(model);
+  const isCodexProvider = getAPIProvider() === 'codex';
+  const modelDisplayName = isCodexProvider ? formatCodexModelDisplay({
+    model,
+    effortValue,
+    fastMode
+  }) : renderModelSetting(model);
   const {
     version,
     cwd,
@@ -71,7 +79,7 @@ export function CondensedLogo() {
   useEffect(t2, t3);
   const textWidth = Math.max(columns - 15, 20);
   const truncatedVersion = truncate(version, Math.max(textWidth - 13, 6));
-  const effortSuffix = getEffortSuffix(model, effortValue);
+  const effortSuffix = isCodexProvider ? '' : getEffortSuffix(model, effortValue);
   const {
     shouldSplit,
     truncatedModel,

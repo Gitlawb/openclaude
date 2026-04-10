@@ -5,6 +5,7 @@ import {
   buildProviderModelSettingsUpdate,
   getPersistedEffortSettingForProvider,
   getPersistedModelSettingForProvider,
+  getPersistedServiceTierForProvider,
   resolveProviderSelectionTarget,
 } from './providerModelSettings.js'
 
@@ -82,6 +83,33 @@ test('provider-target effort settings override the legacy global effort level', 
   ).toBe('low')
 })
 
+test('provider-target service tier settings are scoped to the active codex target', () => {
+  const settings: SettingsJson = {
+    providerTargetSelections: {
+      codex: {
+        serviceTier: 'fast',
+      },
+      openai: {
+        serviceTier: 'fast',
+      },
+    },
+  }
+
+  expect(
+    getPersistedServiceTierForProvider({
+      settings,
+      provider: 'codex',
+    }),
+  ).toBe('fast')
+
+  expect(
+    getPersistedServiceTierForProvider({
+      settings,
+      provider: 'github',
+    }),
+  ).toBeUndefined()
+})
+
 test('buildProviderModelSettingsUpdate writes provider-target scoped model and effort patches', () => {
   const settings: SettingsJson = {
     model: 'gpt-4o',
@@ -114,6 +142,29 @@ test('buildProviderModelSettingsUpdate writes provider-target scoped model and e
     'profile:provider_123': {
       model: 'gpt-5.4',
       effortLevel: 'high',
+    },
+  })
+})
+
+test('buildProviderModelSettingsUpdate writes provider-target service tier patches', () => {
+  const settings: SettingsJson = {
+    providerTargetSelections: {
+      codex: {
+        serviceTier: 'fast',
+      },
+    },
+  }
+
+  const update = buildProviderModelSettingsUpdate({
+    settings,
+    provider: 'codex',
+    targetKey: 'profile:provider_456',
+    serviceTier: 'fast',
+  })
+
+  expect(update.providerTargetSelections).toEqual({
+    'profile:provider_456': {
+      serviceTier: 'fast',
     },
   })
 })

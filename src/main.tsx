@@ -53,10 +53,11 @@ import { getSubscriptionType, isClaudeAISubscriber, prefetchAwsCredentialsAndBed
 import { checkHasTrustDialogAccepted, getGlobalConfig, getRemoteControlAtStartup, isAutoUpdaterDisabled, saveGlobalConfig } from './utils/config.js';
 import { seedEarlyInput, stopCapturingEarlyInput } from './utils/earlyInput.js';
 import { getInitialEffortSetting, parseEffortValue } from './utils/effort.js';
-import { getInitialFastModeSetting, isFastModeEnabled, prefetchFastModeStatus, resolveFastModeStatusFromCache } from './utils/fastMode.js';
+import { prefetchFastModeStatus, resolveFastModeStatusFromCache } from './utils/fastMode.js';
 import { applyConfigEnvironmentVariables } from './utils/managedEnv.js';
 import { createSystemMessage, createUserMessage } from './utils/messages.js';
 import { getPlatform } from './utils/platform.js';
+import { getInitialProviderFastModeSetting } from './utils/providerFastMode.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
 import { getSessionIngressAuthToken } from './utils/sessionIngressAuth.js';
 import { settingsChangeDetector } from './utils/settings/changeDetector.js';
@@ -2624,8 +2625,8 @@ async function run(): Promise<CommanderCommand> {
         toolPermissionContext,
         providerSelectionTargetKey: initialProviderSelectionTargetKey,
         effortValue: parseEffortValue(options.effort) ?? getInitialEffortSetting(),
-        ...(isFastModeEnabled() && {
-          fastMode: getInitialFastModeSetting(effectiveModel ?? null)
+        fastMode: getInitialProviderFastModeSetting(effectiveModel ?? null, {
+          targetKey: initialProviderSelectionTargetKey
         }),
         ...(isAdvisorEnabled() && advisorModel && {
           advisorModel
@@ -3017,7 +3018,9 @@ async function run(): Promise<CommanderCommand> {
       } : null,
       effortValue: parseEffortValue(options.effort) ?? getInitialEffortSetting(),
       activeOverlays: new Set<string>(),
-      fastMode: getInitialFastModeSetting(resolvedInitialModel),
+      fastMode: getInitialProviderFastModeSetting(resolvedInitialModel, {
+        targetKey: getCurrentProviderSelectionTarget().targetKey
+      }),
       ...(isAdvisorEnabled() && advisorModel && {
         advisorModel
       }),

@@ -11,7 +11,10 @@ import { getDisplayPath } from './file.js';
 import { formatNumber } from './format.js';
 import { getIdeClientName, type IDEExtensionInstallationStatus, isJetBrainsIde, toIDEDisplayName } from './ide.js';
 import { getClaudeAiUserDefaultModelDescription, modelDisplayString } from './model/model.js';
+import { formatCodexModelDisplay } from './model/codexDisplay.js';
+import { getPersistedEffortSettingForProvider } from './model/providerModelSettings.js';
 import { getAPIProvider } from './model/providers.js';
+import { getPersistedCodexFastModeSelection } from './providerFastMode.js';
 import { resolveProviderRequest } from '../services/api/providerConfig.js';
 import { getMTLSConfig } from './mtls.js';
 import { checkInstall } from './nativeInstaller/index.js';
@@ -19,7 +22,7 @@ import { getProxyUrl } from './proxy.js';
 import { SandboxManager } from './sandbox/sandbox-adapter.js';
 import { getSettingsWithAllErrors } from './settings/allErrors.js';
 import { getEnabledSettingSources, getSettingSourceDisplayNameCapitalized } from './settings/constants.js';
-import { getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
+import { getInitialSettings, getManagedFileSettingsPresence, getPolicySettingsOrigin, getSettingsForSource } from './settings/settings.js';
 import type { ThemeName } from './theme.js';
 import { redactSecretValueForDisplay } from './providerProfile.js';
 export type Property = {
@@ -349,7 +352,7 @@ export function buildAPIProviderProperties(): Property[] {
       }
       properties.push({
         label: 'Model',
-        value: redactSecretValueForDisplay(modelDisplay, process.env) ?? modelDisplay
+        value: modelDisplay
       });
     }
   } else if (apiProvider === 'codex') {
@@ -362,21 +365,20 @@ export function buildAPIProviderProperties(): Property[] {
     }
     const openaiModel = process.env.OPENAI_MODEL;
     if (openaiModel) {
-      // Build display model string with resolved model + reasoning effort
-      let modelDisplay = openaiModel;
-      const resolved = resolveProviderRequest({ model: openaiModel });
-      const resolvedModel = resolved.resolvedModel;
-      const reasoningEffort = resolved.reasoning?.effort;
-      if (resolvedModel && resolvedModel !== openaiModel.toLowerCase()) {
-        // Show resolved model name
-        modelDisplay = resolvedModel;
-      }
-      if (reasoningEffort) {
-        modelDisplay = `${modelDisplay} (${reasoningEffort})`;
-      }
+      const settings = getInitialSettings();
+      const modelDisplay = formatCodexModelDisplay({
+        model: openaiModel,
+        effortValue: getPersistedEffortSettingForProvider({
+          settings,
+          provider: 'codex',
+        }),
+        fastMode: getPersistedCodexFastModeSelection({
+          settings,
+        }) === 'fast',
+      });
       properties.push({
         label: 'Model',
-        value: redactSecretValueForDisplay(modelDisplay, process.env) ?? modelDisplay
+        value: modelDisplay
       });
     }
   } else if (apiProvider === 'gemini') {

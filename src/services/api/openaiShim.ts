@@ -43,6 +43,7 @@ import {
   resolveCodexApiCredentials,
   resolveProviderRequest,
   getGithubEndpointType,
+  type ProviderServiceTier,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
@@ -934,11 +935,13 @@ class OpenAIShimStream {
 class OpenAIShimMessages {
   private defaultHeaders: Record<string, string>
   private reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  private serviceTier?: ProviderServiceTier
   private providerOverride?: { model: string; baseURL: string; apiKey: string }
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', serviceTier?: ProviderServiceTier, providerOverride?: { model: string; baseURL: string; apiKey: string }) {
     this.defaultHeaders = defaultHeaders
     this.reasoningEffort = reasoningEffort
+    this.serviceTier = serviceTier
     this.providerOverride = providerOverride
   }
 
@@ -951,7 +954,7 @@ class OpenAIShimMessages {
     let httpResponse: Response | undefined
 
     const promise = (async () => {
-      const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
+      const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort, serviceTierOverride: self.serviceTier })
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
@@ -1470,10 +1473,12 @@ class OpenAIShimMessages {
 class OpenAIShimBeta {
   messages: OpenAIShimMessages
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  serviceTier?: ProviderServiceTier
 
-  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
-    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, providerOverride)
+  constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', serviceTier?: ProviderServiceTier, providerOverride?: { model: string; baseURL: string; apiKey: string }) {
+    this.messages = new OpenAIShimMessages(defaultHeaders, reasoningEffort, serviceTier, providerOverride)
     this.reasoningEffort = reasoningEffort
+    this.serviceTier = serviceTier
   }
 }
 
@@ -1482,6 +1487,7 @@ export function createOpenAIShimClient(options: {
   maxRetries?: number
   timeout?: number
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh'
+  serviceTier?: ProviderServiceTier
   providerOverride?: { model: string; baseURL: string; apiKey: string }
 }): unknown {
   hydrateGeminiAccessTokenFromSecureStorage()
@@ -1509,7 +1515,7 @@ export function createOpenAIShimClient(options: {
 
   const beta = new OpenAIShimBeta({
     ...(options.defaultHeaders ?? {}),
-  }, options.reasoningEffort, options.providerOverride)
+  }, options.reasoningEffort, options.serviceTier, options.providerOverride)
 
   return {
     beta,

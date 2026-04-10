@@ -6,7 +6,7 @@ import { getPlatform } from 'src/utils/platform.js';
 import { isKeybindingCustomizationEnabled } from '../../keybindings/loadUserBindings.js';
 import { useShortcutDisplay } from '../../keybindings/useShortcutDisplay.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
-import { isFastModeAvailable, isFastModeEnabled } from '../../utils/fastMode.js';
+import { isFastModeToggleAvailable, isFastModeToggleEnabled } from '../../utils/providerFastMode.js';
 import { getNewlineInstructions } from './utils.js';
 
 /** Format a shortcut for display in the help menu (e.g., "ctrl+o" → "ctrl + o") */
@@ -293,7 +293,7 @@ export function PromptInputHelpMenu(props) {
   }
   let t40;
   if ($[73] !== dimColor || $[74] !== fastModeShortcut) {
-    t40 = isFastModeEnabled() && isFastModeAvailable() && <Box><Text dimColor={dimColor}>{fastModeShortcut} to toggle fast mode</Text></Box>;
+    t40 = isFastModeToggleEnabled() && isFastModeToggleAvailable() && <Box><Text dimColor={dimColor}>{fastModeShortcut} to toggle fast mode</Text></Box>;
     $[73] = dimColor;
     $[74] = fastModeShortcut;
     $[75] = t40;
