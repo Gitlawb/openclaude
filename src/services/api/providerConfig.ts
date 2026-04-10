@@ -381,7 +381,10 @@ export function resolveProviderRequest(options?: {
       : envBaseUrlRaw
   const rawBaseUrl = explicitBaseUrl ?? envBaseUrl
 
-  const isCodexAliasModel = isOpenAICodexShortcutAlias(requestedModel)
+  const shellModel = process.env.OPENAI_MODEL?.trim() ?? ''
+  const isCodexAliasModel =
+    isOpenAICodexShortcutAlias(requestedModel) ||
+    isOpenAICodexShortcutAlias(shellModel)
   const finalBaseUrl =
     !isGithubMode && isCodexAliasModel && !explicitBaseUrl
       ? DEFAULT_CODEX_BASE_URL
