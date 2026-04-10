@@ -1428,16 +1428,7 @@ export function Config({
     if (headerFocused) return;
     // Search mode: Esc clears then exits, Enter/↓ moves to the list.
     if (isSearchMode) {
-      if (e.key === 'escape') {
-        e.preventDefault();
-        if (searchQuery.length > 0) {
-          setSearchQuery('');
-        } else {
-          setIsSearchMode(false);
-        }
-        return;
-      }
-      if (e.key === 'return' || e.key === 'down' || e.key === 'wheeldown') {
+      if (e.key === 'wheeldown') {
         e.preventDefault();
         setIsSearchMode(false);
         setSelectedIndex(0);
@@ -1464,7 +1455,7 @@ export function Config({
       setIsSearchMode(true);
       setSearchQuery(e.key);
     }
-  }, [showSubmenu, headerFocused, isSearchMode, searchQuery, setSearchQuery, toggleSetting]);
+  }, [showSubmenu, headerFocused, isSearchMode, toggleSetting, setSearchQuery]);
   return <Box flexDirection="column" width="100%" tabIndex={0} autoFocus onKeyDown={handleKeyDown}>
       {showSubmenu === 'Theme' ? <>
           <ThemePicker onThemeSelect={setting_1 => {
