@@ -426,19 +426,16 @@ export function resolveProviderRequest(options?: {
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
     : descriptor.reasoning
+  const defaultBaseUrl =
+    transport === 'codex_responses'
+      ? (isGithubMode ? GITHUB_COPILOT_BASE_URL : DEFAULT_CODEX_BASE_URL)
+      : (isGithubMode ? GITHUB_COPILOT_BASE_URL : DEFAULT_OPENAI_BASE_URL)
 
   return {
     transport,
     requestedModel,
     resolvedModel,
-    baseUrl:
-      (finalBaseUrl ??
-        (isGithubCopilot && transport === 'codex_responses'
-          ? GITHUB_COPILOT_BASE_URL
-          : (isGithubMode
-            ? GITHUB_COPILOT_BASE_URL
-            : DEFAULT_OPENAI_BASE_URL))
-      ).replace(/\/+$/, ''),
+    baseUrl: (rawBaseUrl ?? defaultBaseUrl).replace(/\/+$/, ''),
     reasoning,
   }
 }

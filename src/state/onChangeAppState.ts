@@ -10,6 +10,7 @@ import { toError } from '../utils/errors.js'
 import { logError } from '../utils/log.js'
 import { applyConfigEnvironmentVariables } from '../utils/managedEnv.js'
 import { persistActiveProviderProfileModel } from '../utils/providerProfiles.js'
+import { buildProviderModelSettingsUpdate } from '../utils/model/providerModelSettings.js'
 import {
   permissionModeFromString,
   toExternalPermissionMode,
@@ -19,7 +20,10 @@ import {
   notifySessionMetadataChanged,
   type SessionExternalMetadata,
 } from '../utils/sessionState.js'
-import { updateSettingsForSource } from '../utils/settings/settings.js'
+import {
+  getSettingsForSource,
+  updateSettingsForSource,
+} from '../utils/settings/settings.js'
 import type { AppState } from './AppStateStore.js'
 
 // Inverse of the push below — restore on worker restart.
@@ -98,8 +102,14 @@ export function onChangeAppState({
     newState.mainLoopModel !== oldState.mainLoopModel &&
     newState.mainLoopModel === null
   ) {
-    // Remove from settings
-    updateSettingsForSource('userSettings', { model: undefined })
+    const userSettings = getSettingsForSource('userSettings') || {}
+    updateSettingsForSource(
+      'userSettings',
+      buildProviderModelSettingsUpdate({
+        settings: userSettings,
+        model: undefined,
+      }),
+    )
     setMainLoopModelOverride(null)
   }
 
@@ -108,8 +118,14 @@ export function onChangeAppState({
     newState.mainLoopModel !== oldState.mainLoopModel &&
     newState.mainLoopModel !== null
   ) {
-    // Save to settings
-    updateSettingsForSource('userSettings', { model: newState.mainLoopModel })
+    const userSettings = getSettingsForSource('userSettings') || {}
+    updateSettingsForSource(
+      'userSettings',
+      buildProviderModelSettingsUpdate({
+        settings: userSettings,
+        model: newState.mainLoopModel,
+      }),
+    )
     setMainLoopModelOverride(newState.mainLoopModel)
 
     // Keep active provider profiles in sync with /model choices so restarts
