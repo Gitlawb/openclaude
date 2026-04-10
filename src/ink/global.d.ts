@@ -1,9 +1,18 @@
-// Stub — global types for Ink renderer
-declare namespace JSX {
-  interface IntrinsicElements {
-    'ink-box': Record<string, unknown>
-    'ink-text': Record<string, unknown>
-    'ink-root': Record<string, unknown>
-    'ink-virtual-text': Record<string, unknown>
+import 'react'
+
+type InkIntrinsicProps = Record<string, unknown>
+
+declare module 'react' {
+  namespace JSX {
+    interface IntrinsicElements {
+      'ink-box': InkIntrinsicProps
+      'ink-link': InkIntrinsicProps
+      'ink-raw-ansi': InkIntrinsicProps
+      'ink-root': InkIntrinsicProps
+      'ink-text': InkIntrinsicProps
+      'ink-virtual-text': InkIntrinsicProps
+    }
   }
 }
+
+export {}
