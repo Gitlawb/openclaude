@@ -10,6 +10,7 @@ import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { useAppState, useSetAppState } from '../state/AppState.js';
 import { convertEffortValueToLevel, type EffortLevel, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
+import { buildProviderModelSettingsUpdate, getPersistedEffortSettingForProvider } from '../utils/model/providerModelSettings.js';
 import { getModelOptions } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
@@ -228,13 +229,17 @@ export function ModelPicker(t0) {
         effort: effort as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
       if (!skipSettingsWrite) {
-        const effortLevel = resolvePickerEffortPersistence(effort, getDefaultEffortLevelForOption(value_0), getSettingsForSource("userSettings")?.effortLevel, hasToggledEffort);
+        const userSettings = getSettingsForSource("userSettings") || {};
+        const effortLevel = resolvePickerEffortPersistence(effort, getDefaultEffortLevelForOption(value_0), getPersistedEffortSettingForProvider({
+          settings: userSettings
+        }), hasToggledEffort);
         const persistable = toPersistableEffort(effortLevel);
-        if (persistable !== undefined) {
-          updateSettingsForSource("userSettings", {
+        updateSettingsForSource("userSettings", {
+          ...buildProviderModelSettingsUpdate({
+            settings: userSettings,
             effortLevel: persistable
-          });
-        }
+          })
+        });
         setAppState(prev_0 => ({
           ...prev_0,
           effortValue: effortLevel

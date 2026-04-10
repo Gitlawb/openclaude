@@ -46,6 +46,170 @@ export type ModelOption = {
   descriptionForModel?: string
 }
 
+export type ModelPickerProvider = APIProvider
+
+export type ModelPickerProviderOption = {
+  value: ModelPickerProvider
+  label: string
+  description: string
+}
+
+export function getModelPickerProviderOptions(): ModelPickerProviderOption[] {
+  return [
+    {
+      value: 'firstParty',
+      label: 'Claude',
+      description: 'Anthropic account and Claude Code models',
+    },
+    {
+      value: 'codex',
+      label: 'Codex',
+      description: 'OpenAI Codex backend with reasoning presets',
+    },
+    {
+      value: 'openai',
+      label: 'OpenAI-compatible',
+      description: 'OpenAI-compatible endpoints and local model servers',
+    },
+    {
+      value: 'gemini',
+      label: 'Gemini',
+      description: 'Google Gemini models exposed through the OpenAI shim',
+    },
+    {
+      value: 'github',
+      label: 'GitHub Models',
+      description: 'GitHub Copilot and GitHub Models endpoints',
+    },
+  ]
+}
+
+function getProviderLabel(provider: ModelPickerProvider): string {
+  switch (provider) {
+    case 'firstParty':
+      return 'Claude'
+    case 'codex':
+      return 'Codex'
+    case 'openai':
+      return 'OpenAI-compatible'
+    case 'gemini':
+      return 'Gemini'
+    case 'github':
+      return 'GitHub Models'
+    default:
+      return 'Model provider'
+  }
+}
+
+function getProviderDefaultModelDescription(provider: ModelPickerProvider): string {
+  switch (provider) {
+    case 'firstParty':
+      return 'Use the default Claude model'
+    case 'codex':
+      return 'Use the default Codex model'
+    case 'openai':
+      return 'Use the default OpenAI-compatible model'
+    case 'gemini':
+      return 'Use the default Gemini model'
+    case 'github':
+      return 'Use the default GitHub Models model'
+    default:
+      return 'Use the default model'
+  }
+}
+
+function getProviderDefaultOption(provider: ModelPickerProvider): ModelOption {
+  return {
+    value: null,
+    label: 'Default (recommended)',
+    description: getProviderDefaultModelDescription(provider),
+    descriptionForModel: getProviderDefaultModelDescription(provider),
+  }
+}
+
+function getGeminiModelOptions(): ModelOption[] {
+  return [
+    {
+      value: 'gemini-3.1-pro-preview',
+      label: 'Gemini 3.1 Pro Preview',
+      description: 'Most capable Gemini preview',
+    },
+    {
+      value: 'gemini-3-flash-preview',
+      label: 'Gemini 3 Flash',
+      description: 'Fast Gemini preview',
+    },
+    {
+      value: 'gemini-2.5-pro',
+      label: 'Gemini 2.5 Pro',
+      description: 'Balanced Gemini model',
+    },
+    {
+      value: 'gemini-2.0-flash',
+      label: 'Gemini 2.0 Flash',
+      description: 'Fast general-purpose Gemini model',
+    },
+    {
+      value: 'gemini-2.0-flash-lite',
+      label: 'Gemini 2.0 Flash Lite',
+      description: 'Fastest Gemini option',
+    },
+  ]
+}
+
+export function getModelOptionsForProvider(
+  provider: ModelPickerProvider,
+  fastMode = false,
+): ModelOption[] {
+  const base = [getProviderDefaultOption(provider)]
+
+  switch (provider) {
+    case 'firstParty':
+      return base.concat([
+        {
+          value: 'sonnet',
+          label: 'Sonnet',
+          description: 'Sonnet 4.6 · Best for everyday tasks',
+          descriptionForModel: 'Sonnet 4.6 - best for everyday tasks',
+        },
+        {
+          value: 'sonnet[1m]',
+          label: 'Sonnet (1M context)',
+          description: 'Sonnet 4.6 for long sessions',
+          descriptionForModel: 'Sonnet 4.6 with 1M context window',
+        },
+        {
+          value: 'opus',
+          label: 'Opus',
+          description: `Opus 4.6 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`,
+          descriptionForModel: 'Opus 4.6 - most capable for complex work',
+        },
+        {
+          value: 'opus[1m]',
+          label: 'Opus (1M context)',
+          description: `Opus 4.6 for long sessions${getOpus46PricingSuffix(fastMode)}`,
+          descriptionForModel: 'Opus 4.6 with 1M context window',
+        },
+        {
+          value: 'haiku',
+          label: 'Haiku',
+          description: 'Haiku 4.5 · Fastest for quick answers',
+          descriptionForModel: 'Haiku 4.5 - fastest for quick answers',
+        },
+      ])
+    case 'codex':
+      return base.concat(getCodexModelOptions())
+    case 'openai':
+      return base.concat(getOpenAICompatibleFallbackOptions(fastMode))
+    case 'gemini':
+      return base.concat(getGeminiModelOptions())
+    case 'github':
+      return base.concat(getCopilotModelOptions())
+    default:
+      return base
+  }
+}
+
 function getScopedAdditionalModelOptions(): ModelOption[] {
   const config = getGlobalConfig()
   const activeScope = getAdditionalModelOptionsCacheScope()
@@ -350,6 +514,16 @@ function getCodexModelOptions(): ModelOption[] {
   ]
 }
 
+function getOpenAICompatibleFallbackOptions(
+  _fastMode = false,
+): ModelOption[] {
+  const current = getActiveOpenAIModelOptionsCache()
+  if (current.length > 0) {
+    return current
+  }
+  return getScopedAdditionalModelOptions()
+}
+
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 
@@ -408,6 +582,21 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     ]
   }
 
+  if (getAPIProvider() === 'codex') {
+    return [getDefaultOptionForUser(fastMode), ...getCodexModelOptions()]
+  }
+
+  if (getAPIProvider() === 'openai') {
+    return [
+      getDefaultOptionForUser(fastMode),
+      ...getOpenAICompatibleFallbackOptions(fastMode),
+    ]
+  }
+
+  if (getAPIProvider() === 'gemini') {
+    return [getDefaultOptionForUser(fastMode), ...getGeminiModelOptions()]
+  }
+
   if (isClaudeAISubscriber()) {
     if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
       // Max and Team Premium users: Opus is default, show Sonnet as alternative
@@ -442,16 +631,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
 
     standardOptions.push(MaxHaiku45Option)
     return standardOptions
-  }
-
-  if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
-    const activeOpenAIOptions = getActiveOpenAIModelOptionsCache()
-    return [
-      getDefaultOptionForUser(fastMode),
-      ...(activeOpenAIOptions.length > 0
-        ? activeOpenAIOptions
-        : getScopedAdditionalModelOptions()),
-    ]
   }
 
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.6 + Opus 1M + Haiku

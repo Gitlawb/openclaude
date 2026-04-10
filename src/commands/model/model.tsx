@@ -2,19 +2,20 @@ import { c as _c } from "react-compiler-runtime";
 import chalk from 'chalk';
 import * as React from 'react';
 import type { CommandResultDisplay } from '../../commands.js';
-import { ModelPicker } from '../../components/ModelPicker.js';
+import { InferenceSelectionPicker } from '../../components/InferenceSelectionPicker.js';
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js';
 import { fetchBootstrapData } from '../../services/api/bootstrap.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { useAppState, useSetAppState } from '../../state/AppState.js';
 import type { LocalJSXCommandCall } from '../../types/command.js';
-import type { EffortLevel } from '../../utils/effort.js';
+import type { EffortValue } from '../../utils/effort.js';
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import { clearFastModeCooldown, isFastModeAvailable, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { MODEL_ALIASES } from '../../utils/model/aliases.js';
 import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1mAccess.js';
 import type { ModelOption } from '../../utils/model/modelOptions.js';
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js';
+import { resolveModelSettingForTarget, resolveProviderSelectionTargetOption } from '../../utils/model/providerTargets.js';
 import { getAPIProvider } from '../../utils/model/providers.js';
 import { getActiveOpenAIModelOptionsCache, setActiveOpenAIModelOptionsCache } from '../../utils/providerProfiles.js';
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
@@ -22,113 +23,77 @@ import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
 import { validateModel } from '../../utils/model/validateModel.js';
 import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js';
 function ModelPickerWrapper(t0) {
-  const $ = _c(17);
   const {
     onDone
   } = t0;
   const mainLoopModel = useAppState(_temp);
-  const mainLoopModelForSession = useAppState(_temp2);
-  const isFastMode = useAppState(_temp3);
+  const providerSelectionTargetKey = useAppState(_temp2);
+  const effortValue = useAppState(_temp3);
+  const isFastMode = useAppState(_temp4);
   const setAppState = useSetAppState();
-  let t1;
-  if ($[0] !== mainLoopModel || $[1] !== onDone) {
-    t1 = function handleCancel() {
-      logEvent("tengu_model_command_menu", {
-        action: "cancel" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
-      });
-      const displayModel = renderModelLabel(mainLoopModel);
-      onDone(`Kept model as ${chalk.bold(displayModel)}`, {
-        display: "system"
-      });
-    };
-    $[0] = mainLoopModel;
-    $[1] = onDone;
-    $[2] = t1;
-  } else {
-    t1 = $[2];
-  }
-  const handleCancel = t1;
-  let t2;
-  if ($[3] !== isFastMode || $[4] !== mainLoopModel || $[5] !== onDone || $[6] !== setAppState) {
-    t2 = function handleSelect(model, effort) {
-      logEvent("tengu_model_command_menu", {
-        action: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-        from_model: mainLoopModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-        to_model: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
-      });
-      setAppState(prev => ({
-        ...prev,
-        mainLoopModel: model,
-        mainLoopModelForSession: null
-      }));
-      let message = `Set model to ${chalk.bold(renderModelLabel(model))}`;
-      if (effort !== undefined) {
-        message = message + ` with ${chalk.bold(effort)} effort`;
+  const handleCancel = React.useCallback(() => {
+    logEvent("tengu_model_command_menu", {
+      action: "cancel" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+    });
+    onDone(`Kept model as ${chalk.bold(renderModelLabel(mainLoopModel))}`, {
+      display: "system"
+    });
+  }, [mainLoopModel, onDone]);
+  const handleSelect = React.useCallback(selection => {
+    const target = resolveProviderSelectionTargetOption(selection.targetKey);
+    const resolvedModel = target ? resolveModelSettingForTarget(target, selection.model) : (selection.model ?? mainLoopModel ?? getDefaultMainLoopModelSetting());
+    const targetChanged = selection.targetKey !== providerSelectionTargetKey;
+    logEvent("tengu_model_command_menu", {
+      action: (selection.model ?? 'default') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      from_model: mainLoopModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      to_model: (selection.model ?? 'default') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+    });
+    setAppState(prev => ({
+      ...prev,
+      providerSelectionTargetKey: selection.targetKey,
+      mainLoopModel: selection.model,
+      mainLoopModelForSession: null,
+      effortValue: selection.effort,
+      ...(targetChanged ? {
+        authVersion: prev.authVersion + 1
+      } : {})
+    }));
+    let message = `Set provider to ${chalk.bold(target?.label ?? selection.targetKey)} · model ${chalk.bold(selection.model ?? 'Default')}`;
+    if (selection.effort !== undefined) {
+      message = message + ` · effort ${chalk.bold(String(selection.effort))}`;
+    }
+    let wasFastModeToggledOn = undefined;
+    if (isFastModeEnabled()) {
+      clearFastModeCooldown();
+      if (!isFastModeSupportedByModel(resolvedModel) && isFastMode) {
+        setAppState(prev => ({
+          ...prev,
+          fastMode: false
+        }));
+        wasFastModeToggledOn = false;
+      } else if (isFastModeSupportedByModel(resolvedModel) && isFastModeAvailable() && isFastMode) {
+        message = message + " \xB7 Fast mode ON";
+        wasFastModeToggledOn = true;
       }
-      let wasFastModeToggledOn = undefined;
-      if (isFastModeEnabled()) {
-        clearFastModeCooldown();
-        if (!isFastModeSupportedByModel(model) && isFastMode) {
-          setAppState(_temp4);
-          wasFastModeToggledOn = false;
-        } else {
-          if (isFastModeSupportedByModel(model) && isFastModeAvailable() && isFastMode) {
-            message = message + " \xB7 Fast mode ON";
-            wasFastModeToggledOn = true;
-          }
-        }
-      }
-      if (isBilledAsExtraUsage(model, wasFastModeToggledOn === true, isOpus1mMergeEnabled())) {
-        message = message + " \xB7 Billed as extra usage";
-      }
-      if (wasFastModeToggledOn === false) {
-        message = message + " \xB7 Fast mode OFF";
-      }
-      onDone(message);
-    };
-    $[3] = isFastMode;
-    $[4] = mainLoopModel;
-    $[5] = onDone;
-    $[6] = setAppState;
-    $[7] = t2;
-  } else {
-    t2 = $[7];
-  }
-  const handleSelect = t2;
-  let t3;
-  if ($[8] !== isFastMode || $[9] !== mainLoopModel) {
-    t3 = isFastModeEnabled() && isFastMode && isFastModeSupportedByModel(mainLoopModel) && isFastModeAvailable();
-    $[8] = isFastMode;
-    $[9] = mainLoopModel;
-    $[10] = t3;
-  } else {
-    t3 = $[10];
-  }
-  let t4;
-  if ($[11] !== handleCancel || $[12] !== handleSelect || $[13] !== mainLoopModel || $[14] !== mainLoopModelForSession || $[15] !== t3) {
-    t4 = <ModelPicker initial={mainLoopModel} sessionModel={mainLoopModelForSession} onSelect={handleSelect} onCancel={handleCancel} isStandaloneCommand={true} showFastModeNotice={t3} />;
-    $[11] = handleCancel;
-    $[12] = handleSelect;
-    $[13] = mainLoopModel;
-    $[14] = mainLoopModelForSession;
-    $[15] = t3;
-    $[16] = t4;
-  } else {
-    t4 = $[16];
-  }
-  return t4;
+    }
+    if (isBilledAsExtraUsage(resolvedModel, wasFastModeToggledOn === true, isOpus1mMergeEnabled())) {
+      message = message + " \xB7 Billed as extra usage";
+    }
+    if (wasFastModeToggledOn === false) {
+      message = message + " \xB7 Fast mode OFF";
+    }
+    onDone(message);
+  }, [isFastMode, mainLoopModel, onDone, providerSelectionTargetKey, setAppState]);
+  return <InferenceSelectionPicker initialTargetKey={providerSelectionTargetKey} initialModel={mainLoopModel} initialEffort={effortValue} onSelect={handleSelect} onCancel={handleCancel} isStandaloneCommand={true} />;
 }
-function _temp4(prev_0) {
-  return {
-    ...prev_0,
-    fastMode: false
-  };
+function _temp4(s_2) {
+  return s_2.fastMode;
 }
 function _temp3(s_1) {
-  return s_1.fastMode;
+  return s_1.effortValue;
 }
 function _temp2(s_0) {
-  return s_0.mainLoopModelForSession;
+  return s_0.providerSelectionTargetKey;
 }
 function _temp(s) {
   return s.mainLoopModel;
@@ -256,17 +221,22 @@ function ShowModelAndClose(t0) {
   const mainLoopModel = useAppState(_temp7);
   const mainLoopModelForSession = useAppState(_temp8);
   const effortValue = useAppState(_temp9);
+  const providerSelectionTargetKey = useAppState(_temp10);
+  const providerLabel = resolveProviderSelectionTargetOption(providerSelectionTargetKey)?.label ?? providerSelectionTargetKey;
   const displayModel = renderModelLabel(mainLoopModel);
   const effortInfo = effortValue !== undefined ? ` (effort: ${effortValue})` : "";
   if (mainLoopModelForSession) {
-    onDone(`Current model: ${chalk.bold(renderModelLabel(mainLoopModelForSession))} (session override from plan mode)\nBase model: ${displayModel}${effortInfo}`);
+    onDone(`Current provider: ${chalk.bold(providerLabel)}\nCurrent model: ${chalk.bold(renderModelLabel(mainLoopModelForSession))} (session override from plan mode)\nBase model: ${displayModel}${effortInfo}`);
   } else {
-    onDone(`Current model: ${displayModel}${effortInfo}`);
+    onDone(`Current provider: ${chalk.bold(providerLabel)}\nCurrent model: ${displayModel}${effortInfo}`);
   }
   return null;
 }
 function _temp9(s_1) {
   return s_1.effortValue;
+}
+function _temp10(s_2) {
+  return s_2.providerSelectionTargetKey;
 }
 function _temp8(s_0) {
   return s_0.mainLoopModelForSession;

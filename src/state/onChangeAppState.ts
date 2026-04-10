@@ -11,6 +11,8 @@ import { logError } from '../utils/log.js'
 import { applyConfigEnvironmentVariables } from '../utils/managedEnv.js'
 import { persistActiveProviderProfileModel } from '../utils/providerProfiles.js'
 import { buildProviderModelSettingsUpdate } from '../utils/model/providerModelSettings.js'
+import { toPersistableEffort } from '../utils/effort.js'
+import { getCurrentProviderSelectionTarget } from '../utils/model/providerTargets.js'
 import {
   permissionModeFromString,
   toExternalPermissionMode,
@@ -97,42 +99,66 @@ export function onChangeAppState({
     notifyPermissionModeChanged(newMode)
   }
 
-  // mainLoopModel: remove it from settings?
+  const mainLoopModelChanged = newState.mainLoopModel !== oldState.mainLoopModel
+  const effortValueChanged = newState.effortValue !== oldState.effortValue
+  const providerSelectionTargetChanged =
+    newState.providerSelectionTargetKey !== oldState.providerSelectionTargetKey
   if (
-    newState.mainLoopModel !== oldState.mainLoopModel &&
-    newState.mainLoopModel === null
+    mainLoopModelChanged ||
+    effortValueChanged ||
+    providerSelectionTargetChanged
   ) {
     const userSettings = getSettingsForSource('userSettings') || {}
     updateSettingsForSource(
       'userSettings',
-      buildProviderModelSettingsUpdate({
-        settings: userSettings,
-        model: undefined,
-      }),
+      {
+        ...buildProviderModelSettingsUpdate({
+          settings: userSettings,
+          targetKey: newState.providerSelectionTargetKey,
+          ...(mainLoopModelChanged
+            ? { model: newState.mainLoopModel }
+            : {}),
+          ...(effortValueChanged
+            ? { effortLevel: toPersistableEffort(newState.effortValue) }
+            : {}),
+        }),
+        ...(providerSelectionTargetChanged
+          ? { activeProviderTarget: newState.providerSelectionTargetKey }
+          : {}),
+      },
     )
-    setMainLoopModelOverride(null)
   }
 
-  // mainLoopModel: add it to settings?
-  if (
-    newState.mainLoopModel !== oldState.mainLoopModel &&
-    newState.mainLoopModel !== null
-  ) {
-    const userSettings = getSettingsForSource('userSettings') || {}
-    updateSettingsForSource(
-      'userSettings',
-      buildProviderModelSettingsUpdate({
-        settings: userSettings,
-        model: newState.mainLoopModel,
-      }),
-    )
+  if (providerSelectionTargetChanged) {
+    try {
+      clearApiKeyHelperCache()
+      clearAwsCredentialsCache()
+      clearGcpCredentialsCache()
+      applyConfigEnvironmentVariables()
+    } catch (error) {
+      logError(toError(error))
+    }
+  }
+
+  if (mainLoopModelChanged) {
     setMainLoopModelOverride(newState.mainLoopModel)
 
     // Keep active provider profiles in sync with /model choices so restarts
     // keep using the last selected model instead of the profile's old default.
-    if (process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1') {
+    if (
+      newState.mainLoopModel !== null &&
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+    ) {
       persistActiveProviderProfileModel(newState.mainLoopModel)
     }
+  }
+
+  if (
+    providerSelectionTargetChanged &&
+    newState.mainLoopModel !== null &&
+    getCurrentProviderSelectionTarget().targetKey.startsWith('profile:')
+  ) {
+    persistActiveProviderProfileModel(newState.mainLoopModel)
   }
 
   // expandedView → persist as showExpandedTodos + showSpinnerTree for backwards compat

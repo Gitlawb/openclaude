@@ -5,8 +5,9 @@ import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEve
 import { useAppState, useSetAppState } from '../../state/AppState.js';
 import type { LocalJSXCommandOnDone } from '../../types/command.js';
 import { type EffortValue, getDisplayedEffortLevel, getEffortEnvOverride, getEffortValueDescription, isEffortLevel, isOpenAIEffortLevel, modelUsesOpenAIEffort, toPersistableEffort } from '../../utils/effort.js';
+import { buildProviderModelSettingsUpdate } from '../../utils/model/providerModelSettings.js';
 import { EffortPicker } from '../../components/EffortPicker.js';
-import { updateSettingsForSource } from '../../utils/settings/settings.js';
+import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
 const COMMON_HELP_ARGS = ['help', '-h', '--help'];
 type EffortCommandResult = {
   message: string;
@@ -17,8 +18,12 @@ type EffortCommandResult = {
 function setEffortValue(effortValue: EffortValue): EffortCommandResult {
   const persistable = toPersistableEffort(effortValue);
   if (persistable !== undefined) {
+    const userSettings = getSettingsForSource('userSettings') || {};
     const result = updateSettingsForSource('userSettings', {
-      effortLevel: persistable
+      ...buildProviderModelSettingsUpdate({
+        settings: userSettings,
+        effortLevel: persistable,
+      }),
     });
     if (result.error) {
       return {
@@ -75,8 +80,12 @@ export function showCurrentEffort(appStateEffort: EffortValue | undefined, model
   };
 }
 function unsetEffortLevel(): EffortCommandResult {
+  const userSettings = getSettingsForSource('userSettings') || {};
   const result = updateSettingsForSource('userSettings', {
-    effortLevel: undefined
+    ...buildProviderModelSettingsUpdate({
+      settings: userSettings,
+      effortLevel: undefined,
+    }),
   });
   if (result.error) {
     return {
@@ -175,7 +184,7 @@ function ApplyEffortAndClose(t0) {
 export async function call(onDone: LocalJSXCommandOnDone, _context: unknown, args?: string): Promise<React.ReactNode> {
   args = args?.trim() || '';
   if (COMMON_HELP_ARGS.includes(args)) {
-    onDone('Usage: /effort [low|medium|high|max|auto]\n\nEffort levels:\n- low: Quick, straightforward implementation\n- medium: Balanced approach with standard testing\n- high: Comprehensive implementation with extensive testing\n- max: Maximum capability with deepest reasoning (Opus 4.6 only)\n- auto: Use the default effort level for your model');
+    onDone('Usage: /effort [low|medium|high|max|xhigh|auto]\n\nEffort levels:\n- low: Quick, straightforward implementation\n- medium: Balanced approach with standard testing\n- high: Comprehensive implementation with extensive testing\n- max: Maximum capability with deepest reasoning (Opus 4.6 only)\n- xhigh: Extra high reasoning for OpenAI/Codex models\n- auto: Use the default effort level for your model');
     return;
   }
   if (args === 'current' || args === 'status') {
@@ -196,8 +205,12 @@ function EffortPickerWrapper({ onDone }: { onDone: LocalJSXCommandOnDone }) {
   function handleSelect(effort: EffortValue | undefined) {
     const persistable = toPersistableEffort(effort);
     if (persistable !== undefined) {
+      const userSettings = getSettingsForSource('userSettings') || {};
       updateSettingsForSource('userSettings', {
-        effortLevel: persistable
+        ...buildProviderModelSettingsUpdate({
+          settings: userSettings,
+          effortLevel: persistable,
+        }),
       });
     }
     logEvent('tengu_effort_command', {

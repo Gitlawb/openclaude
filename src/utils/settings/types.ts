@@ -252,6 +252,11 @@ export const CUSTOMIZATION_SURFACES = [
   'mcp',
 ] as const
 
+const PERSISTED_EFFORT_LEVELS =
+  process.env.USER_TYPE === 'ant'
+    ? (['low', 'medium', 'high', 'max', 'xhigh'] as const)
+    : (['low', 'medium', 'high', 'xhigh'] as const)
+
 export const SettingsSchema = lazySchema(() =>
   z
     .object({
@@ -390,6 +395,24 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .describe(
           'Provider-specific persisted model selections used by /model. These override built-in provider defaults without leaking between providers.',
+        ),
+      providerTargetSelections: z
+        .record(
+          z.string(),
+          z.object({
+            model: z.string().optional(),
+            effortLevel: z.enum(PERSISTED_EFFORT_LEVELS).optional(),
+          }),
+        )
+        .optional()
+        .describe(
+          'Provider-target scoped model and effort selections. Keys may be provider families or future profile-scoped targets. This is the canonical persisted state for /model and /effort.',
+        ),
+      activeProviderTarget: z
+        .string()
+        .optional()
+        .describe(
+          'Persisted provider target selected by /model. This can reference a builtin provider family (for example "firstParty" or "codex") or a profile-scoped target key such as "profile:<id>".',
         ),
       // Enterprise allowlist of models
       availableModels: z
@@ -716,11 +739,7 @@ export const SettingsSchema = lazySchema(() =>
             'enabled automatically for supported models.',
         ),
       effortLevel: z
-        .enum(
-          process.env.USER_TYPE === 'ant'
-            ? ['low', 'medium', 'high', 'max']
-            : ['low', 'medium', 'high'],
-        )
+        .enum(PERSISTED_EFFORT_LEVELS)
         .optional()
         .catch(undefined)
         .describe('Persisted effort level for supported models.'),

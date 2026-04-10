@@ -78,6 +78,7 @@ export function applyProviderFlag(
   }
 
   const model = parseModelFlag(args)
+  process.env.CLAUDE_CODE_PROVIDER_CLI_OVERRIDE = '1'
 
   switch (provider as ProviderFlagName) {
     case 'anthropic':

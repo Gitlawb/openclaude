@@ -118,6 +118,7 @@ import { logError } from './utils/log.js';
 import { getModelDeprecationWarning } from './utils/model/deprecation.js';
 import { getDefaultMainLoopModel, getUserSpecifiedModelSetting, normalizeModelStringForAPI, parseUserSpecifiedModel } from './utils/model/model.js';
 import { ensureModelStringsInitialized } from './utils/model/modelStrings.js';
+import { getCurrentProviderSelectionTarget } from './utils/model/providerTargets.js';
 import { PERMISSION_MODES } from './utils/permissions/PermissionMode.js';
 import { checkAndDisableBypassPermissions, getAutoModeEnabledStateIfCached, initializeToolPermissionContext, initialPermissionModeFromCLI, isDefaultPermissionModeAuto, parseToolListFromCLI, removeDangerousPermissions, stripDangerousPermissionsForAutoMode, verifyAutoModeGateAccess } from './utils/permissions/permissionSetup.js';
 import { cleanupOrphanedPluginVersionsInBackground } from './utils/plugins/cacheUtils.js';
@@ -2610,6 +2611,8 @@ async function run(): Promise<CommanderCommand> {
       // If disableSlashCommands is true, return empty array
       const commandsHeadless = disableSlashCommands ? [] : commands.filter(command => command.type === 'prompt' && !command.disableNonInteractive || command.type === 'local' && command.supportsNonInteractive);
       const defaultState = getDefaultAppState();
+      const initialProviderSelectionTargetKey =
+        getCurrentProviderSelectionTarget().targetKey;
       const headlessInitialState: AppState = {
         ...defaultState,
         mcp: {
@@ -2619,6 +2622,7 @@ async function run(): Promise<CommanderCommand> {
           tools: mcpTools
         },
         toolPermissionContext,
+        providerSelectionTargetKey: initialProviderSelectionTargetKey,
         effortValue: parseEffortValue(options.effort) ?? getInitialEffortSetting(),
         ...(isFastModeEnabled() && {
           fastMode: getInitialFastModeSetting(effectiveModel ?? null)
@@ -2913,6 +2917,7 @@ async function run(): Promise<CommanderCommand> {
       ccrMirrorEnabled = isCcrMirrorEnabled();
     }
     const initialState: AppState = {
+      providerSelectionTargetKey: getCurrentProviderSelectionTarget().targetKey,
       settings: getInitialSettings(),
       tasks: {},
       agentNameRegistry: new Map(),
