@@ -137,6 +137,9 @@ const TEAMMATE_ENV_VARS = [
   'NODE_EXTRA_CA_CERTS',
   'REQUESTS_CA_BUNDLE',
   'CURL_CA_BUNDLE',
+  // Source builds may rely on user shell PATH for rg/node/bun and other tools.
+  // Forward it so teammates resolve the same toolchain as the parent session.
+  'PATH',
 ] as const
 
 /**
@@ -145,7 +148,13 @@ const TEAMMATE_ENV_VARS = [
  * plus any provider/config env vars that are set in the current process.
  */
 export function buildInheritedEnvVars(): string {
-  const envVars = ['CLAUDECODE=1', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1']
+  const envVars = [
+    'CLAUDECODE=1',
+    'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1',
+    // Teammates should inherit the leader-selected provider route instead of
+    // replaying persisted ~/.claude or settings.env provider defaults.
+    'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1',
+  ]
 
   for (const key of TEAMMATE_ENV_VARS) {
     const value = process.env[key]

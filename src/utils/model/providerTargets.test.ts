@@ -64,3 +64,43 @@ test('applyPersistedProviderSelectionTarget overrides launcher defaults with fir
     targetKey: 'firstParty',
   })
 })
+
+test('applyPersistedProviderSelectionTarget skips restore when provider routing is host-managed', () => {
+  process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+
+  const target = applyPersistedProviderSelectionTarget({
+    activeProviderTarget: 'firstParty',
+    providerTargetSelections: {
+      firstParty: {
+        model: 'claude-sonnet-4-6',
+      },
+    },
+  })
+
+  expect(target).toBeUndefined()
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+})
+
+test('applyPersistedProviderSelectionTarget can force restore in host-managed sessions', () => {
+  process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
+
+  const target = applyPersistedProviderSelectionTarget(
+    {
+      activeProviderTarget: 'codex',
+      providerTargetSelections: {
+        codex: {
+          model: 'gpt-5.4',
+          effortLevel: 'xhigh',
+        },
+      },
+    },
+    { force: true },
+  )
+
+  expect(target?.targetKey).toBe('codex')
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+})

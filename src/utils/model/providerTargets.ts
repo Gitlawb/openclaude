@@ -5,6 +5,7 @@ import {
 } from '../config.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../githubModelsCredentials.js'
 import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
+import { isEnvTruthy } from '../envUtils.js'
 import {
   applyProviderProfileToProcessEnv,
   clearProviderProfileEnvFromProcessEnv,
@@ -433,8 +434,18 @@ export function applyProviderSelectionTarget(
 
 export function applyPersistedProviderSelectionTarget(
   settings: SettingsJson | undefined = getSettings_DEPRECATED(),
+  options?: {
+    force?: boolean
+  },
 ): ProviderSelectionTargetOption | undefined {
-  if (process.env.CLAUDE_CODE_PROVIDER_CLI_OVERRIDE === '1') {
+  if (!options?.force && process.env.CLAUDE_CODE_PROVIDER_CLI_OVERRIDE === '1') {
+    return undefined
+  }
+
+  if (
+    !options?.force &&
+    isEnvTruthy(process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST)
+  ) {
     return undefined
   }
 
