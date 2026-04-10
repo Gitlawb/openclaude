@@ -5,7 +5,7 @@
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
  */
 
-import { isLocalProviderUrl } from '../services/api/providerConfig.js'
+import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/providerConfig.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
@@ -101,7 +101,11 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
 
   if (useOpenAI) {
     const rawModel = process.env.OPENAI_MODEL || 'gpt-4o'
-    const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+    const resolvedRequest = resolveProviderRequest({
+      model: rawModel,
+      baseUrl: process.env.OPENAI_BASE_URL,
+    })
+    const baseUrl = resolvedRequest.baseUrl
     const isLocal = isLocalProviderUrl(baseUrl)
     let name = 'OpenAI'
     if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))       name = 'DeepSeek'
@@ -114,26 +118,9 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     else if (isLocal)                                                  name = getLocalOpenAICompatibleProviderLabel(baseUrl)
     
     // Resolve model alias to actual model name + reasoning effort
-    let displayModel = rawModel
-    const codexAliases: Record<string, { model: string; reasoningEffort?: string }> = {
-      codexplan: { model: 'gpt-5.4', reasoningEffort: 'high' },
-      'gpt-5.4': { model: 'gpt-5.4', reasoningEffort: 'high' },
-      'gpt-5.3-codex': { model: 'gpt-5.3-codex', reasoningEffort: 'high' },
-      'gpt-5.3-codex-spark': { model: 'gpt-5.3-codex-spark' },
-      codexspark: { model: 'gpt-5.3-codex-spark' },
-      'gpt-5.2-codex': { model: 'gpt-5.2-codex', reasoningEffort: 'high' },
-      'gpt-5.1-codex-max': { model: 'gpt-5.1-codex-max', reasoningEffort: 'high' },
-      'gpt-5.1-codex-mini': { model: 'gpt-5.1-codex-mini' },
-      'gpt-5.4-mini': { model: 'gpt-5.4-mini', reasoningEffort: 'medium' },
-      'gpt-5.2': { model: 'gpt-5.2', reasoningEffort: 'medium' },
-    }
-    const alias = rawModel.toLowerCase()
-    if (alias in codexAliases) {
-      const resolved = codexAliases[alias]
-      displayModel = resolved.model
-      if (resolved.reasoningEffort) {
-        displayModel = `${displayModel} (${resolved.reasoningEffort})`
-      }
+    let displayModel = resolvedRequest.resolvedModel
+    if (resolvedRequest.reasoning?.effort) {
+      displayModel = `${displayModel} (${resolvedRequest.reasoning.effort})`
     }
     
     return { name, model: displayModel, baseUrl, isLocal }
