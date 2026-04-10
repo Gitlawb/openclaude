@@ -123,6 +123,15 @@ const TIP_MATCHERS: TipMatcher[] = [
         'Must be an array of directory paths. Example: ["~/projects", "/tmp/workspace"]. You can also use --add-dir flag or /add-dir command',
     },
   },
+  {
+    matches: (ctx): boolean =>
+      ctx.path === 'modelTiers.small' && ctx.code === 'invalid_type',
+    tip: {
+      suggestion:
+        'Must be a model ID string. Examples: "gpt-4o-mini", "gemini-2.0-flash-lite", "llama3.2:3b", "claude-haiku-4-5-20251001". ' +
+        'This sets the small/fast model for side-calls (compaction, hooks, token estimation) without requiring env vars.',
+    },
+  },
 ]
 
 const PATH_DOC_LINKS: Record<string, string> = {}

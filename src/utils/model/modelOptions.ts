@@ -13,7 +13,7 @@ import {
   COST_HAIKU_45,
   formatModelPricing,
 } from '../modelCost.js'
-import { getSettings_DEPRECATED } from '../settings/settings.js'
+import { getInitialSettings, getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
 import { getAPIProvider } from './providers.js'
 import { isModelAllowed } from './modelAllowlist.js'
@@ -187,8 +187,9 @@ export function getOpus46_1MOption(fastMode = false): ModelOption {
 
 function getCustomHaikuOption(): ModelOption | undefined {
   const is3P = getAPIProvider() !== 'firstParty'
-  // Prefer the new provider-agnostic var; fall back to the legacy Anthropic-branded one
+  // Priority: settings.modelTiers.small → env vars → legacy env var
   const customHaikuModel =
+    getInitialSettings().modelTiers?.small ||
     process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL ||
     process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
   // When a 3P user has a custom small model string, show it directly
