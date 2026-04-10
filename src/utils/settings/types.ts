@@ -377,6 +377,27 @@ export const SettingsSchema = lazySchema(() =>
         .string()
         .optional()
         .describe('Override the default model used by Claude Code'),
+      modelTiers: z
+        .object({
+          small: z
+            .string()
+            .optional()
+            .describe(
+              'The small/fast model for side-calls: compaction, hooks, away summaries, ' +
+                'token estimation, and the model picker small slot. ' +
+                'Set this instead of CLAUDE_CODE_SMALL_FAST_MODEL / CLAUDE_CODE_DEFAULT_SMALL_MODEL ' +
+                'for a persistent, session-independent override that works with any provider. ' +
+                'Examples: "gpt-4o-mini", "gemini-2.0-flash-lite", "llama3.2:3b", ' +
+                '"us.anthropic.claude-haiku-4-5-20251001-v1:0". ' +
+                'When unset, defaults to the cheapest tier from the active provider\'s model config.',
+            ),
+        })
+        .optional()
+        .describe(
+          'Model tier overrides. Lets you decouple the small/fast side-call model ' +
+            'from the main loop model without env vars. No code change required when ' +
+            'a new cheap model becomes available — just update this field.',
+        ),
       // Enterprise allowlist of models
       availableModels: z
         .array(z.string())

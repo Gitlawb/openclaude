@@ -1,7 +1,18 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
 import { getDefaultHaikuModel, getSmallFastModel } from './model.js'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings mock — allows per-test control of modelTiers.small
+// ─────────────────────────────────────────────────────────────────────────────
+let _mockTiersSmall: string | undefined = undefined
+
+mock.module('../settings/settings.js', () => ({
+  getInitialSettings: () =>
+    _mockTiersSmall ? { modelTiers: { small: _mockTiersSmall } } : {},
+  getSettings_DEPRECATED: () => ({}),
+}))
 
 // Snapshot relevant env vars so we can restore after each test
 const originalEnv = {
@@ -47,6 +58,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  _mockTiersSmall = undefined
   for (const [key, value] of Object.entries(originalEnv)) {
     if (value === undefined) {
       delete process.env[key]
@@ -151,6 +163,52 @@ describe('getSmallFastModel — provider defaults (no overrides)', () => {
   })
 })
 
+describe('getSmallFastModel — settings.modelTiers.small', () => {
+  test('modelTiers.small is used when no env var override is set', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    _mockTiersSmall = 'gpt-4o-mini'
+
+    expect(getSmallFastModel()).toBe('gpt-4o-mini')
+  })
+
+  test('env var CLAUDE_CODE_SMALL_FAST_MODEL beats modelTiers.small', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    _mockTiersSmall = 'settings-model'
+    process.env.CLAUDE_CODE_SMALL_FAST_MODEL = 'env-override'
+
+    expect(getSmallFastModel()).toBe('env-override')
+  })
+
+  test('ANTHROPIC_SMALL_FAST_MODEL beats modelTiers.small', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    _mockTiersSmall = 'settings-model'
+    process.env.ANTHROPIC_SMALL_FAST_MODEL = 'legacy-env-override'
+
+    expect(getSmallFastModel()).toBe('legacy-env-override')
+  })
+
+  test('falls back to provider default when modelTiers.small is unset', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    // _mockTiersSmall is undefined — no settings override
+    expect(getSmallFastModel().toLowerCase()).toContain('haiku')
+  })
+
+  test('works with Ollama model name via modelTiers.small', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_MODEL = 'llama3.3:70b'
+    _mockTiersSmall = 'llama3.2:3b'
+
+    expect(getSmallFastModel()).toBe('llama3.2:3b')
+  })
+})
+
 describe('getSmallFastModel — never leaks main-loop model', () => {
   test.each([
     ['openai', 'CLAUDE_CODE_USE_OPENAI', 'OPENAI_MODEL', 'gpt-4.1'],
@@ -235,6 +293,52 @@ describe('getDefaultHaikuModel — provider defaults (no overrides)', () => {
     process.env.CLAUDE_CODE_USE_BEDROCK = '1'
 
     expect(getDefaultHaikuModel().toLowerCase()).toContain('haiku')
+  })
+})
+
+describe('getDefaultHaikuModel — settings.modelTiers.small', () => {
+  test('modelTiers.small is used when no env var override is set', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    _mockTiersSmall = 'llama3.2:3b'
+
+    expect(getDefaultHaikuModel()).toBe('llama3.2:3b')
+  })
+
+  test('CLAUDE_CODE_DEFAULT_SMALL_MODEL beats modelTiers.small', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    _mockTiersSmall = 'settings-model'
+    process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL = 'env-override'
+
+    expect(getDefaultHaikuModel()).toBe('env-override')
+  })
+
+  test('ANTHROPIC_DEFAULT_HAIKU_MODEL beats modelTiers.small', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    _mockTiersSmall = 'settings-model'
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'legacy-env-override'
+
+    expect(getDefaultHaikuModel()).toBe('legacy-env-override')
+  })
+
+  test('falls back to provider default when modelTiers.small is unset', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    // _mockTiersSmall is undefined — no settings override
+    expect(getDefaultHaikuModel().toLowerCase()).toContain('haiku')
+  })
+
+  test('modelTiers.small takes priority over Ollama auto-detection', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    process.env.OPENAI_MODEL = 'llama3.3:70b'
+    _mockTiersSmall = 'llama3.2:3b'
+
+    expect(getDefaultHaikuModel()).toBe('llama3.2:3b')
   })
 })
 
