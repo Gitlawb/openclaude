@@ -27,6 +27,7 @@ export function registerHostSession(
   input: RegisterHostSessionInput,
 ): HostSessionRecord {
   const createdAt = Date.now()
+  clearHostSession()
 
   currentHostSession = {
     id: `host-${createdAt}`,
@@ -62,9 +63,7 @@ export function getCurrentHostSession(): HostSessionRecord | null {
 }
 
 export function invalidateHostSession(_reason: string): void {
-  if (currentHostSession) {
-    currentHostSession.isAlive = false
-  }
+  currentHostSession = null
 }
 
 export function clearHostSession(): void {
