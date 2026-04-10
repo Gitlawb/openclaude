@@ -667,14 +667,31 @@ export async function buildStartupEnvFromProfile(options?: {
   readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options?.processEnv ?? process.env
-  if (hasExplicitProviderSelection(processEnv)) {
+  const persisted = options?.persisted ?? loadProfileFile()
+
+  // Saved /provider profiles should still win over provider-manager env that was
+  // auto-applied during startup. Only explicit shell/flag provider selection
+  // should bypass the persisted startup profile.
+  const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  if (hasExplicitProviderSelection(processEnv) && !profileManagedEnv) {
     return processEnv
   }
 
-  const persisted = options?.persisted ?? loadProfileFile()
   if (!persisted) {
     return processEnv
   }
+
+  const launchProcessEnv = profileManagedEnv
+    ? (() => {
+        const cleanedEnv = { ...processEnv }
+        for (const key of PROFILE_ENV_KEYS) {
+          delete cleanedEnv[key]
+        }
+        delete cleanedEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+        delete cleanedEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+        return cleanedEnv
+      })()
+    : processEnv
 
   return buildLaunchEnv({
     profile: persisted.profile,
@@ -682,7 +699,7 @@ export async function buildStartupEnvFromProfile(options?: {
     goal:
       options?.goal ??
       normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
-    processEnv,
+    processEnv: launchProcessEnv,
     getOllamaChatBaseUrl:
       options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
     resolveOllamaDefaultModel: options?.resolveOllamaDefaultModel,
