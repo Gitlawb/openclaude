@@ -204,7 +204,10 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'codestral':                 32_768,
 
   // Alibaba DashScope (Coding Plan)
-  // Model context windows from DashScope API /models endpoint
+  // Model context windows from DashScope API /models endpoint (April 2026).
+  // Values sourced from: qwen3.5-plus/qwen3-coder-plus (1M), qwen3-coder-next/max (256K),
+  // kimi-k2.5 (256K), MiniMax-M2.5 (192K), glm-5/glm-4.7 (198K).
+  // Max output tokens: Qwen variants (64K/32K), MiniMax (24K), GLM (16K).
   'qwen3.5-plus':           1_000_000,
   'qwen3-coder-plus':       1_000_000,
   'qwen3-coder-next':         262_144,
