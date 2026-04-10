@@ -21,8 +21,20 @@ export const getGlobalClaudeFile = memoize((): string => {
     return join(getClaudeConfigHomeDir(), '.config.json')
   }
 
-  const filename = `.claude${fileSuffixForOauthConfig()}.json`
-  return join(process.env.CLAUDE_CONFIG_DIR || homedir(), filename)
+  const oauthSuffix = fileSuffixForOauthConfig()
+  const configDir = process.env.CLAUDE_CONFIG_DIR || homedir()
+
+  // Prefer .openclaude.json; fall back to .claude.json if it already exists
+  // (same migration strategy as resolveClaudeConfigHomeDir).
+  const newFilename = `.openclaude${oauthSuffix}.json`
+  const legacyFilename = `.claude${oauthSuffix}.json`
+  if (
+    !getFsImplementation().existsSync(join(configDir, newFilename)) &&
+    getFsImplementation().existsSync(join(configDir, legacyFilename))
+  ) {
+    return join(configDir, legacyFilename)
+  }
+  return join(configDir, newFilename)
 })
 
 const hasInternetAccess = memoize(async (): Promise<boolean> => {
