@@ -375,10 +375,13 @@ export function resolveProviderRequest(options?: {
   const envBaseUrlRaw =
     asEnvUrl(process.env.OPENAI_BASE_URL) ??
     asEnvUrl(process.env.OPENAI_API_BASE)
+
+  const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
   const envBaseUrl =
-    isGithubMode && envBaseUrlRaw && getGithubEndpointType(envBaseUrlRaw) === 'custom'
+    isCodexModelForGithub && envBaseUrlRaw && getGithubEndpointType(envBaseUrlRaw) === 'custom'
       ? undefined
       : envBaseUrlRaw
+
   const rawBaseUrl = explicitBaseUrl ?? envBaseUrl
 
   const shellModel = process.env.OPENAI_MODEL?.trim() ?? ''
