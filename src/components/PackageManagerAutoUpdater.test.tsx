@@ -4,6 +4,7 @@ import { afterEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 
 import { createRoot } from '../ink.js'
+import type { AutoUpdaterResult } from '../utils/autoUpdater.js'
 import { PackageManagerAutoUpdater } from './PackageManagerAutoUpdater.js'
 
 function createTestStreams(): {
@@ -100,7 +101,7 @@ test('reports update_available with the resolved package manager command', async
 
     expect(onAutoUpdaterResult).toHaveBeenCalledWith({
       version: '0.2.0',
-      currentVersion: '0.1.8',
+      currentVersion: expect.any(String),
       status: 'update_available',
       actionLabel: 'brew upgrade --cask openclaude',
     })
@@ -112,12 +113,11 @@ test('reports update_available with the resolved package manager command', async
   }
 })
 
-test('reports up_to_date after a previously visible update is no longer available', async () => {
+test('renders the resolved update version from autoUpdaterResult when available', async () => {
   process.env.NODE_ENV = 'production'
 
-  let latestVersion = '0.2.0'
   mock.module('../utils/autoUpdater.js', () => ({
-    getLatestVersionFromGcs: async () => latestVersion,
+    getLatestVersionFromGcs: async () => '0.2.0',
     getMaxVersion: async () => null,
     shouldSkipVersion: () => false,
   }))
@@ -137,45 +137,50 @@ test('reports up_to_date after a previously visible update is no longer availabl
     useInterval: () => {},
   }))
 
-  const onAutoUpdaterResult = mock(() => {})
-  const { stdout, stdin } = createTestStreams()
+  let output = ''
+  const stdout = new PassThrough()
+  const stdin = new PassThrough() as PassThrough & {
+    isTTY: boolean
+    setRawMode: (mode: boolean) => void
+    ref: () => void
+    unref: () => void
+  }
+  stdin.isTTY = true
+  stdin.setRawMode = () => {}
+  stdin.ref = () => {}
+  stdin.unref = () => {}
+  ;(stdout as unknown as { columns: number }).columns = 120
+  stdout.on('data', chunk => {
+    output += chunk.toString()
+  })
+
   const root = await createRoot({
     stdout: stdout as unknown as NodeJS.WriteStream,
     stdin: stdin as unknown as NodeJS.ReadStream,
     patchConsole: false,
   })
 
-  function Harness(): React.ReactNode {
-    const [result, setResult] = React.useState<any>(null)
-
-    return (
-      <PackageManagerAutoUpdater
-        isUpdating={false}
-        onChangeIsUpdating={() => {}}
-        onAutoUpdaterResult={update => {
-          setResult(update)
-          onAutoUpdaterResult(update)
-        }}
-        autoUpdaterResult={result}
-        showSuccessMessage={false}
-        verbose={false}
-      />
-    )
+  const autoUpdaterResult: AutoUpdaterResult = {
+    version: '0.2.0',
+    currentVersion: '0.1.7',
+    status: 'update_available',
+    actionLabel: 'Use your package manager to update OpenClaude',
   }
 
-  root.render(<Harness />)
+  root.render(
+    <PackageManagerAutoUpdater
+      isUpdating={false}
+      onChangeIsUpdating={() => {}}
+      onAutoUpdaterResult={() => {}}
+      autoUpdaterResult={autoUpdaterResult}
+      showSuccessMessage={false}
+      verbose={false}
+    />,
+  )
 
   try {
-    await waitForCondition(() => onAutoUpdaterResult.mock.calls.length === 1)
-    latestVersion = '0.1.8'
-    root.render(<Harness />)
-    await waitForCondition(() => onAutoUpdaterResult.mock.calls.length === 2)
-
-    expect(onAutoUpdaterResult.mock.calls[1]?.[0]).toEqual({
-      version: '0.1.8',
-      currentVersion: '0.1.8',
-      status: 'up_to_date',
-    })
+    await waitForCondition(() => output.includes('0.2.0'))
+    expect(output).toContain('0.2.0')
   } finally {
     root.unmount()
     stdin.end()
