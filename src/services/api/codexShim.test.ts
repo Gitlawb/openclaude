@@ -98,14 +98,14 @@ describe('Codex provider config', () => {
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
 
-  test('does not force Codex transport when a local non-Codex base URL is explicit', () => {
+  test('forces Codex transport when a local non-Codex base URL is explicit', () => {
     const resolved = resolveProviderRequest({
       model: 'codexplan',
       baseUrl: 'http://127.0.0.1:8080/v1',
     })
 
-    expect(resolved.transport).toBe('chat_completions')
-    expect(resolved.baseUrl).toBe('http://127.0.0.1:8080/v1')
+    expect(resolved.transport).toBe('codex_responses')
+    expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
     expect(resolved.resolvedModel).toBe('gpt-5.4')
   })
 
@@ -151,14 +151,14 @@ describe('Codex provider config', () => {
     expect(resolved.resolvedModel).toBe('gpt-5.4')
   })
 
-  test('does not override custom base URL for codexplan (e.g., local provider)', () => {
+  test('overrides custom base URL for codexplan (e.g., local provider)', () => {
     process.env.OPENAI_MODEL = 'codexplan'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
     delete process.env.CLAUDE_CODE_USE_GITHUB
 
     const resolved = resolveProviderRequest()
-    expect(resolved.transport).toBe('chat_completions')
-    expect(resolved.baseUrl).toBe('http://localhost:11434/v1')
+    expect(resolved.transport).toBe('codex_responses')
+    expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
 
   test('loads Codex credentials from auth.json fallback', () => {

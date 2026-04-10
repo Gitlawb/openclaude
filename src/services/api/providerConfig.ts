@@ -385,11 +385,18 @@ export function resolveProviderRequest(options?: {
   const rawBaseUrl = explicitBaseUrl ?? envBaseUrl
 
   const shellModel = process.env.OPENAI_MODEL?.trim() ?? ''
+  const envIsCodexShortcut = isOpenAICodexShortcutAlias(shellModel)
+  const envResolvedCodexModel = envIsCodexShortcut
+    ? parseModelDescriptor(shellModel).baseModel
+    : null
+  const requestedMatchesEnvCodexShortcut =
+    Boolean(options?.model) &&
+    Boolean(envResolvedCodexModel) &&
+    descriptor.baseModel === envResolvedCodexModel
   const isCodexAliasModel =
-    options?.model ? isOpenAICodexShortcutAlias(requestedModel) : isOpenAICodexShortcutAlias(shellModel)
-  const hasUserSetBaseUrl = rawBaseUrl && rawBaseUrl !== DEFAULT_OPENAI_BASE_URL
+    isOpenAICodexShortcutAlias(requestedModel) || requestedMatchesEnvCodexShortcut
   const finalBaseUrl =
-    !isGithubMode && isCodexAliasModel && !hasUserSetBaseUrl
+    !isGithubMode && isCodexAliasModel
       ? DEFAULT_CODEX_BASE_URL
       : rawBaseUrl
 
