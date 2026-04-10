@@ -13,6 +13,7 @@ import {
 import type { ChannelPermissionCallbacks } from '../../../services/mcp/channelPermissions.js'
 import {
   filterPermissionRelayClients,
+  isChannelPermissionRelayEnabled,
   shortRequestId,
   truncateForPreview,
 } from '../../../services/mcp/channelPermissions.js'
@@ -314,15 +315,22 @@ function handleInteractivePermission(
   // the subscription never fires and another racer wins. Graceful degradation
   // — the local dialog is always there as the floor.
   if (
-    (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+    isChannelPermissionRelayEnabled() &&
     channelCallbacks &&
     !ctx.tool.requiresUserInteraction?.()
   ) {
     const channelRequestId = shortRequestId(ctx.toolUseID)
     const allowedChannels = getAllowedChannels()
+    // Exclude the server that owns the tool being approved — relaying a
+    // permission prompt for server X's tool back to server X creates a
+    // circular loop (approve via channel → skill runs → next permission
+    // → relay to same channel → approve → …).
+    const toolOwnerServer = ctx.tool.mcpInfo?.serverName
     const channelClients = filterPermissionRelayClients(
       ctx.toolUseContext.getAppState().mcp.clients,
-      name => findChannelEntry(name, allowedChannels) !== undefined,
+      name =>
+        findChannelEntry(name, allowedChannels) !== undefined &&
+        name !== toolOwnerServer,
     )
 
     if (channelClients.length > 0) {

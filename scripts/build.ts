@@ -41,6 +41,7 @@ const featureFlags: Record<string, boolean> = {
   BUDDY: true,
   CHICAGO_MCP: false,
   COWORKER_TYPE_TELEMETRY: false,
+  KAIROS_CHANNELS: true,
 }
 
 const result = await Bun.build({
