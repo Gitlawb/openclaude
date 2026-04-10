@@ -12,6 +12,8 @@
  * - 24/7 auto-reconnect + healthchecks
  * - Per-channel permissions and dynamic registration
  * - Exponential backoff reconnect strategy
+ * - Per-adapter rate limiting (NEW)
+ * - Metrics tracking — messages sent/received, errors, last activity (NEW)
  */
 
 import { EventEmitter } from 'node:events';
@@ -35,6 +37,17 @@ export interface BotStatus {
   uptime: number;
   reconnectCount: number;
   lastError?: string;
+  /** NEW: adapter metrics */
+  metrics: AdapterMetrics;
+}
+
+export interface AdapterMetrics {
+  messagesReceived: number;
+  messagesSent: number;
+  errors: number;
+  lastMessageAt: string | null;
+  lastErrorAt: string | null;
+  rateLimited: number;
 }
 
 export interface AdapterConfig {
@@ -46,6 +59,52 @@ export interface AdapterConfig {
     baseDelayMs: number;
     maxDelayMs: number;
   };
+  /** NEW: rate limiting — max messages per window */
+  rateLimit?: {
+    maxMessages: number;
+    windowMs: number;
+  };
+}
+
+// ─── Rate Limiter ────────────────────────────────────────────────────────────
+
+class RateLimiter {
+  private windows: Map<string, { count: number; resetAt: number }> = new Map();
+  private maxMessages: number;
+  private windowMs: number;
+
+  constructor(maxMessages: number, windowMs: number) {
+    this.maxMessages = maxMessages;
+    this.windowMs = windowMs;
+  }
+
+  /** Returns true if the request is allowed */
+  tryAcquire(key: string): boolean {
+    const now = Date.now();
+    let window = this.windows.get(key);
+
+    if (!window || now >= window.resetAt) {
+      window = { count: 0, resetAt: now + this.windowMs };
+      this.windows.set(key, window);
+    }
+
+    if (window.count >= this.maxMessages) {
+      return false;
+    }
+
+    window.count++;
+    return true;
+  }
+
+  /** Clean up expired entries */
+  cleanup(): void {
+    const now = Date.now();
+    for (const [key, window] of this.windows) {
+      if (now >= window.resetAt) {
+        this.windows.delete(key);
+      }
+    }
+  }
 }
 
 // ─── Abstract Base Adapter ───────────────────────────────────────────────────
@@ -59,12 +118,33 @@ export abstract class BaseAdapter extends EventEmitter {
   protected lastError: string | undefined;
   protected config: AdapterConfig;
 
+  /** NEW: metrics tracking */
+  private _metrics: AdapterMetrics = {
+    messagesReceived: 0,
+    messagesSent: 0,
+    errors: 0,
+    lastMessageAt: null,
+    lastErrorAt: null,
+    rateLimited: 0,
+  };
+
+  /** NEW: per-user rate limiter */
+  private rateLimiter: RateLimiter | null = null;
+  private rateLimiterCleanupTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(platform: string, config: AdapterConfig) {
     super();
     this.platform = platform;
     this.config = config;
     this.enabled = config.enabled;
     this.connected = false;
+
+    if (config.rateLimit) {
+      this.rateLimiter = new RateLimiter(
+        config.rateLimit.maxMessages,
+        config.rateLimit.windowMs,
+      );
+    }
   }
 
   /** Initialize the adapter (create clients, validate config) */
@@ -109,7 +189,7 @@ export abstract class BaseAdapter extends EventEmitter {
       `Reconnecting in ${Math.round(totalDelay)}ms (attempt ${this.reconnectCount}/${maxRetries})`,
     );
 
-    await Bun.sleep(totalDelay);
+    await new Promise(resolve => setTimeout(resolve, totalDelay));
 
     try {
       await this.stop();
@@ -123,7 +203,7 @@ export abstract class BaseAdapter extends EventEmitter {
     }
   }
 
-  /** Get current status */
+  /** Get current status + metrics */
   getStatus(): BotStatus {
     return {
       type: this.platform,
@@ -134,17 +214,43 @@ export abstract class BaseAdapter extends EventEmitter {
         : 0,
       reconnectCount: this.reconnectCount,
       lastError: this.lastError,
+      metrics: { ...this._metrics },
     };
+  }
+
+  /** NEW: get metrics only */
+  getMetrics(): AdapterMetrics {
+    return { ...this._metrics };
+  }
+
+  /** NEW: check rate limit before processing a message */
+  protected checkRateLimit(userId: string): boolean {
+    if (!this.rateLimiter) return true;
+    const allowed = this.rateLimiter.tryAcquire(userId);
+    if (!allowed) {
+      this._metrics.rateLimited++;
+      this.log(`Rate limited user: ${userId}`);
+    }
+    return allowed;
   }
 
   /** Emit a structured message event */
   protected emitMessage(message: BotMessage): void {
+    this._metrics.messagesReceived++;
+    this._metrics.lastMessageAt = message.timestamp.toISOString();
     this.log(`Message from ${message.userId}: ${message.content.slice(0, 80)}`);
     this.emit('message', message);
   }
 
+  /** Track outgoing messages */
+  protected trackSent(): void {
+    this._metrics.messagesSent++;
+  }
+
   /** Emit an error event */
   protected emitError(error: Error): void {
+    this._metrics.errors++;
+    this._metrics.lastErrorAt = new Date().toISOString();
     this.lastError = error.message;
     this.log(`Error: ${error.message}`);
     this.emit('error', error);
@@ -165,5 +271,13 @@ export abstract class BaseAdapter extends EventEmitter {
   /** Structured log */
   protected log(msg: string): void {
     console.log(`[bots:${this.platform}] ${msg}`);
+  }
+
+  /** NEW: cleanup resources (rate limiter timers, etc.) */
+  cleanup(): void {
+    if (this.rateLimiterCleanupTimer) {
+      clearInterval(this.rateLimiterCleanupTimer);
+      this.rateLimiterCleanupTimer = null;
+    }
   }
 }

@@ -161,8 +161,12 @@ export class ChannelManager extends EventEmitter {
   }
 
   private save(): void {
-    const data = JSON.stringify(this.registry, null, 2);
-    writeFileSync(this.configPath, data, 'utf-8');
+    try {
+      const data = JSON.stringify(this.registry, null, 2);
+      writeFileSync(this.configPath, data, 'utf-8');
+    } catch (err) {
+      console.error('[channel-manager] Failed to save registry:', err);
+    }
   }
 }
 

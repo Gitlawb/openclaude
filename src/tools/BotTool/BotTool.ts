@@ -274,7 +274,12 @@ async function handleSend(
   message: string,
   channelId?: string,
 ): Promise<string> {
-  const gateway = getBotGateway()
+  let gateway: ReturnType<typeof getBotGateway>
+  try {
+    gateway = getBotGateway()
+  } catch {
+    throw new Error('Bot gateway is not running. Use `/bots start` first.')
+  }
   const metadata = channelId ? { channelId } : undefined
   await gateway.sendMessage(platform, userId, message, metadata)
   return `✅ Sent message to ${userId} via ${platform}${channelId ? ` (channel: ${channelId})` : ''}`

@@ -1,7 +1,10 @@
 # Docker Compose for OpenClaude Bot Gateway
 # 24/7 deployment with auto-restart
-
-version: '3.8'
+#
+# Usage:
+#   cp .env.example .env   # configure tokens
+#   docker compose -f docker/docker-compose.yml up -d
+#   docker compose -f docker/docker-compose.yml logs -f
 
 services:
   bot-gateway:
@@ -9,7 +12,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: openclaude-bots
-    restart: always
+    restart: unless-stopped
     ports:
       - "${HEALTH_PORT:-3000}:3000"
     volumes:
@@ -21,17 +24,27 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
       - HEALTH_PORT=3000
+      - TZ=${TZ:-UTC}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "5"
+        tag: "openclaude-bots"
 
 volumes:
   openclaude-data:

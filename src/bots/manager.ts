@@ -34,6 +34,8 @@ export class BotGateway {
   private healthServer: ReturnType<typeof Bun.serve> | null = null;
   private startedAt: Date | null = null;
   private messageHandler: ((msg: BotMessage) => Promise<void>) | null = null;
+  private _messageHandlerWired = false;
+  private _shutdownHandlersAttached = false;
 
   constructor(config: GatewayConfig) {
     this.config = config;
@@ -45,6 +47,7 @@ export class BotGateway {
     this.messageHandler = handler;
     // Wire immediately so dynamic adapters also route through it
     this.messageBus.subscribeAll(handler);
+    this._messageHandlerWired = true;
   }
 
   /** Initialize and start all configured adapters */
@@ -81,9 +84,10 @@ export class BotGateway {
       }
     }
 
-    // Wire message handler
-    if (this.messageHandler) {
+    // Wire message handler (already subscribed in onMessage() if called before start)
+    if (this.messageHandler && !this._messageHandlerWired) {
       this.messageBus.subscribeAll(this.messageHandler);
+      this._messageHandlerWired = true;
     }
 
     // Start heartbeat
@@ -92,9 +96,12 @@ export class BotGateway {
     // Start health endpoint
     this.startHealthEndpoint();
 
-    // Graceful shutdown
-    process.on('SIGTERM', () => this.shutdown('SIGTERM'));
-    process.on('SIGINT', () => this.shutdown('SIGINT'));
+    // Graceful shutdown — only attach once
+    if (!this._shutdownHandlersAttached) {
+      process.on('SIGTERM', () => this.shutdown('SIGTERM'));
+      process.on('SIGINT', () => this.shutdown('SIGINT'));
+      this._shutdownHandlersAttached = true;
+    }
 
     console.log('[gateway] Bot gateway running 24/7');
   }
@@ -201,42 +208,47 @@ export class BotGateway {
   }
 
   private startHealthEndpoint(): void {
+    if (this.healthServer) return; // already running
     const port = this.config.healthPort ?? 3000;
     const gateway = this;
 
-    this.healthServer = Bun.serve({
-      port,
-      fetch(req) {
-        const url = new URL(req.url);
+    try {
+      this.healthServer = Bun.serve({
+        port,
+        fetch(req) {
+          const url = new URL(req.url);
 
-        if (url.pathname === '/health') {
-          const body = {
-            status: 'ok',
-            uptime: gateway.startedAt
-              ? Date.now() - gateway.startedAt.getTime()
-              : 0,
-            adapters: gateway.getAllStatuses(),
-            timestamp: new Date().toISOString(),
-          };
-          return new Response(JSON.stringify(body, null, 2), {
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
+          if (url.pathname === '/health') {
+            const body = {
+              status: 'ok',
+              uptime: gateway.startedAt
+                ? Date.now() - gateway.startedAt.getTime()
+                : 0,
+              adapters: gateway.getAllStatuses(),
+              timestamp: new Date().toISOString(),
+            };
+            return new Response(JSON.stringify(body, null, 2), {
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
 
-        if (url.pathname === '/healthz') {
-          const allConnected = [...gateway.adapters.values()].every(
-            (a) => !a.getStatus().enabled || a.getStatus().connected,
-          );
-          return new Response(allConnected ? 'ok' : 'degraded', {
-            status: allConnected ? 200 : 503,
-          });
-        }
+          if (url.pathname === '/healthz') {
+            const allConnected = [...gateway.adapters.values()].every(
+              (a) => !a.getStatus().enabled || a.getStatus().connected,
+            );
+            return new Response(allConnected ? 'ok' : 'degraded', {
+              status: allConnected ? 200 : 503,
+            });
+          }
 
-        return new Response('Not Found', { status: 404 });
-      },
-    });
-
-    console.log(`[gateway] Health endpoint on port ${port}`);
+          return new Response('Not Found', { status: 404 });
+        },
+      });
+      console.log(`[gateway] Health endpoint on port ${port}`);
+    } catch (err) {
+      console.warn(`[gateway] Could not start health endpoint on port ${port}: ${err instanceof Error ? err.message : err}`);
+      this.healthServer = null;
+    }
   }
 }
 

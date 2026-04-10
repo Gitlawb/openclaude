@@ -136,6 +136,7 @@ export class TelegramAdapter extends BaseAdapter {
     await this.bot.api.sendMessage(Number(chatId), content, {
       parse_mode: this.tgConfig.parseMode ?? 'Markdown',
     });
+    this.trackSent();
     this.log(`Sent message to ${chatId}`);
   }
 
@@ -155,6 +156,9 @@ export class TelegramAdapter extends BaseAdapter {
 
     // Authorization check
     if (!this.isUserAuthorized(userId, this.tgConfig.allowFrom)) return;
+
+    // Rate limiting check
+    if (!this.checkRateLimit(userId)) return;
 
     const botMessage: BotMessage = {
       id: randomUUID(),

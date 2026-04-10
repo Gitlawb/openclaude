@@ -29,6 +29,10 @@ export type { ChannelConfig, ChannelRegistry, ChannelPlatform } from './channel-
 export { buildHealthReport } from './health.js';
 export type { HealthReport } from './health.js';
 
+// Bridge (bot ↔ MCP channel integration)
+export { BotMcpBridge } from './bridge.js';
+export type { BridgeConfig } from './bridge.js';
+
 // Bus
 export { MessageBus } from '../bus/index.js';
 export type { MessageHandler } from '../bus/index.js';

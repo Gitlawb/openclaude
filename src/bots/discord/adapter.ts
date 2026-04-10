@@ -130,6 +130,7 @@ export class DiscordAdapter extends BaseAdapter {
       }
     }
 
+    this.trackSent();
     this.log(`Sent message to Discord user: ${userId}`);
   }
 
@@ -143,6 +144,9 @@ export class DiscordAdapter extends BaseAdapter {
 
     // Authorization check
     if (!this.isUserAuthorized(msg.author.id, this.dcConfig.allowFrom)) return;
+
+    // Rate limiting check
+    if (!this.checkRateLimit(msg.author.id)) return;
 
     // Only respond to DMs or mentions (unless configured otherwise)
     const isDM = msg.guild === null;
@@ -196,8 +200,9 @@ export class DiscordAdapter extends BaseAdapter {
       // Try to split at newline
       let splitIdx = remaining.lastIndexOf('\n', maxLen);
       if (splitIdx < maxLen * 0.5) splitIdx = maxLen;
-      chunks.push(remaining.slice(0, splitIdx));
-      remaining = remaining.slice(splitIdx);
+      const chunk = remaining.slice(0, splitIdx);
+      if (chunk.length > 0) chunks.push(chunk);
+      remaining = remaining.slice(splitIdx).replace(/^\n+/, '');
     }
     return chunks;
   }
