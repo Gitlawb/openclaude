@@ -35,13 +35,19 @@ export type ModelSetting = ModelName | ModelAlias | null
 
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
-  // For Gemini provider, use a fast model
+  // For Gemini provider, always use the cheapest fast model.
+  // Intentionally does NOT fall back to GEMINI_MODEL — that env var may point
+  // to an expensive model like gemini-2.5-pro-preview which defeats the purpose
+  // of using a small/fast model for side-calls like compaction.
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
+    return 'gemini-2.0-flash-lite'
   }
-  // For OpenAI provider, use OPENAI_MODEL or a sensible default
+  // For OpenAI provider, always use gpt-4o-mini.
+  // Intentionally does NOT fall back to OPENAI_MODEL — that env var may point
+  // to an expensive model like gpt-4.1 which defeats the purpose of using a
+  // small/fast model for side-calls like compaction.
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return 'gpt-4o-mini'
   }
   return getDefaultHaikuModel()
 }
