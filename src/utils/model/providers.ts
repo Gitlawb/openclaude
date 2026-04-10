@@ -45,6 +45,28 @@ export function getAPIProvider(): APIProvider {
 export function usesAnthropicAccountFlow(): boolean {
   return getAPIProvider() === 'firstParty'
 }
+
+/**
+ * Returns true when the GitHub provider should use Anthropic's native API
+ * format instead of the OpenAI-compatible shim.
+ *
+ * Enabled automatically when CLAUDE_CODE_USE_GITHUB=1 and the selected model
+ * is a Claude model (OPENAI_MODEL starts with "claude-"). Can also be forced
+ * on with CLAUDE_CODE_GITHUB_ANTHROPIC_API=1 for any model.
+ *
+ * api.githubcopilot.com supports Anthropic native format for Claude models,
+ * enabling prompt caching via cache_control blocks which significantly reduces
+ * per-turn token costs by caching the system prompt and tool definitions.
+ */
+export function isGithubNativeAnthropicMode(resolvedModel?: string): boolean {
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) return false
+  if (isEnvTruthy(process.env.CLAUDE_CODE_GITHUB_ANTHROPIC_API)) return true
+  // Auto-enable for Claude models — they support native format + caching.
+  // Prefer the resolved model name (e.g. "claude-haiku-4.5") over OPENAI_MODEL
+  // which may be a generic alias like "github:copilot".
+  const model = resolvedModel?.trim() || process.env.OPENAI_MODEL?.trim() || ''
+  return model.toLowerCase().startsWith('claude-')
+}
 function isCodexModel(): boolean {
   return shouldUseCodexTransport(
     process.env.OPENAI_MODEL || '',
