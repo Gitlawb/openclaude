@@ -3,6 +3,7 @@ import * as React from 'react'
 import { Box, Text } from '../ink.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import type { ProviderProfile } from '../utils/config.js'
+import { hasLocalOllama, listOllamaModels } from '../utils/providerDiscovery.js'
 import {
   addProviderProfile,
   applyActiveProviderProfileFromConfig,
@@ -16,6 +17,10 @@ import {
   updateProviderProfile,
 } from '../utils/providerProfiles.js'
 import {
+  rankOllamaModels,
+  recommendOllamaModel,
+} from '../utils/providerRecommendation.js'
+import {
   clearGithubModelsToken,
   GITHUB_MODELS_HYDRATED_ENV_MARKER,
   hydrateGithubModelsTokenFromSecureStorage,
@@ -24,7 +29,7 @@ import {
 } from '../utils/githubModelsCredentials.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
-import { Select } from './CustomSelect/index.js'
+import { type OptionWithDescription, Select } from './CustomSelect/index.js'
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
 
@@ -42,6 +47,7 @@ type Props = {
 type Screen =
   | 'menu'
   | 'select-preset'
+  | 'select-ollama-model'
   | 'form'
   | 'select-active'
   | 'select-edit'
@@ -50,6 +56,16 @@ type Screen =
 type DraftField = 'name' | 'baseUrl' | 'model' | 'apiKey'
 
 type ProviderDraft = Record<DraftField, string>
+
+type OllamaSelectionState =
+  | { state: 'idle' }
+  | { state: 'loading' }
+  | {
+      state: 'ready'
+      options: OptionWithDescription<string>[]
+      defaultValue?: string
+    }
+  | { state: 'unavailable'; message: string }
 
 const FORM_STEPS: Array<{
   key: DraftField
@@ -210,6 +226,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
   const [errorMessage, setErrorMessage] = React.useState<string | undefined>()
+  const [ollamaSelection, setOllamaSelection] = React.useState<OllamaSelectionState>({
+    state: 'idle',
+  })
 
   const currentStep = FORM_STEPS[formStepIndex] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
@@ -364,6 +383,59 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     return null
   }
 
+  React.useEffect(() => {
+    if (screen !== 'select-ollama-model') {
+      return
+    }
+
+    let cancelled = false
+    setOllamaSelection({ state: 'loading' })
+
+    void (async () => {
+      const available = await hasLocalOllama(draft.baseUrl)
+      if (!available) {
+        if (!cancelled) {
+          setOllamaSelection({
+            state: 'unavailable',
+            message:
+              'Could not reach Ollama. Start Ollama first, or enter the endpoint manually.',
+          })
+        }
+        return
+      }
+
+      const models = await listOllamaModels(draft.baseUrl)
+      if (models.length === 0) {
+        if (!cancelled) {
+          setOllamaSelection({
+            state: 'unavailable',
+            message:
+              'Ollama is running, but no installed models were found. Pull a chat model such as qwen2.5-coder:7b or llama3.1:8b first, or enter details manually.',
+          })
+        }
+        return
+      }
+
+      const ranked = rankOllamaModels(models, 'balanced')
+      const recommended = recommendOllamaModel(models, 'balanced')
+      if (!cancelled) {
+        setOllamaSelection({
+          state: 'ready',
+          defaultValue: recommended?.name ?? ranked[0]?.name,
+          options: ranked.map(model => ({
+            label: model.name,
+            value: model.name,
+            description: model.summary,
+          })),
+        })
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [draft.baseUrl, screen])
+
   function startCreateFromPreset(preset: ProviderPreset): void {
     const defaults = getProviderPresetDefaults(preset)
     const nextDraft = {
@@ -378,6 +450,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
     setErrorMessage(undefined)
+
+    if (preset === 'ollama') {
+      setOllamaSelection({ state: 'loading' })
+      setScreen('select-ollama-model')
+      return
+    }
+
     setScreen('form')
   }
 
@@ -397,13 +476,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setScreen('form')
   }
 
-  function persistDraft(): void {
+  function persistDraft(nextDraft: ProviderDraft = draft): void {
     const payload: ProviderProfileInput = {
       provider: draftProvider,
-      name: draft.name,
-      baseUrl: draft.baseUrl,
-      model: draft.model,
-      apiKey: draft.apiKey,
+      name: nextDraft.name,
+      baseUrl: nextDraft.baseUrl,
+      model: nextDraft.model,
+      apiKey: nextDraft.apiKey,
     }
 
     const saved = editingProfileId
@@ -446,6 +525,83 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setScreen('menu')
   }
 
+  function renderOllamaSelection(): React.ReactNode {
+    if (ollamaSelection.state === 'loading' || ollamaSelection.state === 'idle') {
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Text color="remember" bold>
+            Checking Ollama
+          </Text>
+          <Text dimColor>Looking for installed Ollama models...</Text>
+        </Box>
+      )
+    }
+
+    if (ollamaSelection.state === 'unavailable') {
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Text color="remember" bold>
+            Ollama setup
+          </Text>
+          <Text dimColor>{ollamaSelection.message}</Text>
+          <Select
+            options={[
+              {
+                value: 'manual',
+                label: 'Enter manually',
+                description: 'Fill in the base URL and model yourself',
+              },
+              {
+                value: 'back',
+                label: 'Back',
+                description: 'Choose another provider preset',
+              },
+            ]}
+            onChange={value => {
+              if (value === 'manual') {
+                setFormStepIndex(0)
+                setCursorOffset(draft.name.length)
+                setScreen('form')
+                return
+              }
+              setScreen('select-preset')
+            }}
+            onCancel={() => setScreen('select-preset')}
+            visibleOptionCount={2}
+          />
+        </Box>
+      )
+    }
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          Choose an Ollama model
+        </Text>
+        <Text dimColor>
+          Pick one of the installed Ollama models to save into a local provider
+          profile.
+        </Text>
+        <Select
+          options={ollamaSelection.options}
+          defaultValue={ollamaSelection.defaultValue}
+          defaultFocusValue={ollamaSelection.defaultValue}
+          inlineDescriptions
+          visibleOptionCount={Math.min(8, ollamaSelection.options.length)}
+          onChange={value => {
+            const nextDraft = {
+              ...draft,
+              model: value,
+            }
+            setDraft(nextDraft)
+            persistDraft(nextDraft)
+          }}
+          onCancel={() => setScreen('select-preset')}
+        />
+      </Box>
+    )
+  }
+
   function handleFormSubmit(value: string): void {
     const trimmed = value.trim()
 
@@ -470,7 +626,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    persistDraft()
+    persistDraft(nextDraft)
   }
 
   function handleBackFromForm(): void {
@@ -819,13 +975,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   let content: React.ReactNode
 
-  switch (screen) {
-    case 'select-preset':
-      content = renderPresetSelection()
-      break
-    case 'form':
-      content = renderForm()
-      break
+    switch (screen) {
+      case 'select-preset':
+        content = renderPresetSelection()
+        break
+      case 'select-ollama-model':
+        content = renderOllamaSelection()
+        break
+      case 'form':
+        content = renderForm()
+        break
     case 'select-active':
       content = renderProfileSelection(
         'Set active provider',

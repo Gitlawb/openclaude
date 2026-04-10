@@ -6,6 +6,7 @@ import stripAnsi from 'strip-ansi'
 
 import { createRoot } from '../ink.js'
 import { AppStateProvider } from '../state/AppState.js'
+import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -106,19 +107,30 @@ function createDeferred<T>(): {
   return { promise, resolve }
 }
 
-function mockProviderProfilesModule(): void {
+function mockProviderProfilesModule(options?: {
+  addProviderProfile?: (...args: unknown[]) => unknown
+}): void {
   mock.module('../utils/providerProfiles.js', () => ({
-    addProviderProfile: () => null,
+    addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
     getActiveProviderProfile: () => null,
-    getProviderPresetDefaults: () => ({
-      provider: 'openai',
-      name: 'Mock provider',
-      baseUrl: 'http://localhost:11434/v1',
-      model: 'mock-model',
-      apiKey: '',
-    }),
+    getProviderPresetDefaults: (preset: string) =>
+      preset === 'ollama'
+        ? {
+            provider: 'openai',
+            name: 'Ollama',
+            baseUrl: 'http://localhost:11434/v1',
+            model: 'llama3.1:8b',
+            apiKey: '',
+          }
+        : {
+            provider: 'openai',
+            name: 'Mock provider',
+            baseUrl: 'http://localhost:11434/v1',
+            model: 'mock-model',
+            apiKey: '',
+          },
     getProviderProfiles: () => [],
     setActiveProviderProfile: () => null,
     updateProviderProfile: () => null,
@@ -128,8 +140,27 @@ function mockProviderProfilesModule(): void {
 function mockProviderManagerDependencies(
   syncRead: () => string | undefined,
   asyncRead: () => Promise<string | undefined>,
+  options?: {
+    addProviderProfile?: (...args: unknown[]) => unknown
+    hasLocalOllama?: () => Promise<boolean>
+    listOllamaModels?: () => Promise<
+      Array<{
+        name: string
+        sizeBytes?: number | null
+        family?: string | null
+        families?: string[]
+        parameterSize?: string | null
+        quantizationLevel?: string | null
+      }>
+    >
+  },
 ): void {
-  mockProviderProfilesModule()
+  mockProviderProfilesModule({ addProviderProfile: options?.addProviderProfile })
+
+  mock.module('../utils/providerDiscovery.js', () => ({
+    hasLocalOllama: options?.hasLocalOllama ?? (async () => false),
+    listOllamaModels: options?.listOllamaModels ?? (async () => []),
+  }))
 
   mock.module('../utils/githubModelsCredentials.js', () => ({
     clearGithubModelsToken: () => ({ success: true }),
@@ -162,9 +193,14 @@ async function waitForFrameOutput(
 async function mountProviderManager(
   ProviderManager: React.ComponentType<{
     mode: 'first-run' | 'manage'
-    onDone: () => void
+    onDone: (result?: unknown) => void
   }>,
+  options?: {
+    mode?: 'first-run' | 'manage'
+    onDone?: (result?: unknown) => void
+  },
 ): Promise<{
+  stdin: PassThrough
   getOutput: () => string
   dispose: () => Promise<void>
 }> {
@@ -177,14 +213,17 @@ async function mountProviderManager(
 
   root.render(
     <AppStateProvider>
-      <ProviderManager
-        mode="manage"
-        onDone={() => {}}
-      />
+      <KeybindingSetup>
+        <ProviderManager
+          mode={options?.mode ?? 'manage'}
+          onDone={options?.onDone ?? (() => {})}
+        />
+      </KeybindingSetup>
     </AppStateProvider>,
   )
 
   return {
+    stdin,
     getOutput,
     dispose: async () => {
       root.unmount()
@@ -198,14 +237,17 @@ async function mountProviderManager(
 async function renderProviderManagerFrame(
   ProviderManager: React.ComponentType<{
     mode: 'first-run' | 'manage'
-    onDone: () => void
+    onDone: (result?: unknown) => void
   }>,
   options?: {
     waitForOutput?: (output: string) => boolean
     timeoutMs?: number
+    mode?: 'first-run' | 'manage'
   },
 ): Promise<string> {
-  const mounted = await mountProviderManager(ProviderManager)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: options?.mode,
+  })
   const output = await waitForFrameOutput(
     mounted.getOutput,
     frame => {
@@ -261,6 +303,96 @@ test('ProviderManager resolves GitHub virtual provider from async storage withou
 
   expect(syncRead).not.toHaveBeenCalled()
   expect(asyncRead).toHaveBeenCalled()
+})
+
+test('ProviderManager first-run Ollama preset auto-detects installed models', async () => {
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const onDone = mock(() => {})
+  const addProviderProfile = mock((payload: {
+    provider: string
+    name: string
+    baseUrl: string
+    model: string
+    apiKey?: string
+  }) => ({
+    id: 'provider_ollama',
+    provider: payload.provider,
+    name: payload.name,
+    baseUrl: payload.baseUrl,
+    model: payload.model,
+    apiKey: payload.apiKey,
+  }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      addProviderProfile,
+      hasLocalOllama: async () => true,
+      listOllamaModels: async () => [
+        {
+          name: 'gemma4:31b-cloud',
+          family: 'gemma',
+          parameterSize: '31b',
+        },
+        {
+          name: 'kimi-k2.5:cloud',
+          family: 'kimi',
+          parameterSize: '2.5b',
+        },
+      ],
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+    onDone,
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set up provider') && frame.includes('Ollama'),
+  )
+
+  mounted.stdin.write('j')
+  await Bun.sleep(50)
+  mounted.stdin.write('\r')
+
+  const modelFrame = await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Choose an Ollama model') &&
+      frame.includes('gemma4:31b-cloud') &&
+      frame.includes('kimi-k2.5:cloud'),
+  )
+
+  expect(modelFrame).toContain('Choose an Ollama model')
+  expect(modelFrame).toContain('gemma4:31b-cloud')
+
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => onDone.mock.calls.length > 0)
+
+  expect(addProviderProfile).toHaveBeenCalled()
+  expect(addProviderProfile.mock.calls[0]?.[0]).toMatchObject({
+    name: 'Ollama',
+    baseUrl: 'http://localhost:11434/v1',
+    model: 'gemma4:31b-cloud',
+  })
+  expect(onDone).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'saved',
+      message: 'Provider configured: Ollama',
+    }),
+  )
+
+  await mounted.dispose()
 })
 
 test('ProviderManager avoids first-frame false negative while stored-token lookup is pending', async () => {

@@ -12,7 +12,7 @@ import { OAuthService } from '../services/oauth/index.js';
 import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
 import { logError } from '../utils/log.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
-import { ProviderWizard } from '../commands/provider/provider.js';
+import { ProviderManager } from './ProviderManager.js';
 import { Select } from './CustomSelect/select.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
 import { Spinner } from './Spinner.js';
@@ -450,16 +450,17 @@ function OAuthStatusMessage({
 
     case 'platform_setup':
       return (
-        <ProviderWizard
+        <ProviderManager
+          mode="first-run"
           onDone={result => {
-            if (!result) {
+            if (!result || result.action !== 'saved' || !result.message) {
               setOAuthStatus({ state: 'idle' })
               return
             }
 
             setOAuthStatus({
               state: 'platform_setup_complete',
-              message: result,
+              message: result.message,
             })
           }}
         />

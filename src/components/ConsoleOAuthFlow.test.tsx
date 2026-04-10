@@ -103,7 +103,7 @@ test('login picker shows the third-party platform option', async () => {
   expect(output).toContain('3rd-party platform')
 })
 
-test('third-party provider branch opens the provider wizard', async () => {
+test('third-party provider branch opens the first-run provider manager', async () => {
   const output = await renderFrame(
     <ConsoleOAuthFlow
       initialStatus={{ state: 'platform_setup' }}
@@ -111,7 +111,9 @@ test('third-party provider branch opens the provider wizard', async () => {
     />,
   )
 
-  expect(output).toContain('Set up a provider profile')
-  expect(output).toContain('OpenAI-compatible')
+  expect(output).toContain('Set up provider')
+  expect(output).toContain('Anthropic')
+  expect(output).toContain('OpenAI')
   expect(output).toContain('Ollama')
+  expect(output).toContain('LM Studio')
 })
