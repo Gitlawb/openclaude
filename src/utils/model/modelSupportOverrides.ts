@@ -17,6 +17,11 @@ const TIERS = [
     modelEnvVar: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
     capabilitiesEnvVar: 'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
   },
+  // Provider-agnostic small-model override (checked before legacy Anthropic var)
+  {
+    modelEnvVar: 'CLAUDE_CODE_DEFAULT_SMALL_MODEL',
+    capabilitiesEnvVar: 'CLAUDE_CODE_DEFAULT_SMALL_MODEL_SUPPORTED_CAPABILITIES',
+  },
   {
     modelEnvVar: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
     capabilitiesEnvVar: 'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',

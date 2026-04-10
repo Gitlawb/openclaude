@@ -166,16 +166,19 @@ export function getOpus46_1MOption(fastMode = false): ModelOption {
 
 function getCustomHaikuOption(): ModelOption | undefined {
   const is3P = getAPIProvider() !== 'firstParty'
-  const customHaikuModel = process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
-  // When a 3P user has a custom haiku model string, show it directly
+  // Prefer the new provider-agnostic var; fall back to the legacy Anthropic-branded one
+  const customHaikuModel =
+    process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL ||
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  // When a 3P user has a custom small model string, show it directly
   if (is3P && customHaikuModel) {
     return {
       value: 'haiku',
       label: process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME ?? customHaikuModel,
       description:
         process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION ??
-        'Custom Haiku model',
-      descriptionForModel: `${process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION ?? 'Custom Haiku model'} (${customHaikuModel})`,
+        'Custom small model',
+      descriptionForModel: `${process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION ?? 'Custom small model'} (${customHaikuModel})`,
     }
   }
 }

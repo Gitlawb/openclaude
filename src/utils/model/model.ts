@@ -24,6 +24,10 @@ import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { getAPIProvider } from './providers.js'
+import {
+  getCachedOllamaModelOptions,
+  isOllamaProvider,
+} from './ollamaModels.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
@@ -196,24 +200,49 @@ export function getDefaultSonnetModel(): ModelName {
 }
 
 // @[MODEL LAUNCH]: Update the default Haiku model (3P providers may lag so keep defaults unchanged).
+/**
+ * Return the small/cheap model to surface in the model picker's "Haiku" slot
+ * and to use wherever an explicit cheap-tier model is needed (attachments,
+ * alias resolution, etc.).
+ *
+ * Priority:
+ *   1. CLAUDE_CODE_DEFAULT_SMALL_MODEL — provider-agnostic explicit override.
+ *      Use this with Ollama (e.g. llama3.2:3b), LM Studio, or any engine
+ *      where you want a specific lightweight model in the small tier.
+ *   2. ANTHROPIC_DEFAULT_HAIKU_MODEL — legacy env var from Claude Code kept
+ *      for backwards compatibility with enterprise managed deployments.
+ *   3. Ollama detection — when OLLAMA_BASE_URL or port 11434 is detected and
+ *      no explicit model is configured, use the first available local model
+ *      from the cached /api/tags response (the user's lightest installed
+ *      model), or fall back to OPENAI_MODEL (at least callable locally).
+ *      Set CLAUDE_CODE_DEFAULT_SMALL_MODEL for reproducible behaviour.
+ *   4. getModelStrings().haiku45 — resolved per provider via ALL_MODEL_CONFIGS:
+ *      Anthropic → Haiku 4.5, OpenAI API → gpt-4o-mini,
+ *      Gemini → gemini-2.0-flash-lite, Bedrock/Vertex/Foundry → Haiku format.
+ *
+ * Deliberately does NOT fall back to OPENAI_MODEL or GEMINI_MODEL — those hold
+ * the user's main-loop (potentially expensive) model.
+ */
 export function getDefaultHaikuModel(): ModelName {
+  if (process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL) {
+    return process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL
+  }
   if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
   }
-  // Gemini provider
-  if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
+  // Ollama: model names are user-installed strings — we can't hardcode one.
+  // Use the first model from the local /api/tags cache (populated at startup),
+  // falling back to OPENAI_MODEL (at least reachable). Users should set
+  // CLAUDE_CODE_DEFAULT_SMALL_MODEL to pin a specific lightweight model.
+  if (isOllamaProvider()) {
+    return (
+      getCachedOllamaModelOptions()[0]?.value ||
+      process.env.OPENAI_MODEL ||
+      'llama3.2:3b'
+    )
   }
-  // OpenAI provider
-  if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
-  }
-  // Codex provider
-  if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
-  }
-
-  // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
+  // All other providers: haiku45 resolves to the correct cheap tier via
+  // ALL_MODEL_CONFIGS — a single place to update on model launches.
   return getModelStrings().haiku45
 }
 

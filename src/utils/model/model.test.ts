@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
-import { getSmallFastModel } from './model.js'
+import { getDefaultHaikuModel, getSmallFastModel } from './model.js'
 
 // Snapshot relevant env vars so we can restore after each test
 const originalEnv = {
   CLAUDE_CODE_SMALL_FAST_MODEL: process.env.CLAUDE_CODE_SMALL_FAST_MODEL,
+  CLAUDE_CODE_DEFAULT_SMALL_MODEL: process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL,
   ANTHROPIC_SMALL_FAST_MODEL: process.env.ANTHROPIC_SMALL_FAST_MODEL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
+  OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
@@ -17,11 +21,15 @@ const originalEnv = {
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
 }
 
-function clearSmallFastEnv(): void {
+function clearSmallModelEnv(): void {
   delete process.env.CLAUDE_CODE_SMALL_FAST_MODEL
+  delete process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL
   delete process.env.ANTHROPIC_SMALL_FAST_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
   delete process.env.OPENAI_MODEL
   delete process.env.GEMINI_MODEL
+  delete process.env.OLLAMA_BASE_URL
+  delete process.env.OPENAI_BASE_URL
 }
 
 function clearProviderEnv(): void {
@@ -34,9 +42,7 @@ function clearProviderEnv(): void {
 }
 
 beforeEach(() => {
-  // Force re-initialization of model strings state so each test picks up the
-  // provider env var set for that test. Without this, the first test to run
-  // caches a provider and later tests get stale strings.
+  // Reset model strings cache so each test picks up the correct provider env
   resetModelStringsForTestingOnly()
 })
 
@@ -51,10 +57,15 @@ afterEach(() => {
   resetModelStringsForTestingOnly()
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// getSmallFastModel — used by compaction, away summaries, token estimation,
+// agentic search, hooks, skill improvement, WebSearch, and more.
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe('getSmallFastModel — env var override priority', () => {
   test('CLAUDE_CODE_SMALL_FAST_MODEL is the highest priority override', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.CLAUDE_CODE_SMALL_FAST_MODEL = 'my-provider-agnostic-model'
     // Legacy var set too — new var should win
     process.env.ANTHROPIC_SMALL_FAST_MODEL = 'legacy-model'
@@ -64,24 +75,24 @@ describe('getSmallFastModel — env var override priority', () => {
 
   test('ANTHROPIC_SMALL_FAST_MODEL still works as a legacy fallback', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.ANTHROPIC_SMALL_FAST_MODEL = 'legacy-migrated-from-claude-code'
 
     expect(getSmallFastModel()).toBe('legacy-migrated-from-claude-code')
   })
 
-  test('overrides win across every provider (OpenAI)', () => {
+  test('overrides win on OpenAI provider', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.CLAUDE_CODE_SMALL_FAST_MODEL = 'forced-override'
 
     expect(getSmallFastModel()).toBe('forced-override')
   })
 
-  test('overrides win across every provider (Gemini)', () => {
+  test('overrides win on Gemini provider', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     process.env.CLAUDE_CODE_SMALL_FAST_MODEL = 'forced-override'
 
@@ -92,59 +103,40 @@ describe('getSmallFastModel — env var override priority', () => {
 describe('getSmallFastModel — provider defaults (no overrides)', () => {
   test('Anthropic firstParty returns a Haiku model', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
 
     expect(getSmallFastModel().toLowerCase()).toContain('haiku')
   })
 
-  test('OpenAI provider returns gpt-4o-mini even when OPENAI_MODEL is set to gpt-4.1', () => {
+  test('OpenAI provider returns gpt-4o-mini even when OPENAI_MODEL is gpt-4.1', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    // User's main-loop model is expensive — small/fast must ignore it
     process.env.OPENAI_MODEL = 'gpt-4.1'
 
     expect(getSmallFastModel()).toBe('gpt-4o-mini')
   })
 
-  test('OpenAI provider returns gpt-4o-mini when OPENAI_MODEL is unset', () => {
+  test('Gemini provider returns flash-lite even when GEMINI_MODEL is pro-preview', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
-
-    expect(getSmallFastModel()).toBe('gpt-4o-mini')
-  })
-
-  test('Gemini provider returns flash-lite even when GEMINI_MODEL is set to pro-preview', () => {
-    clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
-    // User's main-loop model is expensive — small/fast must ignore it
     process.env.GEMINI_MODEL = 'gemini-2.5-pro-preview'
-
-    expect(getSmallFastModel()).toBe('gemini-2.0-flash-lite')
-  })
-
-  test('Gemini provider returns flash-lite when GEMINI_MODEL is unset', () => {
-    clearProviderEnv()
-    clearSmallFastEnv()
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
 
     expect(getSmallFastModel()).toBe('gemini-2.0-flash-lite')
   })
 
   test('Bedrock provider returns a Haiku-family model', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.CLAUDE_CODE_USE_BEDROCK = '1'
 
-    // Bedrock IDs look like "us.anthropic.claude-haiku-4-5-...-v1:0"
     expect(getSmallFastModel().toLowerCase()).toContain('haiku')
   })
 
   test('Vertex provider returns a Haiku-family model', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.CLAUDE_CODE_USE_VERTEX = '1'
 
     expect(getSmallFastModel().toLowerCase()).toContain('haiku')
@@ -152,7 +144,7 @@ describe('getSmallFastModel — provider defaults (no overrides)', () => {
 
   test('Foundry provider returns a Haiku-family model', () => {
     clearProviderEnv()
-    clearSmallFastEnv()
+    clearSmallModelEnv()
     process.env.CLAUDE_CODE_USE_FOUNDRY = '1'
 
     expect(getSmallFastModel().toLowerCase()).toContain('haiku')
@@ -160,9 +152,6 @@ describe('getSmallFastModel — provider defaults (no overrides)', () => {
 })
 
 describe('getSmallFastModel — never leaks main-loop model', () => {
-  // Parameterized across every non-Anthropic provider to ensure that setting
-  // the user's main model env var (which may be an expensive model) never
-  // bleeds into the small/fast tier used by compaction and other side-calls.
   test.each([
     ['openai', 'CLAUDE_CODE_USE_OPENAI', 'OPENAI_MODEL', 'gpt-4.1'],
     ['gemini', 'CLAUDE_CODE_USE_GEMINI', 'GEMINI_MODEL', 'gemini-2.5-pro-preview'],
@@ -170,11 +159,120 @@ describe('getSmallFastModel — never leaks main-loop model', () => {
     '%s: expensive main model env var does not leak into small/fast',
     (_name, providerEnv, modelEnv, expensiveModel) => {
       clearProviderEnv()
-      clearSmallFastEnv()
+      clearSmallModelEnv()
       process.env[providerEnv] = '1'
       process.env[modelEnv] = expensiveModel
 
       expect(getSmallFastModel()).not.toBe(expensiveModel)
     },
   )
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getDefaultHaikuModel — the "small tier" model surfaced in the model picker
+// and used by attachments, alias resolution, etc.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getDefaultHaikuModel — env var override priority', () => {
+  test('CLAUDE_CODE_DEFAULT_SMALL_MODEL is the highest priority override', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL = 'llama3.2:3b'
+    // Legacy var set too — new var should win
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'legacy-haiku'
+
+    expect(getDefaultHaikuModel()).toBe('llama3.2:3b')
+  })
+
+  test('ANTHROPIC_DEFAULT_HAIKU_MODEL still works as a legacy fallback', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'my-enterprise-haiku'
+
+    expect(getDefaultHaikuModel()).toBe('my-enterprise-haiku')
+  })
+
+  test('override works regardless of provider', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_MODEL = 'gpt-4.1'           // expensive main-loop model
+    process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL = 'gpt-4o-mini'
+
+    expect(getDefaultHaikuModel()).toBe('gpt-4o-mini')
+  })
+})
+
+describe('getDefaultHaikuModel — provider defaults (no overrides)', () => {
+  test('Anthropic firstParty returns a Haiku model', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+
+    expect(getDefaultHaikuModel().toLowerCase()).toContain('haiku')
+  })
+
+  test('OpenAI API provider returns gpt-4o-mini, not OPENAI_MODEL', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_MODEL = 'gpt-4.1'  // expensive main-loop — must not bleed in
+
+    expect(getDefaultHaikuModel()).toBe('gpt-4o-mini')
+  })
+
+  test('Gemini provider returns flash-lite, not GEMINI_MODEL', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+    process.env.GEMINI_MODEL = 'gemini-2.5-pro-preview'
+
+    expect(getDefaultHaikuModel()).toBe('gemini-2.0-flash-lite')
+  })
+
+  test('Bedrock provider returns a Haiku-family model', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+
+    expect(getDefaultHaikuModel().toLowerCase()).toContain('haiku')
+  })
+})
+
+describe('getDefaultHaikuModel — Ollama path', () => {
+  test('OLLAMA_BASE_URL triggers Ollama detection', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    process.env.OPENAI_MODEL = 'llama3.3:70b'
+
+    // Without a configured small model, Ollama falls back to OPENAI_MODEL
+    // (callable locally) — NOT a hardcoded API model like gpt-4o-mini
+    const model = getDefaultHaikuModel()
+    expect(model).not.toBe('gpt-4o-mini')
+  })
+
+  test('CLAUDE_CODE_DEFAULT_SMALL_MODEL pins Ollama small model explicitly', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    process.env.OPENAI_MODEL = 'llama3.3:70b'
+    process.env.CLAUDE_CODE_DEFAULT_SMALL_MODEL = 'llama3.2:3b'
+
+    expect(getDefaultHaikuModel()).toBe('llama3.2:3b')
+  })
+
+  test('port-11434 OPENAI_BASE_URL also triggers Ollama detection', () => {
+    clearProviderEnv()
+    clearSmallModelEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_MODEL = 'qwen2.5-coder:7b'
+
+    // Ollama path — model should not be a hardcoded API provider string
+    const model = getDefaultHaikuModel()
+    expect(model).not.toBe('gpt-4o-mini')
+    expect(model).not.toBe('gemini-2.0-flash-lite')
+  })
 })

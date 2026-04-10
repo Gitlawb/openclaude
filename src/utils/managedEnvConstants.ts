@@ -39,6 +39,12 @@ const PROVIDER_MANAGED_ENV_VARS = new Set([
   'CLAUDE_CODE_SKIP_FOUNDRY_AUTH',
   // Model defaults — often set to provider-specific ID formats
   'ANTHROPIC_MODEL',
+  // Provider-agnostic model tier overrides (preferred for new installs and
+  // multi-provider setups — Ollama, LM Studio, OpenAI API, Gemini, etc.)
+  'CLAUDE_CODE_DEFAULT_SMALL_MODEL',
+  'CLAUDE_CODE_DEFAULT_SMALL_MODEL_SUPPORTED_CAPABILITIES',
+  'CLAUDE_CODE_SMALL_FAST_MODEL',
+  // Legacy Anthropic-branded overrides — kept for backwards compatibility
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME',
