@@ -264,7 +264,7 @@ test('buildCurrentProviderSummary labels generic local openai-compatible provide
   expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
 })
 
-test('buildCurrentProviderSummary relabels local gpt-5.4 providers to Codex (via Codex transport)', () => {
+test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Codex when custom base URL is set', () => {
   const summary = buildCurrentProviderSummary({
     processEnv: {
       CLAUDE_CODE_USE_OPENAI: '1',
@@ -274,9 +274,9 @@ test('buildCurrentProviderSummary relabels local gpt-5.4 providers to Codex (via
     persisted: null,
   })
 
-  expect(summary.providerLabel).toBe('Codex')
+  expect(summary.providerLabel).toBe('Local OpenAI-compatible')
   expect(summary.modelLabel).toBe('gpt-5.4')
-  expect(summary.endpointLabel).toBe('https://chatgpt.com/backend-api/codex')
+  expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
 })
 
 test('buildCurrentProviderSummary recognizes GitHub Models mode', () => {

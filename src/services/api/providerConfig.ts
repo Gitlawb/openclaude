@@ -395,8 +395,9 @@ export function resolveProviderRequest(options?: {
     descriptor.baseModel === envResolvedCodexModel
   const isCodexAliasModel =
     isOpenAICodexShortcutAlias(requestedModel) || requestedMatchesEnvCodexShortcut
+  const hasUserSetBaseUrl = rawBaseUrl && rawBaseUrl !== DEFAULT_OPENAI_BASE_URL
   const finalBaseUrl =
-    !isGithubMode && isCodexAliasModel
+    !isGithubMode && isCodexAliasModel && !hasUserSetBaseUrl
       ? DEFAULT_CODEX_BASE_URL
       : rawBaseUrl
 
