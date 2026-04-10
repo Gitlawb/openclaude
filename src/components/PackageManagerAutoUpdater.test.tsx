@@ -5,7 +5,6 @@ import React from 'react'
 import stripAnsi from 'strip-ansi'
 
 import { createRoot } from '../ink.js'
-import { PackageManagerAutoUpdater } from './PackageManagerAutoUpdater.js'
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -101,7 +100,7 @@ function mockUpdaterDeps(options: {
 }
 
 test('shows copy-pasteable homebrew command when update is available', async () => {
-  process.env.NODE_ENV = 'test-render'
+  process.env.NODE_ENV = 'production'
   mockUpdaterDeps({ latestVersion: '0.1.9', packageManager: 'homebrew' })
 
   const { stdout, stdin, getOutput } = createTestStreams()
@@ -146,7 +145,7 @@ test('shows copy-pasteable homebrew command when update is available', async () 
 })
 
 test('reports up_to_date after previously having an update', async () => {
-  process.env.NODE_ENV = 'test-render'
+  process.env.NODE_ENV = 'production'
   mockUpdaterDeps({ latestVersion: '0.1.8', packageManager: 'winget' })
 
   const results: unknown[] = []
