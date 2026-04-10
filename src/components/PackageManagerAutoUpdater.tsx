@@ -42,6 +42,7 @@ function getPackageManagerUpdateCommand(packageManager: PackageManager): string 
 export function PackageManagerAutoUpdater({
   verbose,
   onAutoUpdaterResult,
+  autoUpdaterResult,
 }: Props): React.ReactNode {
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [packageManager, setPackageManager] = useState<PackageManager>('unknown')
