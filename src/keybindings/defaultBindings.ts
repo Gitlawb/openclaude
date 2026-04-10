@@ -150,6 +150,8 @@ export const DEFAULT_BINDINGS: KeybindingBlock[] = [
   {
     context: 'Tabs',
     bindings: {
+      // Return from the header row into the active tab content
+      down: 'select:next',
       // Tab cycling navigation
       tab: 'tabs:next',
       'shift+tab': 'tabs:previous',

@@ -145,6 +145,12 @@ export function Tabs(t0) {
     t7 = $[4];
   }
   useKeybindings({
+    "select:next": () => {
+      if (!optedIn) {
+        return;
+      }
+      setHeaderFocused(false);
+    },
     "tabs:next": () => handleTabChange(1),
     "tabs:previous": () => handleTabChange(-1)
   }, t7);
