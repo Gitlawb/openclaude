@@ -80,12 +80,17 @@ type CodexSseEvent = {
 function makeUsage(usage?: {
   input_tokens?: number
   output_tokens?: number
+  input_tokens_details?: { cached_tokens?: number }
+  prompt_tokens_details?: { cached_tokens?: number }
 }): AnthropicUsage {
   return {
     input_tokens: usage?.input_tokens ?? 0,
     output_tokens: usage?.output_tokens ?? 0,
     cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
+    cache_read_input_tokens:
+      usage?.input_tokens_details?.cached_tokens ??
+      usage?.prompt_tokens_details?.cached_tokens ??
+      0,
   }
 }
 
@@ -890,8 +895,16 @@ export async function* codexStreamToAnthropic(
       stop_sequence: null,
     },
     usage: {
-      input_tokens: finalResponse?.usage?.input_tokens ?? 0,
+      // Subtract cached tokens: OpenAI includes them in input_tokens,
+      // but Anthropic convention treats input_tokens as non-cached only.
+      input_tokens: (finalResponse?.usage?.input_tokens ?? 0) -
+        (finalResponse?.usage?.input_tokens_details?.cached_tokens ??
+         finalResponse?.usage?.prompt_tokens_details?.cached_tokens ?? 0),
       output_tokens: finalResponse?.usage?.output_tokens ?? 0,
+      cache_read_input_tokens:
+        finalResponse?.usage?.input_tokens_details?.cached_tokens ??
+        finalResponse?.usage?.prompt_tokens_details?.cached_tokens ??
+        0,
     },
   }
   yield { type: 'message_stop' }
