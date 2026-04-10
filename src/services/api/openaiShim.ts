@@ -538,11 +538,14 @@ function convertChunkUsage(
 ): Partial<AnthropicUsage> | undefined {
   if (!usage) return undefined
 
+  const cached = usage.prompt_tokens_details?.cached_tokens ?? 0
   return {
-    input_tokens: usage.prompt_tokens ?? 0,
+    // Subtract cached tokens: OpenAI includes them in prompt_tokens,
+    // but Anthropic convention treats input_tokens as non-cached only.
+    input_tokens: (usage.prompt_tokens ?? 0) - cached,
     output_tokens: usage.completion_tokens ?? 0,
     cache_creation_input_tokens: 0,
-    cache_read_input_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    cache_read_input_tokens: cached,
   }
 }
 
