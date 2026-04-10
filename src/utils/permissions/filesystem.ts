@@ -64,6 +64,7 @@ export const DANGEROUS_FILES = [
   '.profile',
   '.ripgreprc',
   '.mcp.json',
+  '.openclaude.json',
   '.claude.json',
 ] as const
 
