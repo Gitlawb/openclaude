@@ -449,16 +449,24 @@ const reconciler = createReconciler<
   },
   commitUpdate(
     node: DOMElement,
-    updatePayload: UpdatePayload | null,
     _type: ElementNames,
-    _oldProps: Props,
-    _newProps: Props,
+    oldProps: Props,
+    newProps: Props,
   ): void {
-    if (!updatePayload) {
+    // React 19 mutation mode calls commitUpdate as
+    // (instance, type, oldProps, newProps, fiber) and does not pass the
+    // prepareUpdate() payload here. This renderer used to treat the second
+    // argument as updatePayload, which left mounted ink-* nodes with stale
+    // attributes, event handlers, and textStyles until something forced a
+    // remount. Recompute the prop/style diff here so host nodes update
+    // correctly in place on rerender.
+    const props = diff(oldProps, newProps)
+    const style = diff(oldProps['style'] as Styles, newProps['style'] as Styles)
+    const nextStyle = newProps['style'] as Styles | undefined
+
+    if (!props && !style) {
       return
     }
-
-    const { props, style, nextStyle } = updatePayload
 
     if (props) {
       for (const [key, value] of Object.entries(props)) {
