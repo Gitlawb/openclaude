@@ -1279,6 +1279,15 @@ class OpenAIShimMessages {
     if (params.temperature !== undefined) body.temperature = params.temperature
     if (params.top_p !== undefined) body.top_p = params.top_p
 
+    // Enable thinking/reasoning for providers that support it.
+    // Gemini 2.5+ accepts `thinking: true` to enable extended thinking.
+    // OpenAI reasoning models (o1, o3, etc.) use `reasoning_effort`.
+    if (isGeminiMode()) {
+      body.thinking = true
+    } else if (request.reasoning?.effort) {
+      body.reasoning_effort = request.reasoning.effort
+    }
+
     if (params.tools && params.tools.length > 0) {
       const converted = convertTools(
         params.tools as Array<{

@@ -2888,3 +2888,67 @@ test('strips extra_content and thought_signature from tool_calls for non-Gemini 
   // DeepSeek is a standard OpenAI-compatible provider — store is included
   expect(requestBody!).toHaveProperty('store', false)
 })
+
+test('Gemini: sends thinking=true in request body', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gemini-2.5-flash',
+        choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  process.env.OPENAI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
+  process.env.OPENAI_API_KEY = 'fake-gemini-key'
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-2.5-flash',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody).toBeDefined()
+  expect(requestBody!).toHaveProperty('thinking', true)
+})
+
+test('non-Gemini: does not send thinking=true', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-fake-key'
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody).toBeDefined()
+  expect(requestBody!).not.toHaveProperty('thinking')
+})
