@@ -225,7 +225,7 @@ export function TrustDialog(t0) {
   let t20;
   if ($[24] === Symbol.for("react.memo_cache_sentinel")) {
     t20 = [{
-      label: "Yes, I trust this folder",
+      label: "Yes, I trust this folder asba",
       value: "enable_all"
     }, {
       label: "No, exit",
