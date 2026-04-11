@@ -68,7 +68,7 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
  * Priority order within this function:
  * 1. Model override during session (from /model command) - highest priority
  * 2. Model override at startup (from --model flag)
- * 3. ANTHROPIC_MODEL environment variable
+ * 3. Active-provider model environment variable
  * 4. Settings (from user's saved settings)
  */
 export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
@@ -84,10 +84,10 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     const provider = getAPIProvider()
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
-      (provider === 'openai' || provider === 'gemini' || provider === 'github'
+      (provider === 'openai' || provider === 'codex' || provider === 'github'
         ? process.env.OPENAI_MODEL
         : undefined) ||
-      (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
+      process.env.ANTHROPIC_MODEL ||
       settings.model ||
       undefined
   }
