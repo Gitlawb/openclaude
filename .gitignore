@@ -10,3 +10,7 @@ GEMINI.md
 package-lock.json
 /.claude
 coverage/
+.gitnexus
+
+# Sentry Config File
+.env.sentry-build-plugin

@@ -1,3 +1,4 @@
+import '../../sentry.server.config'
 import { feature } from 'bun:bundle';
 import {
   applyProfileEnvToProcessEnv,
