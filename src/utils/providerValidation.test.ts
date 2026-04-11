@@ -3,7 +3,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { getProviderValidationError } from './providerValidation.ts'
 
 const originalEnv = {
-  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_GOOGLE: process.env.CLAUDE_CODE_GOOGLE,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
@@ -20,7 +20,7 @@ function restoreEnv(key: string, value: string | undefined): void {
 }
 
 afterEach(() => {
-  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+  restoreEnv('CLAUDE_CODE_GOOGLE', originalEnv.CLAUDE_CODE_GOOGLE)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
   restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
@@ -32,7 +32,7 @@ afterEach(() => {
 })
 
 test('accepts GEMINI_ACCESS_TOKEN as valid Gemini auth', async () => {
-  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.CLAUDE_CODE_GOOGLE = '1'
   process.env.GEMINI_AUTH_MODE = 'access-token'
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
@@ -42,7 +42,7 @@ test('accepts GEMINI_ACCESS_TOKEN as valid Gemini auth', async () => {
 })
 
 test('accepts ADC credentials for Gemini auth', async () => {
-  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.CLAUDE_CODE_GOOGLE = '1'
   process.env.GEMINI_AUTH_MODE = 'adc'
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
@@ -60,7 +60,7 @@ test('accepts ADC credentials for Gemini auth', async () => {
 })
 
 test('still errors when no Gemini credential source is available', async () => {
-  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.CLAUDE_CODE_GOOGLE = '1'
   process.env.GEMINI_AUTH_MODE = 'access-token'
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
@@ -68,6 +68,6 @@ test('still errors when no Gemini credential source is available', async () => {
   delete process.env.GOOGLE_APPLICATION_CREDENTIALS
 
   await expect(getProviderValidationError(process.env)).resolves.toBe(
-    'GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_ACCESS_TOKEN, or Google ADC credentials are required when CLAUDE_CODE_USE_GEMINI=1.',
+    'GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_ACCESS_TOKEN, or Google ADC credentials are required when CLAUDE_CODE_GOOGLE=1.',
   )
 })

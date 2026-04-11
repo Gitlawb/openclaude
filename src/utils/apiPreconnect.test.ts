@@ -34,7 +34,7 @@ describe('preconnectAnthropicApi', () => {
   })
 
   test('does not fetch when Gemini mode is enabled', async () => {
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+    process.env.CLAUDE_CODE_GOOGLE = '1'
     mock.module('./model/providers.js', () => ({
       getAPIProvider: () => 'gemini',
     }))
@@ -63,7 +63,7 @@ describe('preconnectAnthropicApi', () => {
 
   test('fetches in first-party mode', async () => {
     delete process.env.CLAUDE_CODE_USE_OPENAI
-    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_GOOGLE
     delete process.env.CLAUDE_CODE_USE_GITHUB
     delete process.env.CLAUDE_CODE_USE_BEDROCK
     delete process.env.CLAUDE_CODE_USE_VERTEX

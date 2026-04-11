@@ -77,7 +77,7 @@ export function getContextWindowForModel(
   // before hitting a hard context_window_exceeded error.
   const isOpenAIProvider =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_GOOGLE) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   if (isOpenAIProvider) {
     const openaiWindow = getOpenAIContextWindow(model)
@@ -185,7 +185,7 @@ export function getModelMaxOutputTokens(model: string): {
   // OpenAI-compatible provider — use known output limits to avoid 400 errors
   if (
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_GOOGLE) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   ) {
     const openaiMax = getOpenAIMaxOutputTokens(model)

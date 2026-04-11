@@ -18,7 +18,7 @@ const originalEnv = { ...process.env }
 
 const envKeys = [
   'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_GOOGLE',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',

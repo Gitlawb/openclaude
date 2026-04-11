@@ -12,7 +12,7 @@ const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_GOOGLE',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
@@ -102,14 +102,14 @@ describe('applyProviderProfileToProcessEnv', () => {
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+    process.env.CLAUDE_CODE_GOOGLE = '1'
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
 
     applyProviderProfileToProcessEnv(buildProfile())
     const { getAPIProvider: getFreshAPIProvider } =
       await importFreshProvidersModule()
 
-    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_GOOGLE).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
@@ -121,7 +121,7 @@ describe('applyProviderProfileToProcessEnv', () => {
   test('anthropic profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+    process.env.CLAUDE_CODE_GOOGLE = '1'
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
 
     applyProviderProfileToProcessEnv(
@@ -134,7 +134,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     const { getAPIProvider: getFreshAPIProvider } =
       await importFreshProvidersModule()
 
-    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_GOOGLE).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(getFreshAPIProvider()).toBe('firstParty')
@@ -254,7 +254,7 @@ describe('applyActiveProviderProfileFromConfig', () => {
     const { applyActiveProviderProfileFromConfig } =
       await importFreshProviderProfileModules()
     delete process.env.CLAUDE_CODE_USE_OPENAI
-    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_GOOGLE
     delete process.env.CLAUDE_CODE_USE_GITHUB
     delete process.env.CLAUDE_CODE_USE_BEDROCK
     delete process.env.CLAUDE_CODE_USE_VERTEX
@@ -388,7 +388,7 @@ describe('deleteProviderProfile', () => {
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
 
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_GOOGLE).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_BEDROCK).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_VERTEX).toBeUndefined()

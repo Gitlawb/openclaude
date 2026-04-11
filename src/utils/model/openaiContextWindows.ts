@@ -90,7 +90,7 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'google/gemini-2.0-flash':1_048_576,
   'google/gemini-2.5-pro':  1_048_576,
 
-  // Google (native via CLAUDE_CODE_USE_GEMINI)
+  // Google (native via CLAUDE_CODE_GOOGLE)
   'gemini-2.0-flash':       1_048_576,
   'gemini-2.5-pro':         1_048_576,
   'gemini-2.5-flash':       1_048_576,
@@ -195,7 +195,7 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'google/gemini-2.0-flash':   8_192,
   'google/gemini-2.5-pro':    65_536,
 
-  // Google (native via CLAUDE_CODE_USE_GEMINI)
+  // Google (native via CLAUDE_CODE_GOOGLE)
   'gemini-2.0-flash':          8_192,
   'gemini-2.5-pro':           65_536,
   'gemini-2.5-flash':         65_536,

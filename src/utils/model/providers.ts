@@ -13,7 +13,7 @@ export type APIProvider =
   | 'codex'
 
 export function getAPIProvider(): APIProvider {
-  return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  return isEnvTruthy(process.env.CLAUDE_CODE_GOOGLE)
     ? 'gemini'
     : isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
       ? 'github'

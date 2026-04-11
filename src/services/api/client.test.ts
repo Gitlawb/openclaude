@@ -15,7 +15,7 @@ const originalFetch = globalThis.fetch
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
-  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_GOOGLE: process.env.CLAUDE_CODE_GOOGLE,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
@@ -39,7 +39,7 @@ function restoreEnv(key: string, value: string | undefined): void {
 
 beforeEach(() => {
   ;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
-  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.CLAUDE_CODE_GOOGLE = '1'
   process.env.GEMINI_API_KEY = 'gemini-test-key'
   process.env.GEMINI_MODEL = 'gemini-2.0-flash'
   process.env.GEMINI_BASE_URL = 'https://gemini.example/v1beta/openai'
@@ -58,7 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   ;(globalThis as Record<string, unknown>).MACRO = originalMacro
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+  restoreEnv('CLAUDE_CODE_GOOGLE', originalEnv.CLAUDE_CODE_GOOGLE)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
   restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
@@ -73,9 +73,8 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
-test('routes Gemini provider requests through the OpenAI-compatible shim', async () => {
+test('routes Gemini provider requests through the native Gemini shim', async () => {
   let capturedUrl: string | undefined
-  let capturedHeaders: Headers | undefined
   let capturedBody: Record<string, unknown> | undefined
 
   globalThis.fetch = (async (input, init) => {
@@ -85,26 +84,22 @@ test('routes Gemini provider requests through the OpenAI-compatible shim', async
         : input instanceof URL
           ? input.toString()
           : input.url
-    capturedHeaders = new Headers(init?.headers)
     capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
 
     return new Response(
       JSON.stringify({
-        id: 'chatcmpl-gemini',
-        model: 'gemini-2.0-flash',
-        choices: [
+        candidates: [
           {
-            message: {
-              role: 'assistant',
-              content: 'gemini ok',
+            content: {
+              parts: [{ text: 'gemini ok' }],
+              role: 'model',
             },
-            finish_reason: 'stop',
+            finishReason: 'STOP',
           },
         ],
-        usage: {
-          prompt_tokens: 8,
-          completion_tokens: 3,
-          total_tokens: 11,
+        usageMetadata: {
+          promptTokenCount: 8,
+          candidatesTokenCount: 3,
         },
       }),
       {
@@ -128,12 +123,11 @@ test('routes Gemini provider requests through the OpenAI-compatible shim', async
     stream: false,
   })
 
-  expect(capturedUrl).toBe('https://gemini.example/v1beta/openai/chat/completions')
-  expect(capturedHeaders?.get('authorization')).toBe('Bearer gemini-test-key')
-  expect(capturedBody?.model).toBe('gemini-2.0-flash')
+  // Native Gemini shim calls the Generative AI endpoint, not OpenAI-compatible
+  expect(capturedUrl).toContain('generativelanguage.googleapis.com')
+  expect(capturedUrl).toContain('generateContent')
   expect(response).toMatchObject({
     role: 'assistant',
-    model: 'gemini-2.0-flash',
   })
 })
 
@@ -141,6 +135,7 @@ test('strips Anthropic-specific custom headers before sending OpenAI-compatible 
   let capturedHeaders: Headers | undefined
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_GOOGLE
   process.env.OPENAI_API_KEY = 'openai-test-key'
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_MODEL = 'gpt-4o'

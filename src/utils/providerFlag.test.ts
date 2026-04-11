@@ -8,7 +8,7 @@ import {
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_GOOGLE',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
@@ -29,7 +29,7 @@ beforeEach(() => {
 
 const RESET_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_GOOGLE',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
@@ -90,7 +90,7 @@ describe('applyProviderFlag - anthropic', () => {
     const result = applyProviderFlag('anthropic', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_GOOGLE).toBeUndefined()
   })
 })
 
@@ -108,10 +108,10 @@ describe('applyProviderFlag - openai', () => {
 })
 
 describe('applyProviderFlag - gemini', () => {
-  test('sets CLAUDE_CODE_USE_GEMINI=1', () => {
+  test('sets CLAUDE_CODE_GOOGLE=1', () => {
     const result = applyProviderFlag('gemini', [])
     expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBe('1')
+    expect(process.env.CLAUDE_CODE_GOOGLE).toBe('1')
   })
 
   test('sets GEMINI_MODEL when --model is provided', () => {

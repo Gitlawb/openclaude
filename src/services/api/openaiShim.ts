@@ -254,9 +254,9 @@ function convertContentBlocks(
   return parts
 }
 
-function isGeminiMode(): boolean {
+function isGoogleMode(): boolean {
   return (
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_GOOGLE) ||
     hasGeminiApiHost(process.env.OPENAI_BASE_URL)
   )
 }
@@ -352,11 +352,27 @@ function convertMessages(
               }
 
               // Handle Gemini thought_signature
-              if (isGeminiMode()) {
+              if (isGoogleMode()) {
                 // If the model provided a signature in the tool_use block itself (e.g. from a previous Turn/Step)
                 // Use thinkingBlock.signature for ALL tool calls in the same assistant turn if available.
                 // The API requires the same signature on every replayed function call part in a parallel set.
                 const signature = tu.signature ?? (thinkingBlock as any)?.signature
+
+                // Gemini requires a non-empty thought_signature on every function call part.
+                // When no real signature is available (first turn, non-thinking model, etc.),
+                // generate a deterministic pseudo-signature from the tool call ID so it stays
+                // consistent across retries and doesn't trigger the "missing thought_signature" error.
+                let effectiveSignature: string
+                if (signature) {
+                  effectiveSignature = signature
+                } else {
+                  const id = toolCall.id
+                  let hash = 0
+                  for (let i = 0; i < id.length; i++) {
+                    hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0
+                  }
+                  effectiveSignature = `sig_${Math.abs(hash).toString(36)}_${id.slice(-8)}`
+                }
 
                 // Merge into existing google-specific metadata if present
                 const existingGoogle = (toolCall.extra_content?.google as Record<string, unknown>) ?? {}
@@ -365,7 +381,7 @@ function convertMessages(
                   ...toolCall.extra_content,
                   google: {
                     ...existingGoogle,
-                    thought_signature: signature ?? "skip_thought_signature_validator"
+                    thought_signature: effectiveSignature
                   }
                 }
               }
@@ -492,7 +508,7 @@ function normalizeSchemaForOpenAI(
 function convertTools(
   tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
 ): OpenAITool[] {
-  const isGemini = isGeminiMode()
+  const isGoogle = isGoogleMode()
 
   return tools
     .filter(t => t.name !== 'ToolSearchTool') // Not relevant for OpenAI
@@ -515,7 +531,7 @@ function convertTools(
         function: {
           name: t.name,
           description: t.description ?? '',
-          parameters: normalizeSchemaForOpenAI(schema, !isGemini),
+          parameters: normalizeSchemaForOpenAI(schema, !isGoogle),
         },
       }
     })
@@ -1256,7 +1272,7 @@ class OpenAIShimMessages {
       ...filterAnthropicHeaders(options?.headers),
     }
 
-    const isGemini = isGeminiMode()
+    const isGoogle = isGoogleMode()
     const apiKey =
       this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
@@ -1275,7 +1291,7 @@ class OpenAIShimMessages {
       } else {
         headers.Authorization = `Bearer ${apiKey}`
       }
-    } else if (isGemini) {
+    } else if (isGoogle) {
       const geminiCredential = await resolveGeminiCredential(process.env)
       if (geminiCredential.kind !== 'none') {
         headers.Authorization = `Bearer ${geminiCredential.credential}`
@@ -1578,7 +1594,7 @@ export function createOpenAIShimClient(options: {
 
   // When Gemini provider is active, map Gemini env vars to OpenAI-compatible ones
   // so the existing providerConfig.ts infrastructure picks them up correctly.
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
+  if (isEnvTruthy(process.env.CLAUDE_CODE_GOOGLE)) {
     process.env.OPENAI_BASE_URL ??=
       process.env.GEMINI_BASE_URL ??
       'https://generativelanguage.googleapis.com/v1beta/openai'

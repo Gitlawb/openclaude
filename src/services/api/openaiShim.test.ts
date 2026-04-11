@@ -11,7 +11,7 @@ const originalEnv = {
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
-  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_GOOGLE: process.env.CLAUDE_CODE_GOOGLE,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
@@ -79,7 +79,7 @@ beforeEach(() => {
   delete process.env.GITHUB_TOKEN
   delete process.env.GH_TOKEN
   delete process.env.CLAUDE_CODE_USE_OPENAI
-  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_GOOGLE
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
   delete process.env.GEMINI_ACCESS_TOKEN
@@ -98,7 +98,7 @@ afterEach(() => {
   restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
   restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+  restoreEnv('CLAUDE_CODE_GOOGLE', originalEnv.CLAUDE_CODE_GOOGLE)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
   restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
@@ -699,7 +699,7 @@ test('uses GEMINI_ACCESS_TOKEN for Gemini OpenAI-compatible requests', async () 
   let capturedProject: string | null = null
   let requestUrl: string | undefined
 
-  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.CLAUDE_CODE_GOOGLE = '1'
   process.env.GEMINI_AUTH_MODE = 'access-token'
   process.env.GEMINI_ACCESS_TOKEN = 'gemini-access-token'
   process.env.GOOGLE_CLOUD_PROJECT = 'gemini-project'

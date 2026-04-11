@@ -33,7 +33,7 @@ describe('prefetchOfficialMcpUrls', () => {
   })
 
   test('does not fetch registry when using Gemini mode', async () => {
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+    process.env.CLAUDE_CODE_GOOGLE = '1'
     mock.module('../../utils/model/providers.js', () => ({
       getAPIProvider: () => 'gemini',
     }))
@@ -48,7 +48,7 @@ describe('prefetchOfficialMcpUrls', () => {
 
   test('fetches registry in first-party mode', async () => {
     delete process.env.CLAUDE_CODE_USE_OPENAI
-    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_GOOGLE
     delete process.env.CLAUDE_CODE_USE_GITHUB
 
     mock.module('../../utils/model/providers.js', () => ({

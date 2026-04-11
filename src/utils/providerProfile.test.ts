@@ -149,7 +149,7 @@ test('matching persisted gemini env is reused for gemini launch', async () => {
     processEnv: {},
   })
 
-  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.CLAUDE_CODE_GOOGLE, '1')
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
   assert.equal(env.GEMINI_API_KEY, 'gem-persisted')
@@ -177,7 +177,7 @@ test('gemini launch ignores mismatched persisted openai env and strips other pro
     },
   })
 
-  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.CLAUDE_CODE_GOOGLE, '1')
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
   assert.equal(env.GEMINI_MODEL, 'gemini-2.0-flash')
   assert.equal(env.GEMINI_API_KEY, 'gem-live')
@@ -426,7 +426,7 @@ test('buildStartupEnvFromProfile applies persisted gemini settings when no provi
     processEnv: {},
   })
 
-  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.CLAUDE_CODE_GOOGLE, '1')
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
   assert.equal(env.GEMINI_API_KEY, 'gem-test')
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
@@ -442,7 +442,7 @@ test('buildStartupEnvFromProfile rehydrates stored Gemini access token for acces
     readGeminiAccessToken: () => 'token-live',
   })
 
-  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.CLAUDE_CODE_GOOGLE, '1')
   assert.equal(env.GEMINI_AUTH_MODE, 'access-token')
   assert.equal(env.GEMINI_ACCESS_TOKEN, 'token-live')
   assert.equal(env.GEMINI_API_KEY, undefined)
@@ -459,7 +459,7 @@ test('buildStartupEnvFromProfile does not inject stored access token for adc pro
     readGeminiAccessToken: () => 'token-live',
   })
 
-  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.CLAUDE_CODE_GOOGLE, '1')
   assert.equal(env.GEMINI_AUTH_MODE, 'adc')
   assert.equal(env.GEMINI_ACCESS_TOKEN, undefined)
   assert.equal(env.GEMINI_API_KEY, undefined)
@@ -467,7 +467,7 @@ test('buildStartupEnvFromProfile does not inject stored access token for adc pro
 
 test('buildStartupEnvFromProfile leaves explicit provider selections untouched', async () => {
   const processEnv = {
-    CLAUDE_CODE_USE_GEMINI: '1',
+    CLAUDE_CODE_GOOGLE: '1',
     GEMINI_API_KEY: 'gem-live',
     GEMINI_MODEL: 'gemini-2.0-flash',
   }
@@ -481,7 +481,7 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
   })
 
   assert.equal(env, processEnv)
-  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.CLAUDE_CODE_GOOGLE, '1')
   assert.equal(env.OPENAI_API_KEY, undefined)
 })
 

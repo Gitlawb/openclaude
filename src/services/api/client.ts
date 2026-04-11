@@ -174,10 +174,13 @@ export async function getAnthropicClient({
       providerOverride,
     }) as unknown as Anthropic
   }
+  if (isEnvTruthy(process.env.CLAUDE_CODE_GOOGLE)) {
+    const { createGeminiShimClient } = await import('./geminiShim.js')
+    return createGeminiShimClient({}) as unknown as Anthropic
+  }
   if (
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   ) {
     const { createOpenAIShimClient } = await import('./openaiShim.js')
     return createOpenAIShimClient({

@@ -72,12 +72,12 @@ export async function getProviderValidationError(
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
   const useGithub = isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)
 
-  if (isEnvTruthy(env.CLAUDE_CODE_USE_GEMINI)) {
+  if (isEnvTruthy(env.CLAUDE_CODE_GOOGLE)) {
     const geminiCredential = await (
       options?.resolveGeminiCredential ?? resolveGeminiCredential
     )(env)
     if (geminiCredential.kind === 'none') {
-      return 'GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_ACCESS_TOKEN, or Google ADC credentials are required when CLAUDE_CODE_USE_GEMINI=1.'
+      return 'GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_ACCESS_TOKEN, or Google ADC credentials are required when CLAUDE_CODE_GOOGLE=1.'
     }
     return null
   }

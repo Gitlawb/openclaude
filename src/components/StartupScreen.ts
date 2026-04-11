@@ -7,6 +7,7 @@
 
 import { isLocalProviderUrl } from '../services/api/providerConfig.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
+import { getProviderMode, getAvailableProviders } from '../tools/WebSearchTool/providers/index.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
@@ -82,14 +83,14 @@ const LOGO_CLAUDE = [
 // ─── Provider detection ───────────────────────────────────────────────────────
 
 function detectProvider(): { name: string; model: string; baseUrl: string; isLocal: boolean } {
-  const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
+  const useGoogle = process.env.CLAUDE_CODE_GOOGLE === '1' || process.env.CLAUDE_CODE_GOOGLE === 'true'
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
   const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
 
-  if (useGemini) {
-    const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
-    const baseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
-    return { name: 'Google Gemini', model, baseUrl, isLocal: false }
+  if (useGoogle) {
+    const model = process.env.GEMINI_MODEL || process.env.OPENAI_MODEL || 'gemini-2.0-flash'
+    const baseUrl = process.env.GEMINI_BASE_URL || 'generativelanguage.googleapis.com'
+    return { name: 'Google (compatible)', model, baseUrl, isLocal: false }
   }
 
   if (useGithub) {
@@ -144,6 +145,25 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
   return { name: 'Anthropic', model, baseUrl: 'https://api.anthropic.com', isLocal: false }
 }
 
+// ─── Search provider detection ────────────────────────────────────────────────
+
+function detectSearchProvider(): { label: string; isDefault: boolean } {
+  const mode = getProviderMode()
+
+  if (mode === 'native') return { label: 'native (Anthropic)', isDefault: false }
+  if (mode === 'custom') return { label: 'custom API', isDefault: false }
+  if (mode !== 'auto') return { label: mode, isDefault: false }
+
+  // Auto mode — show which providers are available (in priority order)
+  const available = getAvailableProviders()
+  if (available.length === 0) return { label: 'ddg (fallback)', isDefault: true }
+
+  const names = available.map(p => p.name)
+  // Show up to 3, then "+N more"
+  if (names.length <= 3) return { label: names.join(', '), isDefault: false }
+  return { label: `${names.slice(0, 3).join(', ')} +${names.length - 3}`, isDefault: false }
+}
+
 // ─── Box drawing ──────────────────────────────────────────────────────────────
 
 function boxRow(content: string, width: number, rawLen: number): string {
@@ -158,6 +178,7 @@ export function printStartupScreen(): void {
   if (process.env.CI || !process.stdout.isTTY) return
 
   const p = detectProvider()
+  const sp = detectSearchProvider()
   const W = 62
   const out: string[] = []
 
@@ -196,6 +217,10 @@ export function printStartupScreen(): void {
   out.push(boxRow(r, W, l))
   const ep = p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl
   ;[r, l] = lbl('Endpoint', ep)
+  out.push(boxRow(r, W, l))
+
+  const searchC: RGB = sp.isDefault ? DIMCOL : ACCENT
+  ;[r, l] = lbl('Search', sp.label, searchC)
   out.push(boxRow(r, W, l))
 
   out.push(`${rgb(...BORDER)}\u2560${'\u2550'.repeat(W - 2)}\u2563${RESET}`)

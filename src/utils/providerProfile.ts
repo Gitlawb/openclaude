@@ -22,7 +22,7 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
-  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_GOOGLE',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
@@ -415,7 +415,7 @@ export function hasExplicitProviderSelection(
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
+    processEnv.CLAUDE_CODE_GOOGLE !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
     processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
@@ -490,7 +490,7 @@ export async function buildLaunchEnv(options: {
   if (options.profile === 'gemini') {
     const env: NodeJS.ProcessEnv = {
       ...processEnv,
-      CLAUDE_CODE_USE_GEMINI: '1',
+      CLAUDE_CODE_GOOGLE: '1',
     }
 
     delete env.CLAUDE_CODE_USE_OPENAI
@@ -545,7 +545,7 @@ export async function buildLaunchEnv(options: {
     CLAUDE_CODE_USE_OPENAI: '1',
   }
 
-  delete env.CLAUDE_CODE_USE_GEMINI
+  delete env.CLAUDE_CODE_GOOGLE
   delete env.CLAUDE_CODE_USE_GITHUB
   delete env.GEMINI_API_KEY
   delete env.GEMINI_AUTH_MODE

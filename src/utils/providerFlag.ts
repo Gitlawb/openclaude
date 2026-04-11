@@ -90,7 +90,7 @@ export function applyProviderFlag(
       break
 
     case 'gemini':
-      process.env.CLAUDE_CODE_USE_GEMINI = '1'
+      process.env.CLAUDE_CODE_GOOGLE = '1'
       if (model) process.env.GEMINI_MODEL ??= model
       break
 

@@ -417,7 +417,7 @@ export function resolveProviderRequest(options?: {
 
 export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
-    if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
+    if (!isEnvTruthy(process.env.CLAUDE_CODE_GOOGLE) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&

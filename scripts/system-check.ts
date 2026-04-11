@@ -121,7 +121,7 @@ const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1bet
 const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
 
 function currentBaseUrl(): string {
-  if (isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
+  if (isTruthy(process.env.CLAUDE_CODE_GOOGLE)) {
     return process.env.GEMINI_BASE_URL ?? GEMINI_DEFAULT_BASE_URL
   }
   if (isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
@@ -184,11 +184,11 @@ function checkGithubEnv(): CheckResult[] {
 
 function checkOpenAIEnv(): CheckResult[] {
   const results: CheckResult[] = []
-  const useGemini = isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  const useGoogle = isTruthy(process.env.CLAUDE_CODE_GOOGLE)
   const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
 
-  if (useGemini) {
+  if (useGoogle) {
     return checkGeminiEnv()
   }
 
@@ -265,11 +265,11 @@ function checkOpenAIEnv(): CheckResult[] {
 }
 
 async function checkBaseUrlReachability(): Promise<CheckResult> {
-  const useGemini = isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  const useGoogle = isTruthy(process.env.CLAUDE_CODE_GOOGLE)
   const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
   const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 
-  if (!useGemini && !useOpenAI && !useGithub) {
+  if (!useGoogle && !useOpenAI && !useGithub) {
     return pass('Provider reachability', 'Skipped (OpenAI-compatible mode disabled).')
   }
 
@@ -281,7 +281,7 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
   }
 
   const geminiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai'
-  const resolvedBaseUrl = useGemini
+  const resolvedBaseUrl = useGoogle
     ? (process.env.GEMINI_BASE_URL ?? geminiBaseUrl)
     : undefined
   const request = resolveProviderRequest({
@@ -324,7 +324,7 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
         store: false,
         stream: true,
       })
-    } else if (useGemini && (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY)) {
+    } else if (useGoogle && (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY)) {
       headers.Authorization = `Bearer ${process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY}`
     } else if (process.env.OPENAI_API_KEY) {
       headers.Authorization = `Bearer ${process.env.OPENAI_API_KEY}`
@@ -372,7 +372,7 @@ function isAtomicChatUrl(baseUrl: string): boolean {
 function checkOllamaProcessorMode(): CheckResult {
   if (
     !isTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
-    isTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
+    isTruthy(process.env.CLAUDE_CODE_GOOGLE) ||
     isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   ) {
     return pass('Ollama processor mode', 'Skipped (OpenAI-compatible mode disabled).')
@@ -417,9 +417,9 @@ function checkOllamaProcessorMode(): CheckResult {
 }
 
 function serializeSafeEnvSummary(): Record<string, string | boolean> {
-  if (isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
+  if (isTruthy(process.env.CLAUDE_CODE_GOOGLE)) {
     return {
-      CLAUDE_CODE_USE_GEMINI: true,
+      CLAUDE_CODE_GOOGLE: true,
       GEMINI_MODEL: process.env.GEMINI_MODEL ?? '(unset, default: gemini-2.0-flash)',
       GEMINI_BASE_URL: process.env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai',
       GEMINI_API_KEY_SET: Boolean(process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY),

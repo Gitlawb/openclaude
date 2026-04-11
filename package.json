@@ -58,6 +58,7 @@
     "@anthropic-ai/sdk": "0.81.0",
     "@anthropic-ai/vertex-sdk": "0.14.4",
     "@commander-js/extra-typings": "12.1.0",
+    "@google/generative-ai": "^0.24.1",
     "@growthbook/growthbook": "1.6.5",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
