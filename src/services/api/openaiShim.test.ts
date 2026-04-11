@@ -2495,7 +2495,9 @@ test('preserves AbortError on user cancellation', async () => {
   }
 
   expect((caught as Error).name).toBe('AbortError')
+})
 test('streaming: strips leaked reasoning preamble from assistant content deltas', async () => {
+  
   globalThis.fetch = (async () => {
     const chunks = makeStreamChunks([
       {
