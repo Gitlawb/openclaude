@@ -61,7 +61,7 @@ afterEach(() => {
   resetModelStringsForTestingOnly()
 })
 
-test('GitHub provider exposes only default + GitHub model in /model options', async () => {
+test('GitHub provider exposes default + all Copilot models in /model options', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -69,7 +69,7 @@ test('GitHub provider exposes only default + GitHub model in /model options', as
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
 
-  process.env.OPENAI_MODEL = 'github:copilot'
+  process.env.OPENAI_MODEL = 'gpt-4o'
   delete process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
 
   const { getModelOptions } = await importFreshModelOptionsModule()
@@ -78,6 +78,7 @@ test('GitHub provider exposes only default + GitHub model in /model options', as
     (option: { value: unknown }) => option.value !== null,
   )
 
-  expect(nonDefault.length).toBe(1)
-  expect(nonDefault[0]?.value).toBe('github:copilot')
+  expect(nonDefault.length).toBeGreaterThan(1)
+  expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-4o')).toBe(true)
+  expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-5.3-codex')).toBe(true)
 })

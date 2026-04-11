@@ -238,6 +238,7 @@ import { usePromptsFromClaudeInChrome } from 'src/hooks/usePromptsFromClaudeInCh
 import { getTipToShowOnSpinner, recordShownTip } from 'src/services/tips/tipScheduler.js';
 import type { Theme } from 'src/utils/theme.js';
 import { isPromptTypingSuppressionActive } from './replInputSuppression.js';
+import { shouldRunStartupChecks } from './replStartupGates.js';
 import { checkAndDisableBypassPermissionsIfNeeded, checkAndDisableAutoModeIfNeeded, useKickOffCheckAndDisableBypassPermissionsIfNeeded, useKickOffCheckAndDisableAutoModeIfNeeded } from 'src/utils/permissions/bypassPermissionsKillswitch.js';
 import { SandboxManager } from 'src/utils/sandbox/sandbox-adapter.js';
 import { SANDBOX_NETWORK_ACCESS_TOOL_NAME } from 'src/cli/structuredIO.js';
@@ -616,7 +617,6 @@ export function REPL({
   const toolPermissionContext = useAppState(s => s.toolPermissionContext);
   const verbose = useAppState(s => s.verbose);
   const mcp = useAppState(s => s.mcp);
-  const plugins = useAppState(s => s.plugins);
   const agentDefinitions = useAppState(s => s.agentDefinitions);
   const fileHistory = useAppState(s => s.fileHistory);
   const initialMessage = useAppState(s => s.initialMessage);
@@ -779,7 +779,7 @@ export function REPL({
   }, [localTools, initialTools]);
 
   // Initialize plugin management
-  useManagePlugins({
+  const pluginCommands = useManagePlugins({
     enabled: !isRemoteSession
   });
   const tasksV2 = useTasksV2WithCollapseEffect();
@@ -792,10 +792,8 @@ export function REPL({
   // accepts, and only then is the REPL component mounted and this effect runs.
   // This ensures that plugin installations from repository and user settings only
   // happen after explicit user consent to trust the current working directory.
-  useEffect(() => {
-    if (isRemoteSession) return;
-    void performStartupChecks(setAppState);
-  }, [setAppState, isRemoteSession]);
+  // Deferring startup checks is handled below (after promptTypingSuppressionActive
+  // is declared) to avoid temporal dead zone issues.
 
   // Allow Claude in Chrome MCP to send prompts through MCP notifications
   // and sync permission mode changes to the Chrome extension
@@ -827,10 +825,16 @@ export function REPL({
   }, [mainThreadAgentDefinition, mergedTools]);
 
   // Merge commands from local state, plugins, and MCP
-  const commandsWithPlugins = useMergedCommands(localCommands, plugins.commands as Command[]);
+  const commandsWithPlugins = useMergedCommands(localCommands, pluginCommands as Command[]);
   const mergedCommands = useMergedCommands(commandsWithPlugins, mcp.commands as Command[]);
+  // Keep plugin commands out of render-time command props. Feeding the full
+  // execution set into PromptInput/Messages reintroduced the startup repaint
+  // freeze, while transcript rendering still round-trips plugin skills via the
+  // SkillTool's `skill` payload without needing plugin command objects here.
+  const renderMergedCommands = useMergedCommands(localCommands, mcp.commands as Command[]);
   // Filter out all commands if disableSlashCommands is true
   const commands = useMemo(() => disableSlashCommands ? [] : mergedCommands, [disableSlashCommands, mergedCommands]);
+  const renderCommands = useMemo(() => disableSlashCommands ? [] : renderMergedCommands, [disableSlashCommands, renderMergedCommands]);
   useIdeLogging(isRemoteSession ? EMPTY_MCP_CLIENTS : mcp.clients);
   useIdeSelection(isRemoteSession ? EMPTY_MCP_CLIENTS : mcp.clients, setIDESelection);
   const [streamMode, setStreamMode] = useState<SpinnerMode>('responding');
@@ -1429,6 +1433,25 @@ export function REPL({
   const activeRemote = sshRemote.isRemoteMode ? sshRemote : directConnect.isRemoteMode ? directConnect : remoteSession;
   const [pastedContents, setPastedContents] = useState<Record<number, PastedContent>>({});
   const [submitCount, setSubmitCount] = useState(0);
+
+  // Defer startup checks until the user has submitted their first message.
+  // A timeout or grace period is insufficient (issue #363): if the user pauses
+  // before typing, startup checks can still fire and recommendation dialogs
+  // steal focus. Only the user's first submission guarantees the prompt was
+  // the first thing they interacted with.
+  const startupChecksStartedRef = React.useRef(false);
+  const hasHadFirstSubmission = (submitCount ?? 0) > 0;
+  useEffect(() => {
+    if (isRemoteSession) return;
+    if (startupChecksStartedRef.current) return;
+    if (!shouldRunStartupChecks({
+      isRemoteSession,
+      hasStarted: startupChecksStartedRef.current,
+      hasHadFirstSubmission,
+    })) return;
+    startupChecksStartedRef.current = true;
+    void performStartupChecks(setAppState);
+  }, [setAppState, isRemoteSession, hasHadFirstSubmission]);
   // Ref instead of state to avoid triggering React re-renders on every
   // streaming text_delta. The spinner reads this via its animation timer.
   const responseLengthRef = useRef(0);
@@ -2061,13 +2084,14 @@ export function REPL({
     if (allowDialogsWithAnimation && showRemoteCallout) return 'remote-callout';
 
     // LSP plugin recommendation (lowest priority - non-blocking suggestion)
-    if (allowDialogsWithAnimation && lspRecommendation) return 'lsp-recommendation';
+    // Suppress during startup window to prevent stealing focus from the prompt (issue #363)
+    if (allowDialogsWithAnimation && lspRecommendation && startupChecksStartedRef.current) return 'lsp-recommendation';
 
     // Plugin hint from CLI/SDK stderr (same priority band as LSP rec)
-    if (allowDialogsWithAnimation && hintRecommendation) return 'plugin-hint';
+    if (allowDialogsWithAnimation && hintRecommendation && startupChecksStartedRef.current) return 'plugin-hint';
 
     // Desktop app upsell (max 3 launches, lowest priority)
-    if (allowDialogsWithAnimation && showDesktopUpsellStartup) return 'desktop-upsell';
+    if (allowDialogsWithAnimation && showDesktopUpsellStartup && startupChecksStartedRef.current) return 'desktop-upsell';
     return undefined;
   }
   const focusedInputDialog = getFocusedInputDialog();
@@ -4408,7 +4432,7 @@ export function REPL({
     // and transcript-mode are mutually exclusive (this early return), so
     // only one ScrollBox is ever mounted at a time.
     const transcriptScrollRef = isFullscreenEnvEnabled() && !disableVirtualScroll && !dumpMode ? scrollRef : undefined;
-    const transcriptMessagesElement = <Messages messages={transcriptMessages} tools={tools} commands={commands} verbose={true} toolJSX={null} toolUseConfirmQueue={[]} inProgressToolUseIDs={inProgressToolUseIDs} isMessageSelectorVisible={false} conversationId={conversationId} screen={screen} agentDefinitions={agentDefinitions} streamingToolUses={transcriptStreamingToolUses} showAllInTranscript={showAllInTranscript} onOpenRateLimitOptions={handleOpenRateLimitOptions} isLoading={isLoading} hidePastThinking={true} streamingThinking={streamingThinking} scrollRef={transcriptScrollRef} jumpRef={jumpRef} onSearchMatchesChange={onSearchMatchesChange} scanElement={scanElement} setPositions={setPositions} disableRenderCap={dumpMode} />;
+    const transcriptMessagesElement = <Messages messages={transcriptMessages} tools={tools} commands={renderCommands} verbose={true} toolJSX={null} toolUseConfirmQueue={[]} inProgressToolUseIDs={inProgressToolUseIDs} isMessageSelectorVisible={false} conversationId={conversationId} screen={screen} agentDefinitions={agentDefinitions} streamingToolUses={transcriptStreamingToolUses} showAllInTranscript={showAllInTranscript} onOpenRateLimitOptions={handleOpenRateLimitOptions} isLoading={isLoading} hidePastThinking={true} streamingThinking={streamingThinking} scrollRef={transcriptScrollRef} jumpRef={jumpRef} onSearchMatchesChange={onSearchMatchesChange} scanElement={scanElement} setPositions={setPositions} disableRenderCap={dumpMode} />;
     const transcriptToolJSX = toolJSX && <Box flexDirection="column" width="100%">
       {toolJSX.jsx}
     </Box>;
@@ -4576,7 +4600,7 @@ export function REPL({
         jumpToNew(scrollRef.current);
       }} scrollable={<>
         <TeammateViewHeader />
-        <Messages messages={displayedMessages} tools={tools} commands={commands} verbose={verbose} toolJSX={toolJSX} toolUseConfirmQueue={toolUseConfirmQueue} inProgressToolUseIDs={viewedTeammateTask ? viewedTeammateTask.inProgressToolUseIDs ?? new Set() : inProgressToolUseIDs} isMessageSelectorVisible={isMessageSelectorVisible} conversationId={conversationId} screen={screen} streamingToolUses={streamingToolUses} showAllInTranscript={showAllInTranscript} agentDefinitions={agentDefinitions} onOpenRateLimitOptions={handleOpenRateLimitOptions} isLoading={isLoading} streamingText={isLoading && !viewedAgentTask ? visibleStreamingText : null} isBriefOnly={viewedAgentTask ? false : isBriefOnly} unseenDivider={viewedAgentTask ? undefined : unseenDivider} scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined} trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined} cursor={cursor} setCursor={setCursor} cursorNavRef={cursorNavRef} />
+        <Messages messages={displayedMessages} tools={tools} commands={renderCommands} verbose={verbose} toolJSX={toolJSX} toolUseConfirmQueue={toolUseConfirmQueue} inProgressToolUseIDs={viewedTeammateTask ? viewedTeammateTask.inProgressToolUseIDs ?? new Set() : inProgressToolUseIDs} isMessageSelectorVisible={isMessageSelectorVisible} conversationId={conversationId} screen={screen} streamingToolUses={streamingToolUses} showAllInTranscript={showAllInTranscript} agentDefinitions={agentDefinitions} onOpenRateLimitOptions={handleOpenRateLimitOptions} isLoading={isLoading} streamingText={isLoading && !viewedAgentTask ? visibleStreamingText : null} isBriefOnly={viewedAgentTask ? false : isBriefOnly} unseenDivider={viewedAgentTask ? undefined : unseenDivider} scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined} trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined} cursor={cursor} setCursor={setCursor} cursorNavRef={cursorNavRef} />
         <AwsAuthStatusBox />
         {/* Hide the processing placeholder while a modal is showing —
                   it would sit at the last visible transcript row right above
@@ -4909,7 +4933,7 @@ export function REPL({
             {"external" === 'ant' && skillImprovementSurvey.suggestion && <SkillImprovementSurvey isOpen={skillImprovementSurvey.isOpen} skillName={skillImprovementSurvey.suggestion.skillName} updates={skillImprovementSurvey.suggestion.updates} handleSelect={skillImprovementSurvey.handleSelect} inputValue={inputValue} setInputValue={setInputValue} />}
             {showIssueFlagBanner && <IssueFlagBanner />}
             { }
-            <PromptInput debug={debug} ideSelection={ideSelection} hasSuppressedDialogs={!!hasSuppressedDialogs} isLocalJSXCommandActive={isShowingLocalJSXCommand} getToolUseContext={getToolUseContext} toolPermissionContext={toolPermissionContext} setToolPermissionContext={setToolPermissionContext} apiKeyStatus={apiKeyStatus} commands={commands} agents={agentDefinitions.activeAgents} isLoading={isLoading} onExit={handleExit} verbose={verbose} messages={messages} onAutoUpdaterResult={setAutoUpdaterResult} autoUpdaterResult={autoUpdaterResult} input={inputValue} onInputChange={setInputValue} mode={inputMode} onModeChange={setInputMode} stashedPrompt={stashedPrompt} setStashedPrompt={setStashedPrompt} submitCount={submitCount} onShowMessageSelector={handleShowMessageSelector} onMessageActionsEnter={
+            <PromptInput debug={debug} ideSelection={ideSelection} hasSuppressedDialogs={!!hasSuppressedDialogs} isLocalJSXCommandActive={isShowingLocalJSXCommand} getToolUseContext={getToolUseContext} toolPermissionContext={toolPermissionContext} setToolPermissionContext={setToolPermissionContext} apiKeyStatus={apiKeyStatus} commands={renderCommands} agents={agentDefinitions.activeAgents} isLoading={isLoading} onExit={handleExit} verbose={verbose} messages={messages} onAutoUpdaterResult={setAutoUpdaterResult} autoUpdaterResult={autoUpdaterResult} input={inputValue} onInputChange={setInputValue} mode={inputMode} onModeChange={setInputMode} stashedPrompt={stashedPrompt} setStashedPrompt={setStashedPrompt} submitCount={submitCount} onShowMessageSelector={handleShowMessageSelector} onMessageActionsEnter={
               // Works during isLoading — edit cancels first; uuid selection survives appends.
               feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? enterMessageActions : undefined} mcpClients={mcpClients} pastedContents={pastedContents} setPastedContents={setPastedContents} vimMode={vimMode} setVimMode={setVimMode} showBashesDialog={showBashesDialog} setShowBashesDialog={setShowBashesDialog} onSubmit={onSubmit} onAgentSubmit={onAgentSubmit} isSearchingHistory={isSearchingHistory} setIsSearchingHistory={setIsSearchingHistory} helpOpen={isHelpOpen} setHelpOpen={setIsHelpOpen} insertTextRef={feature('VOICE_MODE') ? insertTextRef : undefined} voiceInterimRange={voice.interimRange} />
             <SessionBackgroundHint onBackgroundSession={handleBackgroundSession} isLoading={isLoading} />

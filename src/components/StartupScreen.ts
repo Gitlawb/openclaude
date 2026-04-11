@@ -7,6 +7,8 @@
 
 import { isLocalProviderUrl } from '../services/api/providerConfig.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
+import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
+import { parseUserSpecifiedModel } from '../utils/model/model.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
@@ -95,8 +97,8 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
   if (useGithub) {
     const model = process.env.OPENAI_MODEL || 'github:copilot'
     const baseUrl =
-      process.env.OPENAI_BASE_URL || 'https://models.github.ai/inference'
-    return { name: 'GitHub Models', model, baseUrl, isLocal: false }
+      process.env.OPENAI_BASE_URL || 'https://api.githubcopilot.com'
+    return { name: 'GitHub Copilot', model, baseUrl, isLocal: false }
   }
 
   if (useOpenAI) {
@@ -139,9 +141,11 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     return { name, model: displayModel, baseUrl, isLocal }
   }
 
-  // Default: Anthropic
-  const model = process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
-  return { name: 'Anthropic', model, baseUrl: 'https://api.anthropic.com', isLocal: false }
+  // Default: Anthropic - check settings.model first, then env vars
+  const settings = getSettings_DEPRECATED() || {}
+  const modelSetting = settings.model || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
+  const resolvedModel = parseUserSpecifiedModel(modelSetting)
+  return { name: 'Anthropic', model: resolvedModel, baseUrl: 'https://api.anthropic.com', isLocal: false }
 }
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────

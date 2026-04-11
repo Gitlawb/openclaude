@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool, type Tools } from '../Tool.js'
+import { SkillTool } from '../tools/SkillTool/SkillTool.js'
 import { toolToAPISchema } from './api.js'
 
 test('toolToAPISchema preserves provider-specific schema keywords in input_schema', async () => {
@@ -62,5 +63,18 @@ test('toolToAPISchema preserves provider-specific schema keywords in input_schem
         },
       },
     },
+  })
+})
+
+test('toolToAPISchema keeps skill required for SkillTool', async () => {
+  const schema = await toolToAPISchema(SkillTool, {
+    getToolPermissionContext: async () => getEmptyToolPermissionContext(),
+    tools: [] as unknown as Tools,
+    agents: [],
+  })
+
+  expect((schema as { input_schema: unknown }).input_schema).toMatchObject({
+    type: 'object',
+    required: ['skill'],
   })
 })

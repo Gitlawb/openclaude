@@ -7,6 +7,10 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+  GH_TOKEN: process.env.GH_TOKEN,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
@@ -15,6 +19,7 @@ const originalEnv = {
   GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
+  ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
 }
 
 const originalFetch = globalThis.fetch
@@ -70,6 +75,10 @@ beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+  delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
@@ -78,12 +87,17 @@ beforeEach(() => {
   delete process.env.GEMINI_BASE_URL
   delete process.env.GEMINI_MODEL
   delete process.env.GOOGLE_CLOUD_PROJECT
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
 })
 
 afterEach(() => {
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+  restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
+  restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
+  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
@@ -92,7 +106,225 @@ afterEach(() => {
   restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
   restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
   restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
+  restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
   globalThis.fetch = originalFetch
+})
+
+test('strips canonical Anthropic headers from direct shim defaultHeaders', async () => {
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
+      'x-anthropic-additional-protection': 'true',
+      'x-claude-remote-session-id': 'remote-123',
+      'x-app': 'cli',
+      'x-client-app': 'sdk',
+      'x-safe-header': 'keep-me',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('anthropic-version')).toBeNull()
+  expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
+  expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
+  expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
+  expect(capturedHeaders?.get('x-app')).toBeNull()
+  expect(capturedHeaders?.get('x-client-app')).toBeNull()
+  expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+})
+
+test('strips canonical Anthropic headers from per-request shim headers too', async () => {
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'gpt-4o',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    {
+      headers: {
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
+        'x-safe-header': 'keep-me',
+      },
+    },
+  )
+
+  expect(capturedHeaders?.get('anthropic-version')).toBeNull()
+  expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
+  expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+})
+
+test('strips Anthropic-specific headers on GitHub Codex transport requests', async () => {
+  let capturedHeaders: Headers | undefined
+
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_API_KEY = 'github-test-key'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response('', {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+      },
+    })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'github:gpt-5-codex',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    },
+    {
+      headers: {
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
+        'x-anthropic-additional-protection': 'true',
+        'x-safe-header': 'keep-me',
+      },
+    },
+  )
+
+  expect(capturedHeaders?.get('anthropic-version')).toBeNull()
+  expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
+  expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
+  expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer github-test-key')
+  expect(capturedHeaders?.get('editor-plugin-version')).toBe('copilot-chat/0.26.7')
+})
+
+test('strips Anthropic-specific headers on GitHub Codex transport with providerOverride API key', async () => {
+  let capturedHeaders: Headers | undefined
+
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_API_KEY = 'env-should-not-win'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response('', {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+      },
+    })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    providerOverride: {
+      model: 'github:gpt-5-codex',
+      baseURL: 'https://api.githubcopilot.com',
+      apiKey: 'provider-override-key',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'ignored',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    },
+    {
+      headers: {
+        'anthropic-version': '2023-06-01',
+        'x-claude-remote-session-id': 'remote-123',
+        'x-safe-header': 'keep-me',
+      },
+    },
+  )
+
+  expect(capturedHeaders?.get('anthropic-version')).toBeNull()
+  expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
+  expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer provider-override-key')
+  expect(capturedHeaders?.get('editor-plugin-version')).toBe('copilot-chat/0.26.7')
 })
 
 test('preserves usage from final OpenAI stream chunk with empty choices', async () => {
@@ -259,6 +491,73 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
       },
     },
   })
+})
+
+test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-grep-schema',
+        model: 'qwen/qwen3.6-plus',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'qwen/qwen3.6-plus',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Use Grep' }],
+    tools: [
+      {
+        name: 'Grep',
+        description: 'Search file contents',
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Search pattern' },
+            path: { type: 'string' },
+          },
+          required: ['pattern'],
+          additionalProperties: false,
+        },
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const tools = requestBody?.tools as Array<Record<string, unknown>> | undefined
+  const grepTool = tools?.find(tool => (tool.function as Record<string, unknown>)?.name === 'Grep') as
+    | { function?: { parameters?: { properties?: Record<string, unknown>; required?: string[] } } }
+    | undefined
+
+  expect(Object.keys(grepTool?.function?.parameters?.properties ?? {})).toContain('pattern')
+  expect(grepTool?.function?.parameters?.required).toContain('pattern')
 })
 
 test('does not infer Gemini mode from OPENAI_BASE_URL path substrings', async () => {
@@ -1739,10 +2038,68 @@ test('sanitizes malformed MCP tool schemas before sending them to OpenAI', async
     | undefined
 
   expect(parameters?.additionalProperties).toBe(false)
-  expect(parameters?.required).toEqual(['priority'])
+  // No required[] in the original schema → none added (optional properties must not be forced required)
+  expect(parameters?.required).toEqual([])
   expect(properties?.priority?.type).toBe('integer')
   expect(properties?.priority?.enum).toEqual([0, 1, 2, 3])
   expect(properties?.priority).not.toHaveProperty('default')
+})
+
+test('optional tool properties are not added to required[] — fixes Groq/Azure 400 tool_use_failed', async () => {
+  // Regression test for: all optional properties being sent as required in strict mode,
+  // causing providers like Groq to reject valid tool calls where the model omits optional args.
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-4',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'read a file' }],
+    tools: [
+      {
+        name: 'Read',
+        description: 'Read a file',
+        input_schema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string', description: 'Absolute path to file' },
+            offset: { type: 'number', description: 'Line to start from' },
+            limit: { type: 'number', description: 'Max lines to read' },
+            pages: { type: 'string', description: 'Page range for PDFs' },
+          },
+          required: ['file_path'],
+        },
+      },
+    ],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  const parameters = (
+    requestBody?.tools as Array<{ function?: { parameters?: Record<string, unknown> } }>
+  )?.[0]?.function?.parameters
+
+  expect(parameters?.required).toEqual(['file_path'])
+
+  const required = parameters?.required as string[] | undefined
+  expect(required).not.toContain('offset')
+  expect(required).not.toContain('limit')
+  expect(required).not.toContain('pages')
+  expect(parameters?.additionalProperties).toBe(false)
 })
 
 // ---------------------------------------------------------------------------
@@ -1782,7 +2139,7 @@ test('coalesces consecutive user messages to avoid alternation errors (issue #20
     stream: false,
   })
 
-  expect(sentMessages?.length).toBe(2) // system + 1 merged user
+  expect(sentMessages?.length).toBe(2)
   expect(sentMessages?.[0]?.role).toBe('system')
   expect(sentMessages?.[1]?.role).toBe('user')
   const userContent = sentMessages?.[1]?.content as string
@@ -1816,13 +2173,12 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
     stream: false,
   })
 
-  // system + user + merged assistant + tool
   const assistantMsgs = sentMessages?.filter(m => m.role === 'assistant')
-  expect(assistantMsgs?.length).toBe(1) // two assistant turns merged into one
+  expect(assistantMsgs?.length).toBe(1)
   expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
 })
 
-test('non-streaming: reasoning_content emitted as thinking block, used as text when content is null', async () => {
+test('non-streaming: reasoning_content emitted as thinking block only when content is null', async () => {
   globalThis.fetch = (async (_input, _init) => {
     return new Response(
       JSON.stringify({
@@ -1864,7 +2220,6 @@ test('non-streaming: reasoning_content emitted as thinking block, used as text w
 
   expect(result.content).toEqual([
     { type: 'thinking', thinking: 'Let me think about this step by step.' },
-    { type: 'text', text: 'Let me think about this step by step.' },
   ])
 })
 
@@ -1908,11 +2263,8 @@ test('non-streaming: empty string content does not fall through to reasoning_con
     stream: false,
   })) as { content: Array<Record<string, unknown>> }
 
-  // reasoning_content should be a thinking block, and also used as text
-  // since content is empty string (treated as absent)
   expect(result.content).toEqual([
     { type: 'thinking', thinking: 'Chain of thought here.' },
-    { type: 'text', text: 'Chain of thought here.' },
   ])
 })
 
@@ -1959,6 +2311,46 @@ test('non-streaming: real content takes precedence over reasoning_content', asyn
   expect(result.content).toEqual([
     { type: 'thinking', thinking: 'I need to calculate this.' },
     { type: 'text', text: 'The answer is 42.' },
+  ])
+})
+
+test('non-streaming: strips leaked reasoning preamble from assistant content', async () => {
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          total_tokens: 30,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = (await client.beta.messages.create({
+    model: 'gpt-5-mini',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hey' }],
+    max_tokens: 64,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(result.content).toEqual([
+    { type: 'text', text: 'Hey! How can I help you today?' },
   ])
 })
 
@@ -2037,7 +2429,6 @@ test('streaming: thinking block closed before tool call', async () => {
 
   const types = events.map(e => e.type)
 
-  // Verify thinking block is started, then closed, then tool call starts
   const thinkingStartIdx = types.indexOf('content_block_start')
   const firstStopIdx = types.indexOf('content_block_stop')
   const toolStartIdx = types.indexOf(
@@ -2049,7 +2440,6 @@ test('streaming: thinking block closed before tool call', async () => {
   expect(firstStopIdx).toBeGreaterThan(thinkingStartIdx)
   expect(toolStartIdx).toBeGreaterThan(firstStopIdx)
 
-  // Verify thinking block start content
   const thinkingStart = events[thinkingStartIdx] as {
     content_block?: Record<string, unknown>
   }
@@ -2105,4 +2495,133 @@ test('preserves AbortError on user cancellation', async () => {
   }
 
   expect((caught as Error).name).toBe('AbortError')
+test('streaming: strips leaked reasoning preamble from assistant content deltas', async () => {
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content:
+                'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'gpt-5-mini',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hey' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const delta = (event as { delta?: { type?: string; text?: string } }).delta
+    if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      textDeltas.push(delta.text)
+    }
+  }
+
+  expect(textDeltas).toEqual(['Hey! How can I help you today?'])
+})
+
+test('streaming: strips leaked reasoning preamble when split across multiple content chunks', async () => {
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content: 'The user said "hey" - this is a simple greeting. ',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content:
+                'I should respond in a friendly, concise way.\n\nHey! How can I help you today?',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const result = await client.beta.messages
+    .create({
+      model: 'gpt-5-mini',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hey' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const delta = (event as { delta?: { type?: string; text?: string } }).delta
+    if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      textDeltas.push(delta.text)
+    }
+  }
+
+  expect(textDeltas).toEqual(['Hey! How can I help you today?'])
 })
