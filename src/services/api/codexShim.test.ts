@@ -8,10 +8,6 @@ import {
   convertCodexResponseToAnthropicMessage,
   convertToolsToResponsesTools,
 } from './codexShim.js'
-import {
-  resolveCodexApiCredentials,
-  resolveProviderRequest,
-} from './providerConfig.js'
 
 const tempDirs: string[] = []
 const originalEnv = {
@@ -63,6 +59,10 @@ async function collectStreamEventTypes(responseText: string): Promise<string[]> 
   return events
 }
 
+async function importFreshProviderConfigModule() {
+  return import(`./providerConfig.js?ts=${Date.now()}-${Math.random()}`)
+}
+
 describe('Codex provider config', () => {
   const originalOpenaiBaseUrl = process.env.OPENAI_BASE_URL
   const originalOpenaiApiBase = process.env.OPENAI_API_BASE
@@ -79,7 +79,8 @@ describe('Codex provider config', () => {
     else process.env.OPENAI_API_BASE = originalOpenaiApiBase
   })
 
-  test('resolves codexplan alias to Codex transport with reasoning', () => {
+  test('resolves codexplan alias to Codex transport with reasoning', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
     delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -91,7 +92,8 @@ describe('Codex provider config', () => {
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
 
-  test('resolves codexspark alias to Codex transport with Codex base URL', () => {
+  test('resolves codexspark alias to Codex transport with Codex base URL', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
     delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -102,7 +104,8 @@ describe('Codex provider config', () => {
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
 
-  test('does not force Codex transport when a local non-Codex base URL is explicit', () => {
+  test('does not force Codex transport when a local non-Codex base URL is explicit', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     const resolved = resolveProviderRequest({
       model: 'codexplan',
       baseUrl: 'http://127.0.0.1:8080/v1',
@@ -113,7 +116,8 @@ describe('Codex provider config', () => {
     expect(resolved.resolvedModel).toBe('gpt-5.4')
   })
 
-  test('resolves codexplan to Codex transport even when OPENAI_BASE_URL is the string "undefined"', () => {
+  test('resolves codexplan to Codex transport even when OPENAI_BASE_URL is the string "undefined"', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     // On Windows, env vars can leak as the literal string "undefined" instead of
     // the JS value undefined when not properly unset (issue #336).
     process.env.OPENAI_BASE_URL = 'undefined'
@@ -121,20 +125,23 @@ describe('Codex provider config', () => {
     expect(resolved.transport).toBe('codex_responses')
   })
 
-  test('resolves codexplan to Codex transport even when OPENAI_BASE_URL is an empty string', () => {
+  test('resolves codexplan to Codex transport even when OPENAI_BASE_URL is an empty string', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     process.env.OPENAI_BASE_URL = ''
     const resolved = resolveProviderRequest({ model: 'codexplan' })
     expect(resolved.transport).toBe('codex_responses')
   })
 
-  test('prefers explicit baseUrl option over env var', () => {
+  test('prefers explicit baseUrl option over env var', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     process.env.OPENAI_BASE_URL = 'https://example.com/v1'
     const resolved = resolveProviderRequest({ model: 'codexplan', baseUrl: 'https://chatgpt.com/backend-api/codex' })
     expect(resolved.transport).toBe('codex_responses')
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
 
-  test('default gpt-4o uses OpenAI base URL (no regression)', () => {
+  test('default gpt-4o uses OpenAI base URL (no regression)', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     delete process.env.OPENAI_BASE_URL
     delete process.env.CLAUDE_CODE_USE_GITHUB
 
@@ -144,7 +151,8 @@ describe('Codex provider config', () => {
     expect(resolved.resolvedModel).toBe('gpt-4o')
   })
 
-  test('resolves codexplan from env var OPENAI_MODEL to Codex endpoint', () => {
+  test('resolves codexplan from env var OPENAI_MODEL to Codex endpoint', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     process.env.OPENAI_MODEL = 'codexplan'
     delete process.env.OPENAI_BASE_URL
     delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -155,7 +163,8 @@ describe('Codex provider config', () => {
     expect(resolved.resolvedModel).toBe('gpt-5.4')
   })
 
-  test('does not override custom base URL for codexplan (e.g., local provider)', () => {
+  test('does not override custom base URL for codexplan (e.g., local provider)', async () => {
+    const { resolveProviderRequest } = await importFreshProviderConfigModule()
     process.env.OPENAI_MODEL = 'codexplan'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
     delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -165,7 +174,8 @@ describe('Codex provider config', () => {
     expect(resolved.baseUrl).toBe('http://localhost:11434/v1')
   })
 
-  test('loads Codex credentials from auth.json fallback', () => {
+  test('loads Codex credentials from auth.json fallback', async () => {
+    const { resolveCodexApiCredentials } = await importFreshProviderConfigModule()
     const authPath = createTempAuthJson({
       tokens: {
         access_token: 'header.payload.signature',
@@ -180,6 +190,31 @@ describe('Codex provider config', () => {
     expect(credentials.apiKey).toBe('header.payload.signature')
     expect(credentials.accountId).toBe('acct_test')
     expect(credentials.source).toBe('auth.json')
+  })
+
+  test('does not treat auth.json id_token as a Codex bearer credential', async () => {
+    const { resolveCodexApiCredentials } = await importFreshProviderConfigModule()
+    const idTokenPayload = Buffer.from(
+      JSON.stringify({
+        'https://api.openai.com/auth': {
+          chatgpt_account_id: 'acct_from_id_token',
+        },
+      }),
+      'utf8',
+    ).toString('base64url')
+    const authPath = createTempAuthJson({
+      tokens: {
+        id_token: `header.${idTokenPayload}.signature`,
+      },
+    })
+
+    const credentials = resolveCodexApiCredentials({
+      CODEX_AUTH_JSON_PATH: authPath,
+    } as NodeJS.ProcessEnv)
+
+    expect(credentials.apiKey).toBe('')
+    expect(credentials.accountId).toBe('acct_from_id_token')
+    expect(credentials.source).toBe('none')
   })
 })
 

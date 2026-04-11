@@ -5,7 +5,6 @@ import { Box, Text } from '../ink.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import type { ProviderProfile } from '../utils/config.js'
 import {
-  attachCodexProfileIdToStoredCredentials,
   clearCodexCredentials,
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
@@ -244,7 +243,7 @@ function CodexOAuthSetup({
     accountId?: string
     idToken?: string
     apiKey?: string
-  }) => void | Promise<void>
+  }, persistCredentials: (options?: { profileId?: string }) => void) => void | Promise<void>
 }): React.ReactNode {
   const handleAuthenticated = React.useCallback(async (tokens: {
     accessToken: string
@@ -252,9 +251,10 @@ function CodexOAuthSetup({
     accountId?: string
     idToken?: string
     apiKey?: string
-  }) => {
-    await onConfigured(tokens)
+  }, persistCredentials: (options?: { profileId?: string }) => void) => {
+    await onConfigured(tokens, persistCredentials)
   }, [onConfigured])
+  useKeybinding('confirm:no', onBack, [onBack])
 
   const status = useCodexOAuthFlow({
     onAuthenticated: handleAuthenticated,
@@ -557,6 +557,70 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     return applySavedProfileToCurrentSession({
       profileFile: createProfileFile('codex', storedEnv),
     })
+  }
+
+  async function activateSelectedProvider(profileId: string): Promise<void> {
+    let providerLabel = 'provider'
+
+    try {
+      if (profileId === GITHUB_PROVIDER_ID) {
+        providerLabel = GITHUB_PROVIDER_LABEL
+        const githubError = activateGithubProvider()
+        if (githubError) {
+          setErrorMessage(`Could not activate GitHub provider: ${githubError}`)
+          setScreen('menu')
+          return
+        }
+
+        refreshProfiles()
+        setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
+        setScreen('menu')
+        return
+      }
+
+      const active = setActiveProviderProfile(profileId)
+      if (!active) {
+        setErrorMessage('Could not change active provider.')
+        setScreen('menu')
+        return
+      }
+
+      providerLabel = active.name
+      const settingsOverrideError =
+        clearStartupProviderOverrideFromUserSettings()
+      const isActiveCodexOAuth = isCodexOAuthProfile(
+        active,
+        storedCodexOAuthProfileId,
+      )
+      const activationWarning = isActiveCodexOAuth
+        ? await activateCodexOAuthSession()
+        : null
+
+      refreshProfiles()
+      setStatusMessage(
+        isActiveCodexOAuth
+          ? buildCodexOAuthActivationMessage({
+              prefix: `Active provider: ${active.name}`,
+              activationWarning,
+              warnings: [
+                activationWarning,
+                settingsOverrideError
+                  ? `could not clear startup provider override (${settingsOverrideError})`
+                  : null,
+              ].filter((warning): warning is string => Boolean(warning)),
+            })
+          : settingsOverrideError
+            ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+            : `Active provider: ${active.name}`,
+      )
+      setScreen('menu')
+    } catch (error) {
+      refreshProfiles()
+      setStatusMessage(undefined)
+      const detail = error instanceof Error ? error.message : String(error)
+      setErrorMessage(`Could not finish activating ${providerLabel}: ${detail}`)
+      setScreen('menu')
+    }
   }
 
   function closeWithCancelled(message: string): void {
@@ -1265,7 +1329,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       content = (
         <CodexOAuthSetup
           onBack={() => setScreen('select-preset')}
-          onConfigured={async tokens => {
+          onConfigured={async (tokens, persistCredentials) => {
             const payload: ProviderProfileInput = {
               provider: 'openai',
               name: CODEX_OAUTH_PROVIDER_NAME,
@@ -1302,7 +1366,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            const linked = attachCodexProfileIdToStoredCredentials(saved.id)
+            persistCredentials({ profileId: saved.id })
             const settingsOverrideError =
               clearStartupProviderOverrideFromUserSettings()
             const activationWarning = await activateCodexOAuthSession(tokens)
@@ -1311,14 +1375,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             refreshProfiles()
             const warnings = [
               activationWarning,
-              !linked.success
-                ? linked.warning ??
-                  'could not associate the saved provider profile with stored Codex OAuth credentials'
-                : null,
               settingsOverrideError
                 ? `could not clear startup provider override (${settingsOverrideError})`
                 : null,
-            ].filter(Boolean)
+            ].filter((warning): warning is string => Boolean(warning))
             const message = buildCodexOAuthActivationMessage({
               prefix: 'Codex OAuth configured',
               activationWarning,
@@ -1349,53 +1409,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         'Set active provider',
         'No providers available. Add one first.',
         profileId => {
-          void (async () => {
-          if (profileId === GITHUB_PROVIDER_ID) {
-            const githubError = activateGithubProvider()
-            if (githubError) {
-              setErrorMessage(`Could not activate GitHub provider: ${githubError}`)
-              setScreen('menu')
-              return
-            }
-            refreshProfiles()
-            setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
-            setScreen('menu')
-            return
-          }
-
-          const active = setActiveProviderProfile(profileId)
-          if (!active) {
-            setErrorMessage('Could not change active provider.')
-            setScreen('menu')
-            return
-          }
-          const settingsOverrideError =
-            clearStartupProviderOverrideFromUserSettings()
-          const activationWarning =
-            isCodexOAuthProfile(active, storedCodexOAuthProfileId)
-              ? await activateCodexOAuthSession()
-              : null
-          refreshProfiles()
-          setStatusMessage(
-            isCodexOAuthProfile(active, storedCodexOAuthProfileId)
-              ? buildCodexOAuthActivationMessage({
-                  prefix: `Active provider: ${active.name}`,
-                  activationWarning,
-                  warnings: [
-                    activationWarning,
-                    settingsOverrideError
-                      ? `could not clear startup provider override (${settingsOverrideError})`
-                      : null,
-                  ].filter(Boolean),
-                })
-              : settingsOverrideError
-                ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
-                : `Active provider: ${active.name}`,
-          )
-          setScreen('menu')
-          })()
+          void activateSelectedProvider(profileId)
         },
-          { includeGithub: true },
+        { includeGithub: true },
       )
       break
     case 'select-edit':

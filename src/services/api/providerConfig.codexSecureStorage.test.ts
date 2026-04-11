@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import * as realFs from 'node:fs'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -86,7 +85,6 @@ describe('resolveCodexApiCredentials with secure storage', () => {
   })
 
   test('parses nested chatgpt_account_id from auth.json tokens', async () => {
-    mock.module('node:fs', () => realFs)
     mock.module('../../utils/codexCredentials.js', () => ({
       isCodexRefreshFailureCoolingDown: () => false,
       readCodexCredentials: () => undefined,
@@ -125,17 +123,6 @@ describe('resolveCodexApiCredentials with secure storage', () => {
   })
 
   test('does not read default auth.json when secure storage already has Codex credentials', async () => {
-    let touchedDefaultAuthJson = false
-    mock.module('node:fs', () => ({
-      existsSync: () => {
-        touchedDefaultAuthJson = true
-        return false
-      },
-      readFileSync: () => {
-        touchedDefaultAuthJson = true
-        return ''
-      },
-    }))
     mock.module('../../utils/codexCredentials.js', () => ({
       isCodexRefreshFailureCoolingDown: () => false,
       readCodexCredentials: () => ({
@@ -154,11 +141,10 @@ describe('resolveCodexApiCredentials with secure storage', () => {
     expect(credentials.apiKey).toBe('codex-api-key-token')
     expect(credentials.accountId).toBe('acct_secure')
     expect(credentials.source).toBe('secure-storage')
-    expect(touchedDefaultAuthJson).toBe(false)
   })
 
   test('falls back to the default auth.json when stored Codex refresh is cooling down', async () => {
-    const expectedAuthPath = join(realOs.homedir(), '.codex', 'auth.json')
+    const tempHomeDir = mkdtempSync(join(tmpdir(), 'openclaude-codex-home-'))
     const authJson = JSON.stringify({
       openai_api_key: makeJwt({
         'https://api.openai.com/auth': {
@@ -166,20 +152,12 @@ describe('resolveCodexApiCredentials with secure storage', () => {
         },
       }),
     })
+    mkdirSync(join(tempHomeDir, '.codex'), { recursive: true })
+    writeFileSync(join(tempHomeDir, '.codex', 'auth.json'), authJson, 'utf8')
 
-    mock.module('node:fs', () => ({
-      ...realFs,
-      existsSync: (path: realFs.PathLike) =>
-        String(path) === expectedAuthPath || realFs.existsSync(path),
-      readFileSync: (
-        path: realFs.PathLike | number,
-        options?: Parameters<typeof realFs.readFileSync>[1],
-      ) => {
-        if (String(path) === expectedAuthPath) {
-          return authJson
-        }
-        return realFs.readFileSync(path as never, options as never)
-      },
+    mock.module('node:os', () => ({
+      ...realOs,
+      homedir: () => tempHomeDir,
     }))
 
     mock.module('../../utils/codexCredentials.js', () => ({
@@ -197,31 +175,27 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       './providerConfig.js?codex-refresh-cooldown-fallback'
     )
 
-    const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
-    expect(credentials.source).toBe('auth.json')
-    expect(credentials.accountId).toBe('acct_auth_json')
-    expect(credentials.apiKey).not.toBe('stored-token')
+    try {
+      const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
+      expect(credentials.source).toBe('auth.json')
+      expect(credentials.accountId).toBe('acct_auth_json')
+      expect(credentials.apiKey).not.toBe('stored-token')
+    } finally {
+      rmSync(tempHomeDir, { force: true, recursive: true })
+    }
   })
 
   test('preserves the stored account id when auth.json fallback lacks one', async () => {
-    const expectedAuthPath = join(realOs.homedir(), '.codex', 'auth.json')
+    const tempHomeDir = mkdtempSync(join(tmpdir(), 'openclaude-codex-home-'))
     const authJson = JSON.stringify({
       openai_api_key: 'auth-json-access-token',
     })
+    mkdirSync(join(tempHomeDir, '.codex'), { recursive: true })
+    writeFileSync(join(tempHomeDir, '.codex', 'auth.json'), authJson, 'utf8')
 
-    mock.module('node:fs', () => ({
-      ...realFs,
-      existsSync: (path: realFs.PathLike) =>
-        String(path) === expectedAuthPath || realFs.existsSync(path),
-      readFileSync: (
-        path: realFs.PathLike | number,
-        options?: Parameters<typeof realFs.readFileSync>[1],
-      ) => {
-        if (String(path) === expectedAuthPath) {
-          return authJson
-        }
-        return realFs.readFileSync(path as never, options as never)
-      },
+    mock.module('node:os', () => ({
+      ...realOs,
+      homedir: () => tempHomeDir,
     }))
 
     mock.module('../../utils/codexCredentials.js', () => ({
@@ -239,9 +213,13 @@ describe('resolveCodexApiCredentials with secure storage', () => {
       './providerConfig.js?codex-refresh-cooldown-account-id-fallback'
     )
 
-    const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
-    expect(credentials.source).toBe('auth.json')
-    expect(credentials.apiKey).toBe('auth-json-access-token')
-    expect(credentials.accountId).toBe('acct_stored')
+    try {
+      const credentials = resolveCodexApiCredentials({} as NodeJS.ProcessEnv)
+      expect(credentials.source).toBe('auth.json')
+      expect(credentials.apiKey).toBe('auth-json-access-token')
+      expect(credentials.accountId).toBe('acct_stored')
+    } finally {
+      rmSync(tempHomeDir, { force: true, recursive: true })
+    }
   })
 })

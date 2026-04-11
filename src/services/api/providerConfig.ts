@@ -522,6 +522,12 @@ function resolveCodexAuthJsonCredentials(options: {
     ['auth', 'accessToken'],
     ['token', 'access_token'],
     ['token', 'accessToken'],
+  ])
+  // OIDC identity tokens can carry the ChatGPT account id, but they are not
+  // valid bearer credentials for Codex API requests.
+  const idToken = readNestedString(authJson, [
+    ['id_token'],
+    ['idToken'],
     ['tokens', 'id_token'],
     ['tokens', 'idToken'],
   ])
@@ -535,7 +541,8 @@ function resolveCodexAuthJsonCredentials(options: {
       ['auth', 'account_id'],
       ['auth', 'accountId'],
     ]) ??
-    parseChatgptAccountId(apiKey)
+    parseChatgptAccountId(apiKey) ??
+    parseChatgptAccountId(idToken)
 
   if (!apiKey) {
     return {

@@ -81,9 +81,30 @@ export class AuthCodeListener {
     if (!this.pendingResponse) return
 
     const response = this.pendingResponse
-    this.pendingResponse = null
-    options.handler(response)
-    logEvent(options.analyticsEvent, options.analyticsMetadata ?? {})
+    try {
+      options.handler(response)
+
+      if (!response.writableEnded && !response.destroyed) {
+        response.end()
+      }
+
+      logEvent(options.analyticsEvent, options.analyticsMetadata ?? {})
+    } catch (error) {
+      logError(error)
+
+      if (!response.headersSent && !response.destroyed) {
+        response.writeHead(500, {
+          'Content-Type': 'text/plain; charset=utf-8',
+        })
+      }
+      if (!response.writableEnded && !response.destroyed) {
+        response.end('Authentication redirect failed')
+      }
+    } finally {
+      if (this.pendingResponse === response) {
+        this.pendingResponse = null
+      }
+    }
   }
 
   /**

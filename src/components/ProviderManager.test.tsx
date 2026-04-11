@@ -171,7 +171,8 @@ function mockProviderManagerDependencies(
         accountId?: string
         idToken?: string
         apiKey?: string
-      }) => void | Promise<void>
+      }, persistCredentials: (options?: { profileId?: string }) => void) =>
+        void | Promise<void>
     }) => {
       state: 'starting' | 'waiting' | 'error'
       authUrl?: string
@@ -526,6 +527,7 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
 
   const onDone = mock(() => {})
   const applySavedProfileToCurrentSession = mock(async () => null)
+  const persistCredentials = mock(() => {})
   const addProviderProfile = mock((payload: {
     provider: string
     name: string
@@ -553,7 +555,7 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
             accessToken: 'oauth-access-token',
             refreshToken: 'oauth-refresh-token',
             accountId: 'acct_oauth',
-          })
+          }, persistCredentials)
         }, [onAuthenticated])
 
         return {
@@ -598,6 +600,9 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
     expect.objectContaining({ makeActive: true }),
   )
   expect(applySavedProfileToCurrentSession).toHaveBeenCalled()
+  expect(persistCredentials).toHaveBeenCalledWith({
+    profileId: 'provider_codex_oauth',
+  })
   expect(onDone).toHaveBeenCalledWith(
     expect.objectContaining({
       action: 'saved',
@@ -619,6 +624,7 @@ test('ProviderManager first-run Codex OAuth reports next-startup fallback when s
   const applySavedProfileToCurrentSession = mock(
     async () => 'validation failed',
   )
+  const persistCredentials = mock(() => {})
   const addProviderProfile = mock((payload: {
     provider: string
     name: string
@@ -646,7 +652,7 @@ test('ProviderManager first-run Codex OAuth reports next-startup fallback when s
             accessToken: 'oauth-access-token',
             refreshToken: 'oauth-refresh-token',
             accountId: 'acct_oauth',
-          })
+          }, persistCredentials)
         }, [onAuthenticated])
 
         return {
@@ -680,6 +686,9 @@ test('ProviderManager first-run Codex OAuth reports next-startup fallback when s
 
   await waitForCondition(() => onDone.mock.calls.length > 0)
 
+  expect(persistCredentials).toHaveBeenCalledWith({
+    profileId: 'provider_codex_oauth',
+  })
   expect(onDone).toHaveBeenCalledWith(
     expect.objectContaining({
       action: 'saved',
@@ -721,6 +730,7 @@ test('ProviderManager does not hijack a manual Codex profile when OAuth credenti
     apiKey: payload.apiKey,
   }))
   const updateProviderProfile = mock(() => manualProfile)
+  const persistCredentials = mock(() => {})
 
   mockProviderManagerDependencies(
     () => undefined,
@@ -741,7 +751,7 @@ test('ProviderManager does not hijack a manual Codex profile when OAuth credenti
             accessToken: 'oauth-access-token',
             refreshToken: 'oauth-refresh-token',
             accountId: 'acct_oauth',
-          })
+          }, persistCredentials)
         }, [onAuthenticated])
 
         return {
@@ -777,6 +787,9 @@ test('ProviderManager does not hijack a manual Codex profile when OAuth credenti
 
   expect(addProviderProfile).toHaveBeenCalledTimes(1)
   expect(updateProviderProfile).not.toHaveBeenCalled()
+  expect(persistCredentials).toHaveBeenCalledWith({
+    profileId: 'provider_codex_oauth',
+  })
 
   await mounted.dispose()
 })

@@ -988,7 +988,10 @@ function CodexOAuthStep({
   onBack: () => void
   onCancel: () => void
 }): React.ReactNode {
-  const handleAuthenticated = React.useCallback(async (tokens: CodexOAuthTokens) => {
+  const handleAuthenticated = React.useCallback(async (
+    tokens: CodexOAuthTokens,
+    persistCredentials: (options?: { profileId?: string }) => void,
+  ) => {
     const env = buildCodexOAuthProfileEnv(tokens)
     if (!env) {
       throw new Error(
@@ -996,6 +999,7 @@ function CodexOAuthStep({
       )
     }
 
+    persistCredentials()
     onSave('codex', env)
   }, [onSave])
 

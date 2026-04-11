@@ -20,16 +20,47 @@ export type CodexOAuthFlowStatus =
       message: string
     }
 
+type PersistCodexOAuthCredentials = (options?: {
+  profileId?: string
+}) => void
+
+type CodexOAuthFlowDependencies = {
+  createOAuthService?: () => Pick<
+    CodexOAuthService,
+    'startOAuthFlow' | 'cleanup'
+  >
+  openBrowser?: typeof openBrowser
+  saveCodexCredentials?: typeof saveCodexCredentials
+  isBareMode?: typeof isBareMode
+}
+
+function createDefaultOAuthService(): Pick<
+  CodexOAuthService,
+  'startOAuthFlow' | 'cleanup'
+> {
+  return new CodexOAuthService()
+}
+
 export function useCodexOAuthFlow(options: {
-  onAuthenticated: (tokens: CodexOAuthTokens) => void | Promise<void>
+  onAuthenticated: (
+    tokens: CodexOAuthTokens,
+    persistCredentials: PersistCodexOAuthCredentials,
+  ) => void | Promise<void>
+  deps?: CodexOAuthFlowDependencies
 }): CodexOAuthFlowStatus {
   const { onAuthenticated } = options
+  const createOAuthService =
+    options.deps?.createOAuthService ?? createDefaultOAuthService
+  const openBrowserFn = options.deps?.openBrowser ?? openBrowser
+  const saveCredentials =
+    options.deps?.saveCodexCredentials ?? saveCodexCredentials
+  const isBareModeFn = options.deps?.isBareMode ?? isBareMode
   const [status, setStatus] = React.useState<CodexOAuthFlowStatus>({
     state: 'starting',
   })
 
   React.useEffect(() => {
-    if (isBareMode()) {
+    if (isBareModeFn()) {
       setStatus({
         state: 'error',
         message:
@@ -39,7 +70,7 @@ export function useCodexOAuthFlow(options: {
     }
 
     let cancelled = false
-    const oauthService = new CodexOAuthService()
+    const oauthService = createOAuthService()
 
     void oauthService
       .startOAuthFlow(async authUrl => {
@@ -49,7 +80,7 @@ export function useCodexOAuthFlow(options: {
           authUrl,
           browserOpened: null,
         })
-        const browserOpened = await openBrowser(authUrl)
+        const browserOpened = await openBrowserFn(authUrl)
         if (cancelled) return
         setStatus({
           state: 'waiting',
@@ -60,21 +91,24 @@ export function useCodexOAuthFlow(options: {
       .then(async tokens => {
         if (cancelled) return
 
-        const saved = saveCodexCredentials({
-          apiKey: tokens.apiKey,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          idToken: tokens.idToken,
-          accountId: tokens.accountId,
-        })
-        if (!saved.success) {
-          throw new Error(
-            saved.warning ??
-              'Codex OAuth succeeded, but credentials could not be saved securely.',
-          )
+        const persistCredentials: PersistCodexOAuthCredentials = options => {
+          const saved = saveCredentials({
+            apiKey: tokens.apiKey,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            idToken: tokens.idToken,
+            accountId: tokens.accountId,
+            profileId: options?.profileId,
+          })
+          if (!saved.success) {
+            throw new Error(
+              saved.warning ??
+                'Codex OAuth succeeded, but credentials could not be saved securely.',
+            )
+          }
         }
 
-        await onAuthenticated(tokens)
+        await onAuthenticated(tokens, persistCredentials)
       })
       .catch(error => {
         if (cancelled) return
@@ -88,7 +122,13 @@ export function useCodexOAuthFlow(options: {
       cancelled = true
       oauthService.cleanup()
     }
-  }, [onAuthenticated])
+  }, [
+    createOAuthService,
+    isBareModeFn,
+    onAuthenticated,
+    openBrowserFn,
+    saveCredentials,
+  ])
 
   return status
 }

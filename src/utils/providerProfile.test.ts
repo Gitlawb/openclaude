@@ -453,10 +453,21 @@ test('buildCodexProfileEnv tags OAuth-saved profiles so logout can remove them s
   })
 })
 
-test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profiles', () => {
+test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profiles', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-codex-oauth-profile-'))
 
   try {
+    const providerProfileModule = await import(
+      `./providerProfile.ts?ts=${Date.now()}-${Math.random()}`
+    )
+    const {
+      PROFILE_FILE_NAME,
+      clearPersistedCodexOAuthProfile,
+      createProfileFile,
+      isPersistedCodexOAuthProfile,
+      loadProfileFile,
+      saveProfileFile,
+    } = providerProfileModule
     const oauthProfile = createProfileFile('codex', {
       OPENAI_MODEL: 'codexplan',
       OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
