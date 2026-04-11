@@ -227,7 +227,7 @@ export function getProviderPresetDefaults(
         provider: 'openai',
         name: 'Alibaba Coding Plan (China)',
         baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',
-        model: 'qwen3.5-plus',
+        model: 'qwen3.6-plus',
         apiKey: process.env.DASHSCOPE_API_KEY ?? '',
         requiresApiKey: true,
       }
@@ -236,7 +236,7 @@ export function getProviderPresetDefaults(
         provider: 'openai',
         name: 'Alibaba Coding Plan',
         baseUrl: 'https://coding-intl.dashscope.aliyuncs.com/v1',
-        model: 'qwen3.5-plus',
+        model: 'qwen3.6-plus',
         apiKey: process.env.DASHSCOPE_API_KEY ?? '',
         requiresApiKey: true,
       }

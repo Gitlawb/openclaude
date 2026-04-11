@@ -208,6 +208,7 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   // Values sourced from: qwen3.5-plus/qwen3-coder-plus (1M), qwen3-coder-next/max (256K),
   // kimi-k2.5 (256K), MiniMax-M2.5 (192K), glm-5/glm-4.7 (198K).
   // Max output tokens: Qwen variants (64K/32K), MiniMax (24K), GLM (16K).
+  'qwen3.6-plus':           1_000_000,
   'qwen3.5-plus':           1_000_000,
   'qwen3-coder-plus':       1_000_000,
   'qwen3-coder-next':         262_144,
@@ -379,6 +380,7 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   '01-ai/yi-large': 8_192,
 
   // Alibaba DashScope (Coding Plan)
+  'qwen3.6-plus':              65_536,
   'qwen3.5-plus':              65_536,
   'qwen3-coder-plus':          65_536,
   'qwen3-coder-next':          65_536,
