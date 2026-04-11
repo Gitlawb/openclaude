@@ -221,7 +221,7 @@ function auditLogCustomSearch(url: string): void {
 // Auth — preset overrides for built-in providers
 // ---------------------------------------------------------------------------
 
-function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<string, string> {
+export function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<string, string> {
   const apiKey = process.env.WEB_KEY
   if (!apiKey) return {}
 
