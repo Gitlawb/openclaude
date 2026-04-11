@@ -13,6 +13,7 @@ const execFileNoThrowMock = mock(
 
 mock.module('../../utils/execFileNoThrow.js', () => ({
   execFileNoThrow: execFileNoThrowMock,
+  execFileNoThrowWithCwd: execFileNoThrowMock,
 }))
 
 mock.module('../../utils/tempfile.js', () => ({

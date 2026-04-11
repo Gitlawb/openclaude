@@ -29,6 +29,13 @@ import {
 } from '../../utils/permissions/PermissionResult.js'
 import { checkRuleBasedPermissions } from '../../utils/permissions/permissions.js'
 import { formatError } from '../../utils/toolErrors.js'
+import { getAutoFixConfig } from '../autoFix/autoFixConfig.js'
+import { shouldRunAutoFix, buildAutoFixContext } from '../autoFix/autoFixHook.js'
+import { runAutoFixCheck } from '../autoFix/autoFixRunner.js'
+
+// Track auto-fix retry count per query chain to enforce maxRetries cap.
+// Key: queryChainId (or 'default'), Value: number of auto-fix attempts used.
+const autoFixRetryCount = new Map<string, number>()
 import { isMcpTool } from '../mcp/utils.js'
 import type { McpServerType, MessageUpdateLazy } from './toolExecution.js'
 
@@ -182,6 +189,65 @@ export async function* runPostToolUseHooks<Input extends AnyObject, Output>(
             toolUseID: toolUseID,
             hookEvent: 'PostToolUse',
           }),
+        }
+      }
+    }
+
+    // Auto-fix: run lint/test if configured for this tool
+    const autoFixSettings = toolUseContext.getAppState().settings
+    const autoFixConfig = getAutoFixConfig(
+      autoFixSettings && typeof autoFixSettings === 'object' && 'autoFix' in autoFixSettings
+        ? (autoFixSettings as Record<string, unknown>).autoFix
+        : undefined,
+    )
+    if (shouldRunAutoFix(tool.name, autoFixConfig) && autoFixConfig) {
+      // Enforce maxRetries cap to prevent unbounded auto-fix loops.
+      // Uses queryChainId to scope the counter to the current conversation turn.
+      const chainKey = (toolUseContext.queryTracking?.chainId as string) ?? 'default'
+      const currentRetries = autoFixRetryCount.get(chainKey) ?? 0
+
+      if (currentRetries >= autoFixConfig.maxRetries) {
+        // Max retries reached — skip auto-fix and let the user know
+        yield {
+          message: createAttachmentMessage({
+            type: 'hook_additional_context',
+            content: [
+              `<auto_fix_feedback>\nAUTO-FIX: Maximum retry limit (${autoFixConfig.maxRetries}) reached. ` +
+              `Skipping further auto-fix attempts. Please review the errors manually.\n</auto_fix_feedback>`,
+            ],
+            hookName: `AutoFix:${tool.name}`,
+            toolUseID,
+            hookEvent: 'PostToolUse',
+          }),
+        }
+      } else {
+        try {
+          const cwd = toolUseContext.options?.cwd ?? process.cwd()
+          const autoFixResult = await runAutoFixCheck({
+            lint: autoFixConfig.lint,
+            test: autoFixConfig.test,
+            timeout: autoFixConfig.timeout,
+            cwd,
+            signal: toolUseContext.abortController.signal,
+          })
+          const autoFixContext = buildAutoFixContext(autoFixResult)
+          if (autoFixContext) {
+            autoFixRetryCount.set(chainKey, currentRetries + 1)
+            yield {
+              message: createAttachmentMessage({
+                type: 'hook_additional_context',
+                content: [autoFixContext],
+                hookName: `AutoFix:${tool.name}`,
+                toolUseID,
+                hookEvent: 'PostToolUse',
+              }),
+            }
+          } else {
+            // Lint/test passed — reset the retry counter for this chain
+            autoFixRetryCount.delete(chainKey)
+          }
+        } catch (autoFixError) {
+          logError(autoFixError)
         }
       }
     }
