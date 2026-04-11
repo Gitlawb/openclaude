@@ -125,6 +125,18 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function sanitizeUrl(raw: string): string {
+  try {
+    const parsed = new URL(raw)
+    parsed.username = ''
+    parsed.password = ''
+    parsed.search = ''
+    return parsed.toString()
+  } catch {
+    return '[invalid URL]'
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types — minimal subset of Anthropic SDK types we need to produce
 // ---------------------------------------------------------------------------
@@ -1326,26 +1338,14 @@ class OpenAIShimMessages {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         response = await fetch(chatCompletionsUrl, fetchInit)
-      }catch (err: unknown) {
-        if(err instanceof Error && err.name === 'AbortError') throw err 
-        
-        const sanitizedUrl = (raw: string): string => {
-          try {
-            const parsed = new URL(raw)
-            parsed.username = ''
-            parsed.password = ''
-            parsed.search = ''
-            return parsed.toString()
-          }catch {
-            return '[invalid URL]'
-          }
-        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') throw err
 
         const rawCause = err instanceof Error ? err.message : String(err)
-        const safeUrl = sanitizedUrl(chatCompletionsUrl)
-        const safeCause = rawCause.replace(/https?:\/\/\S+/g, match => sanitizedUrl(match))
+        const safeUrl = sanitizeUrl(chatCompletionsUrl)
+        const safeCause = rawCause.replace(/https?:\/\/\S+/g, match => sanitizeUrl(match))
 
-        throw new Error(`Network request failed for ${safeUrl} - check your provider URL and connection. Cause: ${safeCause}`,)
+        throw new Error(`Network request failed for ${safeUrl} - check your provider URL and connection. Cause: ${safeCause}`)
       }
 
       if (response.ok) {
