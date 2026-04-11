@@ -464,7 +464,7 @@ export WEB_JSON_PATH=response.payload.results
 
 ## Retry
 
-Failed requests (network errors, 5xx) are retried once after 500ms. Client errors (4xx) are not retried. Custom requests have a default 15s timeout.
+Failed requests (network errors, 5xx) are retried once after 500ms. Client errors (4xx) are not retried. Custom requests have a default 120s timeout.
 
 ## Custom Provider Security Guardrails
 
@@ -476,7 +476,7 @@ The custom provider enforces the following guardrails by default:
 | Block private IPs / localhost | ✅ | `WEB_CUSTOM_ALLOW_PRIVATE=true` |
 | Header allowlist | ✅ | `WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true` |
 | Max POST body | 300 KB | `WEB_CUSTOM_MAX_BODY_KB=<kb>` |
-| Request timeout | 15s | `WEB_CUSTOM_TIMEOUT_SEC=<seconds>` |
+| Request timeout | 120s | `WEB_CUSTOM_TIMEOUT_SEC=<seconds>` |
 | Audit log (one-time warning) | ✅ | — |
 
 ### Self-hosted SearXNG example

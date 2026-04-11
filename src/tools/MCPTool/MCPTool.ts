@@ -14,8 +14,21 @@ import {
 export const inputSchema = lazySchema(() => z.object({}).passthrough())
 type InputSchema = ReturnType<typeof inputSchema>
 
+// MCP tools can return either a plain string or an array of content blocks
+// (text, images, etc.). The outputSchema must reflect both shapes so the model
+// knows rich content is possible.
 export const outputSchema = lazySchema(() =>
-  z.string().describe('MCP tool execution result'),
+  z.union([
+    z.string().describe('MCP tool execution result as text'),
+    z
+      .array(
+        z.object({
+          type: z.string(),
+          text: z.string().optional(),
+        }),
+      )
+      .describe('MCP tool execution result as content blocks'),
+  ]),
 )
 type OutputSchema = ReturnType<typeof outputSchema>
 
@@ -65,7 +78,19 @@ export const MCPTool = buildTool({
   renderToolUseProgressMessage,
   renderToolResultMessage,
   isResultTruncated(output: Output): boolean {
-    return isOutputLineTruncated(output)
+    if (typeof output === 'string') {
+      return isOutputLineTruncated(output)
+    }
+    // Array of content blocks — check if any text block exceeds the display limit
+    if (Array.isArray(output)) {
+      return output.some(
+        block =>
+          block?.type === 'text' &&
+          typeof block.text === 'string' &&
+          isOutputLineTruncated(block.text),
+      )
+    }
+    return false
   },
   mapToolResultToToolResultBlockParam(content, toolUseID) {
     return {
