@@ -4,12 +4,9 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        description: Existing tag to publish, for example v0.2.0
-        required: true
-        type: string
+  release:
+    types:
+      - published
 
 concurrency:
   group: auto-release-${{ github.ref }}
@@ -18,6 +15,7 @@ concurrency:
 jobs:
   release-please:
     name: Release Please
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -36,8 +34,7 @@ jobs:
 
   publish-npm:
     name: Publish to npm
-    needs: release-please
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true' }}
+    if: ${{ github.event_name == 'release' }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -47,7 +44,7 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || needs.release-please.outputs.tag_name }}
+          ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -87,8 +84,8 @@ jobs:
       - name: Release summary
         run: |
           {
-            echo "## Released ${{ needs.release-please.outputs.tag_name }}"
+            echo "## Released ${{ github.event.release.tag_name }}"
             echo
             echo "- npm: https://www.npmjs.com/package/@gitlawb/openclaude"
-            echo "- GitHub: https://github.com/Gitlawb/openclaude/releases/tag/${{ needs.release-please.outputs.tag_name }}"
+            echo "- GitHub: https://github.com/Gitlawb/openclaude/releases/tag/${{ github.event.release.tag_name }}"
           } >> "$GITHUB_STEP_SUMMARY"
