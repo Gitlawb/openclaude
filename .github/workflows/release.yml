@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Run release-please
         id: release
-        uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c
+        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: node
