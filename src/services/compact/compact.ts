@@ -9,7 +9,10 @@ const sessionTranscriptModule = feature('KAIROS')
 
 import { APIUserAbortError } from '@anthropic-ai/sdk'
 import { markPostCompaction } from 'src/bootstrap/state.js'
-import { getInvokedSkillsForAgent } from '../../bootstrap/state.js'
+import {
+  getInvokedSkillsForAgent,
+  getOriginalCwd,
+} from '../../bootstrap/state.js'
 import type { QuerySource } from '../../constants/querySource.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { Tool, ToolUseContext } from '../../Tool.js'
@@ -68,6 +71,7 @@ import {
 } from '../../utils/messages.js'
 import { expandPath } from '../../utils/path.js'
 import { getPlan, getPlanFilePath } from '../../utils/plans.js'
+import { getProjectInstructionFilePaths } from '../../utils/projectInstructions.js'
 import {
   isSessionActivityTrackingActive,
   sendSessionActivitySignal,
@@ -1689,8 +1693,13 @@ function shouldExcludeFromPostCompactRestore(
   // and to also match child directory memory files (.claude/rules/*.md, etc.)
   try {
     const normalizedMemoryPaths = new Set(
-      MEMORY_TYPE_VALUES.map(type => expandPath(getMemoryPath(type))),
+      MEMORY_TYPE_VALUES.filter(type => type !== 'Project').map(type =>
+        expandPath(getMemoryPath(type)),
+      ),
     )
+    for (const path of getProjectInstructionFilePaths(getOriginalCwd())) {
+      normalizedMemoryPaths.add(expandPath(path))
+    }
 
     if (normalizedMemoryPaths.has(normalizedFilename)) {
       return true
