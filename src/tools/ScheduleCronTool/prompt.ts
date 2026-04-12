@@ -9,35 +9,39 @@ export const DEFAULT_MAX_AGE_DAYS =
   DEFAULT_CRON_JITTER_CONFIG.recurringMaxAgeMs / (24 * 60 * 60 * 1000)
 
 /**
- * Unified gate for the cron scheduling system.
+ * Unified gate for the cron scheduling system. Combines the build-time
+ * `feature('AGENT_TRIGGERS')` flag (dead code elimination) with the runtime
+ * `tengu_kairos_cron` GrowthBook gate on a 5-minute refresh window.
  *
- * Open builds (USER_TYPE !== 'ant') enable cron unconditionally — the
- * cron tools and /loop skill are registered without the AGENT_TRIGGERS
- * build flag, so this gate is the sole runtime switch. Set the env var
- * `CLAUDE_CODE_DISABLE_CRON=1` to turn it off locally.
- *
- * Anthropic-internal (ant) builds additionally consult the
- * `tengu_kairos_cron` GrowthBook gate on a 5-minute refresh window,
- * serving as a fleet-wide kill switch.
+ * AGENT_TRIGGERS is independently shippable from KAIROS — the cron module
+ * graph (cronScheduler/cronTasks/cronTasksLock/cron.ts + the three tools +
+ * /loop skill) has zero imports into src/assistant/ and no feature('KAIROS')
+ * calls. The REPL.tsx kairosEnabled read is safe:
+ * kairosEnabled is unconditionally in AppStateStore with default false, so
+ * when KAIROS is off the scheduler just gets assistantMode: false.
  *
  * Called from Tool.isEnabled() (lazy, post-init) and inside useEffect /
  * imperative setup, never at module scope — so the disk cache has had a
  * chance to populate.
  *
+ * The default is `true` — /loop is GA (announced in changelog). GrowthBook
+ * is disabled for Bedrock/Vertex/Foundry and when DISABLE_TELEMETRY /
+ * CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC are set; a `false` default would
+ * break /loop for those users (GH #31759). The GB gate now serves purely as
+ * a fleet-wide kill switch — flipping it to `false` stops already-running
+ * schedulers on their next isKilled poll tick, not just new ones.
+ *
  * `CLAUDE_CODE_DISABLE_CRON` is a local override that wins over GB.
  */
 export function isKairosCronEnabled(): boolean {
-  if (isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_CRON)) return false
-
-  // OpenClaude open builds do not rely on Anthropic's internal runtime gates.
-  // Expose cron support by default unless explicitly disabled.
-  if (process.env.USER_TYPE !== 'ant') return true
-
-  return getFeatureValue_CACHED_WITH_REFRESH(
-    'tengu_kairos_cron',
-    true,
-    KAIROS_CRON_REFRESH_MS,
-  )
+  return feature('AGENT_TRIGGERS')
+    ? !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_CRON) &&
+        getFeatureValue_CACHED_WITH_REFRESH(
+          'tengu_kairos_cron',
+          true,
+          KAIROS_CRON_REFRESH_MS,
+        )
+    : false
 }
 
 /**

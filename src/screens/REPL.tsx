@@ -196,7 +196,7 @@ const PROACTIVE_NO_OP_SUBSCRIBE = (_cb: () => void) => () => { };
 const PROACTIVE_FALSE = () => false;
 const SUGGEST_BG_PR_NOOP = (_p: string, _n: string): boolean => false;
 const useProactive = feature('PROACTIVE') || feature('KAIROS') ? require('../proactive/useProactive.js').useProactive : null;
-const useScheduledTasks = require('../hooks/useScheduledTasks.js').useScheduledTasks;
+const useScheduledTasks = feature('AGENT_TRIGGERS') ? require('../hooks/useScheduledTasks.js').useScheduledTasks : null;
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { isAgentSwarmsEnabled } from '../utils/agentSwarmsEnabled.js';
 import { useTaskListWatcher } from '../hooks/useTaskListWatcher.js';
@@ -4076,13 +4076,21 @@ export function REPL({
   });
 
   // Scheduled tasks from .claude/scheduled_tasks.json (CronCreate/Delete/List)
-  // and session-only /loop runs.
-  const assistantMode = store.getState().kairosEnabled;
-  useScheduledTasks({
-    isLoading,
-    assistantMode,
-    setMessages
-  });
+  if (feature('AGENT_TRIGGERS')) {
+    // Assistant mode bypasses the isLoading gate (the proactive tick →
+    // Sleep → tick loop would otherwise starve the scheduler).
+    // kairosEnabled is set once in initialState (main.tsx) and never mutated — no
+    // subscription needed. The tengu_kairos_cron runtime gate is checked inside
+    // useScheduledTasks's effect (not here) since wrapping a hook call in a dynamic
+    // condition would break rules-of-hooks.
+    const assistantMode = store.getState().kairosEnabled;
+    // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
+    useScheduledTasks!({
+      isLoading,
+      assistantMode,
+      setMessages
+    });
+  }
 
   // Note: Permission polling is now handled by useInboxPoller
   // - Workers receive permission responses via mailbox messages
