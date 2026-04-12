@@ -45,12 +45,9 @@ export function getPlanModeV2ExploreAgentCount(): number {
 /**
  * Check if plan mode interview phase is enabled.
  *
- * Config: ant=always_on, external=tengu_plan_mode_interview_phase gate, envVar=true
+ * Config: tengu_plan_mode_interview_phase gate, envVar=true
  */
 export function isPlanModeInterviewPhaseEnabled(): boolean {
-  // Always on for ants
-  if (process.env.USER_TYPE === 'ant') return true
-
   const env = process.env.CLAUDE_CODE_PLAN_MODE_INTERVIEW_PHASE
   if (isEnvTruthy(env)) return true
   if (isEnvDefinedFalsy(env)) return false
