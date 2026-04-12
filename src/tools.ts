@@ -26,13 +26,11 @@ const SleepTool =
   feature('PROACTIVE') || feature('KAIROS')
     ? require('./tools/SleepTool/SleepTool.js').SleepTool
     : null
-const cronTools = feature('AGENT_TRIGGERS')
-  ? [
-      require('./tools/ScheduleCronTool/CronCreateTool.js').CronCreateTool,
-      require('./tools/ScheduleCronTool/CronDeleteTool.js').CronDeleteTool,
-      require('./tools/ScheduleCronTool/CronListTool.js').CronListTool,
-    ]
-  : []
+const cronTools = [
+  require('./tools/ScheduleCronTool/CronCreateTool.js').CronCreateTool,
+  require('./tools/ScheduleCronTool/CronDeleteTool.js').CronDeleteTool,
+  require('./tools/ScheduleCronTool/CronListTool.js').CronListTool,
+]
 const RemoteTriggerTool = feature('AGENT_TRIGGERS_REMOTE')
   ? require('./tools/RemoteTriggerTool/RemoteTriggerTool.js').RemoteTriggerTool
   : null
