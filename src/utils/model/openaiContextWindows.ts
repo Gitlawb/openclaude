@@ -79,8 +79,10 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'mixtral-8x7b-32768':        32_768,
 
   // Mistral
-  'mistral-large-latest':     131_072,
-  'mistral-small-latest':     131_072,
+  'mistral-large-latest':     256_000,
+  'mistral-small-latest':     256_000,
+  'devstral-latest':          256_000,
+  'ministral-3b-latest':      256_000,
 
   // MiniMax
   'MiniMax-M2.7':             204_800,

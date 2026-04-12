@@ -50,7 +50,7 @@ function parseLaunchOptions(argv: string[]): LaunchOptions {
       continue
     }
 
-    if ((lower === 'auto' || lower === 'openai' || lower === 'ollama' || lower === 'codex' || lower === 'gemini' || lower === 'atomic-chat') && requestedProfile === 'auto') {
+    if ((lower === 'auto' || lower === 'openai' || lower === 'ollama' || lower === 'codex' || lower === 'gemini' || lower ==='mistral' || lower === 'atomic-chat') && requestedProfile === 'auto') {
       requestedProfile = lower as ProviderProfile | 'auto'
       continue
     }
@@ -124,6 +124,8 @@ function printSummary(profile: ProviderProfile): void {
   console.log(`Launching profile: ${profile}`)
   if (profile === 'gemini') {
     console.log('Using configured Gemini provider settings.')
+  } else if (profile === 'mistral') {
+    console.log('Using configured Mistral provider settings.')
   } else if (profile === 'codex') {
     console.log('Using configured Codex/OpenAI-compatible provider settings.')
   } else if (profile === 'atomic-chat') {
@@ -139,7 +141,7 @@ async function main(): Promise<void> {
   const options = parseLaunchOptions(process.argv.slice(2))
   const requestedProfile = options.requestedProfile
   if (!requestedProfile) {
-    console.error('Usage: bun run scripts/provider-launch.ts [openai|ollama|codex|gemini|atomic-chat|auto] [--fast] [--goal <latency|balanced|coding>] [-- <cli args>]')
+    console.error('Usage: bun run scripts/provider-launch.ts [openai|ollama|codex|gemini|mistral|atomic-chat|mistral|auto] [--fast] [--goal <latency|balanced|coding>] [-- <cli args>]')
     process.exit(1)
   }
 
@@ -202,6 +204,11 @@ async function main(): Promise<void> {
 
   if (profile === 'gemini' && !env.GEMINI_API_KEY) {
     console.error('GEMINI_API_KEY is required for gemini profile. Run: bun run profile:init -- --provider gemini --api-key <key>')
+    process.exit(1)
+  }
+
+  if (profile === 'mistral' && !env.MISTRAL_API_KEY) {
+    console.error('MISTRAL_API_KEY is required for mistral profile. Run: bun run profile:init -- --provider mistral --api-key <key>')
     process.exit(1)
   }
 

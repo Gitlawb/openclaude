@@ -61,6 +61,7 @@ type SecretValueSource = Partial<{
   GEMINI_API_KEY: string
   GOOGLE_API_KEY: string
   GEMINI_ACCESS_TOKEN: string
+  MISTRAL_API_KEY: string
 }>
 
 const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
@@ -78,6 +79,10 @@ const COPILOT_HEADERS: Record<string, string> = {
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+}
+
+function isMistralMode(): boolean {
+  return isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
 }
 
 function filterAnthropicHeaders(
@@ -1210,13 +1215,20 @@ class OpenAIShimMessages {
     }
 
     const isGithub = isGithubModelsMode()
+    const isMistral = isMistralMode()
+
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
-    if (isGithub && body.max_completion_tokens !== undefined) {
+    if ((isGithub || isMistral) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
+    }
+
+    // mistral also doesn't recognize body.store
+    if (isMistral) {
+      delete body.store
     }
 
     if (params.temperature !== undefined) body.temperature = params.temperature
@@ -1256,9 +1268,8 @@ class OpenAIShimMessages {
       ...filterAnthropicHeaders(options?.headers),
     }
 
-    const isGemini = isGeminiMode()
-    const apiKey =
-      this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+    const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+    const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -1589,6 +1600,13 @@ export function createOpenAIShimClient(options: {
     }
     if (process.env.GEMINI_MODEL && !process.env.OPENAI_MODEL) {
       process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
+    }
+  } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
+    process.env.OPENAI_BASE_URL =
+      process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1'
+    process.env.OPENAI_API_KEY = process.env.MISTRAL_API_KEY
+    if (process.env.MISTRAL_MODEL) {
+      process.env.OPENAI_MODEL = process.env.MISTRAL_MODEL
     }
   } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
     process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE

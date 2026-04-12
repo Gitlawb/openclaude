@@ -22,11 +22,14 @@ import {
 import {
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
+  buildMistralProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
+  DEFAULT_MISTRAL_BASE_URL,
+  DEFAULT_MISTRAL_MODEL,
   deleteProfileFile,
   loadProfileFile,
   maskSecretForDisplay,
@@ -74,6 +77,14 @@ type Step =
       baseUrl: string | null
       defaultModel: string
     }
+  | { name: 'mistral-key'; defaultModel: string }
+  | { name: 'mistral-base'; apiKey: string; defaultModel: string }
+  | {
+      name: 'mistral-model'
+      apiKey: string
+      baseUrl: string | null
+      defaultModel: string
+    }
   | { name: 'gemini-auth-method' }
   | { name: 'gemini-key' }
   | { name: 'gemini-access-token' }
@@ -116,6 +127,8 @@ type ProviderWizardDefaults = {
   openAIModel: string
   openAIBaseUrl: string
   geminiModel: string
+  mistralModel: string
+  mistralBaseUrl: string
 }
 
 function isEnvTruthy(value: string | undefined): boolean {
@@ -147,11 +160,19 @@ export function getProviderWizardDefaults(
   const safeGeminiModel =
     sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, processEnv) ||
     DEFAULT_GEMINI_MODEL
+  const safeMistralModel =
+    sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, processEnv) ||
+    DEFAULT_MISTRAL_MODEL
+  const safeMistralBaseUrl =
+    sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL, processEnv) ||
+    DEFAULT_MISTRAL_BASE_URL
 
   return {
     openAIModel: safeOpenAIModel,
     openAIBaseUrl: safeOpenAIBaseUrl,
     geminiModel: safeGeminiModel,
+    mistralModel: safeMistralModel,
+    mistralBaseUrl: safeMistralBaseUrl,
   }
 }
 
@@ -173,6 +194,21 @@ export function buildCurrentProviderSummary(options?: {
       endpointLabel: getSafeDisplayValue(
         processEnv.GEMINI_BASE_URL ?? DEFAULT_GEMINI_BASE_URL,
         processEnv,
+      ),
+      savedProfileLabel,
+    }
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    return {
+      providerLabel: 'Mistral',
+      modelLabel: getSafeDisplayValue(
+        processEnv.MISTRAL_MODEL ?? DEFAULT_MISTRAL_MODEL,
+        processEnv
+      ),
+      endpointLabel: getSafeDisplayValue(
+        processEnv.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL,
+        processEnv
       ),
       savedProfileLabel,
     }
@@ -258,6 +294,24 @@ function buildSavedProfileSummary(
             : maskSecretForDisplay(env.GEMINI_API_KEY) !== undefined
               ? 'configured'
               : undefined,
+      }
+    case 'mistral':
+      return {
+        providerLabel: 'Mistral',
+        modelLabel: getSafeDisplayValue(
+          env.MISTRAL_MODEL ?? DEFAULT_MISTRAL_MODEL,
+          process.env,
+          env,
+        ),
+        endpointLabel: getSafeDisplayValue(
+          env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL,
+          process.env,
+          env,
+        ),
+        credentialLabel:
+          maskSecretForDisplay(env.MISTRAL_API_KEY) !== undefined
+            ? 'configured'
+            : undefined,
       }
     case 'codex':
       return {
@@ -472,6 +526,11 @@ function ProviderChooser({
       label: 'Gemini',
       value: 'gemini',
       description: 'Use Google Gemini with API key, access token, or local ADC',
+    },
+    {
+      label: 'Mistral',
+      value: 'mistral',
+      description: 'Use Mistral with API key'
     },
     {
       label: 'Codex',
@@ -971,6 +1030,11 @@ export function ProviderWizard({
               })
             } else if (value === 'gemini') {
               setStep({ name: 'gemini-auth-method' })
+            } else if (value === 'mistral') {
+              setStep({
+                name: 'mistral-key',
+                defaultModel: defaults.mistralModel,
+              })
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
@@ -1103,6 +1167,101 @@ export function ProviderWizard({
           onCancel={() =>
             setStep({
               name: 'openai-base',
+              apiKey: step.apiKey,
+              defaultModel: step.defaultModel,
+            })
+          }
+        />
+      )
+
+    case 'mistral-key':
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title="Mistral setup"
+          subtitle="Step 1 of 3"
+          description={
+            process.env.MISTRAL_API_KEY
+              ? 'Enter an API key, or leave this blank to reuse the current MISTRAL_API_KEY from this session.'
+              : 'Enter the API key for your Mistral provider.'
+          }
+          initialValue=""
+          placeholder="..."
+          mask="*"
+          allowEmpty={Boolean(process.env.MISTRAL_API_KEY)}
+          validate={value => {
+            const candidate = value.trim() || process.env.MISTRAL_API_KEY || ''
+            return sanitizeApiKey(candidate)
+              ? null
+              : 'Enter a real API key. Placeholder values like SUA_CHAVE are not valid.'
+          }}
+          onSubmit={value => {
+            const apiKey = value.trim() || process.env.MISTRAL_API_KEY || ''
+            setStep({
+              name: 'mistral-base',
+              apiKey,
+              defaultModel: step.defaultModel,
+            })
+          }}
+          onCancel={() => setStep({ name: 'choose' })}
+        />
+      )
+
+    case 'mistral-base':
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title="Mistral setup"
+          subtitle="Step 2 of 3"
+          description={`Optionally enter a base URL. Leave blank for ${DEFAULT_MISTRAL_BASE_URL}.`}
+          initialValue={
+            defaults.mistralBaseUrl === DEFAULT_MISTRAL_BASE_URL
+              ? ''
+              : defaults.mistralBaseUrl
+          }
+          placeholder={DEFAULT_MISTRAL_BASE_URL}
+          allowEmpty
+          onSubmit={value => {
+            setStep({
+              name: 'mistral-model',
+              apiKey: step.apiKey,
+              baseUrl: value.trim() || null,
+              defaultModel: step.defaultModel,
+            })
+          }}
+          onCancel={() =>
+            setStep({
+              name: 'mistral-key',
+              defaultModel: step.defaultModel,
+            })
+          }
+        />
+      )
+
+    case 'mistral-model':
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title="Mistral setup"
+          subtitle="Step 3 of 3"
+          description={`Enter a model name. Leave blank for ${step.defaultModel}.`}
+          initialValue={defaults.mistralModel ?? step.defaultModel}
+          placeholder={step.defaultModel}
+          allowEmpty
+          onSubmit={value => {
+            const env = buildMistralProfileEnv({
+              model: value.trim() || step.defaultModel,
+              baseUrl: step.baseUrl,
+              apiKey: step.apiKey,
+              processEnv: process.env,
+            })
+            if (env) {
+              finishProfileSave(onDone, 'mistral', env)
+            }
+          }}
+          onCancel={() =>
+            setStep({
+              name: 'mistral-base',
               apiKey: step.apiKey,
               defaultModel: step.defaultModel,
             })

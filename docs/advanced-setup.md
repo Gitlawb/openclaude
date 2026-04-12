@@ -137,10 +137,9 @@ export OPENAI_MODEL=llama-3.3-70b-versatile
 ### Mistral
 
 ```bash
-export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_API_KEY=...
-export OPENAI_BASE_URL=https://api.mistral.ai/v1
-export OPENAI_MODEL=mistral-large-latest
+export CLAUDE_CODE_USE_MISTRAL=1
+export MISTRAL_API_KEY=...
+export MISTRAL_MODEL=mistral-large-latest
 ```
 
 ### Azure OpenAI

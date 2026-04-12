@@ -145,7 +145,10 @@ describe('applyProviderFlag - vertex', () => {
 })
 
 describe('applyProviderFlag - ollama', () => {
-  test('sets CLAUDE_CODE_USE_OPENAI=1 with Ollama base URL', () => {
+  test('sets CLAUDE_CODE_USE_OPENAI=1 with Ollama defaults when unset', () => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_KEY
+
     const result = applyProviderFlag('ollama', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
@@ -163,6 +166,16 @@ describe('applyProviderFlag - ollama', () => {
     applyProviderFlag('ollama', [])
     expect(process.env.OPENAI_BASE_URL).toBe('http://my-ollama:11434/v1')
   })
+
+  test('preserves explicit OPENAI_BASE_URL and OPENAI_API_KEY overrides', () => {
+    process.env.OPENAI_BASE_URL = 'http://remote-ollama.internal:11434/v1'
+    process.env.OPENAI_API_KEY = 'secret-token'
+
+    applyProviderFlag('ollama', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('http://remote-ollama.internal:11434/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('secret-token')
+  })
 })
 
 describe('applyProviderFlag - invalid provider', () => {
@@ -175,6 +188,9 @@ describe('applyProviderFlag - invalid provider', () => {
 
 describe('applyProviderFlagFromArgs', () => {
   test('applies ollama provider and model from argv in one step', () => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_KEY
+
     const result = applyProviderFlagFromArgs([
       '--provider',
       'ollama',
@@ -185,6 +201,7 @@ describe('applyProviderFlagFromArgs', () => {
     expect(result?.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('ollama')
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
   })
 
