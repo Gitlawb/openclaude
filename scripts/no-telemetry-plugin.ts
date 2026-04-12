@@ -70,12 +70,12 @@ export const initializeGrowthBook = async () => null;
 export async function getFeatureValue_DEPRECATED(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
 export function getFeatureValue_CACHED_MAY_BE_STALE(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
 export function getFeatureValue_CACHED_WITH_REFRESH(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
-export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(gate) { return _getFlagValue(gate, false); }
+export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(gate) { return Boolean(_getFlagValue(gate, false)); }
 // Security killswitch — always false in the open build. Anthropic uses this
 // gate to remotely disable bypassPermissions mode; exposing it via local flags
 // would let users accidentally lock themselves out of --dangerously-skip-permissions.
-export async function checkSecurityRestrictionGate() { return false; }
-export async function checkGate_CACHED_OR_BLOCKING(gate) { return _getFlagValue(gate, false); }
+export async function checkSecurityRestrictionGate(gate) { return false; }
+export async function checkGate_CACHED_OR_BLOCKING(gate) { return Boolean(_getFlagValue(gate, false)); }
 export function refreshGrowthBookAfterAuthChange() {}
 export function resetGrowthBook() { _flags = undefined; }
 export async function refreshGrowthBookFeatures() { _flags = undefined; }
