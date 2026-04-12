@@ -31,7 +31,7 @@ const featureFlags: Record<string, boolean> = {
   COORDINATOR_MODE: false,
   CONTEXT_COLLAPSE: false,
   COMMIT_ATTRIBUTION: false,
-  TEAMMEM: false,
+  TEAMMEM: true,
   UDS_INBOX: false,
   BG_SESSIONS: false,
   AWAY_SUMMARY: false,
