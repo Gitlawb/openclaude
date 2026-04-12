@@ -212,7 +212,6 @@ import type {
 //     error.message.includes('"code": -32001')
 //   )
 // }
-// Error classes are now in ./errors/index.js
 
 /**
  * Default timeout for MCP tool calls (effectively infinite - ~27.8 hours).

@@ -1,6 +1,6 @@
 import { feature } from 'bun:bundle'
 import { initAutoDream } from '../services/autoDream/autoDream.js'
-import { initMagicDocs } from '../services/MagicDocs/magicDocs.js'
+import { initMagicDocs } from '../services/magicDocs/magicDocs.js'
 import { initSkillImprovement } from './hooks/skillImprovement.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */

@@ -24,6 +24,10 @@ import { createUserMessage } from '../../utils/messages.js'
 import { getAgentTranscript } from '../../utils/sessionStorage.js'
 
 const SUMMARY_INTERVAL_MS = 30_000
+const MIN_SUMMARY_INTERVAL_MS = 5_000
+const MAX_CONSECUTIVE_FAILURES = 5
+const SUMMARY_TIMEOUT_MS = 10_000
+const MIN_MESSAGE_COUNT = 3
 
 function buildSummaryPrompt(previousSummary: string | null): string {
   const prevLine = previousSummary
@@ -43,11 +47,21 @@ Bad (too long): "Reviewing full branch diff and AgentTool.tsx integration"
 Bad (branch name): "Analyzed adam/background-summary branch diff"`
 }
 
+export interface AgentSummaryConfig {
+  /** Interval between summaries in ms (default: 30s) */
+  intervalMs?: number
+  /** Minimum messages required before first summary (default: 3) */
+  minMessageCount?: number
+  /** Timeout for summary generation in ms (default: 10s) */
+  timeoutMs?: number
+}
+
 export function startAgentSummarization(
   taskId: string,
   agentId: AgentId,
   cacheSafeParams: CacheSafeParams,
   setAppState: TaskContext['setAppState'],
+  config?: AgentSummaryConfig,
 ): { stop: () => void } {
   // Drop forkContextMessages from the closure — runSummary rebuilds it each
   // tick from getAgentTranscript(). Without this, the original fork messages
@@ -57,19 +71,35 @@ export function startAgentSummarization(
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   let stopped = false
   let previousSummary: string | null = null
+  let consecutiveFailures = 0
+
+  const intervalMs = Math.max(
+    config?.intervalMs ?? SUMMARY_INTERVAL_MS,
+    MIN_SUMMARY_INTERVAL_MS,
+  )
+  const minMessageCount = config?.minMessageCount ?? MIN_MESSAGE_COUNT
+  const timeoutMs = config?.timeoutMs ?? SUMMARY_TIMEOUT_MS
 
   async function runSummary(): Promise<void> {
     if (stopped) return
+
+    // Backoff check: pause summarization after too many consecutive failures
+    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      logForDebugging(
+        `[AgentSummary] Pausing for ${taskId} after ${consecutiveFailures} consecutive failures`,
+      )
+      return
+    }
 
     logForDebugging(`[AgentSummary] Timer fired for agent ${agentId}`)
 
     try {
       // Read current messages from transcript
       const transcript = await getAgentTranscript(agentId)
-      if (!transcript || transcript.messages.length < 3) {
+      if (!transcript || transcript.messages.length < minMessageCount) {
         // Not enough context yet — finally block will schedule next attempt
         logForDebugging(
-          `[AgentSummary] Skipping summary for ${taskId}: not enough messages (${transcript?.messages.length ?? 0})`,
+          `[AgentSummary] Skipping summary for ${taskId}: not enough messages (${transcript?.messages.length ?? 0} < ${minMessageCount})`,
         )
         return
       }
@@ -87,8 +117,11 @@ export function startAgentSummarization(
         `[AgentSummary] Forking for summary, ${cleanMessages.length} messages in context`,
       )
 
-      // Create abort controller for this summary
+      // Create abort controller for this summary with timeout
       summaryAbortController = new AbortController()
+      const timeoutId = setTimeout(() => {
+        summaryAbortController?.abort()
+      }, timeoutMs)
 
       // Deny tools via callback, NOT by passing tools:[] - that busts cache
       const canUseTool = async () => ({
@@ -118,9 +151,12 @@ export function startAgentSummarization(
         skipTranscript: true,
       })
 
+      clearTimeout(timeoutId)
+
       if (stopped) return
 
       // Extract summary text from result
+      let summaryText: string | null = null
       for (const msg of result.messages) {
         if (msg.type !== 'assistant') continue
         // Skip API error messages
@@ -130,20 +166,39 @@ export function startAgentSummarization(
           )
           continue
         }
-        const textBlock = msg.message.content.find(b => b.type === 'text')
+        const textBlock = msg.message.content.find((b: { type: string }) => b.type === 'text')
         if (textBlock?.type === 'text' && textBlock.text.trim()) {
-          const summaryText = textBlock.text.trim()
-          logForDebugging(
-            `[AgentSummary] Summary result for ${taskId}: ${summaryText}`,
-          )
-          previousSummary = summaryText
-          updateAgentSummary(taskId, summaryText, setAppState)
+          summaryText = textBlock.text.trim()
           break
         }
       }
+
+      // Validate and deduplicate summary
+      if (!summaryText) {
+        logForDebugging(`[AgentSummary] Empty summary for ${taskId}, skipping`)
+        return
+      }
+
+      if (summaryText === previousSummary) {
+        logForDebugging(
+          `[AgentSummary] Duplicate summary for ${taskId}, skipping update`,
+        )
+        return
+      }
+
+      logForDebugging(
+        `[AgentSummary] Summary result for ${taskId}: ${summaryText}`,
+      )
+      previousSummary = summaryText
+      consecutiveFailures = 0 // Reset failure count on success
+      updateAgentSummary(taskId, summaryText, setAppState)
     } catch (e) {
       if (!stopped && e instanceof Error) {
         logError(e)
+        consecutiveFailures++
+        logForDebugging(
+          `[AgentSummary] Failure ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES} for ${taskId}: ${e.message}`,
+        )
       }
     } finally {
       summaryAbortController = null
@@ -156,7 +211,12 @@ export function startAgentSummarization(
 
   function scheduleNext(): void {
     if (stopped) return
-    timeoutId = setTimeout(runSummary, SUMMARY_INTERVAL_MS)
+    // Use longer interval if we're in backoff mode
+    const actualInterval =
+      consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+        ? intervalMs * 2 // Double interval after max failures
+        : intervalMs
+    timeoutId = setTimeout(runSummary, actualInterval)
   }
 
   function stop(): void {

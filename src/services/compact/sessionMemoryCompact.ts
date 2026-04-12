@@ -26,12 +26,12 @@ import { logEvent } from '../analytics/index.js'
 import {
   isSessionMemoryEmpty,
   truncateSessionMemoryForCompact,
-} from '../SessionMemory/prompts.js'
+} from '../sessionMemory/prompts.js'
 import {
   getLastSummarizedMessageId,
   getSessionMemoryContent,
   waitForSessionMemoryExtraction,
-} from '../SessionMemory/sessionMemoryUtils.js'
+} from '../sessionMemory/sessionMemoryUtils.js'
 import {
   annotateBoundaryWithPreservedSegment,
   buildPostCompactMessages,
