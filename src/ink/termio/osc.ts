@@ -4,6 +4,7 @@
 
 import { Buffer } from 'buffer'
 import { unlink, writeFile } from 'node:fs/promises'
+import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { env } from '../../utils/env.js'
 import { execFileNoThrow } from '../../utils/execFileNoThrow.js'
 import { generateTempFilePath } from '../../utils/tempfile.js'
@@ -490,7 +491,7 @@ export const CLEAR_TAB_STATUS = osc(
  * DCS-passthrough carries the sequence to the outer terminal.
  */
 export function supportsTabStatus(): boolean {
-  return false
+  return getFeatureValue_CACHED_MAY_BE_STALE('tengu_terminal_sidebar', false)
 }
 
 /**

@@ -41,33 +41,6 @@ function getInsightsModel(): string {
   return getDefaultOpusModel()
 }
 
-// ============================================================================
-// Homespace Data Collection
-// ============================================================================
-
-type RemoteHostInfo = {
-  name: string
-  sessionCount: number
-}
-
-/* eslint-disable custom-rules/no-process-env-top-level */
-const getRunningRemoteHosts: () => Promise<string[]> = async () => []
-
-const getRemoteHostSessionCount: (hs: string) => Promise<number> =
-  async () => 0
-
-const collectFromRemoteHost: (
-  hs: string,
-  destDir: string,
-) => Promise<{ copied: number; skipped: number }> =
-  async () => ({ copied: 0, skipped: 0 })
-
-const collectAllRemoteHostData: (destDir: string) => Promise<{
-  hosts: RemoteHostInfo[]
-  totalCopied: number
-  totalSkipped: number
-}> = async () => ({ hosts: [], totalCopied: 0, totalSkipped: 0 })
-/* eslint-enable custom-rules/no-process-env-top-level */
 
 // ============================================================================
 // Types
@@ -2406,7 +2379,6 @@ export type InsightsExport = {
     claude_code_version: string
     date_range: { start: string; end: string }
     session_count: number
-    remote_hosts_collected?: string[]
   }
   aggregated_data: AggregatedData
   insights: InsightResults
@@ -2427,13 +2399,8 @@ export function buildExportData(
   data: AggregatedData,
   insights: InsightResults,
   facets: Map<string, SessionFacets>,
-  remoteStats?: { hosts: RemoteHostInfo[]; totalCopied: number },
 ): InsightsExport {
   const version = typeof MACRO !== 'undefined' ? MACRO.VERSION : 'unknown'
-
-  const remote_hosts_collected = remoteStats?.hosts
-    .filter(h => h.sessionCount > 0)
-    .map(h => h.name)
 
   const facets_summary = {
     total: facets.size,
@@ -2472,10 +2439,6 @@ export function buildExportData(
       claude_code_version: version,
       date_range: data.date_range,
       session_count: data.total_sessions,
-      ...(remote_hosts_collected &&
-        remote_hosts_collected.length > 0 && {
-          remote_hosts_collected,
-        }),
     },
     aggregated_data: data,
     insights,
@@ -2540,17 +2503,12 @@ async function scanAllSessions(): Promise<LiteSessionInfo[]> {
 // Main Function
 // ============================================================================
 
-export async function generateUsageReport(options?: {
-  collectRemote?: boolean
-}): Promise<{
+export async function generateUsageReport(): Promise<{
   insights: InsightResults
   htmlPath: string
   data: AggregatedData
-  remoteStats?: { hosts: RemoteHostInfo[]; totalCopied: number }
   facets: Map<string, SessionFacets>
 }> {
-  const remoteStats: { hosts: RemoteHostInfo[]; totalCopied: number } | undefined = undefined
-
   // Phase 1: Lite scan — filesystem metadata only (no JSONL parsing)
   const allScannedSessions = await scanAllSessions()
   const totalSessionsScanned = allScannedSessions.length
@@ -2757,7 +2715,6 @@ export async function generateUsageReport(options?: {
     insights,
     htmlPath,
     data: aggregated,
-    remoteStats,
     facets: substantiveFacets,
   }
 }
@@ -2784,7 +2741,7 @@ const usageReport: Command = {
   progressMessage: 'analyzing your sessions',
   source: 'builtin',
   async getPromptForCommand(args) {
-    const { insights, htmlPath, data, remoteStats } = await generateUsageReport()
+    const { insights, htmlPath, data } = await generateUsageReport()
 
     let reportUrl = `file://${htmlPath}`
     let uploadHint = ''
