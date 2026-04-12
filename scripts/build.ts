@@ -23,7 +23,7 @@ const featureFlags: Record<string, boolean> = {
   KAIROS: false,
   BRIDGE_MODE: false,
   DAEMON: false,
-  AGENT_TRIGGERS: false,
+  AGENT_TRIGGERS: true,
   MONITOR_TOOL: false,
   ABLATION_BASELINE: false,
   DUMP_SYSTEM_PROMPT: false,
