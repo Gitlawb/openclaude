@@ -21,9 +21,10 @@ export const mojeekProvider: SearchProvider = {
     url.searchParams.set('q', input.query)
     url.searchParams.set('fmt', 'json')
 
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    }
     if (process.env.MOJEEK_API_KEY) {
-      headers['Accept'] = 'application/json'
       headers['Authorization'] = `Bearer ${process.env.MOJEEK_API_KEY}`
     }
 

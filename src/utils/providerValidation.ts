@@ -1,14 +1,16 @@
+import { resolve } from 'node:path'
 import {
   getGithubEndpointType,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
+import { getGlobalClaudeFile } from './env.js'
 import {
   type GeminiResolvedCredential,
   resolveGeminiCredential,
 } from './geminiAuth.js'
-import { redactSecretValueForDisplay } from './providerProfile.js'
+import { PROFILE_FILE_NAME, redactSecretValueForDisplay } from './providerProfile.js'
 
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
@@ -59,6 +61,17 @@ function checkGithubTokenStatus(
 
   // Keep compatibility with opaque token formats that do not expose expiry.
   return 'valid'
+}
+
+function getOpenAIMissingKeyMessage(): string {
+  const globalConfigPath = getGlobalClaudeFile()
+  const profilePath = resolve(process.cwd(), PROFILE_FILE_NAME)
+
+  return [
+    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    `To recover, run /provider and switch provider, or set CLAUDE_CODE_USE_OPENAI=0 in your shell environment.`,
+    `Saved startup settings can come from ${globalConfigPath} or ${profilePath}.`,
+  ].join('\n')
 }
 
 export async function getProviderValidationError(
@@ -137,7 +150,7 @@ export async function getProviderValidationError(
     if (useGithub && hasGithubToken) {
       return null
     }
-    return 'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.'
+    return getOpenAIMissingKeyMessage()
   }
 
   return null

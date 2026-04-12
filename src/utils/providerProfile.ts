@@ -19,10 +19,13 @@ export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/openai'
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
+export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
+export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
@@ -44,6 +47,9 @@ const PROFILE_ENV_KEYS = [
   'MINIMAX_API_KEY',
   'MINIMAX_BASE_URL',
   'MINIMAX_MODEL',
+  'MISTRAL_BASE_URL',
+  'MISTRAL_API_KEY',
+  'MISTRAL_MODEL',
 ] as const
 
 const SECRET_ENV_KEYS = [
@@ -53,9 +59,10 @@ const SECRET_ENV_KEYS = [
   'GOOGLE_API_KEY',
   'NVIDIA_API_KEY',
   'MINIMAX_API_KEY',
+  'MISTRAL_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax'
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
@@ -74,6 +81,9 @@ export type ProfileEnv = {
   MINIMAX_API_KEY?: string
   MINIMAX_BASE_URL?: string
   MINIMAX_MODEL?: string
+  MISTRAL_BASE_URL?: string
+  MISTRAL_API_KEY?: string
+  MISTRAL_MODEL?: string
 }
 
 export type ProfileFile = {
@@ -110,7 +120,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'gemini' ||
     value === 'atomic-chat' ||
     value === 'nvidia-nim' ||
-    value === 'minimax'
+    value === 'minimax' ||
+    value === 'mistral'
   )
 }
 
@@ -416,6 +427,44 @@ export function buildCodexProfileEnv(options: {
   return env
 }
 
+export function buildMistralProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.MISTRAL_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const env: ProfileEnv = {
+    MISTRAL_API_KEY: key,
+    MISTRAL_MODEL:
+      sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }, processEnv) ||
+      sanitizeProviderConfigValue(
+        processEnv.MISTRAL_MODEL,
+        { MISTRAL_API_KEY: key },
+        processEnv,
+      ) ||
+      DEFAULT_MISTRAL_MODEL,
+  }
+
+  const baseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, { MISTRAL_API_KEY: key }, processEnv) ||
+    sanitizeProviderConfigValue(
+      processEnv.MISTRAL_BASE_URL,
+      { MISTRAL_API_KEY: key },
+      processEnv,
+    )
+  if (baseUrl) {
+    env.MISTRAL_BASE_URL = baseUrl
+  }
+
+  return env
+}
+
 export function createProfileFile(
   profile: ProviderProfile,
   env: ProfileEnv,
@@ -482,6 +531,7 @@ export function hasExplicitProviderSelection(
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
     processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
+    processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
     processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
@@ -606,11 +656,82 @@ export async function buildLaunchEnv(options: {
     return env
   }
 
+  if (options.profile === 'mistral') {
+    const env: NodeJS.ProcessEnv = {
+      ...processEnv,
+      CLAUDE_CODE_USE_MISTRAL: '1',
+    }
+
+    delete env.CLAUDE_CODE_USE_OPENAI
+    delete env.CLAUDE_CODE_USE_GITHUB
+    delete env.CLAUDE_CODE_USE_GEMINI
+    delete env.CLAUDE_CODE_USE_BEDROCK
+    delete env.CLAUDE_CODE_USE_VERTEX
+    delete env.CLAUDE_CODE_USE_FOUNDRY
+
+    const shellMistralModel = sanitizeProviderConfigValue(
+      processEnv.MISTRAL_MODEL,
+      processEnv,
+    )
+    const persistedMistralModel = sanitizeProviderConfigValue(
+      persistedEnv.MISTRAL_MODEL,
+      persistedEnv,
+    )
+    const shellMistralBaseUrl = sanitizeProviderConfigValue(
+      processEnv.MISTRAL_BASE_URL,
+      processEnv,
+    )
+    const persistedMistralBaseUrl = sanitizeProviderConfigValue(
+      persistedEnv.MISTRAL_BASE_URL,
+      persistedEnv,
+    )
+
+    env.MISTRAL_MODEL =
+      shellMistralModel || persistedMistralModel || DEFAULT_MISTRAL_MODEL
+
+    const shellMistralKey = sanitizeApiKey(
+      processEnv.MISTRAL_API_KEY,
+    )
+    const persistedMistralKey = sanitizeApiKey(persistedEnv.MISTRAL_API_KEY)
+    const mistralKey = shellMistralKey || persistedMistralKey
+
+    if (mistralKey) {
+      env.MISTRAL_API_KEY = mistralKey
+    } else {
+      delete env.MISTRAL_API_KEY
+    }
+
+    if (shellMistralBaseUrl || persistedMistralBaseUrl) {
+      env.MISTRAL_BASE_URL = shellMistralBaseUrl || persistedMistralBaseUrl
+    } else {
+      delete env.MISTRAL_BASE_URL
+    }
+
+    delete env.GEMINI_API_KEY
+    delete env.GEMINI_AUTH_MODE
+    delete env.GEMINI_ACCESS_TOKEN
+    delete env.GEMINI_MODEL
+    delete env.GEMINI_BASE_URL
+    delete env.GOOGLE_API_KEY
+    delete env.OPENAI_BASE_URL
+    delete env.OPENAI_MODEL
+    delete env.OPENAI_API_KEY
+    delete env.CODEX_API_KEY
+    delete env.CHATGPT_ACCOUNT_ID
+    delete env.CODEX_ACCOUNT_ID
+
+    return env
+  }
+
   const env: NodeJS.ProcessEnv = {
     ...processEnv,
     CLAUDE_CODE_USE_OPENAI: '1',
   }
 
+  delete env.CLAUDE_CODE_USE_MISTRAL
+  delete env.CLAUDE_CODE_USE_BEDROCK
+  delete env.CLAUDE_CODE_USE_VERTEX
+  delete env.CLAUDE_CODE_USE_FOUNDRY
   delete env.CLAUDE_CODE_USE_GEMINI
   delete env.CLAUDE_CODE_USE_GITHUB
   delete env.GEMINI_API_KEY
@@ -733,14 +854,31 @@ export async function buildStartupEnvFromProfile(options?: {
   readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options?.processEnv ?? process.env
-  if (hasExplicitProviderSelection(processEnv)) {
+  const persisted = options?.persisted ?? loadProfileFile()
+
+  // Saved /provider profiles should still win over provider-manager env that was
+  // auto-applied during startup. Only explicit shell/flag provider selection
+  // should bypass the persisted startup profile.
+  const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  if (hasExplicitProviderSelection(processEnv) && !profileManagedEnv) {
     return processEnv
   }
 
-  const persisted = options?.persisted ?? loadProfileFile()
   if (!persisted) {
     return processEnv
   }
+
+  const launchProcessEnv = profileManagedEnv
+    ? (() => {
+        const cleanedEnv = { ...processEnv }
+        for (const key of PROFILE_ENV_KEYS) {
+          delete cleanedEnv[key]
+        }
+        delete cleanedEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+        delete cleanedEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+        return cleanedEnv
+      })()
+    : processEnv
 
   return buildLaunchEnv({
     profile: persisted.profile,
@@ -748,7 +886,7 @@ export async function buildStartupEnvFromProfile(options?: {
     goal:
       options?.goal ??
       normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
-    processEnv,
+    processEnv: launchProcessEnv,
     getOllamaChatBaseUrl:
       options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
     resolveOllamaDefaultModel: options?.resolveOllamaDefaultModel,

@@ -13,6 +13,7 @@ export type APIProvider =
   | 'codex'
   | 'nvidia-nim'
   | 'minimax'
+  | 'mistral'
 
 export function getAPIProvider(): APIProvider {
   if (isEnvTruthy(process.env.NVIDIA_NIM)) {
@@ -23,6 +24,9 @@ export function getAPIProvider(): APIProvider {
   }
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     ? 'gemini'
+    :
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+    ? 'mistral'
     : isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
       ? 'github'
       : isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)

@@ -7,6 +7,8 @@
 
 import { isLocalProviderUrl } from '../services/api/providerConfig.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
+import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
+import { parseUserSpecifiedModel } from '../utils/model/model.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
@@ -85,11 +87,18 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
   const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
   const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
+  const useMistral = process.env.CLAUDE_CODE_USE_MISTRAL === '1' || process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
 
   if (useGemini) {
     const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
     const baseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
     return { name: 'Google Gemini', model, baseUrl, isLocal: false }
+  }
+
+  if (useMistral) {
+    const model = process.env.MISTRAL_MODEL || 'devstral-latest'
+    const baseUrl = process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1'
+    return { name: 'Mistral', model, baseUrl, isLocal: false }
   }
 
   if (useGithub) {
@@ -141,9 +150,11 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     return { name, model: displayModel, baseUrl, isLocal }
   }
 
-  // Default: Anthropic
-  const model = process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
-  return { name: 'Anthropic', model, baseUrl: 'https://api.anthropic.com', isLocal: false }
+  // Default: Anthropic - check settings.model first, then env vars
+  const settings = getSettings_DEPRECATED() || {}
+  const modelSetting = settings.model || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
+  const resolvedModel = parseUserSpecifiedModel(modelSetting)
+  return { name: 'Anthropic', model: resolvedModel, baseUrl: 'https://api.anthropic.com', isLocal: false }
 }
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────

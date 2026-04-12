@@ -13,9 +13,9 @@ export type ProviderPreset =
   | 'moonshotai'
   | 'deepseek'
   | 'gemini'
+  | 'mistral'
   | 'together'
   | 'groq'
-  | 'mistral'
   | 'azure-openai'
   | 'openrouter'
   | 'lmstudio'
@@ -165,6 +165,15 @@ export function getProviderPresetDefaults(
         apiKey: '',
         requiresApiKey: true,
       }
+    case 'mistral':
+      return {
+        provider: 'openai',
+        name: 'Mistral',
+        baseUrl: 'https://api.mistral.ai/v1',
+        model: 'devstral-latest',
+        apiKey: '',
+        requiresApiKey: true
+      }
     case 'together':
       return {
         provider: 'openai',
@@ -180,15 +189,6 @@ export function getProviderPresetDefaults(
         name: 'Groq',
         baseUrl: 'https://api.groq.com/openai/v1',
         model: 'llama-3.3-70b-versatile',
-        apiKey: '',
-        requiresApiKey: true,
-      }
-    case 'mistral':
-      return {
-        provider: 'openai',
-        name: 'Mistral',
-        baseUrl: 'https://api.mistral.ai/v1',
-        model: 'mistral-large-latest',
         apiKey: '',
         requiresApiKey: true,
       }
@@ -278,6 +278,7 @@ function hasProviderSelectionFlags(
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
     processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
+    processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
@@ -339,6 +340,7 @@ function isProcessEnvAlignedWithProfile(
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
     processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
+    processEnv.CLAUDE_CODE_USE_MISTRAL === undefined &&
     processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
     processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
     processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
@@ -367,6 +369,7 @@ export function clearProviderProfileEnvFromProcessEnv(
 ): void {
   delete processEnv.CLAUDE_CODE_USE_OPENAI
   delete processEnv.CLAUDE_CODE_USE_GEMINI
+  delete processEnv.CLAUDE_CODE_USE_MISTRAL
   delete processEnv.CLAUDE_CODE_USE_GITHUB
   delete processEnv.CLAUDE_CODE_USE_BEDROCK
   delete processEnv.CLAUDE_CODE_USE_VERTEX

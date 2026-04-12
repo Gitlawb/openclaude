@@ -181,7 +181,7 @@ function formatCost(cost: number, maxDecimalPlaces: number = 4): string {
 function formatModelUsage(): string {
   const modelUsageMap = getModelUsage()
   if (Object.keys(modelUsageMap).length === 0) {
-    return 'Usage:                 0 input, 0 output, 0 cache read, 0 cache write'
+    return 'Usage:                 0 input, 0 output'
   }
 
   // Accumulate usage by short name
@@ -211,15 +211,19 @@ function formatModelUsage(): string {
 
   let result = 'Usage by model:'
   for (const [shortName, usage] of Object.entries(usageByShortName)) {
-    const usageString =
+    let usageString =
       `  ${formatNumber(usage.inputTokens)} input, ` +
-      `${formatNumber(usage.outputTokens)} output, ` +
-      `${formatNumber(usage.cacheReadInputTokens)} cache read, ` +
-      `${formatNumber(usage.cacheCreationInputTokens)} cache write` +
-      (usage.webSearchRequests > 0
-        ? `, ${formatNumber(usage.webSearchRequests)} web search`
-        : '') +
-      ` (${formatCost(usage.costUSD)})`
+      `${formatNumber(usage.outputTokens)} output`
+    if (usage.cacheReadInputTokens > 0) {
+      usageString += `, ${formatNumber(usage.cacheReadInputTokens)} cache read`
+    }
+    if (usage.cacheCreationInputTokens > 0) {
+      usageString += `, ${formatNumber(usage.cacheCreationInputTokens)} cache write`
+    }
+    if (usage.webSearchRequests > 0) {
+      usageString += `, ${formatNumber(usage.webSearchRequests)} web search`
+    }
+    usageString += ` (${formatCost(usage.costUSD)})`
     result += `\n` + `${shortName}:`.padStart(21) + usageString
   }
   return result

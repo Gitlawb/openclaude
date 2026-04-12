@@ -61,6 +61,7 @@ type SecretValueSource = Partial<{
   GEMINI_API_KEY: string
   GOOGLE_API_KEY: string
   GEMINI_ACCESS_TOKEN: string
+  MISTRAL_API_KEY: string
 }>
 
 const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
@@ -78,6 +79,36 @@ const COPILOT_HEADERS: Record<string, string> = {
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+}
+
+function isMistralMode(): boolean {
+  return isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+}
+
+function filterAnthropicHeaders(
+  headers: Record<string, string> | undefined,
+): Record<string, string> {
+  if (!headers) return {}
+
+  const filtered: Record<string, string> = {}
+  for (const [key, value] of Object.entries(headers)) {
+    const lower = key.toLowerCase()
+    if (
+      lower.startsWith('x-anthropic') ||
+      lower.startsWith('anthropic-') ||
+      lower.startsWith('x-claude') ||
+      lower === 'x-app' ||
+      lower === 'x-client-app' ||
+      lower === 'authorization' ||
+      lower === 'x-api-key' ||
+      lower === 'api-key'
+    ) {
+      continue
+    }
+    filtered[key] = value
+  }
+
+  return filtered
 }
 
 function hasGeminiApiHost(baseUrl: string | undefined): boolean {
@@ -538,11 +569,14 @@ function convertChunkUsage(
 ): Partial<AnthropicUsage> | undefined {
   if (!usage) return undefined
 
+  const cached = usage.prompt_tokens_details?.cached_tokens ?? 0
   return {
-    input_tokens: usage.prompt_tokens ?? 0,
+    // Subtract cached tokens: OpenAI includes them in prompt_tokens,
+    // but Anthropic convention treats input_tokens as non-cached only.
+    input_tokens: (usage.prompt_tokens ?? 0) - cached,
     output_tokens: usage.completion_tokens ?? 0,
     cache_creation_input_tokens: 0,
-    cache_read_input_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    cache_read_input_tokens: cached,
   }
 }
 
@@ -989,7 +1023,7 @@ class OpenAIShimMessages {
   private providerOverride?: { model: string; baseURL: string; apiKey: string }
 
   constructor(defaultHeaders: Record<string, string>, reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh', providerOverride?: { model: string; baseURL: string; apiKey: string }) {
-    this.defaultHeaders = defaultHeaders
+    this.defaultHeaders = filterAnthropicHeaders(defaultHeaders)
     this.reasoningEffort = reasoningEffort
     this.providerOverride = providerOverride
   }
@@ -1099,7 +1133,7 @@ class OpenAIShimMessages {
         params,
         defaultHeaders: {
           ...this.defaultHeaders,
-          ...(options?.headers ?? {}),
+          ...filterAnthropicHeaders(options?.headers),
           ...COPILOT_HEADERS,
         },
         signal: options?.signal,
@@ -1131,7 +1165,7 @@ class OpenAIShimMessages {
         params,
         defaultHeaders: {
           ...this.defaultHeaders,
-          ...(options?.headers ?? {}),
+          ...filterAnthropicHeaders(options?.headers),
         },
         signal: options?.signal,
       })
@@ -1158,6 +1192,7 @@ class OpenAIShimMessages {
       model: request.resolvedModel,
       messages: openaiMessages,
       stream: params.stream ?? false,
+      store: false,
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
@@ -1180,13 +1215,20 @@ class OpenAIShimMessages {
     }
 
     const isGithub = isGithubModelsMode()
+    const isMistral = isMistralMode()
+
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
-    if (isGithub && body.max_completion_tokens !== undefined) {
+    if ((isGithub || isMistral) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
+    }
+
+    // mistral also doesn't recognize body.store
+    if (isMistral) {
+      delete body.store
     }
 
     if (params.temperature !== undefined) body.temperature = params.temperature
@@ -1223,7 +1265,7 @@ class OpenAIShimMessages {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...this.defaultHeaders,
-      ...(options?.headers ?? {}),
+      ...filterAnthropicHeaders(options?.headers),
     }
 
     const isGemini = isGeminiMode()
@@ -1335,6 +1377,7 @@ class OpenAIShimMessages {
               }>,
             ),
             stream: params.stream ?? false,
+            store: false,
           }
 
           if (!Array.isArray(responsesBody.input) || responsesBody.input.length === 0) {
@@ -1561,6 +1604,13 @@ export function createOpenAIShimClient(options: {
     }
     if (process.env.GEMINI_MODEL && !process.env.OPENAI_MODEL) {
       process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
+    }
+  } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
+    process.env.OPENAI_BASE_URL =
+      process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1'
+    process.env.OPENAI_API_KEY = process.env.MISTRAL_API_KEY
+    if (process.env.MISTRAL_MODEL) {
+      process.env.OPENAI_MODEL = process.env.MISTRAL_MODEL
     }
   } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
     process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE
