@@ -27,7 +27,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: node
-          package-name: '@gitlawb/openclaude'
 
   publish-npm:
     name: Publish to npm
