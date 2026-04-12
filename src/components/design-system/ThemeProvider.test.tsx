@@ -19,20 +19,19 @@
 import { PassThrough } from 'node:stream'
 
 import { expect, mock, test } from 'bun:test'
-import React, { useEffect, useRef } from 'react'
-import { Text } from '../ink.js'
-import { createRoot } from '../ink.js'
-import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
-import { AppStateProvider } from '../state/AppState.js'
+import React, { useEffect } from 'react'
+import { createRoot, Text } from '../../ink.js'
+import { KeybindingSetup } from '../../keybindings/KeybindingProviderSetup.js'
+import { AppStateProvider } from '../../state/AppState.js'
 import { ThemeProvider, useTheme, usePreviewTheme } from './ThemeProvider.js'
 
 mock.module('../../ink/hooks/use-stdin.js', () => ({
   default: () => ({ internal_querier: null }),
 }))
-mock.module('../utils/systemTheme.js', () => ({
+mock.module('../../utils/systemTheme.js', () => ({
   getSystemThemeName: () => 'dark',
 }))
-mock.module('../utils/config.js', () => ({
+mock.module('../../utils/config.js', () => ({
   getGlobalConfig: () => ({ theme: 'dark' }),
   saveGlobalConfig: () => {},
 }))
