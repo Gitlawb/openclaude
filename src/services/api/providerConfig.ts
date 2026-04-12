@@ -14,6 +14,7 @@ import {
   asTrimmedString,
   parseChatgptAccountId,
 } from './codexOAuthShared.js'
+import { DEFAULT_GEMINI_BASE_URL } from 'src/utils/providerProfile.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
@@ -381,10 +382,14 @@ export function resolveProviderRequest(options?: {
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const isGeminiMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
       ? process.env.MISTRAL_MODEL?.trim()
+      : process.env.OPENAI_MODEL?.trim()) ||
+    (isGeminiMode
+      ? process.env.GEMINI_MODEL?.trim()
       : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
@@ -396,13 +401,24 @@ export function resolveProviderRequest(options?: {
     'MISTRAL_BASE_URL',
   )
 
+  const normalizedGeminiEnvBaseUrl = asNamedEnvUrl(
+    process.env.GEMINI_BASE_URL,
+    'GEMINI_BASE_URL',
+  )
+
   const primaryEnvBaseUrl = isMistralMode
     ? normalizedMistralEnvBaseUrl
+    : isGeminiMode
+    ? normalizedGeminiEnvBaseUrl
     : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
 
   const fallbackEnvBaseUrl = isMistralMode
     ? (primaryEnvBaseUrl === undefined
       ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_MISTRAL_BASE_URL
+      : undefined)
+    : isGeminiMode
+    ? (primaryEnvBaseUrl === undefined
+      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
       : undefined)
     : (primaryEnvBaseUrl === undefined
       ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
