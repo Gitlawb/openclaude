@@ -270,8 +270,8 @@ export function buildYoloRejectionMessage(reason: string): string {
 
   const ruleHint = feature('BASH_CLASSIFIER')
     ? `To allow this type of action in the future, the user can add a permission rule like ` +
-      `Bash(prompt: <description of allowed action>) to their settings. ` +
-      `At the end of your session, recommend what permission rules to add so you don't get blocked again.`
+    `Bash(prompt: <description of allowed action>) to their settings. ` +
+    `At the end of your session, recommend what permission rules to add so you don't get blocked again.`
     : `To allow this type of action in the future, the user can add a Bash permission rule to their settings.`
 
   return (
@@ -422,11 +422,11 @@ export function createAssistantMessage({
     content:
       typeof content === 'string'
         ? [
-            {
-              type: 'text' as const,
-              text: content === '' ? NO_CONTENT_MESSAGE : content,
-            } as BetaContentBlock, // NOTE: citations field is not supported in Bedrock API
-          ]
+          {
+            type: 'text' as const,
+            text: content === '' ? NO_CONTENT_MESSAGE : content,
+          } as BetaContentBlock, // NOTE: citations field is not supported in Bedrock API
+        ]
         : content,
     usage,
     isVirtual,
@@ -645,8 +645,8 @@ export function extractTag(html: string, tagName: string): string | null {
   // 4. Multiline content
   const pattern = new RegExp(
     `<${escapedTag}(?:\\s+[^>]*)?>` + // Opening tag with optional attributes
-      '([\\s\\S]*?)' + // Content (non-greedy match)
-      `<\\/${escapedTag}>`, // Closing tag
+    '([\\s\\S]*?)' + // Content (non-greedy match)
+    `<\\/${escapedTag}>`, // Closing tag
     'gi',
   )
 
@@ -1103,11 +1103,11 @@ export function getToolResultIDs(normalizedMessages: NormalizedMessage[]): {
     normalizedMessages.flatMap(_ =>
       _.type === 'user' && _.message.content[0]?.type === 'tool_result'
         ? [
-            [
-              _.message.content[0].tool_use_id,
-              _.message.content[0].is_error ?? false,
-            ],
-          ]
+          [
+            _.message.content[0].tool_use_id,
+            _.message.content[0].is_error ?? false,
+          ],
+        ]
         : ([] as [string, boolean][]),
     ),
   )
@@ -2022,7 +2022,7 @@ export function normalizeMessagesForAPI(
     // Determine which error this is
     const errorText =
       Array.isArray(msg.message.content) &&
-      msg.message.content[0]?.type === 'text'
+        msg.message.content[0]?.type === 'text'
         ? msg.message.content[0].text
         : undefined
     if (!errorText) {
@@ -2215,9 +2215,9 @@ export function normalizeMessagesForAPI(
                   const tool = tools.find(t => toolMatchesName(t, block.name))
                   const normalizedInput = tool
                     ? normalizeToolInputForAPI(
-                        tool,
-                        block.input as Record<string, unknown>,
-                      )
+                      tool,
+                      block.input as Record<string, unknown>,
+                    )
                     : block.input
                   const canonicalName = tool?.name ?? block.name
 
@@ -2235,7 +2235,7 @@ export function normalizeMessagesForAPI(
                   // When tool search is NOT enabled, explicitly construct tool_use
                   // block with only standard API fields to avoid sending fields like
                   // 'caller' that may be stored in sessions from tool search runs
-                    return {
+                  return {
                     type: 'tool_use' as const,
                     id: block.id,
                     name: canonicalName,
@@ -3258,9 +3258,8 @@ You can launch up to ${agentCount} agent(s) in parallel.
 **Guidelines:**
 - **Default**: Launch at least 1 Plan agent for most tasks - it helps validate your understanding and consider alternatives
 - **Skip agents**: Only for truly trivial tasks (typo fixes, single-line changes, simple renames)
-${
-  agentCount > 1
-    ? `- **Multiple agents**: Use up to ${agentCount} agents for complex tasks that benefit from different perspectives
+${agentCount > 1
+      ? `- **Multiple agents**: Use up to ${agentCount} agents for complex tasks that benefit from different perspectives
 
 Examples of when to use multiple agents:
 - The task touches multiple parts of the codebase
@@ -3273,8 +3272,8 @@ Example perspectives by task type:
 - Bug fix: root cause vs workaround vs prevention
 - Refactoring: minimal change vs clean architecture
 `
-    : ''
-}
+      : ''
+    }
 In the agent prompt:
 - Provide comprehensive background context from Phase 1 exploration including filenames and code path traces
 - Describe requirements and constraints
@@ -3566,11 +3565,11 @@ Read the team config to discover your teammates' names. Check the task list peri
             createToolResultMessage(FileReadTool, fileContent),
             ...(attachment.truncated
               ? [
-                  createUserMessage({
-                    content: `Note: The file ${attachment.filename} was too large and has been truncated to the first ${MAX_LINES_TO_READ} lines. Don't tell the user about this truncation. Use ${FileReadTool.name} to read more of the file if you need.`,
-                    isMeta: true, // only claude will see this
-                  }),
-                ]
+                createUserMessage({
+                  content: `Note: The file ${attachment.filename} was too large and has been truncated to the first ${MAX_LINES_TO_READ} lines. Don't tell the user about this truncation. Use ${FileReadTool.name} to read more of the file if you need.`,
+                  isMeta: true, // only claude will see this
+                }),
+              ]
               : []),
           ])
         }
@@ -3620,7 +3619,7 @@ Read the team config to discover your teammates' names. Check the task list peri
       const content =
         attachment.content.length > maxSelectionLength
           ? attachment.content.substring(0, maxSelectionLength) +
-            '\n... (truncated)'
+          '\n... (truncated)'
           : attachment.content
 
       return wrapMessagesInSystemReminder([
@@ -3802,7 +3801,7 @@ Read the team config to discover your teammates' names. Check the task list peri
     case 'output_style': {
       const outputStyle =
         OUTPUT_STYLE_CONFIG[
-          attachment.style as keyof typeof OUTPUT_STYLE_CONFIG
+        attachment.style as keyof typeof OUTPUT_STYLE_CONFIG
         ]
       if (!outputStyle) {
         return []
@@ -5188,11 +5187,11 @@ export function ensureToolResultPairing(
               ? stripped
               : result.length === 0
                 ? [
-                    {
-                      type: 'text' as const,
-                      text: '[Orphaned tool result removed due to conversation resume]',
-                    },
-                  ]
+                  {
+                    type: 'text' as const,
+                    text: '[Orphaned tool result removed due to conversation resume]',
+                  },
+                ]
                 : null
           if (content !== null) {
             result.push({
@@ -5262,9 +5261,9 @@ export function ensureToolResultPairing(
 
     const assistantMsg = assistantContentChanged
       ? {
-          ...msg,
-          message: { ...msg.message, content: finalContent },
-        }
+        ...msg,
+        message: { ...msg.message, content: finalContent },
+      }
       : msg
 
     result.push(assistantMsg)
@@ -5442,8 +5441,8 @@ export function ensureToolResultPairing(
     if (getStrictToolResultPairing()) {
       throw new Error(
         `ensureToolResultPairing: tool_use/tool_result pairing mismatch detected (strict mode). ` +
-          `Refusing to repair — would inject synthetic placeholders into model context. ` +
-          `Message structure: ${messageTypes.join('; ')}. See inc-4977.`,
+        `Refusing to repair — would inject synthetic placeholders into model context. ` +
+        `Message structure: ${messageTypes.join('; ')}. See inc-4977.`,
       )
     }
 

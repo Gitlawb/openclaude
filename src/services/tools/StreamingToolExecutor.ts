@@ -3,7 +3,7 @@ import {
   createUserMessage,
   REJECT_MESSAGE,
   withMemoryCorrectionHint,
-} from 'src/utils/messages.js'
+} from '../../utils/messages.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import { findToolByName, type Tools, type ToolUseContext } from '../../Tool.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
@@ -104,12 +104,12 @@ export class StreamingToolExecutor {
     const parsedInput = toolDefinition.inputSchema.safeParse(block.input)
     const isConcurrencySafe = parsedInput?.success
       ? (() => {
-          try {
-            return Boolean(toolDefinition.isConcurrencySafe(parsedInput.data))
-          } catch {
-            return false
-          }
-        })()
+        try {
+          return Boolean(toolDefinition.isConcurrencySafe(parsedInput.data))
+        } catch {
+          return false
+        }
+      })()
       : false
     this.tools.push({
       id: block.id,
@@ -255,7 +255,7 @@ export class StreamingToolExecutor {
     const executing = this.tools.filter(t => t.status === 'executing')
     this.toolUseContext.setHasInterruptibleToolInProgress?.(
       executing.length > 0 &&
-        executing.every(t => this.getToolInterruptBehavior(t) === 'cancel'),
+      executing.every(t => this.getToolInterruptBehavior(t) === 'cancel'),
     )
   }
 

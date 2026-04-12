@@ -1,5 +1,4 @@
 import { feature } from 'bun:bundle';
-import * as React from 'react';
 import { buildTool, type ToolDef, toolMatchesName } from 'src/Tool.js';
 import type { Message as MessageType, NormalizedUserMessage } from 'src/types/message.js';
 import { getQuerySourceForAgent } from 'src/utils/promptCategory.js';
@@ -15,6 +14,7 @@ import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResol
 import { checkRemoteAgentEligibility, formatPreconditionError, getRemoteTaskSessionUrl, registerRemoteAgentTask } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
 import { asAgentId } from '../../types/ids.js';
+import type { AgentToolProgress, ShellProgress } from '../../types/tools.js';
 import { runWithAgentContext } from '../../utils/agentContext.js';
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
 import { getCwd, runWithCwdOverride } from '../../utils/cwd.js';
@@ -189,7 +189,6 @@ export type RemoteLaunchedOutput = {
   outputFile: string;
 };
 type InternalOutput = Output | TeammateSpawnedOutput | RemoteLaunchedOutput;
-import type { AgentToolProgress, ShellProgress } from '../../types/tools.js';
 // AgentTool forwards both its own progress events and shell progress
 // events from the sub-agent so the SDK receives tool_progress updates during bash/powershell runs.
 export type Progress = AgentToolProgress | ShellProgress;
