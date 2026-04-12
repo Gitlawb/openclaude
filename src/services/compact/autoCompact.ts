@@ -45,7 +45,12 @@ export function getEffectiveContextWindowSize(model: string): number {
     }
   }
 
-  return contextWindow - reservedTokensForSummary
+  // Floor: effective context must be at least the summary reservation plus a
+  // usable buffer. If it goes lower, the auto-compact threshold becomes
+  // negative and fires on every message (issue #635).
+  const autocompactBuffer = 13_000 // must match AUTOCOMPACT_BUFFER_TOKENS
+  const effectiveContext = contextWindow - reservedTokensForSummary
+  return Math.max(effectiveContext, reservedTokensForSummary + autocompactBuffer)
 }
 
 export type AutoCompactTrackingState = {
