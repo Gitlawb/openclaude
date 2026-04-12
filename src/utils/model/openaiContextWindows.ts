@@ -104,9 +104,19 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'devstral-latest':          256_000,
   'ministral-3b-latest':      256_000,
 
-  // MiniMax
+  // MiniMax (all M2.x variants share 204,800 context, 131,072 max output)
   'MiniMax-M2.7':             204_800,
+  'MiniMax-M2.7-highspeed':   204_800,
+  'MiniMax-M2.5':             204_800,
+  'MiniMax-M2.5-highspeed':   204_800,
+  'MiniMax-M2.1':             204_800,
+  'MiniMax-M2.1-highspeed':   204_800,
   'minimax-m2.7':             204_800,
+  'minimax-m2.7-highspeed':   204_800,
+  'minimax-m2.5':             204_800,
+  'minimax-m2.5-highspeed':   204_800,
+  'minimax-m2.1':             204_800,
+  'minimax-m2.1-highspeed':   204_800,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':1_048_576,
@@ -223,9 +233,19 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'mistral-large-latest':     32_768,
   'mistral-small-latest':     32_768,
 
-  // MiniMax
+  // MiniMax (all M2.x variants share 131,072 max output)
   'MiniMax-M2.7':            131_072,
+  'MiniMax-M2.7-highspeed':  131_072,
+  'MiniMax-M2.5':            131_072,
+  'MiniMax-M2.5-highspeed':  131_072,
+  'MiniMax-M2.1':            131_072,
+  'MiniMax-M2.1-highspeed':  131_072,
   'minimax-m2.7':            131_072,
+  'minimax-m2.7-highspeed':  131_072,
+  'minimax-m2.5':            131_072,
+  'minimax-m2.5-highspeed':  131_072,
+  'minimax-m2.1':            131_072,
+  'minimax-m2.1-highspeed':  131_072,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':   8_192,
