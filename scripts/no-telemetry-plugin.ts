@@ -74,8 +74,8 @@ export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(gate) { return _getF
 export async function checkSecurityRestrictionGate() { return false; }
 export async function checkGate_CACHED_OR_BLOCKING(gate) { return _getFlagValue(gate, false); }
 export function refreshGrowthBookAfterAuthChange() {}
-export function resetGrowthBook() {}
-export async function refreshGrowthBookFeatures() {}
+export function resetGrowthBook() { _flags = undefined; }
+export async function refreshGrowthBookFeatures() { _flags = undefined; }
 export function setupPeriodicGrowthBookRefresh() {}
 export function stopPeriodicGrowthBookRefresh() {}
 export async function getDynamicConfig_BLOCKS_ON_INIT(configName, defaultValue) { return _getFlagValue(configName, defaultValue); }
