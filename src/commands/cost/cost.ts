@@ -15,9 +15,6 @@ export const call: LocalCommandCall = async () => {
         'You are currently using your subscription to power your Claude Code usage'
     }
 
-    if (process.env.USER_TYPE === 'ant') {
-      value += `\n\n[internal-only] Showing cost anyway:\n ${formatTotalCost()}`
-    }
     return { type: 'text', value }
   }
   return { type: 'text', value: formatTotalCost() }

@@ -388,11 +388,6 @@ function getInitialState(): State {
     mainThreadAgentType: undefined,
     // Remote mode
     isRemoteMode: false,
-    ...(process.env.USER_TYPE === 'ant'
-      ? {
-          replBridgeActive: false,
-        }
-      : {}),
     // Direct connect server URL
     directConnectServerUrl: undefined,
     // System prompt section cache state
@@ -1566,24 +1561,11 @@ export function clearInvokedSkillsForAgent(agentId: string): void {
 const MAX_SLOW_OPERATIONS = 10
 const SLOW_OPERATION_TTL_MS = 10000
 
-export function addSlowOperation(operation: string, durationMs: number): void {
-  if (process.env.USER_TYPE !== 'ant') return
-  // Skip tracking for editor sessions (user editing a prompt file in $EDITOR)
-  // These are intentionally slow since the user is drafting text
-  if (operation.includes('exec') && operation.includes('claude-prompt-')) {
-    return
-  }
-  const now = Date.now()
-  // Remove stale operations
-  STATE.slowOperations = STATE.slowOperations.filter(
-    op => now - op.timestamp < SLOW_OPERATION_TTL_MS,
-  )
-  // Add new operation
-  STATE.slowOperations.push({ operation, durationMs, timestamp: now })
-  // Keep only the most recent operations
-  if (STATE.slowOperations.length > MAX_SLOW_OPERATIONS) {
-    STATE.slowOperations = STATE.slowOperations.slice(-MAX_SLOW_OPERATIONS)
-  }
+export function addSlowOperation(
+  _operation: string,
+  _durationMs: number,
+): void {
+  // Internal slow-operation tracking removed (was ant-only)
 }
 
 const EMPTY_SLOW_OPERATIONS: ReadonlyArray<{

@@ -4,7 +4,7 @@ const tag = {
   type: 'local-jsx',
   name: 'tag',
   description: 'Toggle a searchable tag on the current session',
-  isEnabled: () => process.env.USER_TYPE === 'ant',
+  isEnabled: () => false,
   argumentHint: '<tag-name>',
   load: () => import('./tag.js'),
 } satisfies Command

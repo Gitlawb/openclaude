@@ -4,15 +4,10 @@ import { loadInstalledPluginsV2 } from '../../utils/plugins/installedPluginsMana
 import { OFFICIAL_MARKETPLACE_NAME } from '../../utils/plugins/officialMarketplace.js'
 import { playAnimation } from '../thinkback/thinkback.js'
 
-const INTERNAL_MARKETPLACE_NAME = 'claude-code-marketplace'
 const SKILL_NAME = 'thinkback'
 
 function getPluginId(): string {
-  const marketplaceName =
-    process.env.USER_TYPE === 'ant'
-      ? INTERNAL_MARKETPLACE_NAME
-      : OFFICIAL_MARKETPLACE_NAME
-  return `thinkback@${marketplaceName}`
+  return `thinkback@${OFFICIAL_MARKETPLACE_NAME}`
 }
 
 export async function call(): Promise<LocalCommandResult> {

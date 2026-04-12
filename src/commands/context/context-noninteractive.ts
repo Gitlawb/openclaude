@@ -199,36 +199,6 @@ function formatContextAsMarkdownTable(data: ContextData): string {
     output += `\n`
   }
 
-  // System tools (internal-only)
-  if (
-    systemTools &&
-    systemTools.length > 0 &&
-    process.env.USER_TYPE === 'ant'
-  ) {
-    output += `### [internal] System Tools\n\n`
-    output += `| Tool | Tokens |\n`
-    output += `|------|--------|\n`
-    for (const tool of systemTools) {
-      output += `| ${tool.name} | ${formatTokens(tool.tokens)} |\n`
-    }
-    output += `\n`
-  }
-
-  // System prompt sections (internal-only)
-  if (
-    systemPromptSections &&
-    systemPromptSections.length > 0 &&
-    process.env.USER_TYPE === 'ant'
-  ) {
-    output += `### [internal] System Prompt Sections\n\n`
-    output += `| Section | Tokens |\n`
-    output += `|---------|--------|\n`
-    for (const section of systemPromptSections) {
-      output += `| ${section.name} | ${formatTokens(section.tokens)} |\n`
-    }
-    output += `\n`
-  }
-
   // Custom agents
   if (agents.length > 0) {
     output += `### Custom Agents\n\n`
@@ -286,39 +256,6 @@ function formatContextAsMarkdownTable(data: ContextData): string {
       output += `| ${skill.name} | ${getSourceDisplayName(skill.source)} | ${formatTokens(skill.tokens)} |\n`
     }
     output += `\n`
-  }
-
-  // Message breakdown (internal-only)
-  if (messageBreakdown && process.env.USER_TYPE === 'ant') {
-    output += `### [internal] Message Breakdown\n\n`
-    output += `| Category | Tokens |\n`
-    output += `|----------|--------|\n`
-    output += `| Tool calls | ${formatTokens(messageBreakdown.toolCallTokens)} |\n`
-    output += `| Tool results | ${formatTokens(messageBreakdown.toolResultTokens)} |\n`
-    output += `| Attachments | ${formatTokens(messageBreakdown.attachmentTokens)} |\n`
-    output += `| Assistant messages (non-tool) | ${formatTokens(messageBreakdown.assistantMessageTokens)} |\n`
-    output += `| User messages (non-tool-result) | ${formatTokens(messageBreakdown.userMessageTokens)} |\n`
-    output += `\n`
-
-    if (messageBreakdown.toolCallsByType.length > 0) {
-      output += `#### Top Tools\n\n`
-      output += `| Tool | Call Tokens | Result Tokens |\n`
-      output += `|------|-------------|---------------|\n`
-      for (const tool of messageBreakdown.toolCallsByType) {
-        output += `| ${tool.name} | ${formatTokens(tool.callTokens)} | ${formatTokens(tool.resultTokens)} |\n`
-      }
-      output += `\n`
-    }
-
-    if (messageBreakdown.attachmentsByType.length > 0) {
-      output += `#### Top Attachments\n\n`
-      output += `| Attachment | Tokens |\n`
-      output += `|------------|--------|\n`
-      for (const attachment of messageBreakdown.attachmentsByType) {
-        output += `| ${attachment.name} | ${formatTokens(attachment.tokens)} |\n`
-      }
-      output += `\n`
-    }
   }
 
   return output

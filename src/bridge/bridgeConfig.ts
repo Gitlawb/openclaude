@@ -14,21 +14,14 @@
 import { getOauthConfig } from '../constants/oauth.js'
 import { getClaudeAIOAuthTokens } from '../utils/auth.js'
 
-/** Ant-only dev override: CLAUDE_BRIDGE_OAUTH_TOKEN, else undefined. */
+/** Dev override for bridge OAuth token (removed: was ant-only). */
 export function getBridgeTokenOverride(): string | undefined {
-  return (
-    (process.env.USER_TYPE === 'ant' &&
-      process.env.CLAUDE_BRIDGE_OAUTH_TOKEN) ||
-    undefined
-  )
+  return undefined
 }
 
-/** Ant-only dev override: CLAUDE_BRIDGE_BASE_URL, else undefined. */
+/** Dev override for bridge base URL (removed: was ant-only). */
 export function getBridgeBaseUrlOverride(): string | undefined {
-  return (
-    (process.env.USER_TYPE === 'ant' && process.env.CLAUDE_BRIDGE_BASE_URL) ||
-    undefined
-  )
+  return undefined
 }
 
 /**

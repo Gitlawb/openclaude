@@ -491,17 +491,6 @@ export async function runHeadless(
     setSDKStatus?: (status: SDKStatus) => void
   },
 ): Promise<void> {
-  if (
-    process.env.USER_TYPE === 'ant' &&
-    isEnvTruthy(process.env.CLAUDE_CODE_EXIT_AFTER_FIRST_RENDER)
-  ) {
-    process.stderr.write(
-      `\nStartup time: ${Math.round(process.uptime() * 1000)}ms\n`,
-    )
-    // eslint-disable-next-line custom-rules/no-process-exit
-    process.exit(0)
-  }
-
   // Fire user settings download now so it overlaps with the MCP/tool setup
   // below. Managed settings already started in main.tsx preAction; this gives
   // user settings a similar head start. The cached promise is joined in

@@ -338,22 +338,6 @@ export async function runBridgeLoop(
     spawn_mode: config.spawnMode,
   })
 
-  // For ant users, show where session debug logs will land so they can tail them.
-  // sessionRunner.ts uses the same base path. File appears once a session spawns.
-  if (process.env.USER_TYPE === 'ant') {
-    let debugGlob: string
-    if (config.debugFile) {
-      const ext = config.debugFile.lastIndexOf('.')
-      debugGlob =
-        ext > 0
-          ? `${config.debugFile.slice(0, ext)}-*${config.debugFile.slice(ext)}`
-          : `${config.debugFile}-*`
-    } else {
-      debugGlob = join(tmpdir(), 'claude', 'bridge-session-*.log')
-    }
-    logger.setDebugLogPath(debugGlob)
-  }
-
   logger.printBanner(config, environmentId)
 
   // Seed the logger's session count + spawn mode before any render. Without
@@ -1132,7 +1116,7 @@ export async function runBridgeLoop(
             } else {
               sessionDebugFile = `${config.debugFile}-${safeId}`
             }
-          } else if (config.verbose || process.env.USER_TYPE === 'ant') {
+          } else if (config.verbose) {
             sessionDebugFile = join(
               tmpdir(),
               'claude',
@@ -2192,16 +2176,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
     process.exit(1)
   }
 
-  // Session ingress URL for WebSocket connections. In production this is the
-  // same as baseUrl (Envoy routes /v1/session_ingress/* to session-ingress).
-  // Locally, session-ingress runs on a different port (9413) than the
-  // contain-provide-api (8211), so CLAUDE_BRIDGE_SESSION_INGRESS_URL must be
-  // set explicitly. Ant-only, matching CLAUDE_BRIDGE_BASE_URL.
-  const sessionIngressUrl =
-    process.env.USER_TYPE === 'ant' &&
-    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      ? process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      : baseUrl
+  const sessionIngressUrl = baseUrl
 
   const { getBranch, getRemoteUrl, findGitRoot } = await import(
     '../utils/git.js'
@@ -2850,11 +2825,7 @@ export async function runBridgeHeadless(
       'Remote Control base URL uses HTTP. Only HTTPS or localhost HTTP is allowed.',
     )
   }
-  const sessionIngressUrl =
-    process.env.USER_TYPE === 'ant' &&
-    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      ? process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      : baseUrl
+  const sessionIngressUrl = baseUrl
 
   const { getBranch, getRemoteUrl, findGitRoot } = await import(
     '../utils/git.js'
