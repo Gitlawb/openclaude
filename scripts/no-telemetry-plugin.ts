@@ -34,28 +34,51 @@ export function _resetForTesting() {}
 `,
 
 	'services/analytics/growthbook': `
+const _fs = require('fs');
+const _path = require('path');
+const _os = require('os');
+
+let _flags = undefined;
+
+function _loadFlags() {
+  if (_flags !== undefined) return;
+  try {
+    const flagsPath = process.env.CLAUDE_FEATURE_FLAGS_FILE
+      || _path.join(_os.homedir(), '.claude', 'feature-flags.json');
+    _flags = JSON.parse(_fs.readFileSync(flagsPath, 'utf-8'));
+  } catch {
+    _flags = null;
+  }
+}
+
+function _getFlagValue(key, defaultValue) {
+  _loadFlags();
+  if (_flags != null && key in _flags) return _flags[key];
+  return defaultValue;
+}
+
 const noop = () => {};
 export function onGrowthBookRefresh() { return noop; }
 export function hasGrowthBookEnvOverride() { return false; }
-export function getAllGrowthBookFeatures() { return {}; }
+export function getAllGrowthBookFeatures() { _loadFlags(); return _flags || {}; }
 export function getGrowthBookConfigOverrides() { return {}; }
 export function setGrowthBookConfigOverride() {}
 export function clearGrowthBookConfigOverrides() {}
 export function getApiBaseUrlHost() { return undefined; }
 export const initializeGrowthBook = async () => null;
-export async function getFeatureValue_DEPRECATED(feature, defaultValue) { return defaultValue; }
-export function getFeatureValue_CACHED_MAY_BE_STALE(feature, defaultValue) { return defaultValue; }
-export function getFeatureValue_CACHED_WITH_REFRESH(feature, defaultValue) { return defaultValue; }
-export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE() { return false; }
+export async function getFeatureValue_DEPRECATED(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
+export function getFeatureValue_CACHED_MAY_BE_STALE(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
+export function getFeatureValue_CACHED_WITH_REFRESH(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
+export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(gate) { return _getFlagValue(gate, false); }
 export async function checkSecurityRestrictionGate() { return false; }
-export async function checkGate_CACHED_OR_BLOCKING() { return false; }
+export async function checkGate_CACHED_OR_BLOCKING(gate) { return _getFlagValue(gate, false); }
 export function refreshGrowthBookAfterAuthChange() {}
 export function resetGrowthBook() {}
 export async function refreshGrowthBookFeatures() {}
 export function setupPeriodicGrowthBookRefresh() {}
 export function stopPeriodicGrowthBookRefresh() {}
-export async function getDynamicConfig_BLOCKS_ON_INIT(configName, defaultValue) { return defaultValue; }
-export function getDynamicConfig_CACHED_MAY_BE_STALE(configName, defaultValue) { return defaultValue; }
+export async function getDynamicConfig_BLOCKS_ON_INIT(configName, defaultValue) { return _getFlagValue(configName, defaultValue); }
+export function getDynamicConfig_CACHED_MAY_BE_STALE(configName, defaultValue) { return _getFlagValue(configName, defaultValue); }
 `,
 
 	'services/analytics/sink': `
