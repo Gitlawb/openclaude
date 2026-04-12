@@ -406,20 +406,18 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
   let lastStatus: number | undefined
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    // Create a timeout that races with the external signal
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    // Compose timeout with caller signal via AbortSignal.any so each attempt
+    // has a fresh timeout and we don't leak an abort listener on `signal`
+    // (the previous implementation added one per attempt and never removed
+    // it, and the listener kept a reference to a stale AbortController).
+    const timeoutSignal = AbortSignal.timeout(timeoutMs)
+    const combined = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal
 
-    // If the external signal is already aborted, forward it
-    if (signal?.aborted) {
-      controller.abort()
-    } else {
-      signal?.addEventListener('abort', () => controller.abort(), { once: true })
-    }
-
+    lastStatus = undefined
     try {
-      const res = await fetch(url, { ...init, signal: controller.signal })
-      clearTimeout(timer)
+      const res = await fetch(url, { ...init, signal: combined })
 
       if (!res.ok) {
         lastStatus = res.status
@@ -427,26 +425,20 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
       }
       return await res.json()
     } catch (err) {
-      clearTimeout(timer)
       lastErr = err instanceof Error ? err : new Error(String(err))
 
-      // AbortError from timeout
-      if (lastErr.name === 'AbortError' && !signal?.aborted) {
+      // Caller-initiated abort wins — propagate without retry or rewrite.
+      if (signal?.aborted) throw lastErr
+
+      // Timeout (TimeoutError on Bun/Node, or AbortError with timeoutSignal aborted).
+      if (timeoutSignal.aborted) {
         throw new Error(`Custom search timed out after ${timeoutSec}s`)
       }
 
-      // Retry on 5xx or network errors only
-      if (attempt === 0) {
-        if (lastStatus !== undefined && lastStatus >= 500) {
-          await new Promise(r => setTimeout(r, 500))
-          continue
-        }
-        if (lastStatus === undefined) {
-          // Network error — retry
-          await new Promise(r => setTimeout(r, 500))
-          continue
-        }
-        // 4xx — don't retry
+      // Retry once on 5xx or network errors; do not retry 4xx.
+      if (attempt === 0 && (lastStatus === undefined || lastStatus >= 500)) {
+        await new Promise(r => setTimeout(r, 500))
+        continue
       }
       throw lastErr
     }
