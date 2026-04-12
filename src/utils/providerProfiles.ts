@@ -6,6 +6,14 @@ import {
 } from './config.js'
 import type { ModelOption } from './model/modelOptions.js'
 import { getPrimaryModel, parseModelList } from './providerModels.js'
+import {
+  createProfileFile,
+  saveProfileFile,
+  buildGeminiProfileEnv,
+  buildMistralProfileEnv,
+  buildOpenAIProfileEnv,
+  type ProviderProfile as ProviderProfileStartup,
+} from './providerProfile.js'
 
 export type ProviderPreset =
   | 'anthropic'
@@ -761,6 +769,68 @@ export function setActiveProviderProfile(
   }))
 
   applyProviderProfileToProcessEnv(activeProfile)
+
+  // Keep startup persisted provider profile in sync so initial startup
+  // uses the selected provider/model.
+  const persistedProfile = (() => {
+    if (activeProfile.provider === 'anthropic') return 'openai' as const
+    return activeProfile.provider
+  })()
+
+  const profileEnv = (() => {
+    switch (activeProfile.provider) {
+      case 'gemini':
+        return (
+          buildGeminiProfileEnv({
+            model: activeProfile.model,
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            authMode: 'api-key',
+            processEnv: process.env,
+          }) ?? null
+        )
+      case 'mistral':
+        return (
+          buildMistralProfileEnv({
+            model: activeProfile.model,
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        )
+      default:
+        // anthropic and all openai-compatible providers
+        return (
+          buildOpenAIProfileEnv({
+            model: activeProfile.model,
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        )
+    }
+  })()
+
+  if (profileEnv) {
+    const startupProfile =
+      activeProfile.provider === 'anthropic'
+        ? ({
+            profile: 'openai' as ProviderProfileStartup,
+            env: {
+              OPENAI_BASE_URL: activeProfile.baseUrl,
+              OPENAI_MODEL: activeProfile.model,
+              OPENAI_API_KEY: activeProfile.apiKey,
+            },
+          } as const)
+        : ({
+            profile: activeProfile.provider as ProviderProfileStartup,
+            env: profileEnv,
+          } as const)
+
+    const file = createProfileFile(startupProfile.profile, startupProfile.env)
+    saveProfileFile(file)
+  }
+
   return activeProfile
 }
 

@@ -29,6 +29,7 @@ export {
   sanitizeApiKey,
   sanitizeProviderConfigValue,
 } from './providerSecrets.js'
+import { isEnvTruthy } from './envUtils.ts'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
@@ -498,13 +499,13 @@ export function hasExplicitProviderSelection(
   }
 
   return (
-    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
-    processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
-    processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
   )
 }
 
@@ -825,12 +826,18 @@ export async function buildStartupEnvFromProfile(options?: {
   const persisted = options?.persisted ?? loadProfileFile()
 
   // Saved /provider profiles should still win over provider-manager env that was
-  // auto-applied during startup. Only explicit shell/flag provider selection
+  // auto-applied during startup. Only an explicit shell/flag provider selection
   // should bypass the persisted startup profile.
+  //
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
-  if (hasExplicitProviderSelection(processEnv) && !profileManagedEnv) {
-    return processEnv
-  }
+
+  // If the user explicitly selected a provider via env, allow it to bypass
+  // the persisted profile only when we can prove it was managed by the
+  // persisted profile env itself.
+  //
+  // Practically: on initial startup, provider routing env vars can already
+  // be present due to earlier auto-application steps. We should still apply
+  // the persisted profile rather than returning early.
 
   if (!persisted) {
     return processEnv
