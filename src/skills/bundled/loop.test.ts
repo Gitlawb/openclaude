@@ -64,3 +64,62 @@ test('interval-only /loop becomes fixed maintenance mode', async () => {
   expect(text).toContain('This is a maintenance loop with no explicit prompt.')
   expect(text).toContain('Scheduled maintenance loop iteration.')
 })
+
+test('trailing every clause parses interval and prompt', async () => {
+  registerLoopSkill()
+
+  const skill = getBundledSkills().find(command => command.name === 'loop')
+  const blocks = await skill!.getPromptForCommand('check the deploy every 20m', {} as never)
+  const text = (blocks[0] as { text: string }).text
+
+  expect(text).toContain('# /loop — fixed recurring interval')
+  expect(text).toContain('20m')
+  expect(text).toContain('check the deploy')
+})
+
+test('trailing every clause with word unit parses correctly', async () => {
+  registerLoopSkill()
+
+  const skill = getBundledSkills().find(command => command.name === 'loop')
+  const blocks = await skill!.getPromptForCommand('run tests every 5 minutes', {} as never)
+  const text = (blocks[0] as { text: string }).text
+
+  expect(text).toContain('# /loop — fixed recurring interval')
+  expect(text).toContain('5m')
+  expect(text).toContain('run tests')
+})
+
+test('"check every PR" is not treated as an interval', async () => {
+  registerLoopSkill()
+
+  const skill = getBundledSkills().find(command => command.name === 'loop')
+  const blocks = await skill!.getPromptForCommand('check every PR', {} as never)
+  const text = (blocks[0] as { text: string }).text
+
+  expect(text).toContain('# /loop — dynamic rescheduling')
+  expect(text).toContain('check every PR')
+})
+
+test('human-readable hour unit parses correctly', async () => {
+  registerLoopSkill()
+
+  const skill = getBundledSkills().find(command => command.name === 'loop')
+  const blocks = await skill!.getPromptForCommand('2h check logs', {} as never)
+  const text = (blocks[0] as { text: string }).text
+
+  expect(text).toContain('# /loop — fixed recurring interval')
+  expect(text).toContain('2h')
+  expect(text).toContain('check logs')
+})
+
+test('prompt delimiters are present and unambiguous', async () => {
+  registerLoopSkill()
+
+  const skill = getBundledSkills().find(command => command.name === 'loop')
+  const blocks = await skill!.getPromptForCommand('5m say hi', {} as never)
+  const text = (blocks[0] as { text: string }).text
+
+  expect(text).toContain('--- BEGIN PROMPT ---')
+  expect(text).toContain('say hi')
+  expect(text).toContain('--- END PROMPT ---')
+})

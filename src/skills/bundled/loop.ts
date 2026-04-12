@@ -112,33 +112,24 @@ function buildFixedPrompt(parsed: ParsedLoopArgs): string {
   const targetInstructions = parsed.prompt
     ? `Use this prompt verbatim for both the immediate run and the recurring scheduled task:
 
-\
-\
-\
+--- BEGIN PROMPT ---
 ${parsed.prompt}
-\
-\
-\
+--- END PROMPT ---
 `
     : `This is a maintenance loop with no explicit prompt.
 
 For the recurring scheduled task, use this exact maintenance prompt body:
 
-\
-\
-\
+--- BEGIN MAINTENANCE PROMPT ---
 ${MAINTENANCE_PROMPT}
-\
-\
-\
+--- END MAINTENANCE PROMPT ---
 `
 
   return `# /loop — fixed recurring interval
 
 The user invoked /loop with a fixed interval.
 
-Requested interval: \
-${parsed.interval}\
+Requested interval: ${parsed.interval}
 
 ${targetInstructions}
 ## Instructions
@@ -163,13 +154,9 @@ function buildDynamicPrompt(parsed: ParsedLoopArgs): string {
   const effectivePromptInstructions = parsed.prompt
     ? `Use this prompt verbatim as the effective prompt for this iteration:
 
-\
-\
-\
+--- BEGIN PROMPT ---
 ${parsed.prompt}
-\
-\
-\
+--- END PROMPT ---
 `
     : `This is a maintenance loop with no explicit prompt.
 
@@ -178,13 +165,9 @@ Determine the effective prompt in this order:
 2. Otherwise, if ~/.claude/loop.md exists, read it and use it.
 3. Otherwise, use this built-in maintenance prompt:
 
-\
-\
-\
+--- BEGIN MAINTENANCE PROMPT ---
 ${MAINTENANCE_PROMPT}
-\
-\
-\
+--- END MAINTENANCE PROMPT ---
 `
 
   const reschedulePrompt = parsed.prompt ? `/loop ${parsed.prompt}` : '/loop'
@@ -209,13 +192,10 @@ ${effectivePromptInstructions}
    - Pin the cron expression to a specific future local-time minute that matches the chosen delay.
    - Set the scheduled prompt to this exact text so the next iteration stays in dynamic mode:
 
-\
-\
-\
+--- BEGIN SCHEDULED PROMPT ---
 ${reschedulePrompt}
-\
-\
-\
+--- END SCHEDULED PROMPT ---
+
 5. Confirm the next run time and the returned job ID.
 6. Do not create a recurring cron for this mode.
 `
