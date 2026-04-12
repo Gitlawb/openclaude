@@ -22,9 +22,9 @@ import { afterEach, expect, mock, test } from 'bun:test'
 import React, { useEffect } from 'react'
 import stripAnsi from 'strip-ansi'
 
-import { createRoot, Text, useTheme } from '../ink.js'
-import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
-import { AppStateProvider } from '../state/AppState.js'
+import { createRoot, Text, useTheme } from '../../ink.js'
+import { KeybindingSetup } from '../../keybindings/KeybindingProviderSetup.js'
+import { AppStateProvider } from '../../state/AppState.js'
 import { ThemeProvider, usePreviewTheme } from './ThemeProvider.js'
 
 mock.module('../StructuredDiff.js', () => ({
