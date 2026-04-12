@@ -54,7 +54,7 @@ function _loadFlags() {
 
 function _getFlagValue(key, defaultValue) {
   _loadFlags();
-  if (_flags != null && key in _flags) return _flags[key];
+  if (_flags != null && Object.hasOwn(_flags, key)) return _flags[key];
   return defaultValue;
 }
 
