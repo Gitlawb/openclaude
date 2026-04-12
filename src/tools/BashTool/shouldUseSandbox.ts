@@ -25,8 +25,15 @@ function containsExcludedCommand(command: string): boolean {
     substrings: string[]
   }>('tengu_sandbox_disabled_commands', { commands: [], substrings: [] })
 
+  const substrings = Array.isArray(disabledCommands.substrings)
+    ? disabledCommands.substrings
+    : []
+  const commands = Array.isArray(disabledCommands.commands)
+    ? disabledCommands.commands
+    : []
+
   // Check if command contains any disabled substrings
-  for (const substring of disabledCommands.substrings) {
+  for (const substring of substrings) {
     if (command.includes(substring)) {
       return true
     }
@@ -37,7 +44,7 @@ function containsExcludedCommand(command: string): boolean {
     const commandParts = splitCommand_DEPRECATED(command)
     for (const part of commandParts) {
       const baseCommand = part.trim().split(' ')[0]
-      if (baseCommand && disabledCommands.commands.includes(baseCommand)) {
+      if (baseCommand && commands.includes(baseCommand)) {
         return true
       }
     }
