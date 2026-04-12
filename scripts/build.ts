@@ -28,7 +28,7 @@ const featureFlags: Record<string, boolean> = {
   ABLATION_BASELINE: false,
   DUMP_SYSTEM_PROMPT: false,
   CACHED_MICROCOMPACT: false,
-  COORDINATOR_MODE: false,
+  COORDINATOR_MODE: true,
   CONTEXT_COLLAPSE: false,
   COMMIT_ATTRIBUTION: false,
   TEAMMEM: false,
