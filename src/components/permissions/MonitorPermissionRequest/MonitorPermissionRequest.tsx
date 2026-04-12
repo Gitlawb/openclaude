@@ -62,10 +62,13 @@ export function MonitorPermissionRequest({
             platform: env.platform,
           },
         })
+        // Add a command-specific allow rule (like BashTool), not a blanket
+        // tool-name-only rule — prevents auto-allowing arbitrary commands.
+        const cmdPrefix = command?.split(/\s+/).slice(0, 2).join(' ') ?? ''
         toolUseConfirm.onAllow(toolUseConfirm.input, [
           {
             type: 'addRules',
-            rules: [{ toolName: toolUseConfirm.tool.name }],
+            rules: [{ toolName: toolUseConfirm.tool.name, expression: `${cmdPrefix}*` }],
             behavior: 'allow',
             destination: 'localSettings',
           },

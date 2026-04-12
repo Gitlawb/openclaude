@@ -1,7 +1,11 @@
-// MonitorMcpTask — lifecycle management for 'monitor_mcp' tasks.
-// MonitorTool spawns tasks via LocalShellTask (type: 'local_bash', kind: 'monitor').
-// This module registers the 'monitor_mcp' task type in the task registry and
-// provides killMonitorMcpTasksForAgent for agent-scoped cleanup.
+// MonitorMcpTask — task registry entry for the 'monitor_mcp' type.
+//
+// Architecture: MonitorTool spawns shell processes as LocalShellTask
+// (type: 'local_bash', kind: 'monitor'). The 'monitor_mcp' type exists
+// in TaskType for forward-compatibility with MCP-based monitoring (not
+// yet implemented). This module satisfies the import from tasks.ts and
+// provides killMonitorMcpTasksForAgent for agent-scoped cleanup of
+// monitor-kind shell tasks.
 
 import type { AppState } from '../../state/AppState.js'
 import type { SetAppState, Task, TaskStateBase } from '../../Task.js'
