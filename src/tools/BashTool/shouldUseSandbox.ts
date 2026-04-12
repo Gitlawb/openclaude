@@ -20,11 +20,15 @@ type SandboxInput = {
 // system (which prompts users) is the actual security control.
 function containsExcludedCommand(command: string): boolean {
   // Check dynamic config for disabled commands and substrings
-  const disabledCommands = getFeatureValue_CACHED_MAY_BE_STALE<{
+  const raw = getFeatureValue_CACHED_MAY_BE_STALE<{
     commands: string[]
     substrings: string[]
   }>('tengu_sandbox_disabled_commands', { commands: [], substrings: [] })
 
+  const disabledCommands =
+    typeof raw === 'object' && raw !== null
+      ? raw
+      : { commands: [], substrings: [] }
   const substrings = Array.isArray(disabledCommands.substrings)
     ? disabledCommands.substrings
     : []

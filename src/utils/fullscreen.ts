@@ -107,15 +107,15 @@ export function _resetTmuxControlModeProbeForTesting(): void {
 
 /**
  * Whether fullscreen (flicker-free) mode is enabled. Env var takes highest
- * precedence, then the `flickerFreeMode` config setting, then the internal-only
- * default. External users can enable via `/config` instead of setting the env.
+ * precedence, then the `flickerFreeMode` config setting, then defaults to off.
+ * Users can enable via `/config` instead of setting the env.
  *
  * Priority order:
  *   CLAUDE_CODE_NO_FLICKER=0  → always off
  *   CLAUDE_CODE_NO_FLICKER=1  → always on (overrides tmux -CC guard too)
  *   tmux -CC detected         → off (corrupts terminal state)
  *   config flickerFreeMode    → on/off per user preference
- *   USER_TYPE=ant             → on by default for internal users
+ *   default                   → off
  */
 export function isFullscreenEnvEnabled(): boolean {
   // Explicit env opt-out always wins.
