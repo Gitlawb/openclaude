@@ -18,7 +18,6 @@ type ParsedLoopArgs = {
   prompt?: string
 }
 
-const DEFAULT_INTERVAL = '10m'
 const DYNAMIC_MIN_DELAY = '1 minute'
 const DYNAMIC_MAX_DELAY = '1 hour'
 
