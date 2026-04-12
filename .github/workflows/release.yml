@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-  release:
-    types:
-      - published
 
 concurrency:
   group: auto-release-${{ github.ref }}
@@ -15,7 +12,6 @@ concurrency:
 jobs:
   release-please:
     name: Release Please
-    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -34,7 +30,8 @@ jobs:
 
   publish-npm:
     name: Publish to npm
-    if: ${{ github.event_name == 'release' }}
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -44,7 +41,7 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -84,8 +81,8 @@ jobs:
       - name: Release summary
         run: |
           {
-            echo "## Released ${{ github.event.release.tag_name }}"
+            echo "## Released ${{ needs.release-please.outputs.tag_name }}"
             echo
             echo "- npm: https://www.npmjs.com/package/@gitlawb/openclaude"
-            echo "- GitHub: https://github.com/Gitlawb/openclaude/releases/tag/${{ github.event.release.tag_name }}"
+            echo "- GitHub: https://github.com/Gitlawb/openclaude/releases/tag/${{ needs.release-please.outputs.tag_name }}"
           } >> "$GITHUB_STEP_SUMMARY"
