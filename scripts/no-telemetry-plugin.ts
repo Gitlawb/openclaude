@@ -34,9 +34,9 @@ export function _resetForTesting() {}
 `,
 
 	'services/analytics/growthbook': `
-const _fs = require('fs');
-const _path = require('path');
-const _os = require('os');
+import _fs from 'node:fs';
+import _path from 'node:path';
+import _os from 'node:os';
 
 let _flags = undefined;
 
@@ -45,7 +45,8 @@ function _loadFlags() {
   try {
     const flagsPath = process.env.CLAUDE_FEATURE_FLAGS_FILE
       || _path.join(_os.homedir(), '.claude', 'feature-flags.json');
-    _flags = JSON.parse(_fs.readFileSync(flagsPath, 'utf-8'));
+    const parsed = JSON.parse(_fs.readFileSync(flagsPath, 'utf-8'));
+    _flags = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
   } catch {
     _flags = null;
   }
