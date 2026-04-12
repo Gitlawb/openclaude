@@ -18,6 +18,7 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   // Claude
   'github:copilot:claude-sonnet-4':           216_000,
   'github:copilot:claude-haiku-4':            200_000,
+  'github:copilot:claude-haiku-4.5':          144_000,
   'github:copilot:claude-sonnet-4.5':         200_000,
   'github:copilot:claude-sonnet-4.6':         200_000,
   'github:copilot:claude-opus-4':             200_000,
@@ -45,6 +46,25 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'github:copilot:gemini-3.1-pro-preview':   200_000,
   // Grok
   'github:copilot:grok-code-fast-1':         256_000,
+
+  // LiteLLM format — when OpenClaude talks to a LiteLLM proxy, Copilot models
+  // keep their "<provider>/<model>" naming convention (standard LiteLLM routing)
+  // instead of the "github:copilot:<model>" namespaced form used by /onboard-github.
+  // Entries below cover the aliases currently exposed by LiteLLM's github_copilot
+  // provider — this is a curated subset, not an exhaustive mirror of the
+  // namespaced entries above. Values are sourced from copilotModels.ts to stay
+  // consistent with the /onboard-github path.
+  'github_copilot/claude-sonnet-4.6':        200_000,
+  'github_copilot/claude-opus-4.6':          200_000,
+  'github_copilot/claude-haiku-4.5':         144_000,
+  'github_copilot/gpt-4.1':                  128_000,
+  'github_copilot/gpt-4o':                   128_000,
+  'github_copilot/gpt-5-mini':               264_000,
+  'github_copilot/gpt-5.4':                  400_000,
+  'github_copilot/gpt-5.4-mini':             400_000,
+  'github_copilot/gemini-2.5-pro':           128_000,
+  'github_copilot/gemini-3-flash':           128_000,
+  'github_copilot/grok-code-fast-1':         256_000,
 
   // NOTE: bare Claude model names (e.g. 'claude-sonnet-4') are intentionally
   // omitted. Different OpenAI-compatible providers may impose different context
@@ -79,12 +99,24 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'mixtral-8x7b-32768':        32_768,
 
   // Mistral
-  'mistral-large-latest':     131_072,
-  'mistral-small-latest':     131_072,
+  'mistral-large-latest':     256_000,
+  'mistral-small-latest':     256_000,
+  'devstral-latest':          256_000,
+  'ministral-3b-latest':      256_000,
 
-  // MiniMax
+  // MiniMax (all M2.x variants share 204,800 context, 131,072 max output)
   'MiniMax-M2.7':             204_800,
+  'MiniMax-M2.7-highspeed':   204_800,
+  'MiniMax-M2.5':             204_800,
+  'MiniMax-M2.5-highspeed':   204_800,
+  'MiniMax-M2.1':             204_800,
+  'MiniMax-M2.1-highspeed':   204_800,
   'minimax-m2.7':             204_800,
+  'minimax-m2.7-highspeed':   204_800,
+  'minimax-m2.5':             204_800,
+  'minimax-m2.5-highspeed':   204_800,
+  'minimax-m2.1':             204_800,
+  'minimax-m2.1-highspeed':   204_800,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':1_048_576,
@@ -125,6 +157,7 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   // Claude
   'github:copilot:claude-sonnet-4':            16_000,
   'github:copilot:claude-haiku-4':             64_000,
+  'github:copilot:claude-haiku-4.5':           32_768,
   'github:copilot:claude-sonnet-4.5':          32_000,
   'github:copilot:claude-sonnet-4.6':          32_000,
   'github:copilot:claude-opus-4':              32_000,
@@ -152,6 +185,19 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'github:copilot:gemini-3.1-pro-preview':    64_000,
   // Grok
   'github:copilot:grok-code-fast-1':          64_000,
+
+  // LiteLLM format — see note on context windows above.
+  'github_copilot/claude-sonnet-4.6':         32_000,
+  'github_copilot/claude-opus-4.6':           32_000,
+  'github_copilot/claude-haiku-4.5':          32_768,
+  'github_copilot/gpt-4.1':                   16_384,
+  'github_copilot/gpt-4o':                     4_096,
+  'github_copilot/gpt-5-mini':                64_000,
+  'github_copilot/gpt-5.4':                  128_000,
+  'github_copilot/gpt-5.4-mini':             128_000,
+  'github_copilot/gemini-2.5-pro':            64_000,
+  'github_copilot/gemini-3-flash':            64_000,
+  'github_copilot/grok-code-fast-1':          64_000,
 
   // NOTE: bare Claude model names omitted — see context windows comment above.
 
@@ -187,9 +233,19 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'mistral-large-latest':     32_768,
   'mistral-small-latest':     32_768,
 
-  // MiniMax
+  // MiniMax (all M2.x variants share 131,072 max output)
   'MiniMax-M2.7':            131_072,
+  'MiniMax-M2.7-highspeed':  131_072,
+  'MiniMax-M2.5':            131_072,
+  'MiniMax-M2.5-highspeed':  131_072,
+  'MiniMax-M2.1':            131_072,
+  'MiniMax-M2.1-highspeed':  131_072,
   'minimax-m2.7':            131_072,
+  'minimax-m2.7-highspeed':  131_072,
+  'minimax-m2.5':            131_072,
+  'minimax-m2.5-highspeed':  131_072,
+  'minimax-m2.1':            131_072,
+  'minimax-m2.1-highspeed':  131_072,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':   8_192,
