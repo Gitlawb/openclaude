@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
-import { extractHits, customProvider } from './custom.js'
+import { extractHits, customProvider, isPrivateHostname } from './custom.js'
 
 // ---------------------------------------------------------------------------
 // extractHits — flexible response parsing
@@ -173,5 +173,96 @@ describe('buildAuthHeadersForPreset direct assertions', () => {
     delete process.env.WEB_AUTH_SCHEME
     const { buildAuthHeadersForPreset } = require('./custom.js')
     expect(buildAuthHeadersForPreset({ urlTemplate: '', queryParam: 'q', authHeader: 'Authorization' })).toEqual({})
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isPrivateHostname — SSRF guard
+// ---------------------------------------------------------------------------
+
+// Helper: route through new URL() the way validateUrl() does, so we exercise
+// the same normalized hostname that production code sees.
+const hostOf = (url: string) => new URL(url).hostname
+
+describe('isPrivateHostname — IPv4', () => {
+  test('blocks localhost', () => {
+    expect(isPrivateHostname('localhost')).toBe(true)
+    expect(isPrivateHostname('LOCALHOST')).toBe(true)
+  })
+
+  test('blocks 127.0.0.0/8 loopback including short/numeric/hex/octal forms (via URL normalization)', () => {
+    expect(isPrivateHostname(hostOf('http://127.0.0.1/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://127.1/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://2130706433/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://0x7f000001/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://0177.0.0.1/'))).toBe(true)
+  })
+
+  test('blocks RFC1918 ranges', () => {
+    expect(isPrivateHostname('10.0.0.1')).toBe(true)
+    expect(isPrivateHostname('172.16.0.1')).toBe(true)
+    expect(isPrivateHostname('172.31.255.255')).toBe(true)
+    expect(isPrivateHostname('192.168.1.1')).toBe(true)
+  })
+
+  test('blocks 169.254.0.0/16 link-local (AWS/GCP metadata)', () => {
+    expect(isPrivateHostname('169.254.169.254')).toBe(true)
+  })
+
+  test('blocks 100.64.0.0/10 CGNAT', () => {
+    expect(isPrivateHostname('100.64.0.1')).toBe(true)
+    expect(isPrivateHostname('100.127.255.255')).toBe(true)
+  })
+
+  test('blocks 0.0.0.0/8', () => {
+    expect(isPrivateHostname('0.0.0.0')).toBe(true)
+    expect(isPrivateHostname('0.1.2.3')).toBe(true)
+  })
+
+  test('allows public IPv4', () => {
+    expect(isPrivateHostname('8.8.8.8')).toBe(false)
+    expect(isPrivateHostname('172.15.0.1')).toBe(false) // just outside 172.16/12
+    expect(isPrivateHostname('172.32.0.1')).toBe(false)
+    expect(isPrivateHostname('100.63.255.255')).toBe(false) // just outside CGNAT
+    expect(isPrivateHostname('100.128.0.0')).toBe(false)
+  })
+
+  test('allows regular hostnames', () => {
+    expect(isPrivateHostname('example.com')).toBe(false)
+    expect(isPrivateHostname('api.search.brave.com')).toBe(false)
+  })
+})
+
+describe('isPrivateHostname — IPv6', () => {
+  test('blocks ::1 loopback and :: unspecified', () => {
+    expect(isPrivateHostname(hostOf('http://[::1]/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://[::]/'))).toBe(true)
+  })
+
+  test('blocks IPv4-mapped IPv6 pointing at private v4 (the previous bypass)', () => {
+    // WHATWG URL normalizes [::ffff:127.0.0.1] → [::ffff:7f00:1]; must still block.
+    expect(isPrivateHostname(hostOf('http://[::ffff:127.0.0.1]/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://[::ffff:7f00:1]/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://[::ffff:169.254.169.254]/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://[::ffff:10.0.0.1]/'))).toBe(true)
+  })
+
+  test('blocks ULA fc00::/7', () => {
+    expect(isPrivateHostname(hostOf('http://[fc00::1]/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://[fd12:3456:789a::1]/'))).toBe(true)
+  })
+
+  test('blocks link-local fe80::/10', () => {
+    expect(isPrivateHostname(hostOf('http://[fe80::1]/'))).toBe(true)
+    expect(isPrivateHostname(hostOf('http://[febf::1]/'))).toBe(true)
+  })
+
+  test('allows public IPv6', () => {
+    expect(isPrivateHostname(hostOf('http://[2001:4860:4860::8888]/'))).toBe(false)
+    expect(isPrivateHostname(hostOf('http://[2606:4700:4700::1111]/'))).toBe(false)
+  })
+
+  test('malformed IPv6 is not classified as private (URL parser rejects it upstream)', () => {
+    expect(isPrivateHostname('not:an:ipv6')).toBe(false)
   })
 })
