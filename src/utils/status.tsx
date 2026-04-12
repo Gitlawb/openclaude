@@ -250,6 +250,8 @@ export function buildAPIProviderProperties(): Property[] {
       openai: 'OpenAI-compatible',
       codex: 'Codex',
       gemini: 'Google Gemini',
+      github: 'GitHub Models',
+      mistral: 'Mistral',
     }[apiProvider];
     properties.push({
       label: 'API provider',
@@ -393,6 +395,21 @@ export function buildAPIProviderProperties(): Property[] {
         label: 'Model',
         value: redactSecretValueForDisplay(geminiModel, process.env) ?? geminiModel
       });
+    }
+  } else if (apiProvider === 'mistral') {
+    const mistralBaseUrl = process.env.MISTRAL_BASE_URL;
+    if (mistralBaseUrl) {
+      properties.push({
+        label: 'Mistral base URL',
+        value: redactSecretValueForDisplay(mistralBaseUrl, process.env) ?? mistralBaseUrl
+      })
+    }
+    const mistralModel = process.env.MISTRAL_MODEL;
+    if (mistralModel) {
+      properties.push({
+        label: 'Model',
+        value: redactSecretValueForDisplay(mistralModel, process.env) ?? mistralModel
+      })
     }
   }
   const proxyUrl = getProxyUrl();

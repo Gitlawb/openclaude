@@ -36,6 +36,11 @@ export type UseSelectStateProps<T> = {
   onFocus?: (value: T) => void
 
   /**
+   * Initial value to focus when the component mounts.
+   */
+  defaultFocusValue?: T
+
+  /**
    * Value to focus
    */
   focusValue?: T
@@ -131,6 +136,7 @@ export function useSelectState<T>({
   onChange,
   onCancel,
   onFocus,
+  defaultFocusValue,
   focusValue,
 }: UseSelectStateProps<T>): SelectState<T> {
   const [value, setValue] = useState<T | undefined>(defaultValue)
@@ -138,7 +144,7 @@ export function useSelectState<T>({
   const navigation = useSelectNavigation<T>({
     visibleOptionCount,
     options,
-    initialFocusValue: undefined,
+    initialFocusValue: defaultFocusValue,
     onFocus,
     focusValue,
   })

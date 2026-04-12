@@ -12,6 +12,44 @@
  */
 
 const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
+  // GitHub Copilot — values from https://api.githubcopilot.com/models (2026-04-09)
+  // Namespaced so they don't collide with bare model names from other providers.
+  'github:copilot':                           128_000,
+  // Claude
+  'github:copilot:claude-sonnet-4':           216_000,
+  'github:copilot:claude-haiku-4':            200_000,
+  'github:copilot:claude-sonnet-4.5':         200_000,
+  'github:copilot:claude-sonnet-4.6':         200_000,
+  'github:copilot:claude-opus-4':             200_000,
+  'github:copilot:claude-opus-4.6':           200_000,
+  // GPT
+  'github:copilot:gpt-3.5-turbo':             16_384,
+  'github:copilot:gpt-4':                     32_768,
+  'github:copilot:gpt-4-0125-preview':       128_000,
+  'github:copilot:gpt-4-o-preview':          128_000,
+  'github:copilot:gpt-4.1':                  128_000,
+  'github:copilot:gpt-4o':                   128_000,
+  'github:copilot:gpt-4o-2024-08-06':        128_000,
+  'github:copilot:gpt-4o-2024-11-20':        128_000,
+  'github:copilot:gpt-4o-mini':              128_000,
+  'github:copilot:gpt-5-mini':               264_000,
+  'github:copilot:gpt-5.1':                  264_000,
+  'github:copilot:gpt-5.2':                  400_000,
+  'github:copilot:gpt-5.2-codex':            400_000,
+  'github:copilot:gpt-5.3-codex':            400_000,
+  'github:copilot:gpt-5.4':                  400_000,
+  'github:copilot:gpt-5.4-mini':             400_000,
+  // Gemini
+  'github:copilot:gemini-2.5-pro':           128_000,
+  'github:copilot:gemini-3-flash-preview':   128_000,
+  'github:copilot:gemini-3.1-pro-preview':   200_000,
+  // Grok
+  'github:copilot:grok-code-fast-1':         256_000,
+
+  // NOTE: bare Claude model names (e.g. 'claude-sonnet-4') are intentionally
+  // omitted. Different OpenAI-compatible providers may impose different context
+  // limits for the same model name, so we cannot safely hardcode values here.
+
   // OpenAI
   'gpt-5.4':               1_050_000,
   'gpt-5.4-mini':            400_000,
@@ -41,8 +79,10 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'mixtral-8x7b-32768':        32_768,
 
   // Mistral
-  'mistral-large-latest':     131_072,
-  'mistral-small-latest':     131_072,
+  'mistral-large-latest':     256_000,
+  'mistral-small-latest':     256_000,
+  'devstral-latest':          256_000,
+  'ministral-3b-latest':      256_000,
 
   // MiniMax
   'MiniMax-M2.7':             204_800,
@@ -82,6 +122,41 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
  * Fixes: 400 error "max_tokens is too large" when default 32k exceeds model limit.
  */
 const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  // GitHub Copilot — values from https://api.githubcopilot.com/models (2026-04-09)
+  'github:copilot':                            16_384,
+  // Claude
+  'github:copilot:claude-sonnet-4':            16_000,
+  'github:copilot:claude-haiku-4':             64_000,
+  'github:copilot:claude-sonnet-4.5':          32_000,
+  'github:copilot:claude-sonnet-4.6':          32_000,
+  'github:copilot:claude-opus-4':              32_000,
+  'github:copilot:claude-opus-4.6':            32_000,
+  // GPT
+  'github:copilot:gpt-3.5-turbo':              4_096,
+  'github:copilot:gpt-4':                      4_096,
+  'github:copilot:gpt-4-0125-preview':         4_096,
+  'github:copilot:gpt-4-o-preview':            4_096,
+  'github:copilot:gpt-4.1':                   16_384,
+  'github:copilot:gpt-4o':                     4_096,
+  'github:copilot:gpt-4o-2024-08-06':         16_384,
+  'github:copilot:gpt-4o-2024-11-20':         16_384,
+  'github:copilot:gpt-4o-mini':                4_096,
+  'github:copilot:gpt-5-mini':                64_000,
+  'github:copilot:gpt-5.1':                   64_000,
+  'github:copilot:gpt-5.2':                  128_000,
+  'github:copilot:gpt-5.2-codex':            128_000,
+  'github:copilot:gpt-5.3-codex':            128_000,
+  'github:copilot:gpt-5.4':                  128_000,
+  'github:copilot:gpt-5.4-mini':             128_000,
+  // Gemini
+  'github:copilot:gemini-2.5-pro':            64_000,
+  'github:copilot:gemini-3-flash-preview':    64_000,
+  'github:copilot:gemini-3.1-pro-preview':    64_000,
+  // Grok
+  'github:copilot:grok-code-fast-1':          64_000,
+
+  // NOTE: bare Claude model names omitted — see context windows comment above.
+
   // OpenAI
   'gpt-5.4':                 128_000,
   'gpt-5.4-mini':            128_000,
@@ -145,6 +220,19 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
 }
 
 function lookupByModel<T>(table: Record<string, T>, model: string): T | undefined {
+  // Try provider-qualified key first: "{OPENAI_MODEL}:{model}" so that
+  // e.g. "github:copilot:claude-haiku-4.5" can have different limits than
+  // a bare "claude-haiku-4.5" served by another provider.
+  const providerModel = process.env.OPENAI_MODEL?.trim()
+  if (providerModel && providerModel !== model) {
+    const qualified = `${providerModel}:${model}`
+    const qualifiedResult = lookupByKey(table, qualified)
+    if (qualifiedResult !== undefined) return qualifiedResult
+  }
+  return lookupByKey(table, model)
+}
+
+function lookupByKey<T>(table: Record<string, T>, model: string): T | undefined {
   if (table[model] !== undefined) return table[model]
   // Sort keys by length descending so the most specific prefix wins.
   // Without this, 'gpt-4-turbo-preview' could match 'gpt-4' (8k) instead

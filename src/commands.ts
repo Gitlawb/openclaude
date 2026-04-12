@@ -32,6 +32,7 @@ import logout from './commands/logout/index.js'
 import installGitHubApp from './commands/install-github-app/index.js'
 import installSlackApp from './commands/install-slack-app/index.js'
 import breakCache from './commands/break-cache/index.js'
+import cacheProbe from './commands/cache-probe/index.js'
 import mcp from './commands/mcp/index.js'
 import mobile from './commands/mobile/index.js'
 import onboarding from './commands/onboarding/index.js'
@@ -268,6 +269,7 @@ const COMMANDS = memoize((): Command[] => [
   autoFix,
   branch,
   btw,
+  cacheProbe,
   chrome,
   clear,
   color,

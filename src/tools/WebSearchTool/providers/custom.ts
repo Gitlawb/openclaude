@@ -221,12 +221,18 @@ function auditLogCustomSearch(url: string): void {
 // Auth — preset overrides for built-in providers
 // ---------------------------------------------------------------------------
 
-function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<string, string> {
+export function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<string, string> {
   const apiKey = process.env.WEB_KEY
   if (!apiKey) return {}
 
-  const headerName = process.env.WEB_AUTH_HEADER ?? preset?.authHeader ?? 'Authorization'
-  const scheme = process.env.WEB_AUTH_SCHEME ?? preset?.authScheme ?? 'Bearer'
+  // WEB_AUTH_HEADER="" is an explicit opt-out of auth headers entirely
+  const explicitHeader = process.env.WEB_AUTH_HEADER
+  if (explicitHeader === '') return {}
+
+  const headerName = explicitHeader ?? preset?.authHeader ?? 'Authorization'
+  const scheme = process.env.WEB_AUTH_SCHEME !== undefined
+    ? process.env.WEB_AUTH_SCHEME
+    : (preset?.authScheme ?? 'Bearer')
   return { [headerName]: `${scheme} ${apiKey}`.trim() }
 }
 
@@ -350,7 +356,7 @@ function buildRequest(query: string) {
 function walkJsonPath(obj: any, path: string): any {
   let current = obj
   for (const seg of path.split('.')) {
-    if (current == null) return undefined
+    if (current == null || typeof current !== 'object') return undefined
     current = current[seg]
   }
   return current
@@ -364,6 +370,7 @@ function extractFromNode(node: any): SearchHit[] {
     for (const sub of Object.values(node)) all.push(...extractFromNode(sub))
     return all
   }
+  // node is a primitive (string/number) — not a valid hit structure
   return []
 }
 
