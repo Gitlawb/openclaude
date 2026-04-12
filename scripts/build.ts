@@ -24,7 +24,7 @@ const featureFlags: Record<string, boolean> = {
   BRIDGE_MODE: false,
   DAEMON: false,
   AGENT_TRIGGERS: false,
-  MONITOR_TOOL: false,
+  MONITOR_TOOL: true,
   ABLATION_BASELINE: false,
   DUMP_SYSTEM_PROMPT: false,
   CACHED_MICROCOMPACT: false,
