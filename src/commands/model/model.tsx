@@ -284,7 +284,7 @@ function haveSameModelOptions(left: ModelOption[], right: ModelOption[]): boolea
   });
 }
 async function refreshOpenAIModelOptionsCache(): Promise<void> {
-  if (getAPIProvider() !== 'openai') {
+  if (!getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
     return;
   }
   try {

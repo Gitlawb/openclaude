@@ -7,6 +7,7 @@ import { isEnvTruthy } from '../../utils/envUtils.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 
@@ -357,15 +358,20 @@ export function resolveProviderRequest(options?: {
   reasoningEffortOverride?: ReasoningEffort
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+  const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   const requestedModel =
     options?.model?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
+    (isMistralMode
+      ? process.env.MISTRAL_MODEL?.trim()
+      : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const rawBaseUrl =
     asEnvUrl(options?.baseUrl) ??
-    asEnvUrl(process.env.OPENAI_BASE_URL) ??
+    asEnvUrl(
+      isMistralMode ? (process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL) : process.env.OPENAI_BASE_URL,
+    ) ??
     asEnvUrl(process.env.OPENAI_API_BASE)
 
   const githubEndpointType = isGithubMode
@@ -418,6 +424,7 @@ export function resolveProviderRequest(options?: {
 export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
     if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
