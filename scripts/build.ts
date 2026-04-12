@@ -29,6 +29,7 @@ const featureFlags: Record<string, boolean> = {
   DUMP_SYSTEM_PROMPT: false,
   CACHED_MICROCOMPACT: false,
   COORDINATOR_MODE: true,
+  BUILTIN_EXPLORE_PLAN_AGENTS: true,
   CONTEXT_COLLAPSE: false,
   COMMIT_ATTRIBUTION: false,
   TEAMMEM: false,
