@@ -217,13 +217,14 @@ export async function getBridgeSession(
   }
 
   const url = `${opts?.baseUrl ?? getOauthConfig().BASE_API_URL}/v1/sessions/${sessionId}`
+  const timeoutMs = 10_000
   logForDebugging(`[bridge] Fetching session ${sessionId}`)
 
   let response
   try {
     response = await axios.get<{ environment_id?: string; title?: string }>(
       url,
-      { headers, timeout: 10_000, validateStatus: s => s < 500 },
+      { headers, timeout: timeoutMs, validateStatus: s => s < 500 },
     )
   } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
@@ -232,13 +233,14 @@ export async function getBridgeSession(
       const requestUrl = err.config?.url ?? url
       const method = err.config?.method?.toUpperCase() ?? 'GET'
       const message = err.message ?? errorMessage(err)
+      const timeout = err.config?.timeout ?? timeoutMs
 
       logForDebugging(
-        `[bridge] Session fetch request failed: status=${status} code=${code} method=${method} url=${requestUrl} timeout=10000 message=${message}`,
+        `[bridge] Session fetch request failed: status=${status} code=${code} method=${method} url=${requestUrl} timeout=${timeout} message=${message}`,
       )
     } else {
       logForDebugging(
-        `[bridge] Session fetch request failed: url=${url} timeout=10000 message=${errorMessage(err)}`,
+        `[bridge] Session fetch request failed: url=${url} timeout=${timeoutMs} message=${errorMessage(err)}`,
       )
     }
     return null
