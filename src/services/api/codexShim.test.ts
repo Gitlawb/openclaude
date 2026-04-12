@@ -18,6 +18,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  OPENAI_MODEL: process.env.OPENAI_MODEL,
 }
 
 afterEach(() => {
@@ -29,6 +30,9 @@ afterEach(() => {
 
   if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) delete process.env.CLAUDE_CODE_USE_GITHUB
   else process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
+
+  if (originalEnv.OPENAI_MODEL === undefined) delete process.env.OPENAI_MODEL
+  else process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
 
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()

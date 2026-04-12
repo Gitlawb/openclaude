@@ -376,16 +376,16 @@ export function resolveProviderRequest(options?: {
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
-const envBaseUrlRaw =
-  explicitBaseUrl ??
-  asEnvUrl(
-    isMistralMode
-      ? (process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL)
-      : process.env.OPENAI_BASE_URL
-  ) ??
-  asEnvUrl(process.env.OPENAI_API_BASE)
+  const envBaseUrlRaw =
+    explicitBaseUrl ??
+    asEnvUrl(
+      isMistralMode
+        ? (process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL)
+        : process.env.OPENAI_BASE_URL
+    ) ??
+    asEnvUrl(process.env.OPENAI_API_BASE)
 
-const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
+  const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
   const envBaseUrl =
     isCodexModelForGithub && envBaseUrlRaw && getGithubEndpointType(envBaseUrlRaw) === 'custom'
       ? undefined
