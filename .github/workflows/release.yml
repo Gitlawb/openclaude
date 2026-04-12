@@ -76,43 +76,10 @@ jobs:
       - name: Dry-run package
         run: npm pack --dry-run
 
-      - name: Debug GitHub context
+      - name: Clear token auth for trusted publishing
         run: |
-          echo "repository=$GITHUB_REPOSITORY"
-          echo "ref=$GITHUB_REF"
-          echo "workflow=$GITHUB_WORKFLOW"
-          echo "job=$GITHUB_JOB"
-          echo "actor=$GITHUB_ACTOR"
-          echo "sha=$GITHUB_SHA"
-
-      - name: Debug OIDC token claims
-        run: |
-          python - <<'PY'
-          import base64
-          import json
-          import os
-          import urllib.request
-
-          req = urllib.request.Request(
-              os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=npm:registry.npmjs.org",
-              headers={"Authorization": f"Bearer {os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}"},
-          )
-          token = json.load(urllib.request.urlopen(req))["value"]
-          payload = token.split(".")[1]
-          payload += "=" * (-len(payload) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(payload))
-
-          for key in [
-              "iss",
-              "sub",
-              "aud",
-              "repository",
-              "repository_owner",
-              "job_workflow_ref",
-              "environment",
-          ]:
-              print(f"{key}={claims.get(key)}")
-          PY
+          unset NODE_AUTH_TOKEN
+          echo "NODE_AUTH_TOKEN=" >> "$GITHUB_ENV"
 
       - name: Publish to npm
         run: npm publish --access public --provenance
