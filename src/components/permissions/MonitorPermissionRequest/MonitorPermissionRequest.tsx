@@ -1,6 +1,6 @@
 import React from 'react'
 import { getOriginalCwd } from '../../../bootstrap/state.js'
-import { Box, Text, useTheme } from '../../../ink.js'
+import { Box, Text } from '../../../ink.js'
 import { sanitizeToolNameForAnalytics } from '../../../services/analytics/metadata.js'
 import { env } from '../../../utils/env.js'
 import { shouldShowAlwaysAllowOptions } from '../../../utils/permissions/permissionsLoader.js'
@@ -22,7 +22,6 @@ export function MonitorPermissionRequest({
   onReject,
   workerBadge,
 }: PermissionRequestProps) {
-  const [theme] = useTheme()
   const { command, description } = toolUseConfirm.input as {
     command?: string
     description?: string
@@ -62,17 +61,20 @@ export function MonitorPermissionRequest({
             platform: env.platform,
           },
         })
-        // Add a command-specific allow rule (like BashTool), not a blanket
-        // tool-name-only rule — prevents auto-allowing arbitrary commands.
-        const cmdPrefix = command?.split(/\s+/).slice(0, 2).join(' ') ?? ''
-        toolUseConfirm.onAllow(toolUseConfirm.input, [
+        // Save the rule under 'Bash' toolName because checkPermissions
+        // delegates to bashToolHasPermission which matches rules against
+        // BashTool. Using 'Monitor' here would create a rule that's never
+        // checked. Command-specific prefix (like BashTool's shellRuleMatching).
+        const cmdForRule = command?.trim() || ''
+        const prefix = cmdForRule.split(/\s+/).slice(0, 2).join(' ')
+        toolUseConfirm.onAllow(toolUseConfirm.input, prefix ? [
           {
             type: 'addRules',
-            rules: [{ toolName: toolUseConfirm.tool.name, expression: `${cmdPrefix}*` }],
+            rules: [{ toolName: 'Bash', ruleContent: `${prefix}:*` }],
             behavior: 'allow',
             destination: 'localSettings',
           },
-        ])
+        ] : [])
         onDone()
         break
       }
