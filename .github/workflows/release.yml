@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing tag to publish, for example v0.2.0
+        required: true
+        type: string
 
 concurrency:
   group: auto-release-${{ github.ref }}
@@ -31,7 +37,7 @@ jobs:
   publish-npm:
     name: Publish to npm
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -41,7 +47,7 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || needs.release-please.outputs.tag_name }}
           fetch-depth: 0
 
       - name: Set up Node.js
