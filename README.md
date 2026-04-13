@@ -10,6 +10,9 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, A
 [![Security Policy](https://img.shields.io/badge/security-policy-0f766e)](SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-2563eb)](LICENSE)
 
+OpenClaude is also mirrored to GitLawb:
+[gitlawb.com/node/repos/z6MkqDnb/openclaude](https://gitlawb.com/node/repos/z6MkqDnb/openclaude)
+
 [Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
 
 ## Why OpenClaude
