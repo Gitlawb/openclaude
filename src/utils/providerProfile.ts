@@ -7,6 +7,7 @@ import {
   resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
+import { parseChatgptAccountId } from '../services/api/codexOAuthShared.js'
 import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
@@ -14,6 +15,20 @@ import {
 } from './providerRecommendation.js'
 import { readGeminiAccessToken } from './geminiCredentials.js'
 import { getOllamaChatBaseUrl } from './providerDiscovery.js'
+import { getProviderValidationError } from './providerValidation.js'
+import {
+  maskSecretForDisplay,
+  redactSecretValueForDisplay,
+  sanitizeApiKey,
+  sanitizeProviderConfigValue,
+} from './providerSecrets.js'
+
+export {
+  maskSecretForDisplay,
+  redactSecretValueForDisplay,
+  sanitizeApiKey,
+  sanitizeProviderConfigValue,
+} from './providerSecrets.js'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
@@ -93,9 +108,15 @@ export type ProfileFile = {
 }
 
 type SecretValueSource = Partial<
-  Pick<
-    ProfileEnv,
-    (typeof SECRET_ENV_KEYS)[number]
+  Record<
+    | 'OPENAI_API_KEY'
+    | 'CODEX_API_KEY'
+    | 'GEMINI_API_KEY'
+    | 'GOOGLE_API_KEY'
+    | 'NVIDIA_API_KEY'
+    | 'MINIMAX_API_KEY'
+    | 'MISTRAL_API_KEY',
+    string | undefined
   >
 >
 
@@ -123,106 +144,6 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'minimax' ||
     value === 'mistral'
   )
-}
-
-export function sanitizeApiKey(
-  key: string | null | undefined,
-): string | undefined {
-  if (!key || key === 'SUA_CHAVE') return undefined
-  return key
-}
-
-function looksLikeSecretValue(value: string): boolean {
-  const trimmed = value.trim()
-  if (!trimmed) return false
-
-  if (trimmed.startsWith('sk-') || trimmed.startsWith('sk-ant-')) {
-    return true
-  }
-
-  if (trimmed.startsWith('AIza')) {
-    return true
-  }
-
-  if (trimmed.startsWith('nvapi-')) {
-    return true
-  }
-
-  return false
-}
-
-function collectSecretValues(
-  sources: Array<SecretValueSource | null | undefined>,
-): string[] {
-  const values = new Set<string>()
-
-  for (const source of sources) {
-    if (!source) continue
-
-    for (const key of SECRET_ENV_KEYS) {
-      const value = sanitizeApiKey(source[key])
-      if (value) {
-        values.add(value)
-      }
-    }
-  }
-
-  return [...values]
-}
-
-export function maskSecretForDisplay(
-  value: string | null | undefined,
-): string | undefined {
-  const sanitized = sanitizeApiKey(value)
-  if (!sanitized) return undefined
-
-  if (sanitized.length <= 8) {
-    return 'configured'
-  }
-
-  if (sanitized.startsWith('sk-')) {
-    return `${sanitized.slice(0, 3)}...${sanitized.slice(-4)}`
-  }
-
-  if (sanitized.startsWith('AIza')) {
-    return `${sanitized.slice(0, 4)}...${sanitized.slice(-4)}`
-  }
-
-  return `${sanitized.slice(0, 2)}...${sanitized.slice(-4)}`
-}
-
-export function redactSecretValueForDisplay(
-  value: string | null | undefined,
-  ...sources: Array<SecretValueSource | null | undefined>
-): string | undefined {
-  if (!value) return undefined
-
-  const trimmed = value.trim()
-  if (!trimmed) return trimmed
-
-  const secretValues = collectSecretValues(sources)
-  if (secretValues.includes(trimmed) || looksLikeSecretValue(trimmed)) {
-    return maskSecretForDisplay(trimmed) ?? 'configured'
-  }
-
-  return trimmed
-}
-
-export function sanitizeProviderConfigValue(
-  value: string | null | undefined,
-  ...sources: Array<SecretValueSource | null | undefined>
-): string | undefined {
-  if (!value) return undefined
-
-  const trimmed = value.trim()
-  if (!trimmed) return undefined
-
-  const secretValues = collectSecretValues(sources)
-  if (secretValues.includes(trimmed) || looksLikeSecretValue(trimmed)) {
-    return undefined
-  }
-
-  return trimmed
 }
 
 export function buildOllamaProfileEnv(
@@ -442,21 +363,19 @@ export function buildMistralProfileEnv(options: {
   const env: ProfileEnv = {
     MISTRAL_API_KEY: key,
     MISTRAL_MODEL:
-      sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }, processEnv) ||
+      sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }) ||
       sanitizeProviderConfigValue(
         processEnv.MISTRAL_MODEL,
         { MISTRAL_API_KEY: key },
-        processEnv,
       ) ||
       DEFAULT_MISTRAL_MODEL,
   }
 
   const baseUrl =
-    sanitizeProviderConfigValue(options.baseUrl, { MISTRAL_API_KEY: key }, processEnv) ||
+    sanitizeProviderConfigValue(options.baseUrl, { MISTRAL_API_KEY: key }) ||
     sanitizeProviderConfigValue(
       processEnv.MISTRAL_BASE_URL,
       { MISTRAL_API_KEY: key },
-      processEnv,
     )
   if (baseUrl) {
     env.MISTRAL_BASE_URL = baseUrl
@@ -671,19 +590,15 @@ export async function buildLaunchEnv(options: {
 
     const shellMistralModel = sanitizeProviderConfigValue(
       processEnv.MISTRAL_MODEL,
-      processEnv,
     )
     const persistedMistralModel = sanitizeProviderConfigValue(
       persistedEnv.MISTRAL_MODEL,
-      persistedEnv,
     )
     const shellMistralBaseUrl = sanitizeProviderConfigValue(
       processEnv.MISTRAL_BASE_URL,
-      processEnv,
     )
     const persistedMistralBaseUrl = sanitizeProviderConfigValue(
       persistedEnv.MISTRAL_BASE_URL,
-      persistedEnv,
     )
 
     env.MISTRAL_MODEL =
