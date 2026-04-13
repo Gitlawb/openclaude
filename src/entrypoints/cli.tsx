@@ -10,6 +10,13 @@ import {
   redactSecretValueForDisplay,
 } from '../utils/providerProfile.js'
 
+// OpenClaude: disable experimental API betas by default.
+// Tool search (defer_loading), global cache scope, and context management
+// require internal API support not available to external accounts → 500.
+// Users can opt-in with CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=false.
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
+
 // Bugfix for corepack auto-pinning, which adds yarnpkg to peoples' package.jsons
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
 process.env.COREPACK_ENABLE_AUTO_PIN = '0';
