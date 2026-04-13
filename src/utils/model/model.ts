@@ -88,7 +88,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
-      (provider === 'openai' || provider === 'gemini' || provider === 'mistral' || provider === 'github' ? process.env.OPENAI_MODEL : undefined) ||
+      (provider === 'openai' || provider === 'gemini' || provider === 'mistral' || provider === 'github' || provider === 'qwen' ? process.env.OPENAI_MODEL : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
       settings.model ||
       undefined
@@ -272,6 +272,10 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   }
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'devstral-latest'
+  }
+  // Qwen provider: always use the configured Qwen model
+  if (getAPIProvider() === 'qwen') {
+    return process.env.OPENAI_MODEL || 'qwen3-coder-plus'
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
@@ -460,8 +464,8 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
  * if the model is not recognized as a public model.
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
-  // For OpenAI/Gemini/Codex/GitHub providers, show the actual model name not a Claude alias
-  if (getAPIProvider() === 'openai' || getAPIProvider() === 'gemini' || getAPIProvider() === 'codex' || getAPIProvider() === 'github') {
+  // For OpenAI/Gemini/Codex/GitHub/Qwen providers, show the actual model name not a Claude alias
+  if (getAPIProvider() === 'openai' || getAPIProvider() === 'gemini' || getAPIProvider() === 'codex' || getAPIProvider() === 'github' || getAPIProvider() === 'qwen') {
     // Return display names for known GitHub Copilot models
     const copilotModelNames: Record<string, string> = {
       'gpt-5.4': 'GPT-5.4',
@@ -487,6 +491,17 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
     if (copilotModelNames[model]) {
       return copilotModelNames[model]
     }
+
+    // Return display names for known Qwen models - format to match GitHub profile display name
+    if (model.startsWith('qwen')) {
+      // Convert to match GitHub profile display name (e.g., 'qwen3-coder-plus' -> 'Qwen-Coder')
+      if (model.includes('coder')) {
+        return 'Qwen-Coder'
+      }
+      // For other qwen models, capitalize first letter (e.g., 'qwen3' -> 'Qwen3')
+      return model.charAt(0).toUpperCase() + model.slice(1)
+    }
+
     return null
   }
   switch (model) {

@@ -262,7 +262,8 @@ function hasProviderSelectionFlags(
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined ||
+    processEnv.CLAUDE_CODE_USE_QWEN !== undefined
   )
 }
 
@@ -279,7 +280,8 @@ function hasConflictingProviderFlagsForProfile(
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined ||
+    processEnv.CLAUDE_CODE_USE_QWEN !== undefined
   )
 }
 
@@ -354,6 +356,7 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.CLAUDE_CODE_USE_BEDROCK
   delete processEnv.CLAUDE_CODE_USE_VERTEX
   delete processEnv.CLAUDE_CODE_USE_FOUNDRY
+  delete processEnv.CLAUDE_CODE_USE_QWEN
 
   delete processEnv.OPENAI_BASE_URL
   delete processEnv.OPENAI_API_BASE

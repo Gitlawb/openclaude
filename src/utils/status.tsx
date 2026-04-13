@@ -252,6 +252,7 @@ export function buildAPIProviderProperties(): Property[] {
       gemini: 'Google Gemini',
       github: 'GitHub Models',
       mistral: 'Mistral',
+      qwen: 'Qwen (OAuth)',
     }[apiProvider];
     properties.push({
       label: 'API provider',

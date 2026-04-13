@@ -25,6 +25,10 @@ import { APIError } from '@anthropic-ai/sdk'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
+import {
+  hydrateQwenCredentialsFromDisk,
+  resolveQwenCredential,
+} from '../../utils/qwenCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import {
   looksLikeLeakedReasoningPrefix,
@@ -1216,19 +1220,21 @@ class OpenAIShimMessages {
 
     const isGithub = isGithubModelsMode()
     const isMistral = isMistralMode()
+    const isQwen = isEnvTruthy(process.env.CLAUDE_CODE_USE_QWEN)
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
-    if ((isGithub || isMistral) && body.max_completion_tokens !== undefined) {
+    if ((isGithub || isMistral || isQwen) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
 
-    // mistral also doesn't recognize body.store
-    if (isMistral) {
+    // mistral and qwen don't recognize body.store or stream_options
+    if (isMistral || isQwen) {
       delete body.store
+      delete body.stream_options
     }
 
     if (params.temperature !== undefined) body.temperature = params.temperature
@@ -1269,7 +1275,29 @@ class OpenAIShimMessages {
     }
 
     const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
-    const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+    // For Qwen, always resolve from disk so a stale env-hydrated token gets
+    // refreshed mid-session without requiring a CLI restart.
+    let qwenAccessToken: string | undefined
+    if (isQwen && !this.providerOverride?.apiKey) {
+      const resolved = await resolveQwenCredential(process.env)
+      if (resolved.kind === 'token') {
+        qwenAccessToken = resolved.accessToken
+        process.env.OPENAI_API_KEY = resolved.accessToken
+      }
+      // If Qwen credential resolution failed (refresh token expired), don't
+      // fall back to a stale env var — throw immediately with a clear message.
+      const finalKey = this.providerOverride?.apiKey ?? qwenAccessToken
+      if (!finalKey) {
+        throw new Error(
+          'Qwen access token expired. Run /onboard-qwen to re-authenticate.',
+        )
+      }
+    }
+    const apiKey =
+      this.providerOverride?.apiKey ??
+      qwenAccessToken ??
+      process.env.OPENAI_API_KEY ??
+      ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -1301,6 +1329,12 @@ class OpenAIShimMessages {
     } else if (isGithubModels) {
       headers['Accept'] = 'application/vnd.github+json'
       headers['X-GitHub-Api-Version'] = '2022-11-28'
+    } else if (isQwen) {
+      const qwenUa = `QwenCode/0.14.3 (${process.platform}; ${process.arch})`
+      headers['User-Agent'] = qwenUa
+      headers['X-DashScope-UserAgent'] = qwenUa
+      headers['X-DashScope-AuthType'] = 'qwen-oauth'
+      headers['X-DashScope-CacheControl'] = 'enable'
     }
 
     // Build the chat completions URL
@@ -1586,6 +1620,7 @@ export function createOpenAIShimClient(options: {
 }): unknown {
   hydrateGeminiAccessTokenFromSecureStorage()
   hydrateGithubModelsTokenFromSecureStorage()
+  hydrateQwenCredentialsFromDisk()
 
   // When Gemini provider is active, map Gemini env vars to OpenAI-compatible ones
   // so the existing providerConfig.ts infrastructure picks them up correctly.

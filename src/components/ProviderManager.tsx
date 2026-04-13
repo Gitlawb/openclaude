@@ -29,6 +29,12 @@ import {
 } from '../utils/githubModelsCredentials.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
+import {
+  buildQwenProfileEnv,
+  createProfileFile,
+  saveProfileFile,
+} from '../utils/providerProfile.js'
+import { loadQwenCredentials } from '../utils/qwenCredentials.js'
 import { type OptionWithDescription, Select } from './CustomSelect/index.js'
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
@@ -716,6 +722,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'Local LM Studio endpoint',
       },
       {
+        value: 'qwen-oauth',
+        label: 'Qwen (OAuth, free)',
+        description: 'Use Qwen chat.qwen.ai OAuth (run /onboard-qwen first)',
+      },
+      {
         value: 'custom',
         label: 'Custom',
         description: 'Any OpenAI-compatible provider',
@@ -744,6 +755,30 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           onChange={value => {
             if (value === 'skip') {
               closeWithCancelled('Provider setup skipped')
+              return
+            }
+            if (value === 'qwen-oauth') {
+              if (!loadQwenCredentials()) {
+                setErrorMessage(
+                  'No Qwen credentials found. Run /onboard-qwen to log in first, then reopen /provider.',
+                )
+                setScreen('menu')
+                return
+              }
+              try {
+                const filePath = saveProfileFile(
+                  createProfileFile('qwen-oauth', buildQwenProfileEnv({})),
+                )
+                onDone({
+                  action: 'saved',
+                  message: `Saved Qwen (OAuth) profile at ${filePath}. Restart OpenClaude to use it.`,
+                })
+              } catch (error) {
+                setErrorMessage(
+                  `Could not save Qwen profile: ${error instanceof Error ? error.message : String(error)}`,
+                )
+                setScreen('menu')
+              }
               return
             }
             startCreateFromPreset(value as ProviderPreset)

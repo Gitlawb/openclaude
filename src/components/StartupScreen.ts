@@ -88,6 +88,7 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
   const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
   const useMistral = process.env.CLAUDE_CODE_USE_MISTRAL === '1' || process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
+  const useQwen = process.env.CLAUDE_CODE_USE_QWEN === '1' || process.env.CLAUDE_CODE_USE_QWEN === 'true'
 
   if (useGemini) {
     const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
@@ -106,6 +107,12 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     const baseUrl =
       process.env.OPENAI_BASE_URL || 'https://api.githubcopilot.com'
     return { name: 'GitHub Copilot', model, baseUrl, isLocal: false }
+  }
+
+  if (useQwen) {
+    const model = process.env.OPENAI_MODEL || 'qwen3-coder-plus'
+    const baseUrl = process.env.OPENAI_BASE_URL || 'https://portal.qwen.ai/v1'
+    return { name: 'Qwen', model, baseUrl, isLocal: false }
   }
 
   if (useOpenAI) {

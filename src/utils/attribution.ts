@@ -70,14 +70,21 @@ export function getAttributionTexts(): AttributionTexts {
   // fall back to "Claude Opus 4.6" for unrecognized models to avoid leaking codenames.
   const model = getMainLoopModel()
   const isKnownPublicModel = getPublicModelDisplayName(model) !== null
+  const publicModelDisplayName = getPublicModelDisplayName(model)
   const modelName =
     isInternalModelRepoCached() || isKnownPublicModel
-      ? getPublicModelName(model)
-      : 'Claude Opus 4.6'
+      ? (getAPIProvider() === 'qwen' ? publicModelDisplayName! : getPublicModelName(model))
+      : model.toString().toLowerCase().includes('qwen')
+        ? 'Qwen-Coder' // Special handling for Qwen models that aren't recognized as public models
+        : 'Claude Opus 4.6'
   const defaultAttribution =
     '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+  const apiProvider = getAPIProvider()
+  const modelContainsQwen = model.toString().toLowerCase().includes('qwen')
   const coAuthorDomain =
-    getAPIProvider() === 'firstParty' ? 'anthropic.com' : 'openclaude.dev'
+    apiProvider === 'firstParty' ? 'anthropic.com' :
+    apiProvider === 'qwen' || modelContainsQwen ? 'alibabacloud.com' :
+    'openclaude.dev'
   const defaultCommit = isEnvTruthy(
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
   )

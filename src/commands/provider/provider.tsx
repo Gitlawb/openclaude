@@ -25,11 +25,14 @@ import {
   buildMistralProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
+  buildQwenProfileEnv,
   createProfileFile,
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
   DEFAULT_MISTRAL_BASE_URL,
   DEFAULT_MISTRAL_MODEL,
+  DEFAULT_QWEN_BASE_URL,
+  DEFAULT_QWEN_MODEL,
   deleteProfileFile,
   loadProfileFile,
   maskSecretForDisplay,
@@ -41,6 +44,7 @@ import {
   type ProfileFile,
   type ProviderProfile,
 } from '../../utils/providerProfile.js'
+import { loadQwenCredentials } from '../../utils/qwenCredentials.js'
 import {
   getGeminiProjectIdHint,
   mayHaveGeminiAdcCredentials,
@@ -94,6 +98,7 @@ type Step =
       authMode: 'api-key' | 'access-token' | 'adc'
     }
   | { name: 'codex-check' }
+  | { name: 'qwen-check' }
 
 type CurrentProviderSummary = {
   providerLabel: string
@@ -193,6 +198,21 @@ export function buildCurrentProviderSummary(options?: {
       ),
       endpointLabel: getSafeDisplayValue(
         processEnv.GEMINI_BASE_URL ?? DEFAULT_GEMINI_BASE_URL,
+        processEnv,
+      ),
+      savedProfileLabel,
+    }
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_QWEN)) {
+    return {
+      providerLabel: 'Qwen (OAuth)',
+      modelLabel: getSafeDisplayValue(
+        processEnv.OPENAI_MODEL ?? DEFAULT_QWEN_MODEL,
+        processEnv,
+      ),
+      endpointLabel: getSafeDisplayValue(
+        processEnv.OPENAI_BASE_URL ?? DEFAULT_QWEN_BASE_URL,
         processEnv,
       ),
       savedProfileLabel,
@@ -330,6 +350,23 @@ function buildSavedProfileSummary(
           maskSecretForDisplay(env.CODEX_API_KEY) !== undefined
             ? 'configured'
             : undefined,
+      }
+    case 'qwen-oauth':
+      return {
+        providerLabel: 'Qwen (OAuth)',
+        modelLabel: getSafeDisplayValue(
+          env.OPENAI_MODEL ?? DEFAULT_QWEN_MODEL,
+          process.env,
+          env,
+        ),
+        endpointLabel: getSafeDisplayValue(
+          env.OPENAI_BASE_URL ?? DEFAULT_QWEN_BASE_URL,
+          process.env,
+          env,
+        ),
+        credentialLabel: loadQwenCredentials()
+          ? 'stored in ~/.qwen/oauth_creds.json'
+          : 'not configured — run /onboard-qwen',
       }
     case 'ollama':
       return {
@@ -536,6 +573,11 @@ function ProviderChooser({
       label: 'Codex',
       value: 'codex',
       description: 'Use existing ChatGPT Codex CLI auth or env credentials',
+    },
+    {
+      label: 'Qwen (OAuth, free)',
+      value: 'qwen-oauth',
+      description: 'Use Qwen chat.qwen.ai OAuth via ~/.qwen/oauth_creds.json',
     },
   ]
 
@@ -974,6 +1016,68 @@ function CodexCredentialStep({
   )
 }
 
+function QwenCredentialStep({
+  onSave,
+  onBack,
+  onCancel,
+}: {
+  onSave: (profile: ProviderProfile, env: ProfileEnv) => void
+  onBack: () => void
+  onCancel: () => void
+}): React.ReactNode {
+  const creds = loadQwenCredentials()
+
+  if (!creds) {
+    return (
+      <Dialog title="Qwen (OAuth) setup" onCancel={onCancel} color="warning">
+        <Box flexDirection="column" gap={1}>
+          <Text>
+            No Qwen credentials found at ~/.qwen/oauth_creds.json. Run
+            /onboard-qwen to complete the device-flow login, then come back to
+            /provider to save the profile.
+          </Text>
+          <Select
+            options={[
+              { label: 'Back', value: 'back' },
+              { label: 'Cancel', value: 'cancel' },
+            ]}
+            onChange={value => (value === 'back' ? onBack() : onCancel())}
+            onCancel={onCancel}
+          />
+        </Box>
+      </Dialog>
+    )
+  }
+
+  return (
+    <Dialog title="Save Qwen (OAuth) profile?" onCancel={onBack}>
+      <Box flexDirection="column" gap={1}>
+        <Text>
+          Credentials detected at ~/.qwen/oauth_creds.json. Save a profile
+          using {DEFAULT_QWEN_MODEL} on {DEFAULT_QWEN_BASE_URL}?
+        </Text>
+        <Select
+          options={[
+            { label: 'Save Qwen (OAuth) profile', value: 'save' },
+            { label: 'Back', value: 'back' },
+            { label: 'Cancel', value: 'cancel' },
+          ]}
+          onChange={value => {
+            if (value === 'save') {
+              onSave('qwen-oauth', buildQwenProfileEnv({}))
+            } else if (value === 'back') {
+              onBack()
+            } else {
+              onCancel()
+            }
+          }}
+          onCancel={onBack}
+        />
+      </Box>
+    </Dialog>
+  )
+}
+
 function resolveCodexCredentials(processEnv: NodeJS.ProcessEnv):
   | { ok: true; sourceDescription: string }
   | { ok: false; message: string } {
@@ -1035,6 +1139,8 @@ export function ProviderWizard({
                 name: 'mistral-key',
                 defaultModel: defaults.mistralModel,
               })
+            } else if (value === 'qwen-oauth') {
+              setStep({ name: 'qwen-check' })
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
@@ -1465,6 +1571,15 @@ export function ProviderWizard({
     case 'codex-check':
       return (
         <CodexCredentialStep
+          onSave={(profile, env) => finishProfileSave(onDone, profile, env)}
+          onBack={() => setStep({ name: 'choose' })}
+          onCancel={() => onDone()}
+        />
+      )
+
+    case 'qwen-check':
+      return (
+        <QwenCredentialStep
           onSave={(profile, env) => finishProfileSave(onDone, profile, env)}
           onBack={() => setStep({ name: 'choose' })}
           onCancel={() => onDone()}

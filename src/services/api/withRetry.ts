@@ -33,6 +33,7 @@ import {
 } from '../../utils/fastMode.js'
 import { isNonCustomOpusModel } from '../../utils/model/model.js'
 import { disableKeepAlive } from '../../utils/proxy.js'
+import { resolveQwenCredential } from '../../utils/qwenCredentials.js'
 import { sleep } from '../../utils/sleep.js'
 import type { ThinkingConfig } from '../../utils/thinking.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
@@ -254,6 +255,13 @@ export async function* withRetry<T>(
           const failedAccessToken = getClaudeAIOAuthTokens()?.accessToken
           if (failedAccessToken) {
             await handleOAuth401Error(failedAccessToken)
+          }
+          // For Qwen, re-resolve credentials from disk to pick up a refreshed token
+          if (getAPIProvider() === 'qwen') {
+            const resolved = await resolveQwenCredential(process.env)
+            if (resolved.kind === 'token') {
+              process.env.OPENAI_API_KEY = resolved.accessToken
+            }
           }
         }
         client = await getClient()

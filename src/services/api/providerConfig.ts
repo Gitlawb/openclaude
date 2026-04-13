@@ -359,13 +359,14 @@ export function resolveProviderRequest(options?: {
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const isQwenMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_QWEN)
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
       ? process.env.MISTRAL_MODEL?.trim()
       : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
-    (isGithubMode ? 'github:copilot' : 'gpt-4o')
+    (isGithubMode ? 'github:copilot' : isQwenMode ? 'qwen3-coder-plus' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const rawBaseUrl =
     asEnvUrl(options?.baseUrl) ??
@@ -428,7 +429,8 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_QWEN)) {
       return 'firstParty'
     }
     return null

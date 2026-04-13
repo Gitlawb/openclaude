@@ -12,9 +12,12 @@ export type APIProvider =
   | 'github'
   | 'codex'
   | 'mistral'
+  | 'qwen'
 
 export function getAPIProvider(): APIProvider {
-  return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  return isEnvTruthy(process.env.CLAUDE_CODE_USE_QWEN)
+    ? 'qwen'
+    : isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     ? 'gemini'
     :
     isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
