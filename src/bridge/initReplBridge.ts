@@ -150,15 +150,18 @@ export async function initReplBridge(
     return null
   }
 
-  // 3. Check organization policy — remote control may be disabled
-  await waitForPolicyLimitsToLoad()
-  if (!isPolicyAllowed('allow_remote_control')) {
-    logBridgeSkip(
-      'policy_denied',
-      '[bridge:repl] Skipping: allow_remote_control policy not allowed',
-    )
-    onStateChange?.('failed', "disabled by your organization's policy")
-    return null
+  // 3. Check organization policy — remote control may be disabled.
+  // Open build: skip policy check when using local bridge (no Anthropic org).
+  if (!getBridgeTokenOverride()) {
+    await waitForPolicyLimitsToLoad()
+    if (!isPolicyAllowed('allow_remote_control')) {
+      logBridgeSkip(
+        'policy_denied',
+        '[bridge:repl] Skipping: allow_remote_control policy not allowed',
+      )
+      onStateChange?.('failed', "disabled by your organization's policy")
+      return null
+    }
   }
 
   // When CLAUDE_BRIDGE_OAUTH_TOKEN is set (internal-only local dev), the bridge
