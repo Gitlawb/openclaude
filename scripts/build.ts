@@ -92,6 +92,14 @@ function restoreModifiedFiles() {
 preProcessFeatureFlags(join(import.meta.dir, '..', 'src'))
 const numModified = modifiedFiles.size
 
+// Restore source files on abrupt termination (Ctrl+C, kill, etc.)
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    restoreModifiedFiles()
+    process.exit(signal === 'SIGINT' ? 130 : 143)
+  })
+}
+
 try {
 
 const result = await Bun.build({
@@ -447,10 +455,10 @@ if (!result.success) {
   for (const log of result.logs) {
     console.error(log)
   }
-  process.exit(1)
+  process.exitCode = 1
+} else {
+  console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
 }
-
-console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
 
 } finally {
   // Always restore source files, even if Bun.build() throws
