@@ -104,6 +104,21 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'devstral-latest':          256_000,
   'ministral-3b-latest':      256_000,
 
+  // NVIDIA NIM - popular models
+  'nvidia/llama-3.1-nemotron-70b-instruct': 128_000,
+  'nvidia/llama-3.1-nemotron-ultra-253b-v1': 128_000,
+  'nvidia/nemotron-mini-4b-instruct': 32_768,
+  'meta/llama-3.1-405b-instruct': 128_000,
+  'meta/llama-3.1-70b-instruct': 128_000,
+  'meta/llama-3.1-8b-instruct': 128_000,
+  'nvidia/llama-3.2-90b-instruct': 128_000,
+  'nvidia/llama-3.2-1b-instruct': 128_000,
+  'nvidia/llama-3.2-3b-instruct': 128_000,
+  'deepseek-ai/deepseek-r1': 128_000,
+  'deepseek-ai/deepseek-v3': 128_000,
+  'qwen/qwen3-32b': 128_000,
+  'qwen/qwen3-8b': 128_000,
+
   // MiniMax (all M2.x variants share 204,800 context, 131,072 max output)
   'MiniMax-M2.7':             204_800,
   'MiniMax-M2.7-highspeed':   204_800,
@@ -117,6 +132,13 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'minimax-m2.5-highspeed':   204_800,
   'minimax-m2.1':             204_800,
   'minimax-m2.1-highspeed':   204_800,
+
+  // MiniMax new models
+  'MiniMax-Text-01':          524_288,
+  'MiniMax-Text-01-Preview':  262_144,
+  'MiniMax-Vision-01':        32_768,
+  'MiniMax-Vision-01-Fast':   16_384,
+  'MiniMax-M2':               204_800,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':1_048_576,
