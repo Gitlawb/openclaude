@@ -52,6 +52,8 @@ let _flags = undefined;
 const _openBuildDefaults = {
   'tengu_sedge_lantern': true,  // AWAY_SUMMARY — "while you were away" recap (upstream: false)
   'tengu_hive_evidence': true,  // VERIFICATION_AGENT — read-only test/verification agent (upstream: false)
+  'tengu_passport_quail': true, // EXTRACT_MEMORIES — enable memory extraction (upstream: false)
+  'tengu_coral_fern': true,     // EXTRACT_MEMORIES — enable memory search in past context (upstream: false)
 };
 
 /* ── Known runtime feature keys (reference only) ───────────────────────
