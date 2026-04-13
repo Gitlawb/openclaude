@@ -70,19 +70,27 @@ export function getAttributionTexts(): AttributionTexts {
   // fall back to "Claude Opus 4.6" for unrecognized models to avoid leaking codenames.
   const model = getMainLoopModel()
   const isKnownPublicModel = getPublicModelDisplayName(model) !== null
+  const publicModelDisplayName = getPublicModelDisplayName(model)
   const modelName =
     isInternalModelRepoCached() || isKnownPublicModel
-      ? getPublicModelName(model)
-      : 'Claude Opus 4.6'
+      ? (getAPIProvider() === 'qwen' ? publicModelDisplayName! : getPublicModelName(model))
+      : model.toString().toLowerCase().includes('qwen')
+        ? 'Qwen-Coder' // Special handling for Qwen models that aren't recognized as public models
+        : 'Claude Opus 4.6'
   const defaultAttribution =
     '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
-  const coAuthorDomain =
-    getAPIProvider() === 'firstParty' ? 'anthropic.com' : 'openclaude.dev'
+  const apiProvider = getAPIProvider()
+  const modelContainsQwen = model.toString().toLowerCase().includes('qwen')
+  const isQwen = apiProvider === 'qwen' || modelContainsQwen
+  const coAuthorEmail =
+    apiProvider === 'firstParty' ? 'noreply@anthropic.com' :
+    isQwen ? 'qwen-coder@alibabacloud.com' :
+    'noreply@openclaude.dev'
   const defaultCommit = isEnvTruthy(
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
   )
     ? ''
-    : `Co-Authored-By: ${modelName} <noreply@${coAuthorDomain}>`
+    : `Co-Authored-By: ${modelName} <${coAuthorEmail}>`
 
   const settings = getInitialSettings()
 

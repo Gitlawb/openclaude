@@ -85,7 +85,8 @@ export function getContextWindowForModel(
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_QWEN)
   if (isOpenAIProvider) {
     const openaiWindow = getOpenAIContextWindow(model)
     if (openaiWindow !== undefined) {
@@ -194,7 +195,8 @@ export function getModelMaxOutputTokens(model: string): {
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_QWEN)
   ) {
     const openaiMax = getOpenAIMaxOutputTokens(model)
     if (openaiMax !== undefined) {

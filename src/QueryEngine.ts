@@ -486,7 +486,9 @@ export class QueryEngine {
       },
     }))
 
-    const mainLoopModel = modelFromUserInput ?? initialMainLoopModel
+    const mainLoopModel = modelFromUserInput ?? (userSpecifiedModel
+      ? parseUserSpecifiedModel(userSpecifiedModel)
+      : getMainLoopModel())
 
     // Recreate after processing the prompt to pick up updated messages and
     // model (from slash commands).

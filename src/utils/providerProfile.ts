@@ -26,6 +26,7 @@ const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_QWEN',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
@@ -54,7 +55,14 @@ const SECRET_ENV_KEYS = [
   'MISTRAL_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'mistral'
+export type ProviderProfile =
+  | 'openai'
+  | 'ollama'
+  | 'codex'
+  | 'gemini'
+  | 'atomic-chat'
+  | 'mistral'
+  | 'qwen-oauth'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
@@ -105,7 +113,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'codex' ||
     value === 'gemini' ||
     value === 'atomic-chat' ||
-    value === 'mistral'
+    value === 'mistral' ||
+    value === 'qwen-oauth'
   )
 }
 
@@ -399,6 +408,21 @@ export function buildMistralProfileEnv(options: {
   return env
 }
 
+export const DEFAULT_QWEN_MODEL = 'qwen3-coder-plus'
+export const DEFAULT_QWEN_BASE_URL = 'https://portal.qwen.ai/v1'
+
+export function buildQwenProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+}): ProfileEnv {
+  // OPENAI_API_KEY intentionally omitted — resolved at runtime from
+  // ~/.qwen/oauth_creds.json via resolveQwenCredential().
+  return {
+    OPENAI_BASE_URL: options.baseUrl?.trim() || DEFAULT_QWEN_BASE_URL,
+    OPENAI_MODEL: options.model?.trim() || DEFAULT_QWEN_MODEL,
+  }
+}
+
 export function createProfileFile(
   profile: ProviderProfile,
   env: ProfileEnv,
@@ -468,7 +492,8 @@ export function hasExplicitProviderSelection(
     processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined ||
+    processEnv.CLAUDE_CODE_USE_QWEN !== undefined
   )
 }
 
@@ -657,12 +682,53 @@ export async function buildLaunchEnv(options: {
     return env
   }
 
+  if (options.profile === 'qwen-oauth') {
+    const env: NodeJS.ProcessEnv = {
+      ...processEnv,
+      CLAUDE_CODE_USE_QWEN: '1',
+    }
+
+    delete env.CLAUDE_CODE_USE_OPENAI
+    delete env.CLAUDE_CODE_USE_GITHUB
+    delete env.CLAUDE_CODE_USE_GEMINI
+    delete env.CLAUDE_CODE_USE_MISTRAL
+    delete env.CLAUDE_CODE_USE_BEDROCK
+    delete env.CLAUDE_CODE_USE_VERTEX
+    delete env.CLAUDE_CODE_USE_FOUNDRY
+
+    env.OPENAI_MODEL =
+      sanitizeProviderConfigValue(persistedEnv.OPENAI_MODEL, persistedEnv) ||
+      DEFAULT_QWEN_MODEL
+    env.OPENAI_BASE_URL =
+      sanitizeProviderConfigValue(persistedEnv.OPENAI_BASE_URL, persistedEnv) ||
+      DEFAULT_QWEN_BASE_URL
+
+    // Access token is hydrated from disk by hydrateQwenCredentialsFromDisk()
+    // when the shim initializes. Avoid baking a stale value into the profile.
+    delete env.OPENAI_API_KEY
+    delete env.GEMINI_API_KEY
+    delete env.GEMINI_AUTH_MODE
+    delete env.GEMINI_ACCESS_TOKEN
+    delete env.GEMINI_MODEL
+    delete env.GEMINI_BASE_URL
+    delete env.GOOGLE_API_KEY
+    delete env.MISTRAL_API_KEY
+    delete env.MISTRAL_MODEL
+    delete env.MISTRAL_BASE_URL
+    delete env.CODEX_API_KEY
+    delete env.CHATGPT_ACCOUNT_ID
+    delete env.CODEX_ACCOUNT_ID
+
+    return env
+  }
+
   const env: NodeJS.ProcessEnv = {
     ...processEnv,
     CLAUDE_CODE_USE_OPENAI: '1',
   }
 
   delete env.CLAUDE_CODE_USE_MISTRAL
+  delete env.CLAUDE_CODE_USE_QWEN
   delete env.CLAUDE_CODE_USE_BEDROCK
   delete env.CLAUDE_CODE_USE_VERTEX
   delete env.CLAUDE_CODE_USE_FOUNDRY

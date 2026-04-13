@@ -1,7 +1,8 @@
 import type { ModelName } from './model.js'
 import type { APIProvider } from './providers.js'
 
-export type ModelConfig = Record<APIProvider, ModelName>
+export type ModelConfig = Partial<Record<APIProvider, ModelName>> &
+  Record<Exclude<APIProvider, 'mistral' | 'qwen'>, ModelName>
 
 // ---------------------------------------------------------------------------
 // OpenAI-compatible model mappings

@@ -10,3 +10,4 @@ GEMINI.md
 package-lock.json
 /.claude
 coverage/
+.openclaude/settings.local.json
