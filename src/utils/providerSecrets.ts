@@ -3,8 +3,6 @@ const SECRET_ENV_KEYS = [
   'CODEX_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
-  'NVIDIA_API_KEY',
-  'MINIMAX_API_KEY',
   'MISTRAL_API_KEY',
 ] as const
 
