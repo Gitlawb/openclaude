@@ -116,9 +116,21 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
       return parsed.data
     })
   } catch (error) {
-    logForDebugging(
-      `[Bootstrap] Fetch failed: ${axios.isAxiosError(error) ? (error.response?.status ?? error.code) : 'unknown'}`,
-    )
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status ?? 'no-response'
+      const code = error.code ?? 'unknown-code'
+      const method = error.config?.method?.toUpperCase() ?? 'UNKNOWN'
+      const requestUrl = error.config?.url ?? 'unknown-url'
+      const message = error.message ?? 'unknown axios error'
+
+      logForDebugging(
+        `[Bootstrap] Fetch failed: status=${status} code=${code} method=${method} url=${requestUrl} message=${message}`,
+      )
+    } else {
+      const message = error instanceof Error ? error.message : String(error)
+      logForDebugging(`[Bootstrap] Fetch failed: ${message}`)
+    }
+
     throw error
   }
 }
