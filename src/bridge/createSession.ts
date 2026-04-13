@@ -1,6 +1,7 @@
 import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
 import { logForDebugging } from '../utils/debug.js'
 import { errorMessage } from '../utils/errors.js'
+import { getBridgeAccessToken, getBridgeBaseUrl } from './bridgeConfig.js'
 import { extractErrorDetail } from './debugUtils.js'
 import { toCompatSessionId } from './sessionIdCompat.js'
 
@@ -52,22 +53,26 @@ export async function createBridgeSession({
   getAccessToken?: () => string | undefined
   permissionMode?: string
 }): Promise<string | null> {
-  const { getClaudeAIOAuthTokens } = await import('../utils/auth.js')
   const { getOrganizationUUID } = await import('../services/oauth/client.js')
-  const { getOauthConfig } = await import('../constants/oauth.js')
   const { getOAuthHeaders } = await import('../utils/teleport/api.js')
   const { parseGitHubRepository } = await import('../utils/detectRepository.js')
   const { getDefaultBranch } = await import('../utils/git.js')
   const { getMainLoopModel } = await import('../utils/model/model.js')
   const { default: axios } = await import('axios')
 
-  const accessToken =
-    getAccessToken?.() ?? getClaudeAIOAuthTokens()?.accessToken
+  const accessToken = getAccessToken?.() ?? getBridgeAccessToken()
   if (!accessToken) {
     logForDebugging('[bridge] No access token for session creation')
     return null
   }
 
+  // BLOCKER (v1 only) — fork: getOrganizationUUID() requires Anthropic
+  // OAuth login. Open-build users without OAuth fail here. The local bridge
+  // server does NOT validate the x-organization-uuid header, so a sentinel
+  // ('local') would be safe — but POST /v1/sessions itself is not
+  // implemented by packages/bridge-server (only /v1/code/sessions/* for v2
+  // and /v1/sessions/:id/archive). If v1 is reactivated, the bridge server
+  // must add this endpoint AND a sentinel orgUUID fallback is needed here.
   const orgUUID = await getOrganizationUUID()
   if (!orgUUID) {
     logForDebugging('[bridge] No org UUID for session creation')
@@ -141,7 +146,7 @@ export async function createBridgeSession({
     'x-organization-uuid': orgUUID,
   }
 
-  const url = `${baseUrlOverride ?? getOauthConfig().BASE_API_URL}/v1/sessions`
+  const url = `${baseUrlOverride ?? getBridgeBaseUrl()}/v1/sessions`
   let response
   try {
     response = await axios.post(url, requestBody, {
@@ -191,19 +196,18 @@ export async function getBridgeSession(
   sessionId: string,
   opts?: { baseUrl?: string; getAccessToken?: () => string | undefined },
 ): Promise<{ environment_id?: string; title?: string } | null> {
-  const { getClaudeAIOAuthTokens } = await import('../utils/auth.js')
   const { getOrganizationUUID } = await import('../services/oauth/client.js')
-  const { getOauthConfig } = await import('../constants/oauth.js')
   const { getOAuthHeaders } = await import('../utils/teleport/api.js')
   const { default: axios } = await import('axios')
 
-  const accessToken =
-    opts?.getAccessToken?.() ?? getClaudeAIOAuthTokens()?.accessToken
+  const accessToken = opts?.getAccessToken?.() ?? getBridgeAccessToken()
   if (!accessToken) {
     logForDebugging('[bridge] No access token for session fetch')
     return null
   }
 
+  // BLOCKER (v1 only) — see createBridgeSession() for context. Also: GET
+  // /v1/sessions/:id is not implemented by the local bridge server.
   const orgUUID = await getOrganizationUUID()
   if (!orgUUID) {
     logForDebugging('[bridge] No org UUID for session fetch')
@@ -216,7 +220,7 @@ export async function getBridgeSession(
     'x-organization-uuid': orgUUID,
   }
 
-  const url = `${opts?.baseUrl ?? getOauthConfig().BASE_API_URL}/v1/sessions/${sessionId}`
+  const url = `${opts?.baseUrl ?? getBridgeBaseUrl()}/v1/sessions/${sessionId}`
   const timeoutMs = 10_000
   logForDebugging(`[bridge] Fetching session ${sessionId}`)
 
@@ -282,19 +286,19 @@ export async function archiveBridgeSession(
     timeoutMs?: number
   },
 ): Promise<void> {
-  const { getClaudeAIOAuthTokens } = await import('../utils/auth.js')
   const { getOrganizationUUID } = await import('../services/oauth/client.js')
-  const { getOauthConfig } = await import('../constants/oauth.js')
   const { getOAuthHeaders } = await import('../utils/teleport/api.js')
   const { default: axios } = await import('axios')
 
-  const accessToken =
-    opts?.getAccessToken?.() ?? getClaudeAIOAuthTokens()?.accessToken
+  const accessToken = opts?.getAccessToken?.() ?? getBridgeAccessToken()
   if (!accessToken) {
     logForDebugging('[bridge] No access token for session archive')
     return
   }
 
+  // BLOCKER (v1 only) — see createBridgeSession() for context. Note: the
+  // local bridge server DOES implement /v1/sessions/:id/archive (not just
+  // v2 endpoints), so if a sentinel orgUUID is added, archive would work.
   const orgUUID = await getOrganizationUUID()
   if (!orgUUID) {
     logForDebugging('[bridge] No org UUID for session archive')
@@ -307,7 +311,7 @@ export async function archiveBridgeSession(
     'x-organization-uuid': orgUUID,
   }
 
-  const url = `${opts?.baseUrl ?? getOauthConfig().BASE_API_URL}/v1/sessions/${sessionId}/archive`
+  const url = `${opts?.baseUrl ?? getBridgeBaseUrl()}/v1/sessions/${sessionId}/archive`
   logForDebugging(`[bridge] Archiving session ${sessionId}`)
 
   const response = await axios.post(
@@ -343,19 +347,18 @@ export async function updateBridgeSessionTitle(
   title: string,
   opts?: { baseUrl?: string; getAccessToken?: () => string | undefined },
 ): Promise<void> {
-  const { getClaudeAIOAuthTokens } = await import('../utils/auth.js')
   const { getOrganizationUUID } = await import('../services/oauth/client.js')
-  const { getOauthConfig } = await import('../constants/oauth.js')
   const { getOAuthHeaders } = await import('../utils/teleport/api.js')
   const { default: axios } = await import('axios')
 
-  const accessToken =
-    opts?.getAccessToken?.() ?? getClaudeAIOAuthTokens()?.accessToken
+  const accessToken = opts?.getAccessToken?.() ?? getBridgeAccessToken()
   if (!accessToken) {
     logForDebugging('[bridge] No access token for session title update')
     return
   }
 
+  // BLOCKER (v1 only) — see createBridgeSession() for context. Also: PATCH
+  // /v1/sessions/:id is not implemented by the local bridge server.
   const orgUUID = await getOrganizationUUID()
   if (!orgUUID) {
     logForDebugging('[bridge] No org UUID for session title update')
@@ -372,7 +375,7 @@ export async function updateBridgeSessionTitle(
   // pass raw cse_*; retag here so all callers can pass whatever they hold.
   // Idempotent for v1's session_* and bridgeMain's pre-converted compatSessionId.
   const compatId = toCompatSessionId(sessionId)
-  const url = `${opts?.baseUrl ?? getOauthConfig().BASE_API_URL}/v1/sessions/${compatId}`
+  const url = `${opts?.baseUrl ?? getBridgeBaseUrl()}/v1/sessions/${compatId}`
   logForDebugging(`[bridge] Updating session title: ${compatId} → ${title}`)
 
   try {

@@ -35,12 +35,22 @@ export function isRemoteSessionLocal(
 
 /**
  * Get the base URL for Claude AI based on environment.
+ *
+ * For localhost sessions, uses the actual ingressUrl origin rather than
+ * the hardcoded CLAUDE_AI_LOCAL_BASE_URL — the port varies between
+ * Anthropic internal dev (:4000 frontend) and the open build bridge
+ * server (:4080).
  */
 export function getClaudeAiBaseUrl(
   sessionId?: string,
   ingressUrl?: string,
 ): string {
   if (isRemoteSessionLocal(sessionId, ingressUrl)) {
+    if (ingressUrl) {
+      try {
+        return new URL(ingressUrl).origin
+      } catch { /* fall through to default */ }
+    }
     return CLAUDE_AI_LOCAL_BASE_URL
   }
   if (isRemoteSessionStaging(sessionId, ingressUrl)) {
