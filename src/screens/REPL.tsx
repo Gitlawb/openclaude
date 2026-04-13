@@ -2106,7 +2106,17 @@ export function REPL({
   const focusedInputDialog = getFocusedInputDialog();
 
   // True when permission prompts exist but are hidden because the user is typing
-  const hasSuppressedDialogs = promptTypingSuppressionActive && (sandboxPermissionRequestQueue[0] || toolUseConfirmQueue[0] || promptQueue[0] || workerSandboxPermissions.queue[0] || elicitation.queue[0] || showingCostDialog);
+  // Don't suppress if there's an urgent permission request that needs immediate attention
+  // This fixes the issue where questions don't appear until user presses return
+  const hasSuppressedDialogs = promptTypingSuppressionActive &&
+    !(toolUseConfirmQueue[0] &&
+      (toolUseConfirmQueue[0].permissionResult?.behavior === 'ask' ||
+       toolUseConfirmQueue[0].permissionResult?.behavior === 'confirm')) &&
+    (sandboxPermissionRequestQueue[0] ||
+     (toolUseConfirmQueue[0] &&
+      toolUseConfirmQueue[0].permissionResult?.behavior !== 'ask' &&
+      toolUseConfirmQueue[0].permissionResult?.behavior !== 'confirm') ||
+     promptQueue[0] || workerSandboxPermissions.queue[0] || elicitation.queue[0] || showingCostDialog);
 
   // Keep ref in sync so timer callbacks can read the current value
   focusedInputDialogRef.current = focusedInputDialog;
