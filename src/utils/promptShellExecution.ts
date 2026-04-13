@@ -16,7 +16,11 @@ import { processToolResultBlock } from './toolResultStorage.js'
 // _simulatedSedEdit) that PowerShellTool's does not.
 // NOTE: call() is invoked directly here, bypassing validateInput — any
 // load-bearing check must live in call() itself (see PR #23311).
-type ShellOut = { stdout: string; stderr: string; interrupted: boolean }
+type ShellOut = {
+  stdout: string | null | undefined
+  stderr: string | null | undefined
+  interrupted: boolean
+}
 type PromptShellTool = Tool & {
   call(
     input: { command: string },
@@ -113,17 +117,25 @@ export async function executeShellCommandsInPrompt(
           }
 
           const { data } = await shellTool.call({ command }, context)
+          const normalizedData = {
+            ...data,
+            stdout: typeof data.stdout === 'string' ? data.stdout : '',
+            stderr: typeof data.stderr === 'string' ? data.stderr : '',
+          }
           // Reuse the same persistence flow as regular Bash tool calls
           const toolResultBlock = await processToolResultBlock(
             shellTool,
-            data,
+            normalizedData,
             randomUUID(),
           )
           // Extract the string content from the block
           const output =
             typeof toolResultBlock.content === 'string'
               ? toolResultBlock.content
-              : formatBashOutput(data.stdout, data.stderr)
+              : formatBashOutput(
+                  normalizedData.stdout,
+                  normalizedData.stderr,
+                )
           // Function replacer — String.replace interprets $$, $&, $`, $' in
           // the replacement string even with a string search pattern. Shell
           // output (especially PowerShell: $env:PATH, $$, $PSVersionTable)
@@ -143,21 +155,23 @@ export async function executeShellCommandsInPrompt(
 }
 
 function formatBashOutput(
-  stdout: string,
-  stderr: string,
+  stdout: string | null | undefined,
+  stderr: string | null | undefined,
   inline = false,
 ): string {
+  const normalizedStdout = typeof stdout === 'string' ? stdout : ''
+  const normalizedStderr = typeof stderr === 'string' ? stderr : ''
   const parts: string[] = []
 
-  if (stdout.trim()) {
-    parts.push(stdout.trim())
+  if (normalizedStdout.trim()) {
+    parts.push(normalizedStdout.trim())
   }
 
-  if (stderr.trim()) {
+  if (normalizedStderr.trim()) {
     if (inline) {
-      parts.push(`[stderr: ${stderr.trim()}]`)
+      parts.push(`[stderr: ${normalizedStderr.trim()}]`)
     } else {
-      parts.push(`[stderr]\n${stderr.trim()}`)
+      parts.push(`[stderr]\n${normalizedStderr.trim()}`)
     }
   }
 

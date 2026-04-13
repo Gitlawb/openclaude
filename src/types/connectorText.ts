@@ -1,18 +1,22 @@
-// Stub — original type not included in source snapshot
-export interface ConnectorTextBlock {
+export type ConnectorTextBlock = {
   type: 'connector_text'
-  text: string
+  connector_text: string
+  connector?: string
 }
 
-export interface ConnectorTextDelta {
+export type ConnectorTextDelta = {
   type: 'connector_text_delta'
-  text: string
+  connector_text: string
+  connector?: string
 }
 
-export function isConnectorTextBlock(block: unknown): block is ConnectorTextBlock {
+export function isConnectorTextBlock(
+  value: unknown,
+): value is ConnectorTextBlock {
   return (
-    typeof block === 'object' &&
-    block !== null &&
-    (block as Record<string, unknown>).type === 'connector_text'
+    typeof value === 'object' &&
+    value !== null &&
+    'connector_text' in value &&
+    typeof (value as { connector_text?: unknown }).connector_text === 'string'
   )
 }

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.ts'
 import {
   buildStartupEnvFromProfile,
   buildAtomicChatProfileEnv,
@@ -12,7 +13,9 @@ import {
   buildLaunchEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
+  clearPersistedCodexOAuthProfile,
   createProfileFile,
+  isPersistedCodexOAuthProfile,
   maskSecretForDisplay,
   loadProfileFile,
   PROFILE_FILE_NAME,
@@ -22,6 +25,13 @@ import {
   selectAutoProfile,
   type ProfileFile,
 } from './providerProfile.ts'
+
+function makeJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
+    .toString('base64url')
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  return `${header}.${body}.signature`
+}
 
 function profile(profile: ProfileFile['profile'], env: ProfileFile['env']): ProfileFile {
   return {
@@ -330,6 +340,7 @@ test('codex profiles accept explicit codex credentials', () => {
   assert.deepEqual(env, {
     OPENAI_BASE_URL: 'https://chatgpt.com/backend-api/codex',
     OPENAI_MODEL: 'codexspark',
+    CODEX_CREDENTIAL_SOURCE: 'existing',
     CODEX_API_KEY: 'codex-live',
     CHATGPT_ACCOUNT_ID: 'acct_123',
   })
@@ -355,8 +366,35 @@ test('gemini profiles accept google api key fallback', () => {
   })
 
   assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'api-key',
     GEMINI_MODEL: 'gemini-2.0-flash',
     GEMINI_API_KEY: 'gem-live',
+  })
+})
+
+test('gemini profiles support access-token auth mode without persisting a key', () => {
+  const env = buildGeminiProfileEnv({
+    authMode: 'access-token',
+    model: 'gemini-2.5-flash',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'access-token',
+    GEMINI_MODEL: 'gemini-2.5-flash',
+  })
+})
+
+test('gemini profiles support adc auth mode without persisting a key', () => {
+  const env = buildGeminiProfileEnv({
+    authMode: 'adc',
+    model: 'gemini-2.5-flash',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'adc',
+    GEMINI_MODEL: 'gemini-2.5-flash',
   })
 })
 
@@ -390,6 +428,77 @@ test('saveProfileFile writes a profile that loadProfileFile can read back', () =
   }
 })
 
+test('buildCodexProfileEnv tags OAuth-saved profiles so logout can remove them safely', () => {
+  const env = buildCodexProfileEnv({
+    model: 'codexplan',
+    apiKey: makeJwt({
+      'https://api.openai.com/auth': {
+        chatgpt_account_id: 'acct_oauth',
+      },
+    }),
+    credentialSource: 'oauth',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+    OPENAI_MODEL: 'codexplan',
+    CODEX_CREDENTIAL_SOURCE: 'oauth',
+    CODEX_API_KEY: makeJwt({
+      'https://api.openai.com/auth': {
+        chatgpt_account_id: 'acct_oauth',
+      },
+    }),
+    CHATGPT_ACCOUNT_ID: 'acct_oauth',
+  })
+})
+
+test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profiles', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'openclaude-codex-oauth-profile-'))
+
+  try {
+    const providerProfileModule = await import(
+      `./providerProfile.ts?ts=${Date.now()}-${Math.random()}`
+    )
+    const {
+      PROFILE_FILE_NAME,
+      clearPersistedCodexOAuthProfile,
+      createProfileFile,
+      isPersistedCodexOAuthProfile,
+      loadProfileFile,
+      saveProfileFile,
+    } = providerProfileModule
+    const oauthProfile = createProfileFile('codex', {
+      OPENAI_MODEL: 'codexplan',
+      OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+      CHATGPT_ACCOUNT_ID: 'acct_oauth',
+      CODEX_CREDENTIAL_SOURCE: 'oauth',
+    })
+    saveProfileFile(oauthProfile, { cwd })
+
+    assert.equal(isPersistedCodexOAuthProfile(loadProfileFile({ cwd })), true)
+    assert.equal(
+      clearPersistedCodexOAuthProfile({ cwd }),
+      join(cwd, PROFILE_FILE_NAME),
+    )
+    assert.equal(loadProfileFile({ cwd }), null)
+
+    const existingCredentialProfile = createProfileFile('codex', {
+      OPENAI_MODEL: 'codexplan',
+      OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+      CHATGPT_ACCOUNT_ID: 'acct_existing',
+      CODEX_CREDENTIAL_SOURCE: 'existing',
+    })
+    saveProfileFile(existingCredentialProfile, { cwd })
+
+    assert.equal(isPersistedCodexOAuthProfile(loadProfileFile({ cwd })), false)
+    assert.equal(clearPersistedCodexOAuthProfile({ cwd }), null)
+    assert.deepEqual(loadProfileFile({ cwd }), existingCredentialProfile)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
 test('buildStartupEnvFromProfile applies persisted gemini settings when no provider is explicitly selected', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('gemini', {
@@ -403,6 +512,39 @@ test('buildStartupEnvFromProfile applies persisted gemini settings when no provi
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
   assert.equal(env.GEMINI_API_KEY, 'gem-test')
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
+})
+
+test('buildStartupEnvFromProfile rehydrates stored Gemini access token for access-token profile mode', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('gemini', {
+      GEMINI_AUTH_MODE: 'access-token',
+      GEMINI_MODEL: 'gemini-2.5-flash',
+    }),
+    processEnv: {},
+    readGeminiAccessToken: () => 'token-live',
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.GEMINI_AUTH_MODE, 'access-token')
+  assert.equal(env.GEMINI_ACCESS_TOKEN, 'token-live')
+  assert.equal(env.GEMINI_API_KEY, undefined)
+  assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
+})
+
+test('buildStartupEnvFromProfile does not inject stored access token for adc profile mode', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('gemini', {
+      GEMINI_AUTH_MODE: 'adc',
+      GEMINI_MODEL: 'gemini-2.5-flash',
+    }),
+    processEnv: {},
+    readGeminiAccessToken: () => 'token-live',
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.GEMINI_AUTH_MODE, 'adc')
+  assert.equal(env.GEMINI_ACCESS_TOKEN, undefined)
+  assert.equal(env.GEMINI_API_KEY, undefined)
 })
 
 test('buildStartupEnvFromProfile leaves explicit provider selections untouched', async () => {
@@ -423,6 +565,33 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
   assert.equal(env, processEnv)
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
   assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
+test('buildStartupEnvFromProfile lets saved startup profile override profile-managed env', async () => {
+  const processEnv = {
+    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
+    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: 'saved_ollama',
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_BASE_URL: 'http://localhost:11434/v1',
+    OPENAI_MODEL: 'llama3.1:8b',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-persisted',
+      OPENAI_MODEL: 'Meta-Llama-3.1-70B-Instruct',
+      OPENAI_BASE_URL: 'https://api.sambanova.ai/v1',
+    }),
+    processEnv,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_API_KEY, 'sk-persisted')
+  assert.equal(env.OPENAI_MODEL, 'Meta-Llama-3.1-70B-Instruct')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.sambanova.ai/v1')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED, undefined)
+  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, undefined)
 })
 
 test('buildStartupEnvFromProfile treats explicit falsey provider flags as user intent', async () => {

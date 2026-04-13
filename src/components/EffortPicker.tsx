@@ -1,18 +1,15 @@
-import React, { useState } from 'react'
+import type { ReactNode } from 'react'
 import { Box, Text } from '../ink.js'
 import { useMainLoopModel } from '../hooks/useMainLoopModel.js'
 import { useAppState, useSetAppState } from '../state/AppState.js'
-import type { EffortLevel, OpenAIEffortLevel } from '../utils/effort.js'
+import type { EffortLevel } from '../utils/effort.js'
 import {
   getAvailableEffortLevels,
   getDisplayedEffortLevel,
   getEffortLevelDescription,
   getEffortLevelLabel,
-  getEffortValueDescription,
   modelSupportsEffort,
   modelUsesOpenAIEffort,
-  standardEffortToOpenAI,
-  isOpenAIEffortLevel,
 } from '../utils/effort.js'
 import { getAPIProvider } from '../utils/model/providers.js'
 import { getReasoningEffortForModel } from '../services/api/providerConfig.js'
@@ -22,7 +19,7 @@ import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js'
 import { Byline } from './design-system/Byline.js'
 
 type EffortOption = {
-  label: React.ReactNode
+  label: ReactNode
   value: string
   description: string
   isAvailable: boolean
@@ -44,8 +41,6 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
 
   // For OpenAI/Codex, get the model's default reasoning effort
   const modelReasoningEffort = usesOpenAIEffort ? getReasoningEffortForModel(model) : undefined
-  const defaultEffortForModel = modelReasoningEffort || currentDisplayedLevel
-
   const options: EffortOption[] = [
     {
       label: <EffortOptionLabel level="auto" text="Auto" isCurrent={false} />,
@@ -106,9 +101,9 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       <Box marginBottom={1} flexDirection="column">
         <Text color="remember" bold={true}>Set effort level</Text>
         <Text dimColor={true}>
-          {usesOpenAIEffort
-            ? `OpenAI/Codex provider (${provider})`
-            : supportsEffort
+            {supportsEffort && usesOpenAIEffort
+              ? `OpenAI/Codex provider (${provider})`
+              : supportsEffort
               ? `Claude model · ${provider} provider`
               : `Effort not supported for this model`
           }

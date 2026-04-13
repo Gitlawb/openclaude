@@ -50,7 +50,7 @@ function parseLaunchOptions(argv: string[]): LaunchOptions {
       continue
     }
 
-    if ((lower === 'auto' || lower === 'openai' || lower === 'ollama' || lower === 'codex' || lower === 'gemini' || lower === 'atomic-chat') && requestedProfile === 'auto') {
+    if ((lower === 'auto' || lower === 'openai' || lower === 'ollama' || lower === 'codex' || lower === 'gemini' || lower ==='mistral' || lower === 'atomic-chat') && requestedProfile === 'auto') {
       requestedProfile = lower as ProviderProfile | 'auto'
       continue
     }
@@ -120,23 +120,20 @@ function applyFastFlags(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env
 }
 
-function printSummary(profile: ProviderProfile, env: NodeJS.ProcessEnv): void {
+function printSummary(profile: ProviderProfile): void {
   console.log(`Launching profile: ${profile}`)
   if (profile === 'gemini') {
-    console.log(`GEMINI_MODEL=${env.GEMINI_MODEL}`)
-    console.log(`GEMINI_API_KEY_SET=${Boolean(env.GEMINI_API_KEY)}`)
+    console.log('Using configured Gemini provider settings.')
+  } else if (profile === 'mistral') {
+    console.log('Using configured Mistral provider settings.')
   } else if (profile === 'codex') {
-    console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
-    console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
-    console.log(`CODEX_API_KEY_SET=${Boolean(resolveCodexApiCredentials(env).apiKey)}`)
+    console.log('Using configured Codex/OpenAI-compatible provider settings.')
   } else if (profile === 'atomic-chat') {
-    console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
-    console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
-    console.log('OPENAI_API_KEY_SET=false (local provider, no key required)')
+    console.log('Using configured Atomic Chat provider settings.')
+  } else if (profile === 'ollama') {
+    console.log('Using configured Ollama provider settings.')
   } else {
-    console.log(`OPENAI_BASE_URL=${env.OPENAI_BASE_URL}`)
-    console.log(`OPENAI_MODEL=${env.OPENAI_MODEL}`)
-    console.log(`OPENAI_API_KEY_SET=${Boolean(env.OPENAI_API_KEY)}`)
+    console.log('Using configured OpenAI-compatible provider settings.')
   }
 }
 
@@ -144,7 +141,7 @@ async function main(): Promise<void> {
   const options = parseLaunchOptions(process.argv.slice(2))
   const requestedProfile = options.requestedProfile
   if (!requestedProfile) {
-    console.error('Usage: bun run scripts/provider-launch.ts [openai|ollama|codex|gemini|atomic-chat|auto] [--fast] [--goal <latency|balanced|coding>] [-- <cli args>]')
+    console.error('Usage: bun run scripts/provider-launch.ts [openai|ollama|codex|gemini|mistral|atomic-chat|mistral|auto] [--fast] [--goal <latency|balanced|coding>] [-- <cli args>]')
     process.exit(1)
   }
 
@@ -210,6 +207,11 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
+  if (profile === 'mistral' && !env.MISTRAL_API_KEY) {
+    console.error('MISTRAL_API_KEY is required for mistral profile. Run: bun run profile:init -- --provider mistral --api-key <key>')
+    process.exit(1)
+  }
+
   if (profile === 'openai' && (!env.OPENAI_API_KEY || env.OPENAI_API_KEY === 'SUA_CHAVE')) {
     console.error('OPENAI_API_KEY is required for openai profile and cannot be SUA_CHAVE. Run: bun run profile:init -- --provider openai --api-key <key>')
     process.exit(1)
@@ -231,7 +233,7 @@ async function main(): Promise<void> {
     }
   }
 
-  printSummary(profile, env)
+  printSummary(profile)
 
   const doctorCode = await runProcess('bun', ['run', 'scripts/system-check.ts'], env)
   if (doctorCode !== 0) {

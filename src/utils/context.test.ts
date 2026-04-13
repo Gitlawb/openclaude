@@ -12,9 +12,17 @@ const originalEnv = {
 }
 
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS =
-    originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  if (originalEnv.CLAUDE_CODE_USE_OPENAI === undefined) {
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+  } else {
+    process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
+  }
+  if (originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS === undefined) {
+    delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  } else {
+    process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS =
+      originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  }
 })
 
 test('deepseek-chat uses provider-specific context and output caps', () => {
@@ -85,4 +93,37 @@ test('gpt-5.4 family keeps large max output overrides within provider limits', (
   expect(getMaxOutputTokensForModel('gpt-5.4')).toBe(128_000)
   expect(getMaxOutputTokensForModel('gpt-5.4-mini')).toBe(128_000)
   expect(getMaxOutputTokensForModel('gpt-5.4-nano')).toBe(128_000)
+})
+
+test('MiniMax-M2.7 uses explicit provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('MiniMax-M2.7')).toBe(204_800)
+  expect(getModelMaxOutputTokens('MiniMax-M2.7')).toEqual({
+    default: 131_072,
+    upperLimit: 131_072,
+  })
+  expect(getMaxOutputTokensForModel('MiniMax-M2.7')).toBe(131_072)
+})
+
+test('unknown openai-compatible models use the 128k fallback window (not 8k, see #635)', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('some-unknown-3p-model')).toBe(128_000)
+})
+
+test('MiniMax-M2.5 and M2.1 use explicit provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('MiniMax-M2.5')).toBe(204_800)
+  expect(getContextWindowForModel('MiniMax-M2.5-highspeed')).toBe(204_800)
+  expect(getContextWindowForModel('MiniMax-M2.1')).toBe(204_800)
+  expect(getContextWindowForModel('MiniMax-M2.1-highspeed')).toBe(204_800)
+  expect(getModelMaxOutputTokens('MiniMax-M2.5')).toEqual({
+    default: 131_072,
+    upperLimit: 131_072,
+  })
 })

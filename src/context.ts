@@ -19,7 +19,7 @@ import { logError } from './utils/log.js'
 
 const MAX_STATUS_CHARS = 2000
 
-// System prompt injection for cache breaking (ant-only, ephemeral debugging state)
+// System prompt injection for cache breaking (internal-only, ephemeral debugging state)
 let systemPromptInjection: string | null = null
 
 export function getSystemPromptInjection(): string | null {
@@ -127,7 +127,7 @@ export const getSystemContext = memoize(
         ? null
         : await getGitStatus()
 
-    // Include system prompt injection if set (for cache breaking, ant-only)
+    // Include system prompt injection if set (for cache breaking, internal-only)
     const injection = feature('BREAK_CACHE_COMMAND')
       ? getSystemPromptInjection()
       : null

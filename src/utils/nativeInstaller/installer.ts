@@ -41,7 +41,7 @@ import { logForDebugging } from '../debug.js'
 import { getCurrentInstallationType } from '../doctorDiagnostic.js'
 import { env } from '../env.js'
 import { envDynamic } from '../envDynamic.js'
-import { isEnvTruthy } from '../envUtils.js'
+import { getClaudeConfigHomeDir, isEnvTruthy } from '../envUtils.js'
 import { errorMessage, getErrnoCode, isENOENT, toError } from '../errors.js'
 import { execFileNoThrowWithCwd } from '../execFileNoThrow.js'
 import { getShellType } from '../localInstaller.js'
@@ -1688,19 +1688,23 @@ export async function cleanupNpmInstallations(): Promise<{
     }
   }
 
-  // Check for local installation at ~/.claude/local
-  const localInstallDir = join(homedir(), '.claude', 'local')
+  // Preserve compatibility with pre-migration installs under ~/.claude/local.
+  const localInstallDirs = Array.from(
+    new Set([join(getClaudeConfigHomeDir(), 'local'), join(homedir(), '.claude', 'local')]),
+  )
 
-  try {
-    await rm(localInstallDir, { recursive: true })
-    removed++
-    logForDebugging(`Removed local installation at ${localInstallDir}`)
-  } catch (error) {
-    if (!isENOENT(error)) {
-      errors.push(`Failed to remove ${localInstallDir}: ${error}`)
-      logForDebugging(`Failed to remove local installation: ${error}`, {
-        level: 'error',
-      })
+  for (const localInstallDir of localInstallDirs) {
+    try {
+      await rm(localInstallDir, { recursive: true })
+      removed++
+      logForDebugging(`Removed local installation at ${localInstallDir}`)
+    } catch (error) {
+      if (!isENOENT(error)) {
+        errors.push(`Failed to remove ${localInstallDir}: ${error}`)
+        logForDebugging(`Failed to remove local installation: ${error}`, {
+          level: 'error',
+        })
+      }
     }
   }
 

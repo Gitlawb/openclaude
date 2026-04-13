@@ -70,14 +70,14 @@ export function useVimInput(props: UseVimInputProps): VimInputState {
     // Vim behavior: move cursor left by 1 when exiting insert mode
     // (unless at beginning of line or at offset 0)
     const offset = textInput.offset
-    if (offset > 0 && props.value[offset - 1] !== '\n') {
+    if (offset > 0 && textInput.value[offset - 1] !== '\n') {
       textInput.setOffset(offset - 1)
     }
 
     vimStateRef.current = { mode: 'NORMAL', command: { type: 'idle' } }
     setMode('NORMAL')
     onModeChange?.('NORMAL')
-  }, [onModeChange, textInput, props.value])
+  }, [onModeChange, textInput])
 
   function createOperatorContext(
     cursor: Cursor,
@@ -85,8 +85,8 @@ export function useVimInput(props: UseVimInputProps): VimInputState {
   ): OperatorContext {
     return {
       cursor,
-      text: props.value,
-      setText: (newText: string) => props.onChange(newText),
+      text: textInput.value,
+      setText: (newText: string) => textInput.setValue(newText),
       setOffset: (offset: number) => textInput.setOffset(offset),
       enterInsert: (offset: number) => switchToInsertMode(offset),
       getRegister: () => persistentRef.current.register,
@@ -110,15 +110,18 @@ export function useVimInput(props: UseVimInputProps): VimInputState {
     const change = persistentRef.current.lastChange
     if (!change) return
 
-    const cursor = Cursor.fromText(props.value, props.columns, textInput.offset)
+    const cursor = Cursor.fromText(
+      textInput.value,
+      props.columns,
+      textInput.offset,
+    )
     const ctx = createOperatorContext(cursor, true)
 
     switch (change.type) {
       case 'insert':
         if (change.text) {
           const newCursor = cursor.insert(change.text)
-          props.onChange(newCursor.text)
-          textInput.setOffset(newCursor.offset)
+          textInput.setValue(newCursor.text, newCursor.offset)
         }
         break
 
@@ -179,7 +182,11 @@ export function useVimInput(props: UseVimInputProps): VimInputState {
     // lookups expect single chars and a prepended space would break them.
     const filtered = inputFilter ? inputFilter(rawInput, key) : rawInput
     const input = state.mode === 'INSERT' ? filtered : rawInput
-    const cursor = Cursor.fromText(props.value, props.columns, textInput.offset)
+    const cursor = Cursor.fromText(
+      textInput.value,
+      props.columns,
+      textInput.offset,
+    )
 
     if (key.ctrl) {
       textInput.onInput(input, key)

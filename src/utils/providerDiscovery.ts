@@ -1,4 +1,5 @@
 import type { OllamaModelDescriptor } from './providerRecommendation.ts'
+import { DEFAULT_OPENAI_BASE_URL } from '../services/api/providerConfig.js'
 
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434'
 export const DEFAULT_ATOMIC_CHAT_BASE_URL = 'http://127.0.0.1:1337'
@@ -51,6 +52,64 @@ export function getAtomicChatApiBaseUrl(baseUrl?: string): string {
 
 export function getAtomicChatChatBaseUrl(baseUrl?: string): string {
   return `${getAtomicChatApiBaseUrl(baseUrl)}/v1`
+}
+
+export function getOpenAICompatibleModelsBaseUrl(baseUrl?: string): string {
+  return (
+    baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL
+  ).replace(/\/+$/, '')
+}
+
+export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string {
+  try {
+    const parsed = new URL(getOpenAICompatibleModelsBaseUrl(baseUrl))
+    const host = parsed.host.toLowerCase()
+    const hostname = parsed.hostname.toLowerCase()
+    const path = parsed.pathname.toLowerCase()
+    const haystack = `${hostname} ${path}`
+
+    if (
+      host.endsWith(':1234') ||
+      haystack.includes('lmstudio') ||
+      haystack.includes('lm-studio')
+    ) {
+      return 'LM Studio'
+    }
+    if (host.endsWith(':11434') || haystack.includes('ollama')) {
+      return 'Ollama'
+    }
+    if (haystack.includes('localai')) {
+      return 'LocalAI'
+    }
+    if (haystack.includes('jan')) {
+      return 'Jan'
+    }
+    if (haystack.includes('kobold')) {
+      return 'KoboldCpp'
+    }
+    if (haystack.includes('llama.cpp') || haystack.includes('llamacpp')) {
+      return 'llama.cpp'
+    }
+    if (haystack.includes('vllm')) {
+      return 'vLLM'
+    }
+    if (
+      haystack.includes('open-webui') ||
+      haystack.includes('openwebui')
+    ) {
+      return 'Open WebUI'
+    }
+    if (
+      haystack.includes('text-generation-webui') ||
+      haystack.includes('oobabooga')
+    ) {
+      return 'text-generation-webui'
+    }
+  } catch {
+    // Fall back to the generic label when the base URL is malformed.
+  }
+
+  return 'Local OpenAI-compatible'
 }
 
 export async function hasLocalOllama(baseUrl?: string): Promise<boolean> {
@@ -106,6 +165,46 @@ export async function listOllamaModels(
       }))
   } catch {
     return []
+  } finally {
+    clear()
+  }
+}
+
+export async function listOpenAICompatibleModels(options?: {
+  baseUrl?: string
+  apiKey?: string
+}): Promise<string[] | null> {
+  const { signal, clear } = withTimeoutSignal(5000)
+  try {
+    const response = await fetch(
+      `${getOpenAICompatibleModelsBaseUrl(options?.baseUrl)}/models`,
+      {
+        method: 'GET',
+        headers: options?.apiKey
+          ? {
+              Authorization: `Bearer ${options.apiKey}`,
+            }
+          : undefined,
+        signal,
+      },
+    )
+    if (!response.ok) {
+      return null
+    }
+
+    const data = (await response.json()) as {
+      data?: Array<{ id?: string }>
+    }
+
+    return Array.from(
+      new Set(
+        (data.data ?? [])
+          .filter(model => Boolean(model.id))
+          .map(model => model.id!),
+      ),
+    )
+  } catch {
+    return null
   } finally {
     clear()
   }

@@ -51,7 +51,7 @@ export type SideQueryOptions = {
   maxRetries?: number
   /** Abort signal */
   signal?: AbortSignal
-  /** Skip CLI system prompt prefix (keeps attribution header for OAuth). For internal classifiers that provide their own prompt. */
+  /** Skip CLI system prompt prefix (keeps attribution header for OAuth). Default true — side queries are internal classifiers with their own prompt. Set false only for queries that need the full "You are Claude Code…" prefix. */
   skipSystemPromptPrefix?: boolean
   /** Temperature override */
   temperature?: number
@@ -115,7 +115,7 @@ export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
     max_tokens = 1024,
     maxRetries = 2,
     signal,
-    skipSystemPromptPrefix,
+    skipSystemPromptPrefix = true,
     temperature,
     thinking,
     stop_sequences,

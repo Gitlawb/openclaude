@@ -1,9 +1,11 @@
 import { execaSync } from 'execa'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
-import { getUsername } from './macOsKeychainHelpers.js'
+import {
+  CREDENTIALS_SERVICE_SUFFIX,
+  getSecureStorageServiceName,
+  getUsername,
+} from './macOsKeychainHelpers.js'
 import type { SecureStorage, SecureStorageData } from './index.js'
-
-const SERVICE_NAME = 'Claude Code'
 
 /**
  * Linux-specific secure storage implementation using the secret-tool CLI.
@@ -14,10 +16,13 @@ export const linuxSecretStorage: SecureStorage = {
   read(): SecureStorageData | null {
     try {
       const username = getUsername()
+      const serviceName = getSecureStorageServiceName(
+        CREDENTIALS_SERVICE_SUFFIX,
+      )
       // secret-tool lookup service [service] account [account]
       const result = execaSync(
         'secret-tool',
-        ['lookup', 'service', SERVICE_NAME, 'account', username],
+        ['lookup', 'service', serviceName, 'account', username],
         { reject: false },
       )
 
@@ -36,6 +41,9 @@ export const linuxSecretStorage: SecureStorage = {
   update(data: SecureStorageData): { success: boolean; warning?: string } {
     try {
       const username = getUsername()
+      const serviceName = getSecureStorageServiceName(
+        CREDENTIALS_SERVICE_SUFFIX,
+      )
       const payload = jsonStringify(data)
       // secret-tool store --label=[label] service [service] account [account]
       // The payload is passed via stdin
@@ -44,9 +52,9 @@ export const linuxSecretStorage: SecureStorage = {
         [
           'store',
           '--label',
-          SERVICE_NAME,
+          serviceName,
           'service',
-          SERVICE_NAME,
+          serviceName,
           'account',
           username,
         ],
@@ -61,10 +69,13 @@ export const linuxSecretStorage: SecureStorage = {
   delete(): boolean {
     try {
       const username = getUsername()
+      const serviceName = getSecureStorageServiceName(
+        CREDENTIALS_SERVICE_SUFFIX,
+      )
       // secret-tool clear service [service] account [account]
       const result = execaSync(
         'secret-tool',
-        ['clear', 'service', SERVICE_NAME, 'account', username],
+        ['clear', 'service', serviceName, 'account', username],
         { reject: false },
       )
       return result.exitCode === 0

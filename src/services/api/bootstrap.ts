@@ -14,7 +14,16 @@ import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
 import { getAPIProvider } from '../../utils/model/providers.js'
 import { isEssentialTrafficOnly } from '../../utils/privacyLevel.js'
+import type { ModelOption } from '../../utils/model/modelOptions.js'
+import {
+  getLocalOpenAICompatibleProviderLabel,
+  listOpenAICompatibleModels,
+} from '../../utils/providerDiscovery.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
+import {
+  getAdditionalModelOptionsCacheScope,
+  resolveProviderRequest,
+} from './providerConfig.js'
 
 const bootstrapResponseSchema = lazySchema(() =>
   z.object({
@@ -38,6 +47,12 @@ const bootstrapResponseSchema = lazySchema(() =>
 )
 
 type BootstrapResponse = z.infer<ReturnType<typeof bootstrapResponseSchema>>
+
+type BootstrapCachePayload = {
+  clientData: Record<string, unknown> | null
+  additionalModelOptions: ModelOption[]
+  additionalModelOptionsScope: string
+}
 
 async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
   if (isEssentialTrafficOnly()) {
@@ -101,10 +116,52 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
       return parsed.data
     })
   } catch (error) {
-    logForDebugging(
-      `[Bootstrap] Fetch failed: ${axios.isAxiosError(error) ? (error.response?.status ?? error.code) : 'unknown'}`,
-    )
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status ?? 'no-response'
+      const code = error.code ?? 'unknown-code'
+      const method = error.config?.method?.toUpperCase() ?? 'UNKNOWN'
+      const requestUrl = error.config?.url ?? 'unknown-url'
+      const message = error.message ?? 'unknown axios error'
+
+      logForDebugging(
+        `[Bootstrap] Fetch failed: status=${status} code=${code} method=${method} url=${requestUrl} message=${message}`,
+      )
+    } else {
+      const message = error instanceof Error ? error.message : String(error)
+      logForDebugging(`[Bootstrap] Fetch failed: ${message}`)
+    }
+
     throw error
+  }
+}
+
+async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | null> {
+  const scope = getAdditionalModelOptionsCacheScope()
+  if (!scope?.startsWith('openai:')) {
+    return null
+  }
+
+  const { baseUrl } = resolveProviderRequest()
+  const models = await listOpenAICompatibleModels({
+    baseUrl,
+    apiKey: process.env.OPENAI_API_KEY,
+  })
+
+  if (models === null) {
+    logForDebugging('[Bootstrap] Local OpenAI model discovery failed')
+    return null
+  }
+
+  const providerLabel = getLocalOpenAICompatibleProviderLabel(baseUrl)
+
+  return {
+    clientData: getGlobalConfig().clientDataCache ?? null,
+    additionalModelOptionsScope: scope,
+    additionalModelOptions: models.map(model => ({
+      value: model,
+      label: model,
+      description: `Detected from ${providerLabel}`,
+    })),
   }
 }
 
@@ -113,17 +170,35 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
  */
 export async function fetchBootstrapData(): Promise<void> {
   try {
-    const response = await fetchBootstrapAPI()
-    if (!response) return
+    const scope = getAdditionalModelOptionsCacheScope()
+    let payload: BootstrapCachePayload | null = null
 
-    const clientData = response.client_data ?? null
-    const additionalModelOptions = response.additional_model_options ?? []
+    if (scope === 'firstParty') {
+      const response = await fetchBootstrapAPI()
+      if (!response) return
+
+      payload = {
+        clientData: response.client_data ?? null,
+        additionalModelOptions: response.additional_model_options ?? [],
+        additionalModelOptionsScope: scope,
+      }
+    } else if (scope?.startsWith('openai:')) {
+      payload = await fetchLocalOpenAIModelOptions()
+      if (!payload) return
+    } else {
+      logForDebugging('[Bootstrap] Skipped: no additional model source')
+      return
+    }
+
+    const { clientData, additionalModelOptions, additionalModelOptionsScope } =
+      payload
 
     // Only persist if data actually changed — avoids a config write on every startup.
     const config = getGlobalConfig()
     if (
       isEqual(config.clientDataCache, clientData) &&
-      isEqual(config.additionalModelOptionsCache, additionalModelOptions)
+      isEqual(config.additionalModelOptionsCache, additionalModelOptions) &&
+      config.additionalModelOptionsCacheScope === additionalModelOptionsScope
     ) {
       logForDebugging('[Bootstrap] Cache unchanged, skipping write')
       return
@@ -134,6 +209,7 @@ export async function fetchBootstrapData(): Promise<void> {
       ...current,
       clientDataCache: clientData,
       additionalModelOptionsCache: additionalModelOptions,
+      additionalModelOptionsCacheScope: additionalModelOptionsScope,
     }))
   } catch (error) {
     logError(error)

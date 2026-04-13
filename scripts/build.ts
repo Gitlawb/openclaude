@@ -3,19 +3,21 @@
  * distributable JS file using Bun's bundler.
  *
  * Handles:
- * - bun:bundle feature() flags → all false (disables internal-only features)
+ * - bun:bundle feature() flags for the open build
  * - MACRO.* globals → inlined version/build-time constants
  * - src/ path aliases
  */
 
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const version = pkg.version
 
-// Feature flags — all disabled for the open build.
-// These gate Anthropic-internal features (voice, proactive, kairos, etc.)
+// Feature flags for the open build.
+// Most Anthropic-internal features stay off; open-build features can be
+// selectively enabled here when their full source exists in the mirror.
 const featureFlags: Record<string, boolean> = {
   VOICE_MODE: false,
   PROACTIVE: false,
@@ -23,24 +25,83 @@ const featureFlags: Record<string, boolean> = {
   BRIDGE_MODE: false,
   DAEMON: false,
   AGENT_TRIGGERS: false,
-  MONITOR_TOOL: false,
+  MONITOR_TOOL: true,
   ABLATION_BASELINE: false,
   DUMP_SYSTEM_PROMPT: false,
   CACHED_MICROCOMPACT: false,
-  COORDINATOR_MODE: false,
+  COORDINATOR_MODE: true,
+  BUILTIN_EXPLORE_PLAN_AGENTS: true,
   CONTEXT_COLLAPSE: false,
   COMMIT_ATTRIBUTION: false,
-  TEAMMEM: false,
+  TEAMMEM: true,
   UDS_INBOX: false,
   BG_SESSIONS: false,
   AWAY_SUMMARY: false,
   TRANSCRIPT_CLASSIFIER: false,
   WEB_BROWSER_TOOL: false,
-  MESSAGE_ACTIONS: false,
-  BUDDY: false,
+  MESSAGE_ACTIONS: true,
+  BUDDY: true,
   CHICAGO_MCP: false,
   COWORKER_TYPE_TELEMETRY: false,
 }
+
+// ── Pre-process: replace feature() calls with boolean literals ──────
+// Bun v1.3.9+ resolves `import { feature } from 'bun:bundle'` natively
+// before plugins can intercept it via onResolve. The bun: namespace is
+// handled by Bun's C++ resolver which runs before the JS plugin phase,
+// so the previous onResolve/onLoad shim was silently ineffective — ALL
+// feature() calls evaluated to false regardless of the featureFlags map.
+//
+// Fix: pre-process source files to strip the bun:bundle import and
+// replace feature('FLAG') calls with their boolean literal. Files are
+// modified in-place before Bun.build() and restored in a finally block.
+
+// Match feature('FLAG') calls, including multi-line: feature(\n  'FLAG',\n)
+const featureCallRe = /\bfeature\(\s*['"](\w+)['"][,\s]*\)/gs
+const featureImportRe = /import\s*\{[^}]*\bfeature\b[^}]*\}\s*from\s*['"]bun:bundle['"];?\s*\n?/g
+const modifiedFiles = new Map<string, string>() // path → original content
+
+function preProcessFeatureFlags(dir: string) {
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, ent.name)
+    if (ent.isDirectory()) { preProcessFeatureFlags(full); continue }
+    if (!/\.(ts|tsx)$/.test(ent.name)) continue
+
+    const raw = readFileSync(full, 'utf-8')
+    if (!raw.includes('feature(')) continue
+
+    let contents = raw
+    contents = contents.replace(featureImportRe, '')
+    contents = contents.replace(featureCallRe, (_match, name) =>
+      String((featureFlags as Record<string, boolean>)[name] ?? false),
+    )
+
+    if (contents !== raw) {
+      modifiedFiles.set(full, raw)
+      writeFileSync(full, contents)
+    }
+  }
+}
+
+function restoreModifiedFiles() {
+  for (const [path, original] of modifiedFiles) {
+    writeFileSync(path, original)
+  }
+  modifiedFiles.clear()
+}
+
+preProcessFeatureFlags(join(import.meta.dir, '..', 'src'))
+const numModified = modifiedFiles.size
+
+// Restore source files on abrupt termination (Ctrl+C, kill, etc.)
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    restoreModifiedFiles()
+    process.exit(signal === 'SIGINT' ? 130 : 143)
+  })
+}
+
+try {
 
 const result = await Bun.build({
   entrypoints: ['./src/entrypoints/cli.tsx'],
@@ -102,18 +163,11 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           ],
         ] as const)
 
-        // Resolve `import { feature } from 'bun:bundle'` to a shim
-        build.onResolve({ filter: /^bun:bundle$/ }, () => ({
-          path: 'bun:bundle',
-          namespace: 'bun-bundle-shim',
-        }))
-        build.onLoad(
-          { filter: /.*/, namespace: 'bun-bundle-shim' },
-          () => ({
-            contents: `export function feature(name) { return false; }`,
-            loader: 'js',
-          }),
-        )
+        // bun:bundle feature() replacement is handled by the source
+        // pre-processing step above (see preProcessFeatureFlags).
+        // The previous onResolve/onLoad shim was ineffective in Bun
+        // v1.3.9+ because the bun: namespace is resolved natively
+        // before the JS plugin phase runs.
 
         build.onResolve(
           { filter: /^\.\.\/(daemon\/workerRegistry|daemon\/main|cli\/bg|cli\/handlers\/templateJobs|environment-runner\/main|self-hosted-runner\/main)\.js$/ },
@@ -158,7 +212,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'modifiers-napi',
           'url-handler-napi',
           'color-diff-napi',
-          'sharp',
           '@anthropic-ai/mcpb',
           '@ant/claude-for-chrome-mcp',
           '@anthropic-ai/sandbox-runtime',
@@ -251,6 +304,117 @@ export const SeverityNumber = {};
             loader: 'js',
           }),
         )
+
+        // Pre-scan: find all missing modules that need stubbing
+        // (Bun's onResolve corrupts module graph even when returning null,
+        //  so we use exact-match resolvers instead of catch-all patterns)
+        const fs = require('fs')
+        const pathMod = require('path')
+        const srcDir = pathMod.resolve(__dirname, '..', 'src')
+        const missingModules = new Set<string>()
+        const missingModuleExports = new Map<string, Set<string>>()
+
+        // Known missing external packages
+        for (const pkg of [
+          '@ant/computer-use-mcp',
+          '@ant/computer-use-mcp/sentinelApps',
+          '@ant/computer-use-mcp/types',
+          '@ant/computer-use-swift',
+          '@ant/computer-use-input',
+        ]) {
+          missingModules.add(pkg)
+        }
+
+        // Scan source to find imports that can't resolve
+        function scanForMissingImports() {
+          function checkAndRegister(specifier: string, fileDir: string, namedPart: string) {
+                const names = namedPart.split(',')
+                  .map((s: string) => s.trim().replace(/^type\s+/, ''))
+                  .filter((s: string) => s && !s.startsWith('type '))
+
+                // Check src/tasks/ non-relative imports
+                if (specifier.startsWith('src/tasks/')) {
+                  const resolved = pathMod.resolve(__dirname, '..', specifier)
+                  const candidates = [
+                    resolved,
+                    `${resolved}.ts`, `${resolved}.tsx`,
+                    resolved.replace(/\.js$/, '.ts'), resolved.replace(/\.js$/, '.tsx'),
+                    pathMod.join(resolved, 'index.ts'), pathMod.join(resolved, 'index.tsx'),
+                  ]
+                  if (!candidates.some((c: string) => fs.existsSync(c))) {
+                    missingModules.add(specifier)
+                  }
+                }
+                // Check relative .js imports
+                else if (specifier.endsWith('.js') && (specifier.startsWith('./') || specifier.startsWith('../'))) {
+                  const resolved = pathMod.resolve(fileDir, specifier)
+                  const tsVariant = resolved.replace(/\.js$/, '.ts')
+                  const tsxVariant = resolved.replace(/\.js$/, '.tsx')
+                  if (!fs.existsSync(resolved) && !fs.existsSync(tsVariant) && !fs.existsSync(tsxVariant)) {
+                    missingModules.add(specifier)
+                  }
+                }
+
+                // Track named exports for missing modules
+                if (names.length > 0) {
+                  if (!missingModuleExports.has(specifier)) missingModuleExports.set(specifier, new Set())
+                  for (const n of names) missingModuleExports.get(specifier)!.add(n)
+                }
+          }
+
+          function walk(dir: string) {
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = pathMod.join(dir, ent.name)
+              if (ent.isDirectory()) { walk(full); continue }
+              if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const code: string = fs.readFileSync(full, 'utf-8')
+              const fileDir = pathMod.dirname(full)
+
+              // Collect static imports: import { X } from '...'
+              for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
+                checkAndRegister(m[4], fileDir, m[1] || m[3] || '')
+              }
+
+              // Collect dynamic requires: require('...') — these are used
+              // behind feature() gates and become live when flags are enabled.
+              for (const m of code.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
+                checkAndRegister(m[1], fileDir, '')
+              }
+
+              // Collect dynamic imports: import('...')
+              for (const m of code.matchAll(/import\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
+                checkAndRegister(m[1], fileDir, '')
+              }
+            }
+          }
+          walk(srcDir)
+        }
+        scanForMissingImports()
+
+        // Register exact-match resolvers for each missing module
+        for (const mod of missingModules) {
+          const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({
+            path: mod,
+            namespace: 'missing-module-stub',
+          }))
+        }
+
+        build.onLoad(
+          { filter: /.*/, namespace: 'missing-module-stub' },
+          (args) => {
+            const names = missingModuleExports.get(args.path) ?? new Set()
+            const exports = [...names].map(n => `export const ${n} = noop;`).join('\n')
+            return {
+              contents: `
+const noop = () => null;
+export default noop;
+${exports}
+`,
+              loader: 'js',
+            }
+          },
+        )
       },
     },
   ],
@@ -275,6 +439,8 @@ export const SeverityNumber = {};
     '@opentelemetry/sdk-logs',
     '@opentelemetry/sdk-metrics',
     '@opentelemetry/semantic-conventions',
+    // Native image processing
+    'sharp',
     // Cloud provider SDKs
     '@aws-sdk/client-bedrock',
     '@aws-sdk/client-bedrock-runtime',
@@ -290,7 +456,13 @@ if (!result.success) {
   for (const log of result.logs) {
     console.error(log)
   }
-  process.exit(1)
+  process.exitCode = 1
+} else {
+  console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
 }
 
-console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
+} finally {
+  // Always restore source files, even if Bun.build() throws
+  restoreModifiedFiles()
+  console.log(`  🔄 feature-flags: pre-processed ${numModified} files (restored)`)
+}

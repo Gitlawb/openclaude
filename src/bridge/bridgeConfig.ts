@@ -1,11 +1,11 @@
 /**
- * Shared bridge auth/URL resolution. Consolidates the ant-only
+ * Shared bridge auth/URL resolution. Consolidates the internal-only
  * CLAUDE_BRIDGE_* dev overrides that were previously copy-pasted across
  * a dozen files — inboundAttachments, BriefTool/upload, bridgeMain,
  * initReplBridge, remoteBridgeCore, daemon workers, /rename,
  * /remote-control.
  *
- * Two layers: *Override() returns the ant-only env var (or undefined);
+ * Two layers: *Override() returns the internal-only env var (or undefined);
  * the non-Override versions fall through to the real OAuth store/config.
  * Callers that compose with a different auth source (e.g. daemon workers
  * using IPC auth) use the Override getters directly.

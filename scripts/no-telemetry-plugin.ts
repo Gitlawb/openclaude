@@ -34,28 +34,55 @@ export function _resetForTesting() {}
 `,
 
 	'services/analytics/growthbook': `
+import _fs from 'node:fs';
+import _path from 'node:path';
+import _os from 'node:os';
+
+let _flags = undefined;
+
+function _loadFlags() {
+  if (_flags !== undefined) return;
+  try {
+    const flagsPath = process.env.CLAUDE_FEATURE_FLAGS_FILE
+      || _path.join(_os.homedir(), '.claude', 'feature-flags.json');
+    const parsed = JSON.parse(_fs.readFileSync(flagsPath, 'utf-8'));
+    _flags = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+  } catch {
+    _flags = null;
+  }
+}
+
+function _getFlagValue(key, defaultValue) {
+  _loadFlags();
+  if (_flags != null && Object.hasOwn(_flags, key)) return _flags[key];
+  return defaultValue;
+}
+
 const noop = () => {};
 export function onGrowthBookRefresh() { return noop; }
 export function hasGrowthBookEnvOverride() { return false; }
-export function getAllGrowthBookFeatures() { return {}; }
+export function getAllGrowthBookFeatures() { _loadFlags(); return _flags || {}; }
 export function getGrowthBookConfigOverrides() { return {}; }
 export function setGrowthBookConfigOverride() {}
 export function clearGrowthBookConfigOverrides() {}
 export function getApiBaseUrlHost() { return undefined; }
 export const initializeGrowthBook = async () => null;
-export async function getFeatureValue_DEPRECATED(feature, defaultValue) { return defaultValue; }
-export function getFeatureValue_CACHED_MAY_BE_STALE(feature, defaultValue) { return defaultValue; }
-export function getFeatureValue_CACHED_WITH_REFRESH(feature, defaultValue) { return defaultValue; }
-export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE() { return false; }
-export async function checkSecurityRestrictionGate() { return false; }
-export async function checkGate_CACHED_OR_BLOCKING() { return false; }
+export async function getFeatureValue_DEPRECATED(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
+export function getFeatureValue_CACHED_MAY_BE_STALE(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
+export function getFeatureValue_CACHED_WITH_REFRESH(feature, defaultValue) { return _getFlagValue(feature, defaultValue); }
+export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(gate) { return Boolean(_getFlagValue(gate, false)); }
+// Security killswitch — always false in the open build. Anthropic uses this
+// gate to remotely disable bypassPermissions mode; exposing it via local flags
+// would let users accidentally lock themselves out of --dangerously-skip-permissions.
+export async function checkSecurityRestrictionGate(gate) { return false; }
+export async function checkGate_CACHED_OR_BLOCKING(gate) { return Boolean(_getFlagValue(gate, false)); }
 export function refreshGrowthBookAfterAuthChange() {}
-export function resetGrowthBook() {}
-export async function refreshGrowthBookFeatures() {}
+export function resetGrowthBook() { _flags = undefined; }
+export async function refreshGrowthBookFeatures() { _flags = undefined; }
 export function setupPeriodicGrowthBookRefresh() {}
 export function stopPeriodicGrowthBookRefresh() {}
-export async function getDynamicConfig_BLOCKS_ON_INIT(configName, defaultValue) { return defaultValue; }
-export function getDynamicConfig_CACHED_MAY_BE_STALE(configName, defaultValue) { return defaultValue; }
+export async function getDynamicConfig_BLOCKS_ON_INIT(configName, defaultValue) { return _getFlagValue(configName, defaultValue); }
+export function getDynamicConfig_CACHED_MAY_BE_STALE(configName, defaultValue) { return _getFlagValue(configName, defaultValue); }
 `,
 
 	'services/analytics/sink': `
@@ -197,6 +224,73 @@ export function classifyFetchError() { return 'disabled'; }
 	'components/FeedbackSurvey/submitTranscriptShare': `
 export async function submitTranscriptShare() { return { success: false }; }
 `,
+
+	// ─── Internal employee logging (not needed in the external build) ─────
+
+	'services/internalLogging': `
+export async function logPermissionContextForAnts() {}
+export const getContainerId = async () => null;
+`,
+
+	// ─── Deleted Anthropic-internal modules ───────────────────────────────
+
+	'services/api/dumpPrompts': `
+export function createDumpPromptsFetch() { return undefined; }
+export function getDumpPromptsPath() { return ''; }
+export function getLastApiRequests() { return []; }
+export function clearApiRequestCache() {}
+export function clearDumpState() {}
+export function clearAllDumpState() {}
+export function addApiRequestToCache() {}
+`,
+
+	'utils/undercover': `
+export function isUndercover() { return false; }
+export function getUndercoverInstructions() { return ''; }
+export function shouldShowUndercoverAutoNotice() { return false; }
+`,
+
+	'types/generated/events_mono/claude_code/v1/claude_code_internal_event': `
+export const ClaudeCodeInternalEvent = {
+  fromJSON: value => value,
+  toJSON: value => value,
+  create: value => value ?? {},
+  fromPartial: value => value ?? {},
+};
+`,
+
+	'types/generated/events_mono/growthbook/v1/growthbook_experiment_event': `
+export const GrowthbookExperimentEvent = {
+  fromJSON: value => value,
+  toJSON: value => value,
+  create: value => value ?? {},
+  fromPartial: value => value ?? {},
+};
+`,
+
+	'types/generated/events_mono/common/v1/auth': `
+export const PublicApiAuth = {
+  fromJSON: value => value,
+  toJSON: value => value,
+  create: value => value ?? {},
+  fromPartial: value => value ?? {},
+};
+`,
+
+	'types/generated/google/protobuf/timestamp': `
+export const Timestamp = {
+  fromJSON: value => value,
+  toJSON: value => value,
+  create: value => value ?? {},
+  fromPartial: value => value ?? {},
+};
+`,
+}
+
+function escapeForResolvedPathRegex(modulePath: string): string {
+	return modulePath
+		.replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')
+		.replace(/\//g, '[/\\\\]')
 }
 
 export const noTelemetryPlugin: BunPlugin = {
@@ -205,9 +299,7 @@ export const noTelemetryPlugin: BunPlugin = {
 		for (const [modulePath, contents] of Object.entries(stubs)) {
 			// Build regex that matches the resolved file path on any OS
 			// e.g. "services/analytics/growthbook" → /services[/\\]analytics[/\\]growthbook\.(ts|js)$/
-			const escaped = modulePath
-				.replace(/\//g, '[/\\\\]')
-				.replace(/\./g, '\\.')
+			const escaped = escapeForResolvedPathRegex(modulePath)
 			const filter = new RegExp(`${escaped}\\.(ts|js)$`)
 
 			build.onLoad({ filter }, () => ({

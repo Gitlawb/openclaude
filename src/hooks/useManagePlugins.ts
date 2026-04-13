@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import type { Command } from '../commands.js'
 import { useNotifications } from '../context/notifications.js'
 import {
@@ -7,6 +7,11 @@ import {
 } from '../services/analytics/index.js'
 import { reinitializeLspServerManager } from '../services/lsp/manager.js'
 import { useAppState, useSetAppState } from '../state/AppState.js'
+import {
+  getPluginCommandsState,
+  setPluginCommandsState,
+  subscribePluginCommands,
+} from '../state/pluginCommandsStore.js'
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import { count } from '../utils/array.js'
 import { logForDebugging } from '../utils/debug.js'
@@ -39,6 +44,11 @@ export function useManagePlugins({
 }: {
   enabled?: boolean
 } = {}) {
+  const pluginCommands = useSyncExternalStore(
+    subscribePluginCommands,
+    getPluginCommandsState,
+    getPluginCommandsState,
+  )
   const setAppState = useSetAppState()
   const needsRefresh = useAppState(s => s.plugins.needsRefresh)
   const { addNotification } = useNotifications()
@@ -74,6 +84,7 @@ export function useManagePlugins({
 
       try {
         commands = await getPluginCommands()
+        setPluginCommandsState(commands)
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error)
@@ -82,6 +93,7 @@ export function useManagePlugins({
           source: 'plugin-commands',
           error: `Failed to load plugin commands: ${errorMessage}`,
         })
+        setPluginCommandsState([])
       }
 
       try {
@@ -173,7 +185,7 @@ export function useManagePlugins({
             ...prevState.plugins,
             enabled,
             disabled,
-            commands,
+            commands: [],
             errors: mergedErrors,
           },
         }
@@ -226,6 +238,7 @@ export function useManagePlugins({
       logError(errorObj)
       logForDebugging(`Error loading plugins: ${error}`)
       // Set empty state on error, but preserve LSP errors and add the new error
+      setPluginCommandsState([])
       setAppState(prevState => {
         // Keep existing LSP/non-plugin-loading errors
         const existingLspErrors = prevState.plugins.errors.filter(
@@ -284,6 +297,11 @@ export function useManagePlugins({
     })
   }, [initialPluginLoad, enabled])
 
+  useEffect(() => {
+    if (enabled) return
+    setPluginCommandsState([])
+  }, [enabled])
+
   // Plugin state changed on disk (background reconcile, /plugin menu,
   // external settings edit). Show a notification; user runs /reload-plugins
   // to apply. The previous auto-refresh here had a stale-cache bug (only
@@ -301,4 +319,6 @@ export function useManagePlugins({
     // Do NOT auto-refresh. Do NOT reset needsRefresh — /reload-plugins
     // consumes it via refreshActivePlugins().
   }, [enabled, needsRefresh, addNotification])
+
+  return enabled ? pluginCommands : []
 }
