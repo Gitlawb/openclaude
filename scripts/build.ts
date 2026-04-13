@@ -26,11 +26,9 @@ const featureFlags: Record<string, boolean> = {
   BRIDGE_MODE: false,             // Remote desktop bridge via CCR infrastructure
   DAEMON: false,                  // Background daemon process (stubbed in open build)
   AGENT_TRIGGERS: false,          // Scheduled remote agent triggers
-  MONITOR_TOOL: false,            // MCP server monitoring/streaming tool
   ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
   CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
   COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
-  TEAMMEM: false,                 // Team memory management
   UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
   BG_SESSIONS: false,             // Background sessions via tmux (stubbed)
   WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
@@ -41,13 +39,15 @@ const featureFlags: Record<string, boolean> = {
   COORDINATOR_MODE: true,             // Multi-agent coordinator with worker delegation
   BUILTIN_EXPLORE_PLAN_AGENTS: true,  // Built-in Explore/Plan specialized subagents
   BUDDY: true,                        // Buddy mode for paired programming
+  MONITOR_TOOL: true,                 // MCP server monitoring/streaming tool
+  TEAMMEM: true,                      // Team memory management
+  MESSAGE_ACTIONS: true,              // Message action buttons in the UI
 
   // ── Enabled: new activations ────────────────────────────────────────
   DUMP_SYSTEM_PROMPT: true,           // --dump-system-prompt CLI flag for debugging
   CACHED_MICROCOMPACT: true,          // Cache-aware tool result truncation optimization
   AWAY_SUMMARY: true,                 // "While you were away" recap after 5min blur
   TRANSCRIPT_CLASSIFIER: true,        // Auto-approval classifier for safe tool uses
-  MESSAGE_ACTIONS: true,              // Message action buttons in the UI
   ULTRATHINK: true,                   // Deep thinking mode — type "ultrathink" to boost reasoning
   TOKEN_BUDGET: true,                 // Token budget tracking with usage warnings
   HISTORY_PICKER: true,               // Enhanced interactive prompt history picker
