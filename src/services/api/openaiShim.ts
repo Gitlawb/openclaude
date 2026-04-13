@@ -1271,8 +1271,10 @@ class OpenAIShimMessages {
       delete body.max_completion_tokens
     }
 
-    // mistral also doesn't recognize body.store
-    if (isMistral) {
+    // Local servers (vLLM, Ollama, etc.) and Gemini have strict JSON schemas and
+    // reject unrecognized fields like 'store', which is an OpenAI-specific parameter
+    // for controlling conversation storage. Drop it for any non-OpenAI endpoint.
+    if (isMistral || isLocal || isGeminiMode()) {
       delete body.store
     }
 

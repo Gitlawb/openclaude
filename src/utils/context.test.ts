@@ -114,6 +114,17 @@ test('unknown openai-compatible models use the 128k fallback window (not 8k, see
   expect(getContextWindowForModel('some-unknown-3p-model')).toBe(128_000)
 })
 
+test('unknown openai-compatible models use a safe 4k output default to avoid vLLM 400 errors', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getModelMaxOutputTokens('lyf/Qwen3.5-27B')).toEqual({
+    default: 4_096,
+    upperLimit: 64_000,
+  })
+  expect(getMaxOutputTokensForModel('lyf/Qwen3.5-27B')).toBe(4_096)
+})
+
 test('MiniMax-M2.5 and M2.1 use explicit provider-specific context and output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS

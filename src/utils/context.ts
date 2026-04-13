@@ -200,6 +200,11 @@ export function getModelMaxOutputTokens(model: string): {
     if (openaiMax !== undefined) {
       return { default: openaiMax, upperLimit: openaiMax }
     }
+    // Unknown model on OpenAI-compatible provider: use a conservative default.
+    // vLLM's default max_model_len is 32768; requesting the normal 32000 output
+    // default + ~769 prompt tokens exceeds this by 1, causing a 400 error.
+    // Use 4096 to stay safe. CLAUDE_CODE_MAX_OUTPUT_TOKENS can override if needed.
+    return { default: 4_096, upperLimit: MAX_OUTPUT_TOKENS_UPPER_LIMIT }
   }
 
   const m = getCanonicalName(model)
