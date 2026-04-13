@@ -19,6 +19,7 @@ import {
   getSettings_DEPRECATED,
   getSettingsFilePathForSource,
   getUseAutoModeDuringPlan,
+  hasAllowBypassPermissionsMode,
   hasAutoModeOptIn,
 } from '../settings/settings.js'
 import {
@@ -936,8 +937,7 @@ export async function initializeToolPermissionContext({
   const settings = getSettings_DEPRECATED() || {}
   const settingsDisableBypassPermissionsMode =
     settings.permissions?.disableBypassPermissionsMode === 'disable'
-  const settingsAllowBypassPermissionsMode =
-    settings.permissions?.allowBypassPermissionsMode === true
+  const settingsAllowBypassPermissionsMode = hasAllowBypassPermissionsMode()
   const isBypassPermissionsModeAvailable =
     (permissionMode === 'bypassPermissions' ||
       allowDangerouslySkipPermissions ||

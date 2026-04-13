@@ -890,6 +890,24 @@ export function hasSkipDangerousModePermissionPrompt(): boolean {
 }
 
 /**
+ * Returns true if any trusted settings source has enabled bypass permissions
+ * mode availability. projectSettings is intentionally excluded — a malicious
+ * project could otherwise enable bypass mode (security risk).
+ */
+export function hasAllowBypassPermissionsMode(): boolean {
+  return !!(
+    getSettingsForSource('userSettings')?.permissions
+      ?.allowBypassPermissionsMode ||
+    getSettingsForSource('localSettings')?.permissions
+      ?.allowBypassPermissionsMode ||
+    getSettingsForSource('flagSettings')?.permissions
+      ?.allowBypassPermissionsMode ||
+    getSettingsForSource('policySettings')?.permissions
+      ?.allowBypassPermissionsMode
+  )
+}
+
+/**
  * Returns true if any trusted settings source has accepted the auto
  * mode opt-in dialog. projectSettings is intentionally excluded —
  * a malicious project could otherwise auto-bypass the dialog (RCE risk).
