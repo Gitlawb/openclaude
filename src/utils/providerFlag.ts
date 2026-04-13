@@ -138,14 +138,14 @@ export function applyProviderFlag(
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://integrate.api.nvidia.com/v1'
       process.env.NVIDIA_NIM = '1'
-      process.env.OPENAI_MODEL ??= 'nvidia/nemotron-mini-4b-instruct'
+      process.env.OPENAI_MODEL ??= 'z-ai/glm5'
       if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'minimax':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://api.minimax.io/v1'
-      process.env.OPENAI_MODEL ??= 'MiniMax-M2'
+      process.env.OPENAI_MODEL ??= 'MiniMax-M2.5'
       if (model) process.env.OPENAI_MODEL = model
       break
   }
