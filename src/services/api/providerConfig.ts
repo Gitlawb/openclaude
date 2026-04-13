@@ -382,7 +382,7 @@ export function resolveProviderRequest(options?: {
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
-  const isGeminiMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const isGeminiMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode

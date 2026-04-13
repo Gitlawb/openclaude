@@ -32,7 +32,6 @@ export {
 import { isEnvTruthy } from './envUtils.ts'
 
 import { PROVIDERS } from './configConstants.js'
-import provider from 'src/commands/provider/index.js'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
