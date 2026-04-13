@@ -584,6 +584,62 @@ test('preserves Gemini tool call extra_content in follow-up requests', async () 
   })
 })
 
+test('preserves reasoning_content on assistant tool calls in follow-up requests (issue #522)', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return makeNonStreamResponse()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'kimi-k2.5',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Use Bash' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'I should inspect the current directory first.' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: '/tmp/openclaude',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantWithToolCall = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => Array.isArray(message.tool_calls),
+  ) as { reasoning_content?: string; tool_calls?: Array<Record<string, unknown>> } | undefined
+
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'I should inspect the current directory first.',
+  )
+  expect(assistantWithToolCall?.tool_calls?.[0]).toMatchObject({
+    id: 'call_1',
+    type: 'function',
+  })
+})
+
 test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () => {
   let requestBody: Record<string, unknown> | undefined
 
@@ -2374,6 +2430,61 @@ test('coalesces consecutive assistant messages preserving tool_calls (issue #202
 
   const assistantMsgs = sentMessages?.filter(m => m.role === 'assistant')
   expect(assistantMsgs?.length).toBe(1)
+  expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
+})
+
+test('coalesces consecutive assistant messages preserving reasoning_content (issue #522)', async () => {
+  let sentMessages:
+    | Array<{
+        role: string
+        content: unknown
+        reasoning_content?: string
+        tool_calls?: unknown[]
+      }>
+    | undefined
+
+  globalThis.fetch = (async (_input: unknown, init: RequestInit | undefined) => {
+    sentMessages = JSON.parse(String(init?.body)).messages
+    return makeNonStreamResponse()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'kimi-k2.5',
+    system: 'sys',
+    messages: [
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'I should inspect the current directory first.',
+          },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: 'Continuing after the tool call.',
+      },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: '/tmp' }] },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const assistantMsgs = sentMessages?.filter(m => m.role === 'assistant')
+  expect(assistantMsgs?.length).toBe(1)
+  expect(assistantMsgs?.[0]?.reasoning_content).toBe(
+    'I should inspect the current directory first.',
+  )
   expect(assistantMsgs?.[0]?.tool_calls?.length).toBeGreaterThan(0)
 })
 

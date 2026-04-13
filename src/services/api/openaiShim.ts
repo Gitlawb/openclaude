@@ -141,6 +141,7 @@ function sleepMs(ms: number): Promise<void> {
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content?: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+  reasoning_content?: string
   tool_calls?: Array<{
     id: string
     type: 'function'
@@ -342,6 +343,13 @@ function convertMessages(
       // Check for tool_use blocks
       if (Array.isArray(content)) {
         const toolUses = content.filter((b: { type?: string }) => b.type === 'tool_use')
+        const reasoningContent = content
+          .filter(
+            (b: { type?: string; thinking?: string }) =>
+              b.type === 'thinking' && typeof b.thinking === 'string' && b.thinking !== '',
+          )
+          .map((b: { thinking?: string }) => b.thinking ?? '')
+          .join('\n\n')
         const thinkingBlock = content.find((b: { type?: string }) => b.type === 'thinking')
         const textContent = content.filter(
           (b: { type?: string }) => b.type !== 'tool_use' && b.type !== 'thinking',
@@ -353,6 +361,9 @@ function convertMessages(
             const c = convertContentBlocks(textContent)
             return typeof c === 'string' ? c : Array.isArray(c) ? c.map((p: { text?: string }) => p.text ?? '').join('') : ''
           })(),
+        }
+        if (reasoningContent) {
+          assistantMsg.reasoning_content = reasoningContent
         }
 
         if (toolUses.length > 0) {
@@ -442,6 +453,12 @@ function convertMessages(
           return c
         }
         prev.content = [...toArray(prevContent), ...toArray(curContent)]
+      }
+
+      if (msg.reasoning_content) {
+        prev.reasoning_content = [prev.reasoning_content, msg.reasoning_content]
+          .filter((value): value is string => Boolean(value))
+          .join('\n\n')
       }
 
       if (msg.tool_calls?.length) {
