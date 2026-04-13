@@ -1204,7 +1204,8 @@ class OpenAIShimMessages {
       : undefined
 
     // OPENAI_MAX_TOKENS env var: hard override for max_tokens sent to provider.
-    // Setting a small value (e.g. 256, 128) bypasses the 8k cap from claude.ts.
+    // Raw token count: 256 = 256 tokens, 256000 = 256k tokens, etc.
+    // Bypasses the 8k cap from claude.ts.
     let envMaxTokens: number | undefined
     if (process.env.OPENAI_MAX_TOKENS) {
       const parsed = parseInt(process.env.OPENAI_MAX_TOKENS, 10)
