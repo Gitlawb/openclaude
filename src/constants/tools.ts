@@ -82,9 +82,9 @@ export const IN_PROCESS_TEAMMATE_ALLOWED_TOOLS = new Set([
   SEND_MESSAGE_TOOL_NAME,
   // Teammate-created crons are tagged with the creating agentId and routed to
   // that teammate's pendingUserMessages queue (see useScheduledTasks.ts).
-  ...(feature('AGENT_TRIGGERS')
-    ? [CRON_CREATE_TOOL_NAME, CRON_DELETE_TOOL_NAME, CRON_LIST_TOOL_NAME]
-    : []),
+  CRON_CREATE_TOOL_NAME,
+  CRON_DELETE_TOOL_NAME,
+  CRON_LIST_TOOL_NAME,
 ])
 
 /*

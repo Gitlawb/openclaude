@@ -11,7 +11,7 @@ export function getEditToolDescription(): string {
 
 function getDefaultEditDescription(): string {
   const prefixFormat = isCompactLinePrefixEnabled()
-    ? 'line number + tab'
+    ? 'line number + arrow'
     : 'spaces + line number + arrow'
   const minimalUniquenessHint =
     process.env.USER_TYPE === 'ant'

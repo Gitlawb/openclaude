@@ -137,26 +137,147 @@ const SAFE_HEADER_NAMES = new Set([
 ])
 
 /**
- * Private / reserved IP ranges that should not be reachable from a
- * search adapter (SSRF mitigation).
+ * Private / reserved address check for SSRF mitigation.
  *
- * This is a hostname-level check. DNS resolution to private IPs is
- * NOT blocked here (that would require resolving before fetch, which
- * Node fetch does not expose). This guard blocks obvious cases.
+ * Operates on the hostname produced by WHATWG `new URL(...)`, which already
+ * normalizes short-form, numeric, hex, and octal IPv4 to dotted-quad
+ * (e.g. `127.1`, `2130706433`, `0x7f000001`, `0177.0.0.1` → `127.0.0.1`),
+ * and which preserves IPv6 in bracketed compressed form
+ * (e.g. `[::ffff:127.0.0.1]` → `[::ffff:7f00:1]`).
+ *
+ * DNS resolution to private IPs is NOT blocked here — resolving before
+ * fetch is not exposed by Node's fetch. This guard blocks literal-address
+ * bypasses, which is what the original regex was trying (and failing) to do.
  */
-const BLOCKED_HOSTNAME_PATTERNS = [
-  /^localhost$/i,
-  /^127\.\d+\.\d+\.\d+$/,
-  /^10\.\d+\.\d+\.\d+$/,
-  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
-  /^192\.168\.\d+\.\d+$/,
-  /^0\.0\.0\.0$/,
-  /^\[::1?\]$/i,        // [::1] or [::]
-  /^0x[0-9a-f]+$/i,     // hex-encoded IPs
-]
 
-function isPrivateHostname(hostname: string): boolean {
-  return BLOCKED_HOSTNAME_PATTERNS.some(re => re.test(hostname))
+function ipv4DottedToInt(ip: string): number | null {
+  const parts = ip.split('.')
+  if (parts.length !== 4) return null
+  let n = 0
+  for (const p of parts) {
+    if (!/^\d+$/.test(p)) return null
+    const x = Number(p)
+    if (!Number.isInteger(x) || x < 0 || x > 255) return null
+    n = n * 256 + x
+  }
+  return n >>> 0
+}
+
+function isPrivateIPv4Int(n: number): boolean {
+  const a = (n >>> 24) & 0xff
+  const b = (n >>> 16) & 0xff
+  // 0.0.0.0/8 "this network"
+  if (a === 0) return true
+  // 10.0.0.0/8
+  if (a === 10) return true
+  // 100.64.0.0/10 CGNAT
+  if (a === 100 && (b & 0xc0) === 0x40) return true
+  // 127.0.0.0/8 loopback
+  if (a === 127) return true
+  // 169.254.0.0/16 link-local
+  if (a === 169 && b === 254) return true
+  // 172.16.0.0/12
+  if (a === 172 && (b & 0xf0) === 0x10) return true
+  // 192.168.0.0/16
+  if (a === 192 && b === 168) return true
+  return false
+}
+
+/**
+ * Parse an IPv6 address (without brackets, zone id optional) to 16 bytes.
+ * Returns null on malformed input. Handles `::` compression and embedded
+ * IPv4 suffix (e.g. `::ffff:127.0.0.1`).
+ */
+function parseIPv6(input: string): Uint8Array | null {
+  let s = input.split('%')[0] ?? ''
+  if (s === '') return null
+
+  // Split off trailing embedded IPv4 if present
+  let trailingV4: [number, number, number, number] | null = null
+  const v4m = s.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/)
+  if (v4m) {
+    const n = ipv4DottedToInt(v4m[2]!)
+    if (n === null) return null
+    trailingV4 = [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]
+    s = v4m[1]!.replace(/:$/, '')
+    if (s === '') s = '::' // e.g. input was "::1.2.3.4"
+  }
+
+  const halves = s.split('::')
+  if (halves.length > 2) return null
+  const left = halves[0] ? halves[0]!.split(':') : []
+  const right = halves.length === 2 && halves[1] ? halves[1]!.split(':') : []
+
+  const groupsNeeded = 8 - (trailingV4 ? 2 : 0)
+  if (halves.length === 1 && left.length !== groupsNeeded) return null
+  if (halves.length === 2 && left.length + right.length > groupsNeeded) return null
+
+  const fill = halves.length === 2 ? groupsNeeded - left.length - right.length : 0
+  const groups = [...left, ...Array(fill).fill('0'), ...right]
+
+  const bytes = new Uint8Array(16)
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i]!
+    if (!/^[0-9a-f]{1,4}$/i.test(g)) return null
+    const v = parseInt(g, 16)
+    bytes[i * 2] = (v >>> 8) & 0xff
+    bytes[i * 2 + 1] = v & 0xff
+  }
+  if (trailingV4) {
+    const off = groups.length * 2
+    bytes[off] = trailingV4[0]
+    bytes[off + 1] = trailingV4[1]
+    bytes[off + 2] = trailingV4[2]
+    bytes[off + 3] = trailingV4[3]
+  }
+  return bytes
+}
+
+function isPrivateIPv6(bytes: Uint8Array): boolean {
+  // ::1 loopback
+  let allZeroExceptLast = true
+  for (let i = 0; i < 15; i++) if (bytes[i] !== 0) { allZeroExceptLast = false; break }
+  if (allZeroExceptLast && bytes[15] === 1) return true
+  // :: unspecified
+  if (bytes.every(v => v === 0)) return true
+  // IPv4-mapped ::ffff:a.b.c.d
+  let isV4Mapped = true
+  for (let i = 0; i < 10; i++) if (bytes[i] !== 0) { isV4Mapped = false; break }
+  if (isV4Mapped && bytes[10] === 0xff && bytes[11] === 0xff) {
+    const n = ((bytes[12]! << 24) | (bytes[13]! << 16) | (bytes[14]! << 8) | bytes[15]!) >>> 0
+    return isPrivateIPv4Int(n)
+  }
+  // IPv4-compatible (deprecated) ::a.b.c.d — treat as private if embedded v4 is
+  let isV4Compat = true
+  for (let i = 0; i < 12; i++) if (bytes[i] !== 0) { isV4Compat = false; break }
+  if (isV4Compat) {
+    const n = ((bytes[12]! << 24) | (bytes[13]! << 16) | (bytes[14]! << 8) | bytes[15]!) >>> 0
+    if (n !== 0 && n !== 1) return isPrivateIPv4Int(n)
+  }
+  // ULA fc00::/7
+  if ((bytes[0]! & 0xfe) === 0xfc) return true
+  // Link-local fe80::/10
+  if (bytes[0] === 0xfe && (bytes[1]! & 0xc0) === 0x80) return true
+  // Site-local (deprecated) fec0::/10
+  if (bytes[0] === 0xfe && (bytes[1]! & 0xc0) === 0xc0) return true
+  return false
+}
+
+export function isPrivateHostname(hostname: string): boolean {
+  if (/^localhost$/i.test(hostname)) return true
+  // URL.hostname wraps IPv6 literals in brackets; strip for parsing.
+  const unwrapped = hostname.startsWith('[') && hostname.endsWith(']')
+    ? hostname.slice(1, -1)
+    : hostname
+  // IPv4 dotted-quad (WHATWG URL normalizes short/numeric/hex/octal to this).
+  const v4 = ipv4DottedToInt(unwrapped)
+  if (v4 !== null) return isPrivateIPv4Int(v4)
+  // IPv6
+  if (unwrapped.includes(':')) {
+    const bytes = parseIPv6(unwrapped)
+    if (bytes) return isPrivateIPv6(bytes)
+  }
+  return false
 }
 
 /**
@@ -221,12 +342,18 @@ function auditLogCustomSearch(url: string): void {
 // Auth — preset overrides for built-in providers
 // ---------------------------------------------------------------------------
 
-function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<string, string> {
+export function buildAuthHeadersForPreset(preset?: ProviderPreset): Record<string, string> {
   const apiKey = process.env.WEB_KEY
   if (!apiKey) return {}
 
-  const headerName = process.env.WEB_AUTH_HEADER ?? preset?.authHeader ?? 'Authorization'
-  const scheme = process.env.WEB_AUTH_SCHEME ?? preset?.authScheme ?? 'Bearer'
+  // WEB_AUTH_HEADER="" is an explicit opt-out of auth headers entirely
+  const explicitHeader = process.env.WEB_AUTH_HEADER
+  if (explicitHeader === '') return {}
+
+  const headerName = explicitHeader ?? preset?.authHeader ?? 'Authorization'
+  const scheme = process.env.WEB_AUTH_SCHEME !== undefined
+    ? process.env.WEB_AUTH_SCHEME
+    : (preset?.authScheme ?? 'Bearer')
   return { [headerName]: `${scheme} ${apiKey}`.trim() }
 }
 
@@ -350,7 +477,7 @@ function buildRequest(query: string) {
 function walkJsonPath(obj: any, path: string): any {
   let current = obj
   for (const seg of path.split('.')) {
-    if (current == null) return undefined
+    if (current == null || typeof current !== 'object') return undefined
     current = current[seg]
   }
   return current
@@ -364,6 +491,7 @@ function extractFromNode(node: any): SearchHit[] {
     for (const sub of Object.values(node)) all.push(...extractFromNode(sub))
     return all
   }
+  // node is a primitive (string/number) — not a valid hit structure
   return []
 }
 
@@ -399,20 +527,18 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
   let lastStatus: number | undefined
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    // Create a timeout that races with the external signal
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    // Compose timeout with caller signal via AbortSignal.any so each attempt
+    // has a fresh timeout and we don't leak an abort listener on `signal`
+    // (the previous implementation added one per attempt and never removed
+    // it, and the listener kept a reference to a stale AbortController).
+    const timeoutSignal = AbortSignal.timeout(timeoutMs)
+    const combined = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal
 
-    // If the external signal is already aborted, forward it
-    if (signal?.aborted) {
-      controller.abort()
-    } else {
-      signal?.addEventListener('abort', () => controller.abort(), { once: true })
-    }
-
+    lastStatus = undefined
     try {
-      const res = await fetch(url, { ...init, signal: controller.signal })
-      clearTimeout(timer)
+      const res = await fetch(url, { ...init, signal: combined })
 
       if (!res.ok) {
         lastStatus = res.status
@@ -420,26 +546,20 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
       }
       return await res.json()
     } catch (err) {
-      clearTimeout(timer)
       lastErr = err instanceof Error ? err : new Error(String(err))
 
-      // AbortError from timeout
-      if (lastErr.name === 'AbortError' && !signal?.aborted) {
+      // Caller-initiated abort wins — propagate without retry or rewrite.
+      if (signal?.aborted) throw lastErr
+
+      // Timeout (TimeoutError on Bun/Node, or AbortError with timeoutSignal aborted).
+      if (timeoutSignal.aborted) {
         throw new Error(`Custom search timed out after ${timeoutSec}s`)
       }
 
-      // Retry on 5xx or network errors only
-      if (attempt === 0) {
-        if (lastStatus !== undefined && lastStatus >= 500) {
-          await new Promise(r => setTimeout(r, 500))
-          continue
-        }
-        if (lastStatus === undefined) {
-          // Network error — retry
-          await new Promise(r => setTimeout(r, 500))
-          continue
-        }
-        // 4xx — don't retry
+      // Retry once on 5xx or network errors; do not retry 4xx.
+      if (attempt === 0 && (lastStatus === undefined || lastStatus >= 500)) {
+        await new Promise(r => setTimeout(r, 500))
+        continue
       }
       throw lastErr
     }

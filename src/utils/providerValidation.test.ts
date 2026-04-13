@@ -3,6 +3,9 @@ import { afterEach, expect, test } from 'bun:test'
 import { getProviderValidationError } from './providerValidation.ts'
 
 const originalEnv = {
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -24,6 +27,9 @@ function restoreEnv(key: string, value: string | undefined): void {
 }
 
 afterEach(() => {
+  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+  restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)

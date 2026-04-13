@@ -2,7 +2,7 @@
 
 OpenClaude is an open-source coding-agent CLI for cloud and local model providers.
 
-Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported backends while keeping one terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
+Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, Atomic Chat, and other supported backends while keeping one terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
 
 [![PR Checks](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml)
 [![Release](https://img.shields.io/github/v/tag/Gitlawb/openclaude?label=release&color=0ea5e9)](https://github.com/Gitlawb/openclaude/tags)
@@ -10,13 +10,16 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, a
 [![Security Policy](https://img.shields.io/badge/security-policy-0f766e)](SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-2563eb)](LICENSE)
 
+OpenClaude is also mirrored to GitLawb:
+[gitlawb.com/node/repos/z6MkqDnb/openclaude](https://gitlawb.com/node/repos/z6MkqDnb/openclaude)
+
 [Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
 
 ## Why OpenClaude
 
 - Use one CLI across cloud APIs and local model backends
 - Save provider profiles inside the app with `/provider`
-- Run with OpenAI-compatible services, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported providers
+- Run with OpenAI-compatible services, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, Atomic Chat, and other supported providers
 - Keep coding-agent workflows in one place: bash, file tools, grep, glob, agents, tasks, MCP, and web tools
 - Use the bundled VS Code extension for launch integration and theme support
 
@@ -105,7 +108,8 @@ Advanced and source-build guides:
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
 | Gemini | `/provider` or env vars | Supports API key, access token, or local ADC workflow on current `main` |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
-| Codex | `/provider` | Uses existing Codex credentials when available |
+| Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
+| Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | advanced setup | Local Apple Silicon backend |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |

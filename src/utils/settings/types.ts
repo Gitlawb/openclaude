@@ -69,6 +69,12 @@ export const PermissionsSchema = lazySchema(() =>
         .enum(['disable'])
         .optional()
         .describe('Disable the ability to bypass permission prompts'),
+      allowBypassPermissionsMode: z
+        .boolean()
+        .optional()
+        .describe(
+          'Allow bypass permissions mode to appear in the mode list without requiring the CLI flag',
+        ),
       ...(feature('TRANSCRIPT_CLASSIFIER')
         ? {
             disableAutoMode: z
@@ -1082,10 +1088,10 @@ export const SettingsSchema = lazySchema(() =>
         .array(z.string())
         .optional()
         .describe(
-          'Glob patterns or absolute paths of CLAUDE.md files to exclude from loading. ' +
+          'Glob patterns or absolute paths of AGENTS.md/CLAUDE.md files to exclude from loading. ' +
             'Patterns are matched against absolute file paths using picomatch. ' +
             'Only applies to User, Project, and Local memory types (Managed/policy files cannot be excluded). ' +
-            'Examples: "/home/user/monorepo/CLAUDE.md", "**/code/CLAUDE.md", "**/some-dir/.claude/rules/**"',
+            'Examples: "/home/user/monorepo/AGENTS.md", "**/code/CLAUDE.md", "**/some-dir/.claude/rules/**"',
         ),
       pluginTrustMessage: z
         .string()

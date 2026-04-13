@@ -1,6 +1,6 @@
 {
   "name": "@gitlawb/openclaude",
-  "version": "0.1.8",
+  "version": "0.2.3",
   "description": "Claude Code opened to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
@@ -141,7 +141,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitlawb.com/z6MkqDnb7Siv3Cwj7pGJq4T5EsUisECqR8KpnDLwcaZq5TPr/openclaude"
+    "url": "https://github.com/Gitlawb/openclaude.git"
   },
   "keywords": [
     "claude-code",

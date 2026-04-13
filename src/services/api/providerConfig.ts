@@ -3,10 +3,20 @@ import { isIP } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import {
+  isCodexRefreshFailureCoolingDown,
+  readCodexCredentials,
+  type CodexCredentialBlob,
+} from '../../utils/codexCredentials.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import {
+  asTrimmedString,
+  parseChatgptAccountId,
+} from './codexOAuthShared.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 
@@ -59,6 +69,8 @@ const CODEX_ALIAS_MODELS: Record<
 type CodexAlias = keyof typeof CODEX_ALIAS_MODELS
 type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
+const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
+
 export type ProviderTransport = 'chat_completions' | 'codex_responses'
 
 export type ResolvedProviderRequest = {
@@ -75,7 +87,7 @@ export type ResolvedCodexCredentials = {
   apiKey: string
   accountId?: string
   authPath?: string
-  source: 'env' | 'auth.json' | 'none'
+  source: 'env' | 'secure-storage' | 'auth.json' | 'none'
 }
 
 type ModelDescriptor = {
@@ -111,12 +123,6 @@ function isPrivateIpv6Address(hostname: string): boolean {
   return (prefix & 0xfe00) === 0xfc00 || (prefix & 0xffc0) === 0xfe80
 }
 
-function asTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  return trimmed ? trimmed : undefined
-}
-
 // Reads an env-var-style string intended as a URL or path, rejecting both
 // empty strings and the literal string "undefined" that Windows shells can
 // write when a variable is unset-then-referenced without quotes (issue #336).
@@ -146,23 +152,6 @@ function readNestedString(
     if (stringValue) return stringValue
   }
   return undefined
-}
-
-function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
-  const parts = token.split('.')
-  if (parts.length < 2) return undefined
-
-  try {
-    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
-    const json = Buffer.from(padded, 'base64').toString('utf8')
-    const parsed = JSON.parse(json)
-    return parsed && typeof parsed === 'object'
-      ? (parsed as Record<string, unknown>)
-      : undefined
-  } catch {
-    return undefined
-  }
 }
 
 function parseReasoningEffort(value: string | undefined): ReasoningEffort | undefined {
@@ -217,6 +206,12 @@ export function isCodexAlias(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
   return base in CODEX_ALIAS_MODELS
+}
+
+function isOpenAICodexShortcutAlias(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  const base = normalized.split('?', 1)[0] ?? normalized
+  return OPENAI_CODEX_SHORTCUT_ALIASES.has(base)
 }
 
 export function shouldUseCodexTransport(
@@ -357,16 +352,49 @@ export function resolveProviderRequest(options?: {
   reasoningEffortOverride?: ReasoningEffort
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+  const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   const requestedModel =
     options?.model?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
+    (isMistralMode
+      ? process.env.MISTRAL_MODEL?.trim()
+      : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
-  const rawBaseUrl =
-    asEnvUrl(options?.baseUrl) ??
-    asEnvUrl(process.env.OPENAI_BASE_URL) ??
+  const explicitBaseUrl = asEnvUrl(options?.baseUrl)
+  const envBaseUrlRaw =
+    explicitBaseUrl ??
+    asEnvUrl(
+      isMistralMode
+        ? (process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL)
+        : process.env.OPENAI_BASE_URL
+    ) ??
     asEnvUrl(process.env.OPENAI_API_BASE)
+
+  const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
+  const envBaseUrl =
+    isCodexModelForGithub && envBaseUrlRaw && getGithubEndpointType(envBaseUrlRaw) === 'custom'
+      ? undefined
+      : envBaseUrlRaw
+
+  const rawBaseUrl = explicitBaseUrl ?? envBaseUrl
+
+  const shellModel = process.env.OPENAI_MODEL?.trim() ?? ''
+  const envIsCodexShortcut = isOpenAICodexShortcutAlias(shellModel)
+  const envResolvedCodexModel = envIsCodexShortcut
+    ? parseModelDescriptor(shellModel).baseModel
+    : null
+  const requestedMatchesEnvCodexShortcut =
+    Boolean(options?.model) &&
+    Boolean(envResolvedCodexModel) &&
+    descriptor.baseModel === envResolvedCodexModel
+  const isCodexAliasModel =
+    isOpenAICodexShortcutAlias(requestedModel) || requestedMatchesEnvCodexShortcut
+  const hasUserSetBaseUrl = rawBaseUrl && rawBaseUrl !== DEFAULT_OPENAI_BASE_URL
+  const finalBaseUrl =
+    !isGithubMode && isCodexAliasModel && !hasUserSetBaseUrl
+      ? DEFAULT_CODEX_BASE_URL
+      : rawBaseUrl
 
   const githubEndpointType = isGithubMode
     ? getGithubEndpointType(rawBaseUrl)
@@ -380,7 +408,7 @@ export function resolveProviderRequest(options?: {
     : requestedModel
 
   const transport: ProviderTransport =
-    shouldUseCodexTransport(requestedModel, rawBaseUrl) ||
+    shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
       : 'chat_completions'
@@ -404,7 +432,7 @@ export function resolveProviderRequest(options?: {
     requestedModel,
     resolvedModel,
     baseUrl:
-      (rawBaseUrl ??
+      (finalBaseUrl ??
         (isGithubCopilot && transport === 'codex_responses'
           ? GITHUB_COPILOT_BASE_URL
           : (isGithubMode
@@ -418,6 +446,7 @@ export function resolveProviderRequest(options?: {
 export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
     if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
+        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
         !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
@@ -451,18 +480,6 @@ export function resolveCodexAuthPath(
   return join(homedir(), '.codex', 'auth.json')
 }
 
-export function parseChatgptAccountId(
-  token: string | undefined,
-): string | undefined {
-  if (!token) return undefined
-  const payload = decodeJwtPayload(token)
-  const fromClaim = asTrimmedString(
-    payload?.['https://api.openai.com/auth.chatgpt_account_id'],
-  )
-  if (fromClaim) return fromClaim
-  return asTrimmedString(payload?.chatgpt_account_id)
-}
-
 function loadCodexAuthJson(
   authPath: string,
 ): Record<string, unknown> | undefined {
@@ -478,8 +495,97 @@ function loadCodexAuthJson(
   }
 }
 
-export function resolveCodexApiCredentials(
-  env: NodeJS.ProcessEnv = process.env,
+function resolveCodexAuthJsonCredentials(options: {
+  authJson: Record<string, unknown> | undefined
+  authPath: string
+  envAccountId?: string
+  missingSource?: ResolvedCodexCredentials['source']
+}): ResolvedCodexCredentials {
+  const { authJson, authPath, envAccountId } = options
+
+  if (!authJson) {
+    return {
+      apiKey: '',
+      authPath,
+      source: options.missingSource ?? 'none',
+    }
+  }
+
+  const apiKey = readNestedString(authJson, [
+    ['openai_api_key'],
+    ['openaiApiKey'],
+    ['access_token'],
+    ['accessToken'],
+    ['tokens', 'access_token'],
+    ['tokens', 'accessToken'],
+    ['auth', 'access_token'],
+    ['auth', 'accessToken'],
+    ['token', 'access_token'],
+    ['token', 'accessToken'],
+  ])
+  // OIDC identity tokens can carry the ChatGPT account id, but they are not
+  // valid bearer credentials for Codex API requests.
+  const idToken = readNestedString(authJson, [
+    ['id_token'],
+    ['idToken'],
+    ['tokens', 'id_token'],
+    ['tokens', 'idToken'],
+  ])
+  const accountId =
+    envAccountId ??
+    readNestedString(authJson, [
+      ['account_id'],
+      ['accountId'],
+      ['tokens', 'account_id'],
+      ['tokens', 'accountId'],
+      ['auth', 'account_id'],
+      ['auth', 'accountId'],
+    ]) ??
+    parseChatgptAccountId(apiKey) ??
+    parseChatgptAccountId(idToken)
+
+  if (!apiKey) {
+    return {
+      apiKey: '',
+      accountId,
+      authPath,
+      source: options.missingSource ?? 'none',
+    }
+  }
+
+  return {
+    apiKey,
+    accountId,
+    authPath,
+    source: 'auth.json',
+  }
+}
+
+export function resolveStoredCodexCredentials(options: {
+  storedCredentials: Pick<
+    CodexCredentialBlob,
+    'apiKey' | 'accessToken' | 'idToken' | 'accountId'
+  >
+  envAccountId?: string
+}): ResolvedCodexCredentials {
+  const { storedCredentials, envAccountId } = options
+
+  return {
+    apiKey: storedCredentials.apiKey ?? storedCredentials.accessToken,
+    accountId:
+      envAccountId ??
+      storedCredentials.accountId ??
+      parseChatgptAccountId(storedCredentials.idToken) ??
+      parseChatgptAccountId(storedCredentials.accessToken),
+    source: 'secure-storage',
+  }
+}
+
+function resolveEnvOrAuthJsonCodexCredentials(
+  env: NodeJS.ProcessEnv,
+  options?: {
+    explicitAuthPathOnly?: boolean
+  },
 ): ResolvedCodexCredentials {
   const envApiKey = asTrimmedString(env.CODEX_API_KEY)
   const envAccountId =
@@ -494,55 +600,127 @@ export function resolveCodexApiCredentials(
     }
   }
 
+  const explicitAuthPathConfigured = Boolean(
+    asTrimmedString(env.CODEX_AUTH_JSON_PATH) ?? asTrimmedString(env.CODEX_HOME),
+  )
+
+  if (!explicitAuthPathConfigured && options?.explicitAuthPathOnly) {
+    return {
+      apiKey: '',
+      accountId: envAccountId,
+      source: 'none',
+    }
+  }
+
   const authPath = resolveCodexAuthPath(env)
   const authJson = loadCodexAuthJson(authPath)
-  if (!authJson) {
-    return {
-      apiKey: '',
-      authPath,
-      source: 'none',
-    }
-  }
-
-  const apiKey = readNestedString(authJson, [
-    ['access_token'],
-    ['accessToken'],
-    ['tokens', 'access_token'],
-    ['tokens', 'accessToken'],
-    ['auth', 'access_token'],
-    ['auth', 'accessToken'],
-    ['token', 'access_token'],
-    ['token', 'accessToken'],
-    ['tokens', 'id_token'],
-    ['tokens', 'idToken'],
-  ])
-  const accountId =
-    envAccountId ??
-    readNestedString(authJson, [
-      ['account_id'],
-      ['accountId'],
-      ['tokens', 'account_id'],
-      ['tokens', 'accountId'],
-      ['auth', 'account_id'],
-      ['auth', 'accountId'],
-    ]) ??
-    parseChatgptAccountId(apiKey)
-
-  if (!apiKey) {
-    return {
-      apiKey: '',
-      accountId,
-      authPath,
-      source: 'none',
-    }
-  }
-
-  return {
-    apiKey,
-    accountId,
+  return resolveCodexAuthJsonCredentials({
+    authJson,
     authPath,
-    source: 'auth.json',
+    envAccountId,
+  })
+}
+
+export function resolveRuntimeCodexCredentials(options?: {
+  env?: NodeJS.ProcessEnv
+  storedCredentials?: Pick<
+    CodexCredentialBlob,
+    'apiKey' | 'accessToken' | 'idToken' | 'accountId'
+  >
+}): ResolvedCodexCredentials {
+  const env = options?.env ?? process.env
+  const explicitCredentials = resolveEnvOrAuthJsonCodexCredentials(env, {
+    explicitAuthPathOnly: true,
+  })
+  const explicitAuthPathConfigured = Boolean(
+    asTrimmedString(env.CODEX_AUTH_JSON_PATH) ?? asTrimmedString(env.CODEX_HOME),
+  )
+  const hasStoredCredentialsOption = Boolean(
+    options &&
+      Object.prototype.hasOwnProperty.call(options, 'storedCredentials'),
+  )
+
+  if (
+    explicitAuthPathConfigured ||
+    explicitCredentials.source === 'env' ||
+    explicitCredentials.source === 'auth.json'
+  ) {
+    return explicitCredentials
   }
+
+  if (options?.storedCredentials?.accessToken) {
+    return resolveStoredCodexCredentials({
+      storedCredentials: options.storedCredentials,
+      envAccountId:
+        asTrimmedString(env.CODEX_ACCOUNT_ID) ??
+        asTrimmedString(env.CHATGPT_ACCOUNT_ID),
+    })
+  }
+
+  if (hasStoredCredentialsOption) {
+    return resolveEnvOrAuthJsonCodexCredentials(env)
+  }
+
+  return resolveCodexApiCredentials(env)
+}
+
+export function resolveCodexApiCredentials(
+  env: NodeJS.ProcessEnv = process.env,
+): ResolvedCodexCredentials {
+  const envAccountId =
+    asTrimmedString(env.CODEX_ACCOUNT_ID) ??
+    asTrimmedString(env.CHATGPT_ACCOUNT_ID)
+  const envOrExplicitAuthJsonCredentials = resolveEnvOrAuthJsonCodexCredentials(
+    env,
+    {
+      explicitAuthPathOnly: true,
+    },
+  )
+
+  if (
+    envOrExplicitAuthJsonCredentials.source === 'env' ||
+    envOrExplicitAuthJsonCredentials.source === 'auth.json' ||
+    envOrExplicitAuthJsonCredentials.authPath
+  ) {
+    return envOrExplicitAuthJsonCredentials
+  }
+
+  const storedCredentials = readCodexCredentials()
+  if (storedCredentials?.accessToken) {
+    const resolvedStoredCredentials = resolveStoredCodexCredentials({
+      storedCredentials,
+      envAccountId,
+    })
+
+    const shouldCheckDefaultAuthJson =
+      !resolvedStoredCredentials.accountId ||
+      isCodexRefreshFailureCoolingDown(storedCredentials)
+
+    if (!shouldCheckDefaultAuthJson) {
+      return resolvedStoredCredentials
+    }
+
+    const authPath = resolveCodexAuthPath(env)
+    const authJson = loadCodexAuthJson(authPath)
+    const resolvedAuthJsonCredentials = resolveCodexAuthJsonCredentials({
+      authJson,
+      authPath,
+      envAccountId,
+    })
+
+    if (resolvedAuthJsonCredentials.apiKey) {
+      return {
+        ...resolvedAuthJsonCredentials,
+        accountId:
+          resolvedAuthJsonCredentials.accountId ??
+          resolvedStoredCredentials.accountId,
+      }
+    }
+
+    return resolvedStoredCredentials
+  }
+
+  return resolveEnvOrAuthJsonCodexCredentials(env)
 }
 
 export function getReasoningEffortForModel(model: string): ReasoningEffort | undefined {
@@ -551,4 +729,19 @@ export function getReasoningEffortForModel(model: string): ReasoningEffort | und
   const alias = base as CodexAlias
   const aliasConfig = CODEX_ALIAS_MODELS[alias]
   return aliasConfig?.reasoningEffort
+}
+
+export function supportsCodexReasoningEffort(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  const base = normalized.split('?', 1)[0] ?? normalized
+
+  if (base === 'gpt-5.3-codex-spark' || base === 'codexspark') {
+    return false
+  }
+
+  if (getReasoningEffortForModel(base) !== undefined) {
+    return true
+  }
+
+  return /^gpt-5(?:[.-]|$)/.test(base)
 }
