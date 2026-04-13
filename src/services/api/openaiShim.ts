@@ -22,7 +22,12 @@
  */
 
 import { APIError } from '@anthropic-ai/sdk'
-import { isEnvTruthy } from '../../utils/envUtils.js'
+import {
+  readCodexCredentialsAsync,
+  refreshCodexAccessTokenIfNeeded,
+} from '../../utils/codexCredentials.js'
+import { logForDebugging } from '../../utils/debug.js'
+import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
@@ -44,7 +49,7 @@ import {
 } from './codexShim.js'
 import {
   isLocalProviderUrl,
-  resolveCodexApiCredentials,
+  resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   getGithubEndpointType,
 } from './providerConfig.js'
@@ -1139,7 +1144,6 @@ class OpenAIShimMessages {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
     const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
-    const isGithubCopilotEndpoint = isGithubMode && githubEndpointType === 'copilot'
 
     if (isGithubWithCodexTransport) {
       const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
@@ -1166,11 +1170,26 @@ class OpenAIShimMessages {
     }
 
     if (request.transport === 'codex_responses' && !isGithubMode) {
-      const credentials = resolveCodexApiCredentials()
+      const refreshResult = await refreshCodexAccessTokenIfNeeded().catch(
+        async error => {
+          logForDebugging(
+            `[codex] access token refresh failed before request: ${error instanceof Error ? error.message : String(error)}`,
+            { level: 'warn' },
+          )
+          return {
+            refreshed: false,
+            credentials: await readCodexCredentialsAsync(),
+          }
+        },
+      )
+      const credentials = resolveRuntimeCodexCredentials({
+        storedCredentials: refreshResult.credentials,
+      })
       if (!credentials.apiKey) {
+        const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
         const authHint = credentials.authPath
-          ? ` or place a Codex auth.json at ${credentials.authPath}`
-          : ''
+          ? `${oauthHint} or place a Codex auth.json at ${credentials.authPath}`
+          : oauthHint
         const safeModel =
           redactSecretValueForDisplay(request.requestedModel, process.env as SecretValueSource) ??
           'the requested model'
@@ -1180,7 +1199,7 @@ class OpenAIShimMessages {
       }
       if (!credentials.accountId) {
         throw new Error(
-          'Codex auth is missing chatgpt_account_id. Re-login with the Codex CLI or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.',
+          'Codex auth is missing chatgpt_account_id. Re-login with Codex OAuth, the Codex CLI, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.',
         )
       }
 

@@ -101,9 +101,9 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       <Box marginBottom={1} flexDirection="column">
         <Text color="remember" bold={true}>Set effort level</Text>
         <Text dimColor={true}>
-          {usesOpenAIEffort
-            ? `OpenAI/Codex provider (${provider})`
-            : supportsEffort
+            {supportsEffort && usesOpenAIEffort
+              ? `OpenAI/Codex provider (${provider})`
+              : supportsEffort
               ? `Claude model · ${provider} provider`
               : `Effort not supported for this model`
           }

@@ -64,8 +64,10 @@ describe("Secure Storage Platform Implementations", () => {
       windowsCredentialStorage.update(testData);
 
       const script = mockExecaSync.mock.calls[0][1][1];
+      const options = mockExecaSync.mock.calls[0][2];
       expect(script).toContain(expectedName);
-      expect(script).toContain("Add-Type -AssemblyName System.Runtime.WindowsRuntime");
+      expect(script).toContain("ProtectedData");
+      expect(options.input).toContain("secret-token");
     });
   });
 
@@ -85,31 +87,53 @@ describe("Secure Storage Platform Implementations", () => {
       windowsCredentialStorage.update(dataWithDollar);
 
       const script = mockExecaSync.mock.calls[0][1][1];
-      // Should use single quotes for the payload
-      expect(script).toMatch(/'\{.*\}'/);
-      // Should escape ' by doubling it
-      expect(script).not.toContain("'token-with-$env:USERNAME'");
-      // But since it's JSON, the value will be "token-with-$env:USERNAME" inside the single-quoted string
-      // The JSON itself shouldn't have single quotes unless the data has them.
+      const options = mockExecaSync.mock.calls[0][2];
+      expect(script).toContain("[Console]::In.ReadToEnd()");
+      expect(options.input).toContain("token-with-$env:USERNAME");
 
       const dataWithQuote = { mcpOAuth: { "s": { accessToken: "token'quote", expiresAt: 1, serverName: "s", serverUrl: "u" } } };
       windowsCredentialStorage.update(dataWithQuote);
-      const script2 = mockExecaSync.mock.calls[1][1][1];
-      expect(script2).toContain("token''quote");
+      const options2 = mockExecaSync.mock.calls[1][2];
+      expect(options2.input).toContain("token'quote");
     });
 
     test("delete() includes assembly load", () => {
       windowsCredentialStorage.delete();
-      const script = mockExecaSync.mock.calls[0][1][1];
+      const script = mockExecaSync.mock.calls[1][1][1];
       expect(script).toContain("Add-Type -AssemblyName System.Runtime.WindowsRuntime");
     });
 
     test("escapes double quotes in username", () => {
       process.env.USER = 'user"name';
       windowsCredentialStorage.read();
-      const script = mockExecaSync.mock.calls[0][1][1];
+      const script = mockExecaSync.mock.calls[1][1][1];
       expect(script).toContain('user`"name');
       expect(script).not.toContain('user"name');
+    });
+
+    test("read() falls back to legacy PasswordVault when the DPAPI payload is invalid JSON", () => {
+      mockExecaSync
+        .mockImplementationOnce(() => ({ exitCode: 0, stdout: "{not-json" }))
+        .mockImplementationOnce(() => ({
+          exitCode: 0,
+          stdout: JSON.stringify(testData),
+        }));
+
+      const result = windowsCredentialStorage.read();
+
+      expect(result).toEqual(testData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(2);
+    });
+
+    test("read() fails closed when the legacy PasswordVault payload is invalid JSON", () => {
+      mockExecaSync
+        .mockImplementationOnce(() => ({ exitCode: 1, stdout: "" }))
+        .mockImplementationOnce(() => ({ exitCode: 0, stdout: "{not-json" }));
+
+      const result = windowsCredentialStorage.read();
+
+      expect(result).toBeNull();
+      expect(mockExecaSync).toHaveBeenCalledTimes(2);
     });
   });
 

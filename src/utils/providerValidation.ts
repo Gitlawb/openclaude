@@ -6,11 +6,13 @@ import {
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
 import { getGlobalClaudeFile } from './env.js'
+import { isBareMode } from './envUtils.js'
 import {
   type GeminiResolvedCredential,
   resolveGeminiCredential,
 } from './geminiAuth.js'
-import { PROFILE_FILE_NAME, redactSecretValueForDisplay } from './providerProfile.js'
+import { PROFILE_FILE_NAME } from './providerProfile.js'
+import { redactSecretValueForDisplay } from './providerSecrets.js'
 
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
@@ -82,6 +84,7 @@ export async function getProviderValidationError(
     ) => Promise<GeminiResolvedCredential>
   },
 ): Promise<string | null> {
+  const secretSource = env
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
   const useGithub = isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)
 
@@ -131,16 +134,17 @@ export async function getProviderValidationError(
   if (request.transport === 'codex_responses') {
     const credentials = resolveCodexApiCredentials(env)
     if (!credentials.apiKey) {
+      const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
       const authHint = credentials.authPath
-        ? ` or put auth.json at ${credentials.authPath}`
-        : ''
+        ? `${oauthHint} or put auth.json at ${credentials.authPath}`
+        : oauthHint
       const safeModel =
-        redactSecretValueForDisplay(request.requestedModel, env) ??
+        redactSecretValueForDisplay(request.requestedModel, secretSource) ??
         'the requested model'
       return `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`
     }
     if (!credentials.accountId) {
-      return 'Codex auth is missing chatgpt_account_id. Re-login with Codex or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.'
+      return 'Codex auth is missing chatgpt_account_id. Re-login with Codex OAuth, Codex CLI, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.'
     }
     return null
   }
