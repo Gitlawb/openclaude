@@ -1216,19 +1216,25 @@ class OpenAIShimMessages {
 
     const isGithub = isGithubModelsMode()
     const isMistral = isMistralMode()
+    const isGemini = isGeminiMode()
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
-    if ((isGithub || isMistral) && body.max_completion_tokens !== undefined) {
+    if ((isGithub || isMistral || isGemini) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
 
-    // mistral also doesn't recognize body.store
-    if (isMistral) {
+    // mistral and gemini don't recognize body.store
+    if (isMistral || isGemini) {
       delete body.store
+    }
+
+    // gemini doesn't recognize stream_options
+    if (isGemini && body.stream_options !== undefined) {
+      delete body.stream_options
     }
 
     if (params.temperature !== undefined) body.temperature = params.temperature
@@ -1268,7 +1274,6 @@ class OpenAIShimMessages {
       ...filterAnthropicHeaders(options?.headers),
     }
 
-    const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
