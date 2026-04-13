@@ -19,30 +19,46 @@ const version = pkg.version
 // Most Anthropic-internal features stay off; open-build features can be
 // selectively enabled here when their full source exists in the mirror.
 const featureFlags: Record<string, boolean> = {
-  VOICE_MODE: false,
-  PROACTIVE: false,
-  KAIROS: false,
-  BRIDGE_MODE: false,
-  DAEMON: false,
-  AGENT_TRIGGERS: false,
-  MONITOR_TOOL: false,
-  ABLATION_BASELINE: false,
-  DUMP_SYSTEM_PROMPT: false,
-  CACHED_MICROCOMPACT: false,
-  COORDINATOR_MODE: true,
-  BUILTIN_EXPLORE_PLAN_AGENTS: true,
-  CONTEXT_COLLAPSE: false,
-  COMMIT_ATTRIBUTION: false,
-  TEAMMEM: false,
-  UDS_INBOX: false,
-  BG_SESSIONS: false,
-  AWAY_SUMMARY: false,
-  TRANSCRIPT_CLASSIFIER: false,
-  WEB_BROWSER_TOOL: false,
-  MESSAGE_ACTIONS: false,
-  BUDDY: true,
-  CHICAGO_MCP: false,
-  COWORKER_TYPE_TELEMETRY: false,
+  // ── Disabled: require Anthropic infrastructure or missing source ─────
+  VOICE_MODE: false,              // Push-to-talk STT via claude.ai OAuth endpoint
+  PROACTIVE: false,               // Autonomous agent mode (missing proactive/ module)
+  KAIROS: false,                  // Persistent assistant/session mode (cloud backend)
+  BRIDGE_MODE: false,             // Remote desktop bridge via CCR infrastructure
+  DAEMON: false,                  // Background daemon process (stubbed in open build)
+  AGENT_TRIGGERS: false,          // Scheduled remote agent triggers
+  MONITOR_TOOL: false,            // MCP server monitoring/streaming tool
+  ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
+  CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
+  COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
+  TEAMMEM: false,                 // Team memory management
+  UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
+  BG_SESSIONS: false,             // Background sessions via tmux (stubbed)
+  WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
+  CHICAGO_MCP: false,             // Computer-use MCP (native Swift modules stubbed)
+  COWORKER_TYPE_TELEMETRY: false, // Telemetry for agent/coworker type classification
+
+  // ── Enabled: upstream defaults ──────────────────────────────────────
+  COORDINATOR_MODE: true,             // Multi-agent coordinator with worker delegation
+  BUILTIN_EXPLORE_PLAN_AGENTS: true,  // Built-in Explore/Plan specialized subagents
+  BUDDY: true,                        // Buddy mode for paired programming
+
+  // ── Enabled: new activations ────────────────────────────────────────
+  DUMP_SYSTEM_PROMPT: true,           // --dump-system-prompt CLI flag for debugging
+  CACHED_MICROCOMPACT: true,          // Cache-aware tool result truncation optimization
+  AWAY_SUMMARY: true,                 // "While you were away" recap after 5min blur
+  TRANSCRIPT_CLASSIFIER: true,        // Auto-approval classifier for safe tool uses
+  MESSAGE_ACTIONS: true,              // Message action buttons in the UI
+  ULTRATHINK: true,                   // Deep thinking mode — type "ultrathink" to boost reasoning
+  TOKEN_BUDGET: true,                 // Token budget tracking with usage warnings
+  HISTORY_PICKER: true,               // Enhanced interactive prompt history picker
+  QUICK_SEARCH: true,                 // Ctrl+G quick search across prompts
+  SHOT_STATS: true,                   // Shot distribution stats in session summary
+  EXTRACT_MEMORIES: true,             // Auto-extract durable memories from conversations
+  FORK_SUBAGENT: true,                // Implicit context-forking when omitting subagent_type
+  VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
+  MCP_SKILLS: true,                   // Discover skills dynamically from MCP server resources
+  PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
+  HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts
 }
 
 // ── Pre-process: replace feature() calls with boolean literals ──────
