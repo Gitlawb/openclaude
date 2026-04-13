@@ -403,6 +403,97 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
   expect(usageEvent?.usage?.output_tokens).toBe(45)
 })
 
+test('uses max_tokens instead of max_completion_tokens for local providers', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+
+  globalThis.fetch = (async (_input, init) => {
+    const body = JSON.parse(String(init?.body))
+    expect(body.max_tokens).toBe(64)
+    expect(body.max_completion_tokens).toBeUndefined()
+    expect(body.stream_options).toBeUndefined()
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'llama3.1:8b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'hello',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 1,
+          total_tokens: 6,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'llama3.1:8b',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+})
+
+test('keeps max_completion_tokens for non-local non-github providers', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+  globalThis.fetch = (async (_input, init) => {
+    const body = JSON.parse(String(init?.body))
+    expect(body.max_completion_tokens).toBe(64)
+    expect(body.max_tokens).toBeUndefined()
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'hello',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 1,
+          total_tokens: 6,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+})
+
 test('preserves Gemini tool call extra_content in follow-up requests', async () => {
   let requestBody: Record<string, unknown> | undefined
 
@@ -689,9 +780,117 @@ test('preserves image tool results as placeholders in follow-up requests', async
 
   const toolMessage = (requestBody?.messages as Array<Record<string, unknown>>).find(
     message => message.role === 'tool',
-  ) as { content?: string } | undefined
+  ) as {
+    content?: Array<{
+      type: string
+      text?: string
+      image_url?: { url: string }
+    }> | string
+  } | undefined
 
-  expect(toolMessage?.content).toContain('[image:image/png]')
+  expect(Array.isArray(toolMessage?.content)).toBe(true)
+  const parts = toolMessage?.content as Array<{
+    type: string
+    text?: string
+    image_url?: { url: string }
+  }>
+  const imagePart = parts.find(part => part.type === 'image_url')
+  expect(imagePart?.image_url?.url).toBe('data:image/png;base64,ZmFrZQ==')
+})
+
+test('preserves mixed text and image tool results as multipart content', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Read this screenshot' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_image_2',
+            name: 'Read',
+            input: { file_path: 'C:\\temp\\screenshot.png' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_image_2',
+            content: [
+              { type: 'text', text: 'Screenshot captured' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'ZmFrZQ==',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const toolMessage = (requestBody?.messages as Array<Record<string, unknown>>).find(
+    message => message.role === 'tool',
+  ) as {
+    content?: Array<{
+      type: string
+      text?: string
+      image_url?: { url: string }
+    }>
+  } | undefined
+
+  expect(Array.isArray(toolMessage?.content)).toBe(true)
+  const parts = toolMessage?.content ?? []
+  expect(parts[0]).toEqual({ type: 'text', text: 'Screenshot captured' })
+  expect(parts[1]).toEqual({
+    type: 'image_url',
+    image_url: { url: 'data:image/png;base64,ZmFrZQ==' },
+  })
 })
 
 test('uses GEMINI_ACCESS_TOKEN for Gemini OpenAI-compatible requests', async () => {

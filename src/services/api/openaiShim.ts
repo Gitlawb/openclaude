@@ -176,35 +176,61 @@ function convertSystemPrompt(
   return String(system)
 }
 
-function convertToolResultContent(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return JSON.stringify(content ?? '')
+function convertToolResultContent(
+  content: unknown,
+  isError?: boolean,
+): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
+  if (typeof content === 'string') {
+    return isError ? `Error: ${content}` : content
+  }
+  if (!Array.isArray(content)) {
+    const text = JSON.stringify(content ?? '')
+    return isError ? `Error: ${text}` : text
+  }
 
-  const chunks: string[] = []
+  const parts: Array<{
+    type: string
+    text?: string
+    image_url?: { url: string }
+  }> = []
   for (const block of content) {
     if (block?.type === 'text' && typeof block.text === 'string') {
-      chunks.push(block.text)
+      parts.push({ type: 'text', text: block.text })
       continue
     }
 
     if (block?.type === 'image') {
       const source = block.source
       if (source?.type === 'url' && source.url) {
-        chunks.push(`[Image](${source.url})`)
-      } else if (source?.type === 'base64') {
-        chunks.push(`[image:${source.media_type ?? 'unknown'}]`)
-      } else {
-        chunks.push('[image]')
+        parts.push({ type: 'image_url', image_url: { url: source.url } })
+      } else if (source?.type === 'base64' && source.media_type && source.data) {
+        parts.push({
+          type: 'image_url',
+          image_url: {
+            url: `data:${source.media_type};base64,${source.data}`,
+          },
+        })
       }
       continue
     }
 
     if (typeof block?.text === 'string') {
-      chunks.push(block.text)
+      parts.push({ type: 'text', text: block.text })
     }
   }
 
-  return chunks.join('\n')
+  if (parts.length === 0) return ''
+  if (parts.length === 1 && parts[0].type === 'text') {
+    const text = parts[0].text ?? ''
+    return isError ? `Error: ${text}` : text
+  }
+  if (isError && parts[0]?.type === 'text') {
+    parts[0] = { ...parts[0], text: `Error: ${parts[0].text ?? ''}` }
+  } else if (isError) {
+    parts.unshift({ type: 'text', text: 'Error:' })
+  }
+
+  return parts
 }
 
 function convertContentBlocks(
@@ -292,11 +318,10 @@ function convertMessages(
 
         // Emit tool results as tool messages
         for (const tr of toolResults) {
-          const trContent = convertToolResultContent(tr.content)
           result.push({
             role: 'tool',
             tool_call_id: tr.tool_use_id ?? 'unknown',
-            content: tr.is_error ? `Error: ${trContent}` : trContent,
+            content: convertToolResultContent(tr.content, tr.is_error),
           })
         }
 
@@ -1216,12 +1241,13 @@ class OpenAIShimMessages {
 
     const isGithub = isGithubModelsMode()
     const isMistral = isMistralMode()
+    const isLocal = isLocalProviderUrl(request.baseUrl)
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
-    if ((isGithub || isMistral) && body.max_completion_tokens !== undefined) {
+    if ((isGithub || isMistral || isLocal) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
