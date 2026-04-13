@@ -645,6 +645,35 @@ async function* queryLoop(
       }
     }
 
+    // Safety net: when auto-compact's circuit breaker has tripped (3+
+    // consecutive failures), the normal blocking check above is gated on
+    // reactiveCompact. If reactiveCompact is also enabled but ALSO fails
+    // (or is disabled), the oversized context goes straight to the API and
+    // gets a 500. This check catches that gap — if compaction is exhausted
+    // and context is still over the autocompact threshold, block immediately
+    // with a clear message instead of burning an API call that will 500.
+    if (
+      tracking?.consecutiveFailures !== undefined &&
+      tracking.consecutiveFailures >= 3 &&
+      isAutoCompactEnabled()
+    ) {
+      const model = toolUseContext.options.mainLoopModel
+      const tokenUsage = tokenCountWithEstimation(messagesForQuery) - snipTokensFreed
+      const { isAboveAutoCompactThreshold } = calculateTokenWarningState(
+        tokenUsage,
+        model,
+      )
+      if (isAboveAutoCompactThreshold) {
+        yield createAssistantAPIErrorMessage({
+          content:
+            'The conversation has exceeded the context limit and automatic compaction has failed. ' +
+            'Press esc twice to go up a few messages and try again, or start a new session with /new.',
+          error: 'invalid_request',
+        })
+        return { reason: 'blocking_limit' }
+      }
+    }
+
     let attemptWithFallback = true
 
     queryCheckpoint('query_api_loop_start')
@@ -1347,6 +1376,53 @@ async function* queryLoop(
             queryChainId: queryChainIdForAnalytics,
             queryDepth: queryTracking.depth,
           })
+        }
+      }
+
+      // Continuation nudge: detect when the model signals intent to continue
+      // (e.g., "so now I have to do it", "let me now...", "I'll need to...")
+      // but returned no tool calls. This prevents premature task completion.
+      if (assistantMessages.length > 0 && turnCount < (maxTurns ?? Infinity)) {
+        const lastAssistant = assistantMessages.at(-1)
+        if (lastAssistant?.type === 'assistant') {
+          const lastText = lastAssistant.message.content
+            .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+            .map(b => b.text)
+            .join(' ')
+            .toLowerCase()
+
+          const continuationSignals = [
+            /\bso now (i|let me|we)\b/,
+            /\bnow (i'll|i need to|i should|let me|we'll)\b/,
+            /\blet me (now |go ahead|do|create|write|edit|update|fix|implement|add|run|check)\b/,
+            /\bi('ll| will| need to| should| have to| can| must) (now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up)\b/,
+            /\btime to (do|create|write|edit|update|fix|implement|add|run|check|make|build)\b/,
+            /\bnext,?\s+(i'll|let me|i need to|we should)\b/,
+          ]
+
+          if (continuationSignals.some(re => re.test(lastText))) {
+            logForDebugging(
+              `Continuation nudge triggered: model said "${lastText.slice(-120)}" without tool calls`,
+            )
+            const nudge = createUserMessage({
+              content: 'Continue with the task. Use the appropriate tools to proceed.',
+              isMeta: true,
+            })
+            const next: State = {
+              messages: [...messagesForQuery, ...assistantMessages, nudge],
+              toolUseContext,
+              autoCompactTracking: tracking,
+              maxOutputTokensRecoveryCount: 0,
+              hasAttemptedReactiveCompact: false,
+              maxOutputTokensOverride: undefined,
+              pendingToolUseSummary: undefined,
+              stopHookActive: undefined,
+              turnCount,
+              transition: { reason: 'continuation_nudge' },
+            }
+            state = next
+            continue
+          }
         }
       }
 

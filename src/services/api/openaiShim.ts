@@ -688,6 +688,37 @@ async function* openaiStreamToAnthropic(
 
   const decoder = new TextDecoder()
   let buffer = ''
+  const STREAM_IDLE_TIMEOUT_MS = 120_000 // 2 minutes without data = connection likely dead
+  let lastDataTime = Date.now()
+
+  /**
+   * Read from the stream with an idle timeout. If no data arrives within
+   * STREAM_IDLE_TIMEOUT_MS, assume the connection is dead and throw so
+   * withRetry can reconnect. This prevents indefinite hangs on stale
+   * SSE connections from OpenAI/Gemini during long-running sessions.
+   */
+  async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
+        reject(new Error(
+          `OpenAI/Gemini SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
+        ))
+      }, STREAM_IDLE_TIMEOUT_MS)
+
+      reader.read().then(
+        result => {
+          clearTimeout(timeoutId)
+          if (result.value) lastDataTime = Date.now()
+          resolve(result)
+        },
+        err => {
+          clearTimeout(timeoutId)
+          reject(err)
+        },
+      )
+    })
+  }
 
   const closeActiveContentBlock = async function* () {
     if (!hasEmittedContentStart) return
@@ -715,7 +746,7 @@ async function* openaiStreamToAnthropic(
 
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      const { done, value } = await readWithTimeout()
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })
@@ -1271,8 +1302,9 @@ class OpenAIShimMessages {
       delete body.max_completion_tokens
     }
 
-    // mistral also doesn't recognize body.store
-    if (isMistral) {
+    // mistral and gemini don't recognize body.store — Gemini returns 400
+    // "Invalid JSON payload received. Unknown name 'store': Cannot find field."
+    if (isMistral || isGeminiMode()) {
       delete body.store
     }
 

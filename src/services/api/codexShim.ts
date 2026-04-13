@@ -586,9 +586,34 @@ async function* readSseEvents(response: Response): AsyncGenerator<CodexSseEvent>
 
   const decoder = new TextDecoder()
   let buffer = ''
+  const STREAM_IDLE_TIMEOUT_MS = 120_000 // 2 minutes without data
+  let lastDataTime = Date.now()
+
+  async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
+        reject(new Error(
+          `Codex SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
+        ))
+      }, STREAM_IDLE_TIMEOUT_MS)
+
+      reader.read().then(
+        result => {
+          clearTimeout(timeoutId)
+          if (result.value) lastDataTime = Date.now()
+          resolve(result)
+        },
+        err => {
+          clearTimeout(timeoutId)
+          reject(err)
+        },
+      )
+    })
+  }
 
   while (true) {
-    const { done, value } = await reader.read()
+    const { done, value } = await readWithTimeout()
     if (done) break
 
     buffer += decoder.decode(value, { stream: true })
