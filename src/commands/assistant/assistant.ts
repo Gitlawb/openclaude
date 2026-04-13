@@ -1,8 +1,7 @@
 /**
  * /assistant command — configure and toggle assistant mode.
  *
- * Imported by commands.ts:75 when feature('KAIROS'):
- *   const assistantCommand = require('./commands/assistant/index.js').default;
+ * Imported by commands.ts:75 when feature('KAIROS').
  */
 
 import React from 'react'

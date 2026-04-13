@@ -1,9 +1,8 @@
 /**
  * Proactive mode stub for the open build.
  *
- * When KAIROS is enabled, 13+ files conditionally import this module via:
- *   const proactiveModule = feature('PROACTIVE') || feature('KAIROS')
- *     ? require('../../proactive/index.js') : null;
+ * When KAIROS is enabled, 13+ files conditionally import this module
+ * via feature('PROACTIVE') || feature('KAIROS') guards.
  *
  * All call sites use optional chaining (proactiveModule?.method()), so
  * returning safe "off" defaults is sufficient. A full implementation would

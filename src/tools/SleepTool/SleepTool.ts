@@ -2,8 +2,7 @@
  * Sleep tool — lets the model wait for a specified duration without
  * holding a shell process. The user can interrupt at any time.
  *
- * Imported by tools.ts:27 when feature('PROACTIVE') || feature('KAIROS'):
- *   const SleepTool = require('./tools/SleepTool/SleepTool.js').SleepTool;
+ * Imported by tools.ts:27 when feature('PROACTIVE') || feature('KAIROS').
  */
 
 import React from 'react'

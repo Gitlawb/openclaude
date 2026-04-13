@@ -1,8 +1,7 @@
 /**
  * /proactive command — toggles proactive autonomous mode.
  *
- * Imported by commands.ts:68 when feature('PROACTIVE') || feature('KAIROS'):
- *   const proactive = require('./commands/proactive.js').default;
+ * Imported by commands.ts:68 when feature('PROACTIVE') || feature('KAIROS').
  */
 
 import type { Command } from '../types/command.js'

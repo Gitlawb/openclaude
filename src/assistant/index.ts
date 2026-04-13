@@ -1,9 +1,7 @@
 /**
  * Assistant mode module for the open build.
  *
- * Imported by main.tsx:81 via:
- *   const assistantModule = feature('KAIROS')
- *     ? require('./assistant/index.js') : null;
+ * Imported by main.tsx:81 via feature('KAIROS') conditional load.
  *
  * Provides the core API for KAIROS assistant/daemon mode:
  * - Activation detection (settings.json or --assistant flag)
@@ -13,7 +11,7 @@
 
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
-import { getCwd } from '../utils/state.js'
+import { getCwd } from '../utils/cwd.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
 import { setCliTeammateModeOverride } from '../utils/swarm/backends/teammateModeSnapshot.js'
 import { randomUUID } from '../utils/crypto.js'
