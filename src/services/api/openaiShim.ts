@@ -819,7 +819,7 @@ async function* openaiStreamToAnthropic(
                   // Extract Gemini signature from extra_content
                   ...((tc.extra_content?.google as any)?.thought_signature
                     ? {
-                        signature: (tc.extra_content.google as any)
+                        signature: (tc.extra_content?.google as any)
                           .thought_signature,
                       }
                     : {}),
@@ -1114,7 +1114,6 @@ class OpenAIShimMessages {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
     const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
-    const isGithubCopilotEndpoint = isGithubMode && githubEndpointType === 'copilot'
 
     if (isGithubWithCodexTransport) {
       const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
@@ -1204,7 +1203,19 @@ class OpenAIShimMessages {
       ? (params as Record<string, unknown>).max_completion_tokens as number
       : undefined
 
-    if (maxTokensValue !== undefined) {
+    // OPENAI_MAX_TOKENS env var: hard override for max_tokens sent to provider.
+    // Setting a small value (e.g. 256, 128) bypasses the 8k cap from claude.ts.
+    let envMaxTokens: number | undefined
+    if (process.env.OPENAI_MAX_TOKENS) {
+      const parsed = parseInt(process.env.OPENAI_MAX_TOKENS, 10)
+      if (!isNaN(parsed) && parsed > 0) {
+        envMaxTokens = parsed
+      }
+    }
+
+    if (envMaxTokens !== undefined) {
+      body.max_tokens = envMaxTokens
+    } else if (maxTokensValue !== undefined) {
       body.max_completion_tokens = maxTokensValue
     } else if (maxCompletionTokensValue !== undefined) {
       body.max_completion_tokens = maxCompletionTokensValue
@@ -1217,22 +1228,23 @@ class OpenAIShimMessages {
     const isGithub = isGithubModelsMode()
     const isMistral = isMistralMode()
     const isGemini = isGeminiMode()
+    const isNonOpenAI = isGithub || isMistral || isGemini || !request.baseUrl.includes('api.openai.com')
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
-    if ((isGithub || isMistral || isGemini) && body.max_completion_tokens !== undefined) {
+    if (isNonOpenAI && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
 
-    // mistral and gemini don't recognize body.store
-    if (isMistral || isGemini) {
+    // Only OpenAI recognizes body.store — strip for all other providers.
+    if (isNonOpenAI) {
       delete body.store
     }
 
-    // gemini doesn't recognize stream_options
+    // Gemini doesn't recognize stream_options
     if (isGemini && body.stream_options !== undefined) {
       delete body.stream_options
     }
@@ -1534,7 +1546,7 @@ class OpenAIShimMessages {
           ...(tc.extra_content ? { extra_content: tc.extra_content } : {}),
           // Extract Gemini signature from extra_content
           ...((tc.extra_content?.google as any)?.thought_signature
-            ? { signature: (tc.extra_content.google as any).thought_signature }
+            ? { signature: (tc.extra_content?.google as any).thought_signature }
             : {}),
         })
       }
