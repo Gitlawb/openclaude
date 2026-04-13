@@ -259,6 +259,8 @@ describe('applyActiveProviderProfileFromConfig', () => {
     delete process.env.CLAUDE_CODE_USE_BEDROCK
     delete process.env.CLAUDE_CODE_USE_VERTEX
     delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
     process.env.OPENAI_MODEL = 'qwen2.5:3b'
