@@ -45,18 +45,18 @@ const featureFlags: Record<string, boolean> = {
 
   // ── Enabled: new activations ────────────────────────────────────────
   DUMP_SYSTEM_PROMPT: true,           // --dump-system-prompt CLI flag for debugging
-  CACHED_MICROCOMPACT: true,          // Cache-aware tool result truncation optimization
+  CACHED_MICROCOMPACT: false,         // DISABLED: missing cachedMCConfig.js produces truthy noop stub
   AWAY_SUMMARY: true,                 // "While you were away" recap after 5min blur
-  TRANSCRIPT_CLASSIFIER: true,        // Auto-approval classifier for safe tool uses
+  TRANSCRIPT_CLASSIFIER: false,       // DISABLED: missing VerifyPlanExecutionTool/constants.js → noop stub
   ULTRATHINK: true,                   // Deep thinking mode — type "ultrathink" to boost reasoning
   TOKEN_BUDGET: true,                 // Token budget tracking with usage warnings
   HISTORY_PICKER: true,               // Enhanced interactive prompt history picker
   QUICK_SEARCH: true,                 // Ctrl+G quick search across prompts
   SHOT_STATS: true,                   // Shot distribution stats in session summary
   EXTRACT_MEMORIES: true,             // Auto-extract durable memories from conversations
-  FORK_SUBAGENT: true,                // Implicit context-forking when omitting subagent_type
+  FORK_SUBAGENT: false,               // DISABLED: missing fork/index.js, UserForkBoilerplateMessage.js → noop stub
   VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
-  MCP_SKILLS: true,                   // Discover skills dynamically from MCP server resources
+  MCP_SKILLS: false,                  // DISABLED: missing mcpSkills.js → noop stub
   PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
   HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts
 }
