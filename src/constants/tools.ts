@@ -37,8 +37,6 @@ export const ALL_AGENT_DISALLOWED_TOOLS = new Set([
   TASK_OUTPUT_TOOL_NAME,
   EXIT_PLAN_MODE_V2_TOOL_NAME,
   ENTER_PLAN_MODE_TOOL_NAME,
-  // Allow Agent tool for agents when user is ant (enables nested agents)
-  ...(process.env.USER_TYPE === 'ant' ? [] : [AGENT_TOOL_NAME]),
   ASK_USER_QUESTION_TOOL_NAME,
   TASK_STOP_TOOL_NAME,
   // Prevent recursive workflow execution inside subagents.

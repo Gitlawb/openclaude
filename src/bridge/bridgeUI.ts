@@ -221,11 +221,6 @@ export function createBridgeLogger(options: {
       suffix += chalk.dim(' \u00b7 ') + chalk.dim(branch)
     }
 
-    if (process.env.USER_TYPE === 'ant' && debugLogPath) {
-      writeStatus(
-        `${chalk.yellow('[internal] Logs:')} ${chalk.dim(debugLogPath)}\n`,
-      )
-    }
     writeStatus(`${indicatorColor(indicator)} ${stateText}${suffix}\n`)
 
     // Session count and per-session list (multi-session mode only)
