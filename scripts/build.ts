@@ -33,7 +33,7 @@ const featureFlags: Record<string, boolean> = {
   BUILTIN_EXPLORE_PLAN_AGENTS: true,
   CONTEXT_COLLAPSE: false,
   COMMIT_ATTRIBUTION: false,
-  TEAMMEM: false,
+  TEAMMEM: true,
   UDS_INBOX: false,
   BG_SESSIONS: false,
   AWAY_SUMMARY: false,
