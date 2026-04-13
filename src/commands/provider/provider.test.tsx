@@ -264,7 +264,7 @@ test('buildCurrentProviderSummary labels generic local openai-compatible provide
   expect(summary.endpointLabel).toBe('http://127.0.0.1:8080/v1')
 })
 
-test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Codex', () => {
+test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Codex when custom base URL is set', () => {
   const summary = buildCurrentProviderSummary({
     processEnv: {
       CLAUDE_CODE_USE_OPENAI: '1',

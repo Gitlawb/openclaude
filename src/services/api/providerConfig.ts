@@ -60,6 +60,8 @@ const CODEX_ALIAS_MODELS: Record<
 type CodexAlias = keyof typeof CODEX_ALIAS_MODELS
 type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
+const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
+
 export type ProviderTransport = 'chat_completions' | 'codex_responses'
 
 export type ResolvedProviderRequest = {
@@ -220,6 +222,12 @@ export function isCodexAlias(model: string): boolean {
   return base in CODEX_ALIAS_MODELS
 }
 
+function isOpenAICodexShortcutAlias(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  const base = normalized.split('?', 1)[0] ?? normalized
+  return OPENAI_CODEX_SHORTCUT_ALIASES.has(base)
+}
+
 export function shouldUseCodexTransport(
   model: string,
   baseUrl: string | undefined,
@@ -367,12 +375,40 @@ export function resolveProviderRequest(options?: {
     options?.fallbackModel?.trim() ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
-  const rawBaseUrl =
-    asEnvUrl(options?.baseUrl) ??
+  const explicitBaseUrl = asEnvUrl(options?.baseUrl)
+  const envBaseUrlRaw =
+    explicitBaseUrl ??
     asEnvUrl(
-      isMistralMode ? (process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL) : process.env.OPENAI_BASE_URL,
+      isMistralMode
+        ? (process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL)
+        : process.env.OPENAI_BASE_URL
     ) ??
     asEnvUrl(process.env.OPENAI_API_BASE)
+
+  const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
+  const envBaseUrl =
+    isCodexModelForGithub && envBaseUrlRaw && getGithubEndpointType(envBaseUrlRaw) === 'custom'
+      ? undefined
+      : envBaseUrlRaw
+
+  const rawBaseUrl = explicitBaseUrl ?? envBaseUrl
+
+  const shellModel = process.env.OPENAI_MODEL?.trim() ?? ''
+  const envIsCodexShortcut = isOpenAICodexShortcutAlias(shellModel)
+  const envResolvedCodexModel = envIsCodexShortcut
+    ? parseModelDescriptor(shellModel).baseModel
+    : null
+  const requestedMatchesEnvCodexShortcut =
+    Boolean(options?.model) &&
+    Boolean(envResolvedCodexModel) &&
+    descriptor.baseModel === envResolvedCodexModel
+  const isCodexAliasModel =
+    isOpenAICodexShortcutAlias(requestedModel) || requestedMatchesEnvCodexShortcut
+  const hasUserSetBaseUrl = rawBaseUrl && rawBaseUrl !== DEFAULT_OPENAI_BASE_URL
+  const finalBaseUrl =
+    !isGithubMode && isCodexAliasModel && !hasUserSetBaseUrl
+      ? DEFAULT_CODEX_BASE_URL
+      : rawBaseUrl
 
   const githubEndpointType = isGithubMode
     ? getGithubEndpointType(rawBaseUrl)
@@ -386,7 +422,7 @@ export function resolveProviderRequest(options?: {
     : requestedModel
 
   const transport: ProviderTransport =
-    shouldUseCodexTransport(requestedModel, rawBaseUrl) ||
+    shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
       : 'chat_completions'
@@ -410,7 +446,7 @@ export function resolveProviderRequest(options?: {
     requestedModel,
     resolvedModel,
     baseUrl:
-      (rawBaseUrl ??
+      (finalBaseUrl ??
         (isGithubCopilot && transport === 'codex_responses'
           ? GITHUB_COPILOT_BASE_URL
           : (isGithubMode

@@ -18,6 +18,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  OPENAI_MODEL: process.env.OPENAI_MODEL,
 }
 
 afterEach(() => {
@@ -29,6 +30,9 @@ afterEach(() => {
 
   if (originalEnv.CLAUDE_CODE_USE_GITHUB === undefined) delete process.env.CLAUDE_CODE_USE_GITHUB
   else process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
+
+  if (originalEnv.OPENAI_MODEL === undefined) delete process.env.OPENAI_MODEL
+  else process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
 
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()
@@ -84,6 +88,18 @@ describe('Codex provider config', () => {
     expect(resolved.transport).toBe('codex_responses')
     expect(resolved.resolvedModel).toBe('gpt-5.4')
     expect(resolved.reasoning).toEqual({ effort: 'high' })
+    expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
+  })
+
+  test('resolves codexspark alias to Codex transport with Codex base URL', () => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+
+    const resolved = resolveProviderRequest({ model: 'codexspark' })
+    expect(resolved.transport).toBe('codex_responses')
+    expect(resolved.resolvedModel).toBe('gpt-5.3-codex-spark')
+    expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
 
   test('does not force Codex transport when a local non-Codex base URL is explicit', () => {
@@ -116,6 +132,37 @@ describe('Codex provider config', () => {
     const resolved = resolveProviderRequest({ model: 'codexplan', baseUrl: 'https://chatgpt.com/backend-api/codex' })
     expect(resolved.transport).toBe('codex_responses')
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
+  })
+
+  test('default gpt-4o uses OpenAI base URL (no regression)', () => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+
+    const resolved = resolveProviderRequest({ model: 'gpt-4o' })
+    expect(resolved.transport).toBe('chat_completions')
+    expect(resolved.baseUrl).toBe('https://api.openai.com/v1')
+    expect(resolved.resolvedModel).toBe('gpt-4o')
+  })
+
+  test('resolves codexplan from env var OPENAI_MODEL to Codex endpoint', () => {
+    process.env.OPENAI_MODEL = 'codexplan'
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+
+    const resolved = resolveProviderRequest()
+    expect(resolved.transport).toBe('codex_responses')
+    expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
+    expect(resolved.resolvedModel).toBe('gpt-5.4')
+  })
+
+  test('does not override custom base URL for codexplan (e.g., local provider)', () => {
+    process.env.OPENAI_MODEL = 'codexplan'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+
+    const resolved = resolveProviderRequest()
+    expect(resolved.transport).toBe('chat_completions')
+    expect(resolved.baseUrl).toBe('http://localhost:11434/v1')
   })
 
   test('loads Codex credentials from auth.json fallback', () => {
