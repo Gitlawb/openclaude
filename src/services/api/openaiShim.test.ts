@@ -7,11 +7,16 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  OPENAI_MAX_TOKENS: process.env.OPENAI_MAX_TOKENS,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
+  MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
+  MISTRAL_BASE_URL: process.env.MISTRAL_BASE_URL,
+  MISTRAL_MODEL: process.env.MISTRAL_MODEL,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
@@ -75,11 +80,16 @@ beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_MAX_TOKENS
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.GITHUB_TOKEN
   delete process.env.GH_TOKEN
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.MISTRAL_API_KEY
+  delete process.env.MISTRAL_BASE_URL
+  delete process.env.MISTRAL_MODEL
   delete process.env.GEMINI_API_KEY
   delete process.env.GOOGLE_API_KEY
   delete process.env.GEMINI_ACCESS_TOKEN
@@ -94,11 +104,16 @@ afterEach(() => {
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('OPENAI_MAX_TOKENS', originalEnv.OPENAI_MAX_TOKENS)
   restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
   restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
   restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+  restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
+  restoreEnv('MISTRAL_API_KEY', originalEnv.MISTRAL_API_KEY)
+  restoreEnv('MISTRAL_BASE_URL', originalEnv.MISTRAL_BASE_URL)
+  restoreEnv('MISTRAL_MODEL', originalEnv.MISTRAL_MODEL)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
   restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
@@ -2575,4 +2590,356 @@ test('streaming: strips leaked reasoning preamble when split across multiple con
   }
 
   expect(textDeltas).toEqual(['Hey! How can I help you today?'])
+})
+
+// ---------------------------------------------------------------------------
+// OPENAI_MAX_TOKENS env var: bypasses 8k cap with raw token count
+// ---------------------------------------------------------------------------
+test('OPENAI_MAX_TOKENS overrides max_tokens in request body', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.OPENAI_MAX_TOKENS = '256000'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 8000,
+    stream: false,
+  })
+
+  expect(capturedBody?.max_tokens).toBe(256000)
+  expect(capturedBody?.max_completion_tokens).toBeUndefined()
+})
+
+test('OPENAI_MAX_TOKENS ignored when not set', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  delete process.env.OPENAI_MAX_TOKENS
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-test'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 8000,
+    stream: false,
+  })
+
+  expect(capturedBody?.max_completion_tokens).toBe(8000)
+  expect(capturedBody?.max_tokens).toBeUndefined()
+})
+
+test('OPENAI_MAX_TOKENS=128 sets 128 tokens (raw count)', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.OPENAI_MAX_TOKENS = '128'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 8000,
+    stream: false,
+  })
+
+  expect(capturedBody?.max_tokens).toBe(128)
+})
+
+// ---------------------------------------------------------------------------
+// store field: stripped for non-OpenAI providers, kept for OpenAI
+// ---------------------------------------------------------------------------
+test('strips store field for Gemini provider', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_API_KEY = 'test-gemini-key'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-gemini',
+        model: 'gemini-2.0-flash',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gemini-2.0-flash',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedBody?.store).toBeUndefined()
+})
+
+test('strips store field for Ollama/local provider', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_API_KEY = ''
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'llama3',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'llama3',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedBody?.store).toBeUndefined()
+})
+
+test('strips store field for Mistral provider', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_MISTRAL = '1'
+  process.env.MISTRAL_API_KEY = 'test-mistral-key'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'mistral-large',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'mistral-large',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedBody?.store).toBeUndefined()
+})
+
+// ---------------------------------------------------------------------------
+// max_completion_tokens → max_tokens conversion for non-OpenAI providers
+// ---------------------------------------------------------------------------
+test('converts max_completion_tokens to max_tokens for Gemini', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_API_KEY = 'test-gemini-key'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-gemini',
+        model: 'gemini-2.0-flash',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gemini-2.0-flash',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 1024,
+    stream: false,
+  })
+
+  expect(capturedBody?.max_tokens).toBe(1024)
+  expect(capturedBody?.max_completion_tokens).toBeUndefined()
+})
+
+test('uses max_completion_tokens for OpenAI endpoint', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-test'
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 1024,
+    stream: false,
+  })
+
+  expect(capturedBody?.max_completion_tokens).toBe(1024)
+  expect(capturedBody?.max_tokens).toBeUndefined()
+  expect(capturedBody?.store).toBe(false)
+})
+
+// ---------------------------------------------------------------------------
+// stream_options: stripped for Gemini, kept for OpenAI
+// ---------------------------------------------------------------------------
+test('strips stream_options for Gemini streaming', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.GEMINI_API_KEY = 'test-gemini-key'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return makeSseResponse(
+      makeStreamChunks([
+        {
+          id: 'chatcmpl-gemini',
+          model: 'gemini-2.0-flash',
+          choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }],
+        },
+        {
+          id: 'chatcmpl-gemini',
+          model: 'gemini-2.0-flash',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+        },
+      ]),
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create(
+    {
+      model: 'gemini-2.0-flash',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    },
+  ).withResponse()
+
+  for await (const _event of result.data) { /* drain */ }
+
+  expect(capturedBody?.stream_options).toBeUndefined()
+  expect(capturedBody?.store).toBeUndefined()
+})
+
+// ---------------------------------------------------------------------------
+// OPENAI_MAX_TOKENS with streaming
+// ---------------------------------------------------------------------------
+test('OPENAI_MAX_TOKENS works with streaming requests', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  process.env.OPENAI_MAX_TOKENS = '512000'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(init?.body as string)
+    return makeSseResponse(
+      makeStreamChunks([
+        {
+          id: 'chatcmpl-1',
+          model: 'gpt-4o',
+          choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }],
+        },
+        {
+          id: 'chatcmpl-1',
+          model: 'gpt-4o',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+        },
+      ]),
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create(
+    {
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 8000,
+      stream: true,
+    },
+  ).withResponse()
+
+  for await (const _event of result.data) { /* drain */ }
+
+  expect(capturedBody?.max_tokens).toBe(512000)
+  expect(capturedBody?.max_completion_tokens).toBeUndefined()
 })
