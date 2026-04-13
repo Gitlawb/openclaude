@@ -81,15 +81,16 @@ export function getAttributionTexts(): AttributionTexts {
     '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
   const apiProvider = getAPIProvider()
   const modelContainsQwen = model.toString().toLowerCase().includes('qwen')
-  const coAuthorDomain =
-    apiProvider === 'firstParty' ? 'anthropic.com' :
-    apiProvider === 'qwen' || modelContainsQwen ? 'alibabacloud.com' :
-    'openclaude.dev'
+  const isQwen = apiProvider === 'qwen' || modelContainsQwen
+  const coAuthorEmail =
+    apiProvider === 'firstParty' ? 'noreply@anthropic.com' :
+    isQwen ? 'qwen-coder@alibabacloud.com' :
+    'noreply@openclaude.dev'
   const defaultCommit = isEnvTruthy(
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
   )
     ? ''
-    : `Co-Authored-By: ${modelName} <noreply@${coAuthorDomain}>`
+    : `Co-Authored-By: ${modelName} <${coAuthorEmail}>`
 
   const settings = getInitialSettings()
 
