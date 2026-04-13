@@ -355,8 +355,35 @@ test('gemini profiles accept google api key fallback', () => {
   })
 
   assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'api-key',
     GEMINI_MODEL: 'gemini-2.0-flash',
     GEMINI_API_KEY: 'gem-live',
+  })
+})
+
+test('gemini profiles support access-token auth mode without persisting a key', () => {
+  const env = buildGeminiProfileEnv({
+    authMode: 'access-token',
+    model: 'gemini-2.5-flash',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'access-token',
+    GEMINI_MODEL: 'gemini-2.5-flash',
+  })
+})
+
+test('gemini profiles support adc auth mode without persisting a key', () => {
+  const env = buildGeminiProfileEnv({
+    authMode: 'adc',
+    model: 'gemini-2.5-flash',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'adc',
+    GEMINI_MODEL: 'gemini-2.5-flash',
   })
 })
 
@@ -405,6 +432,39 @@ test('buildStartupEnvFromProfile applies persisted gemini settings when no provi
   assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
 })
 
+test('buildStartupEnvFromProfile rehydrates stored Gemini access token for access-token profile mode', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('gemini', {
+      GEMINI_AUTH_MODE: 'access-token',
+      GEMINI_MODEL: 'gemini-2.5-flash',
+    }),
+    processEnv: {},
+    readGeminiAccessToken: () => 'token-live',
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.GEMINI_AUTH_MODE, 'access-token')
+  assert.equal(env.GEMINI_ACCESS_TOKEN, 'token-live')
+  assert.equal(env.GEMINI_API_KEY, undefined)
+  assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
+})
+
+test('buildStartupEnvFromProfile does not inject stored access token for adc profile mode', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('gemini', {
+      GEMINI_AUTH_MODE: 'adc',
+      GEMINI_MODEL: 'gemini-2.5-flash',
+    }),
+    processEnv: {},
+    readGeminiAccessToken: () => 'token-live',
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.GEMINI_AUTH_MODE, 'adc')
+  assert.equal(env.GEMINI_ACCESS_TOKEN, undefined)
+  assert.equal(env.GEMINI_API_KEY, undefined)
+})
+
 test('buildStartupEnvFromProfile leaves explicit provider selections untouched', async () => {
   const processEnv = {
     CLAUDE_CODE_USE_GEMINI: '1',
@@ -423,6 +483,33 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
   assert.equal(env, processEnv)
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
   assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
+test('buildStartupEnvFromProfile lets saved startup profile override profile-managed env', async () => {
+  const processEnv = {
+    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
+    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: 'saved_ollama',
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_BASE_URL: 'http://localhost:11434/v1',
+    OPENAI_MODEL: 'llama3.1:8b',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-persisted',
+      OPENAI_MODEL: 'Meta-Llama-3.1-70B-Instruct',
+      OPENAI_BASE_URL: 'https://api.sambanova.ai/v1',
+    }),
+    processEnv,
+  })
+
+  assert.notEqual(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_API_KEY, 'sk-persisted')
+  assert.equal(env.OPENAI_MODEL, 'Meta-Llama-3.1-70B-Instruct')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.sambanova.ai/v1')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED, undefined)
+  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, undefined)
 })
 
 test('buildStartupEnvFromProfile treats explicit falsey provider flags as user intent', async () => {

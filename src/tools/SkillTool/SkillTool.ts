@@ -352,6 +352,16 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
   toAutoClassifierInput: ({ skill }) => skill ?? '',
 
   async validateInput({ skill }, context): Promise<ValidationResult> {
+    if (!skill || typeof skill !== 'string') {
+      return {
+        result: false,
+        message:
+          'Missing skill name. Pass the slash command name as the skill parameter ' +
+          '(e.g., skill: "commit" for /commit, skill: "review-pr" for /review-pr).',
+        errorCode: 1,
+      }
+    }
+
     // Skills are just skill names, no arguments
     const trimmed = skill.trim()
     if (!trimmed) {
@@ -371,7 +381,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       ? trimmed.substring(1)
       : trimmed
 
-    // Remote canonical skill handling (ant-only experimental). Intercept
+    // Remote canonical skill handling (internal-only experimental). Intercept
     // `_canonical_<slug>` names before local command lookup since remote
     // skills are not in the local command registry.
     if (
@@ -434,7 +444,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     context,
   ): Promise<PermissionDecision> {
     // Skills are just skill names, no arguments
-    const trimmed = skill.trim()
+    const trimmed = skill ?? ''
 
     // Remove leading slash if present (for compatibility)
     const commandName = trimmed.startsWith('/') ? trimmed.substring(1) : trimmed
@@ -485,7 +495,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       }
     }
 
-    // Remote canonical skills are ant-only experimental — auto-grant.
+    // Remote canonical skills are internal-only experimental — auto-grant.
     // Placed AFTER the deny loop so a user-configured Skill(_canonical_:*)
     // deny rule is honored (same pattern as safe-properties auto-allow below).
     // The skill content itself is canonical/curated, not user-authored.
@@ -592,12 +602,12 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     // - Skill is a prompt-based skill
 
     // Skills are just names, with optional arguments
-    const trimmed = skill.trim()
+    const trimmed = skill ?? ''
 
     // Remove leading slash if present (for compatibility)
     const commandName = trimmed.startsWith('/') ? trimmed.substring(1) : trimmed
 
-    // Remote canonical skill execution (ant-only experimental). Intercepts
+    // Remote canonical skill execution (internal-only experimental). Intercepts
     // `_canonical_<slug>` before local command lookup — loads SKILL.md from
     // AKI/GCS (with local cache), injects content directly as a user message.
     // Remote skills are declarative markdown so no slash-command expansion

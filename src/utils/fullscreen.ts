@@ -107,7 +107,7 @@ export function _resetTmuxControlModeProbeForTesting(): void {
 
 /**
  * Whether fullscreen (flicker-free) mode is enabled. Env var takes highest
- * precedence, then the `flickerFreeMode` config setting, then the ant-only
+ * precedence, then the `flickerFreeMode` config setting, then the internal-only
  * default. External users can enable via `/config` instead of setting the env.
  *
  * Priority order:

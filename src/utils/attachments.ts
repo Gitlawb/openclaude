@@ -1,4 +1,4 @@
-// biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
+// biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import {
   logEvent,
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -250,6 +250,7 @@ import { isInProcessTeammate } from './teammateContext.js'
 import { removeTeammateFromTeamFile } from './swarm/teamHelpers.js'
 import { unassignTeammateTasks } from './tasks.js'
 import { getCompanionIntroAttachment } from '../buddy/prompt.js'
+import { isBuddyEnabled } from '../buddy/feature.js'
 
 export const TODO_REMINDER_CONFIG = {
   TURNS_SINCE_WRITE: 10,
@@ -861,10 +862,10 @@ export async function getAttachments(
         ),
       ),
     ),
-    ...(feature('BUDDY')
-      ? [
-          maybe('companion_intro', () =>
-            Promise.resolve(getCompanionIntroAttachment(messages)),
+    ...(isBuddyEnabled()
+        ? [
+            maybe('companion_intro', () =>
+              Promise.resolve(getCompanionIntroAttachment(messages)),
           ),
         ]
       : []),
@@ -2641,7 +2642,7 @@ let suppressNext = false
 const FILTERED_LISTING_MAX = 30
 
 /**
- * Filter skills to bundled (Anthropic-curated) + MCP (user-connected) only.
+ * Filter skills to bundled + MCP (user-connected) only.
  * Used when skill-search is enabled to resolve the turn-0 gap for subagents:
  * these sources are small, intent-signaled, and won't hit the truncation budget.
  * User/project/plugin skills (the long tail — 200+) go through discovery instead.
@@ -2792,11 +2793,30 @@ export function extractAtMentionedFiles(content: string): string[] {
 export function extractMcpResourceMentions(content: string): string[] {
   // Extract MCP resources mentioned with @ symbol in format @server:uri
   // Example: "@server1:resource/path" would extract "server1:resource/path"
-  const atMentionRegex = /(^|\s)@([^\s]+:[^\s]+)\b/g
+  //
+  // Two guards against Windows-path / quoted-file collisions (see
+  // `attachments.extractors.test.ts`):
+  //
+  // 1. `(?!")` right after `@` drops quoted tokens entirely. The earlier
+  //    form (without the lookahead and with `[^\s]` character classes)
+  //    backtracked past the closing `"` at the `\b` anchor and produced
+  //    ghost matches like `"C:\Users\...\file.txt` for any quoted file
+  //    mention containing a colon.
+  // 2. The `"` added to the character classes is belt-and-braces: even
+  //    if the lookahead were later removed or bypassed, the engine can
+  //    no longer consume a quote character mid-match.
+  const atMentionRegex = /(^|\s)@(?!")([^\s"]+:[^\s"]+)\b/g
   const matches = content.match(atMentionRegex) || []
 
-  // Remove the prefix (everything before @) from each match
-  return uniq(matches.map(match => match.slice(match.indexOf('@') + 1)))
+  return uniq(
+    matches
+      .map(match => match.slice(match.indexOf('@') + 1))
+      // Post-match filter: a single-letter "server" followed by `:\` or
+      // `:/` is always a Windows drive-letter prefix, never a real MCP
+      // resource. This covers the unquoted `@C:\Users\...` case that
+      // the regex alone cannot disambiguate from `@server:resource`.
+      .filter(m => !/^[A-Za-z]:[\\/]/.test(m)),
+  )
 }
 
 export function extractAgentMentions(content: string): string[] {

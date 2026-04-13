@@ -8,6 +8,7 @@ import { queryHaiku } from '../../services/api/claude.js'
 import { AbortError } from '../../utils/errors.js'
 import { getWebFetchUserAgent } from '../../utils/http.js'
 import { logError } from '../../utils/log.js'
+import { getAPIProvider } from '../../utils/model/providers.js'
 import {
   isBinaryContentType,
   persistBinaryContent,
@@ -176,6 +177,11 @@ type DomainCheckResult =
 export async function checkDomainBlocklist(
   domain: string,
 ): Promise<DomainCheckResult> {
+  // Third-party providers should not consult the first-party domain policy.
+  if (getAPIProvider() !== 'firstParty') {
+    return { status: 'allowed' }
+  }
+
   if (DOMAIN_CHECK_CACHE.has(domain)) {
     return { status: 'allowed' }
   }

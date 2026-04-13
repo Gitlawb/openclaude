@@ -17,7 +17,7 @@ import { jsonStringify } from '../utils/slowOperations.js'
  *
  * Bridge sessions have SecurityTier=ELEVATED on the server (CCR v2).
  * The server gates ConnectBridgeWorker on its own flag
- * (sessions_elevated_auth_enforcement in Anthropic Main); this CLI-side
+ * (sessions_elevated_auth_enforcement in the server-side main deployment); this CLI-side
  * flag controls whether the CLI sends X-Trusted-Device-Token at all.
  * Two flags so rollout can be staged: flip CLI-side first (headers
  * start flowing, server still no-ops), then flip server-side.

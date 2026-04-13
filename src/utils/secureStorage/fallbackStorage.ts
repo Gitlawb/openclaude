@@ -1,4 +1,4 @@
-import type { SecureStorage, SecureStorageData } from './types.js'
+import type { SecureStorage, SecureStorageData } from './index.js'
 
 /**
  * Creates a fallback storage that tries to use the primary storage first,

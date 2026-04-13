@@ -1,4 +1,4 @@
-// biome-ignore-all assist/source/organizeImports: ANT-ONLY import markers must not be reordered
+// biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { CONTEXT_1M_BETA_HEADER } from '../constants/betas.js'
 import { getGlobalConfig } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -8,6 +8,11 @@ import { getOpenAIContextWindow, getOpenAIMaxOutputTokens } from './model/openai
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
+
+// Fallback context window for unknown 3P models. Must be large enough that
+// the effective context (this minus output token reservation) stays positive,
+// otherwise auto-compact fires on every message (issue #635).
+export const OPENAI_FALLBACK_CONTEXT_WINDOW = 128_000
 
 // Maximum output tokens for compact operations
 export const COMPACT_MAX_OUTPUT_TOKENS = 20_000
@@ -53,7 +58,7 @@ export function getContextWindowForModel(
   model: string,
   betas?: string[],
 ): number {
-  // Allow override via environment variable (ant-only)
+  // Allow override via environment variable (internal-only)
   // This takes precedence over all other context window resolution, including 1M detection,
   // so users can cap the effective context window for local decisions (auto-compact, etc.)
   // while still using a 1M-capable endpoint.
@@ -72,16 +77,25 @@ export function getContextWindowForModel(
     return 1_000_000
   }
 
-  // OpenAI-compatible provider — use known context windows for the model
-  if (
+  // OpenAI-compatible provider — use known context windows for the model.
+  // Unknown models get a conservative 128k default. This was previously 8k,
+  // but that caused auto-compact to fire on every turn because the effective
+  // context (8k minus output reservation) became negative (issue #635).
+  const isOpenAIProvider =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-  ) {
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  if (isOpenAIProvider) {
     const openaiWindow = getOpenAIContextWindow(model)
     if (openaiWindow !== undefined) {
       return openaiWindow
     }
+    console.error(
+      `[context] Warning: model "${model}" not in context window table — using conservative 128k default. ` +
+      'Add it to src/utils/model/openaiContextWindows.ts for accurate compaction.',
+    )
+    return OPENAI_FALLBACK_CONTEXT_WINDOW
   }
 
   const cap = getModelCapability(model)
@@ -179,7 +193,8 @@ export function getModelMaxOutputTokens(model: string): {
   if (
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   ) {
     const openaiMax = getOpenAIMaxOutputTokens(model)
     if (openaiMax !== undefined) {

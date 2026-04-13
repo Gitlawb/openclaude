@@ -19,6 +19,7 @@ import {
   getSettings_DEPRECATED,
   getSettingsFilePathForSource,
   getUseAutoModeDuringPlan,
+  hasAllowBypassPermissionsMode,
   hasAutoModeOptIn,
 } from '../settings/settings.js'
 import {
@@ -936,9 +937,11 @@ export async function initializeToolPermissionContext({
   const settings = getSettings_DEPRECATED() || {}
   const settingsDisableBypassPermissionsMode =
     settings.permissions?.disableBypassPermissionsMode === 'disable'
+  const settingsAllowBypassPermissionsMode = hasAllowBypassPermissionsMode()
   const isBypassPermissionsModeAvailable =
     (permissionMode === 'bypassPermissions' ||
-      allowDangerouslySkipPermissions) &&
+      allowDangerouslySkipPermissions ||
+      settingsAllowBypassPermissionsMode) &&
     !growthBookDisableBypassPermissionsMode &&
     !settingsDisableBypassPermissionsMode
 
@@ -1059,9 +1062,7 @@ export function getAutoModeUnavailableNotification(
       base = 'auto mode unavailable for this model'
       break
   }
-  return process.env.USER_TYPE === 'ant'
-    ? `${base} · #claude-code-feedback`
-    : base
+  return base
 }
 
 /**

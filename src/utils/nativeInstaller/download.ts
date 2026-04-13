@@ -25,11 +25,14 @@ import { getBinaryName, getPlatform } from './installer.js'
 const GCS_BUCKET_URL =
   'https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases'
 export const ARTIFACTORY_REGISTRY_URL =
-  'https://artifactory.infra.ant.dev/artifactory/api/npm/npm-all/'
+  process.env.CLAUDE_CODE_INTERNAL_ARTIFACTORY_REGISTRY_URL ?? ''
 
 export async function getLatestVersionFromArtifactory(
   tag: string = 'latest',
 ): Promise<string> {
+  if (!ARTIFACTORY_REGISTRY_URL) {
+    throw new Error('Internal artifactory registry URL is not configured')
+  }
   const startTime = Date.now()
   const { stdout, code, stderr } = await execFileNoThrowWithCwd(
     'npm',
@@ -152,6 +155,9 @@ export async function downloadVersionFromArtifactory(
   version: string,
   stagingPath: string,
 ) {
+  if (!ARTIFACTORY_REGISTRY_URL) {
+    throw new Error('Internal artifactory registry URL is not configured')
+  }
   const fs = getFsImplementation()
 
   // If we get here, we own the lock and can delete a partial download
