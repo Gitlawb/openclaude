@@ -69,6 +69,12 @@ export const PermissionsSchema = lazySchema(() =>
         .enum(['disable'])
         .optional()
         .describe('Disable the ability to bypass permission prompts'),
+      allowBypassPermissionsMode: z
+        .boolean()
+        .optional()
+        .describe(
+          'Allow bypass permissions mode to appear in the mode list without requiring the CLI flag',
+        ),
       ...(feature('TRANSCRIPT_CLASSIFIER')
         ? {
             disableAutoMode: z

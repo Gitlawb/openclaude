@@ -437,7 +437,7 @@ export function applyActiveProviderProfileFromConfig(
     processEnv[PROFILE_ENV_APPLIED_FLAG] === '1' &&
     trimOrUndefined(processEnv[PROFILE_ENV_APPLIED_ID]) === activeProfile.id
 
-  if (!options?.force && hasProviderSelectionFlags(processEnv)) {
+  if (!options?.force && (hasProviderSelectionFlags(processEnv) || processEnv[PROFILE_ENV_APPLIED_FLAG] === '1')) {
     // Respect explicit startup provider intent. Auto-heal only when this
     // exact active profile previously applied the current env.
     if (!isCurrentEnvProfileManaged) {

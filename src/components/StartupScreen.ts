@@ -121,10 +121,10 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
       name = 'NVIDIA NIM'
     else if (/minimax/i.test(baseUrl) || /minimax/i.test(rawModel) || process.env.MINIMAX_API_KEY)
       name = 'MiniMax'
-    else if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))
-      name = 'DeepSeek'
     else if (resolvedRequest.transport === 'codex_responses' || baseUrl.includes('chatgpt.com/backend-api/codex'))
       name = 'Codex'
+    else if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))
+      name = 'DeepSeek'
     else if (/openrouter/i.test(baseUrl))
       name = 'OpenRouter'
     else if (/together/i.test(baseUrl))

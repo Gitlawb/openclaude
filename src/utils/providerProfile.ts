@@ -48,6 +48,7 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_MODEL',
   'OPENAI_API_KEY',
   'CODEX_API_KEY',
+  'CODEX_CREDENTIAL_SOURCE',
   'CHATGPT_ACCOUNT_ID',
   'CODEX_ACCOUNT_ID',
   'GEMINI_API_KEY',
@@ -84,6 +85,7 @@ export type ProfileEnv = {
   OPENAI_MODEL?: string
   OPENAI_API_KEY?: string
   CODEX_API_KEY?: string
+  CODEX_CREDENTIAL_SOURCE?: 'oauth' | 'existing'
   CHATGPT_ACCOUNT_ID?: string
   CODEX_ACCOUNT_ID?: string
   GEMINI_API_KEY?: string
@@ -322,6 +324,7 @@ export function buildCodexProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
+  credentialSource?: 'oauth' | 'existing'
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
@@ -333,10 +336,14 @@ export function buildCodexProfileEnv(options: {
   if (!credentials.apiKey || !credentials.accountId) {
     return null
   }
+  const credentialSource =
+    options.credentialSource ??
+    (credentials.source === 'secure-storage' ? 'oauth' : 'existing')
 
   const env: ProfileEnv = {
     OPENAI_BASE_URL: options.baseUrl || DEFAULT_CODEX_BASE_URL,
     OPENAI_MODEL: options.model || 'codexplan',
+    CODEX_CREDENTIAL_SOURCE: credentialSource,
   }
 
   if (key) {
@@ -384,6 +391,30 @@ export function buildMistralProfileEnv(options: {
   return env
 }
 
+export function buildCodexOAuthProfileEnv(
+  tokens: {
+    accessToken: string
+    idToken?: string
+    accountId?: string
+  },
+): ProfileEnv | null {
+  const accountId =
+    tokens.accountId ??
+    parseChatgptAccountId(tokens.idToken) ??
+    parseChatgptAccountId(tokens.accessToken)
+
+  if (!accountId) {
+    return null
+  }
+
+  return {
+    OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+    OPENAI_MODEL: 'codexplan',
+    CHATGPT_ACCOUNT_ID: accountId,
+    CODEX_CREDENTIAL_SOURCE: 'oauth',
+  }
+}
+
 export function createProfileFile(
   profile: ProviderProfile,
   env: ProfileEnv,
@@ -393,6 +424,26 @@ export function createProfileFile(
     env,
     createdAt: new Date().toISOString(),
   }
+}
+
+export function isPersistedCodexOAuthProfile(
+  persisted: ProfileFile | null,
+): boolean {
+  return (
+    persisted?.profile === 'codex' &&
+    persisted.env.CODEX_CREDENTIAL_SOURCE === 'oauth'
+  )
+}
+
+export function clearPersistedCodexOAuthProfile(
+  options?: ProfileFileLocation,
+): string | null {
+  const persisted = loadProfileFile(options)
+  if (!isPersistedCodexOAuthProfile(persisted)) {
+    return null
+  }
+
+  return deleteProfileFile(options)
 }
 
 export function loadProfileFile(options?: ProfileFileLocation): ProfileFile | null {
@@ -530,6 +581,7 @@ export async function buildLaunchEnv(options: {
 
     delete env.CLAUDE_CODE_USE_OPENAI
     delete env.CLAUDE_CODE_USE_GITHUB
+    delete env.CODEX_CREDENTIAL_SOURCE
 
     env.GEMINI_MODEL =
       shellGeminiModel ||
@@ -649,6 +701,7 @@ export async function buildLaunchEnv(options: {
   delete env.CLAUDE_CODE_USE_FOUNDRY
   delete env.CLAUDE_CODE_USE_GEMINI
   delete env.CLAUDE_CODE_USE_GITHUB
+  delete env.CODEX_CREDENTIAL_SOURCE
   delete env.GEMINI_API_KEY
   delete env.GEMINI_AUTH_MODE
   delete env.GEMINI_ACCESS_TOKEN
@@ -818,4 +871,41 @@ export function applyProfileEnvToProcessEnv(
   }
 
   Object.assign(targetEnv, nextEnv)
+}
+
+export async function applySavedProfileToCurrentSession(options: {
+  profileFile: ProfileFile
+  processEnv?: NodeJS.ProcessEnv
+}): Promise<string | null> {
+  const processEnv = options.processEnv ?? process.env
+  const baseEnv = { ...processEnv }
+  const isCodexOAuthProfile =
+    options.profileFile.profile === 'codex' &&
+    options.profileFile.env.CODEX_CREDENTIAL_SOURCE === 'oauth'
+
+  delete baseEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete baseEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  if (isCodexOAuthProfile) {
+    delete baseEnv.CODEX_API_KEY
+    delete baseEnv.CODEX_ACCOUNT_ID
+    delete baseEnv.CHATGPT_ACCOUNT_ID
+  }
+
+  const nextEnv = await buildLaunchEnv({
+    profile: options.profileFile.profile,
+    persisted: options.profileFile,
+    goal: normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
+    processEnv: baseEnv,
+    getOllamaChatBaseUrl,
+    readGeminiAccessToken,
+  })
+  const validationError = await getProviderValidationError(nextEnv)
+  if (validationError) {
+    return validationError
+  }
+
+  delete processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  applyProfileEnvToProcessEnv(processEnv, nextEnv)
+  return null
 }
