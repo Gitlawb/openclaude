@@ -40,6 +40,118 @@ import _os from 'node:os';
 
 let _flags = undefined;
 
+// ── Open-build GrowthBook overrides ───────────────────────────────────
+// Override upstream defaultValue for runtime gates tied to build-time
+// features. Only keys that DIFFER from upstream belong here — the
+// catalog below is pure documentation and does NOT affect resolution.
+//
+// Priority: ~/.claude/feature-flags.json > _openBuildDefaults > defaultValue
+//
+// To override at runtime, create ~/.claude/feature-flags.json:
+//   { "tengu_some_flag": true }
+const _openBuildDefaults = {
+  'tengu_sedge_lantern': true,  // AWAY_SUMMARY — "while you were away" recap (upstream: false)
+  'tengu_hive_evidence': true,  // VERIFICATION_AGENT — read-only test/verification agent (upstream: false)
+};
+
+/* ── Known runtime feature keys (reference only) ───────────────────────
+ * This catalog does NOT participate in flag resolution. It documents
+ * the known GrowthBook keys and their upstream default values.
+ * Some keys have different defaults at different call sites — this is
+ * intentional upstream (the server unifies the value at runtime).
+ *
+ * To activate any of these, add them to ~/.claude/feature-flags.json
+ * or to _openBuildDefaults above.
+ *
+ * Reasoning & thinking
+ *   tengu_turtle_carbon          = true       ULTRATHINK deep thinking runtime gate
+ *
+ * Agents & orchestration
+ *   tengu_amber_flint            = true       Agent swarms coordination
+ *   tengu_amber_stoat            = true       Built-in agent availability (Explore, Plan, etc.)
+ *   tengu_agent_list_attach      = true       Attach file context to agent list
+ *   tengu_auto_background_agents = false      Auto-spawn background agents
+ *   tengu_slim_subagent_claudemd = true       Lighter ClaudeMD for subagents
+ *
+ * Memory & context
+ *   tengu_coral_fern             = false      Memory extraction trigger
+ *   tengu_passport_quail         = false      Memory directory paths (extract memories)
+ *   tengu_slate_thimble          = false      Memory directory paths (variant)
+ *   tengu_herring_clock          = true/false Team memory paths (varies by call site)
+ *   tengu_bramble_lintel         = null       Extract memories config (number)
+ *   tengu_session_memory         = false      Session memory service
+ *   tengu_cobalt_raccoon         = false      Reactive compaction (suppress auto-compact)
+ *   tengu_pebble_leaf_prune      = false      Session storage pruning
+ *
+ * Prompt & API
+ *   tengu_attribution_header     = true       Attribution header in API requests
+ *   tengu_basalt_3kr             = true       MCP instructions delta
+ *   tengu_slate_prism            = true/false Message formatting (varies by call site)
+ *   tengu_amber_prism            = false      Message content formatting
+ *   tengu_amber_json_tools       = false      JSON format for tool schemas
+ *   tengu_fgts                   = false      API feature gates
+ *   tengu_otk_slot_v1            = false      One-time key slots for API auth
+ *   tengu_cicada_nap_ms          = 0          Background refresh throttle (ms)
+ *   tengu_miraculo_the_bard      = false      Service initialization gate
+ *   tengu_immediate_model_command= false      Immediate /model command execution
+ *   tengu_chomp_inflection       = false      Prompt suggestions after responses
+ *
+ * UI & UX
+ *   tengu_willow_mode            = 'off'      REPL rendering mode
+ *   tengu_terminal_panel         = false      Terminal panel keybinding
+ *   tengu_terminal_sidebar       = false      Terminal sidebar in REPL/config
+ *   tengu_marble_sandcastle      = false      Fast mode gate
+ *   tengu_jade_anvil_4           = false      Rate limit options UI ordering
+ *   tengu_destructive_command_warning = false  Warning for destructive commands
+ *   tengu_collage_kaleidoscope   = true       Native clipboard image paste (macOS)
+ *   tengu_lapis_finch            = false      Plugin/hint recommendation
+ *   tengu_lodestone_enabled      = false      Deep links claude-cli:// protocol
+ *   tengu_copper_panda           = false      Skill improvement suggestions
+ *
+ * Bash & permissions
+ *   tengu_birch_trellis          = true       Bash auto-mode permissions config
+ *
+ * File operations
+ *   tengu_quartz_lantern         = false      File read/write dedup optimization
+ *   tengu_moth_copse             = false      Attachments handling (variant A)
+ *   tengu_marble_fox             = false      Attachments handling (variant B)
+ *
+ * MCP & plugins
+ *   tengu_harbor                 = false      MCP channel allowlist verification
+ *   tengu_harbor_permissions     = false      MCP channel permissions enforcement
+ *   tengu_copper_bridge          = false      Chrome MCP bridge
+ *   tengu_chrome_auto_enable     = false      Auto-enable Chrome MCP on startup
+ *   tengu_glacier_2xr            = false      Enhanced tool search / ToolSearchTool
+ *
+ * Voice
+ *   tengu_amber_quartz_disabled  = false      VOICE_MODE kill-switch (false = voice allowed)
+ *
+ * Bridge & remote (require Anthropic infra)
+ *   tengu_ccr_bridge             = false      CCR bridge connection
+ *   tengu_ccr_mirror             = false      CCR session mirroring
+ *   tengu_bridge_repl_v2         = false      Bridge REPL v2
+ *   tengu_bridge_system_init     = false      Bridge system initialization
+ *   tengu_cobalt_harbor          = false      Remote TUI
+ *   tengu_cobalt_lantern         = false      Remote background tasks
+ *   tengu_remote_backend         = false      Remote TUI backend
+ *   tengu_surreal_dali           = false      Remote agent tasks / triggers
+ *   tengu_ultraplan_model        = null       ULTRAPLAN model selection
+ *   tengu_strap_foyer            = false      Settings sync to cloud
+ *
+ * Telemetry & tracing
+ *   enhanced_telemetry_beta      = false      Enhanced telemetry (beta)
+ *   tengu_trace_lantern          = false      Beta session tracing
+ *
+ * Kairos (require cloud backend)
+ *   tengu_kairos_brief           = false      Brief tool variant for KAIROS
+ *
+ * Statsig gates (boolean, default false)
+ *   tengu_chair_sermon           = false      Message formatting gate
+ *   tengu_scratch                = false      Filesystem permissions / coordinator gate
+ *   tengu_thinkback              = false      /thinkback command
+ *   tengu_tool_pear              = false      API betas for tools
+ */
+
 function _loadFlags() {
   if (_flags !== undefined) return;
   try {
@@ -55,6 +167,7 @@ function _loadFlags() {
 function _getFlagValue(key, defaultValue) {
   _loadFlags();
   if (_flags != null && Object.hasOwn(_flags, key)) return _flags[key];
+  if (Object.hasOwn(_openBuildDefaults, key)) return _openBuildDefaults[key];
   return defaultValue;
 }
 
