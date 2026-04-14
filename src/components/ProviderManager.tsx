@@ -1065,6 +1065,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           Provider type:{' '}
           {draftProvider === 'anthropic'
             ? 'Anthropic native API'
+            : draft.baseUrl.includes('google') || draft.baseUrl.includes('gemini')
+            ? 'Google Gemini API'
             : 'OpenAI-compatible API'}
         </Text>
         <Text dimColor>

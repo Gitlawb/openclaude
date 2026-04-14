@@ -14,24 +14,40 @@ export type APIProvider =
   | 'mistral'
 
 export function getAPIProvider(): APIProvider {
-  return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
-    ? 'gemini'
-    :
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
-    ? 'mistral'
-    : isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-      ? 'github'
-      : isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
-        ? isCodexModel()
-          ? 'codex'
-          : 'openai'
-        : isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)
-          ? 'bedrock'
-          : isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)
-            ? 'vertex'
-            : isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
-              ? 'foundry'
-              : 'firstParty'
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
+    return 'gemini'
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
+    return 'mistral'
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
+    return 'github'
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
+    const baseUrl =
+      process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE ?? ''
+    if (/google|gemini/i.test(baseUrl)) {
+      return 'gemini'
+    }
+    return isCodexModel() ? 'codex' : 'openai'
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)) {
+    return 'bedrock'
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)) {
+    return 'vertex'
+  }
+
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+    return 'foundry'
+  }
+
+  return 'firstParty'
 }
 
 export function usesAnthropicAccountFlow(): boolean {

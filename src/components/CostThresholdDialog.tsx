@@ -22,7 +22,7 @@ function getProviderLabel(): string {
     case 'openai':
       return 'OpenAI-compatible API'
     case 'gemini':
-      return 'Gemini API'
+      return 'Google Gemini'
     default:
       return 'API'
   }
