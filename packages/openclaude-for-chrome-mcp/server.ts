@@ -76,7 +76,11 @@ export function createClaudeForChromeMcpServer(
         tool_name: toolName,
       })
 
-      const response = await client.sendToolRequest(toolName, toolArgs)
+      // Strip _mcp suffix before forwarding to the extension.
+      // The suffix disambiguates MCP tools from Claude's built-in names
+      // (e.g. tabs_context) but the extension expects the bare method name.
+      const extensionMethod = toolName.replace(/_mcp$/, '')
+      const response = await client.sendToolRequest(extensionMethod, toolArgs)
 
       // Handle error responses from the extension
       if (response.error) {
