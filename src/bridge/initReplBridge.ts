@@ -464,11 +464,7 @@ export async function initReplBridge(
   // Everything from here down is passed explicitly to bridgeCore.
   const branch = await getBranch()
   const gitRepoUrl = await getRemoteUrl()
-  const sessionIngressUrl =
-    process.env.USER_TYPE === 'ant' &&
-    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      ? process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      : baseUrl
+  const sessionIngressUrl = baseUrl
 
   // Assistant-mode sessions advertise a distinct worker_type so the web UI
   // can filter them into a dedicated picker. KAIROS guard keeps the
