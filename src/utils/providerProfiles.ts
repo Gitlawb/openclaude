@@ -236,7 +236,7 @@ export function getProviderPresetDefaults(
         provider: 'openai',
         name: 'NVIDIA NIM',
         baseUrl: 'https://integrate.api.nvidia.com/v1',
-        model: 'z-ai/glm5',
+        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
         apiKey: process.env.NVIDIA_API_KEY ?? '',
         requiresApiKey: true,
       }

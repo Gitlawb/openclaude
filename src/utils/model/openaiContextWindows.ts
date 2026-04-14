@@ -118,6 +118,17 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'deepseek-ai/deepseek-v3': 128_000,
   'qwen/qwen3-32b': 128_000,
   'qwen/qwen3-8b': 128_000,
+  // GLM models via NVIDIA NIM
+  'z-ai/glm5': 200_000,
+  'z-ai/glm4.7': 128_000,
+  // Kimi models via NVIDIA NIM
+  'moonshotai/kimi-k2.5': 200_000,
+  'moonshotai/kimi-k2-instruct': 128_000,
+  // DBRX via NVIDIA NIM
+  'databricks/dbrx-instruct': 131_072,
+  // Jamba via NVIDIA NIM
+  'ai21labs/jamba-1.5-large-instruct': 256_000,
+  'ai21labs/jamba-1.5-mini-instruct': 256_000,
 
   // MiniMax (all M2.x variants share 204,800 context, 131,072 max output)
   'MiniMax-M2.7':             204_800,
@@ -268,6 +279,12 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'minimax-m2.5-highspeed':  131_072,
   'minimax-m2.1':            131_072,
   'minimax-m2.1-highspeed':  131_072,
+  // New MiniMax models
+  'MiniMax-M2':              131_072,
+  'MiniMax-Text-01':          65_536,
+  'MiniMax-Text-01-Preview':  65_536,
+  'MiniMax-Vision-01':        16_384,
+  'MiniMax-Vision-01-Fast':    16_384,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':   8_192,
@@ -288,6 +305,17 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'deepseek-r1:14b':            8_192,
   'mistral:7b':                 4_096,
   'phi4:14b':                   4_096,
+
+  // NVIDIA NIM models
+  'nvidia/llama-3.1-nemotron-70b-instruct': 32_768,
+  'nvidia/nemotron-mini-4b-instruct': 8_192,
+  'meta/llama-3.1-405b-instruct': 32_768,
+  'meta/llama-3.1-70b-instruct': 32_768,
+  'z-ai/glm5': 32_768,
+  'z-ai/glm4.7': 32_768,
+  'moonshotai/kimi-k2.5': 32_768,
+  'deepseek-ai/deepseek-r1': 32_768,
+  'deepseek-ai/deepseek-v3': 32_768,
   'gemma2:27b':                 4_096,
   'codellama:13b':              4_096,
   'llama3.2:1b':                4_096,

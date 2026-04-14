@@ -37,7 +37,7 @@ export const CLAUDE_3_7_SONNET_CONFIG = {
   gemini: 'gemini-2.0-flash',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -50,7 +50,7 @@ export const CLAUDE_3_5_V2_SONNET_CONFIG = {
   gemini: 'gemini-2.0-flash',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -63,7 +63,7 @@ export const CLAUDE_3_5_HAIKU_CONFIG = {
   gemini: 'gemini-2.0-flash-lite',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -76,7 +76,7 @@ export const CLAUDE_HAIKU_4_5_CONFIG = {
   gemini: 'gemini-2.0-flash-lite',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -89,7 +89,7 @@ export const CLAUDE_SONNET_4_CONFIG = {
   gemini: 'gemini-2.0-flash',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -102,7 +102,7 @@ export const CLAUDE_SONNET_4_5_CONFIG = {
   gemini: 'gemini-2.0-flash',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -115,7 +115,7 @@ export const CLAUDE_OPUS_4_CONFIG = {
   gemini: 'gemini-2.5-pro-preview-03-25',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -128,7 +128,7 @@ export const CLAUDE_OPUS_4_1_CONFIG = {
   gemini: 'gemini-2.5-pro-preview-03-25',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -141,7 +141,7 @@ export const CLAUDE_OPUS_4_5_CONFIG = {
   gemini: 'gemini-2.5-pro-preview-03-25',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -154,7 +154,7 @@ export const CLAUDE_OPUS_4_6_CONFIG = {
   gemini: 'gemini-2.5-pro-preview-03-25',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 
@@ -167,7 +167,7 @@ export const CLAUDE_SONNET_4_6_CONFIG = {
   gemini: 'gemini-2.0-flash',
   github: 'github:copilot',
   codex: 'gpt-5.4',
-  'nvidia-nim': 'z-ai/glm5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
 } as const satisfies ModelConfig
 

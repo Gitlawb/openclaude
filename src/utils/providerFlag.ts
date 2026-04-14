@@ -138,7 +138,7 @@ export function applyProviderFlag(
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://integrate.api.nvidia.com/v1'
       process.env.NVIDIA_NIM = '1'
-      process.env.OPENAI_MODEL ??= 'z-ai/glm5'
+      process.env.OPENAI_MODEL ??= 'nvidia/llama-3.1-nemotron-70b-instruct'
       if (model) process.env.OPENAI_MODEL = model
       break
 
