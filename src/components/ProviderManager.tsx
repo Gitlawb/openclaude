@@ -1530,7 +1530,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
 
             // Persist credentials to secureStorage
-            const success = persistCredentials()
+            const success = await persistCredentials()
             if (!success) {
               setErrorMessage(
                 'Qwen OAuth login finished, but credentials could not be saved to secure storage.',

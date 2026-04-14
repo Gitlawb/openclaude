@@ -185,7 +185,7 @@ async function getCredentials(): Promise<QwenCredentials> {
   const creds = loadQwenCredentials()
   if (!creds) {
     throw new Error(
-      'No Qwen credentials found. Please authenticate with the Qwen CLI first: qwen',
+      'No Qwen credentials found. Authenticate via /provider → Qwen Coder',
     )
   }
 
@@ -235,8 +235,8 @@ function buildDashScopeHeaders(accessToken: string, isStreaming = false): Record
  * Uses resource_url from ~/.claude/qwen-oauth.json (e.g. "portal.qwen.ai").
  */
 function getApiEndpoint(credentials: QwenCredentials): string {
-  if (credentials.resource_url) {
-    let endpoint = credentials.resource_url
+  if (credentials.resourceUrl) {
+    let endpoint = credentials.resourceUrl
     if (!endpoint.startsWith('http')) {
       endpoint = `https://${endpoint}`
     }
@@ -383,7 +383,7 @@ async function handleRequest(
 
     try {
       const credentials = await getCredentials()
-      const accessToken = credentials.access_token
+      const accessToken = credentials.accessToken
       const apiEndpoint = getApiEndpoint(credentials)
       const payload = buildDashScopePayload(parsed)
 
@@ -476,9 +476,9 @@ export async function startQwenProxy(): Promise<string> {
 
   // Validate credentials before starting
   const creds = loadQwenCredentials()
-  if (!creds || !creds.access_token) {
+  if (!creds || !creds.accessToken) {
     throw new Error(
-      'No Qwen credentials found. Please authenticate with the Qwen CLI first: qwen',
+      'No Qwen credentials found. Authenticate via /provider → Qwen Coder',
     )
   }
 

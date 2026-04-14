@@ -17,7 +17,7 @@ export type QwenOAuthFlowStatus =
       message: string
     }
 
-type PersistQwenOAuthCredentials = () => void
+type PersistQwenOAuthCredentials = () => Promise<boolean>
 
 type QwenOAuthFlowDependencies = {
   createOAuthService?: () => QwenOAuthService

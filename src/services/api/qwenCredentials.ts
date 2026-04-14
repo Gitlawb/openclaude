@@ -1,18 +1,23 @@
 /**
- * Qwen OAuth credentials management using secureStorage.
+ * Qwen OAuth credentials management.
  *
- * Follows the same pattern as codexCredentials.ts:
- * - Credentials stored in OS secure storage (keychain/credential manager)
- * - Auto-refresh with dedup, cooldown, and in-flight request dedup
+ * Saves/reads credentials as a JSON file at ~/.claude/qwen-oauth.json
+ * (same approach as the Qwen Code CLI, which uses ~/.qwen/oauth_creds.json).
+ *
+ * No secureStorage dependency — file permissions are set to 0o600 (owner-only).
  */
 
-import { getSecureStorage } from '../utils/secureStorage/index.js'
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 // ============================================================
 // Constants
 // ============================================================
 
-const QWEN_SECURE_STORAGE_KEY = 'qwen'
+const CREDENTIALS_DIR = join(homedir(), '.claude')
+const CREDENTIALS_FILE = 'qwen-oauth.json'
+const CREDENTIALS_PATH = join(CREDENTIALS_DIR, CREDENTIALS_FILE)
 
 export interface QwenStoredCredentials {
   accessToken: string
@@ -25,61 +30,64 @@ export interface QwenStoredCredentials {
 }
 
 // ============================================================
-// SecureStorage helpers
+// File-based credential storage
 // ============================================================
 
-function getQwenSecureStorage() {
-  return getSecureStorage({ allowPlainTextFallback: false })
-}
-
 /**
- * Read Qwen credentials from secure storage.
- */
-export async function readQwenCredentials(): Promise<QwenStoredCredentials | null> {
-  try {
-    const data = await getQwenSecureStorage().readAsync()
-    return (data as Record<string, unknown>)?.[QWEN_SECURE_STORAGE_KEY] as QwenStoredCredentials | null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Save Qwen credentials to secure storage.
+ * Save Qwen credentials to ~/.claude/qwen-oauth.json.
+ * Overwrites any existing credentials file.
  * Returns true on success.
  */
 export async function saveQwenCredentials(creds: QwenStoredCredentials): Promise<boolean> {
   try {
-    const storage = getQwenSecureStorage()
-    const previous = (await storage.readAsync()) as Record<string, unknown> | null
-    const next = { ...(previous || {}), [QWEN_SECURE_STORAGE_KEY]: creds }
-    const result = storage.update(next as Record<string, unknown>)
-    return result.success
+    mkdirSync(CREDENTIALS_DIR, { recursive: true })
+    writeFileSync(
+      CREDENTIALS_PATH,
+      JSON.stringify(creds, null, 2),
+      { encoding: 'utf8', mode: 0o600 },
+    )
+    return true
   } catch {
     return false
   }
 }
 
 /**
- * Check if valid Qwen credentials exist (not expired).
+ * Read Qwen credentials from ~/.claude/qwen-oauth.json.
+ * Returns null if the file doesn't exist or is invalid.
+ */
+export async function readQwenCredentials(): Promise<QwenStoredCredentials | null> {
+  try {
+    if (!existsSync(CREDENTIALS_PATH)) return null
+    const raw = readFileSync(CREDENTIALS_PATH, 'utf8')
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && parsed.accessToken) {
+      return parsed as QwenStoredCredentials
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Check if valid Qwen credentials exist (not expired, 30s buffer).
  */
 export async function hasStoredQwenCredentials(): Promise<boolean> {
   const creds = await readQwenCredentials()
-  if (!creds?.accessToken) return false
+  if (!creds) return false
   return Date.now() < creds.expiryDate - 30_000
 }
 
 /**
- * Clear Qwen credentials from secure storage.
+ * Clear Qwen credentials by deleting the file.
  */
 export async function clearQwenCredentials(): Promise<boolean> {
   try {
-    const storage = getQwenSecureStorage()
-    const previous = (await storage.readAsync()) as Record<string, unknown> | null
-    if (!previous) return true
-    const { [QWEN_SECURE_STORAGE_KEY]: _, ...rest } = previous
-    const result = storage.update(rest)
-    return result.success
+    if (!existsSync(CREDENTIALS_PATH)) return true
+    const fs = await import('node:fs/promises')
+    await fs.unlink(CREDENTIALS_PATH)
+    return true
   } catch {
     return false
   }

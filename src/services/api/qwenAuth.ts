@@ -1,8 +1,8 @@
 /**
  * Qwen OAuth credential management for OpenClaude.
  *
- * Reads and refreshes tokens from ~/.claude/qwen-oauth.json
- * (created by the Qwen Code CLI via `qwen` → `/auth`).
+ * Reads credentials from ~/.claude/qwen-oauth.json
+ * (created by the Qwen OAuth flow via /provider → Qwen Coder).
  *
  * The actual API requests are handled by qwenProxy.ts, which
  * starts an internal HTTP proxy on localhost:8080 to forward
@@ -27,11 +27,11 @@ const QWEN_OAUTH_CLIENT_ID = 'f0304373b74a44d2b584a3fb70ca9e56'
 const TOKEN_REFRESH_BUFFER_MS = 30 * 1000
 
 export type QwenCredentials = {
-  access_token: string
-  refresh_token?: string
-  token_type?: string
-  resource_url?: string
-  expiry_date?: number
+  accessToken: string
+  refreshToken?: string
+  tokenType?: string
+  resourceUrl?: string
+  expiryDate?: number
   [key: string]: unknown
 }
 
@@ -46,7 +46,7 @@ export function loadQwenCredentials(): QwenCredentials | null {
   try {
     const raw = readFileSync(QWEN_CREDENTIALS_PATH, 'utf8')
     const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed === 'object' && parsed.access_token) {
+    if (parsed && typeof parsed === 'object' && parsed.accessToken) {
       return parsed as QwenCredentials
     }
     return null
@@ -56,31 +56,31 @@ export function loadQwenCredentials(): QwenCredentials | null {
 }
 
 export function isQwenTokenValid(credentials: QwenCredentials | null): boolean {
-  if (!credentials || !credentials.access_token || !credentials.expiry_date) {
+  if (!credentials || !credentials.accessToken || !credentials.expiryDate) {
     return false
   }
-  return Date.now() < credentials.expiry_date - TOKEN_REFRESH_BUFFER_MS
+  return Date.now() < credentials.expiryDate - TOKEN_REFRESH_BUFFER_MS
 }
 
 export function shouldRefreshQwenToken(credentials: QwenCredentials | null): boolean {
-  if (!credentials || !credentials.access_token || !credentials.expiry_date) {
+  if (!credentials || !credentials.accessToken || !credentials.expiryDate) {
     return true
   }
-  return Date.now() >= credentials.expiry_date - TOKEN_REFRESH_BUFFER_MS
+  return Date.now() >= credentials.expiryDate - TOKEN_REFRESH_BUFFER_MS
 }
 
 export async function refreshQwenAccessToken(
   credentials: QwenCredentials,
 ): Promise<QwenCredentials> {
-  if (!credentials.refresh_token) {
+  if (!credentials.refreshToken) {
     throw new Error(
-      'No refresh token available. Please re-authenticate with the Qwen CLI: qwen',
+      'No refresh token available. Please re-authenticate: /provider → Qwen Coder',
     )
   }
 
   const bodyData = new URLSearchParams({
     grant_type: 'refresh_token',
-    refresh_token: credentials.refresh_token,
+    refresh_token: credentials.refreshToken,
     client_id: QWEN_OAUTH_CLIENT_ID,
   })
 
@@ -104,13 +104,13 @@ export async function refreshQwenAccessToken(
 
   const newCredentials: QwenCredentials = {
     ...credentials,
-    access_token: tokenData.access_token as string,
-    token_type: tokenData.token_type as string | undefined,
-    refresh_token: (tokenData.refresh_token as string) || credentials.refresh_token,
-    resource_url: (tokenData.resource_url as string) || credentials.resource_url,
-    expiry_date: tokenData.expires_in
+    accessToken: tokenData.access_token as string,
+    tokenType: tokenData.token_type as string | undefined,
+    refreshToken: (tokenData.refresh_token as string) || credentials.refreshToken,
+    resourceUrl: (tokenData.resource_url as string) || credentials.resourceUrl,
+    expiryDate: tokenData.expires_in
       ? Date.now() + (tokenData.expires_in as number) * 1000
-      : credentials.expiry_date,
+      : credentials.expiryDate,
   }
 
   saveQwenCredentials(newCredentials)
@@ -118,8 +118,8 @@ export async function refreshQwenAccessToken(
 }
 
 export function saveQwenCredentials(credentials: QwenCredentials): void {
-  if (!credentials.access_token) {
-    throw new Error('Cannot save credentials without access_token')
+  if (!credentials.accessToken) {
+    throw new Error('Cannot save credentials without accessToken')
   }
   try {
     mkdirSync(CLAUDE_DIR, { recursive: true })
