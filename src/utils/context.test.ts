@@ -127,3 +127,31 @@ test('MiniMax-M2.5 and M2.1 use explicit provider-specific context and output ca
     upperLimit: 131_072,
   })
 })
+
+test('gemini 3.x models use explicit provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  // gemini-3.1-pro-preview
+  expect(getContextWindowForModel('gemini-3.1-pro-preview')).toBe(2_000_000)
+  expect(getModelMaxOutputTokens('gemini-3.1-pro-preview')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('gemini-3.1-pro-preview')).toBe(65_536)
+
+  // gemini-3-flash-preview
+  expect(getContextWindowForModel('gemini-3-flash-preview')).toBe(2_000_000)
+  expect(getModelMaxOutputTokens('gemini-3-flash-preview')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+
+  // google/ prefixed versions
+  expect(getContextWindowForModel('google/gemini-3.1-pro-preview')).toBe(2_000_000)
+  expect(getContextWindowForModel('google/gemini-3-flash-preview')).toBe(2_000_000)
+  expect(getModelMaxOutputTokens('google/gemini-3.1-pro-preview')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+})
