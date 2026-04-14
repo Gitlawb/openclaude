@@ -20,6 +20,7 @@ export const mojeekProvider: SearchProvider = {
     const url = new URL('https://www.mojeek.com/search')
     url.searchParams.set('q', input.query)
     url.searchParams.set('fmt', 'json')
+    url.searchParams.set('t', '10')
 
     const headers: Record<string, string> = {
       'Accept': 'application/json',

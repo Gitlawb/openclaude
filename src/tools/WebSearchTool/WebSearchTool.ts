@@ -125,7 +125,7 @@ function makeToolSchema(input: Input): BetaWebSearchTool20250305 {
     name: 'web_search',
     allowed_domains: input.allowed_domains,
     blocked_domains: input.blocked_domains,
-    max_uses: 8, // Hardcoded to 8 searches maximum
+    max_uses: 15, // Allow up to 15 searches per query for better coverage
   }
 }
 

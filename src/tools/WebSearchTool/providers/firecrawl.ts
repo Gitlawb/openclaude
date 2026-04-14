@@ -21,7 +21,7 @@ export const firecrawlProvider: SearchProvider = {
       query = `${query} ${exclusions}`
     }
 
-    const data = await app.search(query, { limit: 10 })
+    const data = await app.search(query, { limit: 15 })
 
     const hits = applyDomainFilters(
       (data.web ?? []).map((r: { url: string; title?: string; description?: string }) => ({

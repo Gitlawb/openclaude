@@ -641,6 +641,7 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
 async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   let contentBlockIndex = 0
@@ -688,6 +689,51 @@ async function* openaiStreamToAnthropic(
 
   const decoder = new TextDecoder()
   let buffer = ''
+  const STREAM_IDLE_TIMEOUT_MS = 120_000 // 2 minutes without data = connection likely dead
+  let lastDataTime = Date.now()
+
+  /**
+   * Read from the stream with an idle timeout. If no data arrives within
+   * STREAM_IDLE_TIMEOUT_MS, assume the connection is dead and throw so
+   * withRetry can reconnect. This prevents indefinite hangs on stale
+   * SSE connections from OpenAI/Gemini during long-running sessions.
+   * Respects the caller's AbortSignal — clears the idle timer on abort
+   * so the rejection reason is AbortError, not a spurious idle timeout.
+   */
+  async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
+        reject(new Error(
+          `OpenAI/Gemini SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
+        ))
+      }, STREAM_IDLE_TIMEOUT_MS)
+
+      // If the caller aborts, clear the timer so the AbortError surfaces
+      // cleanly instead of being masked by a spurious idle timeout.
+      let abortCleanup: (() => void) | undefined
+      if (signal) {
+        abortCleanup = () => {
+          clearTimeout(timeoutId)
+        }
+        signal.addEventListener('abort', abortCleanup, { once: true })
+      }
+
+      reader.read().then(
+        result => {
+          clearTimeout(timeoutId)
+          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          if (result.value) lastDataTime = Date.now()
+          resolve(result)
+        },
+        err => {
+          clearTimeout(timeoutId)
+          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          reject(err)
+        },
+      )
+    })
+  }
 
   const closeActiveContentBlock = async function* () {
     if (!hasEmittedContentStart) return
@@ -715,7 +761,7 @@ async function* openaiStreamToAnthropic(
 
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      const { done, value } = await readWithTimeout()
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })
@@ -1075,13 +1121,13 @@ class OpenAIShimMessages {
         const isResponsesStream = response.url?.includes('/responses')
         return new OpenAIShimStream(
           (request.transport === 'codex_responses' || isResponsesStream)
-            ? codexStreamToAnthropic(response, request.resolvedModel)
-            : openaiStreamToAnthropic(response, request.resolvedModel),
+            ? codexStreamToAnthropic(response, request.resolvedModel, options?.signal)
+            : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
         )
       }
 
       if (request.transport === 'codex_responses') {
-        const data = await collectCodexCompletedResponse(response)
+        const data = await collectCodexCompletedResponse(response, options?.signal)
         return convertCodexResponseToAnthropicMessage(
           data,
           request.resolvedModel,
@@ -1271,8 +1317,9 @@ class OpenAIShimMessages {
       delete body.max_completion_tokens
     }
 
-    // mistral also doesn't recognize body.store
-    if (isMistral) {
+    // mistral and gemini don't recognize body.store — Gemini returns 400
+    // "Invalid JSON payload received. Unknown name 'store': Cannot find field."
+    if (isMistral || isGeminiMode()) {
       delete body.store
     }
 

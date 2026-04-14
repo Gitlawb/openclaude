@@ -160,6 +160,7 @@ function* yieldMissingToolResultBlocks(
  * rules, ye will be punished with an entire day of debugging and hair pulling.
  */
 const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3
+const MAX_CONTINUATION_NUDGES = 3
 
 /**
  * Is this a max_output_tokens error message? If so, the streaming loop should
@@ -209,6 +210,10 @@ type State = {
   pendingToolUseSummary: Promise<ToolUseSummaryMessage | null> | undefined
   stopHookActive: boolean | undefined
   turnCount: number
+  // Count of consecutive continuation nudges within the current turn.
+  // Capped at MAX_CONTINUATION_NUDGES to prevent infinite nudge loops
+  // when the model keeps matching continuation signals without tool calls.
+  continuationNudgeCount: number
   // Why the previous iteration continued. Undefined on first iteration.
   // Lets tests assert recovery paths fired without inspecting message contents.
   transition: Continue | undefined
@@ -272,6 +277,7 @@ async function* queryLoop(
     maxOutputTokensRecoveryCount: 0,
     hasAttemptedReactiveCompact: false,
     turnCount: 1,
+    continuationNudgeCount: 0,
     pendingToolUseSummary: undefined,
     transition: undefined,
   }
@@ -639,6 +645,35 @@ async function* queryLoop(
       if (isAtBlockingLimit) {
         yield createAssistantAPIErrorMessage({
           content: PROMPT_TOO_LONG_ERROR_MESSAGE,
+          error: 'invalid_request',
+        })
+        return { reason: 'blocking_limit' }
+      }
+    }
+
+    // Safety net: when auto-compact's circuit breaker has tripped (3+
+    // consecutive failures), the normal blocking check above is gated on
+    // reactiveCompact. If reactiveCompact is also enabled but ALSO fails
+    // (or is disabled), the oversized context goes straight to the API and
+    // gets a 500. This check catches that gap — if compaction is exhausted
+    // and context is still over the autocompact threshold, block immediately
+    // with a clear message instead of burning an API call that will 500.
+    if (
+      tracking?.consecutiveFailures !== undefined &&
+      tracking.consecutiveFailures >= 3 &&
+      isAutoCompactEnabled()
+    ) {
+      const model = toolUseContext.options.mainLoopModel
+      const tokenUsage = tokenCountWithEstimation(messagesForQuery) - snipTokensFreed
+      const { isAboveAutoCompactThreshold } = calculateTokenWarningState(
+        tokenUsage,
+        model,
+      )
+      if (isAboveAutoCompactThreshold) {
+        yield createAssistantAPIErrorMessage({
+          content:
+            'The conversation has exceeded the context limit and automatic compaction has failed. ' +
+            'Press esc twice to go up a few messages and try again, or start a new session with /new.',
           error: 'invalid_request',
         })
         return { reason: 'blocking_limit' }
@@ -1102,6 +1137,7 @@ async function* queryLoop(
               pendingToolUseSummary: undefined,
               stopHookActive: undefined,
               turnCount,
+              continuationNudgeCount: state.continuationNudgeCount,
               transition: {
                 reason: 'collapse_drain_retry',
                 committed: drained.committed,
@@ -1155,6 +1191,7 @@ async function* queryLoop(
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
             turnCount,
+            continuationNudgeCount: state.continuationNudgeCount,
             transition: { reason: 'reactive_compact_retry' },
           }
           state = next
@@ -1210,6 +1247,7 @@ async function* queryLoop(
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
             turnCount,
+            continuationNudgeCount: state.continuationNudgeCount,
             transition: { reason: 'max_output_tokens_escalate' },
           }
           state = next
@@ -1238,6 +1276,7 @@ async function* queryLoop(
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
             turnCount,
+            continuationNudgeCount: state.continuationNudgeCount,
             transition: {
               reason: 'max_output_tokens_recovery',
               attempt: maxOutputTokensRecoveryCount + 1,
@@ -1295,6 +1334,7 @@ async function* queryLoop(
           pendingToolUseSummary: undefined,
           stopHookActive: true,
           turnCount,
+          continuationNudgeCount: state.continuationNudgeCount,
           transition: { reason: 'stop_hook_blocking' },
         }
         state = next
@@ -1331,6 +1371,7 @@ async function* queryLoop(
             pendingToolUseSummary: undefined,
             stopHookActive: undefined,
             turnCount,
+            continuationNudgeCount: state.continuationNudgeCount,
             transition: { reason: 'token_budget_continuation' },
           }
           continue
@@ -1347,6 +1388,77 @@ async function* queryLoop(
             queryChainId: queryChainIdForAnalytics,
             queryDepth: queryTracking.depth,
           })
+        }
+      }
+
+      // Continuation nudge: detect when the model signals intent to continue
+      // (e.g., "so now I have to do it", "let me now...", "I'll need to...")
+      // but returned no tool calls. This prevents premature task completion.
+      //
+      // Guard: capped at MAX_CONTINUATION_NUDGES to prevent infinite loops
+      // when the model keeps matching signals without ever calling tools.
+      if (
+        assistantMessages.length > 0 &&
+        turnCount < (maxTurns ?? Infinity) &&
+        state.continuationNudgeCount < MAX_CONTINUATION_NUDGES
+      ) {
+        const lastAssistant = assistantMessages.at(-1)
+        if (lastAssistant?.type === 'assistant') {
+          const lastText = lastAssistant.message.content
+            .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+            .map(b => b.text)
+            .join(' ')
+            .toLowerCase()
+
+          // Tightened patterns: require explicit action verbs and exclude
+          // common explanatory phrasing to reduce false positives.
+          const continuationSignals = [
+            // Only match "so now I/let me/we" followed by an action verb
+            /\bso now (i|let me|we) (need to|have to|should|must|will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up)\b/,
+            // "now I'll" + action (not "now I'll explain" etc.)
+            /\bnow i('ll| will) (do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|go|proceed)\b/,
+            // "let me" + action (not "let me think/explain/show")
+            /\blet me (go ahead and |now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up|proceed)\b/,
+            // "I'll/I need to/I have to" + action, only if message is short (<80 chars)
+            ...(lastText.length < 80
+              ? [/\b(i('ll| will| need to| have to| must) (now )?(do|create|write|edit|update|fix|implement|add|run|check|make|build|set up))\b/]
+              : []),
+            // "time to" + action
+            /\btime to (do|create|write|edit|update|fix|implement|add|run|check|make|build|get started|begin)\b/,
+            // "next, I'll/let me" + action, only if message is short
+            ...(lastText.length < 80
+              ? [/\bnext,?\s+(i('ll| will)|let me|i need to) (do|create|write|edit|update|fix|implement|add|run|check|make|build)\b/]
+              : []),
+          ]
+
+          // Don't nudge if the text contains completion markers
+          const completionMarkers = /\b(done|finished|completed|complete|summary|that's all|that is all|all set|hope this helps|let me know if)\b/
+          if (completionMarkers.test(lastText)) {
+            // Model signaled completion — don't nudge
+          } else if (continuationSignals.some(re => re.test(lastText))) {
+            logForDebugging(
+              `Continuation nudge triggered (${state.continuationNudgeCount + 1}/${MAX_CONTINUATION_NUDGES}): model said "${lastText.slice(-120)}" without tool calls`,
+            )
+            const nudge = createUserMessage({
+              content: 'Continue with the task. Use the appropriate tools to proceed.',
+              isMeta: true,
+            })
+            const next: State = {
+              messages: [...messagesForQuery, ...assistantMessages, nudge],
+              toolUseContext,
+              autoCompactTracking: tracking,
+              maxOutputTokensRecoveryCount: 0,
+              hasAttemptedReactiveCompact: false,
+              maxOutputTokensOverride: undefined,
+              pendingToolUseSummary: undefined,
+              stopHookActive: undefined,
+              turnCount,
+              continuationNudgeCount: state.continuationNudgeCount + 1,
+              transition: { reason: 'continuation_nudge' },
+            }
+            state = next
+            continue
+          }
         }
       }
 
@@ -1715,6 +1827,7 @@ async function* queryLoop(
       turnCount: nextTurnCount,
       maxOutputTokensRecoveryCount: 0,
       hasAttemptedReactiveCompact: false,
+      continuationNudgeCount: 0,
       pendingToolUseSummary: nextPendingToolUseSummary,
       maxOutputTokensOverride: undefined,
       stopHookActive,

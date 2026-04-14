@@ -19,7 +19,7 @@ export const bingProvider: SearchProvider = {
 
     const url = new URL('https://api.bing.microsoft.com/v7.0/search')
     url.searchParams.set('q', input.query)
-    url.searchParams.set('count', '10')
+    url.searchParams.set('count', '15')
 
     const res = await fetch(url.toString(), {
       headers: { 'Ocp-Apim-Subscription-Key': process.env.BING_API_KEY! },
