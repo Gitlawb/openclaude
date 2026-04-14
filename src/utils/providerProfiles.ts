@@ -415,6 +415,14 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
 
   if (profile.apiKey) {
     process.env.OPENAI_API_KEY = profile.apiKey
+    // Also set provider-specific API keys for detection
+    const baseUrl = profile.baseUrl.toLowerCase()
+    if (baseUrl.includes('minimax')) {
+      process.env.MINIMAX_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
+      process.env.NVIDIA_API_KEY = profile.apiKey
+    }
   } else {
     delete process.env.OPENAI_API_KEY
   }
