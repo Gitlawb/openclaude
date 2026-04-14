@@ -50,6 +50,7 @@ import {
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
+import { useQwenOAuthFlow } from './useQwenOAuthFlow.js'
 
 export type ProviderManagerResult = {
   action: 'saved' | 'cancelled'
@@ -67,6 +68,8 @@ type Screen =
   | 'select-preset'
   | 'select-ollama-model'
   | 'codex-oauth'
+  | 'qwen-oauth'
+  | 'qwen-success'
   | 'form'
   | 'select-active'
   | 'select-edit'
@@ -310,6 +313,94 @@ function CodexOAuthSetup({
             complete automatically.
           </Text>
           <Text>{status.authUrl}</Text>
+        </>
+      ) : (
+        <Text dimColor>Opening your browser...</Text>
+      )}
+      <Text dimColor>Press Esc to cancel and go back.</Text>
+    </Box>
+  )
+}
+
+function QwenOAuthSetup({
+  onBack,
+  onConfigured,
+}: {
+  onBack: () => void
+  onConfigured: (tokens: {
+    accessToken: string
+    refreshToken: string
+    tokenType: string
+    resourceUrl: string
+    expiryDate: number
+  }, persistCredentials: () => void) => void | Promise<void>
+}): React.ReactNode {
+  const handleAuthenticated = React.useCallback(async (tokens: {
+    accessToken: string
+    refreshToken: string
+    tokenType: string
+    resourceUrl: string
+    expiryDate: number
+  }, persistCredentials: () => void) => {
+    await onConfigured(tokens, persistCredentials)
+  }, [onConfigured])
+  useKeybinding('confirm:no', onBack, [onBack])
+
+  const status = useQwenOAuthFlow({
+    onAuthenticated: handleAuthenticated,
+  })
+
+  if (status.state === 'error') {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="error" bold>
+          Qwen OAuth failed
+        </Text>
+        <Text>{status.message}</Text>
+        <Text dimColor>Press Enter or Esc to go back.</Text>
+        <Select
+          options={[
+            {
+              value: 'back',
+              label: 'Back',
+              description: 'Return to provider presets',
+            },
+          ]}
+          onChange={onBack}
+          onCancel={onBack}
+          visibleOptionCount={1}
+        />
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text color="remember" bold>
+        Qwen Coder (OAuth)
+      </Text>
+      <Text>
+        Sign in with your Qwen account in the browser. OpenClaude will store
+        the resulting Qwen credentials securely and enable the Qwen Coder model.
+      </Text>
+      {status.state === 'starting' ? (
+        <Text dimColor>Preparing your browser for Qwen authentication...</Text>
+      ) : status.browserOpened === false ? (
+        <>
+          <Text color="warning">
+            Browser did not open automatically. Visit this URL to continue:
+          </Text>
+          <Text>{status.authUrl}</Text>
+          <Text dimColor>Your code: {status.userCode}</Text>
+        </>
+      ) : status.browserOpened === true ? (
+        <>
+          <Text dimColor>
+            Browser opened. Finish the Qwen sign-in there and this setup will
+            complete automatically.
+          </Text>
+          <Text>{status.authUrl}</Text>
+          <Text dimColor>Your code: {status.userCode}</Text>
         </>
       ) : (
         <Text dimColor>Opening your browser...</Text>
@@ -933,6 +1024,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function renderPresetSelection(): React.ReactNode {
     const canUseCodexOAuth = !isBareMode()
+    const canUseQwenOAuth = !isBareMode()
     const options = [
       {
         value: 'anthropic',
@@ -956,6 +1048,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               label: 'Codex OAuth',
               description:
                 'Sign in with ChatGPT in your browser and store Codex credentials securely',
+            },
+          ]
+        : []),
+      ...(canUseQwenOAuth
+        ? [
+            {
+              value: 'qwen-oauth',
+              label: 'Qwen Coder',
+              description:
+                'Sign in with Qwen in your browser and store Qwen credentials securely (free tier)',
             },
           ]
         : []),
@@ -1037,6 +1139,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
             if (value === 'codex-oauth') {
               setScreen('codex-oauth')
+              return
+            }
+            if (value === 'qwen-oauth') {
+              setScreen('qwen-oauth')
               return
             }
             startCreateFromPreset(value as ProviderPreset)
@@ -1399,6 +1505,82 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             setScreen('menu')
           }}
         />
+      )
+      break
+    case 'qwen-oauth':
+      content = (
+        <QwenOAuthSetup
+          onBack={() => setScreen('select-preset')}
+          onConfigured={async (tokens, persistCredentials) => {
+            const payload: ProviderProfileInput = {
+              provider: 'openai',
+              name: 'Qwen Coder (OAuth)',
+              baseUrl: 'https://portal.qwen.ai/v1',
+              model: 'coder-model',
+              apiKey: '',
+            }
+
+            const saved = addProviderProfile(payload, { makeActive: true })
+            if (!saved) {
+              setErrorMessage(
+                'Qwen OAuth login finished, but the provider profile could not be saved.',
+              )
+              setScreen('menu')
+              return
+            }
+
+            persistCredentials()
+            setHasStoredQwenOAuthCredentials(true)
+            setStoredQwenOAuthProfileId(saved.id)
+            refreshProfiles()
+            setScreen('qwen-success')
+          }}
+        />
+      )
+      break
+    case 'qwen-success':
+      content = (
+        <Box flexDirection="column" gap={1}>
+          <Text color="fastMode" bold>
+            Qwen Coder connected
+          </Text>
+          <Text>
+            Your Qwen account has been authenticated. The Qwen Coder provider is now active and ready to use.
+          </Text>
+          <Text dimColor>Press Enter to start chatting, or Esc to return to the provider menu.</Text>
+          <Select
+            options={[
+              {
+                value: 'done',
+                label: 'Done',
+                description: 'Return to chat',
+              },
+              {
+                value: 'menu',
+                label: 'Provider menu',
+                description: 'Return to provider management',
+              },
+            ]}
+            onChange={(value: string) => {
+              if (value === 'done') {
+                if (mode === 'first-run') {
+                  onDone({
+                    action: 'saved',
+                    activeProfileId: getActiveProviderProfile()?.id,
+                    message: 'Qwen Coder (OAuth) configured successfully.',
+                  })
+                } else {
+                  setStatusMessage('Qwen Coder (OAuth) is now your active provider.')
+                  onDone()
+                }
+              } else {
+                setScreen('menu')
+              }
+            }}
+            onCancel={() => setScreen('menu')}
+            visibleOptionCount={2}
+          />
+        </Box>
       )
       break
     case 'form':
