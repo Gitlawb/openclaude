@@ -7,6 +7,7 @@ process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ??= 'true'
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { ZodError } from 'zod'
 import {
   CallToolRequestSchema,
   type CallToolResult,
@@ -211,6 +212,8 @@ export async function startMCPServer(
                 mimeType: block.source.media_type,
               }
             } else {
+              // eslint-disable-next-line custom-rules/no-top-level-side-effects, no-console
+              console.warn(`Unmapped content block type from tool ${name}: ${block.type || 'unknown'}`)
               return { type: 'text', text: jsonStringify(block) }
             }
           }) as CallToolResult['content']
@@ -224,6 +227,18 @@ export async function startMCPServer(
         }
       } catch (error) {
         logError(error)
+
+        if (error instanceof ZodError) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Tool ${name} input is invalid:\n${error.errors.map(e => `- ${e.path.join('.')}: ${e.message}`).join('\n')}`,
+              },
+            ],
+          }
+        }
 
         const parts =
           error instanceof Error ? getErrorParts(error) : [String(error)]
