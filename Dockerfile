@@ -41,9 +41,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
 # Run as non-root user
-RUN groupadd --gid 1000 appuser && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
-USER appuser
-WORKDIR /home/appuser
-ENV HOME=/home/appuser
+USER node
 
 ENTRYPOINT ["node", "/app/dist/cli.mjs"]
