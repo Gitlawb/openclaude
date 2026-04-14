@@ -45,8 +45,13 @@ export function normalizeToolArguments(
 ): unknown {
   if (rawArguments === undefined) return {}
 
+  // Strip markdown code block wrapping if the LLM hallucinated it inside the tool call string
+  const cleanArguments = typeof rawArguments === 'string' 
+    ? rawArguments.replace(/^\s*```(?:json)?\s*\n?/, '').replace(/\n?\s*```\s*$/, '').trim() 
+    : rawArguments
+
   try {
-    const parsed = JSON.parse(rawArguments)
+    const parsed = JSON.parse(cleanArguments)
     if (isRecord(parsed)) {
       return parsed
     }
@@ -58,12 +63,57 @@ export function normalizeToolArguments(
     // and let Zod schema validation produce a meaningful error
     return parsed
   } catch {
+    // Attempt naive newline unescaping if JSON.parse failed 
+    // (Gemini occasionally sends unescaped literal newlines inside strings)
+    if (typeof cleanArguments === 'string' && cleanArguments.includes('\n')) {
+      try {
+        let inString = false
+        let isEscaped = false
+        let repaired = ''
+        for (let i = 0; i < cleanArguments.length; i++) {
+          const char = cleanArguments[i]
+          if (inString) {
+            if (char === '\\' && !isEscaped) {
+              isEscaped = true
+              repaired += char
+            } else if (char === '"' && !isEscaped) {
+              inString = false
+              repaired += char
+            } else if (char === '\n') {
+              repaired += '\\n'
+              isEscaped = false
+            } else if (char === '\r') {
+              repaired += '\\r'
+              isEscaped = false
+            } else if (char === '\t') {
+              repaired += '\\t'
+              isEscaped = false
+            } else {
+              repaired += char
+              isEscaped = false
+            }
+          } else {
+            if (char === '"') {
+              inString = true
+            }
+            repaired += char
+          }
+        }
+        const repairedParsed = JSON.parse(repaired)
+        if (isRecord(repairedParsed)) {
+          return repairedParsed
+        }
+      } catch (e) {
+        // Fall through to original error handling
+      }
+    }
+
     // rawArguments is not valid JSON — treat as a plain string
-    if (isBlankString(rawArguments) || isLikelyStructuredObjectLiteral(rawArguments)) {
+    if (isBlankString(cleanArguments) || isLikelyStructuredObjectLiteral(cleanArguments)) {
       // Blank or looks like a malformed object literal — don't wrap into
       // a tool field to avoid turning garbage into executable input
       return {}
     }
-    return wrapPlainStringToolArguments(toolName, rawArguments) ?? {}
+    return wrapPlainStringToolArguments(toolName, cleanArguments) ?? {}
   }
 }

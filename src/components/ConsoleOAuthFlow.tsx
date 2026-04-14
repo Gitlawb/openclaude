@@ -10,6 +10,9 @@ import { getSSLErrorHint } from '../services/api/errorUtils.js';
 import { sendNotification } from '../services/notifier.js';
 import { OAuthService } from '../services/oauth/index.js';
 import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
+import { mayHaveGeminiAdcCredentials } from '../utils/geminiAuth.js';
+import { saveGeminiAccessToken } from '../utils/geminiCredentials.js';
+import { useGeminiOAuthFlow } from './useGeminiOAuthFlow.js';
 import { logError } from '../utils/log.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
 import { ProviderManager } from './ProviderManager.js';
@@ -33,6 +36,9 @@ type Props = {
 type OAuthStatus = {
   state: 'idle';
 } // Initial state, waiting to select login method
+| {
+  state: 'gemini_setup';
+} // Show Gemini authentication options
 | {
   state: 'platform_setup';
 } // Show third-party provider setup flow
@@ -410,6 +416,16 @@ function OAuthStatusMessage({
         {
           label: (
             <Text>
+              Google Gemini ·{' '}
+              <Text dimColor>OAuth, API Key, or ADC</Text>
+              {'\n'}
+            </Text>
+          ),
+          value: 'gemini' as const,
+        },
+        {
+          label: (
+            <Text>
               3rd-party platform ·{' '}
               <Text dimColor>OpenAI, Gemini, Bedrock, Ollama, and more</Text>
               {'\n'}
@@ -426,7 +442,13 @@ function OAuthStatusMessage({
           <Box>
             <Select
               options={loginOptions}
-              onChange={value => {
+              onChange={(value: string) => {
+                if (value === 'gemini') {
+                  logEvent('tengu_oauth_platform_selected', {})
+                  setOAuthStatus({ state: 'gemini_setup' })
+                  return
+                }
+
                 if (value === 'platform') {
                   logEvent('tengu_oauth_platform_selected', {})
                   setOAuthStatus({ state: 'platform_setup' })
@@ -447,6 +469,23 @@ function OAuthStatusMessage({
         </Box>
       )
     }
+
+    case 'gemini_setup':
+      return (
+        <GeminiSetupView
+          onDone={success => {
+            if (success) {
+              setOAuthStatus({
+                state: 'platform_setup_complete',
+                message: 'Gemini authentication successful. You can now use the Gemini provider.',
+              })
+            } else {
+              setOAuthStatus({ state: 'idle' })
+            }
+          }}
+          onCancel={() => setOAuthStatus({ state: 'idle' })}
+        />
+      )
 
     case 'platform_setup':
       return (
@@ -559,4 +598,104 @@ function OAuthStatusMessage({
     default:
       return null
   }
+}
+
+function GeminiSetupView({
+  onDone,
+  onCancel,
+}: {
+  onDone: (success: boolean) => void
+  onCancel: () => void
+}) {
+  const [method, setMethod] = useState<'menu' | 'api-key' | 'oauth'>('menu')
+  const [apiKey, setApiKey] = useState('')
+  const hasAdc = mayHaveGeminiAdcCredentials()
+
+  const oauthStatus = useGeminiOAuthFlow({
+    onAuthenticated: (tokens, persistCredentials) => {
+      persistCredentials()
+      process.env.GEMINI_AUTH_MODE = 'access-token'
+      process.env.CLAUDE_CODE_USE_GEMINI = '1'
+      onDone(true)
+    },
+  })
+
+  if (method === 'api-key') {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text bold color="remember">Gemini API Key Setup</Text>
+        <Text>Enter your Gemini API key:</Text>
+        <TextInput
+          value={apiKey}
+          onChange={setApiKey}
+          onSubmit={val => {
+            if (val.trim()) {
+              process.env.GEMINI_API_KEY = val.trim()
+              process.env.GEMINI_AUTH_MODE = 'api-key'
+              process.env.CLAUDE_CODE_USE_GEMINI = '1'
+              onDone(true)
+            }
+          }}
+          mask="*"
+          columns={40}
+          cursorOffset={0}
+          onChangeCursorOffset={() => {}}
+        />
+        <Text dimColor>Press Esc to cancel.</Text>
+      </Box>
+    )
+  }
+
+  if (method === 'oauth') {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text bold color="remember">Gemini OAuth Setup</Text>
+        {oauthStatus.state === 'starting' && <Text>Initializing OAuth...</Text>}
+        {oauthStatus.state === 'waiting' && (
+          <Box flexDirection="column" gap={1}>
+            <Text>Opening browser to sign in...</Text>
+            {'authUrl' in oauthStatus && oauthStatus.authUrl && (
+              <Link url={oauthStatus.authUrl}>
+                <Text dimColor>{oauthStatus.authUrl}</Text>
+              </Link>
+            )}
+          </Box>
+        )}
+        {oauthStatus.state === 'error' && (
+          <Box flexDirection="column" gap={1}>
+            <Text color="error">Error: {oauthStatus.message}</Text>
+            <Text dimColor>Press Esc to cancel.</Text>
+          </Box>
+        )}
+      </Box>
+    )
+  }
+
+  const options = [
+    { label: 'Google Account (OAuth)', value: 'oauth', description: 'Sign in through your browser' },
+    { label: 'API Key', value: 'api-key', description: 'Enter a Gemini API key manually' },
+  ]
+  if (hasAdc) {
+    options.push({ label: 'Google ADC', value: 'adc', description: 'Use Application Default Credentials' })
+  }
+  options.push({ label: 'Back', value: 'back', description: 'Return to login options' })
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text bold color="remember">Google Gemini Authentication</Text>
+      <Text>Select how you want to authenticate with Gemini:</Text>
+      <Select
+        options={options as any}
+        onChange={(val: string) => {
+          if (val === 'back') onCancel()
+          else if (val === 'adc') {
+            process.env.GEMINI_AUTH_MODE = 'adc'
+            process.env.CLAUDE_CODE_USE_GEMINI = '1'
+            onDone(true)
+          } else setMethod(val as 'api-key' | 'oauth')
+        }}
+        onCancel={onCancel}
+      />
+    </Box>
+  )
 }

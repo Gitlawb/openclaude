@@ -17,8 +17,10 @@ import {
   shouldUseClaudeAIAuth,
   storeOAuthAccountInfo,
 } from '../../services/oauth/client.js'
+import { GeminiOAuthService } from '../../services/api/geminiOAuth.js'
 import { getOauthProfileFromOauthToken } from '../../services/oauth/getOauthProfile.js'
 import { OAuthService } from '../../services/oauth/index.js'
+import { saveGeminiAccessToken } from '../../utils/geminiCredentials.js'
 import type { OAuthTokens } from '../../services/oauth/types.js'
 import {
   clearOAuthTokenCache,
@@ -186,6 +188,83 @@ export async function authLogin({
   }
 
   const resolvedLoginMethod = sso ? 'sso' : undefined
+
+  // Add a simple prompt for provider choice since this is the non-interactive CLI
+  if (!useConsole && !claudeai && !sso) {
+    const readline = require('node:readline').createInterface({
+      input: process.stdin,
+      output: process.stdout
+    })
+
+    const promptProvider = () => new Promise<string>(resolve => {
+      readline.question('Select a provider:\n1) Anthropic (default)\n2) Google Gemini\nChoice: ', (answer: string) => {
+        resolve(answer.trim() || '1')
+      })
+    })
+
+    const choice = await promptProvider()
+
+    if (choice === '2') {
+      const promptGeminiMode = () => new Promise<string>(resolve => {
+        readline.question('Select Gemini authentication method:\n1) Google Account (OAuth)\n2) API Key\n3) Application Default Credentials (ADC)\nChoice: ', (answer: string) => {
+          resolve(answer.trim() || '1')
+        })
+      })
+
+      const geminiChoice = await promptGeminiMode()
+
+      if (geminiChoice === '2') {
+        const promptApiKey = () => new Promise<string>(resolve => {
+          readline.question('Enter Gemini API Key: ', (answer: string) => {
+            resolve(answer.trim())
+          })
+        })
+        const key = await promptApiKey()
+        readline.close()
+
+        if (key) {
+          process.env.GEMINI_API_KEY = key
+          process.env.GEMINI_AUTH_MODE = 'api-key'
+          process.env.CLAUDE_CODE_USE_GEMINI = '1'
+          process.stdout.write('Gemini API Key saved for this session.\n')
+          process.exit(0)
+        } else {
+          process.stderr.write('Invalid API key.\n')
+          process.exit(1)
+        }
+      } else if (geminiChoice === '3') {
+        readline.close()
+        process.env.GEMINI_AUTH_MODE = 'adc'
+        process.env.CLAUDE_CODE_USE_GEMINI = '1'
+        process.stdout.write('Gemini ADC selected for this session.\n')
+        process.exit(0)
+      } else {
+        readline.close()
+        const geminiOauthService = new GeminiOAuthService()
+        try {
+          const result = await geminiOauthService.startOAuthFlow(
+            async url => {
+              process.stdout.write('Opening browser to sign in to Google Gemini…\n')
+              process.stdout.write(`If the browser didn't open, visit: ${url}\n`)
+            }
+          )
+          saveGeminiAccessToken(result.accessToken)
+          process.env.GEMINI_AUTH_MODE = 'access-token'
+          process.env.CLAUDE_CODE_USE_GEMINI = '1'
+          process.stdout.write('Gemini login successful.\n')
+          process.exit(0)
+        } catch (err) {
+          logError(err)
+          process.stderr.write(`Login failed: ${errorMessage(err)}\n`)
+          process.exit(1)
+        } finally {
+          geminiOauthService.cleanup()
+        }
+        return
+      }
+    }
+    readline.close()
+  }
 
   const oauthService = new OAuthService()
 
