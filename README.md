@@ -2,7 +2,7 @@
 
 OpenClaude is an open-source coding-agent CLI for cloud and local model providers.
 
-Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, Atomic Chat, and other supported backends while keeping one terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
+Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported backends while keeping one terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
 
 [![PR Checks](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml)
 [![Release](https://img.shields.io/github/v/tag/Gitlawb/openclaude?label=release&color=0ea5e9)](https://github.com/Gitlawb/openclaude/tags)
@@ -10,16 +10,13 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, A
 [![Security Policy](https://img.shields.io/badge/security-policy-0f766e)](SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-2563eb)](LICENSE)
 
-OpenClaude is also mirrored to GitLawb:
-[gitlawb.com/node/repos/z6MkqDnb/openclaude](https://gitlawb.com/node/repos/z6MkqDnb/openclaude)
-
 [Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
 
 ## Why OpenClaude
 
 - Use one CLI across cloud APIs and local model backends
 - Save provider profiles inside the app with `/provider`
-- Run with OpenAI-compatible services, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, Atomic Chat, and other supported providers
+- Run with OpenAI-compatible services, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported providers
 - Keep coding-agent workflows in one place: bash, file tools, grep, glob, agents, tasks, MCP, and web tools
 - Use the bundled VS Code extension for launch integration and theme support
 
@@ -43,6 +40,7 @@ Inside OpenClaude:
 
 - run `/provider` for guided provider setup and saved profiles
 - run `/onboard-github` for GitHub Models onboarding
+- run `/auth` with Qwen CLI first for Qwen OAuth setup
 
 ### Fastest OpenAI setup
 
@@ -88,6 +86,30 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
+### Fastest Qwen Coder setup (free, no API key)
+
+First, authenticate with the Qwen CLI:
+
+```bash
+npm install -g @qwen-code/qwen-code
+qwen
+# Inside: /auth → sign in via browser
+```
+
+Then in OpenClaude:
+
+```
+/provider → choose "Qwen Coder (OAuth)" → save
+```
+
+That's it. No API key, no external proxy, no configuration. The internal proxy starts automatically on first request and handles:
+- OAuth token read from `~/.qwen/oauth_creds.json`
+- Auto token refresh before expiry
+- DashScope-compatible payload format
+- Proper TLS fingerprint matching the Qwen CLI
+
+The `coder-model` alias resolves to `qwen3.6-plus` (1M context window, free tier: 1000 requests/day).
+
 ## Setup Guides
 
 Beginner-friendly guides:
@@ -105,11 +127,11 @@ Advanced and source-build guides:
 
 | Provider | Setup Path | Notes |
 | --- | --- | --- |
+| Qwen Coder (OAuth) | `/provider` | Free, no API key needed. Uses Qwen CLI OAuth + internal proxy. 1M context, 1000 req/day |
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
 | Gemini | `/provider` or env vars | Supports API key, access token, or local ADC workflow on current `main` |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
-| Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
-| Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
+| Codex | `/provider` | Uses existing Codex credentials when available |
 | Ollama | `/provider` or env vars | Local inference with no API key |
 | Atomic Chat | advanced setup | Local Apple Silicon backend |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |

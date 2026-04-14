@@ -22,15 +22,15 @@
  */
 
 import { APIError } from '@anthropic-ai/sdk'
-import {
-  readCodexCredentialsAsync,
-  refreshCodexAccessTokenIfNeeded,
-} from '../../utils/codexCredentials.js'
-import { logForDebugging } from '../../utils/debug.js'
-import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
+import { isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
+import {
+  startQwenProxy,
+  isQwenProxyRunning,
+  getQwenProxyBaseUrl,
+} from './qwenProxy.js'
 import {
   looksLikeLeakedReasoningPrefix,
   shouldBufferPotentialReasoningPrefix,
@@ -49,7 +49,7 @@ import {
 } from './codexShim.js'
 import {
   isLocalProviderUrl,
-  resolveRuntimeCodexCredentials,
+  resolveCodexApiCredentials,
   resolveProviderRequest,
   getGithubEndpointType,
 } from './providerConfig.js'
@@ -181,61 +181,35 @@ function convertSystemPrompt(
   return String(system)
 }
 
-function convertToolResultContent(
-  content: unknown,
-  isError?: boolean,
-): string | Array<{ type: string; text?: string; image_url?: { url: string } }> {
-  if (typeof content === 'string') {
-    return isError ? `Error: ${content}` : content
-  }
-  if (!Array.isArray(content)) {
-    const text = JSON.stringify(content ?? '')
-    return isError ? `Error: ${text}` : text
-  }
+function convertToolResultContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return JSON.stringify(content ?? '')
 
-  const parts: Array<{
-    type: string
-    text?: string
-    image_url?: { url: string }
-  }> = []
+  const chunks: string[] = []
   for (const block of content) {
     if (block?.type === 'text' && typeof block.text === 'string') {
-      parts.push({ type: 'text', text: block.text })
+      chunks.push(block.text)
       continue
     }
 
     if (block?.type === 'image') {
       const source = block.source
       if (source?.type === 'url' && source.url) {
-        parts.push({ type: 'image_url', image_url: { url: source.url } })
-      } else if (source?.type === 'base64' && source.media_type && source.data) {
-        parts.push({
-          type: 'image_url',
-          image_url: {
-            url: `data:${source.media_type};base64,${source.data}`,
-          },
-        })
+        chunks.push(`[Image](${source.url})`)
+      } else if (source?.type === 'base64') {
+        chunks.push(`[image:${source.media_type ?? 'unknown'}]`)
+      } else {
+        chunks.push('[image]')
       }
       continue
     }
 
     if (typeof block?.text === 'string') {
-      parts.push({ type: 'text', text: block.text })
+      chunks.push(block.text)
     }
   }
 
-  if (parts.length === 0) return ''
-  if (parts.length === 1 && parts[0].type === 'text') {
-    const text = parts[0].text ?? ''
-    return isError ? `Error: ${text}` : text
-  }
-  if (isError && parts[0]?.type === 'text') {
-    parts[0] = { ...parts[0], text: `Error: ${parts[0].text ?? ''}` }
-  } else if (isError) {
-    parts.unshift({ type: 'text', text: 'Error:' })
-  }
-
-  return parts
+  return chunks.join('\n')
 }
 
 function convertContentBlocks(
@@ -323,10 +297,11 @@ function convertMessages(
 
         // Emit tool results as tool messages
         for (const tr of toolResults) {
+          const trContent = convertToolResultContent(tr.content)
           result.push({
             role: 'tool',
             tool_call_id: tr.tool_use_id ?? 'unknown',
-            content: convertToolResultContent(tr.content, tr.is_error),
+            content: tr.is_error ? `Error: ${trContent}` : trContent,
           })
         }
 
@@ -1144,6 +1119,7 @@ class OpenAIShimMessages {
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
     const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
+    const isGithubCopilotEndpoint = isGithubMode && githubEndpointType === 'copilot'
 
     if (isGithubWithCodexTransport) {
       const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
@@ -1170,26 +1146,11 @@ class OpenAIShimMessages {
     }
 
     if (request.transport === 'codex_responses' && !isGithubMode) {
-      const refreshResult = await refreshCodexAccessTokenIfNeeded().catch(
-        async error => {
-          logForDebugging(
-            `[codex] access token refresh failed before request: ${error instanceof Error ? error.message : String(error)}`,
-            { level: 'warn' },
-          )
-          return {
-            refreshed: false,
-            credentials: await readCodexCredentialsAsync(),
-          }
-        },
-      )
-      const credentials = resolveRuntimeCodexCredentials({
-        storedCredentials: refreshResult.credentials,
-      })
+      const credentials = resolveCodexApiCredentials()
       if (!credentials.apiKey) {
-        const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
         const authHint = credentials.authPath
-          ? `${oauthHint} or place a Codex auth.json at ${credentials.authPath}`
-          : oauthHint
+          ? ` or place a Codex auth.json at ${credentials.authPath}`
+          : ''
         const safeModel =
           redactSecretValueForDisplay(request.requestedModel, process.env as SecretValueSource) ??
           'the requested model'
@@ -1199,7 +1160,7 @@ class OpenAIShimMessages {
       }
       if (!credentials.accountId) {
         throw new Error(
-          'Codex auth is missing chatgpt_account_id. Re-login with Codex OAuth, the Codex CLI, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.',
+          'Codex auth is missing chatgpt_account_id. Re-login with the Codex CLI or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.',
         )
       }
 
@@ -1238,6 +1199,10 @@ class OpenAIShimMessages {
       stream: params.stream ?? false,
       store: false,
     }
+
+    // Detect Qwen OAuth early — used in multiple places below
+    const isQwenOAuth = request.baseUrl.includes('portal.qwen.ai')
+
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
     // Ensure max_tokens is a valid positive number before using it.
@@ -1254,19 +1219,30 @@ class OpenAIShimMessages {
       body.max_completion_tokens = maxCompletionTokensValue
     }
 
-    if (params.stream && !isLocalProviderUrl(request.baseUrl)) {
+    if (params.stream && !isLocalProviderUrl(request.baseUrl) && !isQwenOAuth) {
       body.stream_options = { include_usage: true }
     }
 
     const isGithub = isGithubModelsMode()
     const isMistral = isMistralMode()
-    const isLocal = isLocalProviderUrl(request.baseUrl)
 
     const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
-    if ((isGithub || isMistral || isLocal) && body.max_completion_tokens !== undefined) {
+    // DashScope (Qwen OAuth) uses max_tokens, not max_completion_tokens
+    // Also doesn't support store, stream_options, parallel_tool_calls, or strict on tools
+    if (isQwenOAuth) {
+      if (body.max_completion_tokens !== undefined) {
+        body.max_tokens = body.max_completion_tokens
+        delete body.max_completion_tokens
+      }
+      delete body.store
+      delete body.stream_options
+      delete body.parallel_tool_calls
+    }
+
+    if ((isGithub || isMistral) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
@@ -1324,7 +1300,31 @@ class OpenAIShimMessages {
         (hostname.includes('cognitiveservices') || hostname.includes('openai') || hostname.includes('services.ai'))
     } catch { /* malformed URL — not Azure */ }
 
-    if (apiKey) {
+    // Build the chat completions URL (needed early for Qwen OAuth override)
+    let chatCompletionsUrl: string | undefined
+
+    if (isQwenOAuth) {
+      // Start the internal Qwen proxy automatically if not running.
+      // The proxy handles:
+      // - TLS fingerprint matching the Qwen CLI (via https.Agent)
+      // - OAuth token read from ~/.claude/qwen-oauth.json
+      // - Auto token refresh before expiry
+      // - DashScope-compatible payload format
+      if (!isQwenProxyRunning()) {
+        try {
+          await startQwenProxy()
+        } catch (e: any) {
+          throw new Error(
+            `Failed to start Qwen OAuth proxy: ${e.message}\n` +
+            `Fix: Authenticate with the Qwen CLI first: qwen → /auth`,
+          )
+        }
+      }
+      // Route through the internal proxy
+      chatCompletionsUrl = `${getQwenProxyBaseUrl()}/chat/completions`
+      // Clear any Authorization header since proxy handles auth internally
+      delete headers.Authorization
+    } else if (apiKey) {
       if (isAzure) {
         // Azure uses api-key header instead of Bearer token
         headers['api-key'] = apiKey
@@ -1348,26 +1348,27 @@ class OpenAIShimMessages {
       headers['X-GitHub-Api-Version'] = '2022-11-28'
     }
 
-    // Build the chat completions URL
+    // Build the chat completions URL (skip if already set by Qwen OAuth)
     // Azure Cognitive Services / Azure OpenAI require a deployment-specific path
     // and an api-version query parameter.
     // Standard format: {base}/openai/deployments/{model}/chat/completions?api-version={version}
     // Non-Azure: {base}/chat/completions
-    let chatCompletionsUrl: string
-    if (isAzure) {
-      const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
-      const deployment = request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o'
-      // If base URL already contains /deployments/, use it as-is with api-version
-      if (/\/deployments\//i.test(request.baseUrl)) {
-        const base = request.baseUrl.replace(/\/+$/, '')
-        chatCompletionsUrl = `${base}/chat/completions?api-version=${apiVersion}`
+    if (!chatCompletionsUrl) {
+      if (isAzure) {
+        const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
+        const deployment = request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o'
+        // If base URL already contains /deployments/, use it as-is with api-version
+        if (/\/deployments\//i.test(request.baseUrl)) {
+          const base = request.baseUrl.replace(/\/+$/, '')
+          chatCompletionsUrl = `${base}/chat/completions?api-version=${apiVersion}`
+        } else {
+          // Strip trailing /v1 or /openai/v1 if present, then build Azure path
+          const base = request.baseUrl.replace(/\/(openai\/)?v1\/?$/, '').replace(/\/+$/, '')
+          chatCompletionsUrl = `${base}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
+        }
       } else {
-        // Strip trailing /v1 or /openai/v1 if present, then build Azure path
-        const base = request.baseUrl.replace(/\/(openai\/)?v1\/?$/, '').replace(/\/+$/, '')
-        chatCompletionsUrl = `${base}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
+        chatCompletionsUrl = `${request.baseUrl}/chat/completions`
       }
-    } else {
-      chatCompletionsUrl = `${request.baseUrl}/chat/completions`
     }
 
     const fetchInit = {

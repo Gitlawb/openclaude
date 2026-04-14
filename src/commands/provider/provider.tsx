@@ -10,12 +10,8 @@ import {
 } from '../../components/CustomSelect/index.js'
 import { Dialog } from '../../components/design-system/Dialog.js'
 import { LoadingState } from '../../components/design-system/LoadingState.js'
-import { useCodexOAuthFlow } from '../../components/useCodexOAuthFlow.js'
 import { useTerminalSize } from '../../hooks/useTerminalSize.js'
 import { Box, Text } from '../../ink.js'
-import {
-  type CodexOAuthTokens,
-} from '../../services/api/codexOAuth.js'
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
@@ -24,8 +20,6 @@ import {
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
 import {
-  applySavedProfileToCurrentSession as applySharedProfileToCurrentSession,
-  buildCodexOAuthProfileEnv as buildSharedCodexOAuthProfileEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
   buildMistralProfileEnv,
@@ -55,7 +49,6 @@ import {
   readGeminiAccessToken,
   saveGeminiAccessToken,
 } from '../../utils/geminiCredentials.js'
-import { isBareMode } from '../../utils/envUtils.js'
 import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
@@ -64,13 +57,17 @@ import {
   type RecommendationGoal,
 } from '../../utils/providerRecommendation.js'
 import {
-  getOllamaChatBaseUrl,
   getLocalOpenAICompatibleProviderLabel,
   hasLocalOllama,
   listOllamaModels,
 } from '../../utils/providerDiscovery.js'
+import {
+  authenticateWithQwenOAuth,
+  hasValidQwenCredentials,
+  type QwenAuthProgress,
+} from '../../services/api/qwenOAuth.js'
 
-type ProviderChoice = 'auto' | ProviderProfile | 'codex-oauth' | 'clear'
+type ProviderChoice = 'auto' | ProviderProfile | 'clear'
 
 type Step =
   | { name: 'choose' }
@@ -101,8 +98,8 @@ type Step =
       apiKey?: string
       authMode: 'api-key' | 'access-token' | 'adc'
     }
-  | { name: 'codex-oauth' }
   | { name: 'codex-check' }
+  | { name: 'qwen-auth' }
 
 type CurrentProviderSummary = {
   providerLabel: string
@@ -140,8 +137,6 @@ type ProviderWizardDefaults = {
   mistralBaseUrl: string
 }
 
-type SecretSourceEnv = NodeJS.ProcessEnv & Partial<ProfileEnv>
-
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
   const normalized = value.trim().toLowerCase()
@@ -150,7 +145,7 @@ function isEnvTruthy(value: string | undefined): boolean {
 
 function getSafeDisplayValue(
   value: string | undefined,
-  processEnv: SecretSourceEnv,
+  processEnv: NodeJS.ProcessEnv,
   profileEnv?: ProfileEnv,
   fallback = '(not set)',
 ): string {
@@ -162,15 +157,14 @@ function getSafeDisplayValue(
 export function getProviderWizardDefaults(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): ProviderWizardDefaults {
-  const secretSource = processEnv as SecretSourceEnv
   const safeOpenAIModel =
-    sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, processEnv) ||
     'gpt-4o'
   const safeOpenAIBaseUrl =
-    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, processEnv) ||
     DEFAULT_OPENAI_BASE_URL
   const safeGeminiModel =
-    sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, processEnv) ||
     DEFAULT_GEMINI_MODEL
   const safeMistralModel =
     sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, processEnv) ||
@@ -193,7 +187,6 @@ export function buildCurrentProviderSummary(options?: {
   persisted?: ProfileFile | null
 }): CurrentProviderSummary {
   const processEnv = options?.processEnv ?? process.env
-  const secretSource = processEnv as SecretSourceEnv
   const persisted = options?.persisted ?? loadProfileFile()
   const savedProfileLabel = persisted?.profile ?? 'none'
 
@@ -202,11 +195,11 @@ export function buildCurrentProviderSummary(options?: {
       providerLabel: 'Google Gemini',
       modelLabel: getSafeDisplayValue(
         processEnv.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
-        secretSource,
+        processEnv,
       ),
       endpointLabel: getSafeDisplayValue(
         processEnv.GEMINI_BASE_URL ?? DEFAULT_GEMINI_BASE_URL,
-        secretSource,
+        processEnv,
       ),
       savedProfileLabel,
     }
@@ -232,13 +225,13 @@ export function buildCurrentProviderSummary(options?: {
       providerLabel: 'GitHub Models',
       modelLabel: getSafeDisplayValue(
         processEnv.OPENAI_MODEL ?? 'github:copilot',
-        secretSource,
+        processEnv,
       ),
       endpointLabel: getSafeDisplayValue(
         processEnv.OPENAI_BASE_URL ??
           processEnv.OPENAI_API_BASE ??
           'https://models.github.ai/inference',
-        secretSource,
+        processEnv,
       ),
       savedProfileLabel,
     }
@@ -259,8 +252,8 @@ export function buildCurrentProviderSummary(options?: {
 
     return {
       providerLabel,
-      modelLabel: getSafeDisplayValue(request.requestedModel, secretSource),
-      endpointLabel: getSafeDisplayValue(request.baseUrl, secretSource),
+      modelLabel: getSafeDisplayValue(request.requestedModel, processEnv),
+      endpointLabel: getSafeDisplayValue(request.baseUrl, processEnv),
       savedProfileLabel,
     }
   }
@@ -271,11 +264,11 @@ export function buildCurrentProviderSummary(options?: {
       processEnv.ANTHROPIC_MODEL ??
         processEnv.CLAUDE_MODEL ??
         'claude-sonnet-4-6',
-      secretSource,
+      processEnv,
     ),
     endpointLabel: getSafeDisplayValue(
       processEnv.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
-      secretSource,
+      processEnv,
     ),
     savedProfileLabel,
   }
@@ -389,10 +382,6 @@ export function buildProfileSaveMessage(
   profile: ProviderProfile,
   env: ProfileEnv,
   filePath: string,
-  options?: {
-    activatedInSession?: boolean
-    activationWarning?: string | null
-  },
 ): string {
   const summary = buildSavedProfileSummary(profile, env)
   const lines = [
@@ -406,24 +395,13 @@ export function buildProfileSaveMessage(
   }
 
   lines.push(`Profile: ${filePath}`)
-  if (options?.activatedInSession) {
-    lines.push('OpenClaude switched to it for this session.')
-  } else if (options?.activationWarning) {
-    lines.push(
-      `Saved for next startup. Warning: could not activate it in this session (${options.activationWarning}).`,
-    )
-  } else {
-    lines.push('Restart OpenClaude to use it.')
-  }
+  lines.push('Restart OpenClaude to use it.')
 
   return lines.join('\n')
 }
 
 function buildUsageText(): string {
   const summary = buildCurrentProviderSummary()
-  const availableProviders = isBareMode()
-    ? 'Choose Auto, Ollama, OpenAI-compatible, Gemini, or Codex, then save a provider profile.'
-    : 'Choose Auto, Ollama, OpenAI-compatible, Gemini, Codex, or Codex OAuth, then save a provider profile.'
   return [
     'Usage: /provider',
     '',
@@ -434,7 +412,7 @@ function buildUsageText(): string {
     `Current endpoint: ${summary.endpointLabel}`,
     `Saved profile: ${summary.savedProfileLabel}`,
     '',
-    availableProviders,
+    'Choose Auto, Ollama, OpenAI-compatible, Gemini, or Codex, then save a profile for the next OpenClaude restart.',
   ].join('\n')
 }
 
@@ -443,45 +421,12 @@ function finishProfileSave(
   profile: ProviderProfile,
   env: ProfileEnv,
 ): void {
-  void saveProfileAndNotify(onDone, profile, env)
-}
-
-export function buildCodexOAuthProfileEnv(
-  tokens: Pick<CodexOAuthTokens, 'accessToken' | 'idToken' | 'accountId'>,
-): ProfileEnv | null {
-  return buildSharedCodexOAuthProfileEnv(tokens)
-}
-
-export async function applySavedProfileToCurrentSession(options: {
-  profileFile: ProfileFile
-  processEnv?: NodeJS.ProcessEnv
-}): Promise<string | null> {
-  return applySharedProfileToCurrentSession(options)
-}
-
-async function saveProfileAndNotify(
-  onDone: LocalJSXCommandOnDone,
-  profile: ProviderProfile,
-  env: ProfileEnv,
-): Promise<void> {
   try {
     const profileFile = createProfileFile(profile, env)
     const filePath = saveProfileFile(profileFile)
-    const shouldActivateInSession = profile === 'codex'
-    const activationWarning = shouldActivateInSession
-      ? await applySharedProfileToCurrentSession({ profileFile })
-      : null
-
-    onDone(
-      buildProfileSaveMessage(profile, env, filePath, {
-        activatedInSession:
-          shouldActivateInSession && activationWarning === null,
-        activationWarning,
-      }),
-      {
-        display: 'system',
-      },
-    )
+    onDone(buildProfileSaveMessage(profile, env, filePath), {
+      display: 'system',
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     onDone(`Failed to save provider profile: ${message}`, {
@@ -565,10 +510,6 @@ function ProviderChooser({
   onCancel: () => void
 }): React.ReactNode {
   const summary = buildCurrentProviderSummary()
-  const canUseCodexOAuth = !isBareMode()
-  const helperText = canUseCodexOAuth
-    ? 'Save a provider profile without editing environment variables first. Codex profiles backed by env, auth.json, or OpenClaude secure storage can switch this session immediately when validation succeeds.'
-    : 'Save a provider profile without editing environment variables first. Codex profiles backed by env or auth.json can switch this session immediately.'
   const options: OptionWithDescription<ProviderChoice>[] = [
     {
       label: 'Auto',
@@ -602,16 +543,12 @@ function ProviderChooser({
       value: 'codex',
       description: 'Use existing ChatGPT Codex CLI auth or env credentials',
     },
-    ...(canUseCodexOAuth
-      ? [
-          {
-            label: 'Codex OAuth',
-            value: 'codex-oauth' as const,
-            description:
-              'Sign in with ChatGPT in your browser and store Codex tokens securely',
-          },
-        ]
-      : []),
+    {
+      label: 'Qwen Coder',
+      value: 'qwen-oauth',
+      description:
+        'Qwen Coder via OAuth (uses Qwen CLI auth, no API key needed)',
+    },
   ]
 
   if (summary.savedProfileLabel !== 'none') {
@@ -629,7 +566,10 @@ function ProviderChooser({
       onCancel={onCancel}
     >
       <Box flexDirection="column" gap={1}>
-        <Text>{helperText}</Text>
+        <Text>
+          Save a provider profile for the next OpenClaude restart without
+          editing environment variables first.
+        </Text>
         <Box flexDirection="column">
           <Text dimColor>Current model: {summary.modelLabel}</Text>
           <Text dimColor>Current endpoint: {summary.endpointLabel}</Text>
@@ -781,9 +721,7 @@ function AutoRecommendationStep({
               { label: 'Back', value: 'back' },
               { label: 'Cancel', value: 'cancel' },
             ]}
-            onChange={(value: string) =>
-              value === 'back' ? onBack() : onCancel()
-            }
+            onChange={value => (value === 'back' ? onBack() : onCancel())}
             onCancel={onCancel}
           />
         </Box>
@@ -806,7 +744,7 @@ function AutoRecommendationStep({
               { label: 'Back', value: 'back' },
               { label: 'Cancel', value: 'cancel' },
             ]}
-            onChange={(value: string) => {
+            onChange={value => {
               if (value === 'continue') {
                 onNeedOpenAI(status.defaultModel)
               } else if (value === 'back') {
@@ -839,7 +777,7 @@ function AutoRecommendationStep({
             { label: 'Back', value: 'back' },
             { label: 'Cancel', value: 'cancel' },
           ]}
-          onChange={(value: string) => {
+          onChange={value => {
             if (value === 'save') {
               onSave(
                 'ollama',
@@ -941,9 +879,7 @@ function OllamaModelStep({
               { label: 'Back', value: 'back' },
               { label: 'Cancel', value: 'cancel' },
             ]}
-            onChange={(value: string) =>
-              value === 'back' ? onBack() : onCancel()
-            }
+            onChange={value => (value === 'back' ? onBack() : onCancel())}
             onCancel={onCancel}
           />
         </Box>
@@ -964,7 +900,7 @@ function OllamaModelStep({
           defaultFocusValue={status.defaultValue}
           inlineDescriptions
           visibleOptionCount={Math.min(8, status.options.length)}
-          onChange={(value: string) => {
+          onChange={value => {
             onSave(
               'ollama',
               buildOllamaProfileEnv(value, {
@@ -974,84 +910,6 @@ function OllamaModelStep({
           }}
           onCancel={onBack}
         />
-      </Box>
-    </Dialog>
-  )
-}
-
-function CodexOAuthStep({
-  onSave,
-  onBack,
-  onCancel,
-}: {
-  onSave: (profile: ProviderProfile, env: ProfileEnv) => void
-  onBack: () => void
-  onCancel: () => void
-}): React.ReactNode {
-  const handleAuthenticated = React.useCallback(async (
-    tokens: CodexOAuthTokens,
-    persistCredentials: (options?: { profileId?: string }) => void,
-  ) => {
-    const env = buildCodexOAuthProfileEnv(tokens)
-    if (!env) {
-      throw new Error(
-        'Codex OAuth succeeded, but OpenClaude could not build a Codex profile from the stored credentials.',
-      )
-    }
-
-    persistCredentials()
-    onSave('codex', env)
-  }, [onSave])
-
-  const status = useCodexOAuthFlow({
-    onAuthenticated: handleAuthenticated,
-  })
-
-  if (status.state === 'error') {
-    return (
-      <Dialog title="Codex OAuth failed" onCancel={onCancel} color="warning">
-        <Box flexDirection="column" gap={1}>
-          <Text>{status.message}</Text>
-          <Select
-            options={[
-              { label: 'Back', value: 'back' },
-              { label: 'Cancel', value: 'cancel' },
-            ]}
-            onChange={(value: string) =>
-              value === 'back' ? onBack() : onCancel()
-            }
-            onCancel={onCancel}
-          />
-        </Box>
-      </Dialog>
-    )
-  }
-
-  if (status.state === 'starting') {
-    return <LoadingState message="Starting Codex OAuth..." />
-  }
-
-  return (
-    <Dialog title="Codex OAuth" onCancel={onBack}>
-      <Box flexDirection="column" gap={1}>
-        <Text>
-          Finish signing in with ChatGPT in your browser. OpenClaude will store
-          the resulting Codex credentials securely for future sessions.
-        </Text>
-        {status.browserOpened === false ? (
-          <Text color="warning">
-            Browser did not open automatically. Visit this URL to continue:
-          </Text>
-        ) : status.browserOpened === true ? (
-          <Text dimColor>
-            Browser opened. Complete the sign-in there, then OpenClaude will
-            finish setup automatically.
-          </Text>
-        ) : (
-          <Text dimColor>Opening your browser...</Text>
-        )}
-        <Text>{status.authUrl}</Text>
-        <Text dimColor>Press Esc to cancel and go back.</Text>
       </Box>
     </Dialog>
   )
@@ -1078,9 +936,7 @@ function CodexCredentialStep({
               { label: 'Back', value: 'back' },
               { label: 'Cancel', value: 'cancel' },
             ]}
-            onChange={(value: string) =>
-              value === 'back' ? onBack() : onCancel()
-            }
+            onChange={value => (value === 'back' ? onBack() : onCancel())}
             onCancel={onCancel}
           />
         </Box>
@@ -1114,10 +970,9 @@ function CodexCredentialStep({
           defaultFocusValue="codexplan"
           inlineDescriptions
           visibleOptionCount={options.length}
-          onChange={(value: string) => {
+          onChange={value => {
             const env = buildCodexProfileEnv({
               model: value,
-              credentialSource: credentials.credentialSource,
               processEnv: process.env,
             })
             if (env) {
@@ -1132,16 +987,9 @@ function CodexCredentialStep({
 }
 
 function resolveCodexCredentials(processEnv: NodeJS.ProcessEnv):
-  | {
-      ok: true
-      sourceDescription: string
-      credentialSource: 'oauth' | 'existing'
-    }
+  | { ok: true; sourceDescription: string }
   | { ok: false; message: string } {
   const credentials = resolveCodexApiCredentials(processEnv)
-  const oauthHint = isBareMode()
-    ? 'Re-login with the Codex CLI'
-    : 'Choose Codex OAuth in /provider, or re-login with the Codex CLI'
 
   if (!credentials.apiKey) {
     const authHint = credentials.authPath
@@ -1149,7 +997,7 @@ function resolveCodexCredentials(processEnv: NodeJS.ProcessEnv):
       : 'Set CODEX_API_KEY or re-login with the Codex CLI.'
     return {
       ok: false,
-      message: `Codex setup needs existing credentials. ${oauthHint}, or set CODEX_API_KEY. ${authHint}`,
+      message: `Codex setup needs existing credentials. Re-login with the Codex CLI or set CODEX_API_KEY. ${authHint}`,
     }
   }
 
@@ -1157,21 +1005,124 @@ function resolveCodexCredentials(processEnv: NodeJS.ProcessEnv):
     return {
       ok: false,
       message:
-        `Codex auth is missing chatgpt_account_id. ${oauthHint}, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID first.`,
+        'Codex auth is missing chatgpt_account_id. Re-login with the Codex CLI or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID first.',
     }
   }
 
   return {
     ok: true,
-    credentialSource:
-      credentials.source === 'secure-storage' ? 'oauth' : 'existing',
     sourceDescription:
       credentials.source === 'env'
         ? 'the current shell environment'
-        : credentials.source === 'secure-storage'
-          ? 'OpenClaude secure storage'
         : credentials.authPath ?? DEFAULT_CODEX_BASE_URL,
   }
+}
+
+/**
+ * Qwen OAuth authentication step.
+ * Opens browser for device code flow and polls for token.
+ */
+function QwenAuthStep({
+  onSuccess,
+  onBack,
+  onCancel,
+}: {
+  onSuccess: () => void
+  onBack: () => void
+  onCancel: () => void
+}): React.ReactNode {
+  const [status, setStatus] = React.useState<{
+    state: 'loading' | 'browser' | 'polling' | 'success' | 'error'
+    message: string
+    userCode?: string
+    verificationUrl?: string
+  }>({ state: 'loading', message: 'Starting authentication...' })
+
+  React.useEffect(() => {
+    let cancelled = false
+
+    // If already has valid credentials, skip to success
+    if (hasValidQwenCredentials()) {
+      setStatus({ state: 'success', message: 'Already authenticated!' })
+      setTimeout(() => { if (!cancelled) onSuccess() }, 1000)
+      return
+    }
+
+    void (async () => {
+      try {
+        await authenticateWithQwenOAuth((progress: QwenAuthProgress) => {
+          if (cancelled) return
+          setStatus({
+            state: progress.status as typeof status.state,
+            message: progress.message,
+            userCode: progress.userCode,
+            verificationUrl: progress.verificationUrlComplete || progress.verificationUrl,
+          })
+          if (progress.status === 'success') {
+            setTimeout(() => { if (!cancelled) onSuccess() }, 1500)
+          }
+        })
+      } catch (error: any) {
+        if (!cancelled) {
+          setStatus({
+            state: 'error',
+            message: error.message || 'Authentication failed',
+          })
+        }
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [onSuccess])
+
+  const options = [
+    { label: 'Back', value: 'back' },
+    { label: 'Cancel', value: 'cancel' },
+  ]
+
+  return (
+    <Dialog title="Qwen Coder authentication" onCancel={onCancel}>
+      <Box flexDirection="column" gap={1}>
+        {status.state === 'loading' && (
+          <Text>{status.message}</Text>
+        )}
+        {status.state === 'browser' && (
+          <>
+            <Text color="remember" bold>Opening browser...</Text>
+            <Text>Complete authentication in your browser.</Text>
+            {status.userCode && (
+              <Text dimColor>Your code: {status.userCode}</Text>
+            )}
+          </>
+        )}
+        {status.state === 'polling' && (
+          <>
+            <Text color="remember" bold>Waiting for authorization...</Text>
+            <Text>{status.message}</Text>
+            {status.verificationUrl && (
+              <Text dimColor>Or open: {status.verificationUrl}</Text>
+            )}
+            {status.userCode && (
+              <Text dimColor>Code: {status.userCode}</Text>
+            )}
+          </>
+        )}
+        {status.state === 'success' && (
+          <Text color="fastMode">{status.message}</Text>
+        )}
+        {status.state === 'error' && (
+          <>
+            <Text color="error">{status.message}</Text>
+            <Select
+              options={options}
+              onChange={value => (value === 'back' ? onBack() : onCancel())}
+              onCancel={onCancel}
+            />
+          </>
+        )}
+      </Box>
+    </Dialog>
+  )
 }
 
 export function ProviderWizard({
@@ -1203,8 +1154,22 @@ export function ProviderWizard({
                 name: 'mistral-key',
                 defaultModel: defaults.mistralModel,
               })
-            } else if (value === 'codex-oauth') {
-              setStep({ name: 'codex-oauth' })
+            } else if (value === 'qwen-oauth') {
+              // Check if user has valid credentials first
+              if (hasValidQwenCredentials()) {
+                finishProfileSave(onDone, 'openai', {
+                  OPENAI_BASE_URL: 'https://portal.qwen.ai/v1',
+                  OPENAI_MODEL: 'coder-model',
+                })
+              } else {
+                onDone(
+                  'Qwen Coder requires authentication.\n\n' +
+                  'To authenticate, run: /provider qwen-auth\n' +
+                  'This will open your browser to sign in with your Qwen account.\n\n' +
+                  'Or authenticate via Qwen CLI: npm install -g @qwen-code/qwen-code, then run "qwen" → /auth',
+                  { display: 'system' },
+                )
+              }
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
@@ -1484,7 +1449,7 @@ export function ProviderWizard({
               options={options}
               inlineDescriptions
               visibleOptionCount={options.length}
-              onChange={(value: string) => {
+              onChange={value => {
                 if (value === 'api-key') {
                   setStep({ name: 'gemini-key' })
                 } else if (value === 'access-token') {
@@ -1641,10 +1606,15 @@ export function ProviderWizard({
         />
       )
 
-    case 'codex-oauth':
+    case 'qwen-auth':
       return (
-        <CodexOAuthStep
-          onSave={(profile, env) => finishProfileSave(onDone, profile, env)}
+        <QwenAuthStep
+          onSuccess={() => {
+            finishProfileSave(onDone, 'openai', {
+              OPENAI_BASE_URL: 'https://portal.qwen.ai/v1',
+              OPENAI_MODEL: 'coder-model',
+            })
+          }}
           onBack={() => setStep({ name: 'choose' })}
           onCancel={() => onDone()}
         />
@@ -1655,6 +1625,36 @@ export function ProviderWizard({
 export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
   const trimmedArgs = args?.trim().toLowerCase() ?? ''
 
+  // Handle /provider qwen-auth subcommand
+  if (trimmedArgs === 'qwen-auth' || trimmedArgs === 'qwen auth') {
+    try {
+      onDone('Starting Qwen OAuth... Check your browser to complete sign-in.', { display: 'system' })
+      const { authenticateWithQwenOAuth, hasValidQwenCredentials } = await import('../../services/api/qwenOAuth.js')
+      
+      if (hasValidQwenCredentials()) {
+        onDone('Already authenticated with Qwen. Your token is valid.', { display: 'system' })
+        return
+      }
+
+      await authenticateWithQwenOAuth((progress) => {
+        if (progress.userCode) {
+          onDone(`Your code: ${progress.userCode}`, { display: 'system' })
+        }
+        if (progress.verificationUrl) {
+          onDone(`Open this URL: ${progress.verificationUrl}`, { display: 'system' })
+        }
+        if (progress.message) {
+          onDone(progress.message, { display: 'system' })
+        }
+      })
+
+      onDone('Qwen authentication successful! You can now use Qwen Coder.', { display: 'system' })
+    } catch (error: any) {
+      onDone(`Qwen auth failed: ${error.message}`, { display: 'system' })
+    }
+    return
+  }
+
   if (
     COMMON_HELP_ARGS.includes(trimmedArgs) ||
     COMMON_INFO_ARGS.includes(trimmedArgs) ||
@@ -1663,7 +1663,7 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
     trimmedArgs === '-h'
   ) {
     onDone(
-      'Run /provider to add, edit, delete, or activate provider profiles. The active provider controls base URL, model, and API key.',
+      'Run /provider to add, edit, delete, or activate provider profiles. The active provider controls base URL, model, and API key.\nRun /provider qwen-auth to authenticate with Qwen OAuth.',
       { display: 'system' },
     )
     return
