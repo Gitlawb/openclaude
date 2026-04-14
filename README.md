@@ -15,6 +15,10 @@ OpenClaude is also mirrored to GitLawb:
 
 [Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=gitlawb/openclaude&type=date&legend=top-left)](https://www.star-history.com/?repos=gitlawb%2Fopenclaude&type=date&legend=top-left)
+
 ## Why OpenClaude
 
 - Use one CLI across cloud APIs and local model backends
