@@ -580,15 +580,55 @@ export async function performCodexRequest(options: {
   return response
 }
 
-async function* readSseEvents(response: Response): AsyncGenerator<CodexSseEvent> {
+async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGenerator<CodexSseEvent> {
   const reader = response.body?.getReader()
   if (!reader) return
 
   const decoder = new TextDecoder()
   let buffer = ''
+  const STREAM_IDLE_TIMEOUT_MS = 120_000 // 2 minutes without data
+  let lastDataTime = Date.now()
+
+  /**
+   * Read from the stream with an idle timeout. Respects the caller's
+   * AbortSignal — clears the idle timer on abort so the AbortError
+   * surfaces cleanly instead of a spurious idle timeout.
+   */
+  async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
+        reject(new Error(
+          `Codex SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
+        ))
+      }, STREAM_IDLE_TIMEOUT_MS)
+
+      let abortCleanup: (() => void) | undefined
+      if (signal) {
+        abortCleanup = () => {
+          clearTimeout(timeoutId)
+        }
+        signal.addEventListener('abort', abortCleanup, { once: true })
+      }
+
+      reader.read().then(
+        result => {
+          clearTimeout(timeoutId)
+          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          if (result.value) lastDataTime = Date.now()
+          resolve(result)
+        },
+        err => {
+          clearTimeout(timeoutId)
+          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          reject(err)
+        },
+      )
+    })
+  }
 
   while (true) {
-    const { done, value } = await reader.read()
+    const { done, value } = await readWithTimeout()
     if (done) break
 
     buffer += decoder.decode(value, { stream: true })
@@ -649,10 +689,11 @@ function determineStopReason(
 
 export async function collectCodexCompletedResponse(
   response: Response,
+  signal?: AbortSignal,
 ): Promise<Record<string, any>> {
   let completedResponse: Record<string, any> | undefined
 
-  for await (const event of readSseEvents(response)) {
+  for await (const event of readSseEvents(response, signal)) {
     if (event.event === 'response.failed') {
       const msg = event.data?.response?.error?.message ??
         event.data?.error?.message ?? 'Codex response failed'
@@ -681,6 +722,7 @@ export async function collectCodexCompletedResponse(
 export async function* codexStreamToAnthropic(
   response: Response,
   model: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   const toolBlocksByItemId = new Map<
@@ -742,7 +784,7 @@ export async function* codexStreamToAnthropic(
     },
   }
 
-  for await (const event of readSseEvents(response)) {
+  for await (const event of readSseEvents(response, signal)) {
     const payload = event.data
 
     if (event.event === 'response.output_item.added') {

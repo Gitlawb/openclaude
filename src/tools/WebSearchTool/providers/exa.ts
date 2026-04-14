@@ -19,7 +19,7 @@ export const exaProvider: SearchProvider = {
 
     const body: Record<string, any> = {
       query: input.query,
-      numResults: 10,
+      numResults: 15,
       type: 'auto',
     }
 
