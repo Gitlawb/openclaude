@@ -236,7 +236,7 @@ export const call: LocalCommandCall = async (args) => {
       ],
       stream: true,
       ...(noKey ? {} : {
-        store: false,
+        store: undefined,
         prompt_cache_key: cacheKey,
         prompt_cache_retention: '24h',
       }),
@@ -252,7 +252,7 @@ export const call: LocalCommandCall = async (args) => {
       stream_options: { include_usage: true },
       max_tokens: 20,
       ...(noKey ? {} : {
-        store: false,
+        store: undefined,
         prompt_cache_key: cacheKey,
       }),
     }

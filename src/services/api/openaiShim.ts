@@ -1282,7 +1282,7 @@ class OpenAIShimMessages {
       model: request.resolvedModel,
       messages: openaiMessages,
       stream: params.stream ?? false,
-      store: false,
+      store: undefined,
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
@@ -1302,6 +1302,14 @@ class OpenAIShimMessages {
 
     if (params.stream && !isLocalProviderUrl(request.baseUrl)) {
       body.stream_options = { include_usage: true }
+    }
+
+    if (request.reasoning?.effort) {
+      if (isGeminiMode() && request.reasoning.effort === 'xhigh') {
+        body.reasoning_effort = 'high'
+      } else {
+        body.reasoning_effort = request.reasoning.effort
+      }
     }
 
     const isGithub = isGithubModelsMode()
@@ -1465,7 +1473,7 @@ class OpenAIShimMessages {
               }>,
             ),
             stream: params.stream ?? false,
-            store: false,
+            store: undefined,
           }
 
           if (!Array.isArray(responsesBody.input) || responsesBody.input.length === 0) {

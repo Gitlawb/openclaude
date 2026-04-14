@@ -502,7 +502,7 @@ export async function performCodexRequest(options: {
             content: [{ type: 'input_text', text: '' }],
           },
         ],
-    store: false,
+    store: undefined,
     stream: true,
   }
 

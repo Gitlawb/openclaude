@@ -2,7 +2,7 @@
  * Tests for Bug Fixes applied to openclaude.
  *
  * Covers:
- * 1. Gemini `store: false` rejection fix
+ * 1. Gemini `store: undefined` rejection fix
  * 2. Session timeout / 500 error fix (stream idle timeout)
  * 3. Agent loop continuation nudge
  * 4. Web search result count improvements
@@ -15,7 +15,7 @@ const SRC = resolve(import.meta.dir, '..')
 const file = (relative: string) => Bun.file(resolve(SRC, relative))
 
 // ---------------------------------------------------------------------------
-// Fix 1: Gemini `store: false` rejection
+// Fix 1: Gemini `store: undefined` rejection
 // ---------------------------------------------------------------------------
 describe('Gemini store field fix', () => {
   test('isGeminiMode is imported and used in openaiShim', async () => {
@@ -28,10 +28,10 @@ describe('Gemini store field fix', () => {
     expect(content).toMatch(/isMistral\s*\|\|\s*isGeminiMode\(\)/)
   })
 
-  test('store: false is still set by default (OpenAI needs it)', async () => {
+  test('store: undefined is still set by default (OpenAI needs it)', async () => {
     const content = await file('services/api/openaiShim.ts').text()
 
-    // The body should still have store: false by default
+    // The body should still have store: undefined by default
     expect(content).toMatch(/store:\s*false/)
     // But it should be deleted for non-OpenAI providers
     expect(content).toMatch(/delete body\.store/)
@@ -214,7 +214,7 @@ describe('Regression checks', () => {
   test('store field is still set for OpenAI (not deleted unconditionally)', async () => {
     const content = await file('services/api/openaiShim.ts').text()
 
-    // store: false should exist in body construction
+    // store: undefined should exist in body construction
     expect(content).toMatch(/store:\s*false/)
     // But delete body.store should be conditional (guarded by if)
     const deleteLines = content.split('\n').filter(l => l.includes('delete body.store'))

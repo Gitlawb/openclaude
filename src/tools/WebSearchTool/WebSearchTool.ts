@@ -306,7 +306,7 @@ async function runCodexWebSearch(
     tools: [makeCodexWebSearchTool(input)],
     tool_choice: 'required',
     include: ['web_search_call.action.sources'],
-    store: false,
+    store: undefined,
     stream: true,
   }
 
