@@ -1042,11 +1042,12 @@ export const AgentTool = buildTool({
                     });
                   } finally {
                     stopBackgroundedSummarization?.();
-                    // Always clean up agent resources, even on crash.
-                    // Without this, a backgrounded agent that crashes before
-                    // runAsyncAgentLifecycle's finally block leaks dump state.
-                    clearInvokedSkillsForAgent(syncAgentId);
-                    clearDumpState(syncAgentId);
+                    // Defensive cleanup: wrap each call so one failure doesn't
+                    // prevent the other from running. Without this, if
+                    // clearInvokedSkillsForAgent throws, clearDumpState is
+                    // skipped and dump state leaks.
+                    try { clearInvokedSkillsForAgent(syncAgentId); } catch { /* cleanup best-effort */ }
+                    try { clearDumpState(syncAgentId); } catch { /* cleanup best-effort */ }
                   }
                 });
 

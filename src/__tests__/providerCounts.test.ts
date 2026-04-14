@@ -18,7 +18,7 @@ describe('Provider result counts', () => {
     'you.ts',
     'jina.ts',
     'duckduckgo.ts',
-    'linkup.ts',
+    // linkup.ts excluded — uses depth param, not a result count field
   ]
 
   for (const name of providers) {

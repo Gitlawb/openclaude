@@ -944,7 +944,7 @@ export function getAssistantMessageFromError(
     return createAssistantAPIErrorMessage({
       content: `The conversation has grown too large for the API to process.${rewindInstruction} Alternatively, start a new session with /new.`,
       error: 'invalid_request',
-      errorDetails: error.message,
+      errorDetails: `Context overflow (500): ${error.message}`,
     })
   }
 

@@ -81,14 +81,15 @@ describe('Agent loop continuation nudge', () => {
     expect(content).toContain('continuation_nudge')
   })
 
-  test('continuation signals include common patterns', async () => {
+  test('continuation signals include tightened patterns', async () => {
     const content = await file('query.ts').text()
 
-    // Should detect patterns like "so now I", "let me now", "I'll need to"
+    // Should detect tightened patterns requiring explicit action verbs
     expect(content).toMatch(/so now \(i\|let me\|we\)/)
-    expect(content).toMatch(/let me \(now/)
-    expect(content).toMatch(/i\('ll\| will\| need to/)
-    expect(content).toMatch(/time to \(do/)
+    expect(content).toContain('completionMarkers')
+    expect(content).toContain('MAX_CONTINUATION_NUDGES')
+    // Verify the nudge counter guard exists
+    expect(content).toMatch(/continuationNudgeCount\s*<\s*MAX_CONTINUATION_NUDGES/)
   })
 
   test('nudge creates a meta user message to continue', async () => {
@@ -141,7 +142,8 @@ describe('Web search result count improvements', () => {
       'tools/WebSearchTool/providers/mojeek.ts',
     ).text()
 
-    expect(content).toMatch(/t.*['"]10['"]/)
+    // Mojeek uses 't' param for result count — verify it's set to 10
+    expect(content).toMatch(/searchParams\.set\('t',\s*'10'\)/)
   })
 
   test('You.com provider requests at least 10 results', async () => {
@@ -196,11 +198,12 @@ describe('MCP tool timeout fix', () => {
     expect(content).toContain('Tool call aborted during URL elicitation')
   })
 
-  test('MCP tool error messages include server and tool name', async () => {
+  test('MCP tool error messages include server and tool name in telemetry', async () => {
     const content = await file('services/mcp/client.ts').text()
 
-    // Error message should include context like "[serverName] toolName: error"
-    expect(content).toContain('[${name}] ${tool}:')
+    // Telemetry message should include context like "MCP tool [serverName] toolName: error"
+    // The human-readable message stays unchanged to avoid breaking error consumers
+    expect(content).toContain('MCP tool [${name}] ${tool}:')
   })
 })
 
@@ -250,7 +253,10 @@ describe('AgentTool cleanup fix', () => {
 
     // The backgrounded agent's finally block should clean up regardless
     // of whether the agent crashed or completed normally
-    expect(content).toContain('Always clean up agent resources, even on crash')
+    expect(content).toContain('Defensive cleanup: wrap each call so one failure')
+    // Verify cleanup is wrapped in try/catch for defensive execution
+    expect(content).toMatch(/try\s*\{\s*clearInvokedSkillsForAgent/)
+    expect(content).toMatch(/try\s*\{\s*clearDumpState/)
   })
 })
 

@@ -3186,10 +3186,12 @@ async function callMCPTool({
         errorDetails = String(result.error)
       }
       logMCPError(name, errorDetails)
-      // Include server and tool name in error for easier debugging
+      // Include server and tool name in telemetry for debugging, but keep
+      // the human-readable message unchanged to avoid breaking error consumers
+      // that parse the message string.
       throw new McpToolCallError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS(
-        `[${name}] ${tool}: ${errorDetails}`,
-        `MCP tool returned error: ${errorDetails.slice(0, 200)}`,
+        errorDetails,
+        `MCP tool [${name}] ${tool}: ${errorDetails}`,
         '_meta' in result && result._meta ? { _meta: result._meta } : undefined,
       )
     }
