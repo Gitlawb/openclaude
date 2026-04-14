@@ -15,6 +15,26 @@ import { extractErrorDetail } from './debugUtils.js'
 
 const ANTHROPIC_VERSION = '2023-06-01'
 
+/**
+ * Thrown when the bridge server refuses the connection (ECONNREFUSED).
+ * Callers map this to a user-facing error so users know to start the
+ * local bridge server rather than seeing a generic "session creation
+ * failed" message.
+ */
+export class BridgeConnectionRefusedError extends Error {
+  constructor(public readonly baseUrl: string) {
+    super(`Bridge server refused connection at ${baseUrl}`)
+    this.name = 'BridgeConnectionRefusedError'
+  }
+}
+
+function isConnectionRefused(err: unknown): boolean {
+  return (
+    axios.isAxiosError(err) &&
+    (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET')
+  )
+}
+
 function oauthHeaders(accessToken: string): Record<string, string> {
   return {
     Authorization: `Bearer ${accessToken}`,
@@ -46,6 +66,9 @@ export async function createCodeSession(
       },
     )
   } catch (err: unknown) {
+    if (isConnectionRefused(err)) {
+      throw new BridgeConnectionRefusedError(baseUrl)
+    }
     logForDebugging(
       `[code-session] Session create request failed: ${errorMessage(err)}`,
     )
@@ -114,6 +137,9 @@ export async function fetchRemoteCredentials(
       },
     )
   } catch (err: unknown) {
+    if (isConnectionRefused(err)) {
+      throw new BridgeConnectionRefusedError(baseUrl)
+    }
     logForDebugging(
       `[code-session] /bridge request failed: ${errorMessage(err)}`,
     )

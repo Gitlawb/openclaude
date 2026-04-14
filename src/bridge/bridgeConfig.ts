@@ -1,16 +1,36 @@
 /**
  * Shared bridge auth/URL resolution for openclaude.
  *
- * In this fork, the bridge is decoupled from the LLM provider: the bridge
- * target is always the local bridge server (`packages/bridge-server/`) at
- * `localhost:4080` unless an explicit `CLAUDE_BRIDGE_*` env override is
- * set. Having Anthropic OAuth tokens (for inference) does not redirect the
- * bridge to production — a user may run inference via Anthropic and remote
- * control via the local bridge.
+ * The bridge target follows the active LLM provider:
+ * - Anthropic (OAuth or API key via api.anthropic.com) → Anthropic bridge
+ *   (`https://api.anthropic.com`), authenticated with the user's OAuth
+ *   tokens. This is the only path where the Anthropic bridge endpoints
+ *   accept our credentials.
+ * - Any non-Anthropic provider (OpenAI, Gemini, Ollama, Bedrock, Vertex…)
+ *   → local bridge server (`packages/bridge-server/`) at `localhost:4080`,
+ *   authenticated with the `'openclaude-local-bridge'` token.
  *
- * Two layers: *Override() returns the dev env var (or undefined); the
- * non-Override versions compose overrides with the local bridge defaults.
+ * Explicit `CLAUDE_BRIDGE_*` env overrides take precedence in both layers.
  */
+
+import { getOauthConfig } from '../constants/oauth.js'
+import { getClaudeAIOAuthTokens } from '../utils/auth.js'
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+} from '../utils/model/providers.js'
+
+/**
+ * Is the active LLM provider Anthropic's first-party API?
+ *
+ * Returns true for OAuth login OR direct ANTHROPIC_API_KEY against
+ * api.anthropic.com. Returns false for bedrock/vertex (Anthropic models
+ * routed via AWS/GCP auth, not compatible with the Anthropic bridge) and
+ * for any third-party provider.
+ */
+function isAnthropicProvider(): boolean {
+  return getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
+}
 
 /** Dev override: CLAUDE_BRIDGE_OAUTH_TOKEN, else undefined. */
 export function getBridgeTokenOverride(): string | undefined {
@@ -23,31 +43,37 @@ export function getBridgeBaseUrlOverride(): string | undefined {
 }
 
 /**
- * Access token for bridge API calls: env override, then local bridge
- * default token.
- *
- * In this fork, the bridge auth is decoupled from the LLM provider — a
- * user's Anthropic OAuth tokens (for inference) are not valid credentials
- * for the local bridge server, which accepts only `'openclaude-local-bridge'`
- * or an explicit `CLAUDE_BRIDGE_OAUTH_TOKEN` override.
+ * Access token for bridge API calls:
+ * - Override `CLAUDE_BRIDGE_OAUTH_TOKEN` wins.
+ * - Anthropic provider → OAuth access token from the keychain (required by
+ *   the Anthropic bridge endpoints).
+ * - Otherwise → `'openclaude-local-bridge'` static token accepted by the
+ *   local bridge server.
  */
 export function getBridgeAccessToken(): string | undefined {
-  return getBridgeTokenOverride() ?? 'openclaude-local-bridge'
+  const override = getBridgeTokenOverride()
+  if (override) return override
+  if (isAnthropicProvider()) {
+    return getClaudeAIOAuthTokens()?.accessToken
+  }
+  return 'openclaude-local-bridge'
 }
 
 /**
- * Base URL for bridge API calls: env override, then localhost default for
- * the local bridge server.
+ * Base URL for bridge API calls:
+ * - Override `CLAUDE_BRIDGE_BASE_URL` wins.
+ * - Anthropic provider → the OAuth config's `BASE_API_URL` (prod/staging).
+ * - Otherwise → the local bridge server at `http://localhost:4080`.
  *
- * In this fork (openclaude) the bridge is always local by default — it is
- * decoupled from the LLM provider. A user can have Anthropic OAuth tokens
- * for inference while still targeting the local bridge for remote control.
- * The local bridge server only accepts the `'openclaude-local-bridge'`
- * token (or `CLAUDE_BRIDGE_OAUTH_TOKEN` when set), so defaulting to the
- * Anthropic production API would break auth for logged-in users.
- *
- * Set `CLAUDE_BRIDGE_BASE_URL` to point to a non-local bridge.
+ * When the non-Anthropic path targets localhost but the local bridge
+ * server is not running, session creation fails with ECONNREFUSED — see
+ * codeSessionApi.ts for the user-facing error message.
  */
 export function getBridgeBaseUrl(): string {
-  return getBridgeBaseUrlOverride() ?? 'http://localhost:4080'
+  const override = getBridgeBaseUrlOverride()
+  if (override) return override
+  if (isAnthropicProvider()) {
+    return getOauthConfig().BASE_API_URL
+  }
+  return 'http://localhost:4080'
 }
