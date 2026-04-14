@@ -20,6 +20,7 @@ import { Select } from './CustomSelect/select.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
 import { Spinner } from './Spinner.js';
 import TextInput from './TextInput.js';
+import { addProviderProfile } from '../utils/providerProfiles.js';
 export type ConsoleOAuthFlowResult = {
   type: 'oauth';
 } | {
@@ -396,7 +397,7 @@ function OAuthStatusMessage({
         {
           label: (
             <Text>
-              Claude account with subscription ·{' '}
+              Claude Subscription ·{' '}
               <Text dimColor>Pro, Max, Team, or Enterprise</Text>
               {'\n'}
             </Text>
@@ -406,8 +407,8 @@ function OAuthStatusMessage({
         {
           label: (
             <Text>
-              Anthropic Console account ·{' '}
-              <Text dimColor>API usage billing</Text>
+              Anthropic Console ·{' '}
+              <Text dimColor>Pay-as-you-go API usage</Text>
               {'\n'}
             </Text>
           ),
@@ -417,7 +418,7 @@ function OAuthStatusMessage({
           label: (
             <Text>
               Google Gemini ·{' '}
-              <Text dimColor>OAuth, API Key, or ADC</Text>
+              <Text dimColor>Official Google AI SDK (OAuth or API Key)</Text>
               {'\n'}
             </Text>
           ),
@@ -426,8 +427,8 @@ function OAuthStatusMessage({
         {
           label: (
             <Text>
-              3rd-party platform ·{' '}
-              <Text dimColor>OpenAI, Gemini, Bedrock, Ollama, and more</Text>
+              Other Providers ·{' '}
+              <Text dimColor>OpenAI, Mistral, Bedrock, Vertex, and more</Text>
               {'\n'}
             </Text>
           ),
@@ -609,13 +610,19 @@ function GeminiSetupView({
 }) {
   const [method, setMethod] = useState<'menu' | 'api-key' | 'oauth'>('menu')
   const [apiKey, setApiKey] = useState('')
+  const [cursorOffset, setCursorOffset] = useState(0)
   const hasAdc = mayHaveGeminiAdcCredentials()
 
   const oauthStatus = useGeminiOAuthFlow({
     onAuthenticated: (tokens, persistCredentials) => {
       persistCredentials()
-      process.env.GEMINI_AUTH_MODE = 'access-token'
-      process.env.CLAUDE_CODE_USE_GEMINI = '1'
+      addProviderProfile({
+        provider: 'openai',
+        name: 'Google Gemini',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        model: 'gemini-3.1-pro-preview',
+        apiKey: ''
+      }, { makeActive: true })
       onDone(true)
     },
   })
@@ -630,16 +637,20 @@ function GeminiSetupView({
           onChange={setApiKey}
           onSubmit={val => {
             if (val.trim()) {
-              process.env.GEMINI_API_KEY = val.trim()
-              process.env.GEMINI_AUTH_MODE = 'api-key'
-              process.env.CLAUDE_CODE_USE_GEMINI = '1'
+              addProviderProfile({
+                provider: 'openai',
+                name: 'Google Gemini',
+                baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+                model: 'gemini-3.1-pro-preview',
+                apiKey: val.trim()
+              }, { makeActive: true })
               onDone(true)
             }
           }}
           mask="*"
           columns={40}
-          cursorOffset={0}
-          onChangeCursorOffset={() => {}}
+          cursorOffset={cursorOffset}
+          onChangeCursorOffset={setCursorOffset}
         />
         <Text dimColor>Press Esc to cancel.</Text>
       </Box>
@@ -689,8 +700,13 @@ function GeminiSetupView({
         onChange={(val: string) => {
           if (val === 'back') onCancel()
           else if (val === 'adc') {
-            process.env.GEMINI_AUTH_MODE = 'adc'
-            process.env.CLAUDE_CODE_USE_GEMINI = '1'
+            addProviderProfile({
+              provider: 'openai',
+              name: 'Google Gemini',
+              baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+              model: 'gemini-3.1-pro-preview',
+              apiKey: ''
+            }, { makeActive: true })
             onDone(true)
           } else setMethod(val as 'api-key' | 'oauth')
         }}

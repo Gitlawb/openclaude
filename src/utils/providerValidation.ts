@@ -88,7 +88,7 @@ export async function getProviderValidationError(
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
   const useGithub = isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)
 
-  if (isEnvTruthy(env.CLAUDE_CODE_USE_GEMINI)) {
+  if (isEnvTruthy(env.CLAUDE_CODE_USE_GEMINI) || /google|gemini/i.test(env.OPENAI_BASE_URL ?? env.OPENAI_API_BASE ?? '')) {
     const geminiCredential = await (
       options?.resolveGeminiCredential ?? resolveGeminiCredential
     )(env)

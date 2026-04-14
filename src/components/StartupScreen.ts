@@ -81,18 +81,21 @@ const LOGO_CLAUDE = [
   `  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d   \u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d`,
 ]
 
-// ─── Provider detection ───────────────────────────────────────────────────────
+// ─── Provider detection ──────────────────────────────────────────────────────────────
 
-function detectProvider(): { name: string; model: string; baseUrl: string; isLocal: boolean } {
+function detectProvider(): { name: string; model: string; baseUrl: string; isLocal: boolean; authMethod?: string } {
   const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
   const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
   const useMistral = process.env.CLAUDE_CODE_USE_MISTRAL === '1' || process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
 
   if (useGemini) {
-    const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    const model = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview'
     const baseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
-    return { name: 'Google Gemini', model, baseUrl, isLocal: false }
+    let authMethod = 'API Key (Set)'
+    if (process.env.GEMINI_AUTH_MODE === 'adc') authMethod = 'Google ADC (Valid)'
+    else if (process.env.GEMINI_AUTH_MODE === 'access-token') authMethod = 'OAuth (Valid)'
+    return { name: 'Google Gemini', model, baseUrl, isLocal: false, authMethod }
   }
 
   if (useMistral) {
@@ -117,11 +120,16 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     const baseUrl = resolvedRequest.baseUrl
     const isLocal = isLocalProviderUrl(baseUrl)
     let name = 'OpenAI'
-    // Override to Codex when resolved endpoint is Codex
+    let authMethod: string | undefined
     if (resolvedRequest.transport === 'codex_responses' || baseUrl.includes('chatgpt.com/backend-api/codex')) {
       name = 'Codex'
     } else if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))       name = 'DeepSeek'
-    else if (/google/i.test(baseUrl) || /gemini/i.test(baseUrl))      name = 'Google Gemini'
+    else if (/google/i.test(baseUrl) || /gemini/i.test(baseUrl)) {
+      name = 'Google Gemini'
+      authMethod = 'API Key (Set)'
+      if (process.env.GEMINI_AUTH_MODE === 'adc') authMethod = 'Google ADC (Valid)'
+      else if (process.env.GEMINI_AUTH_MODE === 'access-token') authMethod = 'OAuth (Valid)'
+    }
     else if (/openrouter/i.test(baseUrl))                             name = 'OpenRouter'
     else if (/together/i.test(baseUrl))                               name = 'Together AI'
     else if (/groq/i.test(baseUrl))                                   name = 'Groq'
@@ -136,7 +144,7 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
       displayModel = `${displayModel} (${resolvedRequest.reasoning.effort})`
     }
     
-    return { name, model: displayModel, baseUrl, isLocal }
+    return { name, model: displayModel, baseUrl, isLocal, authMethod }
   }
 
   // Default: Anthropic - check settings.model first, then env vars
@@ -194,6 +202,12 @@ export function printStartupScreen(): void {
   const provC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
   let [r, l] = lbl('Provider', p.name, provC)
   out.push(boxRow(r, W, l))
+
+  if (p.authMethod) {
+    let [ar, al] = lbl('Auth', p.authMethod, provC)
+    out.push(boxRow(ar, W, al))
+  }
+
   ;[r, l] = lbl('Model', p.model)
   out.push(boxRow(r, W, l))
   const ep = p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl

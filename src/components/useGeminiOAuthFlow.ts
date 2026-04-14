@@ -46,7 +46,12 @@ export function useGeminiOAuthFlow(options: {
   ) => void | Promise<void>
   deps?: GeminiOAuthFlowDependencies
 }): GeminiOAuthFlowStatus {
-  const { onAuthenticated } = options
+  // Use a ref for the callback so it's always current but doesn't trigger effect re-runs
+  const onAuthRef = React.useRef(options.onAuthenticated)
+  React.useEffect(() => {
+    onAuthRef.current = options.onAuthenticated
+  }, [options.onAuthenticated])
+
   const createOAuthService =
     options.deps?.createOAuthService ?? createDefaultOAuthService
   const openBrowserFn = options.deps?.openBrowser ?? openBrowser
@@ -57,8 +62,16 @@ export function useGeminiOAuthFlow(options: {
     state: 'starting',
   })
 
+  // Group dependencies in a ref for the effect
+  const depsRef = React.useRef({
+    createOAuthService,
+    openBrowserFn,
+    saveCredentials,
+    isBareModeFn,
+  })
+
   React.useEffect(() => {
-    if (isBareModeFn()) {
+    if (depsRef.current.isBareModeFn()) {
       setStatus({
         state: 'error',
         message:
@@ -68,7 +81,7 @@ export function useGeminiOAuthFlow(options: {
     }
 
     let cancelled = false
-    const oauthService = createOAuthService()
+    const oauthService = depsRef.current.createOAuthService()
 
     void oauthService
       .startOAuthFlow(async authUrl => {
@@ -78,7 +91,7 @@ export function useGeminiOAuthFlow(options: {
           authUrl,
           browserOpened: null,
         })
-        const browserOpened = await openBrowserFn(authUrl)
+        const browserOpened = await depsRef.current.openBrowserFn(authUrl)
         if (cancelled) return
         setStatus({
           state: 'waiting',
@@ -90,7 +103,7 @@ export function useGeminiOAuthFlow(options: {
         if (cancelled) return
 
         const persistCredentials: PersistGeminiOAuthCredentials = () => {
-          const saved = saveCredentials(tokens.accessToken)
+          const saved = depsRef.current.saveCredentials(tokens.accessToken)
           if (!saved.success) {
             throw new Error(
               saved.warning ??
@@ -99,7 +112,7 @@ export function useGeminiOAuthFlow(options: {
           }
         }
 
-        await onAuthenticated(tokens, persistCredentials)
+        await onAuthRef.current(tokens, persistCredentials)
       })
       .catch(error => {
         if (cancelled) return
@@ -113,13 +126,7 @@ export function useGeminiOAuthFlow(options: {
       cancelled = true
       oauthService.cleanup()
     }
-  }, [
-    createOAuthService,
-    isBareModeFn,
-    onAuthenticated,
-    openBrowserFn,
-    saveCredentials,
-  ])
+  }, []) // Mount-only effect
 
   return status
 }

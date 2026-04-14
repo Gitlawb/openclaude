@@ -22,7 +22,8 @@ export function readGeminiAccessToken(): string | undefined {
 }
 
 export function hydrateGeminiAccessTokenFromSecureStorage(): void {
-  if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
+  const isGeminiEndpoint = /google|gemini/i.test(process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE ?? '')
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) && !isGeminiEndpoint) {
     return
   }
   const authMode = getGeminiAuthMode(process.env)
