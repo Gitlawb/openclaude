@@ -305,6 +305,37 @@ function getCodexSparkOption(): ModelOption {
   }
 }
 
+
+function getGeminiModelOptions(): ModelOption[] {
+  return [
+    {
+      value: 'gemini-3.1-pro-preview',
+      label: 'Gemini 3.1 Pro Preview',
+      description: 'Frontier reasoning · Most capable for complex work',
+    },
+    {
+      value: 'gemini-2.5-pro',
+      label: 'Gemini 2.5 Pro',
+      description: 'Balanced performance · Best for everyday coding tasks',
+    },
+    {
+      value: 'gemini-3.1-flash-preview',
+      label: 'Gemini 3.1 Flash',
+      description: 'High speed · Optimal for fast iterative development',
+    },
+    {
+      value: 'gemini-3.1-flash-lite-preview',
+      label: 'Gemini 3.1 Flash-Lite',
+      description: 'Fastest & cheapest · Built for high-volume tasks',
+    },
+    {
+      value: 'gemini-2.0-flash',
+      label: 'Gemini 2.0 Flash',
+      description: 'Stable generation model',
+    }
+  ]
+}
+
 function getCodexModelOptions(): ModelOption[] {
   return [
     {
@@ -442,6 +473,10 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
 
     standardOptions.push(MaxHaiku45Option)
     return standardOptions
+  }
+
+  if (getAPIProvider() === 'gemini') {
+    return [getDefaultOptionForUser(fastMode), ...getGeminiModelOptions()]
   }
 
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {

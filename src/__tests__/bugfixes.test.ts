@@ -32,7 +32,7 @@ describe('Gemini store field fix', () => {
     const content = await file('services/api/openaiShim.ts').text()
 
     // The body should still have store: undefined by default
-    expect(content).toMatch(/store:\s*false/)
+    expect(content).toMatch(/store:\s*undefined/)
     // But it should be deleted for non-OpenAI providers
     expect(content).toMatch(/delete body\.store/)
   })
@@ -215,7 +215,7 @@ describe('Regression checks', () => {
     const content = await file('services/api/openaiShim.ts').text()
 
     // store: undefined should exist in body construction
-    expect(content).toMatch(/store:\s*false/)
+    expect(content).toMatch(/store:\s*undefined/)
     // But delete body.store should be conditional (guarded by if)
     const deleteLines = content.split('\n').filter(l => l.includes('delete body.store'))
     expect(deleteLines.length).toBeGreaterThan(0)

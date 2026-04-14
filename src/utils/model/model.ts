@@ -268,7 +268,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   }
   // Gemini provider: always use the configured Gemini model
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    return process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview'
   }
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'devstral-latest'
@@ -367,6 +367,17 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   if (name.includes('claude-3-haiku')) {
     return 'claude-3-haiku'
   }
+  
+  if (name === 'gemini-pro') {
+    return 'gemini-3.1-pro-preview'
+  }
+  if (name === 'gemini-flash') {
+    return 'gemini-3.1-flash-preview'
+  }
+  if (name === 'gemini-flash-lite') {
+    return 'gemini-3.1-flash-lite-preview'
+  }
+
   const match = name.match(/(claude-(\d+-\d+-)?\w+)/)
   if (match && match[1]) {
     return match[1]
@@ -480,8 +491,12 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
       'claude-sonnet-4.5': 'Claude Sonnet 4.5',
       'claude-haiku-4.5': 'Claude Haiku 4.5',
       'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
+      'gemini-3.1-flash-preview': 'Gemini 3.1 Flash',
+      'gemini-3.1-flash-lite-preview': 'Gemini 3.1 Flash-Lite',
       'gemini-3-flash-preview': 'Gemini 3 Flash',
       'gemini-2.5-pro': 'Gemini 2.5 Pro',
+      'gemini-2.5-flash': 'Gemini 2.5 Flash',
+      'gemini-2.5-flash-lite': 'Gemini 2.5 Flash-Lite',
       'grok-code-fast-1': 'Grok Code Fast 1',
     }
     if (copilotModelNames[model]) {

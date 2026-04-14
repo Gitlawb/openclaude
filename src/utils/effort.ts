@@ -31,6 +31,7 @@ export type EffortValue = EffortLevel | number
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
 export function modelSupportsEffort(model: string): boolean {
   const m = model.toLowerCase()
+  if (m.includes('gemini')) return true; // FORCE GEMINI SUPPORT
   if (isEnvTruthy(process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT)) {
     return true
   }
@@ -38,14 +39,12 @@ export function modelSupportsEffort(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
-  if (modelUsesOpenAIEffort(model) && supportsCodexReasoningEffort(model)) {
+  if (modelUsesOpenAIEffort(model) && (supportsCodexReasoningEffort(model) || getAPIProvider() === 'gemini' || m.includes('gemini'))) {
     return true
   }
-  // Supported by a subset of Claude 4 models
   if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
     return true
   }
-  // Exclude any other known legacy models (haiku, older opus/sonnet variants)
   if (m.includes('haiku') || m.includes('sonnet') || m.includes('opus')) {
     return false
   }
@@ -86,14 +85,18 @@ export function isOpenAIEffortLevel(value: string): value is OpenAIEffortLevel {
 
 export function modelUsesOpenAIEffort(model: string): boolean {
   const provider = getAPIProvider()
-  return provider === 'openai' || provider === 'codex'
+  return provider === 'openai' || provider === 'codex' || provider === 'gemini'
 }
 
 export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIEffortLevel[] {
   if (!modelSupportsEffort(model)) {
     return []
   }
-  if (modelUsesOpenAIEffort(model)) {
+  const provider = getAPIProvider()
+  if (modelUsesOpenAIEffort(model) || model.toLowerCase().includes('gemini')) {
+    if (provider === 'gemini') {
+      return ['low', 'medium', 'high'] as OpenAIEffortLevel[]
+    }
     return [...OPENAI_EFFORT_LEVELS] as OpenAIEffortLevel[]
   }
   const levels: EffortLevel[] = ['low', 'medium', 'high']
