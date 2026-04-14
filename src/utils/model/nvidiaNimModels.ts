@@ -93,7 +93,7 @@ function getNvidiaNimModels(): ModelOption[] {
     { value: 'mistralai/mistral-7b-instruct-v0.3', label: 'Mistral 7B v0.3', description: 'Mistral' },
     { value: 'mistralai/mistral-7b-instruct-v0.2', label: 'Mistral 7B v0.2', description: 'Mistral' },
     { value: 'mistralai/mixtral-8x22b-instruct-v0.1', label: 'Mixtral 8x22B', description: 'Mistral' },
-    { value: 'mistralai/mixtral-8x22b-v0.1', label: 'Mixtral 8x22B Base', description: 'Mistral' },
+    { value: 'mistralai/mixtral-8x22b-instruct-v0.1', label: 'Mixtral 8x22B Instruct', description: 'Mistral' },
     { value: 'mistralai/mixtral-8x7b-instruct-v0.1', label: 'Mixtral 8x7B', description: 'Mistral' },
     { value: 'mistralai/mistral-nemotron', label: 'Mistral Nemotron', description: 'Mistral' },
     { value: 'mistralai/mathstral-7b-v0.1', label: 'Mathstral 7B', description: 'Math' },

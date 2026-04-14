@@ -385,6 +385,11 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.ANTHROPIC_API_KEY
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
+
+  // Clear provider-specific API keys
+  delete processEnv.MINIMAX_API_KEY
+  delete processEnv.NVIDIA_API_KEY
+  delete processEnv.NVIDIA_NIM
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
