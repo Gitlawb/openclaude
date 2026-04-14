@@ -9,6 +9,7 @@ import {
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
+import { getPrimaryModel, hasMultipleModels, parseModelList } from '../utils/providerModels.js'
 import {
   applySavedProfileToCurrentSession,
   buildCodexOAuthProfileEnv,
@@ -50,6 +51,7 @@ import {
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
+import { useSetAppState } from '../state/AppState.js'
 
 export type ProviderManagerResult = {
   action: 'saved' | 'cancelled'
@@ -108,8 +110,8 @@ const FORM_STEPS: Array<{
   {
     key: 'model',
     label: 'Default model',
-    placeholder: 'e.g. llama3.1:8b',
-    helpText: 'Model name to use when this provider is active.',
+    placeholder: 'e.g. llama3.1:8b or glm-4.7, glm-4.7-flash',
+    helpText: 'Model name(s) to use. Separate multiple with commas; first is default.',
   },
   {
     key: 'apiKey',
@@ -153,7 +155,12 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   const keyInfo = profile.apiKey ? 'key set' : 'no key'
   const providerKind =
     profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'
-  return `${providerKind} · ${profile.baseUrl} · ${profile.model} · ${keyInfo}${activeSuffix}`
+  const models = parseModelList(profile.model)
+  const modelDisplay =
+    models.length > 1
+      ? `${models[0]} + ${models.length - 1} more (${models.length} models)`
+      : profile.model
+  return `${providerKind} · ${profile.baseUrl} · ${modelDisplay} · ${keyInfo}${activeSuffix}`
 }
 
 function getGithubCredentialSourceFromEnv(
@@ -320,6 +327,7 @@ function CodexOAuthSetup({
 }
 
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
+  const setAppState = useSetAppState()
   const initialGithubCredentialSource = getGithubCredentialSourceFromEnv()
   const initialIsGithubActive = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const initialHasGithubCredential = initialGithubCredentialSource !== 'none'
@@ -573,6 +581,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         }
 
         refreshProfiles()
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
+        }))
         setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
         setScreen('menu')
         return
@@ -584,6 +596,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         setScreen('menu')
         return
       }
+
+      // Update the session model to the new provider's first model.
+      // persistActiveProviderProfileModel (called by onChangeAppState) will
+      // not overwrite the multi-model list because it checks if the model
+      // is already in the profile's comma-separated model list.
+      const newModel = getPrimaryModel(active.model)
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: newModel,
+      }))
 
       providerLabel = active.name
       const settingsOverrideError =

@@ -33,7 +33,11 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
-import { getActiveOpenAIModelOptionsCache } from '../providerProfiles.js'
+import {
+  getActiveOpenAIModelOptionsCache,
+  getActiveProviderProfile,
+  getProfileModelOptions,
+} from '../providerProfiles.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getAntModels } from './antModels.js'
 
@@ -452,6 +456,17 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
         ? activeOpenAIOptions
         : getScopedAdditionalModelOptions()),
     ]
+  }
+
+  // When a provider profile is active, show its models in the picker.
+  // This covers both openai-compatible and anthropic provider profiles,
+  // regardless of whether the base URL is local or remote.
+  const activeProfile = getActiveProviderProfile()
+  if (activeProfile) {
+    const profileModels = getProfileModelOptions(activeProfile)
+    if (profileModels.length > 0) {
+      return [getDefaultOptionForUser(fastMode), ...profileModels]
+    }
   }
 
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.6 + Opus 1M + Haiku
