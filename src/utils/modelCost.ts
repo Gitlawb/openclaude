@@ -86,6 +86,78 @@ export const COST_HAIKU_45 = {
   webSearchRequests: 0.01,
 } as const satisfies ModelCosts
 
+// Gemini 3.1 Pro (Low Context <= 200k)
+export const COST_GEMINI_3_1_PRO_LOW = {
+  inputTokens: 2,
+  outputTokens: 12,
+  promptCacheWriteTokens: 2.5,
+  promptCacheReadTokens: 0.5,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Gemini 3.1 Pro (High Context > 200k)
+export const COST_GEMINI_3_1_PRO_HIGH = {
+  inputTokens: 4,
+  outputTokens: 18,
+  promptCacheWriteTokens: 5,
+  promptCacheReadTokens: 1,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Gemini 3 Flash
+export const COST_GEMINI_3_FLASH = {
+  inputTokens: 0.5,
+  outputTokens: 3,
+  promptCacheWriteTokens: 0.625,
+  promptCacheReadTokens: 0.125,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Gemini 3 Flash-Lite
+export const COST_GEMINI_3_FLASH_LITE = {
+  inputTokens: 0.25,
+  outputTokens: 1.5,
+  promptCacheWriteTokens: 0.3125,
+  promptCacheReadTokens: 0.0625,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Gemini 2.5 Pro (Low Context <= 128k)
+export const COST_GEMINI_2_5_PRO_LOW = {
+  inputTokens: 1.25,
+  outputTokens: 10,
+  promptCacheWriteTokens: 1.5625,
+  promptCacheReadTokens: 0.3125,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Gemini 2.5 Pro (High Context > 128k)
+export const COST_GEMINI_2_5_PRO_HIGH = {
+  inputTokens: 2.5,
+  outputTokens: 15,
+  promptCacheWriteTokens: 3.125,
+  promptCacheReadTokens: 0.625,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Gemini 2.5 Flash
+export const COST_GEMINI_2_5_FLASH = {
+  inputTokens: 0.3,
+  outputTokens: 2.5,
+  promptCacheWriteTokens: 0.375,
+  promptCacheReadTokens: 0.075,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Gemini 2.0 Flash
+export const COST_GEMINI_2_0_FLASH = {
+  inputTokens: 0.1,
+  outputTokens: 0.4,
+  promptCacheWriteTokens: 0.125,
+  promptCacheReadTokens: 0.025,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
 const DEFAULT_UNKNOWN_MODEL_COST = COST_TIER_5_25
 
 /**
@@ -123,6 +195,12 @@ export const MODEL_COSTS: Record<ModelShortName, ModelCosts> = {
     COST_TIER_5_25,
   [firstPartyNameToCanonical(CLAUDE_OPUS_4_6_CONFIG.firstParty)]:
     COST_TIER_5_25,
+  'gemini-3.1-pro': COST_GEMINI_3_1_PRO_LOW,
+  'gemini-3-flash': COST_GEMINI_3_FLASH,
+  'gemini-3-flash-lite': COST_GEMINI_3_FLASH_LITE,
+  'gemini-2.5-pro': COST_GEMINI_2_5_PRO_LOW,
+  'gemini-2.5-flash': COST_GEMINI_2_5_FLASH,
+  'gemini-2.0-flash': COST_GEMINI_2_0_FLASH,
 }
 
 /**
@@ -150,6 +228,17 @@ export function getModelCosts(model: string, usage: Usage): ModelCosts {
   ) {
     const isFastMode = usage.speed === 'fast'
     return getOpus46CostTier(isFastMode)
+  }
+
+  // Handle Gemini Pro context-dependent pricing
+  if (shortName === 'gemini-3.1-pro') {
+    const totalInput = usage.input_tokens + (usage.cache_read_input_tokens ?? 0)
+    return totalInput > 200_000 ? COST_GEMINI_3_1_PRO_HIGH : COST_GEMINI_3_1_PRO_LOW
+  }
+
+  if (shortName === 'gemini-2.5-pro') {
+    const totalInput = usage.input_tokens + (usage.cache_read_input_tokens ?? 0)
+    return totalInput > 128_000 ? COST_GEMINI_2_5_PRO_HIGH : COST_GEMINI_2_5_PRO_LOW
   }
 
   const costs = MODEL_COSTS[shortName]

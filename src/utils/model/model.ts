@@ -37,7 +37,7 @@ export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   // For Gemini provider, use a fast model
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || process.env.OPENAI_MODEL || 'gemini-3.1-flash-preview'
+    return process.env.GEMINI_MODEL || process.env.OPENAI_MODEL || 'gemini-3-flash'
   }
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
@@ -215,7 +215,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || process.env.OPENAI_MODEL || 'gemini-3.1-flash-lite-preview'
+    return process.env.GEMINI_MODEL || process.env.OPENAI_MODEL || 'gemini-3-flash-lite'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -367,15 +367,40 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   if (name.includes('claude-3-haiku')) {
     return 'claude-3-haiku'
   }
+
+  if (name.includes('gemini-3.1-pro')) {
+    return 'gemini-3.1-pro'
+  }
+  if (name.includes('gemini-3-flash-lite')) {
+    return 'gemini-3-flash-lite'
+  }
+  if (name.includes('gemini-3-flash')) {
+    return 'gemini-3-flash'
+  }
+  if (name.includes('gemini-2.5-pro')) {
+    return 'gemini-2.5-pro'
+  }
+  if (name.includes('gemini-2.5-flash-lite')) {
+    return 'gemini-2.5-flash-lite'
+  }
+  if (name.includes('gemini-2.5-flash')) {
+    return 'gemini-2.5-flash'
+  }
+  if (name.includes('gemini-2.0-flash-lite')) {
+    return 'gemini-2.0-flash-lite'
+  }
+  if (name.includes('gemini-2.0-flash')) {
+    return 'gemini-2.0-flash'
+  }
   
   if (name === 'gemini-pro') {
-    return 'gemini-3.1-pro-preview'
+    return 'gemini-3.1-pro'
   }
   if (name === 'gemini-flash') {
-    return 'gemini-3.1-flash-preview'
+    return 'gemini-3-flash'
   }
   if (name === 'gemini-flash-lite') {
-    return 'gemini-3.1-flash-lite-preview'
+    return 'gemini-3-flash-lite'
   }
 
   const match = name.match(/(claude-(\d+-\d+-)?\w+)/)
@@ -491,9 +516,8 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
       'claude-sonnet-4.5': 'Claude Sonnet 4.5',
       'claude-haiku-4.5': 'Claude Haiku 4.5',
       'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
-      'gemini-3.1-flash-preview': 'Gemini 3.1 Flash',
-      'gemini-3.1-flash-lite-preview': 'Gemini 3.1 Flash-Lite',
-      'gemini-3-flash-preview': 'Gemini 3 Flash',
+      'gemini-3-flash': 'Gemini 3 Flash',
+      'gemini-3-flash-lite': 'Gemini 3 Flash-Lite',
       'gemini-2.5-pro': 'Gemini 2.5 Pro',
       'gemini-2.5-flash': 'Gemini 2.5 Flash',
       'gemini-2.5-flash-lite': 'Gemini 2.5 Flash-Lite',

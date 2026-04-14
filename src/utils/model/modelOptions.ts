@@ -319,13 +319,13 @@ function getGeminiModelOptions(): ModelOption[] {
       description: 'Balanced performance · Best for everyday coding tasks',
     },
     {
-      value: 'gemini-3.1-flash-preview',
-      label: 'Gemini 3.1 Flash',
+      value: 'gemini-3-flash',
+      label: 'Gemini 3 Flash',
       description: 'High speed · Optimal for fast iterative development',
     },
     {
-      value: 'gemini-3.1-flash-lite-preview',
-      label: 'Gemini 3.1 Flash-Lite',
+      value: 'gemini-3-flash-lite',
+      label: 'Gemini 3 Flash-Lite',
       description: 'Fastest & cheapest · Built for high-volume tasks',
     },
     {
