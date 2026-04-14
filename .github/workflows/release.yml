@@ -121,6 +121,17 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.version }}
             type=raw,value=latest
 
+      - name: Build and load locally
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
+        with:
+          context: .
+          load: true
+          tags: openclaude:smoke
+          cache-from: type=gha
+
+      - name: Smoke test
+        run: docker run --rm openclaude:smoke --version
+
       - name: Build and push
         uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6.16.0
         with:
