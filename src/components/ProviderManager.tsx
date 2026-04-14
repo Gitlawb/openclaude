@@ -1529,9 +1529,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            persistCredentials()
-            setHasStoredQwenOAuthCredentials(true)
-            setStoredQwenOAuthProfileId(saved.id)
+            // Persist credentials to secureStorage
+            const success = persistCredentials()
+            if (!success) {
+              setErrorMessage(
+                'Qwen OAuth login finished, but credentials could not be saved to secure storage.',
+              )
+              setScreen('menu')
+              return
+            }
+
             refreshProfiles()
             setScreen('qwen-success')
           }}
