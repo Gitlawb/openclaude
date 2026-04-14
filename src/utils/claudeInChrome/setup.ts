@@ -137,7 +137,9 @@ export function setupClaudeInChrome(): {
   } else {
     const __filename = fileURLToPath(import.meta.url)
     const __dirname = join(__filename, '..')
-    const cliPath = join(__dirname, 'cli.js')
+    // The bundler output is cli.mjs (ESM) — cli.js was from the internal
+    // Anthropic build. Check both for compatibility.
+    const cliPath = join(__dirname, 'cli.mjs')
 
     void createWrapperScript(
       `"${process.execPath}" "${cliPath}" --chrome-native-host`,
