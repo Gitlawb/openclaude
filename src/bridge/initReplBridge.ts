@@ -150,15 +150,18 @@ export async function initReplBridge(
     return null
   }
 
-  // 3. Check organization policy — remote control may be disabled
-  await waitForPolicyLimitsToLoad()
-  if (!isPolicyAllowed('allow_remote_control')) {
-    logBridgeSkip(
-      'policy_denied',
-      '[bridge:repl] Skipping: allow_remote_control policy not allowed',
-    )
-    onStateChange?.('failed', "disabled by your organization's policy")
-    return null
+  // 3. Check organization policy — remote control may be disabled.
+  // Open build: skip policy check when using local bridge (no Anthropic org).
+  if (!getBridgeTokenOverride()) {
+    await waitForPolicyLimitsToLoad()
+    if (!isPolicyAllowed('allow_remote_control')) {
+      logBridgeSkip(
+        'policy_denied',
+        '[bridge:repl] Skipping: allow_remote_control policy not allowed',
+      )
+      onStateChange?.('failed', "disabled by your organization's policy")
+      return null
+    }
   }
 
   // When CLAUDE_BRIDGE_OAUTH_TOKEN is set (internal-only local dev), the bridge
@@ -387,6 +390,16 @@ export async function initReplBridge(
   // environment registration; v2 for archive (which lives at the compat
   // /v1/sessions/{id}/archive, not /v1/code/sessions). Without it, v2
   // archive 404s and sessions stay alive in CCR after /exit.
+  //
+  // BLOCKER (fork) — getOrganizationUUID() requires Anthropic OAuth login
+  // (/login). Open-build users without OAuth fail here with '/login' error,
+  // even though the local bridge server does NOT validate the
+  // x-organization-uuid header. To unblock open-build usage, fall back to a
+  // sentinel orgUUID (e.g. 'local') when no OAuth tokens exist:
+  //   const orgUUID = (await getOrganizationUUID())
+  //     ?? (getClaudeAIOAuthTokens()?.accessToken ? null : 'local')
+  // Not done here yet because the user's current setup (logged-in OAuth for
+  // inference) already provides a real orgUUID.
   const orgUUID = await getOrganizationUUID()
   if (!orgUUID) {
     logBridgeSkip('no_org_uuid', '[bridge:repl] Skipping: no org UUID')

@@ -74,10 +74,11 @@ async function resolveOne(att: InboundAttachment): Promise<string | undefined> {
 
   let data: Buffer
   try {
-    // getOauthConfig() (via getBridgeBaseUrl) throws on a non-allowlisted
-    // CLAUDE_CODE_CUSTOM_OAUTH_URL — keep it inside the try so a bad
-    // FedStart URL degrades to "no @path" instead of crashing print.ts's
-    // reader loop (which has no catch around the await).
+    // getBridgeBaseUrl() defaults to localhost:4080 in this fork (no OAuth
+    // coupling), but a misconfigured CLAUDE_BRIDGE_BASE_URL could still
+    // throw when used with `new URL(...)` downstream — keep the call inside
+    // the try so any URL/network error degrades to "no @path" instead of
+    // crashing print.ts's reader loop (which has no catch around the await).
     const url = `${getBridgeBaseUrl()}/api/oauth/files/${encodeURIComponent(att.file_uuid)}/content`
     const response = await axios.get(url, {
       headers: { Authorization: `Bearer ${token}` },

@@ -1568,8 +1568,13 @@ async function checkAndRefreshOAuthTokenIfNeededImpl(
 }
 
 export function isClaudeAISubscriber(): boolean {
+  // Open build: report as subscriber so subscription-gated features (Chrome
+  // extension, Remote Control/Bridge, Brief mode) work with local providers
+  // that don't use claude.ai OAuth. The underlying infrastructure is local:
+  // bridge runs on localhost:4080, Chrome MCP uses packages/openclaude-for-
+  // chrome-mcp, and OpenAI-compatible endpoints replace the Anthropic API.
   if (!isAnthropicAuthEnabled()) {
-    return false
+    return true
   }
 
   return shouldUseClaudeAIAuth(getClaudeAIOAuthTokens()?.scopes)

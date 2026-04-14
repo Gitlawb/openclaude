@@ -78,6 +78,21 @@ const ANTHROPIC_VERSION = '2023-06-01'
 // Exclude<> makes that constraint explicit at both signatures.
 type ConnectCause = 'initial' | 'proactive_refresh' | 'auth_401_recovery'
 
+/**
+ * Build a user-facing message for ECONNREFUSED against the bridge base URL.
+ * Includes the explicit start command only when we recognise the target as
+ * the local bridge server — a custom CLAUDE_BRIDGE_BASE_URL could point
+ * anywhere, and "start packages/bridge-server/" would mislead.
+ */
+function bridgeUnreachableMessage(baseUrl: string): string {
+  const isLocal =
+    baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')
+  if (isLocal) {
+    return `Local bridge server is not running at ${baseUrl}. Start it with: bun run packages/bridge-server/index.ts`
+  }
+  return `Bridge server is not reachable at ${baseUrl}`
+}
+
 function oauthHeaders(accessToken: string): Record<string, string> {
   return {
     Authorization: `Bearer ${accessToken}`,
@@ -170,12 +185,28 @@ export async function initEnvLessBridgeCore(
     return null
   }
 
-  const createdSessionId = await withRetry(
-    () =>
-      createCodeSession(baseUrl, accessToken, title, cfg.http_timeout_ms, tags),
-    'createCodeSession',
-    cfg,
-  )
+  let createdSessionId: string | null
+  try {
+    createdSessionId = await withRetry(
+      () =>
+        createCodeSession(
+          baseUrl,
+          accessToken,
+          title,
+          cfg.http_timeout_ms,
+          tags,
+        ),
+      'createCodeSession',
+      cfg,
+    )
+  } catch (err) {
+    if (err instanceof BridgeConnectionRefusedError) {
+      onStateChange?.('failed', bridgeUnreachableMessage(err.baseUrl))
+      logBridgeSkip('v2_bridge_unreachable', undefined, true)
+      return null
+    }
+    throw err
+  }
   if (!createdSessionId) {
     onStateChange?.('failed', 'Session creation failed — see debug log')
     logBridgeSkip('v2_session_create_failed', undefined, true)
@@ -186,17 +217,27 @@ export async function initEnvLessBridgeCore(
   logForDiagnosticsNoPII('info', 'bridge_repl_v2_session_created')
 
   // ── 2. Fetch bridge credentials (POST /bridge → worker_jwt, expires_in, api_base_url) ──
-  const credentials = await withRetry(
-    () =>
-      fetchRemoteCredentials(
-        sessionId,
-        baseUrl,
-        accessToken,
-        cfg.http_timeout_ms,
-      ),
-    'fetchRemoteCredentials',
-    cfg,
-  )
+  let credentials: RemoteCredentials | null
+  try {
+    credentials = await withRetry(
+      () =>
+        fetchRemoteCredentials(
+          sessionId,
+          baseUrl,
+          accessToken,
+          cfg.http_timeout_ms,
+        ),
+      'fetchRemoteCredentials',
+      cfg,
+    )
+  } catch (err) {
+    if (err instanceof BridgeConnectionRefusedError) {
+      onStateChange?.('failed', bridgeUnreachableMessage(err.baseUrl))
+      logBridgeSkip('v2_bridge_unreachable', undefined, true)
+      return null
+    }
+    throw err
+  }
   if (!credentials) {
     onStateChange?.('failed', 'Remote credentials fetch failed — see debug log')
     logBridgeSkip('v2_remote_creds_failed', undefined, true)
@@ -919,6 +960,7 @@ export {
   type RemoteCredentials,
 } from './codeSessionApi.js'
 import {
+  BridgeConnectionRefusedError,
   createCodeSession,
   fetchRemoteCredentials as fetchRemoteCredentialsRaw,
   type RemoteCredentials,

@@ -17,7 +17,6 @@ const feedback = {
       isEnvTruthy(process.env.DISABLE_FEEDBACK_COMMAND) ||
       isEnvTruthy(process.env.DISABLE_BUG_COMMAND) ||
       isEssentialTrafficOnly() ||
-      process.env.USER_TYPE === 'ant' ||
       !isPolicyAllowed('allow_product_feedback')
     ),
   load: () => import('./feedback.js'),

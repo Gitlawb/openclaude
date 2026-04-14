@@ -1,0 +1,26 @@
+External build permission rules:
+
+ALWAYS SAFE (auto-approve):
+- Read tool: reading any file
+- Glob tool: file pattern matching
+- Grep tool: content search
+- LS tool: directory listing
+- Git status, log, diff, branch (read-only git)
+- NotebookRead: reading notebooks
+- TaskCreate, TaskUpdate, TaskGet, TaskList: task management
+- AskUserQuestion: asking user questions
+- Agent spawning (Explore, Plan types)
+
+GENERALLY SAFE (auto-approve with caution):
+- Edit tool: modifying files within project directory
+- Write tool: creating files within project directory
+- Bash: non-destructive commands (build, test, lint, format)
+- Git add, commit (non-destructive)
+
+REQUIRES CONFIRMATION:
+- Bash: commands with sudo, rm -rf, kill, chmod, chown
+- Bash: package install (npm install, pip install, brew install)
+- Bash: network commands (curl POST, wget, ssh)
+- Git: push, force push, reset --hard, rebase, branch -D
+- Write/Edit: files outside project directory
+- Any command modifying system configuration

@@ -19,30 +19,46 @@ const version = pkg.version
 // Most Anthropic-internal features stay off; open-build features can be
 // selectively enabled here when their full source exists in the mirror.
 const featureFlags: Record<string, boolean> = {
-  VOICE_MODE: false,
-  PROACTIVE: false,
-  KAIROS: false,
-  BRIDGE_MODE: false,
-  DAEMON: false,
-  AGENT_TRIGGERS: false,
-  MONITOR_TOOL: true,
-  ABLATION_BASELINE: false,
-  DUMP_SYSTEM_PROMPT: false,
-  CACHED_MICROCOMPACT: false,
-  COORDINATOR_MODE: true,
-  BUILTIN_EXPLORE_PLAN_AGENTS: true,
-  CONTEXT_COLLAPSE: false,
-  COMMIT_ATTRIBUTION: false,
-  TEAMMEM: true,
-  UDS_INBOX: false,
-  BG_SESSIONS: false,
-  AWAY_SUMMARY: false,
-  TRANSCRIPT_CLASSIFIER: false,
-  WEB_BROWSER_TOOL: false,
-  MESSAGE_ACTIONS: true,
-  BUDDY: true,
-  CHICAGO_MCP: false,
-  COWORKER_TYPE_TELEMETRY: false,
+  // ── Disabled: require Anthropic infrastructure or missing source ─────
+  VOICE_MODE: false,              // Push-to-talk STT via claude.ai OAuth endpoint
+  PROACTIVE: false,               // Autonomous agent mode (tick firing disabled in stub)
+  KAIROS: true,                   // Persistent assistant/session mode (local bridge)
+  BRIDGE_MODE: true,              // Remote control via local bridge server
+  DAEMON: false,                  // Background daemon process (stubbed in open build)
+  AGENT_TRIGGERS: true,           // Scheduled cron agent triggers
+  ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
+  CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
+  COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
+  UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
+  BG_SESSIONS: false,             // Background sessions via tmux (stubbed)
+  WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
+  CHICAGO_MCP: false,             // Computer-use MCP (native Swift modules stubbed)
+  COWORKER_TYPE_TELEMETRY: false, // Telemetry for agent/coworker type classification
+
+  // ── Enabled: upstream defaults ──────────────────────────────────────
+  COORDINATOR_MODE: true,             // Multi-agent coordinator with worker delegation
+  BUILTIN_EXPLORE_PLAN_AGENTS: true,  // Built-in Explore/Plan specialized subagents
+  BUDDY: true,                        // Buddy mode for paired programming
+  MONITOR_TOOL: true,                 // MCP server monitoring/streaming tool
+  TEAMMEM: true,                      // Team memory management
+  MESSAGE_ACTIONS: true,              // Message action buttons in the UI
+
+  // ── Enabled: new activations ────────────────────────────────────────
+  DUMP_SYSTEM_PROMPT: true,           // --dump-system-prompt CLI flag for debugging
+  CACHED_MICROCOMPACT: false,         // Requires Anthropic cache editing API (beta) — not available in open build
+  AWAY_SUMMARY: true,                 // "While you were away" recap after 5min blur
+  TRANSCRIPT_CLASSIFIER: true,        // Auto-approval classifier for safe tool uses
+  ULTRATHINK: true,                   // Deep thinking mode — type "ultrathink" to boost reasoning
+  TOKEN_BUDGET: true,                 // Token budget tracking with usage warnings
+  HISTORY_PICKER: true,               // Enhanced interactive prompt history picker
+  QUICK_SEARCH: true,                 // Ctrl+G quick search across prompts
+  SHOT_STATS: true,                   // Shot distribution stats in session summary
+  EXTRACT_MEMORIES: true,             // Auto-extract durable memories from conversations
+  FORK_SUBAGENT: true,                // Implicit context-forking when omitting subagent_type
+  VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
+  MCP_SKILLS: true,                   // Discover skills dynamically from MCP server resources
+  PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
+  HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts
 }
 
 // ── Pre-process: replace feature() calls with boolean literals ──────
@@ -204,6 +220,11 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
 
         // NOTE: @opentelemetry/* kept as external deps (too many named exports to stub)
 
+        // Resolve openclaude-for-chrome-mcp to the local package
+        build.onResolve({ filter: /^openclaude-for-chrome-mcp$/ }, () => ({
+          path: join(import.meta.dir, '..', 'packages', 'openclaude-for-chrome-mcp', 'index.ts'),
+        }))
+
         // Resolve native addon and missing snapshot imports to stubs
         for (const mod of [
           'audio-capture-napi',
@@ -213,7 +234,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'url-handler-napi',
           'color-diff-napi',
           '@anthropic-ai/mcpb',
-          '@ant/claude-for-chrome-mcp',
           '@anthropic-ai/sandbox-runtime',
           'asciichart',
           'plist',
@@ -251,13 +271,11 @@ export const __stub = true;
 export const SandboxViolationStore = null;
 export const SandboxManager = new Proxy({}, { get: () => noop });
 export const SandboxRuntimeConfigSchema = { parse: () => ({}) };
-export const BROWSER_TOOLS = [];
 export const getMcpConfigForManifest = noop;
 export const ColorDiff = null;
 export const ColorFile = null;
 export const getSyntaxTheme = noop;
 export const plot = noop;
-export const createClaudeForChromeMcpServer = noop;
 // OpenTelemetry exports
 export const ExportResultCode = { SUCCESS: 0, FAILED: 1 };
 export const resourceFromAttributes = noop;
@@ -367,8 +385,16 @@ export const SeverityNumber = {};
               const full = pathMod.join(dir, ent.name)
               if (ent.isDirectory()) { walk(full); continue }
               if (!/\.(ts|tsx)$/.test(ent.name)) continue
-              const code: string = fs.readFileSync(full, 'utf-8')
+              const rawCode: string = fs.readFileSync(full, 'utf-8')
               const fileDir = pathMod.dirname(full)
+
+              // Strip comments before scanning for imports/requires.
+              // The regex scanner matches require()/import() patterns
+              // inside JSDoc comments, causing false-positive missing
+              // module detection that breaks the build with noop stubs.
+              const code = rawCode
+                .replace(/\/\*[\s\S]*?\*\//g, '')  // block comments
+                .replace(/\/\/.*$/gm, '')           // line comments
 
               // Collect static imports: import { X } from '...'
               for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {

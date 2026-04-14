@@ -76,7 +76,9 @@ describe('OpenClaude paths', () => {
   })
 
   test('local installer uses openclaude wrapper path', async () => {
-    delete process.env.CLAUDE_CONFIG_DIR
+    // Force .openclaude config home so the test doesn't fall back to
+    // ~/.claude when ~/.openclaude doesn't exist on this machine.
+    process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
     const { getLocalClaudePath } = await importFreshLocalInstaller()
 
     expect(getLocalClaudePath()).toBe(
