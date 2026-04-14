@@ -399,12 +399,20 @@ class ChromeNativeHost {
             `Forwarding tool request from MCP client ${clientId}: ${request.method}`,
           )
 
-          // Forward to Chrome
+          // Forward to Chrome using the execute_tool envelope.
+          // The extension service worker dispatches on method === 'execute_tool'
+          // and reads the actual tool name from params.tool. Forwarding the
+          // raw method name would return "Unknown method" since the extension
+          // only handles execute_tool, set_notifications, and a few others.
           sendChromeMessage(
             jsonStringify({
               type: 'tool_request',
-              method: request.method,
-              params: request.params,
+              method: 'execute_tool',
+              params: {
+                tool: request.method,
+                args: request.params ?? {},
+                client_id: clientId.toString(),
+              },
             }),
           )
         } catch (e) {
