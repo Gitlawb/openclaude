@@ -33,6 +33,12 @@ export type ModelShortName = string
 export type ModelName = string
 export type ModelSetting = ModelName | ModelAlias | null
 
+function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   // For Gemini provider, use a fast model
@@ -82,6 +88,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel = modelOverride
   } else {
     const settings = getSettings_DEPRECATED() || {}
+    const setting = normalizeModelSetting(settings.model)
     // Read the model env var that matches the active provider to prevent
     // cross-provider leaks (e.g. ANTHROPIC_MODEL sent to the OpenAI API).
     const provider = getAPIProvider()
@@ -90,7 +97,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
       (provider === 'openai' || provider === 'gemini' || provider === 'mistral' || provider === 'github' ? process.env.OPENAI_MODEL : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
-      settings.model ||
+      setting ||
       undefined
   }
 
@@ -264,7 +271,11 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   // GitHub Copilot provider: check settings.model first, then env, then default
   if (getAPIProvider() === 'github') {
     const settings = getSettings_DEPRECATED() || {}
-    return settings.model || process.env.OPENAI_MODEL || 'github:copilot'
+    return (
+      normalizeModelSetting(settings.model) ||
+      normalizeModelSetting(process.env.OPENAI_MODEL) ||
+      'github:copilot'
+    )
   }
   // Gemini provider: always use the configured Gemini model
   if (getAPIProvider() === 'gemini') {
@@ -595,7 +606,10 @@ export function getPublicModelName(model: ModelName): string {
 export function parseUserSpecifiedModel(
   modelInput: ModelName | ModelAlias,
 ): ModelName {
-  const modelInputTrimmed = modelInput.trim()
+  const modelInputTrimmed = normalizeModelSetting(modelInput)
+  if (!modelInputTrimmed) {
+    return getDefaultSonnetModel()
+  }
   const normalizedModel = modelInputTrimmed.toLowerCase()
 
   const has1mTag = has1mContext(normalizedModel)
