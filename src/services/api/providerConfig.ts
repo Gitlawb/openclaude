@@ -388,11 +388,13 @@ export function resolveProviderRequest(options?: {
   const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
+  const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
+    process.env.MISTRAL_BASE_URL,
+    'MISTRAL_BASE_URL',
+  )
+
   const primaryEnvBaseUrl = isMistralMode
-    ? asNamedEnvUrl(
-        process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL,
-        'MISTRAL_BASE_URL',
-      )
+    ? normalizedMistralEnvBaseUrl ?? DEFAULT_MISTRAL_BASE_URL
     : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
 
   const openAIApiBaseAlias = asNamedEnvUrl(
