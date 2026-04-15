@@ -16,10 +16,9 @@ const __dirname = path.dirname(__filename)
 
 // Repo root is one level up from `scripts/`.
 const REPO_ROOT = path.resolve(__dirname, '..')
-// VAULT-SCHEMA.md lives in the workspace's .specs directory (one level above the bridgeai repo).
+// VAULT-SCHEMA.md is versioned alongside the code in this repo.
 export const REPO_VAULT_SCHEMA_PATH = path.resolve(
   REPO_ROOT,
-  '..',
   '.specs',
   'project',
   'VAULT-SCHEMA.md',
