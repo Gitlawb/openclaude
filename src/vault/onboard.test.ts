@@ -1,8 +1,17 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  statSync,
+  rmSync,
+  existsSync,
+} from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { runOnboarding, cleanupPartialVault, isRepoOnboarded } from './onboard.js'
+import { detectVaultShape } from './scaffold.js'
 
 let tempDir: string
 let savedEnv: Record<string, string | undefined>
@@ -93,6 +102,87 @@ describe('runOnboarding', () => {
     const result2 = await runOnboarding(tempDir)
     expect(result2.provider).toBe('gemini')
     delete process.env.CLAUDE_CODE_USE_GEMINI
+  })
+})
+
+describe('runOnboarding v2 scaffold integration', () => {
+  // These tests exercise the scaffold step, which requires a git root.
+  // We create a minimal `.git` directory so `findGitRoot` succeeds.
+  function initGitStub(root: string): void {
+    mkdirSync(join(root, '.git'), { recursive: true })
+  }
+
+  test('fresh repo → produces a v2-shaped vault', async () => {
+    initGitStub(tempDir)
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ name: 'fresh-project' }),
+    )
+
+    const result = await runOnboarding(tempDir)
+
+    // The v2 tree should exist after onboarding
+    expect(detectVaultShape(result.vaultPath)).toBe('v2')
+    expect(existsSync(join(result.vaultPath, '_conventions.md'))).toBe(true)
+    expect(existsSync(join(result.vaultPath, '_index.md'))).toBe(true)
+    expect(existsSync(join(result.vaultPath, 'knowledge', '_index.md'))).toBe(true)
+    expect(existsSync(join(result.vaultPath, 'meta', 'templates'))).toBe(true)
+  })
+
+  test('pre-scaffolded v2 vault → scaffold is idempotent (no re-write)', async () => {
+    initGitStub(tempDir)
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ name: 'v2-project' }),
+    )
+
+    // Pre-populate a v2 vault with a sentinel _conventions.md
+    const vaultPath = join(tempDir, '.bridgeai', 'vault')
+    mkdirSync(vaultPath, { recursive: true })
+    const sentinel = '# Custom user conventions — DO NOT OVERWRITE\n'
+    const conventionsPath = join(vaultPath, '_conventions.md')
+    writeFileSync(conventionsPath, sentinel, 'utf-8')
+    const mtimeBefore = statSync(conventionsPath).mtimeMs
+
+    await runOnboarding(tempDir)
+
+    // Sentinel survives byte-identically (scaffold is idempotent).
+    expect(readFileSync(conventionsPath, 'utf-8')).toBe(sentinel)
+    expect(detectVaultShape(vaultPath)).toBe('v2')
+    // And mtime should be unchanged (not touched).
+    const mtimeAfter = statSync(conventionsPath).mtimeMs
+    expect(mtimeAfter).toBe(mtimeBefore)
+  })
+
+  test('v1 vault → does NOT auto-migrate; surfaces upgrade suggestion', async () => {
+    initGitStub(tempDir)
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ name: 'v1-project' }),
+    )
+
+    // Pre-populate a v1 vault: has manifest.json, no _conventions.md
+    const vaultPath = join(tempDir, '.bridgeai', 'vault')
+    mkdirSync(vaultPath, { recursive: true })
+    const manifest = { version: 1, provider: 'claude', createdAt: '2024-01-01' }
+    const manifestPath = join(vaultPath, 'manifest.json')
+    writeFileSync(manifestPath, JSON.stringify(manifest), 'utf-8')
+
+    const messages: string[] = []
+    await runOnboarding(tempDir, {
+      onProgress: (m) => messages.push(m),
+    })
+
+    // Scaffold did NOT run on top of v1: _conventions.md must not appear.
+    expect(existsSync(join(vaultPath, '_conventions.md'))).toBe(false)
+    // Shape remains v1 (manifest.json present, no _conventions.md).
+    expect(detectVaultShape(vaultPath)).toBe('v1')
+    // Upgrade suggestion surfaced on the progress channel.
+    expect(
+      messages.some((m) =>
+        m.includes("Run 'bridgeai vault upgrade'"),
+      ),
+    ).toBe(true)
   })
 })
 
