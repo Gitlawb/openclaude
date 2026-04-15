@@ -36,8 +36,8 @@ COPY --from=build /app/node_modules/ node_modules/
 COPY --from=build /app/package.json package.json
 COPY README.md ./
 
-# Install git — many CLI tool operations depend on it
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+# Install git and ripgrep — many CLI tool operations depend on them
+RUN apt-get update && apt-get install -y --no-install-recommends git ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # Run as non-root user
