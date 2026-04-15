@@ -2,12 +2,10 @@
  * Model Benchmarking for OpenClaude
  * 
  * Tests and compares model speed/quality for informed model selection.
+ * Supports OpenAI-compatible, Ollama, Anthropic, Bedrock, Vertex.
  */
 
 import { getAPIProvider } from './providers.js'
-import { isOllamaProvider } from './ollamaModels.js'
-import { isNvidiaNimProvider } from './nvidiaNimModels.js'
-import { isMiniMaxProvider } from './minimaxModels.js'
 
 export interface BenchmarkResult {
   model: string
@@ -23,20 +21,60 @@ const TEST_PROMPT = 'Write a short hello world in Python.'
 const MAX_TOKENS = 50
 const TIMEOUT_MS = 30000
 
+function getBenchmarkEndpoint(): string | null {
+  const provider = getAPIProvider()
+  const baseUrl = process.env.OPENAI_BASE_URL
+  
+  // Check for Ollama (local)
+  if (baseUrl?.includes('localhost:11434') || baseUrl?.includes('localhost:11435')) {
+    return `${baseUrl}/chat/completions`
+  }
+  // OpenAI-compatible endpoints
+  if (provider === 'openai' || provider === 'firstParty') {
+    return `${baseUrl || 'https://api.openai.com/v1'}/chat/completions`
+  }
+  // NVIDIA NIM or MiniMax via OPENAI_BASE_URL
+  if (baseUrl?.includes('nvidia') || baseUrl?.includes('minimax')) {
+    return `${baseUrl}/chat/completions`
+  }
+  return null
+}
+
+function getBenchmarkAuthHeader(): string | null {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) return null
+  return `Bearer ${apiKey}`
+}
+
 export async function benchmarkModel(
   model: string,
   onChunk?: (text: string) => void,
 ): Promise<BenchmarkResult> {
+  const endpoint = getBenchmarkEndpoint()
+  const authHeader = getBenchmarkAuthHeader()
+  
+  if (!endpoint || !authHeader) {
+    return {
+      model,
+      provider: getAPIProvider(),
+      firstTokenMs: 0,
+      totalTokens: 0,
+      tokensPerSecond: 0,
+      success: false,
+      error: 'Benchmark not supported for this provider',
+    }
+  }
+  
   const startTime = performance.now()
   let totalTokens = 0
   let firstTokenMs: number | null = null
 
   try {
-    const response = await fetch(`${process.env.OPENAI_BASE_URL}/chat/completions`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Authorization': authHeader,
       },
       body: JSON.stringify({
         model,
@@ -48,7 +86,13 @@ export async function benchmarkModel(
     })
 
     if (!response.ok) {
-      const error = await response.json()
+      let errorMsg = `HTTP ${response.status}`
+      try {
+        const error = await response.json()
+        errorMsg = error.error?.message || errorMsg
+      } catch {
+        // ignore
+      }
       return {
         model,
         provider: getAPIProvider(),
@@ -56,7 +100,7 @@ export async function benchmarkModel(
         totalTokens: 0,
         tokensPerSecond: 0,
         success: false,
-        error: error.error?.message || `HTTP ${response.status}`,
+        error: errorMsg,
       }
     }
 
@@ -88,7 +132,7 @@ export async function benchmarkModel(
               if (firstTokenMs === null) {
                 firstTokenMs = performance.now() - startTime
               }
-              totalTokens += content.length / 4 // rough estimate
+              totalTokens += content.length / 4
               onChunk?.(content)
             }
           } catch {
@@ -99,7 +143,7 @@ export async function benchmarkModel(
     }
 
     const totalMs = performance.now() - startTime
-    const tokensPerSecond = (totalTokens / totalMs) * 1000
+    const tokensPerSecond = totalMs > 0 ? (totalTokens / totalMs) * 1000 : 0
 
     return {
       model,
@@ -155,6 +199,7 @@ export function formatBenchmarkResults(results: BenchmarkResult[]): string {
 }
 
 export function isBenchmarkSupported(): boolean {
-  const provider = getAPIProvider()
-  return isOllamaProvider() || isNvidiaNimProvider() || isMiniMaxProvider() || provider === 'openai'
+  const endpoint = getBenchmarkEndpoint()
+  const authHeader = getBenchmarkAuthHeader()
+  return endpoint !== null && authHeader !== null
 }
