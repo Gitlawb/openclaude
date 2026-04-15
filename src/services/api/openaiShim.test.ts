@@ -2645,7 +2645,58 @@ test('streaming: thinking block closed before tool call', async () => {
   expect(thinkingStart?.content_block?.type).toBe('thinking')
 })
 
+test('strips credentials and query params from URL in fetch network error message', async () => {
+  process.env.OPENAI_BASE_URL = 'https://user:password@internal.example.test/v1?token=abc123'
+  process.env.OPENAI_API_KEY = 'test-key'
+  globalThis.fetch = (async () => {
+    throw new TypeError('fetch failed https://user:password@internal.example.test/v1?token=abc123/chat/completions')
+  }) as unknown as FetchType
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (e) {
+    caught = e
+  }
+
+  const msg = (caught as Error).message
+  expect(msg).toContain('internal.example.test')
+  expect(msg).toContain('fetch failed')
+  expect(msg).not.toContain('password')
+  expect(msg).not.toContain('user:')
+  expect(msg).not.toContain('token=abc123')
+})
+
+test('preserves AbortError on user cancellation', async () => {
+  globalThis.fetch = (async () => {
+    const err = new Error('The operation was aborted')
+    err.name = 'AbortError'
+    throw err
+  }) as unknown as FetchType
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (e) {
+    caught = e
+  }
+
+  expect((caught as Error).name).toBe('AbortError')
+})
 test('streaming: strips leaked reasoning preamble from assistant content deltas', async () => {
+  
   globalThis.fetch = (async () => {
     const chunks = makeStreamChunks([
       {

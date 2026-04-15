@@ -135,6 +135,18 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function sanitizeUrl(raw: string): string {
+  try {
+    const parsed = new URL(raw)
+    parsed.username = ''
+    parsed.password = ''
+    parsed.search = ''
+    return parsed.toString()
+  } catch {
+    return '[invalid URL]'
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types — minimal subset of Anthropic SDK types we need to produce
 // ---------------------------------------------------------------------------
@@ -1431,7 +1443,18 @@ class OpenAIShimMessages {
     const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
     let response: Response | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      response = await fetch(chatCompletionsUrl, fetchInit)
+      try {
+        response = await fetch(chatCompletionsUrl, fetchInit)
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') throw err
+
+        const rawCause = err instanceof Error ? err.message : String(err)
+        const safeUrl = sanitizeUrl(chatCompletionsUrl)
+        const safeCause = rawCause.replace(/https?:\/\/\S+/g, match => sanitizeUrl(match))
+
+        throw new Error(`Network request failed for ${safeUrl} - check your provider URL and connection. Cause: ${safeCause}`)
+      }
+
       if (response.ok) {
         return response
       }
