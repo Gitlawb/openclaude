@@ -77,8 +77,9 @@ Top-level object:
 | `maxChainDepth` | `integer` | No | Global depth guard (default `2`, max `10`). |
 | `defaultCooldownMs` | `integer` | No | Default rule cooldown in ms (default `30000`). |
 | `defaultDedupWindowMs` | `integer` | No | Default action dedup window in ms (default `30000`). |
-| `rules` | `HookChainRule[]` | Yes | One or more matching rules. |
+| `rules` | `HookChainRule[]` | No | Defaults to `[]`. May be omitted or empty; when no rules are present, dispatch is a no-op and returns `enabled: false`. |
 
+> **Note:** An empty ruleset is valid and can be used to keep Hook Chains configured but effectively disabled until rules are added.
 ### Rule Object (`HookChainRule`)
 
 ```json
