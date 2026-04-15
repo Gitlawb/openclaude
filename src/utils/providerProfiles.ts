@@ -20,6 +20,8 @@ export type ProviderPreset =
   | 'openrouter'
   | 'lmstudio'
   | 'custom'
+  | 'nvidia-nim'
+  | 'minimax'
 
 export type ProviderProfileInput = {
   provider?: ProviderProfile['provider']
@@ -229,6 +231,24 @@ export function getProviderPresetDefaults(
         apiKey: process.env.OPENAI_API_KEY ?? '',
         requiresApiKey: false,
       }
+    case 'nvidia-nim':
+      return {
+        provider: 'openai',
+        name: 'NVIDIA NIM',
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        apiKey: process.env.NVIDIA_API_KEY ?? '',
+        requiresApiKey: true,
+      }
+    case 'minimax':
+      return {
+        provider: 'openai',
+        name: 'MiniMax',
+        baseUrl: 'https://api.minimax.io/v1',
+        model: 'MiniMax-M2.5',
+        apiKey: process.env.MINIMAX_API_KEY ?? '',
+        requiresApiKey: true,
+      }
     case 'ollama':
     default:
       return {
@@ -365,6 +385,11 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.ANTHROPIC_API_KEY
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
+
+  // Clear provider-specific API keys
+  delete processEnv.MINIMAX_API_KEY
+  delete processEnv.NVIDIA_API_KEY
+  delete processEnv.NVIDIA_NIM
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -395,6 +420,14 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
 
   if (profile.apiKey) {
     process.env.OPENAI_API_KEY = profile.apiKey
+    // Also set provider-specific API keys for detection
+    const baseUrl = profile.baseUrl.toLowerCase()
+    if (baseUrl.includes('minimax')) {
+      process.env.MINIMAX_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
+      process.env.NVIDIA_API_KEY = profile.apiKey
+    }
   } else {
     delete process.env.OPENAI_API_KEY
   }
