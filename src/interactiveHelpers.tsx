@@ -30,6 +30,12 @@ import type { PermissionMode } from './utils/permissions/PermissionMode.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
 import { getSettingsWithAllErrors } from './utils/settings/allErrors.js';
 import { hasAutoModeOptIn, hasSkipDangerousModePermissionPrompt } from './utils/settings/settings.js';
+
+// Re-export the standalone confirmDialog helper so callers keep the
+// spec'd `import { confirmDialog } from './interactiveHelpers.js'` API.
+// Implementation lives in a lightweight module so unit tests can import
+// it without dragging the full onboarding dependency graph.
+export { confirmDialog, type ConfirmDialogStreams } from './confirmDialog.js';
 export function completeOnboarding(): void {
   saveGlobalConfig(current => ({
     ...current,
