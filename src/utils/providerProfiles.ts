@@ -5,6 +5,7 @@ import {
   type ProviderProfile,
 } from './config.js'
 import type { ModelOption } from './model/modelOptions.js'
+import { getPrimaryModel, parseModelList } from './providerModels.js'
 
 export type ProviderPreset =
   | 'anthropic'
@@ -331,7 +332,7 @@ function isProcessEnvAlignedWithProfile(
     return (
       !hasProviderSelectionFlags(processEnv) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, profile.model) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
     )
@@ -346,7 +347,7 @@ function isProcessEnvAlignedWithProfile(
     processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
     processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-    sameOptionalEnvValue(processEnv.OPENAI_MODEL, profile.model) &&
+    sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey))
   )
@@ -397,7 +398,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id
 
-  process.env.ANTHROPIC_MODEL = profile.model
+  process.env.ANTHROPIC_MODEL = getPrimaryModel(profile.model)
   if (profile.provider === 'anthropic') {
     process.env.ANTHROPIC_BASE_URL = profile.baseUrl
 
@@ -416,7 +417,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = profile.baseUrl
-  process.env.OPENAI_MODEL = profile.model
+  process.env.OPENAI_MODEL = getPrimaryModel(profile.model)
 
   if (profile.apiKey) {
     process.env.OPENAI_API_KEY = profile.apiKey
@@ -581,6 +582,16 @@ export function persistActiveProviderProfileModel(
     return null
   }
 
+  // If the model is already part of the profile's model list, don't
+  // overwrite the field. This preserves comma-separated model lists like
+  // "glm-4.5, glm-4.7". Switching between models in the list is a
+  // session-level choice handled by mainLoopModelOverride, not a profile
+  // edit — the profile's model list should only change via explicit edit.
+  const existingModels = parseModelList(activeProfile.model)
+  if (existingModels.includes(nextModel)) {
+    return activeProfile
+  }
+
   saveGlobalConfig(current => {
     const currentProfiles = getProviderProfiles(current)
     const profileIndex = currentProfiles.findIndex(
@@ -623,6 +634,23 @@ export function persistActiveProviderProfileModel(
   return resolvedProfile
 }
 
+/**
+ * Generate model options from a provider profile's model field.
+ * Each comma-separated model becomes a separate option in the picker.
+ */
+export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] {
+  const models = parseModelList(profile.model)
+  if (models.length === 0) {
+    return []
+  }
+
+  return models.map(model => ({
+    value: model,
+    label: model,
+    description: `Provider: ${profile.name}`,
+  }))
+}
+
 export function setActiveProviderProfile(
   profileId: string,
 ): ProviderProfile | null {
@@ -634,10 +662,20 @@ export function setActiveProviderProfile(
     return null
   }
 
+  const profileModelOptions = getProfileModelOptions(activeProfile)
+
   saveGlobalConfig(config => ({
     ...config,
     activeProviderProfileId: profileId,
-    openaiAdditionalModelOptionsCache: getModelCacheByProfile(profileId, config),
+    openaiAdditionalModelOptionsCache: profileModelOptions.length > 0
+      ? profileModelOptions
+      : getModelCacheByProfile(profileId, config),
+    openaiAdditionalModelOptionsCacheByProfile: {
+      ...(config.openaiAdditionalModelOptionsCacheByProfile ?? {}),
+      [profileId]: profileModelOptions.length > 0
+        ? profileModelOptions
+        : (config.openaiAdditionalModelOptionsCacheByProfile?.[profileId] ?? []),
+    },
   }))
 
   applyProviderProfileToProcessEnv(activeProfile)
