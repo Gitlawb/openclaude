@@ -59,6 +59,8 @@ import {
   normalizeToolArguments,
   hasToolFieldMapping,
 } from './toolArgumentNormalization.js'
+import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
+import { createStreamState, processStreamChunk, flushStreamBuffer, getStreamStats } from '../../utils/streamingOptimizer.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -663,6 +665,7 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
+  const streamState = createStreamState()
 
   // Emit message_start
   yield {
@@ -856,6 +859,7 @@ async function* openaiStreamToAnthropic(
             index: contentBlockIndex,
             delta: { type: 'text_delta', text: delta.content },
           }
+          processStreamChunk(streamState, delta.content)
         }
 
         // Tool calls
@@ -875,6 +879,7 @@ async function* openaiStreamToAnthropic(
               const toolBlockIndex = contentBlockIndex
               const initialArguments = tc.function.arguments ?? ''
               const normalizeAtStop = hasToolFieldMapping(tc.function.name)
+              processStreamChunk(streamState, tc.function.arguments ?? '')
               activeToolCalls.set(tc.index, {
                 id: tc.id,
                 name: tc.function.name,
@@ -1070,6 +1075,26 @@ async function* openaiStreamToAnthropic(
     }
   } finally {
     reader.releaseLock()
+  }
+
+  const remaining = flushStreamBuffer(streamState)
+  if (remaining) {
+    yield {
+      type: 'content_block_delta',
+      index: contentBlockIndex,
+      delta: { type: 'text_delta', text: remaining },
+    }
+  }
+
+  const stats = getStreamStats(streamState)
+  if (stats.totalChunks > 0) {
+    console.log(JSON.stringify({
+      type: 'stream_stats',
+      model,
+      total_chunks: stats.totalChunks,
+      first_token_ms: stats.firstTokenMs,
+      duration_ms: stats.durationMs,
+    }))
   }
 
   yield { type: 'message_stop' }
@@ -1426,9 +1451,24 @@ class OpenAIShimMessages {
 
     const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
     let response: Response | undefined
+    const provider = request.baseUrl.includes('nvidia') ? 'nvidia-nim'
+      : request.baseUrl.includes('minimax') ? 'minimax'
+      : request.baseUrl.includes('localhost:11434') || request.baseUrl.includes('localhost:11435') ? 'ollama'
+      : request.baseUrl.includes('anthropic') ? 'anthropic'
+      : 'openai'
+    const { correlationId, startTime } = logApiCallStart(provider, request.resolvedModel)
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       response = await fetch(chatCompletionsUrl, fetchInit)
       if (response.ok) {
+        let tokensIn = 0
+        let tokensOut = 0
+        try {
+          const clone = response.clone()
+          const data = await clone.json()
+          tokensIn = data.usage?.prompt_tokens ?? 0
+          tokensOut = data.usage?.completion_tokens ?? 0
+        } catch { /* ignore */ }
+        logApiCallEnd(correlationId, startTime, request.resolvedModel, 'success', tokensIn, tokensOut, false)
         return response
       }
       if (
@@ -1523,6 +1563,18 @@ class OpenAIShimMessages {
 
       let errorResponse: object | undefined
       try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
+      logApiCallEnd(
+        correlationId,
+        startTime,
+        request.resolvedModel,
+        'error',
+        0,
+        0,
+        false,
+        undefined,
+        undefined,
+        `OpenAI API error ${response.status}: ${errorBody}${rateHint}`,
+      )
       throw APIError.generate(
         response.status,
         errorResponse,
