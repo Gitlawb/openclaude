@@ -1731,6 +1731,7 @@ async function checkPermissionsAndCallTool(
     >[] = []
     for await (const hookResult of runPostToolUseFailureHooks(
       toolUseContext,
+      canUseTool,
       tool,
       toolUseID,
       messageId,
