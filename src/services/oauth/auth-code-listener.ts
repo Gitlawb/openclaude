@@ -71,6 +71,42 @@ export class AuthCodeListener {
     })
   }
 
+  private respondToPendingRequest(options: {
+    handler: (res: ServerResponse) => void
+    analyticsEvent:
+      | 'tengu_oauth_automatic_redirect'
+      | 'tengu_oauth_automatic_redirect_error'
+    analyticsMetadata?: Record<string, boolean>
+  }): void {
+    if (!this.pendingResponse) return
+
+    const response = this.pendingResponse
+    try {
+      options.handler(response)
+
+      if (!response.writableEnded && !response.destroyed) {
+        response.end()
+      }
+
+      logEvent(options.analyticsEvent, options.analyticsMetadata ?? {})
+    } catch (error) {
+      logError(error)
+
+      if (!response.headersSent && !response.destroyed) {
+        response.writeHead(500, {
+          'Content-Type': 'text/plain; charset=utf-8',
+        })
+      }
+      if (!response.writableEnded && !response.destroyed) {
+        response.end('Authentication redirect failed')
+      }
+    } finally {
+      if (this.pendingResponse === response) {
+        this.pendingResponse = null
+      }
+    }
+  }
+
   /**
    * Completes the OAuth flow by redirecting the user's browser to a success page.
    * Different success pages are shown based on the granted scopes.
@@ -85,9 +121,13 @@ export class AuthCodeListener {
 
     // If custom handler provided, use it instead of default redirect
     if (customHandler) {
-      customHandler(this.pendingResponse, scopes)
-      this.pendingResponse = null
-      logEvent('tengu_oauth_automatic_redirect', { custom_handler: true })
+      this.respondToPendingRequest({
+        handler: res => {
+          customHandler(res, scopes)
+        },
+        analyticsEvent: 'tengu_oauth_automatic_redirect',
+        analyticsMetadata: { custom_handler: true },
+      })
       return
     }
 
@@ -97,29 +137,48 @@ export class AuthCodeListener {
       : getOauthConfig().CONSOLE_SUCCESS_URL
 
     // Send browser to success page
-    this.pendingResponse.writeHead(302, { Location: successUrl })
-    this.pendingResponse.end()
-    this.pendingResponse = null
-
-    logEvent('tengu_oauth_automatic_redirect', {})
+    this.respondToPendingRequest({
+      handler: res => {
+        res.writeHead(302, { Location: successUrl })
+        res.end()
+      },
+      analyticsEvent: 'tengu_oauth_automatic_redirect',
+    })
   }
 
   /**
    * Handles error case by sending a redirect to the appropriate success page with an error indicator,
    * ensuring the browser flow is completed properly.
    */
-  handleErrorRedirect(): void {
+  handleErrorRedirect(customHandler?: (res: ServerResponse) => void): void {
     if (!this.pendingResponse) return
+
+    if (customHandler) {
+      this.respondToPendingRequest({
+        handler: customHandler,
+        analyticsEvent: 'tengu_oauth_automatic_redirect_error',
+        analyticsMetadata: { custom_handler: true },
+      })
+      return
+    }
 
     // TODO: swap to a different url once we have an error page
     const errorUrl = getOauthConfig().CLAUDEAI_SUCCESS_URL
 
-    // Send browser to error page
-    this.pendingResponse.writeHead(302, { Location: errorUrl })
-    this.pendingResponse.end()
-    this.pendingResponse = null
+    this.respondToPendingRequest({
+      handler: res => {
+        res.writeHead(302, { Location: errorUrl })
+        res.end()
+      },
+      analyticsEvent: 'tengu_oauth_automatic_redirect_error',
+    })
+  }
 
-    logEvent('tengu_oauth_automatic_redirect_error', {})
+  cancelPendingAuthorization(
+    error: Error = new Error('OAuth authorization was cancelled.'),
+  ): void {
+    this.reject(error)
+    this.close()
   }
 
   private startLocalListener(onReady: () => Promise<void>): void {
@@ -176,8 +235,7 @@ export class AuthCodeListener {
 
   private handleError(err: Error): void {
     logError(err)
-    this.close()
-    this.reject(err)
+    this.cancelPendingAuthorization(err)
   }
 
   private resolve(authorizationCode: string): void {
@@ -185,6 +243,7 @@ export class AuthCodeListener {
       this.promiseResolver(authorizationCode)
       this.promiseResolver = null
       this.promiseRejecter = null
+      this.expectedState = null
     }
   }
 
@@ -193,6 +252,7 @@ export class AuthCodeListener {
       this.promiseRejecter(error)
       this.promiseResolver = null
       this.promiseRejecter = null
+      this.expectedState = null
     }
   }
 
@@ -207,5 +267,8 @@ export class AuthCodeListener {
       this.localServer.removeAllListeners()
       this.localServer.close()
     }
+
+    this.expectedState = null
+    this.port = 0
   }
 }

@@ -1,17 +1,12 @@
 import { execFileSync } from 'child_process'
 import { diffLines } from 'diff'
-import { constants as fsConstants } from 'fs'
 import {
-  copyFile,
   mkdir,
-  mkdtemp,
   readdir,
   readFile,
-  rm,
   unlink,
   writeFile,
 } from 'fs/promises'
-import { tmpdir } from 'os'
 import { extname, join } from 'path'
 import type { Command } from '../commands.js'
 import { queryWithModel } from '../services/api/claude.js'
@@ -22,7 +17,6 @@ import {
 import type { LogOption } from '../types/logs.js'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import { toError } from '../utils/errors.js'
-import { execFileNoThrow } from '../utils/execFileNoThrow.js'
 import { logError } from '../utils/log.js'
 import { extractTextContent } from '../utils/messages.js'
 import { getDefaultOpusModel } from '../utils/model/model.js'
@@ -46,180 +40,6 @@ function getAnalysisModel(): string {
 function getInsightsModel(): string {
   return getDefaultOpusModel()
 }
-
-// ============================================================================
-// Homespace Data Collection
-// ============================================================================
-
-type RemoteHostInfo = {
-  name: string
-  sessionCount: number
-}
-
-/* eslint-disable custom-rules/no-process-env-top-level */
-const getRunningRemoteHosts: () => Promise<string[]> =
-  process.env.USER_TYPE === 'ant'
-    ? async () => {
-        const { stdout, code } = await execFileNoThrow(
-          'coder',
-          ['list', '-o', 'json'],
-          { timeout: 30000 },
-        )
-        if (code !== 0) return []
-        try {
-          const workspaces = jsonParse(stdout) as Array<{
-            name: string
-            latest_build?: { status?: string }
-          }>
-          return workspaces
-            .filter(w => w.latest_build?.status === 'running')
-            .map(w => w.name)
-        } catch {
-          return []
-        }
-      }
-    : async () => []
-
-const getRemoteHostSessionCount: (hs: string) => Promise<number> =
-  process.env.USER_TYPE === 'ant'
-    ? async (homespace: string) => {
-        const { stdout, code } = await execFileNoThrow(
-          'ssh',
-          [
-            `${homespace}.coder`,
-            'find /root/.claude/projects -name "*.jsonl" 2>/dev/null | wc -l',
-          ],
-          { timeout: 30000 },
-        )
-        if (code !== 0) return 0
-        return parseInt(stdout.trim(), 10) || 0
-      }
-    : async () => 0
-
-const collectFromRemoteHost: (
-  hs: string,
-  destDir: string,
-) => Promise<{ copied: number; skipped: number }> =
-  process.env.USER_TYPE === 'ant'
-    ? async (homespace: string, destDir: string) => {
-        const result = { copied: 0, skipped: 0 }
-
-        // Create temp directory
-        const tempDir = await mkdtemp(join(tmpdir(), 'claude-hs-'))
-
-        try {
-          // SCP the projects folder
-          const scpResult = await execFileNoThrow(
-            'scp',
-            ['-rq', `${homespace}.coder:/root/.claude/projects/`, tempDir],
-            { timeout: 300000 },
-          )
-          if (scpResult.code !== 0) {
-            // SCP failed
-            return result
-          }
-
-          const projectsDir = join(tempDir, 'projects')
-          let projectDirents: Awaited<ReturnType<typeof readdir>>
-          try {
-            projectDirents = await readdir(projectsDir, { withFileTypes: true })
-          } catch {
-            return result
-          }
-
-          // Merge into destination (parallel per project directory)
-          await Promise.all(
-            projectDirents.map(async dirent => {
-              const projectName = dirent.name
-              const projectPath = join(projectsDir, projectName)
-
-              // Skip if not a directory
-              if (!dirent.isDirectory()) return
-
-              const destProjectName = `${projectName}__${homespace}`
-              const destProjectPath = join(destDir, destProjectName)
-
-              try {
-                await mkdir(destProjectPath, { recursive: true })
-              } catch {
-                // Directory may already exist
-              }
-
-              // Copy session files (skip existing)
-              let files: Awaited<ReturnType<typeof readdir>>
-              try {
-                files = await readdir(projectPath, { withFileTypes: true })
-              } catch {
-                return
-              }
-              await Promise.all(
-                files.map(async fileDirent => {
-                  const fileName = fileDirent.name
-                  if (!fileName.endsWith('.jsonl')) return
-
-                  const srcFile = join(projectPath, fileName)
-                  const destFile = join(destProjectPath, fileName)
-
-                  try {
-                    await copyFile(srcFile, destFile, fsConstants.COPYFILE_EXCL)
-                    result.copied++
-                  } catch {
-                    // EEXIST from COPYFILE_EXCL means dest already exists
-                    result.skipped++
-                  }
-                }),
-              )
-            }),
-          )
-        } finally {
-          try {
-            await rm(tempDir, { recursive: true, force: true })
-          } catch {
-            // Ignore cleanup errors
-          }
-        }
-
-        return result
-      }
-    : async () => ({ copied: 0, skipped: 0 })
-
-const collectAllRemoteHostData: (destDir: string) => Promise<{
-  hosts: RemoteHostInfo[]
-  totalCopied: number
-  totalSkipped: number
-}> =
-  process.env.USER_TYPE === 'ant'
-    ? async (destDir: string) => {
-        const rHosts = await getRunningRemoteHosts()
-        const result: RemoteHostInfo[] = []
-        let totalCopied = 0
-        let totalSkipped = 0
-
-        // Collect from all hosts in parallel (SCP per host can take seconds)
-        const hostResults = await Promise.all(
-          rHosts.map(async hs => {
-            const sessionCount = await getRemoteHostSessionCount(hs)
-            if (sessionCount > 0) {
-              const { copied, skipped } = await collectFromRemoteHost(
-                hs,
-                destDir,
-              )
-              return { name: hs, sessionCount, copied, skipped }
-            }
-            return { name: hs, sessionCount, copied: 0, skipped: 0 }
-          }),
-        )
-
-        for (const hr of hostResults) {
-          result.push({ name: hr.name, sessionCount: hr.sessionCount })
-          totalCopied += hr.copied
-          totalSkipped += hr.skipped
-        }
-
-        return { hosts: result, totalCopied, totalSkipped }
-      }
-    : async () => ({ hosts: [], totalCopied: 0, totalSkipped: 0 })
-/* eslint-enable custom-rules/no-process-env-top-level */
 
 // ============================================================================
 // Types
@@ -2659,7 +2479,6 @@ export type InsightsExport = {
     claude_code_version: string
     date_range: { start: string; end: string }
     session_count: number
-    remote_hosts_collected?: string[]
   }
   aggregated_data: AggregatedData
   insights: InsightResults
@@ -2680,13 +2499,8 @@ export function buildExportData(
   data: AggregatedData,
   insights: InsightResults,
   facets: Map<string, SessionFacets>,
-  remoteStats?: { hosts: RemoteHostInfo[]; totalCopied: number },
 ): InsightsExport {
   const version = typeof MACRO !== 'undefined' ? MACRO.VERSION : 'unknown'
-
-  const remote_hosts_collected = remoteStats?.hosts
-    .filter(h => h.sessionCount > 0)
-    .map(h => h.name)
 
   const facets_summary = {
     total: facets.size,
@@ -2725,10 +2539,6 @@ export function buildExportData(
       claude_code_version: version,
       date_range: data.date_range,
       session_count: data.total_sessions,
-      ...(remote_hosts_collected &&
-        remote_hosts_collected.length > 0 && {
-          remote_hosts_collected,
-        }),
     },
     aggregated_data: data,
     insights,
@@ -2793,24 +2603,12 @@ async function scanAllSessions(): Promise<LiteSessionInfo[]> {
 // Main Function
 // ============================================================================
 
-export async function generateUsageReport(options?: {
-  collectRemote?: boolean
-}): Promise<{
+export async function generateUsageReport(): Promise<{
   insights: InsightResults
   htmlPath: string
   data: AggregatedData
-  remoteStats?: { hosts: RemoteHostInfo[]; totalCopied: number }
   facets: Map<string, SessionFacets>
 }> {
-  let remoteStats: { hosts: RemoteHostInfo[]; totalCopied: number } | undefined
-
-  // Optionally collect data from remote hosts first (internal-only)
-  if (process.env.USER_TYPE === 'ant' && options?.collectRemote) {
-    const destDir = join(getClaudeConfigHomeDir(), 'projects')
-    const { hosts, totalCopied } = await collectAllRemoteHostData(destDir)
-    remoteStats = { hosts, totalCopied }
-  }
-
   // Phase 1: Lite scan — filesystem metadata only (no JSONL parsing)
   const allScannedSessions = await scanAllSessions()
   const totalSessionsScanned = allScannedSessions.length
@@ -3017,7 +2815,6 @@ export async function generateUsageReport(options?: {
     insights,
     htmlPath,
     data: aggregated,
-    remoteStats,
     facets: substantiveFacets,
   }
 }
@@ -3043,31 +2840,8 @@ const usageReport: Command = {
   contentLength: 0, // Dynamic content
   progressMessage: 'analyzing your sessions',
   source: 'builtin',
-  async getPromptForCommand(args) {
-    let collectRemote = false
-    let remoteHosts: string[] = []
-    let hasRemoteHosts = false
-
-    if (process.env.USER_TYPE === 'ant') {
-      // Parse --homespaces flag
-      collectRemote = args?.includes('--homespaces') ?? false
-
-      // Check for available remote hosts
-      remoteHosts = await getRunningRemoteHosts()
-      hasRemoteHosts = remoteHosts.length > 0
-
-      // Show collection message if collecting
-      if (collectRemote && hasRemoteHosts) {
-        // biome-ignore lint/suspicious/noConsole: intentional
-        console.error(
-          `Collecting sessions from ${remoteHosts.length} homespace(s): ${remoteHosts.join(', ')}...`,
-        )
-      }
-    }
-
-    const { insights, htmlPath, data, remoteStats } = await generateUsageReport(
-      { collectRemote },
-    )
+  async getPromptForCommand(_args) {
+    const { insights, htmlPath, data } = await generateUsageReport()
 
     let reportUrl = `file://${htmlPath}`
     let uploadHint = ''
@@ -3085,20 +2859,6 @@ const usageReport: Command = {
       `${data.git_commits} commits`,
     ].join(' · ')
 
-    // Build remote host info (internal-only)
-    let remoteInfo = ''
-    if (process.env.USER_TYPE === 'ant') {
-      if (remoteStats && remoteStats.totalCopied > 0) {
-        const hsNames = remoteStats.hosts
-          .filter(h => h.sessionCount > 0)
-          .map(h => h.name)
-          .join(', ')
-        remoteInfo = `\n_Collected ${remoteStats.totalCopied} new sessions from: ${hsNames}_\n`
-      } else if (!collectRemote && hasRemoteHosts) {
-        // Suggest using --homespaces if they have remote hosts but didn't use the flag
-        remoteInfo = `\n_Tip: Run \`/insights --homespaces\` to include sessions from your ${remoteHosts.length} running homespace(s)_\n`
-      }
-    }
 
     // Build markdown summary from insights
     const atAGlance = insights.at_a_glance
@@ -3118,7 +2878,6 @@ ${atAGlance.ambitious_workflows ? `**Ambitious workflows:** ${atAGlance.ambitiou
 
 ${stats}
 ${data.date_range.start} to ${data.date_range.end}
-${remoteInfo}
 `
 
     const userSummary = `${header}${summaryText}

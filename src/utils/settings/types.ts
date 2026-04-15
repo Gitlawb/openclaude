@@ -69,6 +69,12 @@ export const PermissionsSchema = lazySchema(() =>
         .enum(['disable'])
         .optional()
         .describe('Disable the ability to bypass permission prompts'),
+      allowBypassPermissionsMode: z
+        .boolean()
+        .optional()
+        .describe(
+          'Allow bypass permissions mode to appear in the mode list without requiring the CLI flag',
+        ),
       ...(feature('TRANSCRIPT_CLASSIFIER')
         ? {
             disableAutoMode: z
@@ -708,11 +714,7 @@ export const SettingsSchema = lazySchema(() =>
             'enabled automatically for supported models.',
         ),
       effortLevel: z
-        .enum(
-          process.env.USER_TYPE === 'ant'
-            ? ['low', 'medium', 'high', 'max']
-            : ['low', 'medium', 'high'],
-        )
+        .enum(['low', 'medium', 'high', 'max'])
         .optional()
         .catch(undefined)
         .describe('Persisted effort level for supported models.'),

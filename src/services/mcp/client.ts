@@ -166,9 +166,12 @@ export {
 } from './errors/index.js'
 
 /**
- * Default timeout for MCP tool calls (effectively infinite - ~27.8 hours).
+ * Default timeout for MCP tool calls (5 minutes — reasonable for most tools).
+ * Use MCP_TOOL_TIMEOUT env var to override per-server.
+ * The previous default of ~27.8 hours effectively meant no timeout, causing
+ * tools to hang indefinitely on unresponsive servers.
  */
-const DEFAULT_MCP_TOOL_TIMEOUT_MS = 100_000_000
+const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000
 
 /**
  * Cap on MCP tool descriptions and server instructions sent to the model.
@@ -1724,10 +1727,32 @@ export const fetchToolsForClient = memoizeWithLRU(
         return []
       }
 
-      const result = (await client.client.request(
-        { method: 'tools/list' },
-        ListToolsResultSchema,
-      )) as ListToolsResult
+      // Retry tool list fetch up to 2 times on transient failures.
+      // Without retry, a single timeout during tools/list makes all MCP tools
+      // silently disappear from the model's context until the next reconnect.
+      let result: ListToolsResult | undefined
+      let lastError: unknown
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          result = (await client.client.request(
+            { method: 'tools/list' },
+            ListToolsResultSchema,
+          )) as ListToolsResult
+          break
+        } catch (err) {
+          lastError = err
+          if (attempt < 2) {
+            logMCPDebug(
+              client.name,
+              `tools/list failed (attempt ${attempt + 1}/3): ${errorMessage(err)}. Retrying...`,
+            )
+            await sleep(1000 * (attempt + 1))
+          }
+        }
+      }
+      if (!result) {
+        throw lastError ?? new Error('tools/list failed after 3 attempts')
+      }
 
       // Sanitize tool data from MCP server
       const toolsToProcess = recursivelySanitizeUnicode(result.tools)
@@ -2824,6 +2849,11 @@ export async function callMCPToolWithUrlElicitationRetry({
 }): Promise<MCPToolCallResult> {
   const MAX_URL_ELICITATION_RETRIES = 3
   for (let attempt = 0; ; attempt++) {
+    // Check abort signal before each attempt — without this, a cancelled
+    // elicitation retry loop continues spinning until MAX retries
+    if (signal.aborted) {
+      throw new Error('Tool call aborted during URL elicitation')
+    }
     try {
       return await callToolFn({
         client: connectedClient,
@@ -3116,9 +3146,12 @@ async function callMCPTool({
         errorDetails = String(result.error)
       }
       logMCPError(name, errorDetails)
-      throw new McpToolCallError(
+      // Include server and tool name in telemetry for debugging, but keep
+      // the human-readable message unchanged to avoid breaking error consumers
+      // that parse the message string.
+      throw new McpToolCallError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS(
         errorDetails,
-        'MCP tool returned error',
+        `MCP tool [${name}] ${tool}: ${errorDetails}`,
         '_meta' in result && result._meta ? { _meta: result._meta } : undefined,
       )
     }
