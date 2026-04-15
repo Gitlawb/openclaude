@@ -19,6 +19,7 @@ export const jinaProvider: SearchProvider = {
 
     const url = new URL('https://s.jina.ai/')
     url.searchParams.set('q', input.query)
+    url.searchParams.set('count', '10')
 
     const res = await fetch(url.toString(), {
       headers: {

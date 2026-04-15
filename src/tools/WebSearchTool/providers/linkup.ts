@@ -26,6 +26,7 @@ export const linkupProvider: SearchProvider = {
       body: JSON.stringify({
         q: input.query,
         search_type: 'standard',
+        depth: 'standard',
       }),
       signal,
     })

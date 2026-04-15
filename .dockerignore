@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+coverage
+reports
+vscode-extension
+python
+docs
+*.md
+!README.md
+.github
+.tsbuildinfo

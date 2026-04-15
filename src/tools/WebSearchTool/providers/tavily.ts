@@ -25,7 +25,7 @@ export const tavilyProvider: SearchProvider = {
       },
       body: JSON.stringify({
         query: input.query,
-        max_results: 10,
+        max_results: 15,
         include_answer: false,
       }),
       signal,

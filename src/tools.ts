@@ -12,27 +12,18 @@ import { WebFetchTool } from './tools/WebFetchTool/WebFetchTool.js'
 import { TaskStopTool } from './tools/TaskStopTool/TaskStopTool.js'
 import { BriefTool } from './tools/BriefTool/BriefTool.js'
 // Dead code elimination: conditional import for internal-only tools
-/* eslint-disable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
-const REPLTool =
-  process.env.USER_TYPE === 'ant'
-    ? require('./tools/REPLTool/REPLTool.js').REPLTool
-    : null
-const SuggestBackgroundPRTool =
-  process.env.USER_TYPE === 'ant'
-    ? require('./tools/SuggestBackgroundPRTool/SuggestBackgroundPRTool.js')
-        .SuggestBackgroundPRTool
-    : null
+/* eslint-disable @typescript-eslint/no-require-imports */
+const REPLTool = null
+const SuggestBackgroundPRTool = null
 const SleepTool =
   feature('PROACTIVE') || feature('KAIROS')
     ? require('./tools/SleepTool/SleepTool.js').SleepTool
     : null
-const cronTools = feature('AGENT_TRIGGERS')
-  ? [
-      require('./tools/ScheduleCronTool/CronCreateTool.js').CronCreateTool,
-      require('./tools/ScheduleCronTool/CronDeleteTool.js').CronDeleteTool,
-      require('./tools/ScheduleCronTool/CronListTool.js').CronListTool,
-    ]
-  : []
+const cronTools = [
+  require('./tools/ScheduleCronTool/CronCreateTool.js').CronCreateTool,
+  require('./tools/ScheduleCronTool/CronDeleteTool.js').CronDeleteTool,
+  require('./tools/ScheduleCronTool/CronListTool.js').CronListTool,
+]
 const RemoteTriggerTool = feature('AGENT_TRIGGERS_REMOTE')
   ? require('./tools/RemoteTriggerTool/RemoteTriggerTool.js').RemoteTriggerTool
   : null
@@ -57,7 +48,6 @@ import { TodoWriteTool } from './tools/TodoWriteTool/TodoWriteTool.js'
 import { ExitPlanModeV2Tool } from './tools/ExitPlanModeTool/ExitPlanModeV2Tool.js'
 import { TestingPermissionTool } from './tools/testing/TestingPermissionTool.js'
 import { GrepTool } from './tools/GrepTool/GrepTool.js'
-import { TungstenTool } from './tools/TungstenTool/TungstenTool.js'
 // Lazy require to break circular dependency: tools.ts -> TeamCreateTool/TeamDeleteTool -> ... -> tools.ts
 /* eslint-disable @typescript-eslint/no-require-imports */
 const getTeamCreateTool = () =>
@@ -78,7 +68,6 @@ import { ToolSearchTool } from './tools/ToolSearchTool/ToolSearchTool.js'
 import { EnterPlanModeTool } from './tools/EnterPlanModeTool/EnterPlanModeTool.js'
 import { EnterWorktreeTool } from './tools/EnterWorktreeTool/EnterWorktreeTool.js'
 import { ExitWorktreeTool } from './tools/ExitWorktreeTool/ExitWorktreeTool.js'
-import { ConfigTool } from './tools/ConfigTool/ConfigTool.js'
 import { TaskCreateTool } from './tools/TaskCreateTool/TaskCreateTool.js'
 import { TaskGetTool } from './tools/TaskGetTool/TaskGetTool.js'
 import { TaskUpdateTool } from './tools/TaskUpdateTool/TaskUpdateTool.js'
@@ -211,8 +200,6 @@ export function getAllBaseTools(): Tools {
     AskUserQuestionTool,
     SkillTool,
     EnterPlanModeTool,
-    ...(process.env.USER_TYPE === 'ant' ? [ConfigTool] : []),
-    ...(process.env.USER_TYPE === 'ant' ? [TungstenTool] : []),
     ...(SuggestBackgroundPRTool ? [SuggestBackgroundPRTool] : []),
     ...(WebBrowserTool ? [WebBrowserTool] : []),
     ...(isTodoV2Enabled()
