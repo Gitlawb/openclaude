@@ -113,11 +113,11 @@ import type {
   SDKMessage,
   SDKUserMessage,
   SDKUserMessageReplay,
-  PermissionResult,
   McpServerConfigForProcessTransport,
   McpServerStatus,
   RewindFilesResult,
 } from 'src/entrypoints/agentSdkTypes.js'
+import type { PermissionResult } from 'src/types/permissions.ts'
 import type {
   StdoutMessage,
   SDKControlInitializeRequest,
@@ -597,14 +597,14 @@ export async function runHeadless(
     if (SandboxManager.isSandboxRequired()) {
       process.stderr.write(
         `\nError: sandbox required but unavailable: ${sandboxUnavailableReason}\n` +
-          `  sandbox.failIfUnavailable is set — refusing to start without a working sandbox.\n\n`,
+        `  sandbox.failIfUnavailable is set — refusing to start without a working sandbox.\n\n`,
       )
       gracefulShutdownSync(1)
       return
     }
     process.stderr.write(
       `\n⚠ Sandbox disabled: ${sandboxUnavailableReason}\n` +
-        `  Commands will run WITHOUT sandboxing. Network and filesystem restrictions will NOT be enforced.\n\n`,
+      `  Commands will run WITHOUT sandboxing. Network and filesystem restrictions will NOT be enforced.\n\n`,
     )
   } else if (SandboxManager.isSandboxingEnabled()) {
     // Initialize sandbox with a callback that forwards network permission
@@ -849,8 +849,8 @@ export async function runHeadless(
   // Build flag gates this out of external builds; env var is the runtime opt-in for ant builds
   const transformToStreamlined =
     feature('STREAMLINED_OUTPUT') &&
-    isEnvTruthy(process.env.CLAUDE_CODE_STREAMLINED_OUTPUT) &&
-    options.outputFormat === 'stream-json'
+      isEnvTruthy(process.env.CLAUDE_CODE_STREAMLINED_OUTPUT) &&
+      options.outputFormat === 'stream-json'
       ? createStreamlinedTransformer()
       : null
 
@@ -1312,8 +1312,8 @@ function runHeadlessStreaming(
             const requestedSchema =
               'requestedSchema' in request.params
                 ? (request.params.requestedSchema as
-                    | Record<string, unknown>
-                    | undefined)
+                  | Record<string, unknown>
+                  | undefined)
                 : undefined
 
             const elicitationId =
@@ -1649,13 +1649,13 @@ function runHeadlessStreaming(
       const serverTools =
         connection.type === 'connected'
           ? filterToolsByServer(allMcpTools, connection.name).map(tool => ({
-              name: tool.mcpInfo?.toolName ?? tool.name,
-              annotations: {
-                readOnly: tool.isReadOnly({}) || undefined,
-                destructive: tool.isDestructive?.({}) || undefined,
-                openWorld: tool.isOpenWorld?.({}) || undefined,
-              },
-            }))
+            name: tool.mcpInfo?.toolName ?? tool.name,
+            annotations: {
+              readOnly: tool.isReadOnly({}) || undefined,
+              destructive: tool.isDestructive?.({}) || undefined,
+              openWorld: tool.isOpenWorld?.({}) || undefined,
+            },
+          }))
           : undefined
       // Capabilities passthrough with allowlist pre-filter. The IDE reads
       // experimental['claude/channel'] to decide whether to show the
@@ -1702,10 +1702,10 @@ function runHeadlessStreaming(
       // its promise so this awaits the same in-flight request.
       await Promise.all([
         feature('DOWNLOAD_USER_SETTINGS') &&
-        (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
+          (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
           ? withDiagnosticsTiming('headless_user_settings_download', () =>
-              downloadUserSettings(),
-            )
+            downloadUserSettings(),
+          )
           : Promise.resolve(),
         withDiagnosticsTiming('headless_managed_settings_wait', () =>
           waitForRemoteManagedSettingsToLoad(),
@@ -1828,25 +1828,25 @@ function runHeadlessStreaming(
   const scheduleProactiveTick =
     feature('PROACTIVE') || feature('KAIROS')
       ? () => {
-          setTimeout(() => {
-            if (
-              !proactiveModule?.isProactiveActive() ||
-              proactiveModule.isProactivePaused() ||
-              inputClosed
-            ) {
-              return
-            }
-            const tickContent = `<${TICK_TAG}>${new Date().toLocaleTimeString()}</${TICK_TAG}>`
-            enqueue({
-              mode: 'prompt' as const,
-              value: tickContent,
-              uuid: randomUUID(),
-              priority: 'later',
-              isMeta: true,
-            })
-            void run()
-          }, 0)
-        }
+        setTimeout(() => {
+          if (
+            !proactiveModule?.isProactiveActive() ||
+            proactiveModule.isProactivePaused() ||
+            inputClosed
+          ) {
+            return
+          }
+          const tickContent = `<${TICK_TAG}>${new Date().toLocaleTimeString()}</${TICK_TAG}>`
+          enqueue({
+            mode: 'prompt' as const,
+            value: tickContent,
+            uuid: randomUUID(),
+            priority: 'later',
+            isMeta: true,
+          })
+          void run()
+        }, 0)
+      }
       : undefined
 
   // Abort the current operation when a 'now' priority message arrives.
@@ -2073,12 +2073,12 @@ function runHeadlessStreaming(
                 usage:
                   totalTokensMatch && toolUsesMatch
                     ? {
-                        total_tokens: parseInt(totalTokensMatch[1]!, 10),
-                        tool_uses: parseInt(toolUsesMatch[1]!, 10),
-                        duration_ms: durationMsMatch
-                          ? parseInt(durationMsMatch[1]!, 10)
-                          : 0,
-                      }
+                      total_tokens: parseInt(totalTokensMatch[1]!, 10),
+                      tool_uses: parseInt(toolUsesMatch[1]!, 10),
+                      duration_ms: durationMsMatch
+                        ? parseInt(durationMsMatch[1]!, 10)
+                        : 0,
+                    }
                     : undefined,
                 session_id: getSessionId(),
                 uuid: randomUUID(),
@@ -2107,10 +2107,10 @@ function runHeadlessStreaming(
                 typeof input === 'string'
                   ? input
                   : (
-                      input.find(b => b.type === 'text') as
-                        | { type: 'text'; text: string }
-                        | undefined
-                    )?.text
+                    input.find(b => b.type === 'text') as
+                    | { type: 'text'; text: string }
+                    | undefined
+                  )?.text
               if (typeof inputText === 'string') {
                 logSuggestionOutcome(
                   suggestionState.lastEmitted.text,
@@ -2548,8 +2548,8 @@ function runHeadlessStreaming(
                 // Find the teammate ID by name
                 const teammateId = refreshedState.teamContext?.teammates
                   ? Object.entries(refreshedState.teamContext.teammates).find(
-                      ([, t]) => t.name === teammateToRemove,
-                    )?.[0]
+                    ([, t]) => t.name === teammateToRemove,
+                  )?.[0]
                   : undefined
 
                 if (teammateId) {
@@ -3406,9 +3406,9 @@ function runHeadlessStreaming(
                       resources:
                         result.resources && result.resources.length > 0
                           ? {
-                              ...prev.mcp.resources,
-                              [serverName]: result.resources,
-                            }
+                            ...prev.mcp.resources,
+                            [serverName]: result.resources,
+                          }
                           : omit(prev.mcp.resources, serverName),
                     },
                   }))
@@ -3678,9 +3678,9 @@ function runHeadlessStreaming(
                 resources:
                   result.resources && result.resources.length > 0
                     ? {
-                        ...prev.mcp.resources,
-                        [serverName]: result.resources,
-                      }
+                      ...prev.mcp.resources,
+                      [serverName]: result.resources,
+                    }
                     : omit(prev.mcp.resources, serverName),
               },
             }))
@@ -3824,35 +3824,35 @@ function runHeadlessStreaming(
               const saved = getLastCacheSafeParams()
               const cacheSafeParams = saved
                 ? {
-                    ...saved,
-                    // If the last turn was interrupted, the snapshot holds an
-                    // already-aborted controller; createChildAbortController in
-                    // createSubagentContext would propagate it and the fork
-                    // would die before sending a request. The controller is
-                    // not part of the cache key — swapping in a fresh one is
-                    // safe. Same guard as generate_session_title above.
-                    toolUseContext: {
-                      ...saved.toolUseContext,
-                      abortController: createAbortController(),
-                    },
-                  }
+                  ...saved,
+                  // If the last turn was interrupted, the snapshot holds an
+                  // already-aborted controller; createChildAbortController in
+                  // createSubagentContext would propagate it and the fork
+                  // would die before sending a request. The controller is
+                  // not part of the cache key — swapping in a fresh one is
+                  // safe. Same guard as generate_session_title above.
+                  toolUseContext: {
+                    ...saved.toolUseContext,
+                    abortController: createAbortController(),
+                  },
+                }
                 : await buildSideQuestionFallbackParams({
-                    tools: buildAllTools(getAppState()),
-                    commands: currentCommands,
-                    mcpClients: [
-                      ...getAppState().mcp.clients,
-                      ...sdkClients,
-                      ...dynamicMcpState.clients,
-                    ],
-                    messages: mutableMessages,
-                    readFileState,
-                    getAppState,
-                    setAppState,
-                    customSystemPrompt: options.systemPrompt,
-                    appendSystemPrompt: options.appendSystemPrompt,
-                    thinkingConfig: options.thinkingConfig,
-                    agents: currentAgents,
-                  })
+                  tools: buildAllTools(getAppState()),
+                  commands: currentCommands,
+                  mcpClients: [
+                    ...getAppState().mcp.clients,
+                    ...sdkClients,
+                    ...dynamicMcpState.clients,
+                  ],
+                  messages: mutableMessages,
+                  readFileState,
+                  getAppState,
+                  setAppState,
+                  customSystemPrompt: options.systemPrompt,
+                  appendSystemPrompt: options.appendSystemPrompt,
+                  thinkingConfig: options.thinkingConfig,
+                  agents: currentAgents,
+                })
               const result = await runSideQuestion({
                 question,
                 cacheSafeParams,
@@ -3968,7 +3968,7 @@ function runHeadlessStreaming(
                   sendControlResponseError(
                     message,
                     bridgeFailureDetail ??
-                      'Remote Control initialization failed',
+                    'Remote Control initialization failed',
                   )
                 } else {
                   bridgeHandle = handle
