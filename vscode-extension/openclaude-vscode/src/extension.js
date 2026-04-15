@@ -12,6 +12,9 @@ const {
   resolveCommandCheckPath,
 } = require('./state');
 const { buildControlCenterViewModel } = require('./presentation');
+const { ChatController, OpenClaudeChatViewProvider, OpenClaudeChatPanelManager } = require('./chat/chatProvider');
+const { SessionManager } = require('./chat/sessionManager');
+const { DiffContentProvider, SCHEME: DIFF_SCHEME } = require('./chat/diffController');
 
 const OPENCLAUDE_REPO_URL = 'https://github.com/Gitlawb/openclaude';
 const OPENCLAUDE_SETUP_URL = 'https://github.com/Gitlawb/openclaude/blob/main/README.md#quick-start';
@@ -1041,11 +1044,58 @@ class OpenClaudeControlCenterProvider {
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
+  // ── Control Center (existing) ──
   const provider = new OpenClaudeControlCenterProvider();
   const refreshProvider = () => {
     void provider.refresh();
   };
 
+  // ── Chat system ──
+  const sessionManager = new SessionManager();
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    sessionManager.setCwd(folders[0].uri.fsPath);
+  }
+
+  const chatController = new ChatController(sessionManager);
+  const chatViewProvider = new OpenClaudeChatViewProvider(chatController);
+  const chatPanelManager = new OpenClaudeChatPanelManager(chatController);
+
+  // ── Diff content provider ──
+  const diffProvider = new DiffContentProvider();
+  const diffProviderReg = vscode.workspace.registerTextDocumentContentProvider(
+    DIFF_SCHEME,
+    diffProvider,
+  );
+
+  // ── Status bar ──
+  const statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100,
+  );
+  statusBarItem.text = '$(comment-discussion) OpenClaude';
+  statusBarItem.tooltip = 'Open OpenClaude Chat';
+  statusBarItem.command = 'openclaude.openChat';
+  statusBarItem.show();
+
+  chatController.onDidChangeState((state) => {
+    switch (state) {
+      case 'streaming':
+        statusBarItem.text = '$(sync~spin) OpenClaude';
+        statusBarItem.tooltip = 'OpenClaude is generating...';
+        break;
+      case 'connected':
+        statusBarItem.text = '$(comment-discussion) OpenClaude';
+        statusBarItem.tooltip = 'OpenClaude connected';
+        break;
+      default:
+        statusBarItem.text = '$(comment-discussion) OpenClaude';
+        statusBarItem.tooltip = 'Open OpenClaude Chat';
+        break;
+    }
+  });
+
+  // ── Existing commands ──
   const startCommand = vscode.commands.registerCommand('openclaude.start', async () => {
     await launchOpenClaude();
   });
@@ -1079,32 +1129,95 @@ function activate(context) {
     await vscode.commands.executeCommand('workbench.view.extension.openclaude');
   });
 
-  const providerDisposable = vscode.window.registerWebviewViewProvider(
+  // ── New chat commands ──
+  const newChatCommand = vscode.commands.registerCommand('openclaude.newChat', () => {
+    chatController.stopSession();
+    chatController.broadcast({ type: 'session_cleared' });
+  });
+
+  const openChatCommand = vscode.commands.registerCommand('openclaude.openChat', () => {
+    chatPanelManager.openPanel();
+  });
+
+  const resumeSessionCommand = vscode.commands.registerCommand('openclaude.resumeSession', async () => {
+    const sessions = await sessionManager.listSessions();
+    if (sessions.length === 0) {
+      await vscode.window.showInformationMessage('No sessions found to resume.');
+      return;
+    }
+    const items = sessions.slice(0, 30).map(s => ({
+      label: s.title || s.id,
+      description: s.timeLabel,
+      detail: s.preview,
+      sessionId: s.id,
+    }));
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select a session to resume',
+    });
+    if (picked) {
+      chatController.stopSession();
+      chatController.broadcast({ type: 'session_cleared' });
+      await chatController.startSession({ sessionId: picked.sessionId });
+    }
+  });
+
+  const abortChatCommand = vscode.commands.registerCommand('openclaude.abortChat', () => {
+    chatController.abort();
+  });
+
+  // ── Register providers ──
+  const controlCenterProviderReg = vscode.window.registerWebviewViewProvider(
     'openclaude.controlCenter',
     provider,
+  );
+
+  const chatViewProviderReg = vscode.window.registerWebviewViewProvider(
+    'openclaude.chat',
+    chatViewProvider,
+    { webviewOptions: { retainContextWhenHidden: true } },
   );
 
   const profileWatcher = vscode.workspace.createFileSystemWatcher(`**/${PROFILE_FILE_NAME}`);
 
   context.subscriptions.push(
+    // existing
     startCommand,
     startInWorkspaceRootCommand,
     openDocsCommand,
     openSetupDocsCommand,
     openWorkspaceProfileCommand,
     openUiCommand,
-    providerDisposable,
+    controlCenterProviderReg,
+    // new chat
+    newChatCommand,
+    openChatCommand,
+    resumeSessionCommand,
+    abortChatCommand,
+    chatViewProviderReg,
+    diffProviderReg,
+    statusBarItem,
+    // watchers
     profileWatcher,
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('openclaude')) {
         refreshProvider();
       }
     }),
-    vscode.workspace.onDidChangeWorkspaceFolders(refreshProvider),
+    vscode.workspace.onDidChangeWorkspaceFolders((e) => {
+      refreshProvider();
+      const folders = vscode.workspace.workspaceFolders;
+      if (folders && folders.length > 0) {
+        sessionManager.setCwd(folders[0].uri.fsPath);
+      }
+    }),
     vscode.window.onDidChangeActiveTextEditor(refreshProvider),
     profileWatcher.onDidCreate(refreshProvider),
     profileWatcher.onDidChange(refreshProvider),
     profileWatcher.onDidDelete(refreshProvider),
+    // disposables
+    { dispose: () => chatController.dispose() },
+    { dispose: () => chatPanelManager.dispose() },
+    { dispose: () => diffProvider.dispose() },
   );
 }
 
@@ -1116,4 +1229,7 @@ module.exports = {
   OpenClaudeControlCenterProvider,
   renderControlCenterHtml,
   resolveLaunchTargets,
+  ChatController,
+  OpenClaudeChatViewProvider,
+  OpenClaudeChatPanelManager,
 };
