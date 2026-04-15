@@ -66,6 +66,10 @@ export function registerBundledSkill(definition: BundledSkillDefinition): void {
     getPromptForCommand = async (args, ctx) => {
       extractionPromise ??= extractBundledSkillFiles(definition.name, files)
       const extractedDir = await extractionPromise
+      // Reset on failure so next call can retry (transient FS errors)
+      if (extractedDir === null) {
+        extractionPromise = undefined
+      }
       const blocks = await inner(args, ctx)
       if (extractedDir === null) return blocks
       return prependBaseDir(blocks, extractedDir)
@@ -97,6 +101,11 @@ export function registerBundledSkill(definition: BundledSkillDefinition): void {
     getPromptForCommand,
   }
   bundledSkills.push(command)
+  // Warn if a skill with this name was already registered (shadow risk)
+  const dupCount = bundledSkills.filter(s => s.name === definition.name).length
+  if (dupCount > 1) {
+    logForDebugging(`[skills] bundled skill "${definition.name}" registered ${dupCount} times — last wins`, { level: 'warn' })
+  }
 }
 
 /**
@@ -202,7 +211,12 @@ function resolveSkillFilePath(baseDir: string, relPath: string): string {
   ) {
     throw new Error(`bundled skill file path escapes skill dir: ${relPath}`)
   }
-  return join(baseDir, normalized)
+  // Additional defense: resolve and verify the result is under baseDir
+  const resolved = join(baseDir, normalized)
+  if (!resolved.startsWith(baseDir + pathSep) && resolved !== baseDir) {
+    throw new Error(`bundled skill file path escapes skill dir: ${relPath}`)
+  }
+  return resolved
 }
 
 function prependBaseDir(

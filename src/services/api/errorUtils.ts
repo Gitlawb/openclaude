@@ -48,7 +48,7 @@ export function extractConnectionErrorDetails(
 
   // Walk the cause chain to find the root error with a code
   let current: unknown = error
-  const maxDepth = 5 // Prevent infinite loops
+  const maxDepth = 10 // Prevent infinite loops (was 5, truncated real error chains)
   let depth = 0
 
   while (current && depth < maxDepth) {

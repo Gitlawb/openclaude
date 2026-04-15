@@ -714,6 +714,14 @@ export function REPL({
   // session). Also clears any pending 4s auto-clear.
   const editorGenRef = useRef(0);
   const editorTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Cleanup editor timer on unmount to prevent stale setTimeout callbacks
+  useEffect(() => {
+    return () => {
+      if (editorTimerRef.current !== undefined) {
+        clearTimeout(editorTimerRef.current)
+      }
+    }
+  }, [])
   const editorRenderingRef = useRef(false);
   const {
     addNotification,
@@ -2574,7 +2582,7 @@ export function REPL({
         appendSystemPrompt
       });
       toolUseContext.renderedSystemPrompt = systemPrompt;
-      const notificationAttachments = await getQueuedCommandAttachments(removedNotifications).catch(() => []);
+      const notificationAttachments = await getQueuedCommandAttachments(removedNotifications).catch((err: unknown) => { logForDebugging(`Failed to get notification attachments: ${err}`, { level: 'warn' }); return []; });
       const notificationMessages = notificationAttachments.map(createAttachmentMessage);
 
       // Deduplicate: if the query loop already yielded a notification into
@@ -4699,7 +4707,7 @@ export function REPL({
           {/* Show pending indicator for sandbox permission on worker side */}
           {pendingSandboxRequest && <WorkerPendingPermission toolName="Network Access" description={`Waiting for leader to approve network access to ${pendingSandboxRequest.host}`} />}
           {/* Worker sandbox permission requests from swarm workers */}
-          {focusedInputDialog === 'worker-sandbox-permission' && <SandboxPermissionRequest key={workerSandboxPermissions.queue[0]!.requestId} hostPattern={{
+          {focusedInputDialog === 'worker-sandbox-permission' && workerSandboxPermissions.queue.length > 0 && <SandboxPermissionRequest key={workerSandboxPermissions.queue[0]!.requestId} hostPattern={{
             host: workerSandboxPermissions.queue[0]!.host,
             port: undefined
           } as NetworkHostPattern} onUserResponse={(response: {
@@ -4743,7 +4751,7 @@ export function REPL({
               }
             }));
           }} />}
-          {focusedInputDialog === 'elicitation' && <ElicitationDialog key={elicitation.queue[0]!.serverName + ':' + String(elicitation.queue[0]!.requestId)} event={elicitation.queue[0]!} onResponse={(action, content) => {
+          {focusedInputDialog === 'elicitation' && elicitation.queue.length > 0 && <ElicitationDialog key={elicitation.queue[0]!.serverName + ':' + String(elicitation.queue[0]!.requestId)} event={elicitation.queue[0]!} onResponse={(action, content) => {
             const currentRequest = elicitation.queue[0];
             if (!currentRequest) return;
             // Call respond callback to resolve Promise

@@ -459,7 +459,13 @@ async function findSkillMarkdownFiles(basePath: string): Promise<string[]> {
       }
     }
 
-    await Promise.all(childDirs.map(walk))
+    // Limit concurrency to avoid exhausting file descriptors in deeply nested
+    // monorepos. Process directories in batches of MAX_CONCURRENT_WALKS.
+    const MAX_CONCURRENT_WALKS = 16
+    for (let i = 0; i < childDirs.length; i += MAX_CONCURRENT_WALKS) {
+      const batch = childDirs.slice(i, i + MAX_CONCURRENT_WALKS)
+      await Promise.all(batch.map(walk))
+    }
   }
 
   let entries
@@ -494,7 +500,12 @@ async function findSkillMarkdownFiles(basePath: string): Promise<string[]> {
     }
   }
 
-  await Promise.all(topLevelDirs.map(walk))
+  // Batch top-level directories too — same concurrency limit as child walks.
+  const MAX_CONCURRENT_TOP_WALKS = 16
+  for (let i = 0; i < topLevelDirs.length; i += MAX_CONCURRENT_TOP_WALKS) {
+    const batch = topLevelDirs.slice(i, i + MAX_CONCURRENT_TOP_WALKS)
+    await Promise.all(batch.map(walk))
+  }
   skillFiles.sort()
   return skillFiles
 }
@@ -871,6 +882,10 @@ export const getSkillDirCommands = memoize(
 
     // Store conditional skills for later activation when matching files are touched
     for (const skill of newConditionalSkills) {
+      if (conditionalSkills.size >= MAX_CONDITIONAL_SKILLS) {
+        logForDebugging(`[skills] conditionalSkills map at limit (${MAX_CONDITIONAL_SKILLS}), skipping ${skill.name}`, { level: 'warn' })
+        break
+      }
       conditionalSkills.set(skill.name, skill)
     }
 
@@ -910,6 +925,7 @@ const dynamicSkills = new Map<string, Command>()
 
 // Skills with paths frontmatter that haven't been activated yet
 const conditionalSkills = new Map<string, Command>()
+const MAX_CONDITIONAL_SKILLS = 500
 // Names of skills that have been activated (survives cache clears within a session)
 const activatedConditionalSkillNames = new Set<string>()
 

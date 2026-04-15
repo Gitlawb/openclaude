@@ -238,7 +238,7 @@ export const FileWriteTool = buildTool({
         dynamicSkillDirTriggers?.add(dir)
       }
       // Don't await - let skill loading happen in the background
-      addSkillDirectories(newSkillDirs).catch(() => {})
+      addSkillDirectories(newSkillDirs).catch((err: unknown) => logError(err))
     }
 
     // Activate conditional skills whose path patterns match this file

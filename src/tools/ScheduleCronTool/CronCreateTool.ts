@@ -87,6 +87,16 @@ export const CronCreateTool = buildTool({
         errorCode: 1,
       }
     }
+    // Prevent pathological patterns that fire too frequently (e.g. every minute)
+    const firstRun = nextCronRunMs(input.cron, Date.now())
+    const secondRun = firstRun !== null ? nextCronRunMs(input.cron, firstRun + 1000) : null
+    if (firstRun !== null && secondRun !== null && (secondRun - firstRun) < 60_000) {
+      return {
+        result: false,
+        message: `Cron expression '${input.cron}' fires more frequently than once per minute. Minimum interval is 1 minute.`,
+        errorCode: 3,
+      }
+    }
     if (nextCronRunMs(input.cron, Date.now()) === null) {
       return {
         result: false,

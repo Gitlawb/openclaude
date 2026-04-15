@@ -927,8 +927,15 @@ export const AgentTool = buildTool({
                     // Clean up the foreground iterator so its finally block runs
                     // (releases MCP connections, session hooks, prompt cache tracking, etc.)
                     // Timeout prevents blocking if MCP server cleanup hangs.
-                    // .catch() prevents unhandled rejection if timeout wins the race.
-                    await Promise.race([agentIterator.return(undefined).catch(() => {}), sleep(1000)]);
+                    // Increased from 1s to 5s — MCP disconnection can take longer.
+                    try {
+                      await Promise.race([
+                        agentIterator.return(undefined),
+                        sleep(5000).then(() => { throw new Error('Agent cleanup timed out after 5s — MCP connections may be dangling') }),
+                      ]);
+                    } catch (cleanupErr) {
+                      logForDebugging(`Agent cleanup error: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`, { level: 'warn' });
+                    }
                     // Initialize progress tracking from existing messages
                     const tracker = createProgressTracker();
                     const resolveActivity2 = createActivityDescriptionResolver(toolUseContext.options.tools);

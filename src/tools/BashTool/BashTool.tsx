@@ -16,6 +16,10 @@ import type { AgentId } from '../../types/ids.js';
 import type { AssistantMessage } from '../../types/message.js';
 import { parseForSecurity } from '../../utils/bash/ast.js';
 import { splitCommand_DEPRECATED, splitCommandWithOperators } from '../../utils/bash/commands.js';
+// NOTE: splitCommand_DEPRECATED is the only sync command splitter available.
+// The tree-sitter async path is more accurate but BashTool needs sync access.
+// Discrepancies between the two parsers could cause permission bypasses —
+// any security fix here must also be applied to the async parser.
 import { extractClaudeCodeHints } from '../../utils/claudeCodeHints.js';
 import { detectCodeIndexingFromCommand } from '../../utils/codeIndexing.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';

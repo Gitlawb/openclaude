@@ -1290,9 +1290,9 @@ export async function* ask({
     ...(feature('HISTORY_SNIP')
       ? {
           snipReplay: (yielded: Message, store: Message[]) => {
-            if (!snipProjection!.isSnipBoundaryMessage(yielded))
+            if (!snipProjection?.isSnipBoundaryMessage(yielded))
               return undefined
-            return snipModule!.snipCompactIfNeeded(store, { force: true })
+            return snipModule?.snipCompactIfNeeded(store, { force: true })
           },
         }
       : {}),

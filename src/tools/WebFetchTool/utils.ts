@@ -389,6 +389,8 @@ export async function getURLMarkdownContent(
     // Check if the user has opted to skip the blocklist check
     // This is for enterprise customers with restrictive security policies
     // that prevent outbound connections to claude.ai
+    // TODO: migrate to non-deprecated settings API when skipWebFetchPreflight
+    // is available in getSettingsForSource/getSettingsWithSources.
     const settings = getSettings_DEPRECATED()
     if (!settings.skipWebFetchPreflight) {
       const checkResult = await checkDomainBlocklist(hostname)
