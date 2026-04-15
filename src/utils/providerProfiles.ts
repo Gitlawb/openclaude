@@ -455,6 +455,17 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
 
+  delete processEnv.GEMINI_MODEL
+  delete processEnv.GEMINI_BASE_URL
+  delete processEnv.GEMINI_API_KEY
+  delete processEnv.GEMINI_AUTH_MODE
+  delete processEnv.GEMINI_ACCESS_TOKEN
+  delete processEnv.GOOGLE_API_KEY
+
+  delete processEnv.MISTRAL_MODEL
+  delete processEnv.MISTRAL_BASE_URL
+  delete processEnv.MISTRAL_API_KEY
+
   // Clear provider-specific API keys
   delete processEnv.MINIMAX_API_KEY
   delete processEnv.NVIDIA_API_KEY
@@ -488,6 +499,12 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     process.env.MISTRAL_BASE_URL = profile.baseUrl
     process.env.MISTRAL_MODEL = profile.model
 
+    if (profile.apiKey) {
+      process.env.MISTRAL_API_KEY = profile.apiKey
+    } else {
+      delete process.env.MISTRAL_API_KEY
+    }
+
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_MODEL
@@ -498,6 +515,12 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     process.env.GEMINI_BASE_URL = profile.baseUrl
     process.env.GEMINI_MODEL = profile.model
+
+    if (profile.apiKey) {
+      process.env.GEMINI_API_KEY = profile.apiKey
+    } else {
+      delete process.env.GEMINI_API_KEY
+    }
 
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_KEY
