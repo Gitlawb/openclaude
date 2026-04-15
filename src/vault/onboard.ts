@@ -5,6 +5,8 @@ import { generateVaultDocs } from './generator/index.js'
 import { initializeState } from './state.js'
 import { detectProvider } from './provider/detect.js'
 import { formatForProvider } from './provider/formatters.js'
+import { bootstrapVault, detectVaultShape } from './scaffold.js'
+import { findGitRoot } from '../utils/git.js'
 import type { ProviderType } from './types.js'
 
 export type OnboardingProgress = (message: string) => void
@@ -35,6 +37,28 @@ export async function runOnboarding(
 
   // 2. Resolve vault config
   const config = resolveVaultConfig(projectRoot, provider)
+
+  // 2a. Scaffold v2 vault tree (idempotent) before any v1 writes.
+  //     - 'none' → bootstrap the v2 tree so new repos default to v2 shape.
+  //     - 'v2'   → skip; already bootstrapped.
+  //     - 'v1'   → do NOT auto-migrate; surface an upgrade suggestion.
+  //     Scaffold requires a git repo; outside one, skip silently so that
+  //     non-git contexts (e.g. some test/CI scenarios) still onboard.
+  const shape = detectVaultShape(config.vaultPath)
+  if (shape === 'v1') {
+    progress(
+      "Detected legacy v1 vault shape. Run 'bridgeai vault upgrade' to migrate to the v2 schema.",
+    )
+  } else if (shape === 'none') {
+    const repoRoot = findGitRoot(projectRoot)
+    if (repoRoot) {
+      progress('Scaffolding v2 vault tree...')
+      await bootstrapVault(config, { gitignore: true })
+    } else {
+      progress('Not in a git repository — skipping v2 scaffold.')
+    }
+  }
+
   progress('Scanning project structure...')
 
   // 3. Index codebase
