@@ -110,6 +110,9 @@ export type InitBridgeOptions = {
 export async function initReplBridge(
   options?: InitBridgeOptions,
 ): Promise<ReplBridgeHandle | null> {
+  // BRIDGE-AI: Remote bridge disabled — bridge-ai is local-first
+  return null
+
   const {
     onInboundMessage,
     onPermissionResponse,

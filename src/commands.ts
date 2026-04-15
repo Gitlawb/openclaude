@@ -6,6 +6,7 @@ import btw from './commands/btw/index.js'
 import goodClaude from './commands/good-claude/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
+import cleanup from './commands/cleanup.js'
 import clear from './commands/clear/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
@@ -20,6 +21,7 @@ import diff from './commands/diff/index.js'
 import dream from './commands/dream/index.js'
 import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
+import onboard from './commands/onboard.js'
 import onboardGithub from './commands/onboard-github/index.js'
 import memory from './commands/memory/index.js'
 import help from './commands/help/index.js'
@@ -27,6 +29,7 @@ import ide from './commands/ide/index.js'
 import init from './commands/init.js'
 import initVerifiers from './commands/init-verifiers.js'
 import keybindings from './commands/keybindings/index.js'
+import lifecycle from './commands/lifecycle.js'
 import login from './commands/login/index.js'
 import logout from './commands/logout/index.js'
 import installGitHubApp from './commands/install-github-app/index.js'
@@ -131,6 +134,7 @@ import plan from './commands/plan/index.js'
 import fast from './commands/fast/index.js'
 import passes from './commands/passes/index.js'
 import privacySettings from './commands/privacy-settings/index.js'
+import promote from './commands/promote.js'
 import provider from './commands/provider/index.js'
 import hooks from './commands/hooks/index.js'
 import files from './commands/files/index.js'
@@ -266,6 +270,7 @@ const COMMANDS = memoize((): Command[] => [
   branch,
   btw,
   chrome,
+  cleanup,
   clear,
   color,
   compact,
@@ -287,12 +292,14 @@ const COMMANDS = memoize((): Command[] => [
   ide,
   init,
   keybindings,
+  lifecycle,
   installGitHubApp,
   installSlackApp,
   mcp,
   memory,
   mobile,
   model,
+  onboard,
   onboardGithub,
   outputStyle,
   remoteEnv,
@@ -338,6 +345,7 @@ const COMMANDS = memoize((): Command[] => [
   permissions,
   plan,
   privacySettings,
+  promote,
   hooks,
   exportCommand,
   sandboxToggle,

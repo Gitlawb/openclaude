@@ -303,6 +303,28 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     } = await import('./components/ClaudeInChromeOnboarding.js');
     await showSetupDialog(root, done => <ClaudeInChromeOnboarding onDone={done} />);
   }
+
+  // bridge-ai: first-run vault onboarding prompt (VAULT-01..04).
+  // Runs only in interactive mode, only when the current project has no vault.
+  // Opt-out: BRIDGEAI_SKIP_AUTO_ONBOARD=1 for CI or when the user dismissed once.
+  if (!isEnvTruthy(process.env.BRIDGEAI_SKIP_AUTO_ONBOARD)) {
+    try {
+      const [{ isRepoOnboarded }, { getOriginalCwd }] = await Promise.all([
+        import('./vault/config.js'),
+        import('./bootstrap/state.js'),
+      ]);
+      const projectRoot = getOriginalCwd();
+      if (!isRepoOnboarded(projectRoot)) {
+        const { BridgeAIOnboardDialog } = await import('./components/BridgeAIOnboardDialog.js');
+        await showSetupDialog(root, done => (
+          <BridgeAIOnboardDialog projectRoot={projectRoot} onDone={() => void done()} />
+        ));
+      }
+    } catch {
+      // Swallow — onboarding is non-critical; if detection fails, continue to REPL.
+    }
+  }
+
   return onboardingShown;
 }
 export function getRenderContext(exitOnCtrlC: boolean): {

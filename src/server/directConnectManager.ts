@@ -48,6 +48,9 @@ export class DirectConnectSessionManager {
   }
 
   connect(): void {
+    // BRIDGE-AI: Remote bridge disabled — bridge-ai is local-first
+    return
+
     const headers: Record<string, string> = {}
     if (this.config.authToken) {
       headers['authorization'] = `Bearer ${this.config.authToken}`

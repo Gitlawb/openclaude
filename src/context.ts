@@ -2,6 +2,7 @@ import { feature } from 'bun:bundle'
 import memoize from 'lodash-es/memoize.js'
 import {
   getAdditionalDirectoriesForClaudeMd,
+  getOriginalCwd,
   setCachedClaudeMdContent,
 } from './bootstrap/state.js'
 import { getLocalISODate } from './constants/common.js'
@@ -11,6 +12,8 @@ import {
   getMemoryFiles,
 } from './utils/claudemd.js'
 import { logForDiagnosticsNoPII } from './utils/diagLogs.js'
+import { isRepoOnboarded, resolveVaultConfig } from './vault/config.js'
+import { readStateRaw } from './vault/state.js'
 import { isBareMode, isEnvTruthy } from './utils/envUtils.js'
 import { execFileNoThrow } from './utils/execFileNoThrow.js'
 import { getBranch, getDefaultBranch, getIsGit, gitExe } from './utils/git.js'
@@ -175,6 +178,25 @@ export const getUserContext = memoize(
     // cycle through permissions/filesystem → permissions → yoloClassifier).
     setCachedClaudeMdContent(claudeMd || null)
 
+    // Load vault STATE.md for project context (if onboarded)
+    let vaultState: string | null = null
+    try {
+      const cwd = getOriginalCwd()
+      if (isRepoOnboarded(cwd)) {
+        const config = resolveVaultConfig(cwd)
+        const raw = readStateRaw(config.vaultPath)
+        if (raw) {
+          // Truncate to keep context budget reasonable
+          vaultState =
+            raw.length > 2000
+              ? raw.slice(0, 2000) + '\n\n... (truncated)'
+              : raw
+        }
+      }
+    } catch {
+      // Vault state loading should never break the REPL
+    }
+
     logForDiagnosticsNoPII('info', 'user_context_completed', {
       duration_ms: Date.now() - startTime,
       claudemd_length: claudeMd?.length ?? 0,
@@ -184,6 +206,7 @@ export const getUserContext = memoize(
     return {
       ...(claudeMd && { claudeMd }),
       currentDate: `Today's date is ${getLocalISODate()}.`,
+      ...(vaultState && { vaultState }),
     }
   },
 )

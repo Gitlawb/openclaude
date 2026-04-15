@@ -165,7 +165,7 @@ const EXTENDED_KEYS_TERMINALS = [
 /** True if this terminal correctly handles extended key reporting
  *  (Kitty keyboard protocol + xterm modifyOtherKeys). */
 export function supportsExtendedKeys(): boolean {
-  // Open Claude defaults this off because some real terminals render the UI
+  // bridge-ai defaults this off because some real terminals render the UI
   // but stop delivering normal typing once kitty/modifyOtherKeys negotiation
   // is enabled. Power users can opt back in explicitly.
   if (process.env.OPENCLAUDE_ENABLE_EXTENDED_KEYS !== '1') {

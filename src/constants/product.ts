@@ -1,4 +1,5 @@
-export const PRODUCT_URL = 'https://claude.com/claude-code'
+// BRIDGE-AI: Product URL placeholder — no public URL yet
+export const PRODUCT_URL = 'https://github.com/bridge-ai'
 
 // Claude Code Remote session URLs
 export const CLAUDE_AI_BASE_URL = 'https://claude.ai'

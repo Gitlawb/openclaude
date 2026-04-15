@@ -36,6 +36,7 @@ import {
   applyConfigEnvironmentVariables,
   applySafeConfigEnvironmentVariables,
 } from '../utils/managedEnv.js'
+import { applyBridgeAIConfig } from '../vault/provider/config.js'
 import { configureGlobalMTLS } from '../utils/mtls.js'
 import {
   ensureScratchpadDir,
@@ -72,6 +73,11 @@ export const init = memoize(async (): Promise<void> => {
     // Full environment variables are applied after trust is established
     const envVarsStart = Date.now()
     applySafeConfigEnvironmentVariables()
+
+    // Apply bridge-ai user config (~/.bridgeai/config.json) — provides
+    // ANTHROPIC_API_KEY / ANTHROPIC_MODEL fallbacks when env vars are unset.
+    // Must run before provider detection and any network calls.
+    applyBridgeAIConfig()
 
     // Apply NODE_EXTRA_CA_CERTS from settings.json to process.env early,
     // before any TLS connections. Bun caches the TLS cert store at boot

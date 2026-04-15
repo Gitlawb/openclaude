@@ -106,6 +106,9 @@ export class RemoteSessionManager {
    * Connect to the remote session via WebSocket
    */
   connect(): void {
+    // BRIDGE-AI: Remote bridge disabled — bridge-ai is local-first
+    return
+
     logForDebugging(
       `[RemoteSessionManager] Connecting to session ${this.config.sessionId}`,
     )

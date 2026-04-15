@@ -7,3 +7,4 @@ dist/
 .openclaude-profile.json
 reports/
 coverage/
+.bridgeai/

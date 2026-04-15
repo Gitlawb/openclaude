@@ -1,10 +1,10 @@
 {
-  "name": "@gitlawb/openclaude",
-  "version": "0.1.7",
-  "description": "Claude Code opened to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
+  "name": "bridgeai",
+  "version": "0.1.0",
+  "description": "bridge-ai — an opinionated AI engineering CLI that produces structured intelligence",
   "type": "module",
   "bin": {
-    "openclaude": "./bin/openclaude"
+    "bridgeai": "./bin/bridgeai"
   },
   "files": [
     "bin/",
