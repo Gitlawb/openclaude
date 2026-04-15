@@ -21,13 +21,15 @@ import type {
 /* eslint-disable @typescript-eslint/no-require-imports */
 const fetchMcpSkillsForClient = feature('MCP_SKILLS')
   ? (
-      require('../../skills/mcpSkills.js') as typeof import('../../skills/mcpSkills.js')
-    ).fetchMcpSkillsForClient
+    // @ts-expect-error Module only available in internal builds
+    require('../../skills/mcpSkills.js') as typeof import('../../skills/mcpSkills.js')
+  ).fetchMcpSkillsForClient
   : null
 const clearSkillIndexCache = feature('EXPERIMENTAL_SKILL_SEARCH')
   ? (
-      require('../skillSearch/localSearch.js') as typeof import('../skillSearch/localSearch.js')
-    ).clearSkillIndexCache
+    // @ts-expect-error Module only available in internal builds
+    require('../skillSearch/localSearch.js') as typeof import('../skillSearch/localSearch.js')
+  ).clearSkillIndexCache
   : null
 
 import {
@@ -40,7 +42,7 @@ import reject from 'lodash-es/reject.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
-} from 'src/services/analytics/index.js'
+} from '../analytics/index.js'
 import {
   dedupClaudeAiMcpServers,
   doesEnterpriseMcpConfigExist,
@@ -48,10 +50,10 @@ import {
   getClaudeCodeMcpConfigs,
   isMcpServerDisabled,
   setMcpServerEnabled,
-} from 'src/services/mcp/config.js'
-import type { AppState } from 'src/state/AppState.js'
-import type { PluginError } from 'src/types/plugin.js'
-import { logForDebugging } from 'src/utils/debug.js'
+} from './config.js'
+import type { AppState } from '../../state/AppState.js'
+import type { PluginError } from '../../types/plugin.js'
+import { logForDebugging } from '../../utils/debug.js'
 import { getAllowedChannels } from '../../bootstrap/state.js'
 import { useNotifications } from '../../context/notifications.js'
 import {
@@ -261,21 +263,21 @@ export function useManageMCPConnections(
           commands === undefined
             ? mcp.commands
             : [
-                ...reject(mcp.commands, c =>
-                  commandBelongsToServer(c, client.name),
-                ),
-                ...commands,
-              ]
+              ...reject(mcp.commands, c =>
+                commandBelongsToServer(c, client.name),
+              ),
+              ...commands,
+            ]
 
         const updatedResources =
           resources === undefined
             ? mcp.resources
             : {
-                ...mcp.resources,
-                ...(resources.length > 0
-                  ? { [client.name]: resources }
-                  : omit(mcp.resources, client.name)),
-              }
+              ...mcp.resources,
+              ...(resources.length > 0
+                ? { [client.name]: resources }
+                : omit(mcp.resources, client.name)),
+            }
 
         mcp = {
           ...mcp,
@@ -538,7 +540,7 @@ export function useManageMCPConnections(
                 // side, text in the general channel can't accidentally match.
                 if (
                   client.capabilities?.experimental?.[
-                    'claude/channel/permission'
+                  'claude/channel/permission'
                   ] !== undefined
                 ) {
                   client.client.setNotificationHandler(
@@ -807,7 +809,7 @@ export function useManageMCPConnections(
           }
           if (s.type === 'connected') {
             s.client.onclose = undefined
-            void clearServerCache(s.name, s.config).catch(() => {})
+            void clearServerCache(s.name, s.config).catch(() => { })
           }
         }
 
@@ -998,12 +1000,12 @@ export function useManageMCPConnections(
         ...counts,
         ...(process.env.USER_TYPE === 'ant' && stdioCommands.length > 0
           ? {
-              stdio_commands: stdioCommands
-                .sort()
-                .join(
-                  ',',
-                ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-            }
+            stdio_commands: stdioCommands
+              .sort()
+              .join(
+                ',',
+              ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          }
           : {}),
       })
     }

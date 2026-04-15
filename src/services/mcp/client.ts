@@ -120,22 +120,28 @@ import {
 } from './errors/index.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
+/** 
+ * Optional dependency: @ant/claude-for-chrome-mcp
+ * This internal package is not available in open-source builds.
+ * Uses IIFE with try-catch to gracefully handle missing module.
+ */
 const fetchMcpSkillsForClient = (() => {
   if (!feature('MCP_SKILLS')) {
     return null
   }
   try {
+    // @ts-expect-error Module only available in internal builds
     const mcpSkills = require('../../skills/mcpSkills.js') as typeof import('../../skills/mcpSkills.js')
     return mcpSkills.fetchMcpSkillsForClient
   } catch {
-    // Module not available in open-source builds
+    // Module not available in open-source builds - return null to disable MCP skills
     return null
   }
 })()
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { AssistantMessage } from '../../types/message.js'
-/* eslint-enable @typescript-eslint/no-require-imports */
 import { classifyMcpToolForCollapse } from '../../tools/MCPTool/classifyForCollapse.js'
 import { clearKeychainCache } from '../../utils/secureStorage/macOsKeychainHelpers.js'
 import { sleep } from '../../utils/sleep.js'
