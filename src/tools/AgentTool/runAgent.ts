@@ -356,6 +356,9 @@ export async function* runAgent({
     getInitialSettings(),
   )
   const effectiveModel = providerOverride ? providerOverride.model : resolvedAgentModel
+  if (providerOverride && providerOverride.model !== resolvedAgentModel) {
+    logForDebugging(`Agent ${agentName} model overridden by provider: ${resolvedAgentModel} → ${providerOverride.model}`)
+  }
 
   const agentId = override?.agentId ? override.agentId : createAgentId()
 
@@ -485,8 +488,9 @@ export async function* runAgent({
         alwaysAllowRules: {
           // Preserve SDK-level permissions from --allowedTools
           cliArg: state.toolPermissionContext.alwaysAllowRules.cliArg,
-          // Use the provided allowedTools as session-level permissions
-          session: [...allowedTools],
+          // Merge the provided allowedTools with existing session rules
+          // (previously replaced entirely, losing parent approvals)
+          session: [...(state.toolPermissionContext.alwaysAllowRules.session ?? []), ...allowedTools],
         },
       }
     }

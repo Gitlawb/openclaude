@@ -354,6 +354,10 @@ export async function* withRetry<T>(
         if (consecutive529Errors >= MAX_529_RETRIES) {
           // Check if fallback model is specified
           if (options.fallbackModel) {
+            // Reset counter so the fallback model starts fresh —
+            // otherwise a single 529 on the fallback immediately
+            // triggers another fallback/error.
+            consecutive529Errors = 0
             logEvent('tengu_api_opus_fallback_triggered', {
               original_model:
                 options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -520,9 +524,11 @@ export async function* withRetry<T>(
           await sleep(chunk, options.signal, { abortError })
           remaining -= chunk
         }
-        // Clamp so the for-loop never terminates. Backoff uses the separate
-        // persistentAttempt counter which keeps growing to the 5-min cap.
-        if (attempt >= maxRetries) attempt = maxRetries
+        // Clamp so the for-loop doesn't terminate prematurely.
+        // Set to maxRetries - 1 so the for-loop increment brings us to maxRetries,
+        // giving one more iteration before hitting the maxRetries + 1 bound.
+        // Backoff uses the separate persistentAttempt counter which keeps growing.
+        if (attempt >= maxRetries) attempt = maxRetries - 1
       } else {
         if (error instanceof APIError) {
           yield createSystemAPIErrorMessage(error, delayMs, attempt, maxRetries)
@@ -634,9 +640,27 @@ export function is529Error(error: unknown): boolean {
   // Check for 529 status code or overloaded error in message
   return (
     error.status === 529 ||
-    // See below: the SDK sometimes fails to properly pass the 529 status code during streaming
-    (error.message?.includes('"type":"overloaded_error"') ?? false)
+    // See below: the SDK sometimes fails to properly pass the 529 status code during streaming.
+    // Try structured parse first, fall back to substring match for robustness.
+    isOverloadedErrorMessage(error.message)
   )
+}
+
+function isOverloadedErrorMessage(message: string | undefined): boolean {
+  if (!message) return false
+  // Fast path: substring check
+  if (message.includes('"type":"overloaded_error"')) return true
+  // Structured path: try parsing JSON embedded in the message
+  try {
+    const jsonStart = message.indexOf('{')
+    if (jsonStart !== -1) {
+      const parsed = JSON.parse(message.slice(jsonStart))
+      if (parsed?.type === 'overloaded_error') return true
+    }
+  } catch {
+    // Not valid JSON — substring check above already failed
+  }
+  return false
 }
 
 function isOAuthTokenRevokedError(error: unknown): boolean {
@@ -826,6 +850,12 @@ function getRetryAfterMs(error: APIError): number | null {
     const seconds = parseInt(retryAfter, 10)
     if (!isNaN(seconds)) {
       return seconds * 1000
+    }
+    // HTTP-date format (RFC 7231): e.g. "Wed, 21 Oct 2015 07:28:00 GMT"
+    const dateMs = Date.parse(retryAfter)
+    if (!isNaN(dateMs)) {
+      const delayMs = dateMs - Date.now()
+      return delayMs > 0 ? delayMs : 0
     }
   }
   return null

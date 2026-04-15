@@ -145,6 +145,14 @@ export const ConfigTool = buildTool({
 
     // 3. SET operation
 
+    // Sanitize string values: reject excessively long inputs
+    const MAX_CONFIG_VALUE_LENGTH = 100_000
+    if (typeof value === 'string' && value.length > MAX_CONFIG_VALUE_LENGTH) {
+      return {
+        data: { success: false, operation: 'set', setting, error: `Value too long (${value.length} chars, max ${MAX_CONFIG_VALUE_LENGTH})` },
+      }
+    }
+
     // Handle "default" — unset the config key so it falls back to the
     // platform-aware default (determined by the bridge feature gate).
     if (

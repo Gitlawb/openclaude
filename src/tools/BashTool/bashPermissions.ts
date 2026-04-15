@@ -202,6 +202,26 @@ const BARE_SHELL_PREFIXES = new Set([
   'sudo',
   'doas',
   'pkexec',
+  // Interpreters — `Bash(python3:*)` would auto-allow `python3 -c "import os; os.system('rm -rf /')"``
+  'python',
+  'python3',
+  'python2',
+  'ruby',
+  'perl',
+  'node',
+  'nodejs',
+  'php',
+  'lua',
+  'awk',
+  'sed',
+  'expect',
+  'tclsh',
+  'groovy',
+  'scala',
+  'java',
+  'Rscript',
+  'R',
+  'irb',
 ])
 
 /**

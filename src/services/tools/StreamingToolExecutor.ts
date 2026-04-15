@@ -9,6 +9,7 @@ import { findToolByName, type Tools, type ToolUseContext } from '../../Tool.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import type { AssistantMessage, Message } from '../../types/message.js'
 import { createChildAbortController } from '../../utils/abortController.js'
+import { logForDebugging } from '../../utils/debug.js'
 import { runToolUse } from './toolExecution.js'
 
 type MessageUpdate = {
@@ -140,6 +141,21 @@ export class StreamingToolExecutor {
   private async processQueue(): Promise<void> {
     for (const tool of this.tools) {
       if (tool.status !== 'queued') continue
+
+      // Check discarded before starting execution — prevents queued tools
+      // from running after discard() was called (bug: tool runs to completion
+      // then gets skipped by getCompletedResults, wasting execution).
+      if (this.discarded) {
+        tool.results = [
+          this.createSyntheticErrorMessage(
+            tool.id,
+            'streaming_fallback',
+            tool.assistantMessage,
+          ),
+        ]
+        tool.status = 'completed'
+        continue
+      }
 
       if (this.canExecuteTool(tool.isConcurrencySafe)) {
         await this.executeTool(tool)
@@ -358,8 +374,14 @@ export class StreamingToolExecutor {
           // Read/WebFetch/etc are independent — one failure shouldn't nuke the rest.
           if (tool.block.name === BASH_TOOL_NAME) {
             this.hasErrored = true
-            this.erroredToolDescription = this.getToolDescription(tool)
-            this.siblingAbortController.abort('sibling_error')
+            // Preserve all error descriptions (not just the first)
+            const desc = this.getToolDescription(tool)
+            this.erroredToolDescription = this.erroredToolDescription
+              ? `${this.erroredToolDescription}; ${desc}`
+              : desc
+            if (!this.siblingAbortController.signal.aborted) {
+              this.siblingAbortController.abort('sibling_error')
+            }
           }
         }
 
@@ -392,10 +414,35 @@ export class StreamingToolExecutor {
         for (const modifier of contextModifiers) {
           this.toolUseContext = modifier(this.toolUseContext)
         }
+      } else if (tool.isConcurrencySafe && contextModifiers.length > 0) {
+        // Log when concurrent tools produce context modifiers that get dropped
+        logForDebugging(`Concurrent tool ${tool.block.name} produced ${contextModifiers.length} context modifier(s) that were dropped`, { level: 'warn' })
       }
     }
 
-    const promise = collectResults()
+    // Global timeout to prevent tools from hanging indefinitely.
+    // Individual tools (BashTool) have their own timeouts, but the
+    // orchestration layer needs a catch-all.
+    const GLOBAL_TOOL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeoutPromise = new Promise<void>(resolve => {
+      timeoutId = setTimeout(() => {
+        if (tool.status === 'executing') {
+          tool.results = [
+            this.createSyntheticErrorMessage(
+              tool.id,
+              'user_interrupted',
+              tool.assistantMessage,
+            ),
+          ]
+          tool.status = 'completed'
+        }
+        resolve()
+      }, GLOBAL_TOOL_TIMEOUT_MS)
+    })
+    const promise = Promise.race([collectResults(), timeoutPromise]).finally(() => {
+      if (timeoutId) clearTimeout(timeoutId)
+    })
     tool.promise = promise
 
     // Process more queue when done
@@ -474,12 +521,24 @@ export class StreamingToolExecutor {
           .map(t => t.promise!)
 
         // Also wait for progress to become available
+        // Use a timeout to prevent the resolver from leaking if no progress arrives
         const progressPromise = new Promise<void>(resolve => {
           this.progressAvailableResolve = resolve
+          // Auto-resolve after 30s to prevent infinite wait on stale resolver
+          setTimeout(() => {
+            if (this.progressAvailableResolve === resolve) {
+              this.progressAvailableResolve = undefined
+              resolve()
+            }
+          }, 30_000)
         })
 
         if (executingPromises.length > 0) {
           await Promise.race([...executingPromises, progressPromise])
+          // Clean up resolver if it wasn't already resolved
+          if (this.progressAvailableResolve) {
+            this.progressAvailableResolve = undefined
+          }
         }
       }
     }

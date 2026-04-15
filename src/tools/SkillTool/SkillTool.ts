@@ -138,7 +138,7 @@ async function executeForkedSkill(
 
   const wasDiscoveredField =
     feature('EXPERIMENTAL_SKILL_SEARCH') &&
-    remoteSkillModules!.isSkillSearchEnabled()
+    remoteSkillModules?.isSkillSearchEnabled()
       ? {
           was_discovered:
             context.discoveredSkillNames?.has(commandName) ?? false,
@@ -388,11 +388,11 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
-      const slug = remoteSkillModules!.stripCanonicalPrefix(
+      const slug = remoteSkillModules?.stripCanonicalPrefix(
         normalizedCommandName,
       )
       if (slug !== null) {
-        const meta = remoteSkillModules!.getDiscoveredRemoteSkill(slug)
+        const meta = remoteSkillModules?.getDiscoveredRemoteSkill(slug)
         if (!meta) {
           return {
             result: false,
@@ -503,7 +503,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
-      const slug = remoteSkillModules!.stripCanonicalPrefix(commandName)
+      const slug = remoteSkillModules?.stripCanonicalPrefix(commandName)
       if (slug !== null) {
         return {
           behavior: 'allow',
@@ -616,7 +616,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
-      const slug = remoteSkillModules!.stripCanonicalPrefix(commandName)
+      const slug = remoteSkillModules?.stripCanonicalPrefix(commandName)
       if (slug !== null) {
         return executeRemoteSkill(slug, commandName, parentMessage, context)
       }
@@ -670,7 +670,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
 
     const wasDiscoveredField =
       feature('EXPERIMENTAL_SKILL_SEARCH') &&
-      remoteSkillModules!.isSkillSearchEnabled()
+      remoteSkillModules?.isSkillSearchEnabled()
         ? {
             was_discovered:
               context.discoveredSkillNames?.has(commandName) ?? false,
@@ -915,6 +915,8 @@ const SAFE_SKILL_PROPERTIES = new Set([
   'loadedFrom',
   'immediate',
   'userFacingName',
+  'hooks',
+  'allowedTools',
 ])
 
 function skillHasOnlySafeProperties(command: Command): boolean {
@@ -982,8 +984,11 @@ async function executeRemoteSkill(
   parentMessage: AssistantMessage,
   context: ToolUseContext,
 ): Promise<ToolResult<Output>> {
+  if (!remoteSkillModules) {
+    throw new Error('Remote skill search is not available (feature flag disabled)')
+  }
   const { getDiscoveredRemoteSkill, loadRemoteSkill, logRemoteSkillLoaded } =
-    remoteSkillModules!
+    remoteSkillModules
 
   // validateInput already confirmed this slug is in session state, but we
   // re-fetch here to get the URL. If it's somehow gone (e.g., state cleared

@@ -876,7 +876,7 @@ async function* runPowerShellCommand({
       const now = Date.now();
       const timeUntilNextProgress = Math.max(0, nextProgressTime - now);
       const progressSignal = createProgressSignal();
-      const result = await Promise.race([resultPromise, new Promise<null>(resolve => setTimeout(r => r(null), timeUntilNextProgress, resolve).unref()), progressSignal]);
+      const result = await Promise.race([resultPromise, new Promise<null>(resolve => setTimeout(() => resolve(null), timeUntilNextProgress).unref()), progressSignal]);
       if (result !== null) {
         // Race: backgrounding fired (15s timer / onTimeout / Ctrl+B) but the
         // command completed before the next poll tick. #handleExit sets

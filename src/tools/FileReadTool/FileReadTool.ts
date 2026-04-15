@@ -161,10 +161,14 @@ function getAlternateScreenshotPath(filePath: string): string | undefined {
 // File read listeners - allows other services to be notified when files are read
 type FileReadListener = (filePath: string, content: string) => void
 const fileReadListeners: FileReadListener[] = []
+const MAX_FILE_READ_LISTENERS = 100
 
 export function registerFileReadListener(
   listener: FileReadListener,
 ): () => void {
+  if (fileReadListeners.length >= MAX_FILE_READ_LISTENERS) {
+    logError(new Error(`fileReadListeners exceeded limit (${MAX_FILE_READ_LISTENERS}) — possible listener leak`))
+  }
   fileReadListeners.push(listener)
   return () => {
     const i = fileReadListeners.indexOf(listener)
@@ -583,7 +587,7 @@ export const FileReadTool = buildTool({
           context.dynamicSkillDirTriggers?.add(dir)
         }
         // Don't await - let skill loading happen in the background
-        addSkillDirectories(newSkillDirs).catch(() => {})
+        addSkillDirectories(newSkillDirs).catch((err: unknown) => logError(err))
       }
 
       // Activate conditional skills whose path patterns match this file
@@ -606,8 +610,12 @@ export const FileReadTool = buildTool({
         parentMessage?.message.id,
       )
     } catch (error) {
-      // Handle file-not-found: suggest similar files
       const code = getErrnoCode(error)
+      // Handle symlink loops
+      if (code === 'ELOOP') {
+        throw new Error(`Symlink loop detected: ${file_path}`)
+      }
+      // Handle file-not-found: suggest similar files
       if (code === 'ENOENT') {
         // macOS screenshots may use a thin space or regular space before
         // AM/PM — try the alternate before giving up.
@@ -841,7 +849,7 @@ async function callInner(
     const stats = await getFsImplementation().stat(resolvedFilePath)
     readFileState.set(fullFilePath, {
       content: cellsJson,
-      timestamp: Math.floor(stats.mtimeMs),
+      timestamp: stats.mtimeMs,
       offset,
       limit,
     })
@@ -1031,7 +1039,7 @@ async function callInner(
 
   readFileState.set(fullFilePath, {
     content,
-    timestamp: Math.floor(mtimeMs),
+    timestamp: mtimeMs,
     offset,
     limit,
   })
@@ -1174,7 +1182,16 @@ export async function readImageWithTokenBudget(
         return createImageResponse(fallbackBuffer, 'jpeg', originalSize)
       } catch (error) {
         logError(error)
-        return createImageResponse(imageBuffer, detectedFormat, originalSize)
+        // If the original image fits in budget, return it; otherwise throw
+        // to prevent sending 50MB of base64 to the API.
+        const originalTokens = Math.ceil(imageBuffer.length * 0.125)
+        if (originalTokens <= maxTokens) {
+          return createImageResponse(imageBuffer, detectedFormat, originalSize)
+        }
+        throw new Error(
+          `Image file is too large (${formatFileSize(imageBuffer.length)}) to fit within token budget (${maxTokens} tokens). ` +
+          `Both compression and resize failed. Try reducing image dimensions or using a smaller file.`,
+        )
       }
     }
   }

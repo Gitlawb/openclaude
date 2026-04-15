@@ -77,11 +77,10 @@ import {
 } from './utils.js'
 
 // V8/Bun string length limit is ~2^30 characters (~1 billion). For typical
-// ASCII/Latin-1 files, 1 byte on disk = 1 character, so 1 GiB in stat bytes
-// ≈ 1 billion characters ≈ the runtime string limit. Multi-byte UTF-8 files
-// can be larger on disk per character, but 1 GiB is a safe byte-level guard
-// that prevents OOM without being unnecessarily restrictive.
-const MAX_EDIT_FILE_SIZE = 1024 * 1024 * 1024 // 1 GiB (stat bytes)
+// Files are read into V8 strings (original + new content in memory).
+// A 1 GiB file causes 2+ GiB memory spike. Cap at 256 MiB to prevent OOM
+// while still supporting large source files.
+const MAX_EDIT_FILE_SIZE = 256 * 1024 * 1024 // 256 MiB (stat bytes)
 
 export const FileEditTool = buildTool({
   name: FILE_EDIT_TOOL_NAME,
@@ -151,6 +150,18 @@ export const FileEditTool = buildTool({
         behavior: 'ask',
         message:
           'No changes to make: old_string and new_string are exactly the same.',
+        errorCode: 1,
+      }
+    }
+    // Also catch no-op edits that differ only in trailing whitespace or
+    // unicode normalization — the file write would succeed but produce no
+    // visible change, wasting git diff checks.
+    if (old_string.trimEnd() === new_string.trimEnd()) {
+      return {
+        result: false,
+        behavior: 'ask',
+        message:
+          'No changes to make: old_string and new_string differ only in trailing whitespace.',
         errorCode: 1,
       }
     }
@@ -415,7 +426,7 @@ export const FileEditTool = buildTool({
           dynamicSkillDirTriggers?.add(dir)
         }
         // Don't await - let skill loading happen in the background
-        addSkillDirectories(newSkillDirs).catch(() => {})
+        addSkillDirectories(newSkillDirs).catch((err: unknown) => logError(err))
       }
 
       // Activate conditional skills whose path patterns match this file

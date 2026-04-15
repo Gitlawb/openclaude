@@ -507,6 +507,11 @@ function isSafeHeredoc(command: string): boolean {
   // main validator that checks allowlist-safe character patterns.
   // No recursion risk: `remaining` has no `$(... <<` pattern, so the recursive
   // call's validateSafeCommandSubstitution returns passthrough immediately.
+  // SECURITY: Uses regex-only path (sync) because isSafeHeredoc is synchronous.
+  // The async tree-sitter path (bashCommandIsSafeAsync_DEPRECATED) is more
+  // accurate but requires the full async validator chain. As defense-in-depth,
+  // the regex path catches most dangerous patterns; the remaining text has
+  // already been stripped of heredocs and checked against safe character set.
   if (bashCommandIsSafe_DEPRECATED(remaining).behavior !== 'passthrough')
     return false
 

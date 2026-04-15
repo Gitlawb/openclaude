@@ -69,11 +69,20 @@ export function isPromptTooLongMessage(msg: AssistantMessage): boolean {
   if (!Array.isArray(content)) {
     return false
   }
-  return content.some(
+  // Primary: check display message text
+  if (content.some(
     block =>
       block.type === 'text' &&
       block.text.startsWith(PROMPT_TOO_LONG_ERROR_MESSAGE),
-  )
+  )) {
+    return true
+  }
+  // Fallback: check raw errorDetails string for same phrase
+  // (covers cases where content format changes but errorDetails is populated)
+  if (msg.errorDetails?.includes(PROMPT_TOO_LONG_ERROR_MESSAGE)) {
+    return true
+  }
+  return false
 }
 
 /**

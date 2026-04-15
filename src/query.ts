@@ -1084,9 +1084,14 @@ async function* queryLoop(
 
     // Yield tool use summary from previous turn — haiku (~1s) resolved during model streaming (5-30s)
     if (pendingToolUseSummary) {
-      const summary = await pendingToolUseSummary
-      if (summary) {
-        yield summary
+      try {
+        const summary = await pendingToolUseSummary
+        if (summary) {
+          yield summary
+        }
+      } catch {
+        // Summary generation failed (e.g., Haiku API error) — non-critical,
+        // continue without it rather than terminating the query loop.
       }
     }
 
@@ -1266,6 +1271,7 @@ async function* queryLoop(
             messages: [
               ...messagesForQuery,
               ...assistantMessages,
+              ...toolResults,
               recoveryMessage,
             ],
             toolUseContext,
@@ -1334,7 +1340,7 @@ async function* queryLoop(
           pendingToolUseSummary: undefined,
           stopHookActive: true,
           turnCount,
-          continuationNudgeCount: state.continuationNudgeCount,
+          continuationNudgeCount: 0,
           transition: { reason: 'stop_hook_blocking' },
         }
         state = next

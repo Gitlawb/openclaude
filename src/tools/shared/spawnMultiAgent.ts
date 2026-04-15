@@ -65,6 +65,21 @@ import {
   isInsideTmux,
   sendCommandToPane,
 } from '../../utils/swarm/teammateLayoutManager.js'
+
+// Simple async mutex to serialize team file read-modify-write operations.
+// Prevents TOCTOU race where two concurrent spawns lose one member's push().
+let _teamFileMutex: Promise<void> = Promise.resolve()
+async function withTeamFileLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = _teamFileMutex
+  let release!: () => void
+  _teamFileMutex = new Promise<void>(r => { release = r })
+  await prev
+  try {
+    return await fn()
+  } finally {
+    release()
+  }
+}
 import { getHardcodedTeammateModelFallback } from '../../utils/swarm/teammateModel.js'
 import { registerTask } from '../../utils/task/framework.js'
 import { writeToMailbox } from '../../utils/teammateMailbox.js'
@@ -235,7 +250,7 @@ function buildInheritedCliFlags(options?: {
   // Propagate --model if explicitly set via CLI
   const modelOverride = getMainLoopModelOverride()
   if (modelOverride) {
-    flags.push(`--model ${quote([modelOverride])}`)
+    flags.push(`--model=${quote([modelOverride])}`)
   }
 
   // Propagate --settings if set via CLI
@@ -502,8 +517,8 @@ async function handleSpawnSplitPane(
       .join(' ')
     // Add the teammate's model
     inheritedFlags = inheritedFlags
-      ? `${inheritedFlags} --model ${quote([model])}`
-      : `--model ${quote([model])}`
+      ? `${inheritedFlags} --model=${quote([model])}`
+      : `--model=${quote([model])}`
   }
 
   const flagsStr = inheritedFlags ? ` ${inheritedFlags}` : ''
@@ -559,22 +574,25 @@ async function handleSpawnSplitPane(
   })
 
   // Register agent in the team file (auto-create if missing)
-  const teamFile = await ensureTeamFileExists(teamName, context)
-  teamFile.members.push({
-    agentId: teammateId,
-    name: sanitizedName,
-    agentType: agent_type,
-    model,
-    prompt,
-    color: teammateColor,
-    planModeRequired: plan_mode_required,
-    joinedAt: Date.now(),
-    tmuxPaneId: paneId,
-    cwd: workingDir,
-    subscriptions: [],
-    backendType: detectionResult.backend.type,
+  // Wrapped in withTeamFileLock to prevent TOCTOU race with concurrent spawns.
+  await withTeamFileLock(async () => {
+    const teamFile = await ensureTeamFileExists(teamName, context)
+    teamFile.members.push({
+      agentId: teammateId,
+      name: sanitizedName,
+      agentType: agent_type,
+      model,
+      prompt,
+      color: teammateColor,
+      planModeRequired: plan_mode_required,
+      joinedAt: Date.now(),
+      tmuxPaneId: paneId,
+      cwd: workingDir,
+      subscriptions: [],
+      backendType: detectionResult.backend.type,
+    })
+    await writeTeamFileAsync(teamName, teamFile)
   })
-  await writeTeamFileAsync(teamName, teamFile)
 
   // Send initial instructions to teammate via mailbox
   // The teammate's inbox poller will pick this up and submit it as their first turn
@@ -704,8 +722,8 @@ async function handleSpawnSeparateWindow(
       .join(' ')
     // Add the teammate's model
     inheritedFlags = inheritedFlags
-      ? `${inheritedFlags} --model ${quote([model])}`
-      : `--model ${quote([model])}`
+      ? `${inheritedFlags} --model=${quote([model])}`
+      : `--model=${quote([model])}`
   }
 
   const flagsStr = inheritedFlags ? ` ${inheritedFlags}` : ''
@@ -768,22 +786,24 @@ async function handleSpawnSeparateWindow(
   })
 
   // Register agent in the team file (auto-create if missing)
-  const teamFile = await ensureTeamFileExists(teamName, context)
-  teamFile.members.push({
-    agentId: teammateId,
-    name: sanitizedName,
-    agentType: agent_type,
-    model,
-    prompt,
-    color: teammateColor,
-    planModeRequired: plan_mode_required,
-    joinedAt: Date.now(),
-    tmuxPaneId: paneId,
-    cwd: workingDir,
-    subscriptions: [],
-    backendType: 'tmux', // This handler always uses tmux directly
+  await withTeamFileLock(async () => {
+    const teamFile = await ensureTeamFileExists(teamName, context)
+    teamFile.members.push({
+      agentId: teammateId,
+      name: sanitizedName,
+      agentType: agent_type,
+      model,
+      prompt,
+      color: teammateColor,
+      planModeRequired: plan_mode_required,
+      joinedAt: Date.now(),
+      tmuxPaneId: paneId,
+      cwd: workingDir,
+      subscriptions: [],
+      backendType: 'tmux', // This handler always uses tmux directly
+    })
+    await writeTeamFileAsync(teamName, teamFile)
   })
-  await writeTeamFileAsync(teamName, teamFile)
 
   // Send initial instructions to teammate via mailbox
   // The teammate's inbox poller will pick this up and submit it as their first turn
@@ -1049,22 +1069,24 @@ async function handleSpawnInProcess(
   })
 
   // Register agent in the team file (auto-create if missing)
-  const teamFile = await ensureTeamFileExists(teamName, context)
-  teamFile.members.push({
-    agentId: teammateId,
-    name: sanitizedName,
-    agentType: agent_type,
-    model,
-    prompt,
-    color: teammateColor,
-    planModeRequired: plan_mode_required,
-    joinedAt: Date.now(),
-    tmuxPaneId: 'in-process',
-    cwd: getCwd(),
-    subscriptions: [],
-    backendType: 'in-process',
+  await withTeamFileLock(async () => {
+    const teamFile = await ensureTeamFileExists(teamName, context)
+    teamFile.members.push({
+      agentId: teammateId,
+      name: sanitizedName,
+      agentType: agent_type,
+      model,
+      prompt,
+      color: teammateColor,
+      planModeRequired: plan_mode_required,
+      joinedAt: Date.now(),
+      tmuxPaneId: 'in-process',
+      cwd: getCwd(),
+      subscriptions: [],
+      backendType: 'in-process',
+    })
+    await writeTeamFileAsync(teamName, teamFile)
   })
-  await writeTeamFileAsync(teamName, teamFile)
 
   // Note: Do NOT send the prompt via mailbox for in-process teammates.
   // In-process teammates receive the prompt directly via startInProcessTeammate().
