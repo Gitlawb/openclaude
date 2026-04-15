@@ -92,6 +92,11 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
+If `openclaude` opens a text editor on Windows instead of starting the CLI, run `Get-Command openclaude -All` and make sure `openclaude.ps1` or `openclaude.cmd` resolves before any extensionless `openclaude` shim.
+
+---
+
+## Setup Guides
 ## Setup Guides
 
 Beginner-friendly guides:
