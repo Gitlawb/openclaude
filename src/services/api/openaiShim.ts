@@ -1489,6 +1489,13 @@ class OpenAIShimMessages {
         url: requestUrl,
       })
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
+      const safeMessage =
+        redactUrlForDiagnostics(failure.message) ??
+        redactSecretValueForDisplay(
+          failure.message,
+          process.env as SecretValueSource,
+        ) ??
+        'Request failed'
 
       logForDebugging(
         `[OpenAIShim] transport failure category=${failure.category} retryable=${failure.retryable} code=${failure.code ?? 'unknown'} method=POST url=${redactedUrl} model=${request.resolvedModel} message=${failure.message}`,
@@ -1499,7 +1506,7 @@ class OpenAIShimMessages {
         503,
         undefined,
         buildOpenAICompatibilityErrorMessage(
-          `OpenAI API transport error: ${failure.message}${failure.code ? ` (code=${failure.code})` : ''}`,
+          `OpenAI API transport error: ${safeMessage}${failure.code ? ` (code=${failure.code})` : ''}`,
           failure,
         ),
         new Headers(),
@@ -1517,7 +1524,6 @@ class OpenAIShimMessages {
       const failure = classifyOpenAIHttpFailure({
         status,
         body: errorBody,
-        url: requestUrl,
       })
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
 
@@ -1540,7 +1546,7 @@ class OpenAIShimMessages {
     let response: Response | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        response = await fetch(chatCompletionsUrl, fetchInit)
+        response = await fetchWithProxyRetry(chatCompletionsUrl, fetchInit)
       } catch (error) {
         const isAbortError =
           fetchInit.signal?.aborted === true ||
@@ -1551,16 +1557,12 @@ class OpenAIShimMessages {
             error !== null &&
             'name' in error &&
             error.name === 'AbortError')
-
+      
         if (isAbortError) {
           throw error
         }
+      
         throwClassifiedTransportError(error, chatCompletionsUrl)
-      }
-
-      response = await fetchWithProxyRetry(chatCompletionsUrl, fetchInit)
-      if (response.ok) {
-        return response
       }
       if (
         isGithub &&
@@ -1633,7 +1635,7 @@ class OpenAIShimMessages {
 
           let responsesResponse: Response
           try {
-            responsesResponse = await fetch(responsesUrl, {
+            responsesResponse = await fetchWithProxyRetry(responsesUrl, {
               method: 'POST',
               headers,
               body: JSON.stringify(responsesBody),
@@ -1642,13 +1644,7 @@ class OpenAIShimMessages {
           } catch (error) {
             throwClassifiedTransportError(error, responsesUrl)
           }
-
-          const responsesResponse = await fetchWithProxyRetry(responsesUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(responsesBody),
-            signal: options?.signal,
-          })
+          
           if (responsesResponse.ok) {
             return responsesResponse
           }
