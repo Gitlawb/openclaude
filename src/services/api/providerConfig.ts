@@ -20,6 +20,7 @@ export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
+const warnedUndefinedEnvNames = new Set<string>()
 
 const CODEX_ALIAS_MODELS: Record<
   string,
@@ -143,19 +144,21 @@ function asNamedEnvUrl(
 ): string | undefined {
   if (!value) return undefined
 
-  const normalized = asEnvUrl(value)
-  if (normalized !== undefined) {
-    return normalized
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+
+  if (trimmed === 'undefined') {
+    if (!warnedUndefinedEnvNames.has(envName)) {
+      warnedUndefinedEnvNames.add(envName)
+      logForDebugging(
+        `[provider-config] Environment variable ${envName} is the literal string "undefined"; ignoring it.`,
+        { level: 'warn' },
+      )
+    }
+    return undefined
   }
 
-  if (value.trim() === 'undefined') {
-    logForDebugging(
-      `[provider-config] Ignoring invalid ${envName} value "undefined". This literal string usually means an unquoted shell expansion.`,
-      { level: 'warn' },
-    )
-  }
-
-  return undefined
+  return trimmed
 }
 
 function readNestedString(
