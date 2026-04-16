@@ -89,7 +89,15 @@ export async function fetchLatestEvents(
   ctx: HistoryAuthCtx,
   limit = HISTORY_PAGE_SIZE,
 ): Promise<HistoryPage | null> {
-  return fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
+  const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
+  
+  // Cache the fetched events for faster subsequent access
+  if (page && page.events.length > 0) {
+    const cache = getHistoryCache()
+    cache.set(ctx.baseUrl.split('/v1/sessions/')[1]?.split('/')[0] ?? 'default', page.events as any)
+  }
+  
+  return page
 }
 
 /** Older page: events immediately before `beforeId` cursor. */
@@ -126,7 +134,7 @@ export async function cacheSession(
     { model: process.env.OPENAI_MODEL },
   )
   session.id = sessionId
-  await saveSession(session, true)
+  await saveSession(session)
 }
 
 export async function loadCachedSession(
@@ -141,7 +149,7 @@ export async function loadCachedSession(
 
   // Try disk
   try {
-    const session = await loadSession(sessionId, true)
+    const session = await loadSession(sessionId)
     if (session) {
       const events = session.messages.map(m => ({
         role: m.role,
