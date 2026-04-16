@@ -258,7 +258,6 @@ export async function* runPostToolUseHooks<Input extends AnyObject, Output>(
 
 export async function* runPostToolUseFailureHooks<Input extends AnyObject>(
   toolUseContext: ToolUseContext,
-  canUseTool: CanUseToolFn,
   tool: Tool<Input, unknown>,
   toolUseID: string,
   messageId: string,
@@ -286,7 +285,6 @@ export async function* runPostToolUseFailureHooks<Input extends AnyObject>(
       permissionMode,
       toolUseContext.abortController.signal,
       undefined,
-      canUseTool,
     )) {
       try {
         // Check if we were aborted during hook execution

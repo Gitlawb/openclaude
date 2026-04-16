@@ -57,6 +57,28 @@ afterEach(async () => {
 })
 
 describe('hookChains schema validation', () => {
+  test('returns disabled config when env gate is unset', async () => {
+    delete process.env.CLAUDE_CODE_ENABLE_HOOK_CHAINS
+    const mod = await importHookChainsModule()
+
+    const configPath = await makeConfigFile({
+      version: 1,
+      enabled: true,
+      rules: [
+        {
+          id: 'env-gated-rule',
+          trigger: { event: 'TaskCompleted', outcome: 'failed' },
+          actions: [{ type: 'spawn_fallback_agent' }],
+        },
+      ],
+    })
+
+    const loaded = mod.loadHookChainsConfig({ pathOverride: configPath })
+    expect(loaded.exists).toBe(false)
+    expect(loaded.config.enabled).toBe(false)
+    expect(loaded.config.rules).toHaveLength(0)
+  })
+
   test('loads valid config and memoizes by mtime/size', async () => {
     const mod = await importHookChainsModule()
 
@@ -342,6 +364,38 @@ describe('dispatchHookChainsForEvent guard logic', () => {
 })
 
 describe('action dispatch skip scenarios', () => {
+  test('fails spawn_fallback_agent when launcher callback is missing', async () => {
+    const mod = await importHookChainsModule()
+
+    const configPath = await makeConfigFile({
+      version: 1,
+      enabled: true,
+      maxChainDepth: 3,
+      defaultCooldownMs: 0,
+      defaultDedupWindowMs: 0,
+      rules: [
+        {
+          id: 'missing-launcher',
+          trigger: { event: 'TaskCompleted', outcome: 'failed' },
+          actions: [{ type: 'spawn_fallback_agent' }],
+        },
+      ],
+    })
+
+    const result = await mod.dispatchHookChainsForEvent({
+      configPathOverride: configPath,
+      event: {
+        eventName: 'TaskCompleted',
+        outcome: 'failed',
+        payload: { task_id: 'task-missing-launcher' },
+      },
+      runtime: {},
+    })
+
+    expect(result.actionResults[0]?.status).toBe('failed')
+    expect(result.actionResults[0]?.reason).toContain('launcher')
+  })
+
   test('skips disabled action and does not execute callback', async () => {
     const mod = await importHookChainsModule()
 

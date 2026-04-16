@@ -1,6 +1,5 @@
 import { feature } from 'bun:bundle'
 import { z } from 'zod/v4'
-import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js'
@@ -134,7 +133,6 @@ export const TaskUpdateTool = buildTool({
       metadata,
     },
     context,
-    canUseTool?: CanUseToolFn,
   ) {
     const taskListId = getTaskListId()
 
@@ -244,7 +242,6 @@ export const TaskUpdateTool = buildTool({
             context?.abortController?.signal,
             undefined,
             context,
-            canUseTool,
           )
 
           for await (const result of generator) {

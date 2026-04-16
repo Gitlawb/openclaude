@@ -29,6 +29,9 @@ const DEFAULT_MAX_CHAIN_DEPTH = 2
 const DEFAULT_RULE_COOLDOWN_MS = 30_000
 const DEFAULT_DEDUP_WINDOW_MS = 30_000
 const MAX_GUARD_WINDOW_MS = 24 * 60 * 60 * 1000
+const CONFIG_CACHE_MAX_AGE_MS = 5 * 60 * 1000
+const MAX_RULE_COOLDOWN_ENTRIES = 5_000
+const MAX_DEDUP_ENTRIES = 20_000
 
 const HookChainOutcomeSchema = z.enum(['success', 'failed', 'timeout', 'unknown'])
 const HookChainConditionSchema = z
@@ -245,6 +248,7 @@ type ConfigCacheState = {
   path: string
   mtimeMs: number
   size: number
+  loadedAtMs: number
   config: HookChainsConfig
 }
 
@@ -291,7 +295,7 @@ function makeDisabledConfig(): HookChainsConfig {
 function isHookChainsEnabled(): boolean {
   const raw = process.env[HOOK_CHAINS_ENABLED_ENV]
   if (raw === undefined) {
-    return true
+    return false
   }
   return isEnvTruthy(raw)
 }
@@ -471,6 +475,9 @@ export function loadHookChainsConfig(options?: {
       logForDebugging(
         `[hook-chains] Failed to stat config at ${path}: ${String(error)}`,
       )
+    } else if (configCache?.path === path) {
+      // Clear stale cache if config disappears.
+      configCache = null
     }
     return {
       config: makeDisabledConfig(),
@@ -485,7 +492,8 @@ export function loadHookChainsConfig(options?: {
     configCache &&
     configCache.path === path &&
     configCache.mtimeMs === stats.mtimeMs &&
-    configCache.size === stats.size
+    configCache.size === stats.size &&
+    Date.now() - configCache.loadedAtMs <= CONFIG_CACHE_MAX_AGE_MS
   ) {
     return {
       config: cloneConfig(configCache.config),
@@ -544,6 +552,7 @@ export function loadHookChainsConfig(options?: {
     path,
     mtimeMs: stats.mtimeMs,
     size: stats.size,
+    loadedAtMs: Date.now(),
     config,
   }
 
@@ -625,6 +634,26 @@ function pruneGuardState(nowMs: number): void {
     if (until <= nowMs) {
       ruleCooldownUntil.delete(key)
     }
+  }
+
+  enforceGuardMapLimit(dedupKeyUntil, MAX_DEDUP_ENTRIES)
+  enforceGuardMapLimit(ruleCooldownUntil, MAX_RULE_COOLDOWN_ENTRIES)
+}
+
+function enforceGuardMapLimit(
+  map: Map<string, number>,
+  maxEntries: number,
+): void {
+  if (map.size <= maxEntries) {
+    return
+  }
+
+  const entriesByExpiry = [...map.entries()].sort((a, b) => a[1] - b[1])
+  const deleteCount = map.size - maxEntries
+  for (let i = 0; i < deleteCount; i++) {
+    const entry = entriesByExpiry[i]
+    if (!entry) break
+    map.delete(entry[0])
   }
 }
 
@@ -745,7 +774,7 @@ export async function executeSpawnFallbackAgentAction(args: {
 
   if (!runtime.onSpawnFallbackAgent) {
     return {
-      status: 'skipped',
+      status: 'failed',
       reason: 'No fallback agent launcher is registered in runtime context',
     }
   }
@@ -771,7 +800,7 @@ export async function executeSpawnFallbackAgentAction(args: {
     const result = await runtime.onSpawnFallbackAgent(request)
     if (!result.launched) {
       return {
-        status: 'skipped',
+        status: 'failed',
         reason: result.reason ?? 'Fallback launcher declined to start an agent',
       }
     }

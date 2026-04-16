@@ -10,6 +10,7 @@ import { wrapSpawn } from './ShellCommand.js'
 import { TaskOutput } from './task/TaskOutput.js'
 import { getCwd } from './cwd.js'
 import { randomUUID } from 'crypto'
+import { feature } from 'bun:bundle'
 import { formatShellPrefixCommand } from './bash/shellPrefix.js'
 import {
   getHookEnvFilePath,
@@ -246,9 +247,12 @@ async function dispatchHookChainFromHookRuntime(args: {
   payload: Record<string, unknown>
   signal?: AbortSignal
   toolUseContext?: ToolUseContext
-  canUseTool?: CanUseToolFn
 }): Promise<void> {
   try {
+    if (!feature('HOOK_CHAINS')) {
+      return
+    }
+
     const { dispatchHookChainsForEvent } = await import('./hookChains.js')
 
     const runtime: HookChainRuntimeContext = {
@@ -263,13 +267,28 @@ async function dispatchHookChainFromHookRuntime(args: {
       runtime.chainDepth = chainDepth
     }
 
-    if (args.toolUseContext && args.canUseTool) {
-      runtime.onSpawnFallbackAgent = request =>
-        launchFallbackAgentFromHookChains(
+    const hookChainsCanUseTool = (
+      args.toolUseContext as
+        | (ToolUseContext & { hookChainsCanUseTool?: CanUseToolFn })
+        | undefined
+    )?.hookChainsCanUseTool
+
+    if (args.toolUseContext) {
+      runtime.onSpawnFallbackAgent = request => {
+        if (!hookChainsCanUseTool) {
+          return Promise.resolve({
+            launched: false,
+            reason:
+              'Fallback action requires canUseTool in this hook runtime context',
+          })
+        }
+
+        return launchFallbackAgentFromHookChains(
           request,
           args.toolUseContext!,
-          args.canUseTool!,
+          hookChainsCanUseTool,
         )
+      }
     }
 
     await dispatchHookChainsForEvent({
@@ -3621,7 +3640,6 @@ export async function* executePostToolUseFailureHooks<ToolInput>(
   permissionMode?: string,
   signal?: AbortSignal,
   timeoutMs: number = TOOL_HOOK_EXECUTION_TIMEOUT_MS,
-  canUseTool?: CanUseToolFn,
 ): AsyncGenerator<AggregatedHookResult> {
   const appState = toolUseContext.getAppState()
   const sessionId = toolUseContext.agentId ?? getSessionId()
@@ -3669,7 +3687,6 @@ export async function* executePostToolUseFailureHooks<ToolInput>(
     },
     signal,
     toolUseContext,
-    canUseTool,
   })
 }
 
@@ -3943,7 +3960,6 @@ export async function* executeTaskCompletedHooks(
   signal?: AbortSignal,
   timeoutMs: number = TOOL_HOOK_EXECUTION_TIMEOUT_MS,
   toolUseContext?: ToolUseContext,
-  canUseTool?: CanUseToolFn,
 ): AsyncGenerator<AggregatedHookResult> {
   const hookInput: TaskCompletedHookInput = {
     ...createBaseHookInput(permissionMode),
@@ -3985,7 +4001,6 @@ export async function* executeTaskCompletedHooks(
     },
     signal,
     toolUseContext,
-    canUseTool,
   })
 }
 

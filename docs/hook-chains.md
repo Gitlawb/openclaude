@@ -13,7 +13,8 @@ When a matching hook event occurs, OpenClaude evaluates declarative rules and ca
 >
 > - Set top-level config to `"enabled": false` initially.
 > - Enable per environment when ready.
-> - You can hard-disable globally with `CLAUDE_CODE_ENABLE_HOOK_CHAINS=0`.
+> - Dispatch is gated by `feature('HOOK_CHAINS')`.
+> - Env gate defaults to off unless `CLAUDE_CODE_ENABLE_HOOK_CHAINS=1` is set.
 
 This keeps existing workflows unchanged while you tune guard windows and action behavior.
 
@@ -38,7 +39,8 @@ Override path:
 
 Global gate:
 
-- `CLAUDE_CODE_ENABLE_HOOK_CHAINS=0|1`
+- `feature('HOOK_CHAINS')` must be enabled in the build
+- `CLAUDE_CODE_ENABLE_HOOK_CHAINS=0|1` (defaults to disabled when unset)
 
 ## Safety Guarantees
 
@@ -51,7 +53,7 @@ The runtime is intentionally conservative:
 - **Policy-aware remote warm:** `warm_remote_capacity` skips when remote sessions are policy denied.
 - **Bridge inactive no-op:** `warm_remote_capacity` safely skips when no active bridge handle exists.
 - **Missing team context safety:** `notify_team` skips with structured reason if no team context/team file is available.
-- **Fallback launcher safety:** `spawn_fallback_agent` skips when no runtime launcher callback is wired.
+- **Fallback launcher safety:** `spawn_fallback_agent` fails with a structured reason when launch permissions/context are unavailable.
 
 ## Configuration Schema Reference
 
