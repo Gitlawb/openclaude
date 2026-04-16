@@ -228,6 +228,37 @@ npm run dev:grpc:cli
 
 ---
 
+## Web Interface
+
+OpenClaude includes a browser-based web interface that provides a chat UI with real-time streaming, tool call visualization, and permission dialogs. It uses the same `QueryEngine` as the CLI and gRPC server.
+
+### Start the Web Server
+
+```bash
+npm run dev:web
+```
+
+Then open `http://localhost:3000` in your browser.
+
+### Configuration
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `WEB_PORT` | `3000` | HTTP server port |
+| `WEB_HOST` | `localhost` | Bind address |
+
+### Features
+
+- Real-time streaming responses via WebSocket
+- Markdown rendering with syntax highlighting
+- Collapsible tool call cards showing arguments and output
+- Permission prompts for sensitive tool operations
+- Multi-turn conversation support with session persistence
+- Responsive layout for desktop and mobile
+- Automatic WebSocket reconnection
+
+---
+
 ## Source Build And Local Development
 
 ```bash
