@@ -14,7 +14,6 @@ test('classifies localhost ECONNREFUSED as connection_refused', () => {
   })
 
   const failure = classifyOpenAINetworkFailure(error, {
-    url: 'http://localhost:11434/v1/chat/completions',
   })
 
   expect(failure.category).toBe('connection_refused')
@@ -29,7 +28,6 @@ test('classifies localhost ENOTFOUND as localhost_resolution_failed', () => {
   })
 
   const failure = classifyOpenAINetworkFailure(error, {
-    url: 'http://localhost:11434/v1/chat/completions',
   })
 
   expect(failure.category).toBe('localhost_resolution_failed')
@@ -42,7 +40,6 @@ test('classifies model-not-found 404 responses', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 404,
     body: 'The model qwen2.5-coder:7b was not found',
-    url: 'http://127.0.0.1:11434/v1/chat/completions',
   })
 
   expect(failure.category).toBe('model_not_found')
@@ -53,7 +50,6 @@ test('classifies generic 404 responses as endpoint_not_found', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 404,
     body: 'Not Found',
-    url: 'http://localhost:11434/chat/completions',
   })
 
   expect(failure.category).toBe('endpoint_not_found')
@@ -64,7 +60,6 @@ test('classifies context-overflow responses', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 500,
     body: 'request too large: maximum context length exceeded',
-    url: 'http://localhost:11434/v1/chat/completions',
   })
 
   expect(failure.category).toBe('context_overflow')
@@ -75,7 +70,6 @@ test('classifies tool compatibility failures', () => {
   const failure = classifyOpenAIHttpFailure({
     status: 400,
     body: 'tool_calls are not supported by this model',
-    url: 'http://localhost:11434/v1/chat/completions',
   })
 
   expect(failure.category).toBe('tool_call_incompatible')
