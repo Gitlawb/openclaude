@@ -1557,17 +1557,17 @@ class OpenAIShimMessages {
             error !== null &&
             'name' in error &&
             error.name === 'AbortError')
-      
+
         if (isAbortError) {
           throw error
         }
-      
+
         throwClassifiedTransportError(error, chatCompletionsUrl)
       }
 
-            if (response.ok) {
-              return response
-            }
+      if (response.ok) {
+        return response
+      }
 
       if (
         isGithub &&
