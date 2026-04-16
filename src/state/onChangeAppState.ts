@@ -134,7 +134,9 @@ export function onChangeAppState({
       clearApiKeyHelperCache()
       clearAwsCredentialsCache()
       clearGcpCredentialsCache()
-      applyConfigEnvironmentVariables()
+      applyConfigEnvironmentVariables({
+        forcePersistedProviderSelectionTarget: true,
+      })
     } catch (error) {
       logError(toError(error))
     }

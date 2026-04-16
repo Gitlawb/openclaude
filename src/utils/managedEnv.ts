@@ -191,7 +191,9 @@ export function applySafeConfigEnvironmentVariables(): void {
  * should only be called after trust is established. This applies potentially
  * dangerous environment variables such as LD_PRELOAD, PATH, etc.
  */
-export function applyConfigEnvironmentVariables(): void {
+export function applyConfigEnvironmentVariables(options?: {
+  forcePersistedProviderSelectionTarget?: boolean
+}): void {
   Object.assign(process.env, filterSettingsEnv(getGlobalConfig().env))
 
   Object.assign(process.env, filterSettingsEnv(getSettings_DEPRECATED()?.env))
@@ -199,7 +201,9 @@ export function applyConfigEnvironmentVariables(): void {
   // Keep runtime provider/model env aligned with the active profile, except
   // when an explicit provider selection is already present in process.env.
   applyActiveProviderProfileFromConfig()
-  applyPersistedProviderSelectionTarget()
+  applyPersistedProviderSelectionTarget(undefined, {
+    force: options?.forcePersistedProviderSelectionTarget,
+  })
 
   // Clear caches so agents are rebuilt with the new env vars
   clearCACertsCache()
