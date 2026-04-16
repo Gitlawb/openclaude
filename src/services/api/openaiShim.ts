@@ -53,6 +53,7 @@ import {
   resolveProviderRequest,
   getGithubEndpointType,
 } from './providerConfig.js'
+import { isOllamaProvider } from '../../utils/model/ollamaModels.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
 import {
@@ -1315,6 +1316,18 @@ class OpenAIShimMessages {
     if ((isGithub || isMistral || isLocal) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
+    }
+
+    // Ollama-specific: its OpenAI-compatible endpoint defaults num_ctx to the
+    // model's Modelfile value, which is commonly 2048–4096. That truncates the
+    // system prompt + tool schemas + conversation history before the model even
+    // sees them, causing silent tool-calling failures. Pass num_ctx explicitly
+    // via the `options` passthrough so every request gets a usable context.
+    // Override with OLLAMA_NUM_CTX env var (e.g. OLLAMA_NUM_CTX=65536).
+    if (isOllamaProvider()) {
+      const envCtx = Number.parseInt(process.env.OLLAMA_NUM_CTX ?? '', 10)
+      const numCtx = Number.isFinite(envCtx) && envCtx > 0 ? envCtx : 32768
+      body.options = { ...(body.options as Record<string, unknown> | undefined), num_ctx: numCtx }
     }
 
     // mistral and gemini don't recognize body.store — Gemini returns 400
