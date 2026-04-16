@@ -24,22 +24,11 @@ export function runOrphanGate(vaultPath: string): OrphanGateResult {
   const mapsDir = join(vaultPath, 'maps')
   const knowledgeDir = join(vaultPath, 'knowledge')
 
-  // Collect all WikiLink targets from maps/
+  // Collect all WikiLink targets from maps/ (body + frontmatter in one pass,
+  // since WIKILINK_RE matches [[target]] anywhere in the file content).
   const linkedFromMaps = new Set<string>()
   walkMdFiles(mapsDir, (content) => {
     for (const match of content.matchAll(WIKILINK_RE)) {
-      linkedFromMaps.add(match[1].trim())
-    }
-  })
-
-  // Also count `related:` frontmatter links from maps/ files
-  walkMdFiles(mapsDir, (content) => {
-    // Extract related array from frontmatter
-    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
-    if (!fmMatch) return
-    const fm = fmMatch[1]
-    // Simple extraction of related: ["[[x]]", "[[y]]"]
-    for (const match of fm.matchAll(WIKILINK_RE)) {
       linkedFromMaps.add(match[1].trim())
     }
   })
@@ -52,7 +41,7 @@ export function runOrphanGate(vaultPath: string): OrphanGateResult {
     // Check if this is a module note
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
     if (!fmMatch) return
-    if (!fmMatch[1].includes('type: module')) return
+    if (!/^type:\s*module$/m.test(fmMatch[1])) return
 
     // Check if it has incoming links from maps/
     if (!linkedFromMaps.has(basename)) {

@@ -52,11 +52,11 @@ export async function callSemanticPass(
   const retryResult = await attemptCall(provider, systemPrompt, userPrompt, schema)
   if (retryResult.ok) return retryResult.value
 
-  // Both failed — return fallback with whatever token counts we captured
+  // Both failed — return fallback with accumulated token counts from both attempts
   return coerceSemanticResponse(
     null,
-    retryResult.tokensIn,
-    retryResult.tokensOut,
+    firstResult.tokensIn + retryResult.tokensIn,
+    firstResult.tokensOut + retryResult.tokensOut,
   )
 }
 

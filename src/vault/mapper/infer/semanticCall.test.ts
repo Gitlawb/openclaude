@@ -72,15 +72,18 @@ describe('callSemanticPass', () => {
     expect(result.summary).toBe('A test module for unit testing.')
   })
 
-  test('provider failing twice → fallback: true, placeholders', async () => {
+  test('provider failing twice → fallback: true, placeholders, tokens accumulated', async () => {
     const provider = stubProvider([
-      { content: 'not json' },
-      { content: 'still not json' },
+      { content: 'not json', tokensIn: 10, tokensOut: 5 },
+      { content: 'still not json', tokensIn: 12, tokensOut: 6 },
     ])
     const result = await callSemanticPass(makeInput(tmp), provider)
 
     expect(result.fallback).toBe(true)
     expect(result.summary).toContain('pending')
+    // Tokens from both attempts should be accumulated
+    expect(result.tokensIn).toBe(22)
+    expect(result.tokensOut).toBe(11)
   })
 
   test('provider throwing network error → fallback: true', async () => {
