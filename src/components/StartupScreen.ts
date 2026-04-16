@@ -7,8 +7,7 @@
 
 import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/providerConfig.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
-import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
-import { parseUserSpecifiedModel } from '../utils/model/model.js'
+import { getMainLoopModel } from '../utils/model/model.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
@@ -138,11 +137,11 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     return { name, model: displayModel, baseUrl, isLocal }
   }
 
-  // Default: Anthropic - check settings.model first, then env vars
-  const settings = getSettings_DEPRECATED() || {}
-  const modelSetting = settings.model || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
-  const resolvedModel = parseUserSpecifiedModel(modelSetting)
-  return { name: 'Anthropic', model: resolvedModel, baseUrl: 'https://api.anthropic.com', isLocal: false }
+  // Default: Anthropic — delegate to the same resolver the main loop uses so the
+  // banner reflects reality (respects ANTHROPIC_MODEL, settings.model, and the
+  // subscription-aware default — e.g. Opus for Max/Team Premium). Note: the
+  // --model CLI flag is parsed later in main.tsx, so it won't be reflected here.
+  return { name: 'Anthropic', model: getMainLoopModel(), baseUrl: 'https://api.anthropic.com', isLocal: false }
 }
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────
