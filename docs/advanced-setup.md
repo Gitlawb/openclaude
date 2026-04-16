@@ -84,6 +84,16 @@ OpenRouter model availability changes over time. If a model stops working, try a
 
 ### Ollama
 
+Using `ollama launch` (recommended if you have Ollama installed):
+
+```bash
+ollama launch openclaude --model llama3.3:70b
+```
+
+This handles all environment setup automatically — no env vars needed. Works with any local or cloud model available in your Ollama instance.
+
+Using environment variables manually:
+
 ```bash
 ollama pull llama3.3:70b
 
