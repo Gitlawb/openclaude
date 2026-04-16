@@ -76,29 +76,18 @@ function extractFromFile(
   const names: string[] = []
 
   try {
-    // Named export declarations: export const x, export function y, export class Z
+    // getExportedDeclarations() returns all publicly visible names, including
+    // re-exports from barrel files and `export * from` re-exports. A single
+    // pass is sufficient — no need for a separate getExportDeclarations() walk.
     for (const decl of sf.getExportedDeclarations()) {
       const [name, declarations] = decl
       if (name === 'default') {
         names.push('default')
         continue
       }
-      // Verify at least one declaration actually has an export keyword or is re-exported
       if (declarations.length > 0) {
         names.push(name)
       }
-    }
-
-    // Also pick up `export { ... } from '...'` re-export names not caught above
-    for (const exportDecl of sf.getExportDeclarations()) {
-      for (const named of exportDecl.getNamedExports()) {
-        const alias = named.getAliasNode()?.getText() ?? named.getName()
-        if (!names.includes(alias)) {
-          names.push(alias)
-        }
-      }
-      // `export * from '...'` — we can't enumerate individual names statically,
-      // but the re-exported module's own exports would appear via getExportedDeclarations
     }
   } catch (err) {
     return {

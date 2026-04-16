@@ -26,6 +26,7 @@ function makeDescriptor(overrides: Partial<ModuleDescriptor> = {}): ModuleDescri
     domain: 'auth',
     layer: 'service',
     fallback: false,
+    staticOnly: false,
     ...overrides,
   }
 }
@@ -75,12 +76,15 @@ describe('toModuleNoteDraft', () => {
     expect(tags.length).toBeLessThanOrEqual(7)
   })
 
-  test('confidence maps: fallback→low, LLM ok→medium', () => {
-    const ok = toModuleNoteDraft(makeDescriptor({ fallback: false }))
-    expect(ok.frontmatter.confidence).toBe('medium')
+  test('confidence maps: staticOnly→high, LLM ok→medium, fallback→low', () => {
+    const llmOk = toModuleNoteDraft(makeDescriptor({ fallback: false, staticOnly: false }))
+    expect(llmOk.frontmatter.confidence).toBe('medium')
 
-    const fb = toModuleNoteDraft(makeDescriptor({ fallback: true }))
+    const fb = toModuleNoteDraft(makeDescriptor({ fallback: true, staticOnly: false }))
     expect(fb.frontmatter.confidence).toBe('low')
+
+    const staticOnly = toModuleNoteDraft(makeDescriptor({ fallback: false, staticOnly: true }))
+    expect(staticOnly.frontmatter.confidence).toBe('high')
   })
 
   test('body contains all 6 template sections in order', () => {

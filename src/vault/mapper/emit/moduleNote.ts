@@ -20,7 +20,11 @@ export function toModuleNoteDraft(descriptor: ModuleDescriptor): NoteDraft {
   const filename = `module-${descriptor.slug}`
   const title = descriptor.slug
 
-  const confidence = descriptor.fallback ? 'low' : 'medium'
+  // Confidence mapping per spec:
+  // static-only (no LLM attempted) → high (deterministic facts only)
+  // LLM success → medium (semantic fields are inferred)
+  // LLM fallback (failed) → low (placeholders)
+  const confidence = descriptor.fallback ? 'low' : descriptor.staticOnly ? 'high' : 'medium'
 
   const tags = buildTags(descriptor)
 

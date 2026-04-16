@@ -124,7 +124,7 @@ function collectFromFile(
     if (args.length === 0) continue
     const arg = args[0]
     if (arg.getKind() !== SyntaxKind.StringLiteral) continue
-    const specifier = arg.getText().slice(1, -1) // remove quotes
+    const specifier = arg.asKind(SyntaxKind.StringLiteral)!.getLiteralValue()
     const { resolvedPath, isExternal } = resolveSpecifier(parser, specifier, filePath)
 
     addRef(
@@ -143,7 +143,7 @@ function collectFromFile(
     const arg = args[0]
     if (arg.getKind() === SyntaxKind.StringLiteral) {
       // Literal dynamic import
-      const specifier = arg.getText().slice(1, -1)
+      const specifier = arg.asKind(SyntaxKind.StringLiteral)!.getLiteralValue()
       const { resolvedPath, isExternal } = resolveSpecifier(parser, specifier, filePath)
       addRef(
         { specifier, fromFile: filePath, resolvedPath, isTypeOnly: false, isExternal },

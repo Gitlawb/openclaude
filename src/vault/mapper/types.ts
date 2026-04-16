@@ -28,4 +28,6 @@ export type ModuleDescriptor = {
   layer: Layer
   /** True when the LLM pass failed and fallback placeholders were used. */
   fallback: boolean
+  /** True when no LLM pass was attempted (--no-llm / static-only mode). */
+  staticOnly: boolean
 }
