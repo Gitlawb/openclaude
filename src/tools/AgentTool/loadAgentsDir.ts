@@ -1,6 +1,7 @@
 import { feature } from 'bun:bundle'
+import { readdir, readFile } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
-import { basename } from 'path'
+import { basename, join } from 'path'
 import type { SettingSource } from 'src/utils/settings/constants.js'
 import { z } from 'zod/v4'
 import { isAutoMemoryEnabled } from '../../memdir/paths.js'
@@ -21,6 +22,8 @@ import {
 } from '../../utils/effort.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import { parsePositiveIntFromFrontmatter } from '../../utils/frontmatterParser.js'
+import { parseFrontmatter } from '../../utils/frontmatterParser.js'
+import { findGitRoot } from '../../utils/git.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
 import {
@@ -28,6 +31,7 @@ import {
   parseAgentToolsFromFrontmatter,
   parseSlashCommandToolsFromFrontmatter,
 } from '../../utils/markdownConfigLoader.js'
+import { isFsInaccessible } from '../../utils/errors.js'
 import {
   PERMISSION_MODES,
   type PermissionMode,
@@ -293,6 +297,79 @@ async function initializeAgentMemorySnapshots(
   )
 }
 
+/**
+ * Backward-compatible fallback for project agents placed directly under
+ * .claude/*.md instead of the canonical .claude/agents/*.md.
+ *
+ * These files are loaded with lower precedence than canonical project agents.
+ */
+async function loadLegacyProjectRootAgentFiles(
+  cwd: string,
+): Promise<
+  Array<{
+    filePath: string
+    baseDir: string
+    frontmatter: Record<string, unknown>
+    content: string
+    source: SettingSource
+  }>
+> {
+  const gitRoot = findGitRoot(cwd)
+  const claudeDirs = [join(cwd, '.claude')]
+  if (gitRoot && gitRoot !== cwd) {
+    claudeDirs.push(join(gitRoot, '.claude'))
+  }
+
+  const allParsedFiles = await Promise.all(
+    claudeDirs.map(async claudeDir => {
+      let entries
+      try {
+        entries = await readdir(claudeDir, { withFileTypes: true })
+      } catch (e: unknown) {
+        if (isFsInaccessible(e)) {
+          return []
+        }
+        throw e
+      }
+
+      const markdownEntries = entries.filter(
+        entry => entry.isFile() && entry.name.endsWith('.md'),
+      )
+
+      const parsedFiles = await Promise.all(
+        markdownEntries.map(async entry => {
+          const filePath = join(claudeDir, entry.name)
+          try {
+            const rawContent = await readFile(filePath, { encoding: 'utf-8' })
+            const { frontmatter, content } = parseFrontmatter(
+              rawContent,
+              filePath,
+            )
+            return {
+              filePath,
+              baseDir: claudeDir,
+              frontmatter,
+              content,
+              source: 'projectSettings' as const,
+            }
+          } catch (error) {
+            const errorMessage =
+              error instanceof Error ? error.message : String(error)
+            logForDebugging(
+              `Skipping invalid legacy root agent file ${filePath}: ${errorMessage}`,
+            )
+            return null
+          }
+        }),
+      )
+
+      return parsedFiles.filter(file => file !== null)
+    }),
+  )
+
+  return allParsedFiles.flat()
+}
+
 export const getAgentDefinitionsWithOverrides = memoize(
   async (cwd: string): Promise<AgentDefinitionsResult> => {
     // Simple mode: skip custom agents, only return built-ins
@@ -305,10 +382,17 @@ export const getAgentDefinitionsWithOverrides = memoize(
     }
 
     try {
-      const markdownFiles = await loadMarkdownFilesForSubdir('agents', cwd)
+      const [markdownFiles, legacyRootMarkdownFiles] = await Promise.all([
+        loadMarkdownFilesForSubdir('agents', cwd),
+        loadLegacyProjectRootAgentFiles(cwd),
+      ])
+
+      // Legacy root files are lower-priority fallback; canonical
+      // .claude/agents/*.md entries should win on conflicts.
+      const allMarkdownFiles = [...legacyRootMarkdownFiles, ...markdownFiles]
 
       const failedFiles: Array<{ path: string; error: string }> = []
-      const customAgents = markdownFiles
+      const customAgents = allMarkdownFiles
         .map(({ filePath, baseDir, frontmatter, content, source }) => {
           const agent = parseAgentFromMarkdown(
             filePath,

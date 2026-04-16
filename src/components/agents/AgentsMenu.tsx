@@ -7,12 +7,14 @@ import type { CommandResultDisplay } from '../../commands.js';
 import { useExitOnCtrlCDWithKeybindings } from '../../hooks/useExitOnCtrlCDWithKeybindings.js';
 import { useMergedTools } from '../../hooks/useMergedTools.js';
 import { Box, Text } from '../../ink.js';
+import { setMainThreadAgentType } from '../../bootstrap/state.js';
 import { useAppState, useSetAppState } from '../../state/AppState.js';
 import type { Tools } from '../../Tool.js';
 import { type ResolvedAgent, resolveAgentOverrides } from '../../tools/AgentTool/agentDisplay.js';
 import { type AgentDefinition, getActiveAgentsFromList } from '../../tools/AgentTool/loadAgentsDir.js';
 import { toError } from '../../utils/errors.js';
 import { logError } from '../../utils/log.js';
+import { saveAgentSetting } from '../../utils/sessionStorage.js';
 import { Select } from '../CustomSelect/select.js';
 import { Dialog } from '../design-system/Dialog.js';
 import { AgentDetail } from './AgentDetail.js';
@@ -48,6 +50,7 @@ export function AgentsMenu(t0) {
   const agentDefinitions = useAppState(_temp);
   const mcpTools = useAppState(_temp2);
   const toolPermissionContext = useAppState(_temp3);
+  const activeSessionAgentType = useAppState(_temp10);
   const setAppState = useSetAppState();
   const {
     allAgents,
@@ -369,50 +372,67 @@ export function AgentsMenu(t0) {
           t17 = $[65];
         }
         const menuItems = t17;
-        let t18;
-        if ($[66] !== agentToUse || $[67] !== modeState) {
-          t18 = value_0 => {
-            bb129: switch (value_0) {
-              case "view":
-                {
-                  setModeState({
-                    mode: "view-agent",
-                    agent: agentToUse,
-                    previousMode: modeState.previousMode
-                  });
-                  break bb129;
-                }
-              case "edit":
-                {
-                  setModeState({
-                    mode: "edit-agent",
-                    agent: agentToUse,
-                    previousMode: modeState
-                  });
-                  break bb129;
-                }
-              case "delete":
-                {
-                  setModeState({
-                    mode: "delete-confirm",
-                    agent: agentToUse,
-                    previousMode: modeState
-                  });
-                  break bb129;
-                }
-              case "back":
-                {
-                  setModeState(modeState.previousMode);
-                }
-            }
-          };
-          $[66] = agentToUse;
-          $[67] = modeState;
-          $[68] = t18;
-        } else {
-          t18 = $[68];
-        }
-        const handleMenuSelect = t18;
+        const isAlreadyActive = activeSessionAgentType === agentToUse.agentType;
+        const sessionMenuItem = isAlreadyActive ? {
+          label: "Active in this session",
+          value: "active-noop"
+        } : {
+          label: "Set as active for this session",
+          value: "activate"
+        };
+        const menuItemsWithSessionOption = [...menuItems.slice(0, -1), sessionMenuItem, menuItems[menuItems.length - 1]];
+        const handleMenuSelect = value_0 => {
+          bb129: switch (value_0) {
+            case "view":
+              {
+                setModeState({
+                  mode: "view-agent",
+                  agent: agentToUse,
+                  previousMode: modeState.previousMode
+                });
+                break bb129;
+              }
+            case "edit":
+              {
+                setModeState({
+                  mode: "edit-agent",
+                  agent: agentToUse,
+                  previousMode: modeState
+                });
+                break bb129;
+              }
+            case "delete":
+              {
+                setModeState({
+                  mode: "delete-confirm",
+                  agent: agentToUse,
+                  previousMode: modeState
+                });
+                break bb129;
+              }
+            case "activate":
+              {
+                setMainThreadAgentType(agentToUse.agentType);
+                saveAgentSetting(agentToUse.agentType);
+                setAppState(prev => ({
+                  ...prev,
+                  agent: agentToUse.agentType
+                }));
+                setChanges(prev_0 => [...prev_0, `Active agent for this session: ${chalk.bold(agentToUse.agentType)}`]);
+                setModeState(modeState.previousMode);
+                break bb129;
+              }
+            case "active-noop":
+              {
+                setModeState(modeState.previousMode);
+                break bb129;
+              }
+            case "back":
+              {
+                setModeState(modeState.previousMode);
+              }
+          }
+        };
         let t19;
         if ($[69] !== modeState.previousMode) {
           t19 = () => setModeState(modeState.previousMode);
@@ -430,10 +450,10 @@ export function AgentsMenu(t0) {
           t20 = $[72];
         }
         let t21;
-        if ($[73] !== handleMenuSelect || $[74] !== menuItems || $[75] !== t20) {
-          t21 = <Select options={menuItems} onChange={handleMenuSelect} onCancel={t20} />;
+        if ($[73] !== handleMenuSelect || $[74] !== menuItemsWithSessionOption || $[75] !== t20) {
+          t21 = <Select options={menuItemsWithSessionOption} onChange={handleMenuSelect} onCancel={t20} />;
           $[73] = handleMenuSelect;
-          $[74] = menuItems;
+          $[74] = menuItemsWithSessionOption;
           $[75] = t20;
           $[76] = t21;
         } else {
@@ -796,4 +816,7 @@ function _temp2(s_0) {
 }
 function _temp(s) {
   return s.agentDefinitions;
+}
+function _temp10(s_2) {
+  return s_2.agent;
 }
