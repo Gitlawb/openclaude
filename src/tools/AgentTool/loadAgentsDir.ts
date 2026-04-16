@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import type { Dirent } from 'node:fs'
 import { readdir, readFile } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
 import { basename, join } from 'path'
@@ -322,7 +323,7 @@ async function loadLegacyProjectRootAgentFiles(
 
   const allParsedFiles = await Promise.all(
     claudeDirs.map(async claudeDir => {
-      let entries
+      let entries: Dirent[] = []
       try {
         entries = await readdir(claudeDir, { withFileTypes: true })
       } catch (e: unknown) {
@@ -363,7 +364,7 @@ async function loadLegacyProjectRootAgentFiles(
         }),
       )
 
-      return parsedFiles.filter(file => file !== null)
+      return parsedFiles.filter((file): file is NonNullable<typeof file> => file !== null)
     }),
   )
 
