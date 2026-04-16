@@ -104,6 +104,57 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'devstral-latest':          256_000,
   'ministral-3b-latest':      256_000,
 
+  // NVIDIA NIM - popular models
+  'nvidia/llama-3.1-nemotron-70b-instruct': 128_000,
+  'nvidia/llama-3.1-nemotron-ultra-253b-v1': 128_000,
+  'nvidia/nemotron-mini-4b-instruct': 32_768,
+  'meta/llama-3.1-405b-instruct': 128_000,
+  'meta/llama-3.1-70b-instruct': 128_000,
+  'meta/llama-3.1-8b-instruct': 128_000,
+  'meta/llama-3.2-90b-instruct': 128_000,
+  'meta/llama-3.2-1b-instruct': 128_000,
+  'meta/llama-3.2-3b-instruct': 128_000,
+  'meta/llama-3.3-70b-instruct': 128_000,
+  // Google Gemma via NVIDIA NIM
+  'google/gemma-2-27b-it': 8_192,
+  'google/gemma-2-9b-it': 8_192,
+  'google/gemma-3-27b-it': 131_072,
+  'google/gemma-3-12b-it': 131_072,
+  'google/gemma-3-4b-it': 131_072,
+  // DeepSeek via NVIDIA NIM
+  'deepseek-ai/deepseek-r1': 128_000,
+  'deepseek-ai/deepseek-v3': 128_000,
+  'deepseek-ai/deepseek-v3.2': 128_000,
+  // Qwen via NVIDIA NIM
+  'qwen/qwen3-32b': 128_000,
+  'qwen/qwen3-8b': 128_000,
+  'qwen/qwen2.5-7b-instruct': 32_768,
+  // Mistral via NVIDIA NIM
+  'mistralai/mistral-large-3-675b-instruct-2512': 256_000,
+  'mistralai/mistral-large-2-instruct': 256_000,
+  'mistralai/mistral-small-3.1-24b-instruct-2503': 32_768,
+  'mistralai/mixtral-8x7b-instruct-v0.1': 32_768,
+  // Microsoft Phi via NVIDIA NIM
+  'microsoft/phi-4-mini-instruct': 16_384,
+  'microsoft/phi-3.5-mini-instruct': 16_384,
+  'microsoft/phi-3-mini-128k-instruct': 128_000,
+  // IBM Granite via NVIDIA NIM
+  'ibm/granite-3.3-8b-instruct': 8_192,
+  'ibm/granite-8b-code-instruct': 8_192,
+  // GLM models via NVIDIA NIM
+  'z-ai/glm5': 200_000,
+  'z-ai/glm4.7': 128_000,
+  // Kimi models via NVIDIA NIM
+  'moonshotai/kimi-k2.5': 200_000,
+  'moonshotai/kimi-k2-instruct': 128_000,
+  // DBRX via NVIDIA NIM
+  'databricks/dbrx-instruct': 131_072,
+  // Jamba via NVIDIA NIM
+  'ai21labs/jamba-1.5-large-instruct': 256_000,
+  'ai21labs/jamba-1.5-mini-instruct': 256_000,
+  // Yi via NVIDIA NIM
+  '01-ai/yi-large': 32_768,
+
   // MiniMax (all M2.x variants share 204,800 context, 131,072 max output)
   'MiniMax-M2.7':             204_800,
   'MiniMax-M2.7-highspeed':   204_800,
@@ -117,6 +168,13 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'minimax-m2.5-highspeed':   204_800,
   'minimax-m2.1':             204_800,
   'minimax-m2.1-highspeed':   204_800,
+
+  // MiniMax new models
+  'MiniMax-Text-01':          524_288,
+  'MiniMax-Text-01-Preview':  262_144,
+  'MiniMax-Vision-01':        32_768,
+  'MiniMax-Vision-01-Fast':   16_384,
+  'MiniMax-M2':               204_800,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':1_048_576,
@@ -246,6 +304,12 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'minimax-m2.5-highspeed':  131_072,
   'minimax-m2.1':            131_072,
   'minimax-m2.1-highspeed':  131_072,
+  // New MiniMax models
+  'MiniMax-M2':              131_072,
+  'MiniMax-Text-01':          65_536,
+  'MiniMax-Text-01-Preview':  65_536,
+  'MiniMax-Vision-01':        16_384,
+  'MiniMax-Vision-01-Fast':    16_384,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':   8_192,
@@ -266,11 +330,32 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'deepseek-r1:14b':            8_192,
   'mistral:7b':                 4_096,
   'phi4:14b':                   4_096,
-  'gemma2:27b':                 4_096,
-  'codellama:13b':              4_096,
-  'llama3.2:1b':                4_096,
-  'qwen3:8b':                   8_192,
-  'codestral':                   8_192,
+
+  // NVIDIA NIM models
+  'nvidia/llama-3.1-nemotron-70b-instruct': 32_768,
+  'nvidia/nemotron-mini-4b-instruct': 8_192,
+  'meta/llama-3.1-405b-instruct': 32_768,
+  'meta/llama-3.1-70b-instruct': 32_768,
+  'meta/llama-3.2-90b-instruct': 32_768,
+  'meta/llama-3.3-70b-instruct': 32_768,
+  'google/gemma-2-27b-it': 4_096,
+  'google/gemma-3-27b-it': 16_384,
+  'google/gemma-3-12b-it': 16_384,
+  'deepseek-ai/deepseek-r1': 32_768,
+  'deepseek-ai/deepseek-v3': 32_768,
+  'deepseek-ai/deepseek-v3.2': 32_768,
+  'qwen/qwen3-32b': 32_768,
+  'qwen/qwen2.5-7b-instruct': 8_192,
+  'mistralai/mistral-large-3-675b-instruct-2512': 32_768,
+  'mistralai/mixtral-8x7b-instruct-v0.1': 8_192,
+  'microsoft/phi-4-mini-instruct': 4_096,
+  'microsoft/phi-3.5-mini-instruct': 4_096,
+  'ibm/granite-3.3-8b-instruct': 4_096,
+  'z-ai/glm5': 32_768,
+  'moonshotai/kimi-k2.5': 32_768,
+  'databricks/dbrx-instruct': 32_768,
+  'ai21labs/jamba-1.5-large-instruct': 32_768,
+  '01-ai/yi-large': 8_192,
 }
 
 function lookupByModel<T>(table: Record<string, T>, model: string): T | undefined {

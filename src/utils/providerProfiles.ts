@@ -5,6 +5,7 @@ import {
   type ProviderProfile,
 } from './config.js'
 import type { ModelOption } from './model/modelOptions.js'
+import { getPrimaryModel, parseModelList } from './providerModels.js'
 
 export type ProviderPreset =
   | 'anthropic'
@@ -20,6 +21,8 @@ export type ProviderPreset =
   | 'openrouter'
   | 'lmstudio'
   | 'custom'
+  | 'nvidia-nim'
+  | 'minimax'
 
 export type ProviderProfileInput = {
   provider?: ProviderProfile['provider']
@@ -229,6 +232,24 @@ export function getProviderPresetDefaults(
         apiKey: process.env.OPENAI_API_KEY ?? '',
         requiresApiKey: false,
       }
+    case 'nvidia-nim':
+      return {
+        provider: 'openai',
+        name: 'NVIDIA NIM',
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        apiKey: process.env.NVIDIA_API_KEY ?? '',
+        requiresApiKey: true,
+      }
+    case 'minimax':
+      return {
+        provider: 'openai',
+        name: 'MiniMax',
+        baseUrl: 'https://api.minimax.io/v1',
+        model: 'MiniMax-M2.5',
+        apiKey: process.env.MINIMAX_API_KEY ?? '',
+        requiresApiKey: true,
+      }
     case 'ollama':
     default:
       return {
@@ -311,7 +332,7 @@ function isProcessEnvAlignedWithProfile(
     return (
       !hasProviderSelectionFlags(processEnv) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, profile.model) &&
+      sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
     )
@@ -326,7 +347,7 @@ function isProcessEnvAlignedWithProfile(
     processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
     processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
-    sameOptionalEnvValue(processEnv.OPENAI_MODEL, profile.model) &&
+    sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey))
   )
@@ -365,6 +386,11 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.ANTHROPIC_API_KEY
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
+
+  // Clear provider-specific API keys
+  delete processEnv.MINIMAX_API_KEY
+  delete processEnv.NVIDIA_API_KEY
+  delete processEnv.NVIDIA_NIM
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -372,7 +398,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id
 
-  process.env.ANTHROPIC_MODEL = profile.model
+  process.env.ANTHROPIC_MODEL = getPrimaryModel(profile.model)
   if (profile.provider === 'anthropic') {
     process.env.ANTHROPIC_BASE_URL = profile.baseUrl
 
@@ -391,10 +417,18 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = profile.baseUrl
-  process.env.OPENAI_MODEL = profile.model
+  process.env.OPENAI_MODEL = getPrimaryModel(profile.model)
 
   if (profile.apiKey) {
     process.env.OPENAI_API_KEY = profile.apiKey
+    // Also set provider-specific API keys for detection
+    const baseUrl = profile.baseUrl.toLowerCase()
+    if (baseUrl.includes('minimax')) {
+      process.env.MINIMAX_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
+      process.env.NVIDIA_API_KEY = profile.apiKey
+    }
   } else {
     delete process.env.OPENAI_API_KEY
   }
@@ -548,6 +582,16 @@ export function persistActiveProviderProfileModel(
     return null
   }
 
+  // If the model is already part of the profile's model list, don't
+  // overwrite the field. This preserves comma-separated model lists like
+  // "glm-4.5, glm-4.7". Switching between models in the list is a
+  // session-level choice handled by mainLoopModelOverride, not a profile
+  // edit — the profile's model list should only change via explicit edit.
+  const existingModels = parseModelList(activeProfile.model)
+  if (existingModels.includes(nextModel)) {
+    return activeProfile
+  }
+
   saveGlobalConfig(current => {
     const currentProfiles = getProviderProfiles(current)
     const profileIndex = currentProfiles.findIndex(
@@ -590,6 +634,23 @@ export function persistActiveProviderProfileModel(
   return resolvedProfile
 }
 
+/**
+ * Generate model options from a provider profile's model field.
+ * Each comma-separated model becomes a separate option in the picker.
+ */
+export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] {
+  const models = parseModelList(profile.model)
+  if (models.length === 0) {
+    return []
+  }
+
+  return models.map(model => ({
+    value: model,
+    label: model,
+    description: `Provider: ${profile.name}`,
+  }))
+}
+
 export function setActiveProviderProfile(
   profileId: string,
 ): ProviderProfile | null {
@@ -601,10 +662,20 @@ export function setActiveProviderProfile(
     return null
   }
 
+  const profileModelOptions = getProfileModelOptions(activeProfile)
+
   saveGlobalConfig(config => ({
     ...config,
     activeProviderProfileId: profileId,
-    openaiAdditionalModelOptionsCache: getModelCacheByProfile(profileId, config),
+    openaiAdditionalModelOptionsCache: profileModelOptions.length > 0
+      ? profileModelOptions
+      : getModelCacheByProfile(profileId, config),
+    openaiAdditionalModelOptionsCacheByProfile: {
+      ...(config.openaiAdditionalModelOptionsCacheByProfile ?? {}),
+      [profileId]: profileModelOptions.length > 0
+        ? profileModelOptions
+        : (config.openaiAdditionalModelOptionsCacheByProfile?.[profileId] ?? []),
+    },
   }))
 
   applyProviderProfileToProcessEnv(activeProfile)
