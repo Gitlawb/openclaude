@@ -216,7 +216,7 @@ export function ConfirmStep(t0) {
     }
     t11 = memoryDisplayElement;
     if ($[54] === Symbol.for("react.memo_cache_sentinel")) {
-      t12 = <Box marginTop={1}><Text><Text bold={true}>Description</Text> (tells Claude when to use this agent):</Text></Box>;
+      t12 = <Box marginTop={1}><Text><Text bold={true}>Description</Text> (tells when to use this agent):</Text></Box>;
       $[54] = t12;
     } else {
       t12 = $[54];

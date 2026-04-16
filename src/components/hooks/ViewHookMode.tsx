@@ -133,7 +133,7 @@ export function ViewHookMode(t0) {
   }
   let t14;
   if ($[32] === Symbol.for("react.memo_cache_sentinel")) {
-    t14 = <Text dimColor={true}>To modify or remove this hook, edit settings.json directly or ask Claude to help.</Text>;
+    t14 = <Text dimColor={true}>To modify or remove this hook, edit settings.json directly or ask the model to help.</Text>;
     $[32] = t14;
   } else {
     t14 = $[32];

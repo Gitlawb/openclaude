@@ -35,14 +35,14 @@ function log(message: string, ...args: unknown[]): void {
   if (LOG_FILE) {
     const timestamp = new Date().toISOString()
     const formattedArgs = args.length > 0 ? ' ' + jsonStringify(args) : ''
-    const logLine = `[${timestamp}] [Claude Chrome Native Host] ${message}${formattedArgs}\n`
+    const logLine = `[${timestamp}] [Chrome Native Host] ${message}${formattedArgs}\n`
     // Fire-and-forget: logging is best-effort and callers (including event
     // handlers) don't await
     void appendFile(LOG_FILE, logLine).catch(() => {
       // Ignore file write errors
     })
   }
-  console.error(`[Claude Chrome Native Host] ${message}`, ...args)
+  console.error(`[Chrome Native Host] ${message}`, ...args)
 }
 /**
  * Send a message to stdout (Chrome native messaging protocol)

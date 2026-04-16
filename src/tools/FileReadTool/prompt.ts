@@ -37,7 +37,7 @@ Usage:
 - By default, it reads up to ${MAX_LINES_TO_READ} lines starting from the beginning of the file${maxSizeInstruction}
 ${offsetInstruction}
 ${lineFormat}
-- This tool allows Claude Code to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as Claude Code is a multimodal LLM.${
+- This tool allows Neural Network to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as Neural Network is a multimodal LLM.${
     isPDFSupported()
       ? '\n- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you MUST provide the pages parameter to read specific page ranges (e.g., pages: "1-5"). Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request.'
       : ''

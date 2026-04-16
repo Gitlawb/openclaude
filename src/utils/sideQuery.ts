@@ -51,7 +51,7 @@ export type SideQueryOptions = {
   maxRetries?: number
   /** Abort signal */
   signal?: AbortSignal
-  /** Skip CLI system prompt prefix (keeps attribution header for OAuth). Default true — side queries are internal classifiers with their own prompt. Set false only for queries that need the full "You are Claude Code…" prefix. */
+  /** Skip CLI system prompt prefix (keeps attribution header for OAuth). Default true — side queries are internal classifiers with their own prompt. Set false only for queries that need the full "You are Neural Network…" prefix. */
   skipSystemPromptPrefix?: boolean
   /** Temperature override */
   temperature?: number

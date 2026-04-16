@@ -1,6 +1,6 @@
 export const PRODUCT_URL = 'https://claude.com/claude-code'
 
-// Claude Code Remote session URLs
+// Neural Network Remote session URLs
 export const CLAUDE_AI_BASE_URL = 'https://claude.ai'
 export const CLAUDE_AI_STAGING_BASE_URL = 'https://claude-ai.staging.ant.dev'
 export const CLAUDE_AI_LOCAL_BASE_URL = 'http://localhost:4000'

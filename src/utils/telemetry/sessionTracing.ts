@@ -1,8 +1,8 @@
 /**
- * Session Tracing for Claude Code using OpenTelemetry (BETA)
+ * Session Tracing for Neural Network using OpenTelemetry (BETA)
  *
  * This module provides a high-level API for creating and managing spans
- * to trace Claude Code workflows. Each user interaction creates a root
+ * to trace Neural Network workflows. Each user interaction creates a root
  * interaction span, which contains operation spans (LLM requests, tool calls, etc.).
  *
  * Requirements:

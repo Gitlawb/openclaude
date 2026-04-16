@@ -16,7 +16,7 @@ describe('resolveCodexApiCredentials with secure storage', () => {
     mock.restore()
   })
 
-  test('loads Codex credentials from OpenClaude secure storage', async () => {
+  test('loads Codex credentials from Neural Network secure storage', async () => {
     mock.module('../../utils/codexCredentials.js', () => ({
       isCodexRefreshFailureCoolingDown: () => false,
       readCodexCredentials: () => ({

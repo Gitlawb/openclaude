@@ -565,7 +565,7 @@ export const PowerShellTool = buildTool({
 
       let stdout = stripEmptyLines(stdoutAccumulator.toString());
 
-      // Claude Code hints protocol: CLIs/SDKs gated on CLAUDECODE=1 emit a
+      // Neural Network hints protocol: CLIs/SDKs gated on CLAUDECODE=1 emit a
       // `<claude-code-hint />` tag to stderr (merged into stdout here). Scan,
       // record for useClaudeCodeHintRecommendation to surface, then strip
       // so the model never sees the tag — a zero-token side channel.

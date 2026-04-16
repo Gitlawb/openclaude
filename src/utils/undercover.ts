@@ -3,10 +3,10 @@
  *
  * When active:
  *  - The system prompt omits "You are powered by claude-…" lines and any
- *    mention of Claude model families, OpenClaude, or fast mode.
+ *    mention of Claude model families, Neural Network, or fast mode.
  *  - Commit / PR prompts get a prefix instructing the assistant not to add
  *    AI-authorship markers.
- *  - Co-Authored-By trailers and "Generated with OpenClaude" attribution
+ *  - Co-Authored-By trailers and "Generated with Neural Network" attribution
  *    are stripped from commits and PRs.
  *  - The prompt footer shows an "undercover" indicator.
  *
@@ -36,7 +36,7 @@ markers that hint the output was machine-generated.
 
 NEVER include in commit messages, PR titles, PR bodies, or code comments:
 - Any mention that you are an AI, LLM, or assistant
-- The names "Claude", "OpenClaude", "Anthropic", or any model codename
+- The names "Claude", "Neural Network", "Anthropic", or any model codename
 - Model version strings (e.g., "claude-opus-4-6", "sonnet-4-5")
 - Phrases like "Generated with", "🤖 Generated", "Co-Authored-By: Claude …"
 - "As an AI, …" disclaimers or meta-commentary about being an assistant
@@ -50,10 +50,10 @@ GOOD:
 - "Refactor parser for better error messages"
 
 BAD (never write these):
-- "Generated with Claude / OpenClaude"
+- "Generated with Claude / Neural Network"
 - "Co-Authored-By: Claude Opus 4.6 <…>"
 - "As an AI language model, I've refactored …"
-- "🤖 Generated with OpenClaude"
+- "🤖 Generated with Neural Network"
 `
 }
 

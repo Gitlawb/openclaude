@@ -1,6 +1,6 @@
-# OpenClaude VS Code Extension
+# Neural Network VS Code Extension
 
-A practical VS Code companion for OpenClaude with a project-aware **Control Center**, predictable terminal launch behavior, and quick access to useful OpenClaude workflows.
+A practical VS Code companion for Neural Network with a project-aware **Control Center**, predictable terminal launch behavior, and quick access to useful Neural Network workflows.
 
 ## Features
 
@@ -13,17 +13,17 @@ A practical VS Code companion for OpenClaude with a project-aware **Control Cent
   - whether `.openclaude-profile.json` exists in the current workspace root
   - a conservative provider summary derived from the workspace profile or known environment flags
 - **Project-aware launch behavior**:
-  - `Launch OpenClaude` launches from the active editor's workspace when possible
+  - `Launch Neural Network` launches from the active editor's workspace when possible
   - falls back to the first workspace folder when needed
   - avoids launching from an arbitrary default cwd when a project is open
 - **Practical sidebar actions**:
-  - Launch OpenClaude
+  - Launch Neural Network
   - Launch in Workspace Root
   - Open Workspace Profile
   - Open Repository
   - Open Setup Guide
   - Open Command Palette
-- **Built-in dark theme**: `OpenClaude Terminal Black`
+- **Built-in dark theme**: `Neural Network Terminal Black`
 
 ## Requirements
 
@@ -32,17 +32,17 @@ A practical VS Code companion for OpenClaude with a project-aware **Control Cent
 
 ## Commands
 
-- `OpenClaude: Open Control Center`
-- `OpenClaude: Launch in Terminal`
-- `OpenClaude: Launch in Workspace Root`
-- `OpenClaude: Open Repository`
-- `OpenClaude: Open Setup Guide`
-- `OpenClaude: Open Workspace Profile`
+- `Neural Network: Open Control Center`
+- `Neural Network: Launch in Terminal`
+- `Neural Network: Launch in Workspace Root`
+- `Neural Network: Open Repository`
+- `Neural Network: Open Setup Guide`
+- `Neural Network: Open Workspace Profile`
 
 ## Settings
 
 - `openclaude.launchCommand` (default: `openclaude`)
-- `openclaude.terminalName` (default: `OpenClaude`)
+- `openclaude.terminalName` (default: `Neural Network`)
 - `openclaude.useOpenAIShim` (default: `false`)
 
 `openclaude.useOpenAIShim` only injects `CLAUDE_CODE_USE_OPENAI=1` into terminals launched by the extension. It does not guess or configure a provider by itself.

@@ -351,7 +351,7 @@ export function HooksConfigMenu(t0) {
     }
     let t32;
     if ($[53] !== disabledByPolicy) {
-      t32 = !disabledByPolicy && <Text dimColor={true}>To re-enable hooks, remove "disableAllHooks" from settings.json or ask Claude.</Text>;
+      t32 = !disabledByPolicy && <Text dimColor={true}>To re-enable hooks, remove "disableAllHooks" from settings.json or ask the model.</Text>;
       $[53] = disabledByPolicy;
       $[54] = t32;
     } else {

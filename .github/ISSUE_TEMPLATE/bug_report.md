@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible problem in OpenClaude
+about: Report a reproducible problem in Neural Network
 title: ""
 labels: ""
 assignees: ""
@@ -26,7 +26,7 @@ What happened instead?
 
 ## Environment
 
-- OpenClaude version:
+- Neural Network version:
 - OS:
 - Terminal:
 - Provider:

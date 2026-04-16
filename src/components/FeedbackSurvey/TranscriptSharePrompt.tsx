@@ -50,7 +50,7 @@ export function TranscriptSharePrompt(t0) {
   useDebouncedDigitInput(t2);
   let t3;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Box><Text color="ansi:cyan">{BLACK_CIRCLE} </Text><Text bold={true}>Can Anthropic look at your session transcript to help us improve Claude Code?</Text></Box>;
+    t3 = <Box><Text color="ansi:cyan">{BLACK_CIRCLE} </Text><Text bold={true}>Can Anthropic look at your session transcript to help us improve Neural Network?</Text></Box>;
     $[6] = t3;
   } else {
     t3 = $[6];

@@ -70,7 +70,7 @@ export function IdeOnboardingDialog(t0) {
   }
   let t6;
   if ($[8] !== ideName) {
-    t6 = <>{t5}<Text>Welcome to Claude Code for {ideName}</Text></>;
+    t6 = <>{t5}<Text>Welcome to Neural Network for {ideName}</Text></>;
     $[8] = ideName;
     $[9] = t6;
   } else {
@@ -86,7 +86,7 @@ export function IdeOnboardingDialog(t0) {
   }
   let t9;
   if ($[11] === Symbol.for("react.memo_cache_sentinel")) {
-    t9 = <Text>• Claude has context of {t8}{" "}and <Text color="suggestion">⧉ selected lines</Text></Text>;
+    t9 = <Text>• Has context of {t8}{" "}and <Text color="suggestion">⧉ selected lines</Text></Text>;
     $[11] = t9;
   } else {
     t9 = $[11];
@@ -100,7 +100,7 @@ export function IdeOnboardingDialog(t0) {
   }
   let t11;
   if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-    t11 = <Text>• Review Claude Code's changes{" "}{t10}{" "}<Text color="diffRemovedWord">-22</Text> in the comfort of your IDE</Text>;
+    t11 = <Text>• Review Neural Network's changes{" "}{t10}{" "}<Text color="diffRemovedWord">-22</Text> in the comfort of your IDE</Text>;
     $[13] = t11;
   } else {
     t11 = $[13];

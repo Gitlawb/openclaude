@@ -8,7 +8,7 @@ import {
   validateProviderEnvOrExit,
 } from '../utils/providerValidation.js'
 
-// OpenClaude: polyfill globalThis.File for Node < 20.
+// Neural Network: polyfill globalThis.File for Node < 20.
 // undici v7 references `File` at module evaluation time (webidl type
 // assertions). Node 18 lacks the global, causing a ReferenceError inside
 // the bundled __commonJS require chain which deadlocks the process when a
@@ -36,7 +36,7 @@ if (typeof globalThis.File === 'undefined') {
   }
 }
 
-// OpenClaude: disable experimental API betas by default.
+// Neural Network: disable experimental API betas by default.
 // Tool search (defer_loading), global cache scope, and context management
 // require internal API support not available to external accounts → 500.
 // Users can opt-in with CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=false.
@@ -84,6 +84,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Enable configs early so any Ink rendering (e.g. --modellist) can call
+  // getGlobalConfig() without hitting "Config accessed before allowed".
+  {
+    const { enableConfigs } = await import('../utils/config.js')
+    enableConfigs()
+  }
+
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
@@ -96,10 +103,50 @@ async function main(): Promise<void> {
     }
   }
 
-  // Enable configs first so we can read settings
-  {
-    const { enableConfigs } = await import('../utils/config.js')
-    enableConfigs()
+  // --modellist: interactive provider + model wizard
+  if (args.includes('--modellist')) {
+    // Remove the flag so the main CLI doesn't see it as unknown
+    process.argv = process.argv.filter(a => a !== '--modellist')
+
+    const { render } = await import('../ink.js')
+    const React = await import('react')
+    const { StartupProviderWizard } = await import('../components/StartupProviderWizard.js')
+
+    let resolveResult: (r: import('../components/StartupProviderWizard.js').WizardResult | null) => void
+    const resultPromise = new Promise<import('../components/StartupProviderWizard.js').WizardResult | null>(
+      res => { resolveResult = res },
+    )
+
+    const instance = await render(
+      React.createElement(StartupProviderWizard, {
+        onSelect: result => resolveResult(result),
+        onCancel: () => resolveResult(null),
+      }),
+    )
+    const result = await resultPromise
+    instance.unmount()
+
+    if (!result) {
+      // biome-ignore lint/suspicious/noConsole:: intentional
+      console.log('Cancelled.')
+      // eslint-disable-next-line custom-rules/no-process-exit
+      process.exit(0)
+    }
+
+    // Apply env vars to the current process so startup sees the new provider
+    Object.assign(process.env, result.envVars)
+
+    // Persist to ~/.claude/settings.json env field
+    const { updateSettingsForSource } = await import('../utils/settings/settings.js')
+    const { getSettingsForSource } = await import('../utils/settings/settings.js')
+    const existing = getSettingsForSource('userSettings') ?? {}
+    updateSettingsForSource('userSettings', {
+      ...existing,
+      env: { ...(existing.env ?? {}), ...result.envVars },
+    })
+
+    // biome-ignore lint/suspicious/noConsole:: intentional
+    console.log(`Provider: ${result.provider}  Model: ${result.model}`)
   }
 
   // Apply settings.env from user settings (includes GitHub provider settings from /onboard-github)
@@ -177,7 +224,7 @@ async function main(): Promise<void> {
     profileCheckpoint('cli_chrome_native_host_path');
     const {
       runChromeNativeHost
-    } = await import('../utils/claudeInChrome/chromeNativeHost.js');
+    } = await import('../utils/claudeInChromeEnable Chrome integrationNativeHost.js');
     await runChromeNativeHost();
     return;
   } else if (feature('CHICAGO_MCP') && process.argv[2] === '--computer-use-mcp') {
@@ -368,6 +415,22 @@ async function main(): Promise<void> {
         exitWithError(result.error);
       }
     }
+  }
+
+  // --remote / --remote-on: start the interactive REPL and auto-activate the
+  // local-remote bridge so the session is immediately available in a browser.
+  if (args.includes('--remote') || args.includes('--remote-on')) {
+    process.env.OPENCLAUDE_REMOTE_ON = '1'
+    // Strip the flag so commander/main don't see an unknown option.
+    process.argv = process.argv.filter(a => a !== '--remote' && a !== '--remote-on')
+  }
+
+  // Fast-path for `openclaude remote-daemon [--stop|--status]`.
+  // Standalone daemon for the /remote multi-session bridge.
+  if (args[0] === 'remote-daemon' || args[0] === '--remote-daemon') {
+    const { remoteDaemonCli } = await import('../localRemote/daemon/main.js');
+    await remoteDaemonCli(args.slice(1));
+    return;
   }
 
   // Redirect common update flag mistakes to the update subcommand

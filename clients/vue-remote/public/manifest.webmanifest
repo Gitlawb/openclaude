@@ -1,0 +1,19 @@
+{
+  "name": "openclaude remote",
+  "short_name": "openclaude",
+  "description": "Phone client for the openclaude /remote bridge",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

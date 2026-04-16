@@ -113,7 +113,7 @@ function Install({
 
         // Check specifically for lock failure
         if (result.lockFailed) {
-          throw new Error('Could not install - another process is currently installing Claude. Please try again in a moment.');
+          throw new Error('Could not install - another process is currently installing the CLI. Please try again in a moment.');
         }
 
         // If we couldn't get the version, there might be an issue
@@ -210,12 +210,12 @@ function Install({
   useEffect(() => {
     if (state.type === 'success') {
       // Give success message time to render before exiting
-      setTimeout(onDone, 2000, 'Claude Code installation completed successfully', {
+      setTimeout(onDone, 2000, 'Neural Network installation completed successfully', {
         display: 'system' as const
       });
     } else if (state.type === 'error') {
       // Give error message time to render before exiting
-      setTimeout(onDone, 3000, 'Claude Code installation failed', {
+      setTimeout(onDone, 3000, 'Neural Network installation failed', {
         display: 'system' as const
       });
     }
@@ -226,7 +226,7 @@ function Install({
       {state.type === 'cleaning-npm' && <Text color="warning">Cleaning up old npm installations...</Text>}
 
       {state.type === 'installing' && <Text color="claude">
-          Installing Claude Code native build {state.version}...
+          Installing Neural Network native build {state.version}...
         </Text>}
 
       {state.type === 'setting-up' && <Text color="claude">Setting up launcher and shell integration...</Text>}
@@ -237,7 +237,7 @@ function Install({
           <Box>
             <StatusIcon status="success" withSpace />
             <Text color="success" bold>
-              Claude Code successfully installed!
+              Neural Network successfully installed!
             </Text>
           </Box>
           <Box marginLeft={2} flexDirection="column" gap={1}>
@@ -279,7 +279,7 @@ function Install({
 export const install = {
   type: 'local-jsx' as const,
   name: 'install',
-  description: 'Install Claude Code native build',
+  description: 'Install Neural Network native build',
   argumentHint: '[options]',
   async call(onDone: (result: string, options?: {
     display?: CommandResultDisplay;

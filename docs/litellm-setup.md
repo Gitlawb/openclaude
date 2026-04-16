@@ -1,10 +1,10 @@
 # LiteLLM Setup
 
-OpenClaude can connect to LiteLLM through LiteLLM's OpenAI-compatible proxy.
+Neural Network can connect to LiteLLM through LiteLLM's OpenAI-compatible proxy.
 
 ## Overview
 
-LiteLLM is an open-source LLM gateway that provides a unified API to 100+ model providers. By running the LiteLLM Proxy, you can route OpenClaude requests through LiteLLM to access any of its supported providers — all while using OpenClaude's existing OpenAI-compatible provider path.
+LiteLLM is an open-source LLM gateway that provides a unified API to 100+ model providers. By running the LiteLLM Proxy, you can route Neural Network requests through LiteLLM to access any of its supported providers — all while using Neural Network's existing OpenAI-compatible provider path.
 
 ## Prerequisites
 
@@ -55,7 +55,7 @@ litellm --config litellm_config.yaml --port 4000
 
 The proxy will start at `http://localhost:4000` by default.
 
-## 2. Point OpenClaude to LiteLLM
+## 2. Point Neural Network to LiteLLM
 
 ### Option A: Environment Variables
 
@@ -112,7 +112,7 @@ litellm_settings:
 # Start proxy with a master key
 litellm --config litellm_config.yaml --port 4000 --master_key sk-my-master-key
 
-# Connect OpenClaude
+# Connect Neural Network
 export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_BASE_URL=http://localhost:4000
 export OPENAI_API_KEY=sk-my-master-key
@@ -124,8 +124,8 @@ openclaude
 
 - `OPENAI_MODEL` must match the **LiteLLM model alias** defined in your config, not the upstream raw provider model name.
 - If your proxy requires authentication, use the proxy key (or `master_key`) in `OPENAI_API_KEY`.
-- LiteLLM's OpenAI-compatible endpoint accepts the same request format as OpenAI, so OpenClaude works without any code changes.
-- You can switch between any provider configured in LiteLLM by simply changing the `OPENAI_MODEL` value — no need to reconfigure OpenClaude.
+- LiteLLM's OpenAI-compatible endpoint accepts the same request format as OpenAI, so Neural Network works without any code changes.
+- You can switch between any provider configured in LiteLLM by simply changing the `OPENAI_MODEL` value — no need to reconfigure Neural Network.
 
 ## 5. Troubleshooting
 

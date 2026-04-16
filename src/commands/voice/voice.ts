@@ -22,7 +22,7 @@ export const call: LocalCommandCall = async () => {
       return {
         type: 'text' as const,
         value:
-          'Voice mode requires a Claude.ai account. Please run /login to sign in.',
+          'Voice mode requires an account. Please run /login to sign in.',
       }
     }
     return {
@@ -75,7 +75,7 @@ export const call: LocalCommandCall = async () => {
     return {
       type: 'text' as const,
       value:
-        'Voice mode requires a Claude.ai account. Please run /login to sign in.',
+        'Voice mode requires an account. Please run /login to sign in.',
     }
   }
 

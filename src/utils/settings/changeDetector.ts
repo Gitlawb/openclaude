@@ -40,7 +40,7 @@ const FILE_STABILITY_POLL_INTERVAL_MS = 500
 /**
  * Time window in milliseconds to consider a file change as internal.
  * If a file change occurs within this window after markInternalWrite() is called,
- * it's assumed to be from Claude Code itself and won't trigger a notification.
+ * it's assumed to be from Neural Network itself and won't trigger a notification.
  */
 const INTERNAL_WRITE_WINDOW_MS = 5000
 

@@ -49,6 +49,17 @@ const proactiveModule = feature('PROACTIVE') || feature('KAIROS') ? require('../
 const NO_OP_SUBSCRIBE = (_cb: () => void) => () => {};
 const NULL = () => null;
 const MAX_VOICE_HINT_SHOWS = 3;
+
+const PERMISSION_MODE_TITLE_UA: Partial<Record<string, string>> = {
+  plan: 'режим планування',
+  acceptEdits: 'автоприйняття правок',
+  bypassPermissions: 'обхід дозволів',
+  dontAsk: 'без підтверджень',
+  auto: 'авто режим',
+}
+function permissionModeTitleUA(mode: string): string {
+  return PERMISSION_MODE_TITLE_UA[mode] ?? permissionModeTitle(mode as never).toLowerCase()
+}
 type Props = {
   exitMessage: {
     show: boolean;
@@ -347,10 +358,9 @@ function ModeIndicator({
   // doesn't push the mode indicator off-screen.
   const modePart = currentMode && hasActiveMode && !getIsRemoteMode() ? <Text color={getModeColor(currentMode)} key="mode">
         {permissionModeSymbol(currentMode)}{' '}
-        {permissionModeTitle(currentMode).toLowerCase()} on
+        {permissionModeTitleUA(currentMode)} увімкнено
         {shouldShowModeHint && <Text dimColor>
-            {' '}
-            <KeyboardShortcutHint shortcut={modeCycleShortcut} action="cycle" parens />
+            {' '}({modeCycleShortcut} для перемикання)
           </Text>}
       </Text> : null;
 
@@ -504,7 +514,7 @@ function getSpinnerHintParts(isLoading: boolean, escShortcut: string, todosShort
   // teammates to cycle to
   const showToggleHint = hasTaskItems || hasTeammates;
   return [...(isLoading ? [<Text dimColor key="esc">
-            <KeyboardShortcutHint shortcut={escShortcut} action="interrupt" />
+            {escShortcut} для переривання
           </Text>] : []), ...(!isLoading && hasRunningAgentTasks && !isKillAgentsConfirmShowing ? [<Text dimColor key="kill-agents">
             <KeyboardShortcutHint shortcut={killAgentsShortcut} action="stop agents" />
           </Text>] : []), ...(showToggleHint ? [<Text dimColor key="toggle-tasks">

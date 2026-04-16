@@ -1,5 +1,5 @@
 /**
- * Perfetto Tracing for Claude Code (Ant-only)
+ * Perfetto Tracing for Neural Network (Ant-only)
  *
  * This module generates traces in the Chrome Trace Event format that can be
  * viewed in ui.perfetto.dev or Chrome's chrome://tracing.
@@ -16,7 +16,7 @@
  * 1. Enable via CLAUDE_CODE_PERFETTO_TRACE=1 or CLAUDE_CODE_PERFETTO_TRACE=<path>
  * 2. Optionally set CLAUDE_CODE_PERFETTO_WRITE_INTERVAL_S=<positive integer> to write the
  *    trace file periodically (default: write only on exit).
- * 3. Run Claude Code normally
+ * 3. Run Neural Network normally
  * 4. Trace file is written to ~/.claude/traces/trace-<session-id>.json
  *    or to the specified path
  * 5. Open in ui.perfetto.dev to visualize

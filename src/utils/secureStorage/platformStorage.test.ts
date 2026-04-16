@@ -43,7 +43,7 @@ describe("Secure Storage Platform Implementations", () => {
       const otherName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
       expect(otherName).not.toBe(defaultName);
-      expect(otherName).toContain("Claude Code");
+      expect(otherName).toContain("Neural Network");
       expect(otherName).toContain(CREDENTIALS_SERVICE_SUFFIX);
     });
 

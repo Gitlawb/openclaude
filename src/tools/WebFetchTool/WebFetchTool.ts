@@ -85,9 +85,9 @@ export const WebFetchTool = buildTool({
     const { url } = input as { url: string }
     try {
       const hostname = new URL(url).hostname
-      return `Claude wants to fetch content from ${hostname}`
+      return `Нейромережа хоче завантажити контент з ${hostname}`
     } catch {
-      return `Claude wants to fetch content from this URL`
+      return `Нейромережа хоче завантажити контент з цього URL`
     }
   },
   userFacingName() {
@@ -159,7 +159,7 @@ export const WebFetchTool = buildTool({
     if (askRule) {
       return {
         behavior: 'ask',
-        message: `Claude requested permissions to use ${WebFetchTool.name}, but you haven't granted it yet.`,
+        message: `Requested access to use ${WebFetchTool.name}, but you haven't granted it yet.`,
         decisionReason: {
           type: 'rule',
           rule: askRule,
@@ -186,7 +186,7 @@ export const WebFetchTool = buildTool({
 
     return {
       behavior: 'ask',
-      message: `Claude requested permissions to use ${WebFetchTool.name}, but you haven't granted it yet.`,
+      message: `Requested access to use ${WebFetchTool.name}, but you haven't granted it yet.`,
       suggestions: buildSuggestions(ruleContent),
     }
   },

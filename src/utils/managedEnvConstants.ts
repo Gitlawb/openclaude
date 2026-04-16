@@ -84,7 +84,7 @@ export const DANGEROUS_SHELL_SETTINGS = [
 
 /**
  * Safe environment variables that can be applied before trust dialog.
- * These are Claude Code specific settings that don't pose security risks.
+ * These are Neural Network specific settings that don't pose security risks.
  *
  * IMPORTANT: This is the source of truth for which env vars are safe.
  * Any env var NOT in this list is considered dangerous and will trigger

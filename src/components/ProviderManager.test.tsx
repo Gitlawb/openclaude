@@ -607,7 +607,7 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
     expect.objectContaining({
       action: 'saved',
       message:
-        'Codex OAuth configured. OpenClaude switched to it for this session.',
+        'Codex OAuth configured. Neural Network switched to it for this session.',
     }),
   )
 

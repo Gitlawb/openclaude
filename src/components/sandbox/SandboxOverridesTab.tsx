@@ -161,7 +161,7 @@ function OverridesSelect(t0) {
   }
   let t11;
   if ($[20] === Symbol.for("react.memo_cache_sentinel")) {
-    t11 = <Text dimColor={true}><Text bold={true} dimColor={true}>Allow unsandboxed fallback:</Text>{" "}When a command fails due to sandbox restrictions, Claude can retry with dangerouslyDisableSandbox to run outside the sandbox (falling back to default permissions).</Text>;
+    t11 = <Text dimColor={true}><Text bold={true} dimColor={true}>Allow unsandboxed fallback:</Text>{" "}When a command fails due to sandbox restrictions, a retry with dangerouslyDisableSandbox can run outside the sandbox (falling back to default permissions).</Text>;
     $[20] = t11;
   } else {
     t11 = $[20];

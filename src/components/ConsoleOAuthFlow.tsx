@@ -72,7 +72,7 @@ export function ConsoleOAuthFlow({
   const settings = getSettings_DEPRECATED() || {};
   const forceLoginMethod = forceLoginMethodProp ?? settings.forceLoginMethod;
   const orgUUID = settings.forceLoginOrgUUID;
-  const forcedMethodMessage = forceLoginMethod === 'claudeai' ? 'Login method pre-selected: Subscription Plan (Claude Pro/Max)' : forceLoginMethod === 'console' ? 'Login method pre-selected: API Usage Billing (Anthropic Console)' : null;
+  const forcedMethodMessage = forceLoginMethod === 'claudeai' ? 'Login method pre-selected: Subscription Plan (Pro/Max)' : forceLoginMethod === 'console' ? 'Login method pre-selected: API Usage Billing (Anthropic Console)' : null;
   const terminal = useTerminalNotification();
   const [oauthStatus, setOAuthStatus] = useState<OAuthStatus>(() => {
     if (initialStatus) {
@@ -262,7 +262,7 @@ export function ConsoleOAuthFlow({
           state: 'success'
         });
         void sendNotification({
-          message: 'Claude Code login successful',
+          message: 'Neural Network login successful',
           notificationType: 'auth_success'
         }, terminal);
       }
@@ -384,13 +384,13 @@ function OAuthStatusMessage({
     case 'idle': {
       const promptText =
         startingMessage ||
-        'Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.'
+        'Neural Network can be used with your subscription or billed based on API usage through your Console account.'
 
       const loginOptions = [
         {
           label: (
             <Text>
-              Claude account with subscription ·{' '}
+              Account with subscription ·{' '}
               <Text dimColor>Pro, Max, Team, or Enterprise</Text>
               {'\n'}
             </Text>
@@ -512,7 +512,7 @@ function OAuthStatusMessage({
         <Box flexDirection="column" gap={1}>
           <Box>
             <Spinner />
-            <Text>Creating API key for Claude Code…</Text>
+            <Text>Creating API key for Neural Network…</Text>
           </Box>
         </Box>
       )

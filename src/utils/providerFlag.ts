@@ -23,6 +23,7 @@ export const VALID_PROVIDERS = [
   'ollama',
   'nvidia-nim',
   'minimax',
+  'openrouter',
 ] as const
 
 export type ProviderFlagName = (typeof VALID_PROVIDERS)[number]
@@ -146,6 +147,18 @@ export function applyProviderFlag(
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://api.minimax.io/v1'
       process.env.OPENAI_MODEL ??= 'MiniMax-M2.5'
+      if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'openrouter':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      if (!process.env.OPENAI_BASE_URL) {
+        process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+      }
+      // Support dedicated OPENROUTER_API_KEY or fall back to OPENAI_API_KEY
+      if (!process.env.OPENAI_API_KEY && process.env.OPENROUTER_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.OPENROUTER_API_KEY
+      }
       if (model) process.env.OPENAI_MODEL = model
       break
   }

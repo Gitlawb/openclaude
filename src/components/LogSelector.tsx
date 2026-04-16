@@ -1315,7 +1315,7 @@ export function LogSelector(t0) {
   }
   let t66;
   if ($[187] !== agenticSearchState.results || $[188] !== agenticSearchState.status) {
-    t66 = agenticSearchState.status === "results" && agenticSearchState.results.length > 0 && <Box paddingLeft={1} marginBottom={1} flexShrink={0}><Text dimColor={true} italic={true}>Claude found these results:</Text></Box>;
+    t66 = agenticSearchState.status === "results" && agenticSearchState.results.length > 0 && <Box paddingLeft={1} marginBottom={1} flexShrink={0}><Text dimColor={true} italic={true}>Found these results:</Text></Box>;
     $[187] = agenticSearchState.results;
     $[188] = agenticSearchState.status;
     $[189] = t66;
@@ -1343,7 +1343,7 @@ export function LogSelector(t0) {
   }
   let t69;
   if ($[197] !== agenticSearchState.status || $[198] !== isAgenticSearchOptionFocused || $[199] !== onAgenticSearch || $[200] !== searchQuery) {
-    t69 = Boolean(searchQuery.trim()) && onAgenticSearch && false && agenticSearchState.status !== "searching" && agenticSearchState.status !== "results" && agenticSearchState.status !== "error" && <Box flexShrink={0} flexDirection="column"><Box flexDirection="row" gap={1}><Text color={isAgenticSearchOptionFocused ? "suggestion" : undefined}>{isAgenticSearchOptionFocused ? figures.pointer : " "}</Text><Text color={isAgenticSearchOptionFocused ? "suggestion" : undefined} bold={isAgenticSearchOptionFocused}>Search deeply using Claude →</Text></Box><Box height={1} /></Box>;
+    t69 = Boolean(searchQuery.trim()) && onAgenticSearch && false && agenticSearchState.status !== "searching" && agenticSearchState.status !== "results" && agenticSearchState.status !== "error" && <Box flexShrink={0} flexDirection="column"><Box flexDirection="row" gap={1}><Text color={isAgenticSearchOptionFocused ? "suggestion" : undefined}>{isAgenticSearchOptionFocused ? figures.pointer : " "}</Text><Text color={isAgenticSearchOptionFocused ? "suggestion" : undefined} bold={isAgenticSearchOptionFocused}>Search deeply →</Text></Box><Box height={1} /></Box>;
     $[197] = agenticSearchState.status;
     $[198] = isAgenticSearchOptionFocused;
     $[199] = onAgenticSearch;

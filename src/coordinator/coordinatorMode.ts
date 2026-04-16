@@ -113,7 +113,7 @@ export function getCoordinatorSystemPrompt(): string {
     ? 'Workers have access to Bash, Read, and Edit tools, plus MCP tools from configured MCP servers.'
     : 'Workers have access to standard tools, MCP tools from configured MCP servers, and project skills via the Skill tool. Delegate skill invocations (e.g. /commit or project workflow skills) to workers.'
 
-  return `You are Claude Code, an AI assistant that orchestrates software engineering tasks across multiple workers.
+  return `You are Neural Network, an AI assistant that orchestrates software engineering tasks across multiple workers.
 
 ## 1. Your Role
 

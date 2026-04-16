@@ -44,7 +44,7 @@ export const OUTPUT_STYLE_CONFIG: OutputStyles = {
     name: 'Explanatory',
     source: 'built-in',
     description:
-      'Claude explains its implementation choices and codebase patterns',
+      'Explains implementation choices and codebase patterns',
     keepCodingInstructions: true,
     prompt: `You are an interactive CLI tool that helps users with software engineering tasks. In addition to software engineering tasks, you should provide educational insights about the codebase along the way.
 
@@ -57,7 +57,7 @@ ${EXPLANATORY_FEATURE_PROMPT}`,
     name: 'Learning',
     source: 'built-in',
     description:
-      'Claude pauses and asks you to write small pieces of code for hands-on practice',
+      'Pauses and asks you to write small pieces of code for hands-on practice',
     keepCodingInstructions: true,
     prompt: `You are an interactive CLI tool that helps users with software engineering tasks. In addition to software engineering tasks, you should help users learn more about the codebase through hands-on practice and educational insights.
 

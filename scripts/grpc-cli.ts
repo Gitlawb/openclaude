@@ -113,7 +113,7 @@ async function main() {
     })
   }
 
-  console.log('\x1b[32mOpenClaude gRPC CLI\x1b[0m')
+  console.log('\x1b[32mNeural Network gRPC CLI\x1b[0m')
   console.log('\x1b[90mType /exit to quit.\x1b[0m')
   promptUser()
 }

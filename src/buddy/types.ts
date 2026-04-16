@@ -140,9 +140,9 @@ export const RARITY_STARS = {
 } as const satisfies Record<Rarity, string>
 
 export const RARITY_COLORS = {
-  common: 'inactive',
-  uncommon: 'success',
-  rare: 'permission',
-  epic: 'autoAccept',
-  legendary: 'warning',
+  common: 'companion_common',
+  uncommon: 'companion_uncommon',
+  rare: 'companion_rare',
+  epic: 'companion_epic',
+  legendary: 'companion_legendary',
 } as const satisfies Record<Rarity, keyof import('../utils/theme.js').Theme>

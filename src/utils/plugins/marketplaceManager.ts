@@ -1,5 +1,5 @@
 /**
- * Marketplace manager for Claude Code plugins
+ * Marketplace manager for Neural Network plugins
  *
  * This module provides functionality to:
  * - Manage known marketplace sources (URLs, GitHub repos, npm packages, local files)
@@ -311,7 +311,7 @@ export async function loadKnownMarketplacesConfigSafe(): Promise<KnownMarketplac
     return await loadKnownMarketplacesConfig()
   } catch {
     // Inner function already logged via logForDebugging. Don't logError here —
-    // corrupted user config isn't a Claude Code bug, shouldn't hit the error file.
+    // corrupted user config isn't a Neural Network bug, shouldn't hit the error file.
     return {}
   }
 }
@@ -2141,7 +2141,7 @@ export const getMarketplace = memoize(
       throw new Error(
         `Marketplace "${name}" has a relative source path (${entry.source.path}) ` +
           `in known_marketplaces.json — this is stale state from an older ` +
-          `Claude Code version. Run 'claude marketplace remove ${name}' and ` +
+          `Neural Network version. Run 'claude marketplace remove ${name}' and ` +
           `re-add it from the original project directory.`,
       )
     }

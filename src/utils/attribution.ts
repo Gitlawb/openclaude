@@ -61,7 +61,7 @@ export function getAttributionTexts(): AttributionTexts {
   }
 
   // AI-authorship attribution is OFF by default — commits and PRs go out
-  // without "Co-Authored-By: Claude …" or "🤖 Generated with OpenClaude".
+  // without "Co-Authored-By: Claude …" or "🤖 Generated with Neural Network".
   // Opt back in explicitly via settings.attribution.commit / .pr when you
   // want the markers. (OPENCLAUDE_DISABLE_CO_AUTHORED_BY is now a no-op: the
   // behaviour it used to produce is the default.)
@@ -273,7 +273,7 @@ async function getTranscriptStats(): Promise<{
 /**
  * Get enhanced PR attribution text with Claude contribution stats.
  *
- * Format: "🤖 Generated with Claude Code (93% 3-shotted by claude-opus-4-5)"
+ * Format: "🤖 Generated with Neural Network (93% 3-shotted by claude-opus-4-5)"
  *
  * Rules:
  * - Shows Claude contribution percentage from commit attribution
@@ -315,7 +315,7 @@ export async function getEnhancedPRAttribution(
   }
 
   const defaultAttribution =
-    '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
+    '🤖 Generated with [Neural Network](https://github.com/Gitlawb/openclaude)'
 
   // Get AppState first
   const appState = getAppState()
@@ -356,12 +356,12 @@ export async function getEnhancedPRAttribution(
     return defaultAttribution
   }
 
-  // Build the enhanced attribution: "🤖 Generated with Claude Code (93% 3-shotted by claude-opus-4-5, 2 memories recalled)"
+  // Build the enhanced attribution: "🤖 Generated with Neural Network (93% 3-shotted by claude-opus-4-5, 2 memories recalled)"
   const memSuffix =
     memoryAccessCount > 0
       ? `, ${memoryAccessCount} ${memoryAccessCount === 1 ? 'memory' : 'memories'} recalled`
       : ''
-  const summary = `🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
+  const summary = `🤖 Generated with [Neural Network](https://github.com/Gitlawb/openclaude) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
 
   // Append trailer lines for squash-merge survival. Only for allowlisted repos
   // (INTERNAL_MODEL_REPOS) and only in builds with COMMIT_ATTRIBUTION enabled —

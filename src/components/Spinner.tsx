@@ -256,7 +256,7 @@ function SpinnerWithVerbInner({
   const tipsEnabled = settings.spinnerTipsEnabled !== false;
   const showClearTip = tipsEnabled && elapsedSnapshot > 1_800_000;
   const showBtwTip = tipsEnabled && elapsedSnapshot > 30_000 && !getGlobalConfig().btwUseCount;
-  const effectiveTip = contextTipsActive ? undefined : showClearTip && !nextTask ? 'Use /clear to start fresh when switching topics and free up context' : showBtwTip && !nextTask ? "Use /btw to ask a quick side question without interrupting Claude's current work" : spinnerTip;
+  const effectiveTip = contextTipsActive ? undefined : showClearTip && !nextTask ? 'Скористайся /clear для нової теми та звільнення контексту' : showBtwTip && !nextTask ? 'Скористайся /btw щоб задати швидке питання не перериваючи роботу нейромережі' : spinnerTip;
 
   // Budget text (internal-only) — shown above the tip line
   let budgetText: string | null = null;

@@ -280,10 +280,27 @@ const ANSI_SCOPES: Record<string, Color> = {
 }
 
 function buildTheme(themeName: string, mode: ColorMode): Theme {
+  const isFire = themeName === 'fire'
   const isDark = themeName.includes('dark')
   const isAnsi = themeName.includes('ansi')
   const isDaltonized = themeName.includes('daltonized')
   const tc = mode === 'truecolor'
+
+  if (isFire) {
+    // Warm palette: dark maroon / olive backgrounds, vivid #6ab04c / #eb4d4b
+    // markers. Keeps diff semantics legible on a fire-tinted theme.
+    return {
+      addLine: tc ? rgb(30, 50, 25) : ansiIdx(22),
+      addWord: tc ? rgb(60, 110, 50) : ansiIdx(28),
+      addDecoration: rgb(106, 176, 76), // #6ab04c
+      deleteLine: tc ? rgb(60, 25, 25) : ansiIdx(52),
+      deleteWord: tc ? rgb(120, 45, 45) : ansiIdx(88),
+      deleteDecoration: rgb(235, 77, 75), // #eb4d4b
+      foreground: rgb(248, 240, 225), // warm cream
+      background: DEFAULT_BG,
+      scopes: MONOKAI_SCOPES,
+    }
+  }
 
   if (isAnsi) {
     return {

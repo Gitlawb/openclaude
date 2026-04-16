@@ -1,5 +1,5 @@
 /**
- * No-Telemetry Build Plugin for OpenClaude
+ * No-Telemetry Build Plugin for Neural Network
  *
  * Replaces all analytics, telemetry, and phone-home modules with no-op stubs
  * at compile time. Zero runtime cost, zero network calls to Anthropic.

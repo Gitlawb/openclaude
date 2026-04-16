@@ -4,7 +4,7 @@
  */
 
 /**
- * A session ID uniquely identifies a Claude Code session.
+ * A session ID uniquely identifies a Neural Network session.
  * Returned by getSessionId().
  */
 export type SessionId = string & { readonly __brand: 'SessionId' }

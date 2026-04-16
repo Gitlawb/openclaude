@@ -166,11 +166,11 @@ export function SpinnerAnimationRow({
   // === Token count (leader + teammates, or foregrounded teammate) ===
   const totalTokens = foregroundedTeammate && !foregroundedTeammate.isIdle ? foregroundedTeammate.progress?.tokenCount ?? 0 : leaderTokens + teammateTokens;
   const tokenCount = formatNumber(totalTokens);
-  const tokensText = hasRunningTeammates ? `${tokenCount} tokens` : `${figures.arrowDown} ${tokenCount} tokens`;
+  const tokensText = hasRunningTeammates ? `${tokenCount} токенів` : `${figures.arrowDown} ${tokenCount} токенів`;
   const tokensWidth = stringWidth(tokensText);
 
   // === Thinking text (may shrink to fit) ===
-  let thinkingText = thinkingStatus === 'thinking' ? `thinking${effortSuffix}` : typeof thinkingStatus === 'number' ? `thought for ${Math.max(1, Math.round(thinkingStatus / 1000))}s` : null;
+  let thinkingText = thinkingStatus === 'thinking' ? `думає${effortSuffix}` : typeof thinkingStatus === 'number' ? `думала ${Math.max(1, Math.round(thinkingStatus / 1000))}с` : null;
   let thinkingWidthValue = thinkingText ? stringWidth(thinkingText) : 0;
 
   // === Progressive width gating ===

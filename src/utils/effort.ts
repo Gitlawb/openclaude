@@ -318,7 +318,7 @@ const OPUS_DEFAULT_EFFORT_CONFIG_DEFAULT: OpusDefaultEffortConfig = {
   enabled: true,
   dialogTitle: 'We recommend medium effort for Opus',
   dialogDescription:
-    'Effort determines how long Claude thinks for when completing your task. We recommend medium effort for most tasks to balance speed and intelligence and maximize rate limits. Use ultrathink to trigger high effort when needed.',
+    'Effort determines how long the model thinks when completing your task. We recommend medium effort for most tasks to balance speed and intelligence and maximize rate limits. Use ultrathink to trigger high effort when needed.',
 }
 
 export function getOpusDefaultEffortConfig(): OpusDefaultEffortConfig {

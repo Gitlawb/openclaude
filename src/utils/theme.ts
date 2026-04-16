@@ -70,7 +70,7 @@ export type Theme = {
   fastModeShimmer: string
   // Brief/assistant mode label colors
   briefLabelYou: string
-  briefLabelClaude: string
+  briefLabelAgent: string
   // Rainbow colors for ultrathink keyword highlighting
   rainbow_red: string
   rainbow_orange: string
@@ -86,9 +86,18 @@ export type Theme = {
   rainbow_blue_shimmer: string
   rainbow_indigo_shimmer: string
   rainbow_violet_shimmer: string
+  // Companion rarity colors — tinted per rarity tier, used by the buddy sprite
+  // and speech-bubble border. Themes that don't want a bespoke palette can
+  // reuse inactive/success/permission/autoAccept/warning values.
+  companion_common: string
+  companion_uncommon: string
+  companion_rare: string
+  companion_epic: string
+  companion_legendary: string
 }
 
 export const THEME_NAMES = [
+  'fire',
   'dark',
   'light',
   'light-daltonized',
@@ -173,7 +182,7 @@ const lightTheme: Theme = {
   fastModeShimmer: 'rgb(255,150,50)', // Lighter orange for shimmer
   // Brief/assistant mode
   briefLabelYou: 'rgb(37,99,235)', // Blue
-  briefLabelClaude: 'rgb(215,119,87)', // Brand orange
+  briefLabelAgent: 'rgb(215,119,87)', // Brand orange
   rainbow_red: 'rgb(235,95,87)',
   rainbow_orange: 'rgb(245,139,87)',
   rainbow_yellow: 'rgb(250,195,95)',
@@ -188,6 +197,11 @@ const lightTheme: Theme = {
   rainbow_blue_shimmer: 'rgb(180,205,240)',
   rainbow_indigo_shimmer: 'rgb(195,180,230)',
   rainbow_violet_shimmer: 'rgb(230,180,210)',
+  companion_common: 'rgb(102,102,102)',
+  companion_uncommon: 'rgb(44,122,57)',
+  companion_rare: 'rgb(87,105,247)',
+  companion_epic: 'rgb(135,0,255)',
+  companion_legendary: 'rgb(150,108,30)',
 }
 
 /**
@@ -254,7 +268,7 @@ const lightAnsiTheme: Theme = {
   fastMode: 'ansi:red',
   fastModeShimmer: 'ansi:redBright',
   briefLabelYou: 'ansi:blue',
-  briefLabelClaude: 'ansi:redBright',
+  briefLabelAgent: 'ansi:redBright',
   rainbow_red: 'ansi:red',
   rainbow_orange: 'ansi:redBright',
   rainbow_yellow: 'ansi:yellow',
@@ -269,6 +283,11 @@ const lightAnsiTheme: Theme = {
   rainbow_blue_shimmer: 'ansi:cyanBright',
   rainbow_indigo_shimmer: 'ansi:blueBright',
   rainbow_violet_shimmer: 'ansi:magentaBright',
+  companion_common: 'ansi:blackBright',
+  companion_uncommon: 'ansi:green',
+  companion_rare: 'ansi:blue',
+  companion_epic: 'ansi:magenta',
+  companion_legendary: 'ansi:yellow',
 }
 
 /**
@@ -335,7 +354,7 @@ const darkAnsiTheme: Theme = {
   fastMode: 'ansi:redBright',
   fastModeShimmer: 'ansi:redBright',
   briefLabelYou: 'ansi:blueBright',
-  briefLabelClaude: 'ansi:redBright',
+  briefLabelAgent: 'ansi:redBright',
   rainbow_red: 'ansi:red',
   rainbow_orange: 'ansi:redBright',
   rainbow_yellow: 'ansi:yellow',
@@ -350,6 +369,11 @@ const darkAnsiTheme: Theme = {
   rainbow_blue_shimmer: 'ansi:cyanBright',
   rainbow_indigo_shimmer: 'ansi:blueBright',
   rainbow_violet_shimmer: 'ansi:magentaBright',
+  companion_common: 'ansi:white',
+  companion_uncommon: 'ansi:greenBright',
+  companion_rare: 'ansi:blueBright',
+  companion_epic: 'ansi:magentaBright',
+  companion_legendary: 'ansi:yellowBright',
 }
 
 /**
@@ -416,7 +440,7 @@ const lightDaltonizedTheme: Theme = {
   fastMode: 'rgb(255,106,0)', // Electric orange (color-blind safe)
   fastModeShimmer: 'rgb(255,150,50)', // Lighter orange for shimmer
   briefLabelYou: 'rgb(37,99,235)', // Blue
-  briefLabelClaude: 'rgb(255,153,51)', // Orange adjusted for deuteranopia (matches claude)
+  briefLabelAgent: 'rgb(255,153,51)', // Orange adjusted for deuteranopia (matches claude)
   rainbow_red: 'rgb(235,95,87)',
   rainbow_orange: 'rgb(245,139,87)',
   rainbow_yellow: 'rgb(250,195,95)',
@@ -431,6 +455,11 @@ const lightDaltonizedTheme: Theme = {
   rainbow_blue_shimmer: 'rgb(180,205,240)',
   rainbow_indigo_shimmer: 'rgb(195,180,230)',
   rainbow_violet_shimmer: 'rgb(230,180,210)',
+  companion_common: 'rgb(102,102,102)',
+  companion_uncommon: 'rgb(0,102,153)',
+  companion_rare: 'rgb(51,102,255)',
+  companion_epic: 'rgb(135,0,255)',
+  companion_legendary: 'rgb(255,153,0)',
 }
 
 /**
@@ -497,7 +526,7 @@ const darkTheme: Theme = {
   fastMode: 'rgb(255,120,20)', // Electric orange for dark bg
   fastModeShimmer: 'rgb(255,165,70)', // Lighter orange for shimmer
   briefLabelYou: 'rgb(122,180,232)', // Light blue
-  briefLabelClaude: 'rgb(215,119,87)', // Brand orange
+  briefLabelAgent: 'rgb(215,119,87)', // Brand orange
   rainbow_red: 'rgb(235,95,87)',
   rainbow_orange: 'rgb(245,139,87)',
   rainbow_yellow: 'rgb(250,195,95)',
@@ -512,6 +541,11 @@ const darkTheme: Theme = {
   rainbow_blue_shimmer: 'rgb(180,205,240)',
   rainbow_indigo_shimmer: 'rgb(195,180,230)',
   rainbow_violet_shimmer: 'rgb(230,180,210)',
+  companion_common: 'rgb(153,153,153)',
+  companion_uncommon: 'rgb(78,186,101)',
+  companion_rare: 'rgb(177,185,249)',
+  companion_epic: 'rgb(175,135,255)',
+  companion_legendary: 'rgb(255,193,7)',
 }
 
 /**
@@ -578,7 +612,7 @@ const darkDaltonizedTheme: Theme = {
   fastMode: 'rgb(255,120,20)', // Electric orange for dark bg (color-blind safe)
   fastModeShimmer: 'rgb(255,165,70)', // Lighter orange for shimmer
   briefLabelYou: 'rgb(122,180,232)', // Light blue
-  briefLabelClaude: 'rgb(255,153,51)', // Orange adjusted for deuteranopia (matches claude)
+  briefLabelAgent: 'rgb(255,153,51)', // Orange adjusted for deuteranopia (matches claude)
   rainbow_red: 'rgb(235,95,87)',
   rainbow_orange: 'rgb(245,139,87)',
   rainbow_yellow: 'rgb(250,195,95)',
@@ -593,10 +627,102 @@ const darkDaltonizedTheme: Theme = {
   rainbow_blue_shimmer: 'rgb(180,205,240)',
   rainbow_indigo_shimmer: 'rgb(195,180,230)',
   rainbow_violet_shimmer: 'rgb(230,180,210)',
+  companion_common: 'rgb(153,153,153)',
+  companion_uncommon: 'rgb(51,153,255)',
+  companion_rare: 'rgb(102,204,102)',
+  companion_epic: 'rgb(175,135,255)',
+  companion_legendary: 'rgb(255,204,0)',
+}
+
+/**
+ * Fire theme — sunset / ember palette matching the Neural Network logo.
+ * Warm oranges, reds, and creams; green (#6ab04c) and red (#eb4d4b) reserved
+ * for diff added/removed markers to preserve semantic clarity.
+ */
+const fireTheme: Theme = {
+  autoAccept: 'rgb(217,119,87)', // Ember
+  bashBorder: 'rgb(235,77,75)', // #eb4d4b — fire red, stands out on dark warm bg
+  claude: 'rgb(240,148,100)', // Accent — assistant color
+  claudeShimmer: 'rgb(255,180,100)', // Brightest sunset point
+  claudeBlue_FOR_SYSTEM_SPINNER: 'rgb(240,148,100)', // No blue — mirror to accent
+  claudeBlueShimmer_FOR_SYSTEM_SPINNER: 'rgb(255,180,100)',
+  permission: 'rgb(240,148,100)', // Accent — replaces blue for inline code / permissions
+  permissionShimmer: 'rgb(255,180,100)',
+  planMode: 'rgb(255,180,100)', // Bright sunset — plan mode
+  ide: 'rgb(193,95,60)', // Mid sunset
+  promptBorder: 'rgb(100,80,65)', // Tmyanyy border from logo
+  promptBorderShimmer: 'rgb(193,95,60)', // Ember pulse
+  text: 'rgb(255,255,255)', // White — main text
+  inverseText: 'rgb(0,0,0)', // Black
+  inactive: 'rgb(120,100,82)', // Dim from logo
+  inactiveShimmer: 'rgb(160,140,122)',
+  subtle: 'rgb(80,65,55)', // Darker ember for subtle
+  suggestion: 'rgb(240,148,100)', // Accent
+  remember: 'rgb(217,119,87)', // Ember
+  background: 'rgb(60,40,30)', // Dark ember
+  success: 'rgb(106,176,76)', // #6ab04c — fire green for success
+  error: 'rgb(235,77,75)', // #eb4d4b — fire red for errors
+  warning: 'rgb(255,180,100)', // Bright sunset
+  merged: 'rgb(217,119,87)', // Matches ember
+  warningShimmer: 'rgb(255,210,140)',
+  diffAdded: 'rgb(30,50,25)', // Dark olive bg
+  diffRemoved: 'rgb(60,25,25)', // Dark maroon bg
+  diffAddedDimmed: 'rgb(45,60,40)',
+  diffRemovedDimmed: 'rgb(75,40,40)',
+  diffAddedWord: 'rgb(60,110,50)', // Medium olive — word-level bg
+  diffRemovedWord: 'rgb(120,45,45)', // Medium maroon — word-level bg
+  // Agent colors — warm fire-palette variants
+  red_FOR_SUBAGENTS_ONLY: 'rgb(235,77,75)',
+  blue_FOR_SUBAGENTS_ONLY: 'rgb(130,60,50)', // Deepest ember in place of "blue"
+  green_FOR_SUBAGENTS_ONLY: 'rgb(106,176,76)',
+  yellow_FOR_SUBAGENTS_ONLY: 'rgb(255,180,100)',
+  purple_FOR_SUBAGENTS_ONLY: 'rgb(160,75,55)', // Brick in place of "purple"
+  orange_FOR_SUBAGENTS_ONLY: 'rgb(240,148,100)',
+  pink_FOR_SUBAGENTS_ONLY: 'rgb(217,119,87)',
+  cyan_FOR_SUBAGENTS_ONLY: 'rgb(193,95,60)',
+  professionalBlue: 'rgb(106,155,204)', // External ref — keep as-is
+  chromeYellow: 'rgb(255,180,100)',
+  clawd_body: 'rgb(240,148,100)',
+  clawd_background: 'rgb(0,0,0)',
+  userMessageBackground: 'rgb(55,45,40)', // Dark warm gray
+  userMessageBackgroundHover: 'rgb(70,55,48)',
+  messageActionsBackground: 'rgb(65,48,38)',
+  selectionBg: 'rgb(100,60,40)', // Warm selection
+  bashMessageBackgroundColor: 'rgb(55,35,35)',
+  memoryBackgroundColor: 'rgb(50,45,55)',
+  rate_limit_fill: 'rgb(240,148,100)',
+  rate_limit_empty: 'rgb(80,55,45)',
+  fastMode: 'rgb(255,120,20)',
+  fastModeShimmer: 'rgb(255,165,70)',
+  briefLabelYou: 'rgb(220,195,170)', // Cream
+  briefLabelAgent: 'rgb(240,148,100)', // Accent
+  // Rainbow — 7 points along the sunset gradient
+  rainbow_red: 'rgb(130,60,50)',
+  rainbow_orange: 'rgb(160,75,55)',
+  rainbow_yellow: 'rgb(193,95,60)',
+  rainbow_green: 'rgb(217,119,87)',
+  rainbow_blue: 'rgb(240,140,80)',
+  rainbow_indigo: 'rgb(255,160,90)',
+  rainbow_violet: 'rgb(255,180,100)',
+  rainbow_red_shimmer: 'rgb(170,90,75)',
+  rainbow_orange_shimmer: 'rgb(200,110,85)',
+  rainbow_yellow_shimmer: 'rgb(225,135,95)',
+  rainbow_green_shimmer: 'rgb(245,155,115)',
+  rainbow_blue_shimmer: 'rgb(255,175,120)',
+  rainbow_indigo_shimmer: 'rgb(255,195,130)',
+  rainbow_violet_shimmer: 'rgb(255,210,150)',
+  // Companion rarity — fire gradient from dim ember to blazing sunset
+  companion_common: 'rgb(130,60,50)',
+  companion_uncommon: 'rgb(160,75,55)',
+  companion_rare: 'rgb(193,95,60)',
+  companion_epic: 'rgb(240,140,80)',
+  companion_legendary: 'rgb(255,180,100)',
 }
 
 export function getTheme(themeName: ThemeName): Theme {
   switch (themeName) {
+    case 'fire':
+      return fireTheme
     case 'light':
       return lightTheme
     case 'light-ansi':
@@ -607,8 +733,10 @@ export function getTheme(themeName: ThemeName): Theme {
       return lightDaltonizedTheme
     case 'dark-daltonized':
       return darkDaltonizedTheme
-    default:
+    case 'dark':
       return darkTheme
+    default:
+      return fireTheme
   }
 }
 

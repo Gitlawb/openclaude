@@ -3,6 +3,7 @@ import { updateLastInteractionTime } from '../../bootstrap/state.js';
 import { stopCapturingEarlyInput } from '../../utils/earlyInput.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
 import { isMouseClicksDisabled } from '../../utils/fullscreen.js';
+import { logForDebugging } from '../../utils/debug.js';
 import { logError } from '../../utils/log.js';
 import { EventEmitter } from '../events/emitter.js';
 import { InputEvent } from '../events/input-event.js';
@@ -441,7 +442,7 @@ export default class App extends PureComponent<Props, State> {
       this.props.stdout.write(SHOW_CURSOR + DFE + DISABLE_MOUSE_TRACKING);
     }
 
-    // Emit suspend event for Claude Code to handle. Mostly just has a notification
+    // Emit suspend event for Neural Network to handle. Mostly just has a notification
     this.internal_eventEmitter.emit('suspend');
 
     // Set up resume handler
@@ -462,7 +463,7 @@ export default class App extends PureComponent<Props, State> {
         this.props.stdout.write(EFE);
       }
 
-      // Emit resume event for Claude Code to handle
+      // Emit resume event for Neural Network to handle
       this.internal_eventEmitter.emit('resume');
       process.removeListener('SIGCONT', resumeHandler);
     };

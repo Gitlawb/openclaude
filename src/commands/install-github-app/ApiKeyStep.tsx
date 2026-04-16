@@ -152,7 +152,7 @@ export function ApiKeyStep(t0) {
   }
   let t11;
   if ($[27] !== existingApiKey || $[28] !== selectedOption || $[29] !== theme) {
-    t11 = existingApiKey && <Box marginBottom={1}><Text>{selectedOption === "existing" ? color("success", theme)("> ") : "  "}Use your existing Claude Code API key</Text></Box>;
+    t11 = existingApiKey && <Box marginBottom={1}><Text>{selectedOption === "existing" ? color("success", theme)("> ") : "  "}Use your existing Neural Network API key</Text></Box>;
     $[27] = existingApiKey;
     $[28] = selectedOption;
     $[29] = theme;
@@ -162,7 +162,7 @@ export function ApiKeyStep(t0) {
   }
   let t12;
   if ($[31] !== onCreateOAuthToken || $[32] !== selectedOption || $[33] !== theme) {
-    t12 = onCreateOAuthToken && <Box marginBottom={1}><Text>{selectedOption === "oauth" ? color("success", theme)("> ") : "  "}Create a long-lived token with your Claude subscription</Text></Box>;
+    t12 = onCreateOAuthToken && <Box marginBottom={1}><Text>{selectedOption === "oauth" ? color("success", theme)("> ") : "  "}Create a long-lived token with your subscription</Text></Box>;
     $[31] = onCreateOAuthToken;
     $[32] = selectedOption;
     $[33] = theme;

@@ -197,7 +197,7 @@ function buildCodexWebSearchInput(input: Input): Array<Record<string, unknown>> 
 
 function buildCodexWebSearchInstructions(): string {
   return [
-    'You are the OpenClaude web search tool.',
+    'You are the Neural Network web search tool.',
     'Search the web for the user query and return a concise factual answer.',
     'Include source URLs in the response.',
   ].join(' ')
@@ -467,7 +467,7 @@ export const WebSearchTool = buildTool({
   maxResultSizeChars: 100_000,
   shouldDefer: true,
   async description(input) {
-    return `Claude wants to search the web for: ${input.query}`
+    return `Нейромережа хоче шукати в інтернеті: ${input.query}`
   },
   userFacingName() {
     return 'Web Search'

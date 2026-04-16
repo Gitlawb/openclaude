@@ -1722,15 +1722,15 @@ export function getSubscriptionName(): string {
 
   switch (subscriptionType) {
     case 'enterprise':
-      return 'Claude Enterprise'
+      return 'Enterprise'
     case 'team':
-      return 'Claude Team'
+      return 'Team'
     case 'max':
-      return 'Claude Max'
+      return 'Max'
     case 'pro':
-      return 'Claude Pro'
+      return 'Pro'
     default:
-      return 'Claude API'
+      return 'Anthropic API'
   }
 }
 

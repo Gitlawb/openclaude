@@ -69,7 +69,7 @@ export function buildAuthUrl({
     : getOauthConfig().CONSOLE_AUTHORIZE_URL
 
   const authUrl = new URL(authUrlBase)
-  authUrl.searchParams.append('code', 'true') // this tells the login page to show Claude Max upsell
+  authUrl.searchParams.append('code', 'true') // this tells the login page to show Max upsell
   authUrl.searchParams.append('client_id', getOauthConfig().CLIENT_ID)
   authUrl.searchParams.append('response_type', 'code')
   authUrl.searchParams.append(

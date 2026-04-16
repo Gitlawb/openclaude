@@ -1,5 +1,5 @@
 /**
- * OpenAI-compatible API shim for Claude Code.
+ * OpenAI-compatible API shim for Neural Network.
  *
  * Translates Anthropic SDK calls (anthropic.beta.messages.create) into
  * OpenAI-compatible chat completion requests and streams back events
@@ -61,6 +61,11 @@ import {
   normalizeToolArguments,
   hasToolFieldMapping,
 } from './toolArgumentNormalization.js'
+import {
+  processOllamaToolCallOutput,
+  looksLikeJsonToolCall,
+  extractJsonToolCalls,
+} from './ollamaToolAdapter.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -312,7 +317,7 @@ function convertMessages(
   }
 
   for (const msg of messages) {
-    // Claude Code wraps messages in { role, message: { role, content } }
+    // Neural Network wraps messages in { role, message: { role, content } }
     const inner = msg.message ?? msg
     const role = (inner as { role?: string }).role ?? msg.role
     const content = (inner as { content?: unknown }).content
@@ -666,6 +671,10 @@ async function* openaiStreamToAnthropic(
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
 
+  // Ollama adapter: buffer text content to check for JSON tool calls at the end
+  const ollamaTextBuffer: string[] = []
+  let ollamaTextBlockIndex: number | null = null
+
   // Emit message_start
   yield {
     type: 'message_start',
@@ -816,6 +825,15 @@ async function* openaiStreamToAnthropic(
             hasClosedThinking = true
           }
           activeTextBuffer += delta.content
+
+          // Ollama adapter: buffer text for potential JSON tool call detection
+          if (isOllamaProvider()) {
+            ollamaTextBuffer.push(delta.content)
+            if (ollamaTextBlockIndex === null) {
+              ollamaTextBlockIndex = contentBlockIndex
+            }
+          }
+
           if (!hasEmittedContentStart) {
             yield {
               type: 'content_block_start',
@@ -1072,6 +1090,51 @@ async function* openaiStreamToAnthropic(
     }
   } finally {
     reader.releaseLock()
+  }
+
+  // Ollama adapter: check if the buffered text contains JSON tool calls
+  // that need to be converted to proper tool_use blocks
+  if (isOllamaProvider() && ollamaTextBuffer.length > 0 && ollamaTextBlockIndex !== null) {
+    const fullText = ollamaTextBuffer.join('')
+    if (looksLikeJsonToolCall(fullText)) {
+      const jsonCalls = extractJsonToolCalls(fullText)
+      if (jsonCalls.length > 0) {
+        logForDebugging(`Ollama adapter (streaming): detected ${jsonCalls.length} JSON tool calls in buffered output`)
+
+        // Close the active text block first
+        if (hasEmittedContentStart) {
+          yield { type: 'content_block_stop', index: ollamaTextBlockIndex }
+          hasEmittedContentStart = false
+        }
+
+        // Emit tool_use blocks instead
+        for (const call of jsonCalls) {
+          const toolBlockIndex = ollamaTextBlockIndex
+          yield {
+            type: 'content_block_start',
+            index: toolBlockIndex,
+            content_block: {
+              type: 'tool_use',
+              id: `ollama_tool_${Date.now()}_${toolBlockIndex}_${Math.random().toString(36).slice(2, 8)}`,
+              name: call.name,
+              input: call.arguments,
+            },
+          }
+          yield {
+            type: 'content_block_delta',
+            index: toolBlockIndex,
+            delta: {
+              type: 'input_json_delta',
+              partial_json: JSON.stringify(call.arguments),
+            },
+          }
+          yield { type: 'content_block_stop', index: toolBlockIndex }
+          ollamaTextBlockIndex++
+        }
+
+        logForDebugging(`Ollama adapter (streaming): converted ${jsonCalls.length} JSON tool calls to tool_use blocks`)
+      }
+    }
   }
 
   yield { type: 'message_stop' }
@@ -1586,7 +1649,7 @@ class OpenAIShimMessages {
     model: string,
   ) {
     const choice = data.choices?.[0]
-    const content: Array<Record<string, unknown>> = []
+    let content: Array<Record<string, unknown>> = []
 
     // Some reasoning models (e.g. GLM-5) put their chain-of-thought in
     // reasoning_content while content stays null. Preserve it as a thinking
@@ -1595,33 +1658,80 @@ class OpenAIShimMessages {
     if (typeof reasoningText === 'string' && reasoningText) {
       content.push({ type: 'thinking', thinking: reasoningText })
     }
+
+    // Ollama adapter: check if content contains JSON-formatted tool calls
+    // that need to be converted to proper tool_use blocks
+    let ollamaToolCallsProcessed = false
     const rawContent =
       choice?.message?.content !== '' && choice?.message?.content != null
         ? choice?.message?.content
         : null
-    if (typeof rawContent === 'string' && rawContent) {
-      content.push({
-        type: 'text',
-        text: stripLeakedReasoningPreamble(rawContent),
-      })
-    } else if (Array.isArray(rawContent) && rawContent.length > 0) {
-      const parts: string[] = []
-      for (const part of rawContent) {
-        if (
-          part &&
-          typeof part === 'object' &&
-          part.type === 'text' &&
-          typeof part.text === 'string'
-        ) {
-          parts.push(part.text)
+
+    const isOllama = isOllamaProvider()
+    logForDebugging(`Ollama adapter: isOllama=${isOllama}, OLLAMA_BASE_URL=${process.env.OLLAMA_BASE_URL}, OPENAI_BASE_URL=${process.env.OPENAI_BASE_URL}`)
+
+    if (isOllama && rawContent) {
+      let textToCheck: string | undefined
+      if (typeof rawContent === 'string') {
+        textToCheck = rawContent
+      } else if (Array.isArray(rawContent)) {
+        const textParts: string[] = []
+        for (const part of rawContent) {
+          if (part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string') {
+            textParts.push(part.text)
+          }
         }
+        textToCheck = textParts.join('\n')
       }
-      const joined = parts.join('\n')
-      if (joined) {
+
+      logForDebugging(`Ollama adapter: checking text for JSON tool calls: ${textToCheck ? textToCheck.slice(0, 200) : 'no text'}`)
+
+      if (textToCheck && looksLikeJsonToolCall(textToCheck)) {
+        const jsonCalls = extractJsonToolCalls(textToCheck)
+        logForDebugging(`Ollama adapter: found ${jsonCalls.length} potential tool calls`)
+        if (jsonCalls.length > 0) {
+          // Convert JSON tool calls to Anthropic format
+          const toolBlocks = jsonCalls.map((call, index) => ({
+            type: 'tool_use' as const,
+            id: `ollama_tool_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`,
+            name: call.name,
+            input: call.arguments,
+          }))
+          content = [...toolBlocks]
+          ollamaToolCallsProcessed = true
+          logForDebugging(`Ollama adapter: converted ${jsonCalls.length} JSON tool calls to tool_use blocks: ${jsonCalls.map(c => c.name).join(', ')}`)
+        }
+      } else {
+        logForDebugging(`Ollama adapter: text does not look like JSON tool call`)
+      }
+    }
+
+    // If no tool calls were extracted, add the text content normally
+    if (!ollamaToolCallsProcessed) {
+      if (typeof rawContent === 'string' && rawContent) {
         content.push({
           type: 'text',
-          text: stripLeakedReasoningPreamble(joined),
+          text: stripLeakedReasoningPreamble(rawContent),
         })
+      } else if (Array.isArray(rawContent) && rawContent.length > 0) {
+        const parts: string[] = []
+        for (const part of rawContent) {
+          if (
+            part &&
+            typeof part === 'object' &&
+            part.type === 'text' &&
+            typeof part.text === 'string'
+          ) {
+            parts.push(part.text)
+          }
+        }
+        const joined = parts.join('\n')
+        if (joined) {
+          content.push({
+            type: 'text',
+            text: stripLeakedReasoningPreamble(joined),
+          })
+        }
       }
     }
 

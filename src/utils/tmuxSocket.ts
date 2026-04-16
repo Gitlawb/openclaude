@@ -316,7 +316,7 @@ async function doInitialize(): Promise<void> {
   // Set CLAUDE_CODE_SKIP_PROMPT_HISTORY in the tmux GLOBAL environment (-g).
   // Without -g this would only apply to the 'base' session, and new sessions
   // created by TungstenTool (e.g. 'test', 'verify') would not inherit it.
-  // Any Claude Code instance spawned on this socket will inherit this env var,
+  // Any Neural Network instance spawned on this socket will inherit this env var,
   // preventing test/verification sessions from polluting the user's real
   // command history and --resume session list.
   await execTmux([

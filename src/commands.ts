@@ -7,6 +7,7 @@ import goodClaude from './commands/good-claude/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
+import god from './commands/god/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
 import copy from './commands/copy/index.js'
@@ -155,7 +156,7 @@ import {
 import antTrace from './commands/ant-trace/index.js'
 import perfIssue from './commands/perf-issue/index.js'
 import sandboxToggle from './commands/sandbox-toggle/index.js'
-import chrome from './commands/chrome/index.js'
+import chrome from './commandsEnable Chrome integration/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
 import { logError } from './utils/log.js'
@@ -183,6 +184,7 @@ import exportCommand from './commands/export/index.js'
 import model from './commands/model/index.js'
 import tag from './commands/tag/index.js'
 import outputStyle from './commands/output-style/index.js'
+import remote from './commands/remote.js'
 import remoteEnv from './commands/remote-env/index.js'
 import upgrade from './commands/upgrade/index.js'
 import {
@@ -198,7 +200,7 @@ import stats from './commands/stats/index.js'
 const usageReport: Command = {
   type: 'prompt',
   name: 'insights',
-  description: 'Generate a report analyzing your Claude Code sessions',
+  description: 'Generate a report analyzing your Neural Network sessions',
   contentLength: 0,
   progressMessage: 'analyzing your sessions',
   source: 'builtin',
@@ -288,6 +290,7 @@ const COMMANDS = memoize((): Command[] => [
   exit,
   fast,
   files,
+  god,
   heapDump,
   help,
   ide,
@@ -301,6 +304,7 @@ const COMMANDS = memoize((): Command[] => [
   model,
   onboardGithub,
   outputStyle,
+  remote,
   remoteEnv,
   plugin,
   provider,
@@ -671,6 +675,7 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     summary, // Summarize conversation
     releaseNotes, // Show changelog
     files, // List tracked files
+    remote, // Local mirror server control (status/rotate — safe from mobile)
   ].filter((c): c is Command => c !== null),
 )
 

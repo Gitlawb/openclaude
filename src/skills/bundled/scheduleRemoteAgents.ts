@@ -173,7 +173,7 @@ Set \`header: "Action"\` and offer the four actions (create/list/update/run) as 
 
   return `# Schedule Remote Agents
 
-You are helping the user schedule, update, list, or run **remote** Claude Code agents. These are NOT local cron jobs — each trigger spawns a fully isolated remote session (CCR) in Anthropic's cloud infrastructure on a cron schedule. The agent runs in a sandboxed environment with its own git checkout, tools, and optional MCP connections.
+You are helping the user schedule, update, list, or run **remote** Neural Network agents. These are NOT local cron jobs — each trigger spawns a fully isolated remote session (CCR) in Anthropic's cloud infrastructure on a cron schedule. The agent runs in a sandboxed environment with its own git checkout, tools, and optional MCP connections.
 
 ## First Step
 
@@ -327,7 +327,7 @@ export function registerScheduleRemoteAgentsSkill(): void {
     description:
       'Create, update, list, or run scheduled remote agents (triggers) that execute on a cron schedule.',
     whenToUse:
-      'When the user wants to schedule a recurring remote agent, set up automated tasks, create a cron job for Claude Code, or manage their scheduled agents/triggers.',
+      'When the user wants to schedule a recurring remote agent, set up automated tasks, create a cron job for Neural Network, or manage their scheduled agents/triggers.',
     userInvocable: true,
     isEnabled: () =>
       getFeatureValue_CACHED_MAY_BE_STALE('tengu_surreal_dali', false) &&
@@ -338,7 +338,7 @@ export function registerScheduleRemoteAgentsSkill(): void {
         return [
           {
             type: 'text',
-            text: 'You need to authenticate with a claude.ai account first. API accounts are not supported. Run /login, then try /schedule again.',
+            text: 'You need to authenticate with a Anthropic account first. API accounts are not supported. Run /login, then try /schedule again.',
           },
         ]
       }
@@ -353,7 +353,7 @@ export function registerScheduleRemoteAgentsSkill(): void {
         return [
           {
             type: 'text',
-            text: "We're having trouble connecting with your remote claude.ai account to set up a scheduled task. Please try /schedule again in a few minutes.",
+            text: "We're having trouble connecting with your remote Anthropic account to set up a scheduled task. Please try /schedule again in a few minutes.",
           },
         ]
       }

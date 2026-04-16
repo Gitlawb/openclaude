@@ -273,7 +273,7 @@ export async function executeFilePersistence(
  * Requires: feature flag ON, valid environment kind, session access token,
  * and CLAUDE_CODE_REMOTE_SESSION_ID.
  * This ensures only public-api/sessions users trigger file persistence,
- * not normal Claude Code CLI users.
+ * not normal Neural Network CLI users.
  */
 export function isFilePersistenceEnabled(): boolean {
   if (feature('FILE_PERSISTENCE')) {

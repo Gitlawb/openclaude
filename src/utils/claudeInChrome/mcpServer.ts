@@ -21,7 +21,7 @@ import { isEnvTruthy } from '../envUtils.js'
 import { sideQuery } from '../sideQuery.js'
 import { getAllSocketPaths, getSecureSocketPath } from './common.js'
 
-const EXTENSION_DOWNLOAD_URL = 'https://claude.ai/chrome'
+const EXTENSION_DOWNLOAD_URL = 'https://claude.aiEnable Chrome integration'
 const BUG_REPORT_URL =
   'https://github.com/anthropics/claude-code/issues/new?labels=bug,claude-in-chrome'
 
@@ -102,18 +102,18 @@ export function createChromeContext(
     }
   }
   return {
-    serverName: 'Claude in Chrome',
+    serverName: 'Chrome Extension',
     logger,
     socketPath: getSecureSocketPath(),
     getSocketPaths: getAllSocketPaths,
     clientTypeId: 'claude-code',
     onAuthenticationError: () => {
       logger.warn(
-        'Authentication error occurred. Please ensure you are logged into the Claude browser extension with the same claude.ai account as Claude Code.',
+        'Authentication error occurred. Please ensure you are logged into the browser extension with the same Anthropic account as Neural Network.',
       )
     },
     onToolCallDisconnected: () => {
-      return `Browser extension is not connected. Please ensure the Claude browser extension is installed and running (${EXTENSION_DOWNLOAD_URL}), and that you are logged into claude.ai with the same account as Claude Code. If this is your first time connecting to Chrome, you may need to restart Chrome for the installation to take effect. If you continue to experience issues, please report a bug: ${BUG_REPORT_URL}`
+      return `Browser extension is not connected. Please ensure the browser extension is installed and running (${EXTENSION_DOWNLOAD_URL}), and that you are logged into claude.ai with the same account as Neural Network. If this is your first time connecting to Chrome, you may need to restart Chrome for the installation to take effect. If you continue to experience issues, please report a bug: ${BUG_REPORT_URL}`
     },
     onExtensionPaired: (deviceId: string, name: string) => {
       saveGlobalConfig(config => {
@@ -266,9 +266,9 @@ export async function runClaudeInChromeMcpServer(): Promise<void> {
   process.stdin.on('end', () => void shutdownAndExit())
   process.stdin.on('error', () => void shutdownAndExit())
 
-  logForDebugging('[Claude in Chrome] Starting MCP server')
+  logForDebugging('[Chrome Extension] Starting MCP server')
   await server.connect(transport)
-  logForDebugging('[Claude in Chrome] MCP server started')
+  logForDebugging('[Chrome Extension] MCP server started')
 }
 
 class DebugLogger implements Logger {

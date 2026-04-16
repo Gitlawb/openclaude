@@ -67,7 +67,7 @@ export function SelectMatcherMode(t0) {
     const t2 = `${selectedEvent} - Matchers`;
     let t3;
     if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
-      t3 = <Box flexDirection="column" gap={1}><Text dimColor={true}>No hooks configured for this event.</Text><Text dimColor={true}>To add hooks, edit settings.json directly or ask Claude.</Text></Box>;
+      t3 = <Box flexDirection="column" gap={1}><Text dimColor={true}>No hooks configured for this event.</Text><Text dimColor={true}>To add hooks, edit settings.json directly or ask the model.</Text></Box>;
       $[7] = t3;
     } else {
       t3 = $[7];

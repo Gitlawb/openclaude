@@ -346,7 +346,7 @@ export async function* withRetry<T>(
       if (
         is529Error(error) &&
         // If FALLBACK_FOR_ALL_PRIMARY_MODELS is not set, fall through only if the primary model is a non-custom Opus model.
-        // TODO: Revisit if the isNonCustomOpusModel check should still exist, or if isNonCustomOpusModel is a stale artifact of when Claude Code was hardcoded on Opus.
+        // TODO: Revisit if the isNonCustomOpusModel check should still exist, or if isNonCustomOpusModel is a stale artifact of when Neural Network was hardcoded on Opus.
         (process.env.FALLBACK_FOR_ALL_PRIMARY_MODELS ||
           (!isClaudeAISubscriber() && isNonCustomOpusModel(options.model)))
       ) {

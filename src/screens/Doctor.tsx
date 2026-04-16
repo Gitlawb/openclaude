@@ -222,7 +222,7 @@ export function Doctor(t0) {
   let t7;
   if ($[11] !== onDone) {
     t7 = () => {
-      onDone("Claude Code diagnostics dismissed", {
+      onDone("Neural Network diagnostics dismissed", {
         display: "system"
       });
     };

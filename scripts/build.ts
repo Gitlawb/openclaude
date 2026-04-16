@@ -1,5 +1,5 @@
 /**
- * OpenClaude build script — bundles the TypeScript source into a single
+ * Neural Network build script — bundles the TypeScript source into a single
  * distributable JS file using Bun's bundler.
  *
  * Handles:
@@ -467,6 +467,33 @@ if (!result.success) {
   process.exitCode = 1
 } else {
   console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
+  // Copy local-remote client assets next to the bundle so the shipped npm
+  // package can serve the PWA. The server's CLIENT_DIR_CANDIDATES expects
+  // `client/` next to cli.mjs for installed copies and falls back to the
+  // source tree in dev mode.
+  const fsMod = await import('fs')
+  const pathMod = await import('path')
+  const clientSrc = pathMod.join(import.meta.dir, '..', 'src', 'localRemote', 'client')
+  const clientDest = pathMod.join(import.meta.dir, '..', 'dist', 'client')
+  if (fsMod.existsSync(clientSrc)) {
+    // Recursive copy — the Vue build produces subdirs (assets/) with
+    // hashed bundle files.
+    const copyDir = (src: string, dest: string) => {
+      fsMod.mkdirSync(dest, { recursive: true })
+      for (const ent of fsMod.readdirSync(src, { withFileTypes: true })) {
+        const from = pathMod.join(src, ent.name)
+        const to = pathMod.join(dest, ent.name)
+        if (ent.isDirectory()) copyDir(from, to)
+        else if (ent.isFile()) fsMod.copyFileSync(from, to)
+      }
+    }
+    // Clear previous copy so stale hashed assets from old builds don't linger.
+    if (fsMod.existsSync(clientDest)) {
+      fsMod.rmSync(clientDest, { recursive: true, force: true })
+    }
+    copyDir(clientSrc, clientDest)
+    console.log(`  📦 copied local-remote client → dist/client/`)
+  }
 }
 
 } finally {

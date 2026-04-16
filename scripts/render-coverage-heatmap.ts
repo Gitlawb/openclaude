@@ -227,7 +227,7 @@ function buildHtml(files: FileCoverage[]): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OpenClaude Coverage</title>
+    <title>Neural Network Coverage</title>
     <style>
       :root {
         color-scheme: dark;

@@ -66,7 +66,7 @@ export type Output = z.infer<OutputSchema>
 
 export const ConfigTool = buildTool({
   name: CONFIG_TOOL_NAME,
-  searchHint: 'get or set Claude Code settings (theme, model)',
+  searchHint: 'get or set Neural Network settings (theme, model)',
   maxResultSizeChars: 100_000,
   async description() {
     return DESCRIPTION
@@ -243,7 +243,7 @@ export const ConfigTool = buildTool({
           data: {
             success: false,
             error: !isAnthropicAuthEnabled()
-              ? 'Voice mode requires a Claude.ai account. Please run /login to sign in.'
+              ? 'Voice mode requires an account. Please run /login to sign in.'
               : 'Voice mode is not available.',
           },
         }
@@ -273,7 +273,7 @@ export const ConfigTool = buildTool({
           data: {
             success: false,
             error:
-              'Voice mode requires a Claude.ai account. Please run /login to sign in.',
+              'Voice mode requires an account. Please run /login to sign in.',
           },
         }
       }

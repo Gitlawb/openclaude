@@ -610,7 +610,7 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
             // GrowthBook hiccup doesn't hit the outer init-failure handler.
             const upgradeNudge = !perpetual ? await shouldShowAppUpgradeMessage().catch(() => false) : false;
             if (cancelled) return;
-            setMessages(prev_18 => [...prev_18, createBridgeStatusMessage(url, upgradeNudge ? 'Please upgrade to the latest version of the Claude mobile app to see your Remote Control sessions.' : undefined)]);
+            setMessages(prev_18 => [...prev_18, createBridgeStatusMessage(url, upgradeNudge ? 'Please upgrade to the latest version of the mobile app to see your Remote Control sessions.' : undefined)]);
             logForDebugging(`[bridge:repl] Hook initialized, session=${handle_0.bridgeSessionId}`);
           }
         } catch (err) {

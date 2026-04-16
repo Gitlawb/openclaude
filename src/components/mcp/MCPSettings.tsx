@@ -207,7 +207,7 @@ export function MCPSettings(t0) {
           t9 = $[25];
         }
         const serverTools_0 = t9;
-        const defaultTab = viewState.server.transport === "claudeai-proxy" ? "claude.ai" : "Claude Code";
+        const defaultTab = viewState.server.transport === "claudeai-proxy" ? "claude.ai" : "Neural Network";
         if (viewState.server.transport === "stdio") {
           let t10;
           if ($[26] !== viewState.server) {

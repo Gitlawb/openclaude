@@ -1,0 +1,128 @@
+:root {
+  /* Palette synced with the TUI dark theme (src/utils/theme.ts darkTheme).
+     Keep in sync when the TUI palette changes. */
+  --bg: #000000;                       /* terminal black */
+  --bg-elev: #373737;                  /* userMessageBackground rgb(55,55,55) */
+  --bg-elev-hover: #464646;            /* userMessageBackgroundHover rgb(70,70,70) */
+  --bg-chip: #2c323e;                  /* messageActionsBackground rgb(44,50,62) */
+  --fg: #ffffff;                       /* text rgb(255,255,255) */
+  --fg-muted: #999999;                 /* inactive rgb(153,153,153) */
+  --fg-dim: #505050;                   /* subtle rgb(80,80,80) */
+  --accent: #d77757;                   /* claude rgb(215,119,87) */
+  --accent-dim: #b1b9f9;              /* permission rgb(177,185,249) */
+  --accent-rgb: 215, 119, 87;         /* for rgba() usage */
+  --permission: #b1b9f9;              /* permission rgb(177,185,249) */
+  --success: #4eba65;                  /* success rgb(78,186,101) */
+  --danger: #ff6b80;                   /* error rgb(255,107,128) */
+  --warning: #ffc107;                  /* warning rgb(255,193,7) */
+  --user: #ffc107;                     /* warning yellow for user prompts */
+  --bash-border: #fd5db1;             /* bashBorder rgb(253,93,177) */
+  --plan-mode: #489690;               /* planMode rgb(72,150,140) */
+  --auto-accept: #af87ff;             /* autoAccept rgb(175,135,255) */
+  --prompt-border: #888888;            /* promptBorder rgb(136,136,136) */
+  --border: #373737;                   /* match bg-elev for subtle borders */
+  --border-strong: #505050;            /* subtle gray */
+  --selection-bg: rgba(38, 79, 120, 0.6); /* selectionBg */
+  --radius: 2px;
+
+  --font-mono:
+    "JetBrains Mono", "Fira Code", "SFMono-Regular", ui-monospace, Consolas,
+    "Liberation Mono", Menlo, Monaco, "Courier New", monospace;
+  --font-size-base: 13.5px;
+  --font-size-sm: 12.5px;
+  --line-height: 1.5;
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  /* dvh shrinks when iOS virtual keyboard opens; px fallback for old browsers */
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height);
+  font-variant-ligatures: none;
+  font-feature-settings: "calt" 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+#app {
+  margin: 0;
+  padding: 0;
+  /* position:fixed guarantees the app always occupies exactly the visible
+     viewport — no height% chain to break on mobile browsers. The safe-area
+     insets push the top edge below the iOS status bar when viewport-fit=cover
+     is active; fallback 0px keeps it flush-top on all other platforms. */
+  position: fixed;
+  top: env(safe-area-inset-top, 0px);
+  left: env(safe-area-inset-left, 0px);
+  right: env(safe-area-inset-right, 0px);
+  bottom: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Remove tap highlight on iOS */
+button,
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+}
+
+/* Selection — matches TUI selectionBg */
+::selection {
+  background: var(--selection-bg);
+  color: var(--fg);
+}
+
+/* Scrollbars — minimal, no rounded thumb */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a4150;
+}
+
+/*
+ * Prevent iOS Safari from auto-zooming on input focus.
+ * font-size ≥ 16px disables the zoom behaviour.
+ * We only override the effective size, not the variable, so layout elsewhere
+ * remains stable (--font-size-base is still 13.5 px for all other elements).
+ */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: max(var(--font-size-base), 16px);
+  }
+}

@@ -143,7 +143,7 @@ function PromptInputFooter({
         </Box>
         <Box flexShrink={1} gap={1}>
           {isFullscreen ? null : <Notifications apiKeyStatus={apiKeyStatus} autoUpdaterResult={autoUpdaterResult} debug={debug} isAutoUpdating={isAutoUpdating} verbose={verbose} messages={messages} onAutoUpdaterResult={onAutoUpdaterResult} onChangeIsUpdating={onChangeIsUpdating} ideSelection={ideSelection} mcpClients={mcpClients} isInputWrapped={isInputWrapped} isNarrow={isNarrow} />}
-          {isUndercover() && <Text dimColor>undercover</Text>}
+          {isUndercover() && <Text dimColor>інкогніто</Text>}
           <BridgeStatusIndicator bridgeSelected={bridgeSelected} />
         </Box>
       </Box>

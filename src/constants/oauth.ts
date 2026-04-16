@@ -106,7 +106,7 @@ const PROD_OAUTH_CONFIG = {
 /**
  * Client ID Metadata Document URL for MCP OAuth (CIMD / SEP-991).
  * When an MCP auth server advertises client_id_metadata_document_supported: true,
- * Claude Code uses this URL as its client_id instead of Dynamic Client Registration.
+ * Neural Network uses this URL as its client_id instead of Dynamic Client Registration.
  * The URL must point to a JSON document hosted by Anthropic.
  * See: https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-00
  */

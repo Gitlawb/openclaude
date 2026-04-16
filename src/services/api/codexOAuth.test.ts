@@ -100,9 +100,9 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
 
   expect(tokens.accessToken).toBe('access-token')
   expect(tokens.refreshToken).toBe('refresh-token')
-  expect(html).toContain('You can return to OpenClaude now.')
+  expect(html).toContain('You can return to Neural Network now.')
   expect(html).toContain(
-    'OpenClaude will finish activating your new Codex OAuth login.',
+    'Neural Network will finish activating your new Codex OAuth login.',
   )
   expect(html).not.toContain('continue automatically')
 })
@@ -162,5 +162,5 @@ test('cancellation during token exchange returns a cancelled page and rejects th
   const html = await callbackResponse.text()
 
   expect(html).toContain('Codex login cancelled')
-  expect(html).toContain('retry in OpenClaude')
+  expect(html).toContain('retry in Neural Network')
 })

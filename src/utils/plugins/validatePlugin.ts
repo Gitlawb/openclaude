@@ -232,7 +232,7 @@ export async function validatePluginManifest(
           path: key,
           message:
             `Field '${key}' belongs in the marketplace entry (marketplace.json), ` +
-            `not plugin.json. It's harmless here but unused — Claude Code ` +
+            `not plugin.json. It's harmless here but unused — Neural Network ` +
             `ignores it at load time.`,
         })
       }
@@ -261,8 +261,8 @@ export async function validatePluginManifest(
       warnings.push({
         path: 'name',
         message:
-          `Plugin name "${manifest.name}" is not kebab-case. Claude Code accepts ` +
-          `it, but the Claude.ai marketplace sync requires kebab-case ` +
+          `Plugin name "${manifest.name}" is not kebab-case. Neural Network accepts ` +
+          `it, but the marketplace sync requires kebab-case ` +
           `(lowercase letters, digits, and hyphens only, e.g., "my-plugin").`,
       })
     }
@@ -580,7 +580,7 @@ function validateComponentFile(
     warnings.push({
       path: 'description',
       message:
-        `No description in frontmatter. A description helps users and Claude ` +
+        `No description in frontmatter. A description helps users and the agent ` +
         `understand when to use this ${fileType}.`,
     })
   }

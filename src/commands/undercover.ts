@@ -11,7 +11,7 @@ const call: LocalCommandCall = async args => {
   if (arg === '' || arg === 'status') {
     return {
       type: 'text',
-      value: `Undercover: ${getUndercoverActive() ? 'on' : 'off'}\nUse "/undercover on" or "/undercover off" to toggle. Default is on; launch with OPENCLAUDE_UNDERCOVER=0 to start off.`,
+      value: `Інкогніто: ${getUndercoverActive() ? 'увімкнено' : 'вимкнено'}\nВикористай "/undercover on" або "/undercover off" для перемикання. За замовчуванням увімкнено; запусти з OPENCLAUDE_UNDERCOVER=0 щоб вимкнути.`,
     }
   }
 
@@ -20,7 +20,7 @@ const call: LocalCommandCall = async args => {
     return {
       type: 'text',
       value:
-        'Undercover mode enabled. Model self-identification suppressed, commit/PR attribution stripped, anti-identification instructions added to agent prompts. Note: already-built system prompts in the current turn may be cached; the change takes full effect on the next message.',
+        'Режим інкогніто увімкнено. Самоідентифікацію моделі придушено, атрибуцію з комітів/PR прибрано, інструкції анти-ідентифікації додано до системних промптів. Зверни увагу: вже зібрані системні промпти в поточному повідомленні можуть бути кешовані; зміни повністю набудуть чинності з наступного повідомлення.',
     }
   }
 
@@ -29,7 +29,7 @@ const call: LocalCommandCall = async args => {
     return {
       type: 'text',
       value:
-        'Undercover mode disabled. Co-Authored-By and attribution restored on next commit/PR. Model self-identification restored in the next system prompt.',
+        'Режим інкогніто вимкнено. Co-Authored-By та атрибуцію відновлено для наступного коміту/PR. Самоідентифікацію моделі відновлено в наступному системному промпті.',
     }
   }
 
@@ -38,13 +38,13 @@ const call: LocalCommandCall = async args => {
     setUndercoverActive(next)
     return {
       type: 'text',
-      value: `Undercover toggled: ${next ? 'on' : 'off'}`,
+      value: `Інкогніто перемкнено: ${next ? 'увімкнено' : 'вимкнено'}`,
     }
   }
 
   return {
     type: 'text',
-    value: `Unknown argument "${arg}". Usage: /undercover [on|off|toggle|status]`,
+    value: `Невідомий аргумент "${arg}". Використання: /undercover [on|off|toggle|status]`,
   }
 }
 
@@ -52,7 +52,7 @@ const undercover = {
   type: 'local',
   name: 'undercover',
   description:
-    'Toggle undercover mode: hide model self-identification, strip AI attribution from commits/PRs',
+    'Перемкнути режим інкогніто: приховати самоідентифікацію моделі, прибрати AI-атрибуцію з комітів/PR',
   argumentHint: '[on|off|toggle|status]',
   isEnabled: () => true,
   isHidden: false,

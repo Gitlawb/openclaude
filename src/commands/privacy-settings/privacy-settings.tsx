@@ -37,7 +37,7 @@ export async function call(onDone: LocalJSXCommandOnDone): Promise<React.ReactNo
     }
     const updatedSettings = updatedSettingsResult.data;
     const groveStatus = updatedSettings.grove_enabled ? 'true' : 'false';
-    onDone(`"Help improve Claude" set to ${groveStatus}.`);
+    onDone(`"Help improve Neural Network" set to ${groveStatus}.`);
     if (settings.grove_enabled !== null && settings.grove_enabled !== updatedSettings.grove_enabled) {
       logEvent('tengu_grove_policy_toggled', {
         state: updatedSettings.grove_enabled as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,

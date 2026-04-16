@@ -145,15 +145,15 @@ export function TeleportError(t0) {
         }
         let t9;
         if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
-          t9 = <Box flexDirection="column"><Text dimColor={true}>Teleport requires a Claude.ai account.</Text><Text dimColor={true}>Your Claude Pro/Max subscription will be used by Claude Code.</Text></Box>;
+          t9 = <Box flexDirection="column"><Text dimColor={true}>Teleport requires authentication.</Text><Text dimColor={true}>Your Pro/Max subscription will be used by Neural Network.</Text></Box>;
           $[16] = t9;
         } else {
           t9 = $[16];
         }
         let t10;
         if ($[17] === Symbol.for("react.memo_cache_sentinel")) {
-          t10 = <Dialog title="Log in to Claude" onCancel={onCancel}>{t9}<Select options={[{
-              label: "Login with Claude account",
+          t10 = <Dialog title="Log in" onCancel={onCancel}>{t9}<Select options={[{
+              label: "Login with your account",
               value: "login"
             }, {
               label: "Exit",

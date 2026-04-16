@@ -92,7 +92,7 @@ export function AgentDetail(t0) {
   }
   let t10;
   if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
-    t10 = <Text><Text bold={true}>Description</Text> (tells Claude when to use this agent):</Text>;
+    t10 = <Text><Text bold={true}>Description</Text> (tells when to use this agent):</Text>;
     $[9] = t10;
   } else {
     t10 = $[9];

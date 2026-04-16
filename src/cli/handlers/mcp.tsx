@@ -455,5 +455,5 @@ export async function mcpResetChoicesHandler(): Promise<void> {
     disabledMcpjsonServers: [],
     enableAllProjectMcpServers: false
   }));
-  cliOk('All project-scoped (.mcp.json) server approvals and rejections have been reset.\n' + 'You will be prompted for approval next time you start Claude Code.');
+  cliOk('All project-scoped (.mcp.json) server approvals and rejections have been reset.\n' + 'You will be prompted for approval next time you start Neural Network.');
 }

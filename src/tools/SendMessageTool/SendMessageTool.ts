@@ -586,7 +586,7 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
       if (feature('UDS_INBOX') && parseAddress(input.to).scheme === 'bridge') {
         return {
           behavior: 'ask' as const,
-          message: `Send a message to Remote Control session ${input.to}? It arrives as a user prompt on the receiving Claude (possibly another machine) via Anthropic's servers.`,
+          message: `Send a message to Remote Control session ${input.to}? It arrives as a user prompt on the receiving session (possibly another machine) via Anthropic's servers.`,
           // safetyCheck (not mode) — permissions.ts guards this before both
           // bypassPermissions (step 1g) and auto-mode's allowlist/classifier.
           // Cross-machine prompt injection must stay bypass-immune.

@@ -16,6 +16,24 @@ import type { ThemeName } from './theme.js'
 // causing styled text to shift right.
 const EOL = '\n'
 
+/**
+ * Theme-key template for markdown rendering. Each field names a key in the
+ * active Theme (src/utils/theme.ts). Values are applied via `color(key, theme)`
+ * so swapping themes (e.g. fire) re-tints headings/blockquotes/links/inline
+ * code without touching this file.
+ *
+ * Kept separate from the formatter logic so it reads like a stylesheet — the
+ * fire theme sets `permission` and `claude` to orange, so inline code and
+ * headings adopt the ember palette automatically.
+ */
+const MARKDOWN_THEME = {
+  heading: 'claude', // h1/h2/h3 — accent color (orange in fire)
+  codespan: 'permission', // inline `code` — accent (orange in fire, blue in default)
+  blockquoteBar: 'claude', // vertical bar left of blockquote
+  blockquoteText: 'subtle', // dimmed blockquote body
+  link: 'claude', // hyperlink text
+} as const
+
 let markedConfigured = false
 
 export function configureMarked(): void {
@@ -59,13 +77,14 @@ export function formatToken(
       const inner = (token.tokens ?? [])
         .map(_ => formatToken(_, theme, 0, null, null, highlight))
         .join('')
-      // Prefix each line with a dim vertical bar. Keep text italic but at
-      // normal brightness — chalk.dim is nearly invisible on dark themes.
-      const bar = chalk.dim(BLOCKQUOTE_BAR)
+      // Themed bar + subtle-tinted italic body. Matches MARKDOWN_THEME.
+      const bar = color(MARKDOWN_THEME.blockquoteBar, theme)(BLOCKQUOTE_BAR)
       return inner
         .split(EOL)
         .map(line =>
-          stripAnsi(line).trim() ? `${bar} ${chalk.italic(line)}` : line,
+          stripAnsi(line).trim()
+            ? `${bar} ${color(MARKDOWN_THEME.blockquoteText, theme)(chalk.italic(line))}`
+            : line,
         )
         .join(EOL)
     }
@@ -86,8 +105,8 @@ export function formatToken(
       return highlight.highlight(token.text, { language }) + EOL
     }
     case 'codespan': {
-      // inline code
-      return color('permission', theme)(token.text)
+      // inline code — tinted via MARKDOWN_THEME.codespan
+      return color(MARKDOWN_THEME.codespan, theme)(token.text)
     }
     case 'em':
       return chalk.italic(
@@ -101,39 +120,20 @@ export function formatToken(
           .map(_ => formatToken(_, theme, 0, null, parent, highlight))
           .join(''),
       )
-    case 'heading':
+    case 'heading': {
+      const body = (token.tokens ?? [])
+        .map(_ => formatToken(_, theme, 0, null, null, highlight))
+        .join('')
+      const tint = color(MARKDOWN_THEME.heading, theme)
       switch (token.depth) {
-        case 1: // h1
-          return (
-            chalk.bold.italic.underline(
-              (token.tokens ?? [])
-                .map(_ => formatToken(_, theme, 0, null, null, highlight))
-                .join(''),
-            ) +
-            EOL +
-            EOL
-          )
-        case 2: // h2
-          return (
-            chalk.bold(
-              (token.tokens ?? [])
-                .map(_ => formatToken(_, theme, 0, null, null, highlight))
-                .join(''),
-            ) +
-            EOL +
-            EOL
-          )
-        default: // h3+
-          return (
-            chalk.bold(
-              (token.tokens ?? [])
-                .map(_ => formatToken(_, theme, 0, null, null, highlight))
-                .join(''),
-            ) +
-            EOL +
-            EOL
-          )
+        case 1: // h1 — accent + bold + italic + underline
+          return tint(chalk.bold.italic.underline(body)) + EOL + EOL
+        case 2: // h2 — accent + bold
+          return tint(chalk.bold(body)) + EOL + EOL
+        default: // h3+ — accent + bold
+          return tint(chalk.bold(body)) + EOL + EOL
       }
+    }
     case 'hr':
       return '---'
     case 'image':
@@ -146,15 +146,18 @@ export function formatToken(
         return email
       }
       // Extract display text from the link's child tokens
-      const linkText = (token.tokens ?? [])
+      const rawLinkText = (token.tokens ?? [])
         .map(_ => formatToken(_, theme, 0, null, token, highlight))
         .join('')
-      const plainLinkText = stripAnsi(linkText)
+      const plainLinkText = stripAnsi(rawLinkText)
       // If the link has meaningful display text (different from the URL),
       // show it as a clickable hyperlink. In terminals that support OSC 8,
       // users see the text and can hover/click to see the URL.
       if (plainLinkText && plainLinkText !== token.href) {
-        return createHyperlink(token.href, linkText)
+        return createHyperlink(
+          token.href,
+          color(MARKDOWN_THEME.link, theme)(rawLinkText),
+        )
       }
       // When the display text matches the URL (or is empty), just show the URL
       return createHyperlink(token.href)

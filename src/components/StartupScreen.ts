@@ -1,5 +1,5 @@
 /**
- * OpenClaude startup screen — filled-block text logo with sunset gradient.
+ * Neural Network startup screen — filled-block text logo with sunset gradient.
  * Called once at CLI startup before the Ink UI renders.
  *
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
@@ -62,22 +62,13 @@ const BORDER: RGB = [100, 80, 65]
 
 // ─── Filled Block Text Logo ───────────────────────────────────────────────────
 
-const LOGO_OPEN = [
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557  \u2588\u2588\u2557`,
-  `  \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d \u2588\u2588\u2588\u2557 \u2588\u2588\u2551`,
-  `  \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2557   \u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551`,
-  `  \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d \u2588\u2588\u2554\u2550\u2550\u2550\u255d   \u2588\u2588\u2554\u2588\u2588\u2588\u2588\u2551`,
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2551       \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2551`,
-  `  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d       \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u2550\u255d`,
-]
-
-const LOGO_CLAUDE = [
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557      \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557`,
-  `  \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d \u2588\u2588\u2551      \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d`,
-  `  \u2588\u2588\u2551       \u2588\u2588\u2551      \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2557  `,
-  `  \u2588\u2588\u2551       \u2588\u2588\u2551      \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u255d  `,
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557`,
-  `  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d   \u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d`,
+const LOGO_SKYSERVICE = [
+  `  ███████╗██╗  ██╗██╗   ██╗███████╗███████╗██████╗ ██╗   ██╗██╗ ██████╗███████╗`,
+  `  ██╔════╝██║ ██╔╝╚██╗ ██╔╝██╔════╝██╔════╝██╔══██╗██║   ██║██║██╔════╝██╔════╝`,
+  `  ╚██████╗█████╔╝  ╚████╔╝ ╚██████╗█████╗  ██████╔╝██║   ██║██║██║     █████╗  `,
+  `   ╚═══██╗██╔═██╗   ╚██╔╝   ╚═══██╗██╔══╝  ██╔══██╗╚██╗ ██╔╝██║██║     ██╔══╝  `,
+  `  ██████╔╝██║  ██╗   ██║   ██████╔╝███████╗██║  ██║ ╚████╔╝ ██║╚██████╗███████╗`,
+  `  ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═════╝ ╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝ ╚═════╝╚══════╝`,
 ]
 
 // ─── Provider detection ───────────────────────────────────────────────────────
@@ -175,7 +166,7 @@ export function printStartupScreen(): void {
   out.push('')
 
   // Gradient logo
-  const allLogo = [...LOGO_OPEN, '', ...LOGO_CLAUDE]
+  const allLogo = [...LOGO_SKYSERVICE]
   const total = allLogo.length
   for (let i = 0; i < total; i++) {
     const t = total > 1 ? i / (total - 1) : 0
@@ -189,7 +180,7 @@ export function printStartupScreen(): void {
   out.push('')
 
   // Tagline
-  out.push(`  ${rgb(...ACCENT)}\u2726${RESET} ${rgb(...CREAM)}Any model. Every tool. Zero limits.${RESET} ${rgb(...ACCENT)}\u2726${RESET}`)
+  out.push(`  ${rgb(...ACCENT)}\u2726${RESET} ${rgb(...CREAM)}Хмаркові технології нового покоління${RESET} ${rgb(...ACCENT)}\u2726${RESET}`)
   out.push('')
 
   // Provider info box
@@ -201,24 +192,24 @@ export function printStartupScreen(): void {
   }
 
   const provC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
-  let [r, l] = lbl('Provider', p.name, provC)
+  let [r, l] = lbl('Провайдер', p.name, provC)
   out.push(boxRow(r, W, l))
-  ;[r, l] = lbl('Model', p.model)
+  ;[r, l] = lbl('Модель', p.model)
   out.push(boxRow(r, W, l))
   const ep = p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl
-  ;[r, l] = lbl('Endpoint', ep)
+  ;[r, l] = lbl('Адреса', ep)
   out.push(boxRow(r, W, l))
 
   out.push(`${rgb(...BORDER)}\u2560${'\u2550'.repeat(W - 2)}\u2563${RESET}`)
 
   const sC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
-  const sL = p.isLocal ? 'local' : 'cloud'
-  const sRow = ` ${rgb(...sC)}\u25cf${RESET} ${DIM}${rgb(...DIMCOL)}${sL}${RESET}    ${DIM}${rgb(...DIMCOL)}Ready \u2014 type ${RESET}${rgb(...ACCENT)}/help${RESET}${DIM}${rgb(...DIMCOL)} to begin${RESET}`
-  const sLen = ` \u25cf ${sL}    Ready \u2014 type /help to begin`.length
+  const sL = p.isLocal ? 'локально' : 'хмара'
+  const sRow = ` ${rgb(...sC)}\u25cf${RESET} ${DIM}${rgb(...DIMCOL)}${sL}${RESET}    ${DIM}${rgb(...DIMCOL)}Готово — введи ${RESET}${rgb(...ACCENT)}/help${RESET}${DIM}${rgb(...DIMCOL)} щоб почати${RESET}`
+  const sLen = ` \u25cf ${sL}    Готово — введи /help щоб почати`.length
   out.push(boxRow(sRow, W, sLen))
 
   out.push(`${rgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
-  out.push(`  ${DIM}${rgb(...DIMCOL)}openclaude ${RESET}${rgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`)
+  out.push(`  ${DIM}${rgb(...DIMCOL)}Neural Network ${RESET}${rgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`)
   out.push('')
 
   process.stdout.write(out.join('\n') + '\n')

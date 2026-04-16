@@ -16,7 +16,7 @@ import { getProjectTempDir } from '../permissions/filesystem.js'
 
 // SECURITY: O_NOFOLLOW prevents following symlinks when opening task output files.
 // Without this, an attacker in the sandbox could create symlinks in the tasks directory
-// pointing to arbitrary files, causing Claude Code on the host to write to those files.
+// pointing to arbitrary files, causing Neural Network on the host to write to those files.
 // O_NOFOLLOW is not available on Windows, but the sandbox attack vector is Unix-only.
 const O_NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0
 

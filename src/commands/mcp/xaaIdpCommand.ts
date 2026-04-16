@@ -32,7 +32,7 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
       'Configure the IdP connection (one-time setup for all XAA-enabled servers)',
     )
     .requiredOption('--issuer <url>', 'IdP issuer URL (OIDC discovery)')
-    .requiredOption('--client-id <id>', "Claude Code's client_id at the IdP")
+    .requiredOption('--client-id <id>', "Neural Network's client_id at the IdP")
     .option(
       '--client-secret',
       'Read IdP client secret from MCP_XAA_IDP_CLIENT_SECRET env var',

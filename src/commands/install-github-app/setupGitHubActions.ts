@@ -86,7 +86,7 @@ async function createWorkflowFile(
         ...context,
       })
       throw new Error(
-        `Failed to create workflow file ${workflowPath}: A Claude workflow file already exists in this repository. Please remove it first or update it manually.`,
+        `Failed to create workflow file ${workflowPath}: A workflow file already exists in this repository. Please remove it first or update it manually.`,
       )
     }
 
@@ -233,7 +233,7 @@ export async function setupGitHubActions(
         workflows.push({
           path: '.github/workflows/claude-code-review.yml',
           content: CODE_REVIEW_PLUGIN_WORKFLOW_CONTENT,
-          message: 'Claude Code Review workflow',
+          message: 'Neural Network Review workflow',
         })
       }
 

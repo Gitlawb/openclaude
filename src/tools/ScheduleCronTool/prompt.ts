@@ -29,7 +29,7 @@ export const DEFAULT_MAX_AGE_DAYS =
 export function isKairosCronEnabled(): boolean {
   if (isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_CRON)) return false
 
-  // OpenClaude open builds do not rely on Anthropic's internal runtime gates.
+  // Neural Network open builds do not rely on Anthropic's internal runtime gates.
   // Expose cron support by default unless explicitly disabled.
   if (process.env.USER_TYPE !== 'ant') return true
 

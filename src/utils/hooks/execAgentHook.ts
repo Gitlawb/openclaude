@@ -105,7 +105,7 @@ export async function execAgentHook(
       ]
 
       const systemPrompt = asSystemPrompt([
-        `You are verifying a stop condition in Claude Code. Your task is to verify that the agent completed the given plan. The conversation transcript is available at: ${transcriptPath}\nYou can read this file to analyze the conversation history if needed.
+        `You are verifying a stop condition in Neural Network. Your task is to verify that the agent completed the given plan. The conversation transcript is available at: ${transcriptPath}\nYou can read this file to analyze the conversation history if needed.
 
 Use the available tools to inspect the codebase and verify the condition.
 Use as few steps as possible - be efficient and direct.

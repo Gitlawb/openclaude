@@ -224,7 +224,7 @@ export function isClaudeSettingsPath(filePath: string): boolean {
   )
 }
 
-// Always ask when Claude Code tries to edit its own config files
+// Always ask when Neural Network tries to edit its own config files
 function isClaudeConfigFilePath(filePath: string): boolean {
   if (isClaudeSettingsPath(filePath)) {
     return true
@@ -328,7 +328,7 @@ export function getClaudeTempDirName(): string {
  * Uses TMPDIR env var if set, otherwise:
  * - On Unix: /tmp/claude-{uid}/ (resolved to /private/tmp/claude-{uid}/ on macOS)
  * - On Windows: {tmpdir}/claude/ (e.g., C:\Users\{user}\AppData\Local\Temp\claude\)
- * This is a per-user temporary directory used by Claude Code for all temp files.
+ * This is a per-user temporary directory used by Neural Network for all temp files.
  *
  * NOTE: We resolve symlinks to ensure this path matches the resolved paths used
  * in permission checks. On macOS, /tmp is a symlink to /private/tmp, so without
@@ -617,7 +617,7 @@ function hasSuspiciousWindowsPathPattern(path: string): boolean {
  * This function performs comprehensive safety checks including:
  * - Suspicious Windows path patterns (NTFS streams, 8.3 names, long path prefixes, etc.)
  * - Claude config files (.claude/settings.json, .claude/commands/, .claude/agents/)
- * - MCP CLI state files (managed internally by Claude Code)
+ * - MCP CLI state files (managed internally by Neural Network)
  * - Dangerous files (.bashrc, .gitconfig, .git/, .vscode/, .idea/, etc.)
  *
  * IMPORTANT: This function checks BOTH the original path AND resolved symlink paths
@@ -641,7 +641,7 @@ export function checkPathSafetyForAutoEdit(
     if (hasSuspiciousWindowsPathPattern(pathToCheck)) {
       return {
         safe: false,
-        message: `Claude requested permissions to write to ${path}, which contains a suspicious Windows path pattern that requires manual approval.`,
+        message: `Requested write access to ${path}, which contains a suspicious Windows path pattern that requires manual approval.`,
         classifierApprovable: false,
       }
     }
@@ -652,7 +652,7 @@ export function checkPathSafetyForAutoEdit(
     if (isClaudeConfigFilePath(pathToCheck)) {
       return {
         safe: false,
-        message: `Claude requested permissions to write to ${path}, but you haven't granted it yet.`,
+        message: `Requested write access to ${path}, but you haven't granted it yet.`,
         classifierApprovable: true,
       }
     }
@@ -663,7 +663,7 @@ export function checkPathSafetyForAutoEdit(
     if (isDangerousFilePathToAutoEdit(pathToCheck)) {
       return {
         safe: false,
-        message: `Claude requested permissions to edit ${path} which is a sensitive file.`,
+        message: `Requested edit access to ${path} which is a sensitive file.`,
         classifierApprovable: true,
       }
     }
@@ -1044,7 +1044,7 @@ export function checkReadPermissionForTool(
   if (typeof tool.getPath !== 'function') {
     return {
       behavior: 'ask',
-      message: `Claude requested permissions to use ${tool.name}, but you haven't granted it yet.`,
+      message: `Requested access to use ${tool.name}, but you haven't granted it yet.`,
     }
   }
   const path = tool.getPath(input)
@@ -1063,7 +1063,7 @@ export function checkReadPermissionForTool(
     if (pathToCheck.startsWith('\\\\') || pathToCheck.startsWith('//')) {
       return {
         behavior: 'ask',
-        message: `Claude requested permissions to read from ${path}, which appears to be a UNC path that could access network resources.`,
+        message: `Requested read access to ${path}, which appears to be a UNC path that could access network resources.`,
         decisionReason: {
           type: 'other',
           reason: 'UNC path detected (defense-in-depth check)',
@@ -1077,7 +1077,7 @@ export function checkReadPermissionForTool(
     if (hasSuspiciousWindowsPathPattern(pathToCheck)) {
       return {
         behavior: 'ask',
-        message: `Claude requested permissions to read from ${path}, which contains a suspicious Windows path pattern that requires manual approval.`,
+        message: `Requested read access to ${path}, which contains a suspicious Windows path pattern that requires manual approval.`,
         decisionReason: {
           type: 'other',
           reason:
@@ -1121,7 +1121,7 @@ export function checkReadPermissionForTool(
     if (askRule) {
       return {
         behavior: 'ask',
-        message: `Claude requested permissions to read from ${path}, but you haven't granted it yet.`,
+        message: `Requested read access to ${path}, but you haven't granted it yet.`,
         decisionReason: {
           type: 'rule',
           rule: askRule,
@@ -1188,7 +1188,7 @@ export function checkReadPermissionForTool(
   // At this point, isInWorkingDir is false (from step #6), so path is outside working directories
   return {
     behavior: 'ask',
-    message: `Claude requested permissions to read from ${path}, but you haven't granted it yet.`,
+    message: `Requested read access to ${path}, but you haven't granted it yet.`,
     suggestions: generateSuggestions(
       path,
       'read',
@@ -1220,7 +1220,7 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   if (typeof tool.getPath !== 'function') {
     return {
       behavior: 'ask',
-      message: `Claude requested permissions to use ${tool.name}, but you haven't granted it yet.`,
+      message: `Requested access to use ${tool.name}, but you haven't granted it yet.`,
     }
   }
   const path = tool.getPath(input)
@@ -1357,7 +1357,7 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
     if (askRule) {
       return {
         behavior: 'ask',
-        message: `Claude requested permissions to write to ${path}, but you haven't granted it yet.`,
+        message: `Requested write access to ${path}, but you haven't granted it yet.`,
         decisionReason: {
           type: 'rule',
           rule: askRule,
@@ -1404,7 +1404,7 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   // 5. Default to asking for permission
   return {
     behavior: 'ask',
-    message: `Claude requested permissions to write to ${path}, but you haven't granted it yet.`,
+    message: `Requested write access to ${path}, but you haven't granted it yet.`,
     suggestions: generateSuggestions(
       path,
       'write',

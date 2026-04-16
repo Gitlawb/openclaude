@@ -86,7 +86,7 @@ export function DescriptionStep() {
   }
   let t5;
   if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
-    t5 = <Text>When should Claude use this agent?</Text>;
+    t5 = <Text>When should this agent be used?</Text>;
     $[8] = t5;
   } else {
     t5 = $[8];
@@ -111,7 +111,7 @@ export function DescriptionStep() {
   }
   let t8;
   if ($[15] !== t6 || $[16] !== t7) {
-    t8 = <WizardDialogLayout subtitle="Description (tell Claude when to use this agent)" footerText={t4}><Box flexDirection="column">{t5}{t6}{t7}</Box></WizardDialogLayout>;
+    t8 = <WizardDialogLayout subtitle="Description (tell when to use this agent)" footerText={t4}><Box flexDirection="column">{t5}{t6}{t7}</Box></WizardDialogLayout>;
     $[15] = t6;
     $[16] = t7;
     $[17] = t8;

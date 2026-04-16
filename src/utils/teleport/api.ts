@@ -185,7 +185,7 @@ export async function prepareApiRequest(): Promise<{
   const accessToken = getClaudeAIOAuthTokens()?.accessToken
   if (accessToken === undefined) {
     throw new Error(
-      'Claude Code web sessions require authentication with a Claude.ai account. API key authentication is not sufficient. Please run /login to authenticate, or check your authentication status with /status.',
+      'Neural Network web sessions require authentication. API key authentication is not sufficient. API key authentication is not sufficient. Please run /login to authenticate, or check your authentication status with /status.',
     )
   }
 

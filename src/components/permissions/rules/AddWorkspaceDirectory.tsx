@@ -40,7 +40,7 @@ function PermissionDescription() {
   const $ = _c(1);
   let t0;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t0 = <Text dimColor={true}>Claude Code will be able to read files in this directory and make edits when auto-accept edits is on.</Text>;
+    t0 = <Text dimColor={true}>Neural Network will be able to read files in this directory and make edits when auto-accept edits is on.</Text>;
     $[0] = t0;
   } else {
     t0 = $[0];

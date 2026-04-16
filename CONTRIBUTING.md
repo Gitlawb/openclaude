@@ -1,8 +1,8 @@
-# Contributing to OpenClaude
+# Contributing to Neural Network
 
 Thanks for contributing.
 
-OpenClaude is a fast-moving open-source coding-agent CLI with support for multiple providers, local backends, MCP, and a terminal-first workflow. The best contributions here are focused, well-tested, and easy to review.
+Neural Network is a fast-moving open-source coding-agent CLI with support for multiple providers, local backends, MCP, and a terminal-first workflow. The best contributions here are focused, well-tested, and easy to review.
 
 ## Before You Start
 
@@ -98,7 +98,7 @@ If the PR changes provider behavior, mention which provider path was tested.
 
 ## Provider Changes
 
-OpenClaude supports multiple provider paths. If you change provider logic:
+Neural Network supports multiple provider paths. If you change provider logic:
 
 - be explicit about which providers are affected
 - avoid breaking third-party providers while fixing first-party behavior

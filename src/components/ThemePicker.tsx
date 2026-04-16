@@ -116,24 +116,27 @@ export function ThemePicker({
     () => [
       ...(feature("AUTO_THEME")
         ? [{ label: "Auto (match terminal)", value: "auto" as const }]
-        : []), { 
+        : []), {
+        label: "Fire (sunset — Neural Network default)",
+        value: "fire" as const
+      }, {
         label: "Dark mode",
-        value: "dark" as const 
-      }, { 
+        value: "dark" as const
+      }, {
         label: "Light mode",
-        value: "light" as const 
+        value: "light" as const
       }, {
         label: "Dark mode (colorblind-friendly)",
         value: "dark-daltonized" as const,
       }, {
         label: "Light mode (colorblind-friendly)",
         value: "light-daltonized" as const,
-      }, { 
+      }, {
         label: "Dark mode (ANSI colors only)",
-        value: "dark-ansi" as const 
+        value: "dark-ansi" as const
       }, {
         label: "Light mode (ANSI colors only)",
-        value: "light-ansi" as const 
+        value: "light-ansi" as const
       },],
     [],
   )

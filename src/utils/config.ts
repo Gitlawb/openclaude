@@ -279,6 +279,9 @@ export type GlobalConfig = {
   // /buddy companion soul — bones regenerated from userId on read. See src/buddy/.
   companion?: import('../buddy/types.js').StoredCompanion
   companionMuted?: boolean
+  // Hides the companion sprite + bubble entirely. Default is hidden:
+  // treat `undefined` and `true` as hidden; only explicit `false` reveals.
+  companionHidden?: boolean
 
   // Feedback survey tracking
   feedbackSurveyState?: {
@@ -380,7 +383,7 @@ export type GlobalConfig = {
   showSpinnerTree?: boolean // Whether to show the teammate spinner tree instead of pills
 
   // First start time tracking
-  firstStartTime?: string // ISO timestamp when Claude Code was first started on this machine
+  firstStartTime?: string // ISO timestamp when Neural Network was first started on this machine
 
   messageIdleNotifThresholdMs: number // How long the user has to have been idle to get a notification that Claude is done generating
 
@@ -403,8 +406,8 @@ export type GlobalConfig = {
   inputNeededNotifEnabled?: boolean
   agentPushNotifEnabled?: boolean
 
-  // Claude Code usage tracking
-  claudeCodeFirstTokenDate?: string // ISO timestamp of the user's first Claude Code OAuth token
+  // Neural Network usage tracking
+  claudeCodeFirstTokenDate?: string // ISO timestamp of the user's first Neural Network OAuth token
 
   // Model switch callout tracking (internal-only)
   modelSwitchCalloutDismissed?: boolean // Whether user chose "Don't show again"
@@ -507,8 +510,8 @@ export type GlobalConfig = {
   officialMarketplaceAutoInstallNextRetryTime?: number // Earliest time to retry again
 
   // Claude in Chrome settings
-  hasCompletedClaudeInChromeOnboarding?: boolean // Whether Claude in Chrome onboarding has been shown
-  claudeInChromeDefaultEnabled?: boolean // Whether Claude in Chrome is enabled by default (undefined means platform default)
+  hasCompletedClaudeInChromeOnboarding?: boolean // Whether Chrome Extension onboarding has been shown
+  claudeInChromeDefaultEnabled?: boolean // Whether Chrome Extension is enabled by default (undefined means platform default)
   cachedChromeExtensionInstalled?: boolean // Cached result of whether Chrome extension is installed
 
   // Chrome extension pairing state (persisted across sessions)
@@ -522,7 +525,7 @@ export type GlobalConfig = {
   lspRecommendationNeverPlugins?: string[] // Plugin IDs to never suggest
   lspRecommendationIgnoredCount?: number // Track ignored recommendations (stops after 5)
 
-  // Claude Code hint protocol state (<claude-code-hint /> tags from CLIs/SDKs).
+  // Neural Network hint protocol state (<claude-code-hint /> tags from CLIs/SDKs).
   // Nested by hint type so future types (docs, mcp, ...) slot in without new
   // top-level keys.
   claudeCodeHints?: {
@@ -603,6 +606,17 @@ export type GlobalConfig = {
   // CURRENT_MIGRATION_VERSION, runMigrations() skips all sync migrations
   // (avoiding 11× saveGlobalConfig lock+re-read on every startup).
   migrationVersion?: number
+
+  // Local-remote bridge (see src/localRemote/). Launches a local HTTP+WS
+  // server so a phone/browser client can mirror the session, submit
+  // prompts, and approve tool permissions. All fields optional; defaults
+  // are applied in loadLocalRemoteSettings().
+  localRemote?: {
+    port?: number // default 7842
+    host?: string // default '127.0.0.1'
+    token?: string // generated on first /remote on
+    autoStart?: boolean // default false
+  }
 }
 
 /**
@@ -615,7 +629,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     numStartups: 0,
     installMethod: undefined,
     autoUpdates: undefined,
-    theme: 'dark',
+    theme: 'fire',
     preferredNotifChannel: 'auto',
     verbose: false,
     editorMode: 'normal',
@@ -1217,7 +1231,7 @@ function saveConfigWithLock<A extends object>(
     const lockTime = Date.now() - startTime
     if (lockTime > 100) {
       logForDebugging(
-        'Lock acquisition took longer than expected - another Claude instance may be running',
+        'Lock acquisition took longer than expected - another process may be running',
       )
       logEvent('tengu_config_lock_contention', {
         lock_time_ms: lockTime,
@@ -1493,7 +1507,7 @@ function getConfig<A>(
       const backupPath = findMostRecentBackup(file)
       if (backupPath) {
         process.stderr.write(
-          `\nClaude configuration file not found at: ${file}\n` +
+          `\nConfiguration file not found at: ${file}\n` +
             `A backup file exists at: ${backupPath}\n` +
             `You can manually restore it by running: cp "${backupPath}" "${file}"\n\n`,
         )

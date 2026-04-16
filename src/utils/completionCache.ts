@@ -123,7 +123,7 @@ export async function setupShellCompletion(theme: ThemeName): Promise<string> {
     await mkdir(configDir, { recursive: true })
 
     const separator = existing && !existing.endsWith('\n') ? '\n' : ''
-    const content = `${existing}${separator}\n# Claude Code shell completions\n${shell.completionLine}\n`
+    const content = `${existing}${separator}\n# Neural Network shell completions\n${shell.completionLine}\n`
     await writeFile(shell.rcFile, content, { encoding: 'utf-8' })
 
     return `${EOL}${color('success', theme)(`Installed ${shell.name} shell completions`)}${EOL}${chalk.dim(`Added to ${formatPathLink(shell.rcFile)}`)}${EOL}${chalk.dim(`Run: source ${shell.rcFile}`)}${EOL}`

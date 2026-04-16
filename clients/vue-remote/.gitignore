@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+.DS_Store
+*.log
+*.tsbuildinfo
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

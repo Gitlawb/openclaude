@@ -87,7 +87,7 @@ function AskUserQuestionResultMessage(t0) {
   } = t0;
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = <Box flexDirection="row"><Text color={getModeColor("default")}>{BLACK_CIRCLE} </Text><Text>User answered Claude's questions:</Text></Box>;
+    t1 = <Box flexDirection="row"><Text color={getModeColor("default")}>{BLACK_CIRCLE} </Text><Text>Користувач відповів на питання:</Text></Box>;
     $[0] = t1;
   } else {
     t1 = $[0];

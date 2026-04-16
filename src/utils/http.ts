@@ -59,7 +59,7 @@ export function getWebFetchUserAgent(): string {
     getAPIProvider() === 'firstParty'
       ? 'https://support.anthropic.com/'
       : 'https://github.com/Gitlawb/openclaude'
-  return `Claude-User (${getClaudeCodeUserAgent()}; +${supportUrl})`
+  return `User-Agent (${getClaudeCodeUserAgent()}; +${supportUrl})`
 }
 
 export type AuthHeaders = {

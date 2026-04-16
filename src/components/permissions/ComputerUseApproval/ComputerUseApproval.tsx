@@ -161,7 +161,7 @@ function ComputerUseTccPanel(t0) {
   }
   let t7;
   if ($[15] === Symbol.for("react.memo_cache_sentinel")) {
-    t7 = <Text dimColor={true}>Grant the missing permissions in System Settings, then select "Try again". macOS may require you to restart Claude Code after granting Screen Recording.</Text>;
+    t7 = <Text dimColor={true}>Grant the missing permissions in System Settings, then select "Try again". macOS may require you to restart Neural Network after granting Screen Recording.</Text>;
     $[15] = t7;
   } else {
     t7 = $[15];
@@ -261,7 +261,7 @@ function ComputerUseAppListPanel(t0) {
   let t8;
   if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
     t8 = {
-      label: <Text>Deny, and tell Claude what to do differently <Text bold={true}>(esc)</Text></Text>,
+      label: <Text>Deny, and вкажи що робити інакше <Text bold={true}>(esc)</Text></Text>,
       value: "deny"
     };
     $[9] = t8;
@@ -372,7 +372,7 @@ function ComputerUseAppListPanel(t0) {
   }
   let t16;
   if ($[30] !== request.willHide) {
-    t16 = request.willHide && request.willHide.length > 0 ? <Text dimColor={true}>{request.willHide.length} other{" "}{plural(request.willHide.length, "app")} will be hidden while Claude works.</Text> : null;
+    t16 = request.willHide && request.willHide.length > 0 ? <Text dimColor={true}>{request.willHide.length} other{" "}{plural(request.willHide.length, "app")} will be hidden while working.</Text> : null;
     $[30] = request.willHide;
     $[31] = t16;
   } else {

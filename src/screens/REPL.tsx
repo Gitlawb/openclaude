@@ -279,6 +279,7 @@ import { useIssueFlagBanner } from '../hooks/useIssueFlagBanner.js';
 import { CompanionSprite, CompanionFloatingBubble, MIN_COLS_FOR_FULL_SPRITE } from '../buddy/CompanionSprite.js';
 import { isBuddyEnabled } from '../buddy/feature.js';
 import { fireCompanionObserver } from '../buddy/observer.js';
+import { publishLoading as publishRemoteLoading, publishMessages as publishRemoteMessages, publishPendingPermission as publishRemotePendingPermission, publishResolvedPermission as publishRemoteResolvedPermission, setRemoteSubmitter, startLocalRemote, stopLocalRemote } from '../localRemote/index.js';
 import { DevBar } from '../components/DevBar.js';
 // Session manager removed - using AppState now
 import type { RemoteSessionConfig } from '../remote/RemoteSessionManager.js';
@@ -1101,6 +1102,49 @@ export function REPL({
     setToolJSXInternal(args);
   }, []);
   const [toolUseConfirmQueue, setToolUseConfirmQueue] = useState<ToolUseConfirm[]>([]);
+  // Forward the head-of-queue permission request to any connected remote
+  // client so the user can approve/deny from their phone. If the local TUI
+  // dialog resolves first, the remote client sees a `permission_clear`;
+  // if the remote resolves first, it calls the same onAllow/onReject that
+  // the TUI buttons call, and the queue head is popped identically.
+  useEffect(() => {
+    const head = toolUseConfirmQueue[0];
+    if (!head) return;
+    const toolName = head.tool.userFacingName(head.input as never) || head.tool.name;
+    const requestId = publishRemotePendingPermission(
+      toolName,
+      {
+        requestId: head.toolUseID,
+        description: head.description,
+        input: head.input,
+      },
+      (_rid, behavior, message) => {
+        if (behavior === 'allow') {
+          // AskUserQuestion sends answers as JSON in the message field.
+          // Try to parse them and inject into updatedInput so the model
+          // receives structured answers rather than an empty response.
+          let updatedInput = head.input as Record<string, unknown>
+          if (message && head.tool.name === 'AskUserQuestion') {
+            try {
+              const parsed = JSON.parse(message) as { answers?: Record<string, string> }
+              if (parsed.answers && typeof parsed.answers === 'object') {
+                updatedInput = { ...head.input as Record<string, unknown>, answers: parsed.answers }
+              }
+            } catch {
+              // Not JSON — fall through with original input
+            }
+          }
+          head.onAllow(updatedInput as never, [], message);
+        } else {
+          head.onReject(message);
+        }
+        return true;
+      },
+    );
+    return () => {
+      publishRemoteResolvedPermission(requestId);
+    };
+  }, [toolUseConfirmQueue]);
   // Sticky footer JSX registered by permission request components (currently
   // only ExitPlanModePermissionRequest). Renders in FullscreenLayout's `bottom`
   // slot so response options stay visible while the user scrolls a long plan.
@@ -1134,7 +1178,7 @@ export function REPL({
   // session from mid-conversation context.
   const haikuTitleAttemptedRef = useRef((initialMessages?.length ?? 0) > 0);
   const agentTitle = mainThreadAgentDefinition?.agentType;
-  const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'Open Claude';
+  const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'OpenClaude';
   const isWaitingForApproval = toolUseConfirmQueue.length > 0 || promptQueue.length > 0 || pendingWorkerRequest || pendingSandboxRequest;
   // Local-jsx commands (like /plugin, /config) show user-facing dialogs that
   // wait for input. Require jsx != null — if the flag is stuck true but jsx
@@ -1241,6 +1285,42 @@ export function REPL({
     if (replacements.size === 0) return;
     setMessages(current => applyToolResultReplacementsToMessages(current, replacements));
   }, [setMessages]);
+
+  // Local-remote bridge wiring (see src/localRemote/). Remote prompts are
+  // routed through the live onSubmit closure (same path as typing into the
+  // TUI) rather than the queue — that way the user message appears in the
+  // transcript immediately, hooks fire, and concurrency is handled by the
+  // same queryGuard that direct submits use. See the initialMessage →
+  // onSubmit pattern around line ~3200 for precedent.
+  //
+  // A ref is needed because onSubmit is recreated on almost every render
+  // and we want setRemoteSubmitter to register exactly once on mount.
+  const remoteOnSubmitRef = useRef<typeof onSubmit | null>(null);
+  useEffect(() => {
+    const unregister = setRemoteSubmitter(text => {
+      const fn = remoteOnSubmitRef.current;
+      if (!fn) return;
+      void fn(text, {
+        setCursorOffset: () => { },
+        clearBuffer: () => { },
+        resetHistory: () => { }
+      });
+    });
+    // --remote / --remote-on flag: auto-start the bridge on session mount.
+    if (process.env.OPENCLAUDE_REMOTE_ON === '1') {
+      void startLocalRemote()
+    }
+    return () => {
+      unregister();
+      void stopLocalRemote();
+    };
+  }, []);
+  useEffect(() => {
+    publishRemoteMessages(messages);
+  }, [messages]);
+  useEffect(() => {
+    publishRemoteLoading(isLoading);
+  }, [isLoading]);
   // Fullscreen: track the unseen-divider position. dividerIndex changes
   // only ~twice/scroll-session (first scroll-away + repin). pillVisible
   // and stickyPrompt now live in FullscreenLayout — they subscribe to
@@ -2713,7 +2793,7 @@ export function REPL({
     // which was broken by SessionStart hook messages (prepended via
     // useDeferredHookMessages) and attachment messages (appended by
     // processTextPrompt) — both pushed length past 1 on turn one, so the
-    // title silently fell through to the "Claude Code" default.
+    // title silently fell through to the "Neural Network" default.
     if (!titleDisabled && !sessionTitle && !agentTitle && !haikuTitleAttemptedRef.current) {
       const firstUserMessage = newMessages.find(m => m.type === 'user' && !m.isMeta);
       const text = firstUserMessage?.type === 'user' ? getContentText(firstUserMessage.message.content) : null;
@@ -3577,6 +3657,11 @@ export function REPL({
     // accumulating after #20174/#20175, all traced to this dep.
     mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll]);
 
+  // Keep the local-remote bridge's submitter pointing at the latest onSubmit
+  // without re-running setRemoteSubmitter on every render. Safe to assign
+  // during render: refs don't trigger reconciliation.
+  remoteOnSubmitRef.current = onSubmit;
+
   // Callback for when user submits input while viewing a teammate's transcript
   const onAgentSubmit = useCallback(async (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => {
     if (isLocalAgentTask(task)) {
@@ -3965,7 +4050,7 @@ export function REPL({
         // Use ref to get current dialog state, avoiding stale closure
         focusedInputDialogRef.current === undefined && idleTimeSinceResponse >= getGlobalConfig().messageIdleNotifThresholdMs) {
         void sendNotification({
-          message: 'Claude is waiting for your input',
+          message: 'Neural Network is waiting for your input',
           notificationType: 'idle_prompt'
         }, terminal);
       }
@@ -4148,7 +4233,7 @@ export function REPL({
   useEffect(() => {
     const handleSuspend = () => {
       // Print suspension instructions
-      process.stdout.write(`\nClaude Code has been suspended. Run \`fg\` to bring Claude Code back.\nNote: ctrl + z now suspends Claude Code, ctrl + _ undoes input.\n`);
+      process.stdout.write(`\nNeural Network has been suspended. Run \`fg\` to bring Neural Network back.\nNote: ctrl + z now suspends Neural Network, ctrl + _ undoes input.\n`);
     };
     const handleResume = () => {
       // Force complete component tree replacement instead of terminal clear
@@ -4553,7 +4638,10 @@ export function REPL({
   // spriteWidth — divider stops short and dialog text wraps early. Don't
   // check footerSelection: pill FOCUS (arrow-down to tasks pill) must keep
   // the sprite visible so arrow-right can navigate to it.
-  const companionVisible = !toolJSX?.shouldHidePromptInput && !focusedInputDialog && !showBashesDialog;
+  // Companion is hidden by default: only an explicit `companionHidden === false`
+  // (set by `/buddy show`) reveals the sprite + bubble. Undefined or true = hidden.
+  const companionShown = getGlobalConfig().companionHidden === false;
+  const companionVisible = companionShown && !toolJSX?.shouldHidePromptInput && !focusedInputDialog && !showBashesDialog;
 
   // In fullscreen, ALL local-jsx slash commands float in the modal slot —
   // FullscreenLayout wraps them in an absolute-positioned bottom-anchored
@@ -4612,7 +4700,7 @@ export function REPL({
         {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} apiMetricsRef={apiMetricsRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
         {!showSpinner && !isLoading && !userInputOnProcessing && !hasRunningTeammates && isBriefOnly && !viewedAgentTask && <BriefIdleStatus />}
         {isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
-      </>} bottom={<Box flexDirection={isBuddyEnabled() && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionNarrow ? undefined : 'flex-end'}>
+      </>} bottom={<Box flexDirection={isBuddyEnabled() && companionShown && companionNarrow ? 'column' : 'row'} width="100%" alignItems={isBuddyEnabled() && companionShown && companionNarrow ? undefined : 'flex-end'}>
         {isBuddyEnabled() && companionNarrow && isFullscreenEnvEnabled() && companionVisible ? <CompanionSprite /> : null}
         <Box flexDirection="column" flexGrow={1}>
           {permissionStickyFooter}
@@ -4918,7 +5006,7 @@ export function REPL({
 
           {!toolJSX?.shouldHidePromptInput && !focusedInputDialog && !isExiting && !disabled && !cursor && !isShuttingDown() && <>
             {autoRunIssueReason && <AutoRunIssueNotification onRun={handleAutoRunIssue} onCancel={handleCancelAutoRunIssue} reason={getAutoRunIssueReasonText(autoRunIssueReason)} />}
-            {postCompactSurvey.state !== 'closed' ? <FeedbackSurvey state={postCompactSurvey.state} lastResponse={postCompactSurvey.lastResponse} handleSelect={postCompactSurvey.handleSelect} inputValue={inputValue} setInputValue={setInputValue} onRequestFeedback={handleSurveyRequestFeedback} /> : memorySurvey.state !== 'closed' ? <FeedbackSurvey state={memorySurvey.state} lastResponse={memorySurvey.lastResponse} handleSelect={memorySurvey.handleSelect} handleTranscriptSelect={memorySurvey.handleTranscriptSelect} inputValue={inputValue} setInputValue={setInputValue} onRequestFeedback={handleSurveyRequestFeedback} message="How well did Claude use its memory? (optional)" /> : <FeedbackSurvey state={feedbackSurvey.state} lastResponse={feedbackSurvey.lastResponse} handleSelect={feedbackSurvey.handleSelect} handleTranscriptSelect={feedbackSurvey.handleTranscriptSelect} inputValue={inputValue} setInputValue={setInputValue} onRequestFeedback={didAutoRunIssueRef.current ? undefined : handleSurveyRequestFeedback} />}
+            {postCompactSurvey.state !== 'closed' ? <FeedbackSurvey state={postCompactSurvey.state} lastResponse={postCompactSurvey.lastResponse} handleSelect={postCompactSurvey.handleSelect} inputValue={inputValue} setInputValue={setInputValue} onRequestFeedback={handleSurveyRequestFeedback} /> : memorySurvey.state !== 'closed' ? <FeedbackSurvey state={memorySurvey.state} lastResponse={memorySurvey.lastResponse} handleSelect={memorySurvey.handleSelect} handleTranscriptSelect={memorySurvey.handleTranscriptSelect} inputValue={inputValue} setInputValue={setInputValue} onRequestFeedback={handleSurveyRequestFeedback} message="How well did the agent use its memory? (optional)" /> : <FeedbackSurvey state={feedbackSurvey.state} lastResponse={feedbackSurvey.lastResponse} handleSelect={feedbackSurvey.handleSelect} handleTranscriptSelect={feedbackSurvey.handleTranscriptSelect} inputValue={inputValue} setInputValue={setInputValue} onRequestFeedback={didAutoRunIssueRef.current ? undefined : handleSurveyRequestFeedback} />}
             {/* Frustration-triggered transcript sharing prompt */}
             {frustrationDetection.state !== 'closed' && <FeedbackSurvey state={frustrationDetection.state} lastResponse={null} handleSelect={() => { }} handleTranscriptSelect={frustrationDetection.handleTranscriptSelect} inputValue={inputValue} setInputValue={setInputValue} />}
             {/* Skill improvement survey - appears when improvements detected (internal-only) */}

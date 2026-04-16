@@ -97,7 +97,7 @@ function setCompanionReaction(
 
 function showHelp(onDone: LocalJSXCommandOnDone): void {
   onDone(
-    'Usage: /buddy [status|mute|unmute]\n\nRun /buddy with no args to hatch your companion the first time, then pet it on later runs.',
+    'Usage: /buddy [status|show|hide|mute|unmute]\n\nRun /buddy with no args to hatch your companion the first time, then pet it on later runs. Companion is hidden by default — use /buddy show to reveal, /buddy hide to tuck away.',
     { display: 'system' },
   )
 }
@@ -132,8 +132,11 @@ export async function call(
       })
       return null
     }
+    const cfg = getGlobalConfig()
+    const visibility = cfg.companionHidden === false ? 'visible' : 'hidden'
+    const muted = cfg.companionMuted ? ' (muted)' : ''
     onDone(
-      `${companion.name} is your ${titleCase(companion.rarity)} ${companion.species}. ${companion.personality}`,
+      `${companion.name} is your ${titleCase(companion.rarity)} ${companion.species}. ${companion.personality} [${visibility}${muted}]`,
       { display: 'system' },
     )
     return null
@@ -149,6 +152,20 @@ export async function call(
       setCompanionReaction(context, undefined)
     }
     onDone(`Buddy ${muted ? 'muted' : 'unmuted'}.`, { display: 'system' })
+    return null
+  }
+
+  if (arg === 'show' || arg === 'hide' || arg === 'toggle') {
+    const current = getGlobalConfig().companionHidden !== false
+    const hidden = arg === 'toggle' ? !current : arg === 'hide'
+    saveGlobalConfig(prev => ({
+      ...prev,
+      companionHidden: hidden,
+    }))
+    if (hidden) {
+      setCompanionReaction(context, undefined)
+    }
+    onDone(`Buddy ${hidden ? 'hidden' : 'visible'}.`, { display: 'system' })
     return null
   }
 
@@ -174,8 +191,11 @@ export async function call(
       `${companion.name} the ${companion.species} has hatched.`,
       true,
     )
+    const hiddenHint = getGlobalConfig().companionHidden === false
+      ? ''
+      : ' Buddy stays hidden by default — run /buddy show to reveal them.'
     onDone(
-      `${companion.name} the ${companion.species} is now your buddy. Run /buddy again to pet them.`,
+      `${companion.name} the ${companion.species} is now your buddy. Run /buddy again to pet them.${hiddenHint}`,
       { display: 'system' },
     )
     return null

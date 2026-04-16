@@ -28,8 +28,8 @@ export type PermissionPromptProps<T extends string> = {
   toolAnalyticsContext?: ToolAnalyticsContext;
 };
 const DEFAULT_PLACEHOLDERS: Record<FeedbackType, string> = {
-  accept: 'tell Claude what to do next',
-  reject: 'tell Claude what to do differently'
+  accept: 'вкажи що робити далі',
+  reject: 'вкажи що робити інакше'
 };
 
 /**

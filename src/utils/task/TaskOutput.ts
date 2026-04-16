@@ -321,7 +321,7 @@ export class TaskOutput {
       logForDebugging(
         `TaskOutput.#readStdoutFromFile: failed to read ${this.path} (${code}): ${err}`,
       )
-      return `<bash output unavailable: output file ${this.path} could not be read (${code}). This usually means another Claude Code process in the same project deleted it during startup cleanup.>`
+      return `<bash output unavailable: output file ${this.path} could not be read (${code}). This usually means another Neural Network process in the same project deleted it during startup cleanup.>`
     }
   }
 

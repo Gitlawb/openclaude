@@ -7,7 +7,7 @@ function createStatus(overrides = {}) {
     installed: true,
     executable: 'openclaude',
     launchCommand: 'openclaude --project-aware',
-    terminalName: 'OpenClaude',
+    terminalName: 'Neural Network',
     shimEnabled: false,
     workspaceFolder: '/workspace/openclaude/very/long/path/example-project',
     workspaceSourceLabel: 'active editor workspace',
@@ -58,7 +58,7 @@ function loadExtension() {
   return require('./extension');
 }
 
-test('renderControlCenterHtml uses the OpenClaude wordmark, status rail, and warm action hierarchy', () => {
+test('renderControlCenterHtml uses the Neural Network wordmark, status rail, and warm action hierarchy', () => {
   const { renderControlCenterHtml } = loadExtension();
   const html = renderControlCenterHtml(createStatus(), { nonce: 'test-nonce', platform: 'win32' });
 
@@ -221,7 +221,7 @@ test('renderControlCenterHtml makes shared workspace-root launches explicit for 
   );
 
   assert.match(html, /Project-aware launch is anchored to the workspace root by the relative command · \/workspace\/openclaude/);
-  assert.match(html, /Same workspace-root target as Launch OpenClaude because the relative command resolves from the workspace root · \/workspace\/openclaude/);
+  assert.match(html, /Same workspace-root target as Launch Neural Network because the relative command resolves from the workspace root · \/workspace\/openclaude/);
 });
 
 test('renderControlCenterHtml escapes hostile text and title values', () => {

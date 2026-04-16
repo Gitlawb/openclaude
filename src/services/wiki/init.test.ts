@@ -32,11 +32,11 @@ test('initializeWiki creates the expected wiki scaffold', async () => {
     '.openclaude/wiki/pages/architecture.md',
   ])
   expect(await readFile(paths.schemaFile, 'utf8')).toContain(
-    '# OpenClaude Wiki Schema',
+    '# Neural Network Wiki Schema',
   )
   expect(await readFile(paths.indexFile, 'utf8')).toContain('Wiki')
   expect(await readFile(paths.logFile, 'utf8')).toContain(
-    'Wiki initialized by OpenClaude',
+    'Wiki initialized by Neural Network',
   )
   expect(await readFile(join(paths.pagesDir, 'architecture.md'), 'utf8')).toContain(
     '# Architecture',

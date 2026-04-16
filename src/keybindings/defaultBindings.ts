@@ -5,7 +5,7 @@ import { getPlatform } from '../utils/platform.js'
 import type { KeybindingBlock } from './types.js'
 
 /**
- * Default keybindings that match current Claude Code behavior.
+ * Default keybindings that match current Neural Network behavior.
  * These are loaded first, then user keybindings.json overrides them.
  */
 

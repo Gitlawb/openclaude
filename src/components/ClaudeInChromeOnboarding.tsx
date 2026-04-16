@@ -6,8 +6,8 @@ import { Box, Link, Newline, Text, useInput } from '../ink.js';
 import { isChromeExtensionInstalled } from '../utils/claudeInChrome/setup.js';
 import { saveGlobalConfig } from '../utils/config.js';
 import { Dialog } from './design-system/Dialog.js';
-const CHROME_EXTENSION_URL = 'https://claude.ai/chrome';
-const CHROME_PERMISSIONS_URL = 'https://clau.de/chrome/permissions';
+const CHROME_EXTENSION_URL = 'https://claude.aiEnable Chrome integration';
+const CHROME_PERMISSIONS_URL = 'https://clau.deEnable Chrome integration/permissions';
 type Props = {
   onDone(): void;
 };
@@ -56,7 +56,7 @@ export function ClaudeInChromeOnboarding(t0) {
   }
   let t5;
   if ($[6] !== t4) {
-    t5 = <Text>Claude in Chrome works with the Chrome extension to let you control your browser directly from Claude Code. You can navigate websites, fill forms, capture screenshots, record GIFs, and debug with console logs and network requests.{t4}</Text>;
+    t5 = <Text>Chrome Extension works with the Chrome extension to let you control your browser directly from Neural Network. You can navigate websites, fill forms, capture screenshots, record GIFs, and debug with console logs and network requests.{t4}</Text>;
     $[6] = t4;
     $[7] = t5;
   } else {
@@ -80,14 +80,14 @@ export function ClaudeInChromeOnboarding(t0) {
   }
   let t8;
   if ($[12] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Text bold={true} color="chromeYellow">/chrome</Text>;
+    t8 = <Text bold={true} color="chromeYellow">Enable Chrome integration</Text>;
     $[12] = t8;
   } else {
     t8 = $[12];
   }
   let t9;
   if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-    t9 = <Text dimColor={true}>For more info, use{" "}{t8}{" "}or visit <Link url="https://code.claude.com/docs/en/chrome" /></Text>;
+    t9 = <Text dimColor={true}>For more info, use{" "}{t8}{" "}or visit <Link url="https://code.claude.com/docs/enEnable Chrome integration" /></Text>;
     $[13] = t9;
   } else {
     t9 = $[13];
@@ -103,7 +103,7 @@ export function ClaudeInChromeOnboarding(t0) {
   }
   let t11;
   if ($[17] !== onDone || $[18] !== t10) {
-    t11 = <Dialog title="Claude in Chrome (Beta)" onCancel={onDone} color="chromeYellow">{t10}</Dialog>;
+    t11 = <Dialog title="Chrome Extension (Beta)" onCancel={onDone} color="chromeYellow">{t10}</Dialog>;
     $[17] = onDone;
     $[18] = t10;
     $[19] = t11;

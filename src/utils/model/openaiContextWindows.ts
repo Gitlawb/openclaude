@@ -47,7 +47,7 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   // Grok
   'github:copilot:grok-code-fast-1':         256_000,
 
-  // LiteLLM format — when OpenClaude talks to a LiteLLM proxy, Copilot models
+  // LiteLLM format — when Neural Network talks to a LiteLLM proxy, Copilot models
   // keep their "<provider>/<model>" naming convention (standard LiteLLM routing)
   // instead of the "github:copilot:<model>" namespaced form used by /onboard-github.
   // Entries below cover the aliases currently exposed by LiteLLM's github_copilot

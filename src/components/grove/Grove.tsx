@@ -44,7 +44,7 @@ function GracePeriodContentBody() {
   let t3;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = <Text>· </Text>;
-    t3 = <Text bold={true}>You can help improve Claude </Text>;
+    t3 = <Text bold={true}>You can help improve Anthropic AI </Text>;
     $[2] = t2;
     $[3] = t3;
   } else {
@@ -106,7 +106,7 @@ function PostGracePeriodContentBody() {
   }
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Box flexDirection="column"><Text bold={true}>Help improve Claude</Text><Text>Allow the use of your chats and coding sessions to train and improve Anthropic AI models. You can change this anytime in Privacy Settings</Text><Link url="https://claude.ai/settings/data-privacy-controls" /></Box>;
+    t2 = <Box flexDirection="column"><Text bold={true}>Help improve Neural Network</Text><Text>Allow the use of your chats and coding sessions to train and improve Anthropic AI models. You can change this anytime in Privacy Settings</Text><Link url="https://claude.ai/settings/data-privacy-controls" /></Box>;
     $[2] = t2;
   } else {
     t2 = $[2];
@@ -235,13 +235,13 @@ export function GroveDialog(t0) {
   let t4;
   if ($[8] !== groveConfig?.domain_excluded) {
     t4 = groveConfig?.domain_excluded ? [{
-      label: "Accept terms \xB7 Help improve Claude: OFF (for emails with your domain)",
+      label: "Accept terms \xB7 Help improve Neural Network: OFF (for emails with your domain)",
       value: "accept_opt_out"
     }] : [{
-      label: "Accept terms \xB7 Help improve Claude: ON",
+      label: "Accept terms \xB7 Help improve Neural Network: ON",
       value: "accept_opt_in"
     }, {
-      label: "Accept terms \xB7 Help improve Claude: OFF",
+      label: "Accept terms \xB7 Help improve Neural Network: OFF",
       value: "accept_opt_out"
     }];
     $[8] = groveConfig?.domain_excluded;
@@ -432,7 +432,7 @@ export function PrivacySettingsDialog(t0) {
   }
   let t6;
   if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = <Box width={44}><Text bold={true}>Help improve Claude</Text></Box>;
+    t6 = <Box width={44}><Text bold={true}>Help improve Neural Network</Text></Box>;
     $[10] = t6;
   } else {
     t6 = $[10];

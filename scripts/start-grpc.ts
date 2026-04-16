@@ -11,7 +11,7 @@ Object.assign(globalThis, {
 })
 
 async function main() {
-  console.log('Starting OpenClaude gRPC Server...')
+  console.log('Starting Neural Network gRPC Server...')
   await init()
 
   // Mirror CLI bootstrap: hydrate secure tokens and resolve provider profile

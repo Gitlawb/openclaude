@@ -4,7 +4,7 @@ import { getWikiPaths } from './paths.js'
 import type { WikiInitResult } from './types.js'
 
 function buildSchemaTemplate(projectName: string): string {
-  return `# OpenClaude Wiki Schema
+  return `# Neural Network Wiki Schema
 
 This wiki stores durable, human-readable project knowledge for ${projectName}.
 
@@ -39,7 +39,7 @@ This wiki stores durable, human-readable project knowledge for ${projectName}.
 function buildIndexTemplate(projectName: string): string {
   return `# ${projectName} Wiki
 
-This wiki is maintained by OpenClaude as a durable project knowledge layer.
+This wiki is maintained by Neural Network as a durable project knowledge layer.
 
 ## Core Pages
 
@@ -58,7 +58,7 @@ This wiki is maintained by OpenClaude as a durable project knowledge layer.
 function buildLogTemplate(timestamp: string): string {
   return `# Wiki Update Log
 
-- ${timestamp}: Wiki initialized by OpenClaude
+- ${timestamp}: Wiki initialized by Neural Network
 `
 }
 

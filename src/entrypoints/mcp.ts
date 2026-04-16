@@ -1,4 +1,4 @@
-// OpenClaude: disable experimental API betas by default.
+// Neural Network: disable experimental API betas by default.
 // Tool search (defer_loading), global cache scope, and context management
 // require internal API support not available to external accounts → 500.
 // Users can opt-in with CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=false.
