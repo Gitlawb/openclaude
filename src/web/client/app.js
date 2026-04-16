@@ -137,9 +137,15 @@
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(proto + '//' + location.host);
     ws.onopen = function() { connDot.classList.add('ok'); connLabel.textContent = 'Connected' };
-    ws.onclose = function() {
-      connDot.classList.remove('ok'); connLabel.textContent = 'Reconnecting...';
-      streaming = false; updateUI(); setTimeout(connect, 2000);
+    ws.onclose = function(ev) {
+      connDot.classList.remove('ok');
+      streaming = false; updateUI();
+      if (ev.code === 4401) {
+        connLabel.textContent = 'Unauthorized';
+        return;
+      }
+      connLabel.textContent = 'Reconnecting...';
+      setTimeout(connect, 2000);
     };
     ws.onerror = function() { ws.close() };
     ws.onmessage = function(ev) { try { handleMsg(JSON.parse(ev.data)) } catch(e) { console.error(e) } };
@@ -225,14 +231,14 @@
 
   function renderMd(el, text) {
     try {
-      el.innerHTML = marked.parse(text);
+      el.innerHTML = DOMPurify.sanitize(marked.parse(text));
       el.querySelectorAll('pre').forEach(function(pre) {
         if (pre.querySelector('.code-header')) return;
         var codeEl = pre.querySelector('code');
         var lang = '';
         if (codeEl) {
           var cls = codeEl.className || '';
-          var m = cls.match(/language-(\\w+)/);
+          var m = cls.match(/language-(\w+)/);
           if (m) lang = m[1];
           hljs.highlightElement(codeEl);
         }
@@ -288,7 +294,7 @@
       var sep = document.createElement('div'); sep.className = 'tool-output-sep';
       e.body.appendChild(sep);
       var pre = document.createElement('pre');
-      pre.textContent = output.length > 2000 ? output.slice(0, 2000) + '\\n... (truncated)' : output;
+      pre.textContent = output.length > 2000 ? output.slice(0, 2000) + '\n... (truncated)' : output;
       e.body.appendChild(pre);
     }
   }
@@ -296,17 +302,24 @@
   function showPerm(pid, question, toolName) {
     var ov = document.createElement('div'); ov.className = 'perm-overlay';
     var card = document.createElement('div'); card.className = 'perm-card';
-    card.innerHTML = '<div class="perm-icon">&#9888;&#65039;</div>' +
-      '<h3>Permission Required</h3>' +
-      '<p>' + esc(question) + '</p>' +
-      '<div class="perm-actions">' +
-      '<button class="btn-deny" id="pd">Deny</button>' +
-      '<button class="btn-allow" id="po" style="background:var(--blue);color:#fff">Allow once</button>' +
-      '<button class="btn-allow" id="ps">Allow for session</button></div>';
+
+    var icon = document.createElement('div'); icon.className = 'perm-icon'; icon.textContent = '\u26A0\uFE0F';
+    var h3 = document.createElement('h3'); h3.textContent = 'Permission Required';
+    var p = document.createElement('p'); p.textContent = question;
+    var actions = document.createElement('div'); actions.className = 'perm-actions';
+
+    var denyBtn = document.createElement('button'); denyBtn.className = 'btn-deny'; denyBtn.textContent = 'Deny';
+    var onceBtn = document.createElement('button'); onceBtn.className = 'btn-allow'; onceBtn.textContent = 'Allow once';
+    onceBtn.style.cssText = 'background:var(--blue);color:#fff';
+    var sessBtn = document.createElement('button'); sessBtn.className = 'btn-allow'; sessBtn.textContent = 'Allow for session';
+
+    actions.appendChild(denyBtn); actions.appendChild(onceBtn); actions.appendChild(sessBtn);
+    card.appendChild(icon); card.appendChild(h3); card.appendChild(p); card.appendChild(actions);
     ov.appendChild(card); document.body.appendChild(ov);
-    card.querySelector('#ps').onclick = function() { wsReply(pid,'session'); ov.remove() };
-    card.querySelector('#po').onclick = function() { wsReply(pid,'yes'); ov.remove() };
-    card.querySelector('#pd').onclick = function() { wsReply(pid,'no'); ov.remove() };
+
+    sessBtn.onclick = function() { wsReply(pid,'session'); ov.remove() };
+    onceBtn.onclick = function() { wsReply(pid,'yes'); ov.remove() };
+    denyBtn.onclick = function() { wsReply(pid,'no'); ov.remove() };
     ov.onclick = function(e) { if (e.target === ov) { wsReply(pid,'no'); ov.remove() } };
   }
 
@@ -398,7 +411,7 @@
     if (streaming) return;
     var existing = sessions.find(function(s) { return s.id === savedEntry.id });
     if (existing) { switchSession(existing.id); return }
-    fetch('/api/sessions/' + index).then(function(r) { return r.json() }).then(function(data) {
+    fetch('/api/sessions/' + encodeURIComponent(savedEntry.id)).then(function(r) { return r.json() }).then(function(data) {
       if (!data || !data.messages) return;
       var s = { id: data.id || savedEntry.id, title: savedEntry.title || data.title || 'Untitled', messages: data.messages, ts: Date.now(), savedIndex: index };
       sessions.push(s);

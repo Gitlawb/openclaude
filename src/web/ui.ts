@@ -8,6 +8,9 @@ export function getWebUI(): string {
   const css = readFileSync(join(__dirname, 'client/styles.css'), 'utf8')
   const body = readFileSync(join(__dirname, 'client/app.html'), 'utf8')
   const js = readFileSync(join(__dirname, 'client/app.js'), 'utf8')
+  const version = (globalThis as Record<string, unknown>).MACRO
+    ? ((globalThis as Record<string, unknown>).MACRO as Record<string, string>).VERSION || '0.0.0'
+    : '0.0.0'
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,6 +21,7 @@ export function getWebUI(): string {
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark-dimmed.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"></script>
 <style>
 ${css}
 </style>
@@ -25,6 +29,8 @@ ${css}
 <body>
 ${body}
 <script>
+var __APP_VERSION__ = ${JSON.stringify('v' + version)};
+(function() { var el = document.getElementById('version-label'); if (el) el.textContent = __APP_VERSION__; })();
 ${js}
 </script>
 </body>

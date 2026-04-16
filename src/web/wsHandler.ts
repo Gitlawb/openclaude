@@ -1,15 +1,15 @@
 import { randomUUID } from 'crypto'
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { WebSocket } from 'ws'
 import { QueryEngine } from '../QueryEngine.js'
 import { getTools } from '../tools.js'
 import { getDefaultAppState } from '../state/AppStateStore.js'
 import type { AppState } from '../state/AppState.js'
 import { FileStateCache, READ_FILE_STATE_CACHE_SIZE } from '../utils/fileStateCache.js'
-import { getAgentDefinitionsWithOverrides } from '../tools/AgentTool/loadAgentsDir.js'
+import { getAgentDefinitionsWithOverrides, type AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import { recordTranscript, flushSessionStorage } from '../utils/sessionStorage.js'
 import { detectProvider } from './provider.js'
-
-const MAX_SESSIONS = 1000
+import type { SessionStore } from './sessionStore.js'
 
 interface ImageAttachment {
   data: string
@@ -46,11 +46,16 @@ function isValidClientMessage(data: unknown): data is ClientMessage {
   return false
 }
 
+interface ContentBlock {
+  type: string
+  text?: string
+}
+
 function extractTextFromContent(content: unknown): string {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
-  return content
-    .map((block: any) => {
+  return (content as ContentBlock[])
+    .map((block) => {
       if (block.type === 'text') return block.text ?? ''
       return ''
     })
@@ -58,16 +63,31 @@ function extractTextFromContent(content: unknown): string {
     .join('')
 }
 
-export function handleWebSocketConnection(ws: WebSocket, sessions: Map<string, any[]>) {
+const RATE_LIMIT_WINDOW_MS = 60_000
+const RATE_LIMIT_MAX_REQUESTS = 30
+
+export function handleWebSocketConnection(ws: WebSocket, sessions: SessionStore) {
   let engine: QueryEngine | null = null
   let appState: AppState = getDefaultAppState()
   const fileCache = new FileStateCache(READ_FILE_STATE_CACHE_SIZE, 25 * 1024 * 1024)
   const pendingRequests = new Map<string, (reply: string) => void>()
   const sessionAllowedTools = new Set<string>()
-  let previousMessages: any[] = []
+  let previousMessages: unknown[] = []
   let sessionId = ''
   let interrupted = false
   let activeCwd = process.cwd()
+
+  const rateLimitWindow: number[] = []
+
+  function isRateLimited(): boolean {
+    const now = Date.now()
+    while (rateLimitWindow.length > 0 && now - rateLimitWindow[0] > RATE_LIMIT_WINDOW_MS) {
+      rateLimitWindow.shift()
+    }
+    if (rateLimitWindow.length >= RATE_LIMIT_MAX_REQUESTS) return true
+    rateLimitWindow.push(now)
+    return false
+  }
 
   const send = (data: Record<string, unknown>) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -92,6 +112,11 @@ export function handleWebSocketConnection(ws: WebSocket, sessions: Map<string, a
       return
     }
 
+    if (parsed.type === 'request' && isRateLimited()) {
+      send({ type: 'error', message: 'Rate limit exceeded — try again shortly', code: 'RATE_LIMITED' })
+      return
+    }
+
     try {
       if (parsed.type === 'request') {
         if (engine) {
@@ -107,13 +132,14 @@ export function handleWebSocketConnection(ws: WebSocket, sessions: Map<string, a
         }
 
         previousMessages = []
-        if (sessionId && sessions.has(sessionId)) {
-          previousMessages = [...sessions.get(sessionId)!]
+        if (sessionId) {
+          const stored = sessions.get(sessionId)
+          if (stored) previousMessages = [...stored]
         }
 
         const toolNameById = new Map<string, string>()
 
-        let agentDefs: any[] = []
+        let agentDefs: AgentDefinition[] = []
         try {
           const result = await getAgentDefinitionsWithOverrides(activeCwd)
           agentDefs = result.activeAgents
@@ -185,15 +211,15 @@ export function handleWebSocketConnection(ws: WebSocket, sessions: Map<string, a
         let completionTokens = 0
         let actualModel = parsed.model || ''
 
-        let messageInput: string | any[] = parsed.message
+        let messageInput: string | ContentBlockParam[] = parsed.message
         if (parsed.images && parsed.images.length > 0) {
-          const contentBlocks: any[] = [{ type: 'text', text: parsed.message }]
+          const contentBlocks: ContentBlockParam[] = [{ type: 'text', text: parsed.message }]
           for (const img of parsed.images) {
             contentBlocks.push({
               type: 'image',
               source: {
                 type: 'base64',
-                media_type: img.mediaType || 'image/png',
+                media_type: (img.mediaType || 'image/png') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
                 data: img.data,
               },
             })
@@ -224,19 +250,19 @@ export function handleWebSocketConnection(ws: WebSocket, sessions: Map<string, a
           } else if (msg.type === 'user') {
             const content = msg.message.content
             if (Array.isArray(content)) {
-              for (const block of content) {
+              for (const block of content as Record<string, unknown>[]) {
                 if (block.type === 'tool_result') {
                   let outputStr = ''
                   if (typeof block.content === 'string') {
                     outputStr = block.content
                   } else if (Array.isArray(block.content)) {
-                    outputStr = block.content
-                      .map((c: any) => (c.type === 'text' ? c.text : ''))
+                    outputStr = (block.content as ContentBlock[])
+                      .map((c) => (c.type === 'text' ? c.text ?? '' : ''))
                       .join('\n')
                   }
                   send({
                     type: 'tool_result',
-                    toolName: toolNameById.get(block.tool_use_id) ?? block.tool_use_id,
+                    toolName: toolNameById.get(block.tool_use_id as string) ?? block.tool_use_id,
                     toolUseId: block.tool_use_id,
                     output: outputStr,
                     isError: block.is_error || false,
@@ -263,9 +289,6 @@ export function handleWebSocketConnection(ws: WebSocket, sessions: Map<string, a
           previousMessages = [...engine.getMessages()]
 
           if (sessionId) {
-            if (!sessions.has(sessionId) && sessions.size >= MAX_SESSIONS) {
-              sessions.delete(sessions.keys().next().value!)
-            }
             sessions.set(sessionId, previousMessages)
           }
 

@@ -1,11 +1,15 @@
+import { createRequire } from 'node:module'
 import { WebServer } from '../src/web/server.ts'
 import { init } from '../src/entrypoints/init.ts'
 
+const require = createRequire(import.meta.url)
+const pkg = require('../package.json') as { version: string; name: string }
+
 Object.assign(globalThis, {
   MACRO: {
-    VERSION: '0.3.0',
-    DISPLAY_VERSION: '0.3.0',
-    PACKAGE_URL: '@gitlawb/openclaude',
+    VERSION: pkg.version,
+    DISPLAY_VERSION: pkg.version,
+    PACKAGE_URL: pkg.name,
   }
 })
 
