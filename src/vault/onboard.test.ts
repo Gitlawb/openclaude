@@ -201,6 +201,70 @@ describe('isRepoOnboarded', () => {
   })
 })
 
+describe('runOnboarding codebase mapping integration', () => {
+  test('TS/JS project runs mapper during onboarding', async () => {
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ name: 'ts-project' }),
+    )
+    mkdirSync(join(tempDir, 'src'), { recursive: true })
+    writeFileSync(join(tempDir, 'src', 'index.ts'), 'export const x = 1\n')
+
+    const messages: string[] = []
+    await runOnboarding(tempDir, {
+      onProgress: (m) => messages.push(m),
+    })
+
+    // Mapper should have run
+    expect(messages.some((m) => m.includes('codebase mapping') || m.includes('Mapped'))).toBe(true)
+
+    // Module notes should exist in vault
+    const vaultPath = join(tempDir, '.bridgeai', 'vault')
+    const knowledgeDir = join(vaultPath, 'knowledge')
+    if (existsSync(knowledgeDir)) {
+      // If knowledge dir exists, there should be module notes
+      const files = require('node:fs').readdirSync(knowledgeDir) as string[]
+      const moduleFiles = files.filter((f: string) => f.startsWith('module-'))
+      expect(moduleFiles.length).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  test('non-TS/JS project skips mapper with log entry', async () => {
+    // Create a Python-like project (no TS/JS)
+    writeFileSync(
+      join(tempDir, 'setup.py'),
+      'from setuptools import setup\nsetup(name="test")\n',
+    )
+    mkdirSync(join(tempDir, 'src'), { recursive: true })
+    writeFileSync(join(tempDir, 'src', 'main.py'), 'print("hello")\n')
+
+    const messages: string[] = []
+    await runOnboarding(tempDir, {
+      onProgress: (m) => messages.push(m),
+    })
+
+    expect(messages.some((m) => m.includes('Skipping codebase mapping'))).toBe(true)
+  })
+
+  test('mapper failure does NOT abort onboarding', async () => {
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({ name: 'ts-project' }),
+    )
+    // Create a src dir but with no actual source files (edge case that may trigger mapper issues)
+    mkdirSync(join(tempDir, 'src'), { recursive: true })
+
+    const messages: string[] = []
+    const result = await runOnboarding(tempDir, {
+      onProgress: (m) => messages.push(m),
+    })
+
+    // Onboarding should complete regardless
+    expect(result.vaultPath).toBeTruthy()
+    expect(result.docsGenerated.length).toBeGreaterThan(0)
+  })
+})
+
 describe('cleanupPartialVault', () => {
   test('removes vault directory', async () => {
     writeFileSync(

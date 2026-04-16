@@ -77,7 +77,31 @@ export async function runOnboarding(
   progress('Initializing project state...')
   initializeState(config.vaultPath)
 
-  // 6. Generate provider config
+  // 6. Codebase mapping (TS/JS only — skip for other languages)
+  const isJsTs = index.primaryLanguage === 'typescript' || index.primaryLanguage === 'javascript'
+  if (isJsTs) {
+    progress('Running codebase mapping...')
+    try {
+      const { runMapping } = await import('./mapper/index.js')
+      const mappingReport = await runMapping(config, index, {
+        mode: 'onboarding',
+        disableLlm: true, // No LLM during onboarding — fast static-only mapping
+        concurrency: 4,
+        ...(index.isLargeRepo ? { largeRepo: true } : {}),
+      })
+      progress(`Mapped ${mappingReport.modules.emitted} modules, ${mappingReport.mocs.perDomain} domain MOCs`)
+      if (mappingReport.errors.length > 0) {
+        progress(`Mapping completed with ${mappingReport.errors.length} non-fatal errors`)
+      }
+    } catch (err) {
+      // Mapper failure does NOT abort onboarding
+      progress(`Codebase mapping failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`)
+    }
+  } else {
+    progress(`Skipping codebase mapping (${index.primaryLanguage ?? 'unknown'} not yet supported)`)
+  }
+
+  // 7. Generate provider config
   progress(`Writing ${provider} config...`)
   const providerFile = formatForProvider(provider, config.vaultPath, projectRoot)
 
