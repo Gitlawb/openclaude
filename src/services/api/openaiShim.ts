@@ -1088,13 +1088,16 @@ async function* openaiStreamToAnthropic(
 
   const stats = getStreamStats(streamState)
   if (stats.totalChunks > 0) {
-    console.log(JSON.stringify({
-      type: 'stream_stats',
-      model,
-      total_chunks: stats.totalChunks,
-      first_token_ms: stats.firstTokenMs,
-      duration_ms: stats.durationMs,
-    }))
+    logForDebugging(
+      JSON.stringify({
+        type: 'stream_stats',
+        model,
+        total_chunks: stats.totalChunks,
+        first_token_ms: stats.firstTokenMs,
+        duration_ms: stats.durationMs,
+      }),
+      { level: 'debug' },
+    )
   }
 
   yield { type: 'message_stop' }
