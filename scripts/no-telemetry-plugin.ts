@@ -244,11 +244,10 @@ export function clearAllDumpState() {}
 export function addApiRequestToCache() {}
 `,
 
-	'utils/undercover': `
-export function isUndercover() { return false; }
-export function getUndercoverInstructions() { return ''; }
-export function shouldShowUndercoverAutoNotice() { return false; }
-`,
+	// Undercover is implemented in src/utils/undercover.ts and should NOT
+	// be stubbed for the open build — keep the real module intact so the
+	// /undercover slash command and default-on behaviour work.
+	// (Left intentionally empty; the shim entry was removed.)
 
 	'types/generated/events_mono/claude_code/v1/claude_code_internal_event': `
 export const ClaudeCodeInternalEvent = {

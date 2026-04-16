@@ -45,10 +45,9 @@ function getCommitAndPRInstructions(): string {
   // hiding are mechanical and work regardless, but the explicit "don't blow
   // your cover" instructions are the last line of defense against the model
   // volunteering an internal codename in a commit message.
-  const undercoverSection =
-    process.env.USER_TYPE === 'ant' && isUndercover()
-      ? getUndercoverInstructions() + '\n'
-      : ''
+  const undercoverSection = isUndercover()
+    ? getUndercoverInstructions() + '\n'
+    : ''
 
   if (!shouldIncludeGitInstructions()) return undercoverSection
 

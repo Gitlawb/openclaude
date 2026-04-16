@@ -13,7 +13,7 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, A
 OpenClaude is also mirrored to GitLawb:
 [gitlawb.com/node/repos/z6MkqDnb/openclaude](https://gitlawb.com/node/repos/z6MkqDnb/openclaude)
 
-[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
+[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Undercover Mode](#undercover-mode) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
 
 ## Star History
 
@@ -192,6 +192,38 @@ With Firecrawl enabled:
 - `WebFetch` uses Firecrawl's scrape endpoint instead of raw HTTP, handling JS-rendered pages correctly
 
 Free tier at [firecrawl.dev](https://firecrawl.dev) includes 500 credits. The key is optional.
+
+---
+
+## Undercover Mode
+
+OpenClaude ships with an **undercover mode** that makes the assistant write as an ordinary human developer: no AI self-identification, no model names in output, and no AI-authorship markers on commits or PRs.
+
+When active, undercover mode:
+
+- Omits `You are powered by claude-…` lines and any Claude / OpenClaude / model-codename mentions from the system prompt
+- Prefixes commit and PR prompts with an instruction to avoid AI-authorship markers
+- Strips `Co-Authored-By:` trailers and `Generated with OpenClaude` attribution from commits and PRs
+- Shows an `undercover` indicator in the prompt footer
+
+Undercover is **on by default**. Control it with:
+
+```bash
+# Launch with undercover off
+export OPENCLAUDE_UNDERCOVER=0
+openclaude
+```
+
+Or toggle at runtime inside OpenClaude:
+
+```
+/undercover           # show current status
+/undercover on        # enable
+/undercover off       # disable
+/undercover toggle    # flip the current state
+```
+
+Runtime toggles take full effect on the next message (the current turn's system prompt may already be cached).
 
 ---
 

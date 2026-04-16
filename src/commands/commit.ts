@@ -13,7 +13,7 @@ function getPromptContent(): string {
   const { commit: commitAttribution } = getAttributionTexts()
 
   let prefix = ''
-  if (process.env.USER_TYPE === 'ant' && isUndercover()) {
+  if (isUndercover()) {
     prefix = getUndercoverInstructions() + '\n'
   }
 

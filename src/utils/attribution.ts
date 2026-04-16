@@ -2,7 +2,6 @@ import { feature } from 'bun:bundle'
 import { stat } from 'fs/promises'
 import { getClientType } from '../bootstrap/state.js'
 import { getRemoteSessionUrl, isRemoteSessionLocal } from '../constants/product.js'
-import { isEnvTruthy } from './envUtils.js'
 import { TERMINAL_OUTPUT_TAGS } from '../constants/xml.js'
 import type { AppState } from '../state/AppState.js'
 import { FILE_EDIT_TOOL_NAME } from '../tools/FileEditTool/constants.js'
@@ -15,18 +14,14 @@ import {
   type AttributionData,
   calculateCommitAttribution,
   isInternalModelRepo,
-  isInternalModelRepoCached,
   sanitizeModelName,
 } from './commitAttribution.js'
 import { logForDebugging } from './debug.js'
 import { parseJSONL } from './json.js'
 import { logError } from './log.js'
-import { getAPIProvider } from './model/providers.js'
 import {
   getCanonicalName,
   getMainLoopModel,
-  getPublicModelDisplayName,
-  getPublicModelName,
 } from './model/model.js'
 import { isMemoryFileAccess } from './sessionFileAccessHooks.js'
 import { getTranscriptPath } from './sessionStorage.js'
@@ -48,7 +43,7 @@ export type AttributionTexts = {
  * - Remote mode: returns session URL for attribution
  */
 export function getAttributionTexts(): AttributionTexts {
-  if (process.env.USER_TYPE === 'ant' && isUndercover()) {
+  if (isUndercover()) {
     return { commit: '', pr: '' }
   }
 
@@ -65,24 +60,13 @@ export function getAttributionTexts(): AttributionTexts {
     return { commit: '', pr: '' }
   }
 
-  // @[MODEL LAUNCH]: Update the hardcoded fallback model name below (guards against codename leaks).
-  // For internal repos, use the real model name. For external repos,
-  // fall back to "Claude Opus 4.6" for unrecognized models to avoid leaking codenames.
-  const model = getMainLoopModel()
-  const isKnownPublicModel = getPublicModelDisplayName(model) !== null
-  const modelName =
-    isInternalModelRepoCached() || isKnownPublicModel
-      ? getPublicModelName(model)
-      : 'Claude Opus 4.6'
-  const defaultAttribution =
-    '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
-  const coAuthorDomain =
-    getAPIProvider() === 'firstParty' ? 'anthropic.com' : 'openclaude.dev'
-  const defaultCommit = isEnvTruthy(
-    process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
-  )
-    ? ''
-    : `Co-Authored-By: ${modelName} <noreply@${coAuthorDomain}>`
+  // AI-authorship attribution is OFF by default — commits and PRs go out
+  // without "Co-Authored-By: Claude …" or "🤖 Generated with OpenClaude".
+  // Opt back in explicitly via settings.attribution.commit / .pr when you
+  // want the markers. (OPENCLAUDE_DISABLE_CO_AUTHORED_BY is now a no-op: the
+  // behaviour it used to produce is the default.)
+  const defaultCommit = ''
+  const defaultAttribution = ''
 
   const settings = getInitialSettings()
 
@@ -302,7 +286,7 @@ async function getTranscriptStats(): Promise<{
 export async function getEnhancedPRAttribution(
   getAppState: () => AppState,
 ): Promise<string> {
-  if (process.env.USER_TYPE === 'ant' && isUndercover()) {
+  if (isUndercover()) {
     return ''
   }
 
