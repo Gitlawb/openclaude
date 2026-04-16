@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto'
 import { readFile, writeFile, mkdir, readdir, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
+import { getClaudeConfigHomeDir } from './envUtils.js'
 
 export interface Session {
   id: string
@@ -47,8 +48,7 @@ export interface SessionMetadata {
 }
 
 function getConfigDir(): string {
-  const home = process.env.OPENCLAUDE_DIR ?? process.env.HOME ?? '.'
-  return path.join(home, '.openclaude')
+  return getClaudeConfigHomeDir()
 }
 
 function getSessionsDir(): string {
