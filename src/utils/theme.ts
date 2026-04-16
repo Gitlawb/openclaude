@@ -523,10 +523,10 @@ const darkDaltonizedTheme: Theme = {
   bashBorder: 'rgb(51,153,255)', // Bright blue
   claude: 'rgb(255,153,51)', // Orange adjusted for deuteranopia
   claudeShimmer: 'rgb(255,183,101)', // Lighter orange for shimmer effect
-  claudeBlue_FOR_SYSTEM_SPINNER: 'rgb(153,204,255)', // Light blue for system spinner
-  claudeBlueShimmer_FOR_SYSTEM_SPINNER: 'rgb(183,224,255)', // Lighter blue for system spinner shimmer
-  permission: 'rgb(153,204,255)', // Light blue
-  permissionShimmer: 'rgb(183,224,255)', // Lighter blue for shimmer
+  claudeBlue_FOR_SYSTEM_SPINNER: 'rgb(102,204,102)', // Green accent for system spinner
+  claudeBlueShimmer_FOR_SYSTEM_SPINNER: 'rgb(132,234,132)', // Lighter green for system spinner shimmer
+  permission: 'rgb(102,204,102)', // Green accent
+  permissionShimmer: 'rgb(132,234,132)', // Lighter green for shimmer
   planMode: 'rgb(102,153,153)', // Muted gray-teal (works for color-blind)
   ide: 'rgb(71,130,200)', // Muted blue
   promptBorder: 'rgb(136,136,136)', // Medium gray
@@ -536,8 +536,8 @@ const darkDaltonizedTheme: Theme = {
   inactive: 'rgb(153,153,153)', // Light gray
   inactiveShimmer: 'rgb(193,193,193)', // Lighter gray for shimmer effect
   subtle: 'rgb(80,80,80)', // Dark gray
-  suggestion: 'rgb(153,204,255)', // Light blue
-  remember: 'rgb(153,204,255)', // Light blue
+  suggestion: 'rgb(102,204,102)', // Green accent
+  remember: 'rgb(102,204,102)', // Green accent
   background: 'rgb(0,204,204)', // Bright cyan (color-blind friendly)
   success: 'rgb(51,153,255)', // Blue instead of green
   error: 'rgb(255,102,102)', // Bright red
@@ -573,8 +573,8 @@ const darkDaltonizedTheme: Theme = {
   bashMessageBackgroundColor: 'rgb(65, 60, 65)',
 
   memoryBackgroundColor: 'rgb(55, 65, 70)',
-  rate_limit_fill: 'rgb(153,204,255)', // Light blue
-  rate_limit_empty: 'rgb(69,92,115)', // Dark blue
+  rate_limit_fill: 'rgb(102,204,102)', // Green accent
+  rate_limit_empty: 'rgb(40,80,40)', // Dark green
   fastMode: 'rgb(255,120,20)', // Electric orange for dark bg (color-blind safe)
   fastModeShimmer: 'rgb(255,165,70)', // Lighter orange for shimmer
   briefLabelYou: 'rgb(122,180,232)', // Light blue
