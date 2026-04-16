@@ -9,6 +9,7 @@ import {
 import { clearMTLSCache } from './mtls.js'
 import { clearProxyCache, configureGlobalAgents } from './proxy.js'
 import { applyActiveProviderProfileFromConfig } from './providerProfiles.js'
+import { applyPersistedProviderSelectionTarget } from './model/providerTargets.js'
 import { isSettingSourceEnabled } from './settings/constants.js'
 import {
   getSettings_DEPRECATED,
@@ -180,6 +181,7 @@ export function applySafeConfigEnvironmentVariables(): void {
   // Apply active provider profile only when startup did not explicitly
   // select a provider via flags/env. Explicit startup intent should win.
   applyActiveProviderProfileFromConfig()
+  applyPersistedProviderSelectionTarget()
 }
 
 /**
@@ -197,6 +199,7 @@ export function applyConfigEnvironmentVariables(): void {
   // Keep runtime provider/model env aligned with the active profile, except
   // when an explicit provider selection is already present in process.env.
   applyActiveProviderProfileFromConfig()
+  applyPersistedProviderSelectionTarget()
 
   // Clear caches so agents are rebuilt with the new env vars
   clearCACertsCache()

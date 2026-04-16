@@ -7,6 +7,7 @@ import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import { isEnvTruthy } from './envUtils.js'
+import { getPersistedEffortSettingForProvider } from './model/providerModelSettings.js'
 import type { EffortLevel } from 'src/entrypoints/sdk/runtimeTypes.js'
 
 export type { EffortLevel }
@@ -26,7 +27,7 @@ export const OPENAI_EFFORT_LEVELS = [
 ] as const
 
 export type OpenAIEffortLevel = typeof OPENAI_EFFORT_LEVELS[number]
-export type EffortValue = EffortLevel | number
+export type EffortValue = EffortLevel | OpenAIEffortLevel | number
 
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
 export function modelSupportsEffort(model: string): boolean {
@@ -149,20 +150,26 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
  */
 export function toPersistableEffort(
   value: EffortValue | undefined,
-): EffortLevel | undefined {
+): EffortLevel | OpenAIEffortLevel | undefined {
   if (value === 'low' || value === 'medium' || value === 'high') {
     return value
   }
-  if (value === 'max') {
+  if (value === 'xhigh') {
+    return value
+  }
+  if (value === 'max' && process.env.USER_TYPE === 'ant') {
     return value
   }
   return undefined
 }
 
-export function getInitialEffortSetting(): EffortLevel | undefined {
-  // toPersistableEffort validates 'max' on read, so a manually
-  // edited settings.json with an invalid level doesn't leak into a fresh session.
-  return toPersistableEffort(getInitialSettings().effortLevel)
+export function getInitialEffortSetting():
+  | EffortLevel
+  | OpenAIEffortLevel
+  | undefined {
+  return getPersistedEffortSettingForProvider({
+    settings: getInitialSettings(),
+  })
 }
 
 /**
@@ -256,6 +263,9 @@ export function isValidNumericEffort(value: number): boolean {
 
 export function convertEffortValueToLevel(value: EffortValue): EffortLevel {
   if (typeof value === 'string') {
+    if (value === 'xhigh') {
+      return 'max'
+    }
     // Runtime guard: value may come from remote config (GrowthBook) where
     // TypeScript types can't help us. Coerce unknown strings to 'high'
     // rather than passing them through unchecked.

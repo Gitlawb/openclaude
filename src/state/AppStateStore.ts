@@ -31,6 +31,7 @@ import type { FileHistoryState } from '../utils/fileHistory.js'
 import type { REPLHookContext } from '../utils/hooks/postSamplingHooks.js'
 import type { SessionHooksState } from '../utils/hooks/sessionHooks.js'
 import type { ModelSetting } from '../utils/model/model.js'
+import { resolveProviderSelectionTarget } from '../utils/model/providerModelSettings.js'
 import type { DenialTrackingState } from '../utils/permissions/denialTracking.js'
 import type { PermissionMode } from '../utils/permissions/PermissionMode.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
@@ -229,6 +230,7 @@ export type AppState = DeepImmutable<{
   thinkingEnabled: boolean | undefined
   promptSuggestionEnabled: boolean
   sessionHooks: SessionHooksState
+  providerSelectionTargetKey: string
   tungstenActiveSession?: {
     sessionName: string
     socketName: string
@@ -465,6 +467,9 @@ export function getDefaultAppState(): AppState {
       ? 'plan'
       : 'default'
 
+  const initialProviderSelectionTargetKey =
+    resolveProviderSelectionTarget().targetKey
+
   return {
     settings: getInitialSettings(),
     tasks: {},
@@ -539,6 +544,7 @@ export function getDefaultAppState(): AppState {
     thinkingEnabled: shouldEnableThinkingByDefault(),
     promptSuggestionEnabled: shouldEnablePromptSuggestion(),
     sessionHooks: new Map(),
+    providerSelectionTargetKey: initialProviderSelectionTargetKey,
     inbox: {
       messages: [],
     },

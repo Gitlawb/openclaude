@@ -344,6 +344,32 @@ export function getActiveProviderProfile(
   return profiles.find(profile => profile.id === activeId) ?? profiles[0]
 }
 
+export function getProviderProfileSelectionTargetKey(
+  profileId: string,
+): string | undefined {
+  const trimmed = trimOrUndefined(profileId)
+  return trimmed ? `profile:${trimmed}` : undefined
+}
+
+export function getActiveProviderProfileSelectionTargetKey(
+  config = getGlobalConfig(),
+): string | undefined {
+  const activeProfile = getActiveProviderProfile(config)
+  if (!activeProfile) {
+    return undefined
+  }
+
+  if (process.env[PROFILE_ENV_APPLIED_FLAG] !== '1') {
+    return undefined
+  }
+
+  if (trimOrUndefined(process.env[PROFILE_ENV_APPLIED_ID]) !== activeProfile.id) {
+    return undefined
+  }
+
+  return getProviderProfileSelectionTargetKey(activeProfile.id)
+}
+
 export function clearProviderProfileEnvFromProcessEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): void {
