@@ -361,6 +361,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
   const [errorMessage, setErrorMessage] = React.useState<string | undefined>()
+  const [menuFocusValue, setMenuFocusValue] = React.useState<string | undefined>()
   const [hasStoredCodexOAuthCredentials, setHasStoredCodexOAuthCredentials] =
     React.useState(false)
   const [storedCodexOAuthProfileId, setStoredCodexOAuthProfileId] =
@@ -576,7 +577,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         const githubError = activateGithubProvider()
         if (githubError) {
           setErrorMessage(`Could not activate GitHub provider: ${githubError}`)
-          setScreen('menu')
+          returnToMenu()
           return
         }
 
@@ -586,14 +587,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
         }))
         setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
-        setScreen('menu')
+        returnToMenu()
         return
       }
 
       const active = setActiveProviderProfile(profileId)
       if (!active) {
         setErrorMessage('Could not change active provider.')
-        setScreen('menu')
+        returnToMenu()
         return
       }
 
@@ -635,14 +636,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
             : `Active provider: ${active.name}`,
       )
-      setScreen('menu')
+      returnToMenu()
     } catch (error) {
       refreshProfiles()
       setStatusMessage(undefined)
       const detail = error instanceof Error ? error.message : String(error)
       setErrorMessage(`Could not finish activating ${providerLabel}: ${detail}`)
-      setScreen('menu')
+      returnToMenu()
     }
+  }
+
+  function returnToMenu(): void {
+    setMenuFocusValue('done')
+    setScreen('menu')
   }
 
   function closeWithCancelled(message: string): void {
@@ -822,7 +828,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setEditingProfileId(null)
     setFormStepIndex(0)
     setErrorMessage(undefined)
-    setScreen('menu')
+    returnToMenu()
   }
 
   function renderOllamaSelection(): React.ReactNode {
@@ -945,7 +951,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    setScreen('menu')
+    returnToMenu()
   }
 
   useKeybinding('confirm:no', handleBackFromForm, {
@@ -1078,7 +1084,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               closeWithCancelled('Provider setup skipped')
               return
             }
-            setScreen('menu')
+            returnToMenu()
           }}
           visibleOptionCount={Math.min(13, options.length)}
         />
@@ -1278,6 +1284,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
           }}
           onCancel={() => closeWithCancelled('Provider manager closed')}
+          defaultFocusValue={menuFocusValue}
           visibleOptionCount={options.length}
         />
       </Box>
@@ -1325,8 +1332,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 description: 'Return to provider manager',
               },
             ]}
-            onChange={() => setScreen('menu')}
-            onCancel={() => setScreen('menu')}
+            onChange={() => returnToMenu()}
+            onCancel={() => returnToMenu()}
             visibleOptionCount={1}
           />
         </Box>
@@ -1341,7 +1348,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Select
           options={selectOptions}
           onChange={onSelect}
-          onCancel={() => setScreen('menu')}
+          onCancel={() => returnToMenu()}
           visibleOptionCount={Math.min(10, Math.max(2, selectOptions.length))}
         />
       </Box>
@@ -1382,7 +1389,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               setErrorMessage(
                 'Codex OAuth login finished, but the provider profile could not be saved.',
               )
-              setScreen('menu')
+              returnToMenu()
               return
             }
 
@@ -1394,7 +1401,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               setErrorMessage(
                 'Codex OAuth login finished, but the provider could not be set as the startup provider.',
               )
-              setScreen('menu')
+              returnToMenu()
               return
             }
 
@@ -1428,7 +1435,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
             setStatusMessage(message)
             setErrorMessage(undefined)
-            setScreen('menu')
+            returnToMenu()
           }}
         />
       )
@@ -1468,7 +1475,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               refreshProfiles()
               setStatusMessage('GitHub provider deleted')
             }
-            setScreen('menu')
+            returnToMenu()
             return
           }
 
@@ -1503,7 +1510,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 : 'Provider deleted',
             )
           }
-          setScreen('menu')
+          returnToMenu()
         },
         { includeGithub: true },
       )
