@@ -4,7 +4,7 @@ import { execSync } from 'child_process'
 import type { IndexResult, GitInfo, StructureInfo, TestingInfo, DocsInfo } from '../types.js'
 import { detectManifests } from './manifests.js'
 
-const SKIP_DIRS = new Set([
+export const SKIP_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt',
   'vendor', '__pycache__', '.venv', 'venv', 'coverage', '.cache',
   '.turbo', '.output', '.svelte-kit',
