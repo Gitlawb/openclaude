@@ -1542,6 +1542,19 @@ class OpenAIShimMessages {
       try {
         response = await fetch(chatCompletionsUrl, fetchInit)
       } catch (error) {
+        const isAbortError =
+          fetchInit.signal?.aborted === true ||
+          (typeof DOMException !== 'undefined' &&
+            error instanceof DOMException &&
+            error.name === 'AbortError') ||
+          (typeof error === 'object' &&
+            error !== null &&
+            'name' in error &&
+            error.name === 'AbortError')
+
+        if (isAbortError) {
+          throw error
+        }
         throwClassifiedTransportError(error, chatCompletionsUrl)
       }
 
