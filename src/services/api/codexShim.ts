@@ -1,4 +1,5 @@
 import { APIError } from '@anthropic-ai/sdk'
+import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import type {
   ResolvedCodexCredentials,
   ResolvedProviderRequest,
@@ -559,12 +560,15 @@ export async function performCodexRequest(options: {
   }
   headers.originator ??= 'openclaude'
 
-  const response = await fetch(`${options.request.baseUrl}/responses`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal: options.signal,
-  })
+  const response = await fetchWithProxyRetry(
+    `${options.request.baseUrl}/responses`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: options.signal,
+    },
+  )
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => 'unknown error')

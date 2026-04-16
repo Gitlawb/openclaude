@@ -9,6 +9,7 @@ import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { queryModelWithStreaming } from '../../services/api/claude.js'
 import { collectCodexCompletedResponse } from '../../services/api/codexShim.js'
+import { fetchWithProxyRetry } from '../../services/api/fetchWithProxyRetry.js'
 import {
   resolveCodexApiCredentials,
   resolveProviderRequest,
@@ -314,7 +315,7 @@ async function runCodexWebSearch(
     body.reasoning = request.reasoning
   }
 
-  const response = await fetch(`${request.baseUrl}/responses`, {
+  const response = await fetchWithProxyRetry(`${request.baseUrl}/responses`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
