@@ -13,6 +13,7 @@ const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
@@ -24,6 +25,15 @@ const RESTORED_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
+  'GEMINI_BASE_URL',
+  'GEMINI_MODEL',
+  'GEMINI_API_KEY',
+  'GEMINI_AUTH_MODE',
+  'GEMINI_ACCESS_TOKEN',
+  'GOOGLE_API_KEY',
+  'MISTRAL_BASE_URL',
+  'MISTRAL_MODEL',
+  'MISTRAL_API_KEY',
 ] as const
 
 type MockConfigState = {
@@ -98,6 +108,24 @@ function buildProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile
   }
 }
 
+function buildMistralProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'devstral-latest',
+    ...overrides,
+  })
+}
+
+function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    model: 'gemini-3-flash-preview',
+    ...overrides,
+  })
+}
+
 describe('applyProviderProfileToProcessEnv', () => {
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -116,6 +144,36 @@ describe('applyProviderProfileToProcessEnv', () => {
       'provider_test',
     )
     expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('mistral profile sets CLAUDE_CODE_USE_MISTRAL and clears openai flags', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    applyProviderProfileToProcessEnv(buildMistralProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_MISTRAL).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.MISTRAL_MODEL).toBe('devstral-latest')
+    expect(getFreshAPIProvider()).toBe('mistral')
+  })
+
+  test('gemini profile sets CLAUDE_CODE_USE_GEMINI and clears openai flags', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    applyProviderProfileToProcessEnv(buildGeminiProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.GEMINI_MODEL).toBe('gemini-3-flash-preview')
+    expect(getFreshAPIProvider()).toBe('gemini')
   })
 
   test('anthropic profile clears competing gemini/github flags', async () => {
