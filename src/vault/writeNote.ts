@@ -209,14 +209,45 @@ function countIncomingLinks(vaultPath: string, selfFilename: string): number {
  * Write a note draft to the vault, enforcing every convention and write-time
  * rule. Returns either a success descriptor or a structured list of
  * violations. On failure, the filesystem is NOT mutated.
+ *
+ * PIFA-02..04: dispatches by `draft.frontmatter.scope` to the local or
+ * global vault. Missing scope defaults to `'project'`. `'global'` with
+ * `cfg.global == null` returns a structured violation without mutating
+ * disk.
  */
 export async function writeNote(
   cfg: VaultConfig,
   draft: NoteDraft,
 ): Promise<WriteResult> {
-  const vaultPath = cfg.vaultPath
+  // 0. Default scope to 'project' when absent. Persists into the
+  //    serialized frontmatter so reads round-trip with the value.
+  if (draft.frontmatter.scope === undefined || draft.frontmatter.scope === null) {
+    draft.frontmatter.scope = 'project'
+  }
+  const scope = draft.frontmatter.scope
 
-  // 1. Load (or regenerate) conventions.
+  // 0a. Dispatch by scope to the right vault.
+  let vaultPath: string
+  if (scope === 'global') {
+    if (!cfg.global) {
+      return {
+        ok: false,
+        violations: [
+          {
+            field: 'scope',
+            expected: 'configured global vault',
+            got: null,
+            rule: 'no-global-vault-configured',
+          },
+        ],
+      }
+    }
+    vaultPath = cfg.global.path
+  } else {
+    vaultPath = cfg.local.path
+  }
+
+  // 1. Load (or regenerate) conventions for the target vault.
   const schema = loadConventions(vaultPath)
 
   // 2. Structural validation.
