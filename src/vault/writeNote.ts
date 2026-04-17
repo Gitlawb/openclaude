@@ -41,6 +41,8 @@ import {
 } from './conventions/validator.js'
 import type { VaultConfig } from './types.js'
 import { writeVaultFile } from './writer.js'
+import type { NeedsInput } from './escapeHatch/contract.js'
+import { resolveNeedsInput, type ResolverContext } from './escapeHatch/resolver.js'
 
 export type { NoteDraft, Violation } from './conventions/validator.js'
 
@@ -205,6 +207,21 @@ function countIncomingLinks(vaultPath: string, selfFilename: string): number {
   return count
 }
 
+export interface WriteNoteOptions {
+  /**
+   * PIFC-07: when set + `draft.scope === 'global'` + `confirmedGlobal !== true`,
+   * the writer asks the dev (via the resolver) before committing the global
+   * write. The resolver decides between prompt / auto-accept / abort.
+   */
+  escapeHatch?: ResolverContext
+  /**
+   * Skip the escape-hatch prompt for THIS write. Lets bulk callers
+   * (e.g. mapper preset, bridgeai map) bulk-confirm once at the start
+   * instead of per-note.
+   */
+  confirmedGlobal?: boolean
+}
+
 /**
  * Write a note draft to the vault, enforcing every convention and write-time
  * rule. Returns either a success descriptor or a structured list of
@@ -214,10 +231,16 @@ function countIncomingLinks(vaultPath: string, selfFilename: string): number {
  * global vault. Missing scope defaults to `'project'`. `'global'` with
  * `cfg.global == null` returns a structured violation without mutating
  * disk.
+ *
+ * PIFC-07: when called with `opts.escapeHatch` + `scope === 'global'` AND
+ * `opts.confirmedGlobal !== true`, the writer asks the dev for confirmation
+ * before mutating the global vault. The dev's decision is recorded in the
+ * global vault's `_log.md`.
  */
 export async function writeNote(
   cfg: VaultConfig,
   draft: NoteDraft,
+  opts: WriteNoteOptions = {},
 ): Promise<WriteResult> {
   // 0. Default scope to 'project' when absent. Persists into the
   //    serialized frontmatter so reads round-trip with the value.
@@ -319,6 +342,42 @@ export async function writeNote(
 
   if (linkViolations.length > 0) {
     return { ok: false, violations: linkViolations }
+  }
+
+  // 4a. PIFC-07: escape-hatch confirmation for `scope: 'global'` writes.
+  // Only fires when the caller opted in via `opts.escapeHatch` AND has not
+  // already confirmed via `confirmedGlobal: true`. Default suggested answer
+  // is 'no' (NOT 'yes') because a wrong global write contaminates every
+  // future project — auto-confirm should default to NOT writing.
+  if (
+    scope === 'global' &&
+    cfg.global &&
+    opts.escapeHatch &&
+    opts.confirmedGlobal !== true
+  ) {
+    const needs: NeedsInput = {
+      status: 'needs-input',
+      kind: 'global-write-confirm',
+      question: `Write note "${draft.filename}" to the global vault? It will be visible in every project.`,
+      suggestedAnswers: ['no', 'yes'],
+      affectedVault: 'global',
+      context: { filename: draft.filename, folder: draft.folder },
+    }
+    const resolution = await resolveNeedsInput(needs, opts.escapeHatch)
+    const accepted = resolution.resolved && resolution.answer === 'yes'
+    if (!accepted) {
+      return {
+        ok: false,
+        violations: [
+          {
+            field: 'scope',
+            expected: 'dev confirmation',
+            got: 'global',
+            rule: 'aborted-by-dev',
+          },
+        ],
+      }
+    }
   }
 
   // 5. Serialize — strip `_pendingLinks` before emitting.

@@ -316,3 +316,107 @@ describe('writeNote — scope dispatch (PIFA-02..04)', () => {
     expect(existsSync(join(globalRoot, '_conventions.md'))).toBe(true)
   })
 })
+
+describe('writeNote — escape-hatch on scope: global (PIFC-07)', () => {
+  let repoRoot: string
+  let cfg: VaultConfig
+  let globalRoot: string
+
+  beforeEach(async () => {
+    repoRoot = makeRepo()
+    cfg = makeConfig(repoRoot)
+    globalRoot = mkdtempSync(join(tmpdir(), 'writenote-global-eh-'))
+    await bootstrapVault(cfg, { gitignore: false })
+    const globalCfg: VaultConfig = {
+      ...cfg,
+      local: { path: globalRoot },
+      vaultPath: globalRoot,
+    }
+    await bootstrapVault(globalCfg, { gitignore: false })
+  })
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true })
+    rmSync(globalRoot, { recursive: true, force: true })
+  })
+
+  test('scope: global + escapeHatch + dev says "no" → aborted-by-dev violation, no fs mutation', async () => {
+    const { createResolverContext, createStubProvider } = await import(
+      './escapeHatch/index.js'
+    )
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const escapeHatch = createResolverContext(cfgWithGlobal, {
+      provider: createStubProvider(['no']),
+    })
+    const draft = validConceptDraft({
+      frontmatter: { ...validConceptDraft().frontmatter, scope: 'global' },
+    })
+    const result = await writeNote(cfgWithGlobal, draft, { escapeHatch })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.violations[0]?.rule).toBe('aborted-by-dev')
+    expect(result.violations[0]?.field).toBe('scope')
+    // No file in global vault; existing _conventions.md is preserved.
+    expect(
+      existsSync(join(globalRoot, 'knowledge', 'concept-foo.md')),
+    ).toBe(false)
+  })
+
+  test('scope: global + escapeHatch + dev says "yes" → write succeeds in global vault', async () => {
+    const { createResolverContext, createStubProvider } = await import(
+      './escapeHatch/index.js'
+    )
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const escapeHatch = createResolverContext(cfgWithGlobal, {
+      provider: createStubProvider(['yes']),
+    })
+    const draft = validConceptDraft({
+      frontmatter: { ...validConceptDraft().frontmatter, scope: 'global' },
+    })
+    const result = await writeNote(cfgWithGlobal, draft, { escapeHatch })
+    expect(result.ok).toBe(true)
+    expect(existsSync(join(globalRoot, 'knowledge', 'concept-foo.md'))).toBe(
+      true,
+    )
+  })
+
+  test('scope: global + confirmedGlobal: true → resolver NOT invoked (forbidden provider does not throw)', async () => {
+    const { createResolverContext, createForbiddenProvider } = await import(
+      './escapeHatch/index.js'
+    )
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const escapeHatch = createResolverContext(cfgWithGlobal, {
+      provider: createForbiddenProvider(),
+    })
+    const draft = validConceptDraft({
+      frontmatter: { ...validConceptDraft().frontmatter, scope: 'global' },
+    })
+    const result = await writeNote(cfgWithGlobal, draft, {
+      escapeHatch,
+      confirmedGlobal: true,
+    })
+    expect(result.ok).toBe(true)
+    expect(existsSync(join(globalRoot, 'knowledge', 'concept-foo.md'))).toBe(
+      true,
+    )
+  })
+
+  test('scope: project + escapeHatch → resolver NOT invoked (forbidden provider does not throw)', async () => {
+    const { createResolverContext, createForbiddenProvider } = await import(
+      './escapeHatch/index.js'
+    )
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const escapeHatch = createResolverContext(cfgWithGlobal, {
+      provider: createForbiddenProvider(),
+    })
+    const draft = validConceptDraft({
+      frontmatter: { ...validConceptDraft().frontmatter, scope: 'project' },
+    })
+    const result = await writeNote(cfgWithGlobal, draft, { escapeHatch })
+    expect(result.ok).toBe(true)
+    // File in local vault, not global.
+    expect(
+      existsSync(join(cfg.local.path, 'knowledge', 'concept-foo.md')),
+    ).toBe(true)
+  })
+})
