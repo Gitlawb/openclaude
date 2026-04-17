@@ -8,8 +8,9 @@ import {
   loadVaultManifest,
   saveVaultManifest,
   isRepoOnboarded,
+  adaptLegacyConfig,
 } from './config.js'
-import type { VaultManifest } from './types.js'
+import type { VaultManifest, VaultConfig, LegacyVaultConfig } from './types.js'
 
 let tempDir: string
 let savedEnv: string | undefined
@@ -84,6 +85,57 @@ describe('resolveVaultConfig', () => {
   test('accepts explicit provider', () => {
     const config = resolveVaultConfig(tempDir, 'claude')
     expect(config.provider).toBe('claude')
+  })
+
+  test('populates both local.path and the deprecated vaultPath alias', () => {
+    const config = resolveVaultConfig(tempDir)
+    expect(config.local.path).toBe(config.vaultPath)
+    expect(config.global).toBeNull()
+  })
+})
+
+describe('adaptLegacyConfig', () => {
+  test('coerces a legacy single-vault shape into the two-vault shape with global=null', () => {
+    const legacy: LegacyVaultConfig = {
+      vaultPath: '/tmp/legacy-vault',
+      provider: 'claude',
+      projectName: 'demo',
+      projectRoot: '/tmp/demo',
+    }
+    const out = adaptLegacyConfig(legacy)
+    expect(out.local).toEqual({ path: '/tmp/legacy-vault' })
+    expect(out.global).toBeNull()
+    expect(out.vaultPath).toBe('/tmp/legacy-vault')
+    expect(out.provider).toBe('claude')
+    expect(out.projectName).toBe('demo')
+    expect(out.projectRoot).toBe('/tmp/demo')
+  })
+
+  test('is idempotent on the new VaultConfig shape (returns input)', () => {
+    const cfg: VaultConfig = {
+      local: { path: '/tmp/L' },
+      global: { path: '/tmp/G' },
+      vaultPath: '/tmp/L',
+      provider: 'generic',
+      projectName: 'demo',
+      projectRoot: '/tmp/demo',
+    }
+    const out = adaptLegacyConfig(cfg)
+    expect(out).toBe(cfg)
+  })
+
+  test('detects shape via presence of the local field, not via vaultPath', () => {
+    // Even with vaultPath populated (deprecated alias), if local is present we treat as new shape.
+    const cfg: VaultConfig = {
+      local: { path: '/tmp/L' },
+      global: null,
+      vaultPath: '/tmp/L',
+      provider: 'generic',
+      projectName: 'demo',
+      projectRoot: '/tmp/demo',
+    }
+    const out = adaptLegacyConfig(cfg)
+    expect(out).toBe(cfg)
   })
 })
 

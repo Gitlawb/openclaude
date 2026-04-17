@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, basename } from 'path'
-import type { VaultConfig, VaultManifest, ProviderType } from './types.js'
+import type { VaultConfig, VaultManifest, ProviderType, LegacyVaultConfig } from './types.js'
 
 /**
  * Resolve the vault path for a given project root.
@@ -86,4 +86,27 @@ export function saveVaultManifest(
 export function isRepoOnboarded(projectRoot: string): boolean {
   const vaultPath = resolveVaultPath(projectRoot)
   return existsSync(join(vaultPath, 'manifest.json'))
+}
+
+/**
+ * Coerce a {@link LegacyVaultConfig} (single-vault shape from before PIF-A)
+ * into the new {@link VaultConfig} shape with `global: null`. Idempotent on
+ * the new shape — if `cfg` already has `local`, it is returned as-is.
+ *
+ * Detection key is the presence of the `local` field. The deprecated
+ * `vaultPath` alias is populated to mirror `local.path` so the ~100
+ * existing `cfg.vaultPath` reader sites keep working.
+ */
+export function adaptLegacyConfig(
+  cfg: LegacyVaultConfig | VaultConfig,
+): VaultConfig {
+  if ('local' in cfg) return cfg
+  return {
+    local: { path: cfg.vaultPath },
+    global: null,
+    vaultPath: cfg.vaultPath,
+    provider: cfg.provider,
+    projectName: cfg.projectName,
+    projectRoot: cfg.projectRoot,
+  }
 }
