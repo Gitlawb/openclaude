@@ -20,6 +20,8 @@ export type ProviderPreset =
   | 'azure-openai'
   | 'openrouter'
   | 'lmstudio'
+  | 'dashscope-cn'
+  | 'dashscope-intl'
   | 'custom'
   | 'nvidia-nim'
   | 'minimax'
@@ -219,6 +221,24 @@ export function getProviderPresetDefaults(
         model: 'local-model',
         apiKey: '',
         requiresApiKey: false,
+      }
+    case 'dashscope-cn':
+      return {
+        provider: 'openai',
+        name: 'Alibaba Coding Plan (China)',
+        baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',
+        model: 'qwen3.6-plus',
+        apiKey: process.env.DASHSCOPE_API_KEY ?? '',
+        requiresApiKey: true,
+      }
+    case 'dashscope-intl':
+      return {
+        provider: 'openai',
+        name: 'Alibaba Coding Plan',
+        baseUrl: 'https://coding-intl.dashscope.aliyuncs.com/v1',
+        model: 'qwen3.6-plus',
+        apiKey: process.env.DASHSCOPE_API_KEY ?? '',
+        requiresApiKey: true,
       }
     case 'custom':
       return {
