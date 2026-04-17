@@ -75,6 +75,10 @@ export function saveMachineConfig(cfg: MachineConfig): void {
 
 /** Default global vault location when no env override and no recorded path. */
 export function defaultGlobalVaultPath(): string {
+  // Test/diagnostic override — undocumented for end users.
+  if (process.env.BRIDGEAI_DEFAULT_GLOBAL_VAULT_PATH) {
+    return process.env.BRIDGEAI_DEFAULT_GLOBAL_VAULT_PATH
+  }
   if (process.platform === 'win32' && process.env.APPDATA) {
     return join(process.env.APPDATA, 'bridgeai', 'global-vault')
   }
