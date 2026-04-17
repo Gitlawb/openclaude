@@ -349,6 +349,7 @@ function convertMessages(
   system: unknown,
 ): OpenAIMessage[] {
   const result: OpenAIMessage[] = []
+  const knownToolCallIds = new Set<string>()
 
   // System message first
   const sysText = convertSystemPrompt(system)
@@ -368,13 +369,21 @@ function convertMessages(
         const toolResults = content.filter((b: { type?: string }) => b.type === 'tool_result')
         const otherContent = content.filter((b: { type?: string }) => b.type !== 'tool_result')
 
-        // Emit tool results as tool messages
+        // Emit tool results as tool messages, but ONLY if we have a matching tool_use ID.
+        // Mistral/OpenAI strictly require tool messages to follow an assistant message with tool_calls.
+        // If the user interrupted (ESC) and a synthetic tool_result was generated without a recorded tool_use,
+        // emitting it here would cause a "role must alternate" or "unexpected role" error.
         for (const tr of toolResults) {
-          result.push({
-            role: 'tool',
-            tool_call_id: tr.tool_use_id ?? 'unknown',
-            content: convertToolResultContent(tr.content, tr.is_error),
-          })
+          const id = tr.tool_use_id ?? 'unknown'
+          if (knownToolCallIds.has(id)) {
+            result.push({
+              role: 'tool',
+              tool_call_id: id,
+              content: convertToolResultContent(tr.content, tr.is_error),
+            })
+          } else {
+            logForDebugging(`Dropping orphan tool_result for ID: ${id} to prevent API error`)
+          }
         }
 
         // Emit remaining user content
@@ -415,9 +424,11 @@ function convertMessages(
               input?: unknown
               extra_content?: Record<string, unknown>
               signature?: string
-            }, index) => {
+            }) => {
+              const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
+              knownToolCallIds.add(id)
               const toolCall: NonNullable<OpenAIMessage['tool_calls']>[number] = {
-                id: tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`,
+                id,
                 type: 'function' as const,
                 function: {
                   name: tu.name ?? 'unknown',
@@ -435,14 +446,8 @@ function convertMessages(
 
               // Handle Gemini thought_signature
               if (isGeminiMode()) {
-                // If the model provided a signature in the tool_use block itself (e.g. from a previous Turn/Step)
-                // Use thinkingBlock.signature for ALL tool calls in the same assistant turn if available.
-                // The API requires the same signature on every replayed function call part in a parallel set.
                 const signature = tu.signature ?? (thinkingBlock as any)?.signature
-
-                // Merge into existing google-specific metadata if present
                 const existingGoogle = (toolCall.extra_content?.google as Record<string, unknown>) ?? {}
-
                 toolCall.extra_content = {
                   ...toolCall.extra_content,
                   google: {
