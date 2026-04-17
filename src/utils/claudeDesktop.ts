@@ -24,7 +24,7 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
       homedir(),
       'Library',
       'Application Support',
-      'Claude',
+      'Neural Network',
       'claude_desktop_config.json',
     )
   }
@@ -37,7 +37,7 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
   if (windowsHome) {
     // Remove drive letter and convert to WSL path format
     const wslPath = windowsHome.replace(/^[A-Z]:/, '')
-    const configPath = `/mnt/c${wslPath}/AppData/Roaming/Claude/claude_desktop_config.json`
+    const configPath = `/mnt/c${wslPath}/AppData/Roaming/Neural Network/claude_desktop_config.json`
 
     // Check if the file exists
     try {
@@ -72,7 +72,7 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
           user.name,
           'AppData',
           'Roaming',
-          'Claude',
+          'Neural Network',
           'claude_desktop_config.json',
         )
 

@@ -83,7 +83,7 @@ export async function resolveAttachments(
   // Dynamic import inside the feature() guard so upload.ts (axios, crypto,
   // zod, auth utils, MIME map) is fully eliminated from non-BRIDGE_MODE
   // builds. A static import would force module-scope evaluation regardless
-  // of the guard inside uploadBriefAttachment — CLAUDE.md: "helpers defined
+  // of the guard inside uploadBriefAttachment — NNC.md: "helpers defined
   // outside remain in the build even if never called".
   if (feature('BRIDGE_MODE')) {
     // Headless/SDK callers never set appState.replBridgeEnabled (only the TTY

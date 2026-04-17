@@ -53,7 +53,7 @@ export function buildSdkUrl(apiBaseUrl: string, sessionId: string): string {
  * Tagged IDs have the form {tag}_{body} or {tag}_staging_{body}, where the
  * body encodes a UUID. CCR v2's compat layer returns `session_*` to v1 API
  * clients (compat/convert.go:41) but the infrastructure layer (sandbox-gateway
- * work queue, work poll response) uses `cse_*` (compat/CLAUDE.md:13). Both
+ * work queue, work poll response) uses `cse_*` (compat/NNC.md:13). Both
  * have the same underlying UUID.
  *
  * Without this, replBridge rejects its own session as "foreign" at the

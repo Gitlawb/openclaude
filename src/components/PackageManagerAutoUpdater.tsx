@@ -73,10 +73,10 @@ export function PackageManagerAutoUpdater(t0) {
   if (!updateAvailable) {
     return null;
   }
-  const updateCommand = packageManager === "homebrew" ? "brew upgrade claude-code" : packageManager === "winget" ? "winget upgrade Anthropic.ClaudeCode" : packageManager === "apk" ? "apk upgrade claude-code" : "your package manager update command";
+  const updateCommand = packageManager === "homebrew" ? "brew upgrade claude-code" : packageManager === "winget" ? "winget upgrade Anthropic.NeuralNetworkCoder" : packageManager === "apk" ? "apk upgrade claude-code" : "команду оновлення вашого менеджера пакетів";
   let t4;
   if ($[3] !== verbose) {
-    t4 = verbose && <Text dimColor={true} wrap="truncate">currentVersion: {MACRO.VERSION}</Text>;
+    t4 = verbose && <Text dimColor={true} wrap="truncate">поточна версія: {MACRO.VERSION}</Text>;
     $[3] = verbose;
     $[4] = t4;
   } else {
@@ -84,7 +84,7 @@ export function PackageManagerAutoUpdater(t0) {
   }
   let t5;
   if ($[5] !== updateCommand) {
-    t5 = <Text color="warning" wrap="truncate">Update available! Run: <Text bold={true}>{updateCommand}</Text></Text>;
+    t5 = <Text color="warning" wrap="truncate">Доступне оновлення! Запустіть: <Text bold={true}>{updateCommand}</Text></Text>;
     $[5] = updateCommand;
     $[6] = t5;
   } else {

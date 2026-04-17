@@ -342,7 +342,7 @@ export const FileEditTool = buildTool({
       }
     }
 
-    // Additional validation for Claude settings files
+    // Additional validation for Neural Network settings files
     const settingsValidationResult = validateInputForSettingsFileEdit(
       fullFilePath,
       file,
@@ -527,7 +527,7 @@ export const FileEditTool = buildTool({
     // 7. Log events
     if (
       absoluteFilePath.endsWith(`${sep}AGENTS.md`) ||
-      absoluteFilePath.endsWith(`${sep}CLAUDE.md`)
+      absoluteFilePath.endsWith(`${sep}NNC.md`)
     ) {
       logEvent('tengu_write_claudemd', {})
     }

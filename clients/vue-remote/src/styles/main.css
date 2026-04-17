@@ -23,7 +23,13 @@
   --border: #373737;                   /* match bg-elev for subtle borders */
   --border-strong: #505050;            /* subtle gray */
   --selection-bg: rgba(38, 79, 120, 0.6); /* selectionBg */
-  --radius: 2px;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --ring-accent: 0 0 0 1px var(--accent-dim), 0 0 0 4px rgba(var(--accent-rgb), 0.15);
 
   --font-mono:
     "JetBrains Mono", "Fira Code", "SFMono-Regular", ui-monospace, Consolas,
@@ -46,13 +52,18 @@ html {
   /* dvh shrinks when iOS virtual keyboard opens; px fallback for old browsers */
   height: 100%;
   height: 100dvh;
+  width: 100%;
+  max-width: 100vw;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
   margin: 0;
   padding: 0;
   height: 100%;
+  width: 100%;
+  max-width: 100vw;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-mono);
@@ -64,6 +75,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 #app {
@@ -78,6 +90,11 @@ body {
   left: env(safe-area-inset-left, 0px);
   right: env(safe-area-inset-right, 0px);
   bottom: 0;
+  /* Critical: prevent any descendant from pushing the app wider than its
+     positioned box. Without max-width a flex/grid child whose intrinsic
+     content exceeds the viewport (e.g. a long brand + status label in the
+     header) can force horizontal scroll on mobile. */
+  max-width: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -97,20 +114,24 @@ textarea {
   color: var(--fg);
 }
 
-/* Scrollbars — minimal, no rounded thumb */
+/* Scrollbars — slim, subtle, softly rounded */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 0;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a4150;
+  background: var(--fg-muted);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 
 /*

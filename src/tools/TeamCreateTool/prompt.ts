@@ -17,7 +17,7 @@ When spawning teammates via the Agent tool, choose the \`subagent_type\` based o
 
 - **Read-only agents** (e.g., Explore, Plan) cannot edit or write files. Only assign them research, search, or planning tasks. Never assign them implementation work.
 - **Full-capability agents** (e.g., general-purpose) have access to all tools including file editing, writing, and bash. Use these for tasks that require making changes.
-- **Custom agents** defined in \`.claude/agents/\` may have their own tool restrictions. Check their descriptions to understand what they can and cannot do.
+- **Custom agents** defined in \`.nnc/agents/\` may have their own tool restrictions. Check their descriptions to understand what they can and cannot do.
 
 Always review the agent type descriptions and their available tools listed in the Agent tool prompt before selecting a \`subagent_type\` for a teammate.
 
@@ -31,8 +31,8 @@ Create a new team to coordinate multiple agents working on a project. Teams have
 \`\`\`
 
 This creates:
-- A team file at \`~/.claude/teams/{team-name}/config.json\`
-- A corresponding task list directory at \`~/.claude/tasks/{team-name}/\`
+- A team file at \`~/.nnc/teams/{team-name}/config.json\`
+- A corresponding task list directory at \`~/.nnc/tasks/{team-name}/\`
 
 ## Team Workflow
 
@@ -74,7 +74,7 @@ Teammates go idle after every turn—this is completely normal and expected. A t
 ## Discovering Team Members
 
 Teammates can read the team config file to discover other team members:
-- **Team config location**: \`~/.claude/teams/{team-name}/config.json\`
+- **Team config location**: \`~/.nnc/teams/{team-name}/config.json\`
 
 The config file contains a \`members\` array with each teammate's:
 - \`name\`: Human-readable name (**always use this** for messaging and task assignment)
@@ -87,12 +87,12 @@ The config file contains a \`members\` array with each teammate's:
 
 Example of reading team config:
 \`\`\`
-Use the Read tool to read ~/.claude/teams/{team-name}/config.json
+Use the Read tool to read ~/.nnc/teams/{team-name}/config.json
 \`\`\`
 
 ## Task List Coordination
 
-Teams share a task list that all teammates can access at \`~/.claude/tasks/{team-name}/\`.
+Teams share a task list that all teammates can access at \`~/.nnc/tasks/{team-name}/\`.
 
 Teammates should:
 1. Check TaskList periodically, **especially after completing each task**, to find available work or see newly unblocked tasks

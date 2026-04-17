@@ -1,6 +1,6 @@
 /**
  * MCP subcommand handlers — extracted from main.tsx for lazy loading.
- * These are dynamically imported only when the corresponding `claude mcp *` command runs.
+ * These are dynamically imported only when the corresponding `nnc mcp *` command runs.
  */
 
 import { stat } from 'fs/promises';
@@ -32,16 +32,16 @@ import { cliError, cliOk } from '../exit.js';
 
 function formatDoctorReport(report: McpDoctorReport): string {
   const lines: string[] = []
-  lines.push('MCP Doctor')
+  lines.push('MCP Діагностика')
   lines.push('')
-  lines.push('Summary')
-  lines.push(`- ${report.summary.totalReports} server reports generated`)
-  lines.push(`- ${report.summary.healthy} healthy`)
-  lines.push(`- ${report.summary.warnings} warnings`)
-  lines.push(`- ${report.summary.blocking} blocking issues`)
+  lines.push('Підсумок')
+  lines.push(`- ${report.summary.totalReports} звітів серверів згенеровано`)
+  lines.push(`- ${report.summary.healthy} робочих`)
+  lines.push(`- ${report.summary.warnings} попереджень`)
+  lines.push(`- ${report.summary.blocking} блокуючих проблем`)
 
   if (report.targetName) {
-    lines.push(`- target: ${report.targetName}`)
+    lines.push(`- ціль: ${report.targetName}`)
   }
 
   for (const server of report.servers) {
@@ -50,8 +50,8 @@ function formatDoctorReport(report: McpDoctorReport): string {
 
     const activeDefinition = server.definitions.find(definition => definition.runtimeActive)
     if (activeDefinition) {
-      lines.push(`- Active source: ${activeDefinition.sourceType}`)
-      lines.push(`- Transport: ${activeDefinition.transport ?? 'unknown'}`)
+      lines.push(`- Активне джерело: ${activeDefinition.sourceType}`)
+      lines.push(`- Транспорт: ${activeDefinition.transport ?? 'невідомо'}`)
     }
 
     if (server.definitions.length > 1) {
@@ -59,37 +59,37 @@ function formatDoctorReport(report: McpDoctorReport): string {
         .filter(definition => !definition.runtimeActive)
         .map(definition => definition.sourceType)
       if (extraDefinitions.length > 0) {
-        lines.push(`- Additional definitions: ${extraDefinitions.join(', ')}`)
+        lines.push(`- Додаткові визначення: ${extraDefinitions.join(', ')}`)
       }
     }
 
     if (server.liveCheck.result) {
       const stateLikeResults = new Set(['disabled', 'pending', 'skipped'])
       const label = stateLikeResults.has(server.liveCheck.result)
-        ? 'State'
-        : 'Live check'
+        ? 'Стан'
+        : 'Перевірка онлайн'
       lines.push(`- ${label}: ${server.liveCheck.result}`)
     }
 
     if (server.liveCheck.error) {
-      lines.push(`- Error: ${server.liveCheck.error}`)
+      lines.push(`- Помилка: ${server.liveCheck.error}`)
     }
 
     for (const finding of server.findings) {
       lines.push(`- ${finding.message}`)
       if (finding.remediation) {
-        lines.push(`- Fix: ${finding.remediation}`)
+        lines.push(`- Виправлення: ${finding.remediation}`)
       }
     }
   }
 
   if (report.findings.length > 0) {
     lines.push('')
-    lines.push('Global findings')
+    lines.push('Глобальні знахідки')
     for (const finding of report.findings) {
       lines.push(`- ${finding.message}`)
       if (finding.remediation) {
-        lines.push(`- Fix: ${finding.remediation}`)
+        lines.push(`- Виправлення: ${finding.remediation}`)
       }
     }
   }
@@ -129,14 +129,14 @@ async function checkMcpServerHealth(name: string, server: ScopedMcpServerConfig)
   try {
     const result = await connectToServer(name, server);
     if (result.type === 'connected') {
-      return '✓ Connected';
+      return '✓ Підключено';
     } else if (result.type === 'needs-auth') {
-      return '! Needs authentication';
+      return '! Потрібна автентифікація';
     } else {
-      return '✗ Failed to connect';
+      return '✗ Не вдалося підключитись';
     }
   } catch (_error) {
-    return '✗ Connection error';
+    return '✗ Помилка підключення';
   }
 }
 
@@ -154,7 +154,7 @@ export async function mcpServeHandler({
     await stat(providedCwd);
   } catch (error) {
     if (isFsInaccessible(error)) {
-      cliError(`Error: Directory ${providedCwd} does not exist`);
+      cliError(`Помилка: Директорія ${providedCwd} не існує`);
     }
     throw error;
   }
@@ -168,7 +168,7 @@ export async function mcpServeHandler({
     } = await import('../../entrypoints/mcp.js');
     await startMCPServer(providedCwd, debug ?? false, verbose ?? false);
   } catch (error) {
-    cliError(`Error: Failed to start MCP server: ${error}`);
+    cliError(`Помилка: Не вдалося запустити MCP сервер: ${error}`);
   }
 }
 
@@ -193,8 +193,8 @@ export async function mcpRemoveHandler(name: string, options: {
       });
       await removeMcpConfig(name, scope);
       cleanupSecureStorage();
-      process.stdout.write(`Removed MCP server ${name} from ${scope} config\n`);
-      cliOk(`File modified: ${describeMcpConfigFilePath(scope)}`);
+      process.stdout.write(`Видалено MCP сервер ${name} з ${scope} конфігу\n`);
+      cliOk(`Файл змінено: ${describeMcpConfigFilePath(scope)}`);
     }
 
     // If no scope specified, check where the server exists
@@ -213,7 +213,7 @@ export async function mcpRemoveHandler(name: string, options: {
     if (mcpJsonExists) scopes.push('project');
     if (globalConfig.mcpServers?.[name]) scopes.push('user');
     if (scopes.length === 0) {
-      cliError(`No MCP server found with name: "${name}"`);
+      cliError(`MCP сервер з назвою "${name}" не знайдено`);
     } else if (scopes.length === 1) {
       // Server exists in only one scope, remove it
       const scope = scopes[0]!;
@@ -223,17 +223,17 @@ export async function mcpRemoveHandler(name: string, options: {
       });
       await removeMcpConfig(name, scope);
       cleanupSecureStorage();
-      process.stdout.write(`Removed MCP server "${name}" from ${scope} config\n`);
-      cliOk(`File modified: ${describeMcpConfigFilePath(scope)}`);
+      process.stdout.write(`Видалено MCP сервер "${name}" з ${scope} конфігу\n`);
+      cliOk(`Файл змінено: ${describeMcpConfigFilePath(scope)}`);
     } else {
       // Server exists in multiple scopes
-      process.stderr.write(`MCP server "${name}" exists in multiple scopes:\n`);
+      process.stderr.write(`MCP сервер "${name}" існує в кількох областях:\n`);
       scopes.forEach(scope => {
         process.stderr.write(`  - ${getScopeLabel(scope)} (${describeMcpConfigFilePath(scope)})\n`);
       });
-      process.stderr.write('\nTo remove from a specific scope, use:\n');
+      process.stderr.write('\nЩоб видалити з конкретної області, використайте:\n');
       scopes.forEach(scope => {
-        process.stderr.write(`  claude mcp remove "${name}" -s ${scope}\n`);
+        process.stderr.write(`  nnc mcp remove "${name}" -s ${scope}\n`);
       });
       cliError();
     }
@@ -250,10 +250,10 @@ export async function mcpListHandler(): Promise<void> {
   } = await getAllMcpConfigs();
   if (Object.keys(configs).length === 0) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log('No MCP servers configured. Use `claude mcp add` to add a server.');
+    console.log('MCP серверів не налаштовано. Використайте `nnc mcp add`, щоб додати сервер.');
   } else {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log('Checking MCP server health...\n');
+    console.log('Перевіряємо стан MCP серверів...\n');
 
     // Check servers concurrently
     const entries = Object.entries(configs);
@@ -298,28 +298,28 @@ export async function mcpGetHandler(name: string): Promise<void> {
   });
   const server = getMcpConfigByName(name);
   if (!server) {
-    cliError(`No MCP server found with name: ${name}`);
+    cliError(`MCP сервер з назвою ${name} не знайдено`);
   }
 
   // biome-ignore lint/suspicious/noConsole:: intentional console output
   console.log(`${name}:`);
   // biome-ignore lint/suspicious/noConsole:: intentional console output
-  console.log(`  Scope: ${getScopeLabel(server.scope)}`);
+  console.log(`  Область: ${getScopeLabel(server.scope)}`);
 
   // Check server health
   const status = await checkMcpServerHealth(name, server);
   // biome-ignore lint/suspicious/noConsole:: intentional console output
-  console.log(`  Status: ${status}`);
+  console.log(`  Статус: ${status}`);
 
   // Intentionally excluding sse-ide servers here since they're internal
   if (server.type === 'sse') {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`  Type: sse`);
+    console.log(`  Тип: sse`);
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.log(`  URL: ${server.url}`);
     if (server.headers) {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log('  Headers:');
+      console.log('  Заголовки:');
       for (const [key, value] of Object.entries(server.headers)) {
         // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.log(`    ${key}: ${value}`);
@@ -328,20 +328,20 @@ export async function mcpGetHandler(name: string): Promise<void> {
     if (server.oauth?.clientId || server.oauth?.callbackPort) {
       const parts: string[] = [];
       if (server.oauth.clientId) {
-        parts.push('oauth client configured');
+        parts.push('oauth клієнт налаштовано');
       }
-      if (server.oauth.callbackPort) parts.push('callback port configured');
+      if (server.oauth.callbackPort) parts.push('callback порт налаштовано');
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.log(`  OAuth: ${parts.join(', ')}`);
     }
   } else if (server.type === 'http') {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`  Type: http`);
+    console.log(`  Тип: http`);
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.log(`  URL: ${server.url}`);
     if (server.headers) {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log('  Headers:');
+      console.log('  Заголовки:');
       for (const [key, value] of Object.entries(server.headers)) {
         // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.log(`    ${key}: ${value}`);
@@ -350,23 +350,23 @@ export async function mcpGetHandler(name: string): Promise<void> {
     if (server.oauth?.clientId || server.oauth?.callbackPort) {
       const parts: string[] = [];
       if (server.oauth.clientId) {
-        parts.push('oauth client configured');
+        parts.push('oauth клієнт налаштовано');
       }
-      if (server.oauth.callbackPort) parts.push('callback port configured');
+      if (server.oauth.callbackPort) parts.push('callback порт налаштовано');
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.log(`  OAuth: ${parts.join(', ')}`);
     }
   } else if (server.type === 'stdio') {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`  Type: stdio`);
+    console.log(`  Тип: stdio`);
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`  Command: ${server.command}`);
+    console.log(`  Команда: ${server.command}`);
     const args = Array.isArray(server.args) ? server.args : [];
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`  Args: ${args.join(' ')}`);
+    console.log(`  Аргументи: ${args.join(' ')}`);
     if (server.env) {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log('  Environment:');
+      console.log('  Середовище:');
       for (const [key, value] of Object.entries(server.env)) {
         // biome-ignore lint/suspicious/noConsole:: intentional console output
         console.log(`    ${key}=${value}`);
@@ -374,7 +374,7 @@ export async function mcpGetHandler(name: string): Promise<void> {
     }
   }
   // biome-ignore lint/suspicious/noConsole:: intentional console output
-  console.log(`\nTo remove this server, run: claude mcp remove "${name}" -s ${server.scope}`);
+  console.log(`\nЩоб видалити цей сервер, запустіть: nnc mcp remove "${name}" -s ${server.scope}`);
   // Use gracefulShutdown to properly clean up MCP server connections
   // (process.exit bypasses cleanup handlers, leaving child processes orphaned)
   await gracefulShutdown(0);
@@ -405,7 +405,7 @@ export async function mcpAddJsonHandler(name: string, json: string, options: {
       source: 'json' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       type: transportType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
-    cliOk(`Added ${transportType} MCP server ${name} to ${scope} config`);
+    cliOk(`Додано ${transportType} MCP сервер ${name} у ${scope} конфіг`);
   } catch (error) {
     cliError((error as Error).message);
   }
@@ -428,7 +428,7 @@ export async function mcpAddFromDesktopHandler(options: {
     } = await import('../../utils/claudeDesktop.js');
     const servers = await readClaudeDesktopMcpServers();
     if (Object.keys(servers).length === 0) {
-      cliOk('No MCP servers found in Claude Desktop configuration or configuration file does not exist.');
+      cliOk('У конфігурації Claude Desktop не знайдено MCP серверів або файл конфігурації не існує.');
     }
     const {
       unmount
@@ -455,5 +455,5 @@ export async function mcpResetChoicesHandler(): Promise<void> {
     disabledMcpjsonServers: [],
     enableAllProjectMcpServers: false
   }));
-  cliOk('All project-scoped (.mcp.json) server approvals and rejections have been reset.\n' + 'You will be prompted for approval next time you start Neural Network.');
+  cliOk('Усі підтвердження та відмови серверів проєктного рівня (.mcp.json) було скинуто.\n' + 'При наступному запуску Нейромережі ви отримаєте запит на підтвердження.');
 }

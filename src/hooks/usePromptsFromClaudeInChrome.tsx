@@ -25,7 +25,7 @@ const ClaudeInChromePromptNotificationSchema = lazySchema(() => z.object({
 }));
 
 /**
- * A hook that listens for prompt notifications from the Claude for Chrome extension,
+ * A hook that listens for prompt notifications from the Neural Network for Chrome extension,
  * enqueues them as user prompts, and syncs permission mode changes to the extension.
  */
 export function usePromptsFromClaudeInChrome(mcpClients, toolPermissionMode) {

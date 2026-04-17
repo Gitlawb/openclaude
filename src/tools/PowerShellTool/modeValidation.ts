@@ -196,7 +196,7 @@ export function checkPermissionMode(
   // cmdlet in a later statement targets a different directory than the validator checked.
   // Example: `Set-Location ./.claude; Set-Content ./settings.json '...'` — the validator
   // sees ./settings.json as /project/settings.json, but PowerShell writes to
-  // /project/.claude/settings.json. Refuse to auto-allow any write operation in a
+  // /project/.nnc/settings.json. Refuse to auto-allow any write operation in a
   // compound that contains a cwd-changing command. This matches BashTool's
   // compoundCommandHasCd guard (BashTool/pathValidation.ts:630-655).
   const totalCommands = segments.reduce(

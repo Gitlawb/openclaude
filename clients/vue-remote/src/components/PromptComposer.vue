@@ -81,18 +81,23 @@ defineExpose({ setText })
 .composer {
   flex: 0 0 auto;
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   /* Respect iOS home-indicator / notch at the bottom */
-  padding-bottom: max(6px, env(safe-area-inset-bottom));
-  padding-left: max(8px, env(safe-area-inset-left));
-  padding-right: max(8px, env(safe-area-inset-right));
-  border-top: 1px solid var(--border-strong);
-  background: var(--bg-elev);
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  padding-left: max(10px, env(safe-area-inset-left));
+  padding-right: max(10px, env(safe-area-inset-right));
+  border-top: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--bg-elev-hover) 0%, var(--bg-elev) 100%);
   /* Never let the row overflow its parent */
   min-width: 0;
+  width: 100%;
   max-width: 100%;
+  box-sizing: border-box;
+  /* overflow:hidden ensures a child (like the send button on a tiny screen)
+     can never visually leak past the rounded composer edge. */
+  overflow: hidden;
 }
 
 .input-wrap {
@@ -104,12 +109,13 @@ defineExpose({ setText })
   gap: 8px;
   background: var(--bg);
   border: 1px solid var(--border-strong);
-  padding: 6px 10px;
-  border-radius: 0;
-  transition: border-color 0.12s;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 .input-wrap:focus-within {
   border-color: var(--accent-dim);
+  box-shadow: var(--ring-accent);
 }
 .composer.disabled .input-wrap {
   opacity: 0.55;
@@ -150,24 +156,34 @@ textarea:disabled {
 }
 
 .send {
-  align-self: stretch;
-  /* 44px minimum touch target (Apple HIG); stays fixed width */
+  /* Square-ish 44x44 touch target. align-self: flex-end anchors it to the
+     bottom of the composer so a multi-line textarea doesn't pull it up. */
+  align-self: flex-end;
   min-width: 44px;
   min-height: 44px;
-  background: transparent;
+  height: 44px;
+  background: var(--bg-elev);
   color: var(--accent);
   border: 1px solid var(--border-strong);
-  font-size: var(--font-size-sm);
+  font-size: 15px;
   cursor: pointer;
   /* Never shrink — this is what was going off-screen */
   flex: 0 0 auto;
-  padding: 0 10px;
-  border-radius: 0;
-  transition: border-color 0.12s, color 0.12s;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s, box-shadow 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 .send:not(:disabled):hover {
   border-color: var(--accent);
   color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+.send:not(:disabled):active {
+  transform: scale(0.96);
 }
 .send:disabled {
   opacity: 0.3;
@@ -176,5 +192,19 @@ textarea:disabled {
 .composer.loading .send {
   color: var(--warning);
   border-color: var(--warning);
+  background: rgba(255, 193, 7, 0.08);
+}
+
+/* On very narrow screens, the send button uses less horizontal padding. */
+@media (max-width: 380px) {
+  .composer {
+    gap: 6px;
+    padding-left: max(6px, env(safe-area-inset-left));
+    padding-right: max(6px, env(safe-area-inset-right));
+  }
+  .send {
+    padding: 0 10px;
+    min-width: 44px;
+  }
 }
 </style>

@@ -60,7 +60,7 @@ function pageToMessages(page: HistoryPage): Message[] {
 }
 
 /**
- * Lazy-load `claude assistant` history on scroll-up.
+ * Lazy-load `nnc assistant` history on scroll-up.
  *
  * On mount: fetch newest page via anchor_to_latest, prepend to messages.
  * On scroll-up near top: fetch next-older page via before_id, prepend with

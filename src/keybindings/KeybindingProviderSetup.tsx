@@ -4,7 +4,7 @@ import { c as _c } from "react-compiler-runtime";
  *
  * This file provides the bindings and a composed provider that can be
  * added to the app's component tree. It loads both default bindings and
- * user-defined bindings from ~/.claude/keybindings.json, with hot-reload
+ * user-defined bindings from ~/.nnc/keybindings.json, with hot-reload
  * support when the file changes.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -47,7 +47,7 @@ type Props = {
  *
  * Features:
  * - Loads default bindings from code
- * - Merges with user bindings from ~/.claude/keybindings.json
+ * - Merges with user bindings from ~/.nnc/keybindings.json
  * - Watches for file changes and reloads automatically (hot-reload)
  * - User bindings override defaults (later entries win)
  * - Chord support with automatic timeout

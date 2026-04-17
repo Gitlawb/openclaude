@@ -124,7 +124,7 @@ type Props = {
  * in the UI so both should stick.
  *
  * Leading <system-reminder> blocks are stripped before checking — they get
- * prepended to the stored text for Claude's context (memory updates, auto
+ * prepended to the stored text for Neural Network's context (memory updates, auto
  * mode reminders) but aren't what the user typed. Without stripping, any
  * prompt that happened to get a reminder is rejected by the startsWith('<')
  * check. Shows up on `cc -c` resumes where memory-update reminders are dense.

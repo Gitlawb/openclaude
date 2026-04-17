@@ -78,7 +78,7 @@ test('useApiKeyVerification resets stale missing status when the session switche
     getIsNonInteractiveSession: () => false,
   }))
 
-  mock.module('../services/api/claude.js', () => ({
+  mock.module('../services/api/messagesClient.js', () => ({
     verifyApiKey: async () => true,
   }))
 

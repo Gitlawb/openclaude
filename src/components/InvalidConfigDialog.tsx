@@ -20,7 +20,7 @@ interface InvalidConfigDialogProps {
 }
 
 /**
- * Dialog shown when the Claude config file contains invalid JSON
+ * Dialog shown when the Neural Network config file contains invalid JSON
  */
 function InvalidConfigDialog(t0) {
   const $ = _c(19);
@@ -48,7 +48,7 @@ function InvalidConfigDialog(t0) {
   const handleSelect = t1;
   let t2;
   if ($[3] !== filePath) {
-    t2 = <Text>The configuration file at <Text bold={true}>{filePath}</Text> contains invalid JSON.</Text>;
+    t2 = <Text>Файл конфігурації <Text bold={true}>{filePath}</Text> містить невалідний JSON.</Text>;
     $[3] = filePath;
     $[4] = t2;
   } else {
@@ -73,7 +73,7 @@ function InvalidConfigDialog(t0) {
   }
   let t5;
   if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
-    t5 = <Text bold={true}>Choose an option:</Text>;
+    t5 = <Text bold={true}>Оберіть варіант:</Text>;
     $[10] = t5;
   } else {
     t5 = $[10];
@@ -81,10 +81,10 @@ function InvalidConfigDialog(t0) {
   let t6;
   if ($[11] === Symbol.for("react.memo_cache_sentinel")) {
     t6 = [{
-      label: "Exit and fix manually",
+      label: "Вийти та виправити вручну",
       value: "exit"
     }, {
-      label: "Reset with default configuration",
+      label: "Скинути до типової конфігурації",
       value: "reset"
     }];
     $[11] = t6;
@@ -102,7 +102,7 @@ function InvalidConfigDialog(t0) {
   }
   let t8;
   if ($[15] !== onExit || $[16] !== t4 || $[17] !== t7) {
-    t8 = <Dialog title="Configuration Error" color="error" onCancel={onExit}>{t4}{t7}</Dialog>;
+    t8 = <Dialog title="Помилка конфігурації" color="error" onCancel={onExit}>{t4}{t7}</Dialog>;
     $[15] = onExit;
     $[16] = t4;
     $[17] = t7;

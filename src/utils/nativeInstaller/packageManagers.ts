@@ -1,5 +1,5 @@
 /**
- * Package manager detection for Claude CLI
+ * Package manager detection for Neural Network CLI
  */
 
 import { readFile } from 'fs/promises'
@@ -53,7 +53,7 @@ function isDistroFamily(
 }
 
 /**
- * Detects if the currently running Claude instance was installed via mise
+ * Detects if the currently running Neural Network instance was installed via mise
  * (a polyglot tool version manager) by checking if the executable path
  * is within a mise installs directory.
  *
@@ -72,7 +72,7 @@ export function detectMise(): boolean {
 }
 
 /**
- * Detects if the currently running Claude instance was installed via asdf
+ * Detects if the currently running Neural Network instance was installed via asdf
  * (another polyglot tool version manager) by checking if the executable path
  * is within an asdf installs directory.
  *
@@ -91,7 +91,7 @@ export function detectAsdf(): boolean {
 }
 
 /**
- * Detects if the currently running Claude instance was installed via Homebrew
+ * Detects if the currently running Neural Network instance was installed via Homebrew
  * by checking if the executable path is within a Homebrew Caskroom directory.
  *
  * Note: We specifically check for Caskroom because npm can also be installed via
@@ -122,7 +122,7 @@ export function detectHomebrew(): boolean {
 }
 
 /**
- * Detects if the currently running Claude instance was installed via winget
+ * Detects if the currently running Neural Network instance was installed via winget
  * by checking if the executable path is within a WinGet directory.
  *
  * Winget installs to:
@@ -157,7 +157,7 @@ export function detectWinget(): boolean {
 }
 
 /**
- * Detects if the currently running Claude instance was installed via pacman
+ * Detects if the currently running Neural Network instance was installed via pacman
  * by querying pacman's database for file ownership.
  *
  * We gate on the Arch distro family before invoking pacman. On other distros
@@ -192,7 +192,7 @@ export const detectPacman = memoize(async (): Promise<boolean> => {
 })
 
 /**
- * Detects if the currently running Claude instance was installed via a .deb package
+ * Detects if the currently running Neural Network instance was installed via a .deb package
  * by querying dpkg's database for file ownership.
  *
  * We use `dpkg -S <execPath>` to check if the executable is owned by a dpkg-managed package.
@@ -225,7 +225,7 @@ export const detectDeb = memoize(async (): Promise<boolean> => {
 })
 
 /**
- * Detects if the currently running Claude instance was installed via an RPM package
+ * Detects if the currently running Neural Network instance was installed via an RPM package
  * by querying the RPM database for file ownership.
  *
  * We use `rpm -qf <execPath>` to check if the executable is owned by an RPM package.
@@ -258,7 +258,7 @@ export const detectRpm = memoize(async (): Promise<boolean> => {
 })
 
 /**
- * Detects if the currently running Claude instance was installed via Alpine APK
+ * Detects if the currently running Neural Network instance was installed via Alpine APK
  * by querying apk's database for file ownership.
  *
  * We use `apk info --who-owns <execPath>` to check if the executable is owned
@@ -296,7 +296,7 @@ export const detectApk = memoize(async (): Promise<boolean> => {
 })
 
 /**
- * Memoized function to detect which package manager installed Claude
+ * Memoized function to detect which package manager installed Neural Network
  * Returns 'unknown' if no package manager is detected
  */
 export const getPackageManager = memoize(async (): Promise<PackageManager> => {

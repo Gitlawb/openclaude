@@ -15,13 +15,13 @@ export function ExistingWorkflowStep(t0) {
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = [{
-      label: "Update workflow file with latest version",
+      label: "Оновити workflow файл до останньої версії",
       value: "update"
     }, {
-      label: "Skip workflow update (configure secrets only)",
+      label: "Пропустити оновлення workflow (налаштувати лише secrets)",
       value: "skip"
     }, {
-      label: "Exit without making changes",
+      label: "Вийти без змін",
       value: "exit"
     }];
     $[0] = t1;
@@ -53,14 +53,14 @@ export function ExistingWorkflowStep(t0) {
   const handleCancel = t3;
   let t4;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = <Text bold={true}>Existing Workflow Found</Text>;
+    t4 = <Text bold={true}>Знайдено наявний workflow</Text>;
     $[5] = t4;
   } else {
     t4 = $[5];
   }
   let t5;
   if ($[6] !== repoName) {
-    t5 = <Box flexDirection="column" marginBottom={1}>{t4}<Text dimColor={true}>Repository: {repoName}</Text></Box>;
+    t5 = <Box flexDirection="column" marginBottom={1}>{t4}<Text dimColor={true}>Репозиторій: {repoName}</Text></Box>;
     $[6] = repoName;
     $[7] = t5;
   } else {
@@ -68,7 +68,7 @@ export function ExistingWorkflowStep(t0) {
   }
   let t6;
   if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = <Box flexDirection="column" marginBottom={1}><Text>A workflow file already exists at{" "}<Text color="claude">.github/workflows/claude.yml</Text></Text><Text dimColor={true}>What would you like to do?</Text></Box>;
+    t6 = <Box flexDirection="column" marginBottom={1}><Text>Файл workflow уже існує у{" "}<Text color="claude">.github/workflows/claude.yml</Text></Text><Text dimColor={true}>Що бажаєте зробити?</Text></Box>;
     $[8] = t6;
   } else {
     t6 = $[8];
@@ -84,7 +84,7 @@ export function ExistingWorkflowStep(t0) {
   }
   let t8;
   if ($[12] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Box marginTop={1}><Text dimColor={true}>View the latest workflow template at:{" "}<Text color="claude">https://github.com/anthropics/claude-code-action/blob/main/examples/claude.yml</Text></Text></Box>;
+    t8 = <Box marginTop={1}><Text dimColor={true}>Перегляньте останній шаблон workflow:{" "}<Text color="claude">https://github.com/anthropics/claude-code-action/blob/main/examples/claude.yml</Text></Text></Box>;
     $[12] = t8;
   } else {
     t8 = $[12];

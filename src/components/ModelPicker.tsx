@@ -30,8 +30,8 @@ export type Props = {
   /**
    * When true, skip writing effortLevel to userSettings on selection.
    * Used by the assistant installer wizard where the model choice is
-   * project-scoped (written to the assistant's .claude/settings.json via
-   * install.ts) and should not leak to the user's global ~/.claude/settings.
+   * project-scoped (written to the assistant's .nnc/settings.json via
+   * install.ts) and should not leak to the user's global ~/.nnc/settings.
    */
   skipSettingsWrite?: boolean;
 };
@@ -90,7 +90,7 @@ export function ModelPicker(t0) {
         t6 = {
           value: initial,
           label: t5,
-          description: "Current model"
+          description: "Поточна модель"
         };
         $[6] = initial;
         $[7] = t5;
@@ -325,7 +325,7 @@ export function ModelPicker(t0) {
   }
   let t24;
   if ($[62] !== displayEffort || $[63] !== focusedDefaultEffort || $[64] !== focusedModelName || $[65] !== focusedSupportsEffort) {
-    t24 = <Box marginBottom={1} flexDirection="column">{focusedSupportsEffort ? <Text dimColor={true}><EffortLevelIndicator effort={displayEffort} />{" "}{capitalize(displayEffort)} effort{displayEffort === focusedDefaultEffort ? " (за замовчуванням)" : ""}{" "}<Text color="subtle">← → для налаштування</Text></Text> : <Text color="subtle"><EffortLevelIndicator effort={undefined} /> Effort не підтримується{focusedModelName ? ` для ${focusedModelName}` : ""}</Text>}</Box>;
+    t24 = <Box marginBottom={1} flexDirection="column">{focusedSupportsEffort ? <Text dimColor={true}><EffortLevelIndicator effort={displayEffort} />{" "}{capitalize(displayEffort)} рівень зусиль{displayEffort === focusedDefaultEffort ? " (за замовчуванням)" : ""}{" "}<Text color="subtle">← → для налаштування</Text></Text> : <Text color="subtle"><EffortLevelIndicator effort={undefined} /> Рівень зусиль не підтримується{focusedModelName ? ` для ${focusedModelName}` : ""}</Text>}</Box>;
     $[62] = displayEffort;
     $[63] = focusedDefaultEffort;
     $[64] = focusedModelName;
@@ -355,7 +355,7 @@ export function ModelPicker(t0) {
   }
   let t27;
   if ($[74] !== exitState || $[75] !== isStandaloneCommand) {
-    t27 = isStandaloneCommand && <Text dimColor={true} italic={true}>{exitState.pending ? <>Press {exitState.keyName} again to exit</> : <Byline><KeyboardShortcutHint shortcut="Enter" action="confirm" /><ConfigurableShortcutHint action="select:cancel" context="Select" fallback="Esc" description="exit" /></Byline>}</Text>;
+    t27 = isStandaloneCommand && <Text dimColor={true} italic={true}>{exitState.pending ? <>Натисніть {exitState.keyName} ще раз для виходу</> : <Byline><KeyboardShortcutHint shortcut="Enter" action="підтвердити" /><ConfigurableShortcutHint action="select:cancel" context="Select" fallback="Esc" description="вийти" /></Byline>}</Text>;
     $[74] = exitState;
     $[75] = isStandaloneCommand;
     $[76] = t27;

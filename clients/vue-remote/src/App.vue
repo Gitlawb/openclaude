@@ -187,22 +187,27 @@ watch(selectedSessionId, () => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   width: 100%;
+  max-width: 100%;
 }
 
 .session-bar {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 12px;
+  padding: 6px 12px;
   padding-left: max(12px, env(safe-area-inset-left));
   padding-right: max(12px, env(safe-area-inset-right));
   font-size: var(--font-size-sm);
   border-bottom: 1px solid var(--border);
   background: var(--bg-elev);
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
+  min-height: 32px;
 }
 .session-bar .link {
   background: transparent;
@@ -211,7 +216,9 @@ watch(selectedSessionId, () => {
   font: inherit;
   font-size: var(--font-size-sm);
   cursor: pointer;
-  padding: 0;
+  padding: 4px 0;
+  min-height: 28px;
+  flex-shrink: 0;
 }
 .session-bar .link:hover { text-decoration: underline; }
 .session-bar .session-cwd {
@@ -220,27 +227,33 @@ watch(selectedSessionId, () => {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 
 .error-bar {
   background: rgba(255, 135, 135, 0.08);
   color: var(--danger);
-  padding: 4px 10px 4px 24px;
+  padding: 6px 12px 6px 28px;
+  padding-left: max(28px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
   font-size: var(--font-size-sm);
   border-top: 1px solid rgba(255, 135, 135, 0.25);
   position: relative;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
 }
 .error-bar::before {
   content: "✗";
   position: absolute;
-  left: 10px;
-  top: 4px;
+  left: 12px;
+  top: 6px;
 }
 
 .banner-enter-active,
 .banner-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .banner-enter-from,
 .banner-leave-to {

@@ -48,7 +48,7 @@ export function ClaudeInChromeOnboarding(t0) {
   useInput(t3);
   let t4;
   if ($[4] !== isExtensionInstalled) {
-    t4 = !isExtensionInstalled && <><Newline /><Newline />Requires the Chrome extension. Get started at{" "}<Link url={CHROME_EXTENSION_URL} /></>;
+    t4 = !isExtensionInstalled && <><Newline /><Newline />Потрібне розширення Chrome. Почніть на{" "}<Link url={CHROME_EXTENSION_URL} /></>;
     $[4] = isExtensionInstalled;
     $[5] = t4;
   } else {
@@ -56,7 +56,7 @@ export function ClaudeInChromeOnboarding(t0) {
   }
   let t5;
   if ($[6] !== t4) {
-    t5 = <Text>Chrome Extension works with the Chrome extension to let you control your browser directly from Neural Network. You can navigate websites, fill forms, capture screenshots, record GIFs, and debug with console logs and network requests.{t4}</Text>;
+    t5 = <Text>Розширення Chrome працює разом із розширенням Chrome, щоб ви могли керувати браузером прямо з Нейромережі. Ви можете переходити на сайти, заповнювати форми, робити скріншоти, записувати GIF та дебажити через логи консолі та мережеві запити.{t4}</Text>;
     $[6] = t4;
     $[7] = t5;
   } else {
@@ -72,7 +72,7 @@ export function ClaudeInChromeOnboarding(t0) {
   }
   let t7;
   if ($[10] !== t6) {
-    t7 = <Text dimColor={true}>Site-level permissions are inherited from the Chrome extension. Manage permissions in the Chrome extension settings to control which sites Claude can browse, click, and type on{t6}.</Text>;
+    t7 = <Text dimColor={true}>Дозволи на рівні сайту успадковуються від розширення Chrome. Керуйте дозволами в налаштуваннях розширення Chrome, щоб контролювати, якими сайтами Нейромережа може користуватись, клацати та вводити текст{t6}.</Text>;
     $[10] = t6;
     $[11] = t7;
   } else {
@@ -80,14 +80,14 @@ export function ClaudeInChromeOnboarding(t0) {
   }
   let t8;
   if ($[12] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Text bold={true} color="chromeYellow">Enable Chrome integration</Text>;
+    t8 = <Text bold={true} color="chromeYellow">Увімкнути інтеграцію з Chrome</Text>;
     $[12] = t8;
   } else {
     t8 = $[12];
   }
   let t9;
   if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-    t9 = <Text dimColor={true}>For more info, use{" "}{t8}{" "}or visit <Link url="https://code.claude.com/docs/enEnable Chrome integration" /></Text>;
+    t9 = <Text dimColor={true}>Для докладнішої інформації використайте{" "}{t8}{" "}або відвідайте <Link url="https://code.claude.com/docs/enEnable Chrome integration" /></Text>;
     $[13] = t9;
   } else {
     t9 = $[13];
@@ -103,7 +103,7 @@ export function ClaudeInChromeOnboarding(t0) {
   }
   let t11;
   if ($[17] !== onDone || $[18] !== t10) {
-    t11 = <Dialog title="Chrome Extension (Beta)" onCancel={onDone} color="chromeYellow">{t10}</Dialog>;
+    t11 = <Dialog title="Розширення Chrome (Beta)" onCancel={onDone} color="chromeYellow">{t10}</Dialog>;
     $[17] = onDone;
     $[18] = t10;
     $[19] = t11;

@@ -3,7 +3,7 @@
  *
  * Memories are constrained to four types capturing context NOT derivable
  * from the current project state. Code patterns, architecture, git history,
- * and file structure are derivable (via grep/git/CLAUDE.md) and should NOT
+ * and file structure are derivable (via grep/git/NNC.md) and should NOT
  * be saved as memories.
  *
  * The two TYPES_SECTION_* exports below are intentionally duplicated rather
@@ -186,7 +186,7 @@ export const WHAT_NOT_TO_SAVE_SECTION: readonly string[] = [
   '- Code patterns, conventions, architecture, file paths, or project structure — these can be derived by reading the current project state.',
   '- Git history, recent changes, or who-changed-what — `git log` / `git blame` are authoritative.',
   '- Debugging solutions or fix recipes — the fix is in the code; the commit message has the context.',
-  '- Anything already documented in CLAUDE.md files.',
+  '- Anything already documented in NNC.md files.',
   '- Ephemeral task details: in-progress work, temporary state, current conversation context.',
   '',
   // H2: explicit-save gate. Eval-validated (memory-prompt-iteration case 3,
@@ -205,7 +205,7 @@ export const MEMORY_DRIFT_CAVEAT =
  * `## When to access memories` section. Includes MEMORY_DRIFT_CAVEAT.
  *
  * H6 (branch-pollution evals #22856, case 5 1/3 on capy): the "ignore" bullet
- * is the delta. Failure mode: user says "ignore memory about X" → Claude reads
+ * is the delta. Failure mode: user says "ignore memory about X" → Neural Network reads
  * code correctly but adds "not Y as noted in memory" — treats "ignore" as
  * "acknowledge then override" rather than "don't reference at all." The bullet
  * names that anti-pattern explicitly.

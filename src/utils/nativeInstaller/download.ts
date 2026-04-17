@@ -1,7 +1,7 @@
 /**
  * Download functionality for native installer
  *
- * Handles downloading Claude binaries from various sources:
+ * Handles downloading Neural Network binaries from various sources:
  * - Artifactory NPM packages
  * - GCS bucket
  */

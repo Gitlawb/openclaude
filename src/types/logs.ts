@@ -87,7 +87,7 @@ export type LastPromptMessage = {
 /**
  * Periodic fork-generated summary of what the agent is currently doing.
  * Written every min(5 steps, 2min) by forking the main thread mid-turn so
- * `claude ps` can show something more useful than the last user prompt
+ * `nnc ps` can show something more useful than the last user prompt
  * (which is often "ok go" or "fix it").
  */
 export type TaskSummaryMessage = {
@@ -193,17 +193,17 @@ export type FileHistorySnapshotMessage = {
 }
 
 /**
- * Per-file attribution state tracking Claude's character contributions.
+ * Per-file attribution state tracking Neural Network's character contributions.
  */
 export type FileAttributionState = {
   contentHash: string // SHA-256 hash of file content
-  claudeContribution: number // Characters written by Claude
+  claudeContribution: number // Characters written by Neural Network
   mtime: number // File modification time
 }
 
 /**
  * Attribution snapshot message stored in session transcript.
- * Tracks character-level contributions by Claude for commit attribution.
+ * Tracks character-level contributions by Neural Network for commit attribution.
  */
 export type AttributionSnapshotMessage = {
   type: 'attribution-snapshot'

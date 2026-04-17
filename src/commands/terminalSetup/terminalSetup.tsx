@@ -34,7 +34,7 @@ const NATIVE_CSIU_TERMINALS: Record<string, string> = {
 /**
  * Detect if we're running in a VSCode Remote SSH session.
  * In this case, keybindings need to be installed on the LOCAL machine,
- * not the remote server where Claude is running.
+ * not the remote server where Neural Network is running.
  */
 function isVSCodeRemoteSSH(): boolean {
   const askpassMain = process.env.VSCODE_GIT_ASKPASS_MAIN ?? '';

@@ -1,7 +1,7 @@
 /**
  * Analytics service - public API for event logging
  *
- * This module serves as the main entry point for analytics events in Claude CLI.
+ * This module serves as the main entry point for analytics events in Neural Network CLI.
  *
  * DESIGN: This module has NO dependencies to avoid import cycles.
  * Events are queued until attachAnalyticsSink() is called during app initialization.

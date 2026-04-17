@@ -36,7 +36,7 @@ export function DesktopHandoff(t0) {
   if ($[0] !== error || $[1] !== onDone || $[2] !== state) {
     t1 = input => {
       if (state === "error") {
-        onDone(error ?? "Unknown error", {
+        onDone(error ?? "Невідома помилка", {
           display: "system"
         });
         return;
@@ -44,12 +44,12 @@ export function DesktopHandoff(t0) {
       if (state === "prompt-download") {
         if (input === "y" || input === "Y") {
           openBrowser(getDownloadUrl()).catch(_temp);
-          onDone(`Starting download. Re-run /desktop once you\u2019ve installed the app.\nLearn more at ${DESKTOP_DOCS_URL}`, {
+          onDone(`Розпочинаю завантаження. Запустіть /desktop знову після встановлення застосунку.\nДокладніше: ${DESKTOP_DOCS_URL}`, {
             display: "system"
           });
         } else {
           if (input === "n" || input === "N") {
-            onDone(`The desktop app is required for /desktop. Learn more at ${DESKTOP_DOCS_URL}`, {
+            onDone(`Для /desktop потрібен десктопний застосунок. Докладніше: ${DESKTOP_DOCS_URL}`, {
               display: "system"
             });
           }
@@ -72,12 +72,12 @@ export function DesktopHandoff(t0) {
         setState("checking");
         const installStatus = await getDesktopInstallStatus();
         if (installStatus.status === "not-installed") {
-          setDownloadMessage("Claude Desktop is not installed.");
+          setDownloadMessage("Claude Desktop не встановлено.");
           setState("prompt-download");
           return;
         }
         if (installStatus.status === "version-too-old") {
-          setDownloadMessage(`Claude Desktop needs to be updated (found v${installStatus.version}, need v1.1.2396+).`);
+          setDownloadMessage(`Claude Desktop потребує оновлення (знайдено v${installStatus.version}, потрібно v1.1.2396+).`);
           setState("prompt-download");
           return;
         }
@@ -86,7 +86,7 @@ export function DesktopHandoff(t0) {
         setState("opening");
         const result = await openCurrentSessionInDesktop();
         if (!result.success) {
-          setError(result.error ?? "Failed to open Claude Desktop");
+          setError(result.error ?? "Не вдалося відкрити Claude Desktop");
           setState("error");
           return;
         }
@@ -110,7 +110,7 @@ export function DesktopHandoff(t0) {
   if (state === "error") {
     let t4;
     if ($[7] !== error) {
-      t4 = <Text color="error">Error: {error}</Text>;
+      t4 = <Text color="error">Помилка: {error}</Text>;
       $[7] = error;
       $[8] = t4;
     } else {
@@ -118,7 +118,7 @@ export function DesktopHandoff(t0) {
     }
     let t5;
     if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
-      t5 = <Text dimColor={true}>Press any key to continue…</Text>;
+      t5 = <Text dimColor={true}>Натисніть будь-яку клавішу для продовження…</Text>;
       $[9] = t5;
     } else {
       t5 = $[9];
@@ -144,7 +144,7 @@ export function DesktopHandoff(t0) {
     }
     let t5;
     if ($[14] === Symbol.for("react.memo_cache_sentinel")) {
-      t5 = <Text>Download now? (y/n)</Text>;
+      t5 = <Text>Завантажити зараз? (y/n)</Text>;
       $[14] = t5;
     } else {
       t5 = $[14];
@@ -162,10 +162,10 @@ export function DesktopHandoff(t0) {
   let t4;
   if ($[17] === Symbol.for("react.memo_cache_sentinel")) {
     t4 = {
-      checking: "Checking for Claude Desktop\u2026",
-      flushing: "Saving session\u2026",
-      opening: "Opening Claude Desktop\u2026",
-      success: "Opening in Claude Desktop\u2026"
+      checking: "Перевірка Claude Desktop\u2026",
+      flushing: "Збереження сесії\u2026",
+      opening: "Відкриття Claude Desktop\u2026",
+      success: "Відкриваємо у Claude Desktop\u2026"
     };
     $[17] = t4;
   } else {
@@ -184,7 +184,7 @@ export function DesktopHandoff(t0) {
   return t6;
 }
 async function _temp2(onDone_0) {
-  onDone_0("Session transferred to Claude Desktop", {
+  onDone_0("Сесію перенесено у Claude Desktop", {
     display: "system"
   });
   await gracefulShutdown(0, "other");

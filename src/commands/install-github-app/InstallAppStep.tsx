@@ -26,21 +26,21 @@ export function InstallAppStep(t0) {
   useKeybinding("confirm:yes", onSubmit, t1);
   let t2;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>Install the Claude GitHub App</Text></Box>;
+    t2 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>Встановіть GitHub застосунок Нейромережі</Text></Box>;
     $[1] = t2;
   } else {
     t2 = $[1];
   }
   let t3;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Box marginBottom={1}><Text>Opening browser to install the Claude GitHub App…</Text></Box>;
+    t3 = <Box marginBottom={1}><Text>Відкриваємо браузер для встановлення GitHub застосунку Нейромережі…</Text></Box>;
     $[2] = t3;
   } else {
     t3 = $[2];
   }
   let t4;
   if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = <Box marginBottom={1}><Text>If your browser doesn't open automatically, visit:</Text></Box>;
+    t4 = <Box marginBottom={1}><Text>Якщо браузер не відкрився автоматично, перейдіть:</Text></Box>;
     $[3] = t4;
   } else {
     t4 = $[3];
@@ -54,7 +54,7 @@ export function InstallAppStep(t0) {
   }
   let t6;
   if ($[5] !== repoUrl) {
-    t6 = <Box marginBottom={1}><Text>Please install the app for repository: <Text bold={true}>{repoUrl}</Text></Text></Box>;
+    t6 = <Box marginBottom={1}><Text>Будь ласка, встановіть застосунок для репозиторію: <Text bold={true}>{repoUrl}</Text></Text></Box>;
     $[5] = repoUrl;
     $[6] = t6;
   } else {
@@ -62,21 +62,21 @@ export function InstallAppStep(t0) {
   }
   let t7;
   if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
-    t7 = <Box marginBottom={1}><Text dimColor={true}>Important: Make sure to grant access to this specific repository</Text></Box>;
+    t7 = <Box marginBottom={1}><Text dimColor={true}>Важливо: надайте доступ саме до цього репозиторію</Text></Box>;
     $[7] = t7;
   } else {
     t7 = $[7];
   }
   let t8;
   if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Box><Text bold={true} color="permission">Press Enter once you've installed the app{figures.ellipsis}</Text></Box>;
+    t8 = <Box><Text bold={true} color="permission">Натисніть Enter, коли встановите застосунок{figures.ellipsis}</Text></Box>;
     $[8] = t8;
   } else {
     t8 = $[8];
   }
   let t9;
   if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
-    t9 = <Box marginTop={1}><Text dimColor={true}>Having trouble? See manual setup instructions at:{" "}<Text color="claude">{GITHUB_ACTION_SETUP_DOCS_URL}</Text></Text></Box>;
+    t9 = <Box marginTop={1}><Text dimColor={true}>Проблеми? Дивіться ручні інструкції:{" "}<Text color="claude">{GITHUB_ACTION_SETUP_DOCS_URL}</Text></Text></Box>;
     $[9] = t9;
   } else {
     t9 = $[9];

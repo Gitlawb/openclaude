@@ -4,7 +4,7 @@
  * When plugin versions are updated, old versions are marked with a
  * `.orphaned_at` file but kept on disk for 7 days (since concurrent
  * sessions might still reference them). During this window, Grep/Glob
- * could return files from orphaned versions, causing Claude to use
+ * could return files from orphaned versions, causing Neural Network to use
  * outdated plugin code.
  *
  * We find `.orphaned_at` markers via a single ripgrep call and generate

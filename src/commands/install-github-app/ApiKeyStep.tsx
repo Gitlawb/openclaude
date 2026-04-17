@@ -145,14 +145,14 @@ export function ApiKeyStep(t0) {
   useKeybindings(t8, t9);
   let t10;
   if ($[26] === Symbol.for("react.memo_cache_sentinel")) {
-    t10 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>Install GitHub App</Text><Text dimColor={true}>Choose API key</Text></Box>;
+    t10 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>Встановлення GitHub застосунку</Text><Text dimColor={true}>Оберіть API ключ</Text></Box>;
     $[26] = t10;
   } else {
     t10 = $[26];
   }
   let t11;
   if ($[27] !== existingApiKey || $[28] !== selectedOption || $[29] !== theme) {
-    t11 = existingApiKey && <Box marginBottom={1}><Text>{selectedOption === "existing" ? color("success", theme)("> ") : "  "}Use your existing Neural Network API key</Text></Box>;
+    t11 = existingApiKey && <Box marginBottom={1}><Text>{selectedOption === "existing" ? color("success", theme)("> ") : "  "}Використати ваш наявний API ключ Нейромережі</Text></Box>;
     $[27] = existingApiKey;
     $[28] = selectedOption;
     $[29] = theme;
@@ -162,7 +162,7 @@ export function ApiKeyStep(t0) {
   }
   let t12;
   if ($[31] !== onCreateOAuthToken || $[32] !== selectedOption || $[33] !== theme) {
-    t12 = onCreateOAuthToken && <Box marginBottom={1}><Text>{selectedOption === "oauth" ? color("success", theme)("> ") : "  "}Create a long-lived token with your subscription</Text></Box>;
+    t12 = onCreateOAuthToken && <Box marginBottom={1}><Text>{selectedOption === "oauth" ? color("success", theme)("> ") : "  "}Створити довготривалий токен з вашою підпискою</Text></Box>;
     $[31] = onCreateOAuthToken;
     $[32] = selectedOption;
     $[33] = theme;
@@ -181,7 +181,7 @@ export function ApiKeyStep(t0) {
   }
   let t14;
   if ($[38] !== t13) {
-    t14 = <Box marginBottom={1}><Text>{t13}Enter a new API key</Text></Box>;
+    t14 = <Box marginBottom={1}><Text>{t13}Ввести новий API ключ</Text></Box>;
     $[38] = t13;
     $[39] = t14;
   } else {
@@ -189,7 +189,7 @@ export function ApiKeyStep(t0) {
   }
   let t15;
   if ($[40] !== apiKeyOrOAuthToken || $[41] !== cursorOffset || $[42] !== onApiKeyChange || $[43] !== onSubmit || $[44] !== selectedOption || $[45] !== terminalSize) {
-    t15 = selectedOption === "new" && <TextInput value={apiKeyOrOAuthToken} onChange={onApiKeyChange} onSubmit={onSubmit} onPaste={onApiKeyChange} focus={true} placeholder={"sk-ant\u2026 (Create a new key at https://platform.claude.com/settings/keys)"} mask="*" columns={terminalSize.columns} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} showCursor={true} />;
+    t15 = selectedOption === "new" && <TextInput value={apiKeyOrOAuthToken} onChange={onApiKeyChange} onSubmit={onSubmit} onPaste={onApiKeyChange} focus={true} placeholder={"sk-ant\u2026 (Створіть новий ключ на https://platform.claude.com/settings/keys)"} mask="*" columns={terminalSize.columns} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} showCursor={true} />;
     $[40] = apiKeyOrOAuthToken;
     $[41] = cursorOffset;
     $[42] = onApiKeyChange;
@@ -213,7 +213,7 @@ export function ApiKeyStep(t0) {
   }
   let t17;
   if ($[52] === Symbol.for("react.memo_cache_sentinel")) {
-    t17 = <Box marginLeft={3}><Text dimColor={true}>↑/↓ to select · Enter to continue</Text></Box>;
+    t17 = <Box marginLeft={3}><Text dimColor={true}>↑/↓ — обрати · Enter — продовжити</Text></Box>;
     $[52] = t17;
   } else {
     t17 = $[52];

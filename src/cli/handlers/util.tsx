@@ -30,17 +30,17 @@ export async function setupTokenHandler(root: Root): Promise<void> {
             <WelcomeV2 />
             {showAuthWarning && <Box flexDirection="column">
                 <Text color="warning">
-                  Warning: You already have authentication configured via
-                  environment variable or API key helper.
+                  Попередження: У вас вже налаштована автентифікація через
+                  змінну середовища або API key helper.
                 </Text>
                 <Text color="warning">
-                  The setup-token command will create a new OAuth token which
-                  you can use instead.
+                  Команда setup-token створить новий OAuth токен, який ви
+                  зможете використати замість цього.
                 </Text>
               </Box>}
             <ConsoleOAuthFlow onDone={() => {
             void resolve();
-          }} mode="setup-token" startingMessage="This will guide you through long-lived (1-year) auth token setup for your account. Subscription required." />
+          }} mode="setup-token" startingMessage="Це проведе вас через налаштування довготривалого (1-річного) токена автентифікації для вашого акаунта. Потрібна підписка." />
           </Box>
         </KeybindingSetup>
       </AppStateProvider>);

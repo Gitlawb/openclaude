@@ -7,7 +7,7 @@ import test from 'node:test'
 import { getSkillDirCommands, clearSkillCaches } from './loadSkillsDir.ts'
 
 function writeSkill(rootDir: string, skillPath: string): void {
-  const skillDir = join(rootDir, '.claude', 'skills', ...skillPath.split('/'))
+  const skillDir = join(rootDir, '.nnc', 'skills', ...skillPath.split('/'))
   mkdirSync(skillDir, { recursive: true })
   writeFileSync(
     join(skillDir, 'SKILL.md'),
@@ -42,7 +42,7 @@ test('loads flat and nested skills with colon namespaces', async () => {
 
     const nestedSkill = promptSkills.find(skill => skill.name === 'git:commit')
     assert.ok(nestedSkill)
-    assert.equal(nestedSkill.skillRoot, join(configDir, '.claude', 'skills', 'git', 'commit'))
+    assert.equal(nestedSkill.skillRoot, join(configDir, '.nnc', 'skills', 'git', 'commit'))
 
     const deepSkill = promptSkills.find(
       skill => skill.name === 'frontend:react:form',
@@ -50,7 +50,7 @@ test('loads flat and nested skills with colon namespaces', async () => {
     assert.ok(deepSkill)
     assert.equal(
       deepSkill.skillRoot,
-      join(configDir, '.claude', 'skills', 'frontend', 'react', 'form'),
+      join(configDir, '.nnc', 'skills', 'frontend', 'react', 'form'),
     )
   } finally {
     if (originalConfigDir === undefined) {

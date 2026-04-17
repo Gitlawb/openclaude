@@ -349,7 +349,7 @@ export async function runBridgeLoop(
           ? `${config.debugFile.slice(0, ext)}-*${config.debugFile.slice(ext)}`
           : `${config.debugFile}-*`
     } else {
-      debugGlob = join(tmpdir(), 'claude', 'bridge-session-*.log')
+      debugGlob = join(tmpdir(), "nnc", 'bridge-session-*.log')
     }
     logger.setDebugLogPath(debugGlob)
   }
@@ -506,7 +506,7 @@ export async function runBridgeLoop(
           // Also skip for timeout-killed sessions — the timeout watchdog
           // already logged a clear timeout message.
           if (!wasTimedOut && !loopSignal.aborted) {
-            failureMessage = stderrSummary ?? 'Process exited with error'
+            failureMessage = stderrSummary ?? 'Процес завершився з помилкою'
             logger.logSessionFailed(sessionId, failureMessage)
             logError(new Error(`Bridge session failed: ${failureMessage}`))
           }
@@ -1513,7 +1513,7 @@ export async function runBridgeLoop(
   }
 
   // In single-session mode with a known session, leave the session and
-  // environment alive so `claude remote-control --session-id=<id>` can resume.
+  // environment alive so `nnc remote-control --session-id=<id>` can resume.
   // The backend GCs stale environments via a 4h TTL (BRIDGE_LAST_POLL_TTL).
   // Archiving the session or deregistering the environment would make the
   // printed resume command a lie — deregister deletes Firestore + Redis stream.
@@ -1529,7 +1529,7 @@ export async function runBridgeLoop(
     !fatalExit
   ) {
     logger.logStatus(
-      `Resume this session by running \`claude remote-control --continue\``,
+      `Resume this session by running .nnc remote-control --continue\``,
     )
     logForDebugging(
       `[bridge:shutdown] Skipping archive+deregister to allow resume of session ${initialSessionId}`,
@@ -1820,7 +1820,7 @@ export function parseArgs(args: string[]): ParsedArgs {
       createSessionInDir = false
     } else {
       return makeError(
-        `Unknown argument: ${arg}\nRun 'claude remote-control --help' for usage.`,
+        `Unknown argument: ${arg}\nRun 'nnc remote-control --help' for usage.`,
       )
     }
   }
@@ -1918,33 +1918,33 @@ async function printHelp(): Promise<void> {
 `
     : ''
   const help = `
-Remote Control - Connect your local environment to claude.ai/code
+Віддалене керування — підключіть ваше локальне середовище до claude.ai/code
 
-USAGE
-  claude remote-control [options]
-OPTIONS
-  --name <name>                    Name for the session (shown in claude.ai/code)
+ВИКОРИСТАННЯ
+  nnc remote-control [options]
+ОПЦІЇ
+  --name <name>                    Назва сесії (показана у claude.ai/code)
 ${
   feature('KAIROS')
-    ? `  -c, --continue                   Resume the last session in this directory
-  --session-id <id>                Resume a specific session by ID (cannot be
-                                   used with spawn flags or --continue)
+    ? `  -c, --continue                   Продовжити останню сесію в цій директорії
+  --session-id <id>                Продовжити конкретну сесію за ID (не можна
+                                   використовувати зі spawn-прапорцями або --continue)
 `
     : ''
-}  --permission-mode <mode>         Permission mode for spawned sessions
+}  --permission-mode <mode>         Режим дозволів для спавнених сесій
                                    (${modes})
-  --debug-file <path>              Write debug logs to file
-  -v, --verbose                    Enable verbose output
-  -h, --help                       Show this help
+  --debug-file <path>              Записати debug-логи у файл
+  -v, --verbose                    Увімкнути детальний вивід
+  -h, --help                       Показати цю довідку
 ${serverOptions}
-DESCRIPTION
-  Remote Control allows you to control sessions on your local device from
-  claude.ai/code (https://claude.ai/code). Run this command in the
-  directory you want to work in, then connect from the app or web.
+ОПИС
+  Віддалене керування дозволяє керувати сесіями на вашому локальному пристрої з
+  claude.ai/code (https://claude.ai/code). Запустіть цю команду в директорії,
+  в якій хочете працювати, потім підключіться з застосунку або вебу.
 ${serverDescription}
-NOTES
-  - You must be logged in with a Claude account that has a subscription
-  - Run \`claude\` first in the directory to accept the workspace trust dialog
+ПРИМІТКИ
+  - Ви маєте бути авторизовані в акаунті Claude з підпискою
+  - Запустіть \`nnc\` спочатку в директорії, щоб прийняти діалог довіри до workspace
 ${serverNote}`
   // biome-ignore lint/suspicious/noConsole: intentional help output
   console.log(help)
@@ -1986,7 +1986,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
   }
   if (parsed.error) {
     // biome-ignore lint/suspicious/noConsole: intentional error output
-    console.error(`Error: ${parsed.error}`)
+    console.error(`Помилка: ${parsed.error}`)
     // eslint-disable-next-line custom-rules/no-process-exit
     process.exit(1)
   }
@@ -2082,11 +2082,11 @@ export async function bridgeMain(args: string[]): Promise<void> {
   setCwdState(dir)
 
   // The bridge bypasses main.tsx (which renders the interactive TrustDialog via showSetupScreens),
-  // so we must verify trust was previously established by a normal `claude` session.
+  // so we must verify trust was previously established by a normal `nnc` session.
   if (!checkHasTrustDialogAccepted()) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.error(
-      `Error: Workspace not trusted. Please run \`claude\` in ${dir} first to review and accept the workspace trust dialog.`,
+      `Error: Workspace not trusted. Please run .nnc\` in ${dir} first to review and accept the workspace trust dialog.`,
     )
     // eslint-disable-next-line custom-rules/no-process-exit
     process.exit(1)
@@ -2154,7 +2154,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
     if (!found) {
       // biome-ignore lint/suspicious/noConsole: intentional error output
       console.error(
-        `Error: No recent session found in this directory or its worktrees. Run \`claude remote-control\` to start a new one.`,
+        `Error: No recent session found in this directory or its worktrees. Run .nnc remote-control\` to start a new one.`,
       )
       // eslint-disable-next-line custom-rules/no-process-exit
       process.exit(1)
@@ -2388,7 +2388,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
       }
       // biome-ignore lint/suspicious/noConsole: intentional error output
       console.error(
-        `Error: Session ${resumeSessionId} not found. It may have been archived or expired, or your login may have lapsed (run \`claude /login\`).`,
+        `Error: Session ${resumeSessionId} not found. It may have been archived or expired, or your login may have lapsed (run .nnc /login\`).`,
       )
       // eslint-disable-next-line custom-rules/no-process-exit
       process.exit(1)
@@ -2455,7 +2455,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.error(
       err instanceof BridgeFatalError && err.status === 404
-        ? 'Remote Control environments are not available for your account.'
+        ? 'Віддалене керування недоступне для вашого акаунта.'
         : `Error: ${errorMessage(err)}`,
     )
     // eslint-disable-next-line custom-rules/no-process-exit
@@ -2826,7 +2826,7 @@ export async function runBridgeHeadless(
 
   if (!checkHasTrustDialogAccepted()) {
     throw new BridgeHeadlessPermanentError(
-      `Workspace not trusted: ${dir}. Run \`claude\` in that directory first to accept the trust dialog.`,
+      `Workspace not trusted: ${dir}. Run .nnc\` in that directory first to accept the trust dialog.`,
     )
   }
 

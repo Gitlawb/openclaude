@@ -8,7 +8,6 @@ import {
 } from './managedEnvConstants.js'
 import { clearMTLSCache } from './mtls.js'
 import { clearProxyCache, configureGlobalAgents } from './proxy.js'
-import { applyActiveProviderProfileFromConfig } from './providerProfiles.js'
 import { isSettingSourceEnabled } from './settings/constants.js'
 import {
   getSettings_DEPRECATED,
@@ -16,9 +15,9 @@ import {
 } from './settings/settings.js'
 
 /**
- * `claude ssh` remote: ANTHROPIC_UNIX_SOCKET routes auth through a -R forwarded
+ * `nnc ssh` remote: ANTHROPIC_UNIX_SOCKET routes auth through a -R forwarded
  * socket to a local proxy, and the launcher sets a handful of placeholder auth
- * env vars that the remote's ~/.claude settings.env MUST NOT clobber (see
+ * env vars that the remote's ~/.nnc settings.env MUST NOT clobber (see
  * isAnthropicAuthEnabled). Strip them from any settings-sourced env object.
  */
 function withoutSSHTunnelVars(
@@ -40,7 +39,7 @@ function withoutSSHTunnelVars(
  * When the host owns inference routing (sets
  * CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST in spawn env), strip
  * provider-selection / model-default vars from settings-sourced env so a
- * user's ~/.claude/settings.json can't redirect requests away from the
+ * user's ~/.nnc/settings.json can't redirect requests away from the
  * host-configured provider.
  */
 function withoutHostManagedProviderVars(
@@ -94,7 +93,7 @@ function filterSettingsEnv(
 /**
  * Trusted setting sources whose env vars can be applied before the trust dialog.
  *
- * - userSettings (~/.claude/settings.json): controlled by the user, not project-specific
+ * - userSettings (~/.nnc/settings.json): controlled by the user, not project-specific
  * - flagSettings (--settings CLI flag or SDK inline settings): explicitly passed by the user
  * - policySettings (managed settings from enterprise API or local managed-settings.json):
  *   controlled by IT/admin (highest priority, cannot be overridden)
@@ -131,14 +130,14 @@ export function applySafeConfigEnvironmentVariables(): void {
         : null
   }
 
-  // Global config (~/.claude.json) is user-controlled. In CCD mode,
+  // Global config (~/.nnc.json) is user-controlled. In CCD mode,
   // filterSettingsEnv strips keys that were in the spawn env snapshot so
   // the desktop host's operational vars (OTEL, etc.) are not overridden.
   Object.assign(process.env, filterSettingsEnv(getGlobalConfig().env))
 
   // Apply ALL env vars from trusted setting sources, policySettings last.
   // Gate on isSettingSourceEnabled so SDK settingSources: [] (isolation mode)
-  // doesn't get clobbered by ~/.claude/settings.json env (gh#217). policy/flag
+  // doesn't get clobbered by ~/.nnc/settings.json env (gh#217). policy/flag
   // sources are always enabled, so this only ever filters userSettings.
   for (const source of TRUSTED_SETTING_SOURCES) {
     if (source === 'policySettings') continue
@@ -177,9 +176,6 @@ export function applySafeConfigEnvironmentVariables(): void {
     }
   }
 
-  // Apply active provider profile only when startup did not explicitly
-  // select a provider via flags/env. Explicit startup intent should win.
-  applyActiveProviderProfileFromConfig()
 }
 
 /**
@@ -193,10 +189,6 @@ export function applyConfigEnvironmentVariables(): void {
   Object.assign(process.env, filterSettingsEnv(getGlobalConfig().env))
 
   Object.assign(process.env, filterSettingsEnv(getSettings_DEPRECATED()?.env))
-
-  // Keep runtime provider/model env aligned with the active profile, except
-  // when an explicit provider selection is already present in process.env.
-  applyActiveProviderProfileFromConfig()
 
   // Clear caches so agents are rebuilt with the new env vars
   clearCACertsCache()

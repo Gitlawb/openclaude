@@ -43,9 +43,9 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
   const modelReasoningEffort = usesOpenAIEffort ? getReasoningEffortForModel(model) : undefined
   const options: EffortOption[] = [
     {
-      label: <EffortOptionLabel level="auto" text="Auto" isCurrent={false} />,
+      label: <EffortOptionLabel level="auto" text="Авто" isCurrent={false} />,
       value: 'auto',
-      description: 'Use the default effort level for your model',
+      description: 'Використовувати типовий рівень зусиль для вашої моделі',
       isAvailable: true,
     },
     ...availableLevels.map(level => {
@@ -91,7 +91,7 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
 
   const supportsEffort = modelSupportsEffort(model)
   // For OpenAI/Codex, use the model's default reasoning effort as initial focus
-  // For Claude, use the displayed effort level or 'auto'
+  // For Neural Network, use the displayed effort level or 'auto'
   const initialFocus = usesOpenAIEffort
     ? (modelReasoningEffort || 'auto')
     : (appStateEffort ? String(appStateEffort) : 'auto')
@@ -99,13 +99,13 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
   return (
     <Box flexDirection="column">
       <Box marginBottom={1} flexDirection="column">
-        <Text color="remember" bold={true}>Set effort level</Text>
+        <Text color="remember" bold={true}>Встановити рівень зусиль</Text>
         <Text dimColor={true}>
             {supportsEffort && usesOpenAIEffort
-              ? `OpenAI/Codex provider (${provider})`
+              ? `Провайдер OpenAI/Codex (${provider})`
               : supportsEffort
-              ? `Active model · ${provider} provider`
-              : `Effort not supported for this model`
+              ? `Активна модель · провайдер ${provider}`
+              : `Рівень зусиль не підтримується для цієї моделі`
           }
         </Text>
       </Box>
@@ -124,8 +124,8 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       <Box marginBottom={1}>
         <Text dimColor={true} italic={true}>
           <Byline>
-            <KeyboardShortcutHint shortcut="Enter" action="confirm" />
-            <KeyboardShortcutHint shortcut="Esc" action="cancel" />
+            <KeyboardShortcutHint shortcut="Enter" action="підтвердити" />
+            <KeyboardShortcutHint shortcut="Esc" action="скасувати" />
           </Byline>
         </Text>
       </Box>
@@ -141,7 +141,7 @@ function EffortOptionLabel({ level, text, isCurrent }: { level: EffortLevel | 'a
     <>
       <Text color={color}>{symbol} </Text>
       <Text bold={isCurrent}>{text}</Text>
-      {isCurrent && <Text dimColor={true}> (current)</Text>}
+      {isCurrent && <Text dimColor={true}> (поточний)</Text>}
     </>
   )
 }

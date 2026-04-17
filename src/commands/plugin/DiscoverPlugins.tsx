@@ -194,7 +194,7 @@ export function DiscoverPlugins({
         const errorResult = formatMarketplaceLoadingErrors(failures, successCount);
         if (errorResult) {
           if (errorResult.type === 'warning') {
-            setWarning(errorResult.message + '. Showing available plugins.');
+            setWarning(errorResult.message + '. Показуємо доступні плагіни.');
           } else {
             throw new Error(errorResult.message);
           }
@@ -206,17 +206,17 @@ export function DiscoverPlugins({
           const foundPlugin = allPlugins.find(p_0 => p_0.entry.name === targetPlugin);
           if (foundPlugin) {
             if (foundPlugin.isInstalled) {
-              setError(`Plugin '${foundPlugin.pluginId}' is already installed. Use '/plugin' to manage existing plugins.`);
+              setError(`Плагін '${foundPlugin.pluginId}' уже встановлено. Використайте '/plugin', щоб керувати встановленими плагінами.`);
             } else {
               setSelectedPlugin(foundPlugin);
               setViewState('plugin-details');
             }
           } else {
-            setError(`Plugin "${targetPlugin}" not found in any marketplace`);
+            setError(`Плагін "${targetPlugin}" не знайдено у жодному marketplace`);
           }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load plugins');
+        setError(err instanceof Error ? err.message : 'Не вдалося завантажити плагіни');
       } finally {
         setLoading(false);
       }
@@ -258,12 +258,12 @@ export function DiscoverPlugins({
 
     // Handle installation results
     if (failureCount === 0) {
-      const message = `✓ Installed ${successCount_0} ${plural(successCount_0, 'plugin')}. ` + `Run /reload-plugins to activate.`;
+      const message = `✓ Встановлено ${successCount_0} плагін(ів). ` + `Запустіть /reload-plugins, щоб активувати.`;
       setResult(message);
     } else if (successCount_0 === 0) {
-      setError(`Failed to install: ${formatFailureDetails(newFailedPlugins, true)}`);
+      setError(`Не вдалося встановити: ${formatFailureDetails(newFailedPlugins, true)}`);
     } else {
-      const message_0 = `✓ Installed ${successCount_0} of ${successCount_0 + failureCount} plugins. ` + `Failed: ${formatFailureDetails(newFailedPlugins, false)}. ` + `Run /reload-plugins to activate successfully installed plugins.`;
+      const message_0 = `✓ Встановлено ${successCount_0} з ${successCount_0 + failureCount} плагінів. ` + `Невдалих: ${formatFailureDetails(newFailedPlugins, false)}. ` + `Запустіть /reload-plugins, щоб активувати успішно встановлені плагіни.`;
       setResult(message_0);
     }
     if (successCount_0 > 0) {
@@ -478,13 +478,13 @@ export function DiscoverPlugins({
     return <PluginOptionsFlow plugin={plugin_4} pluginId={pluginId_0} onDone={(outcome, detail) => {
       switch (outcome) {
         case 'configured':
-          finish(`✓ Installed and configured ${plugin_4.name}. Run /reload-plugins to apply.`);
+          finish(`✓ Встановлено та налаштовано ${plugin_4.name}. Запустіть /reload-plugins, щоб застосувати.`);
           break;
         case 'skipped':
-          finish(`✓ Installed ${plugin_4.name}. Run /reload-plugins to apply.`);
+          finish(`✓ Встановлено ${plugin_4.name}. Запустіть /reload-plugins, щоб застосувати.`);
           break;
         case 'error':
-          finish(`Installed but failed to save config: ${detail}`);
+          finish(`Встановлено, але не вдалося зберегти конфігурацію: ${detail}`);
           break;
       }
     }} />;
@@ -492,7 +492,7 @@ export function DiscoverPlugins({
 
   // Loading state
   if (loading) {
-    return <Text>Loading…</Text>;
+    return <Text>Завантаження…</Text>;
   }
 
   // Error state
@@ -507,19 +507,19 @@ export function DiscoverPlugins({
     const menuOptions = buildPluginDetailsMenuOptions(hasHomepage_1, githubRepo_1);
     return <Box flexDirection="column">
         <Box marginBottom={1}>
-          <Text bold>Plugin details</Text>
+          <Text bold>Деталі плагіна</Text>
         </Box>
 
         <Box flexDirection="column" marginBottom={1}>
           <Text bold>{selectedPlugin.entry.name}</Text>
-          <Text dimColor>from {selectedPlugin.marketplaceName}</Text>
-          {selectedPlugin.entry.version && <Text dimColor>Version: {selectedPlugin.entry.version}</Text>}
+          <Text dimColor>з {selectedPlugin.marketplaceName}</Text>
+          {selectedPlugin.entry.version && <Text dimColor>Версія: {selectedPlugin.entry.version}</Text>}
           {selectedPlugin.entry.description && <Box marginTop={1}>
               <Text>{selectedPlugin.entry.description}</Text>
             </Box>}
           {selectedPlugin.entry.author && <Box marginTop={1}>
               <Text dimColor>
-                By:{' '}
+                Автор:{' '}
                 {typeof selectedPlugin.entry.author === 'string' ? selectedPlugin.entry.author : selectedPlugin.entry.author.name}
               </Text>
             </Box>}
@@ -528,7 +528,7 @@ export function DiscoverPlugins({
         <PluginTrustWarning />
 
         {installError && <Box marginBottom={1}>
-            <Text color="error">Error: {installError}</Text>
+            <Text color="error">Помилка: {installError}</Text>
           </Box>}
 
         <Box flexDirection="column">
@@ -536,7 +536,7 @@ export function DiscoverPlugins({
               {detailsMenuIndex === index && <Text>{'> '}</Text>}
               {detailsMenuIndex !== index && <Text>{'  '}</Text>}
               <Text bold={detailsMenuIndex === index}>
-                {isInstalling && option.action.startsWith('install-') ? 'Installing…' : option.label}
+                {isInstalling && option.action.startsWith('install-') ? 'Встановлюється…' : option.label}
               </Text>
             </Box>)}
         </Box>
@@ -544,8 +544,8 @@ export function DiscoverPlugins({
         <Box marginTop={1}>
           <Text dimColor>
             <Byline>
-              <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="select" />
-              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="back" />
+              <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="обрати" />
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
             </Byline>
           </Text>
         </Box>
@@ -556,12 +556,12 @@ export function DiscoverPlugins({
   if (availablePlugins.length === 0) {
     return <Box flexDirection="column">
         <Box marginBottom={1}>
-          <Text bold>Discover plugins</Text>
+          <Text bold>Огляд плагінів</Text>
         </Box>
         <EmptyStateMessage reason={emptyReason} />
         <Box marginTop={1}>
           <Text dimColor italic>
-            Esc to go back
+            Esc — назад
           </Text>
         </Box>
       </Box>;
@@ -571,7 +571,7 @@ export function DiscoverPlugins({
   const visiblePlugins = pagination.getVisibleItems(filteredPlugins);
   return <Box flexDirection="column">
       <Box>
-        <Text bold>Discover plugins</Text>
+        <Text bold>Огляд плагінів</Text>
         {pagination.needsPagination && <Text dimColor>
             {' '}
             ({pagination.scrollPosition.current}/
@@ -593,12 +593,12 @@ export function DiscoverPlugins({
 
       {/* No search results */}
       {filteredPlugins.length === 0 && searchQuery && <Box marginBottom={1}>
-          <Text dimColor>No plugins match &quot;{searchQuery}&quot;</Text>
+          <Text dimColor>Немає плагінів, що відповідають &quot;{searchQuery}&quot;</Text>
         </Box>}
 
       {/* Scroll up indicator */}
       {pagination.scrollPosition.canScrollUp && <Box>
-          <Text dimColor> {figures.arrowUp} more above</Text>
+          <Text dimColor> {figures.arrowUp} більше вище</Text>
         </Box>}
 
       {/* Plugin list - use startIndex in key to force re-render on scroll */}
@@ -617,11 +617,11 @@ export function DiscoverPlugins({
                 {isInstallingThis ? figures.ellipsis : isSelectedForInstall ? figures.radioOn : figures.radioOff}{' '}
                 {plugin_5.entry.name}
                 <Text dimColor> · {plugin_5.marketplaceName}</Text>
-                {plugin_5.entry.tags?.includes('community-managed') && <Text dimColor> [Community Managed]</Text>}
+                {plugin_5.entry.tags?.includes('community-managed') && <Text dimColor> [Від спільноти]</Text>}
                 {installCounts && plugin_5.marketplaceName === OFFICIAL_MARKETPLACE_NAME && <Text dimColor>
                       {' · '}
                       {formatInstallCount(installCounts.get(plugin_5.pluginId) ?? 0)}{' '}
-                      installs
+                      встановлень
                     </Text>}
               </Text>
             </Box>
@@ -635,7 +635,7 @@ export function DiscoverPlugins({
 
       {/* Scroll down indicator */}
       {pagination.scrollPosition.canScrollDown && <Box>
-          <Text dimColor> {figures.arrowDown} more below</Text>
+          <Text dimColor> {figures.arrowDown} більше нижче</Text>
         </Box>}
 
       {/* Error messages */}
@@ -656,7 +656,7 @@ function DiscoverPluginsKeyHint(t0) {
   } = t0;
   let t1;
   if ($[0] !== hasSelection) {
-    t1 = hasSelection && <ConfigurableShortcutHint action="plugin:install" context="Plugin" fallback="i" description="install" bold={true} />;
+    t1 = hasSelection && <ConfigurableShortcutHint action="plugin:install" context="Plugin" fallback="i" description="встановити" bold={true} />;
     $[0] = hasSelection;
     $[1] = t1;
   } else {
@@ -664,14 +664,14 @@ function DiscoverPluginsKeyHint(t0) {
   }
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Text>type to search</Text>;
+    t2 = <Text>введіть для пошуку</Text>;
     $[2] = t2;
   } else {
     t2 = $[2];
   }
   let t3;
   if ($[3] !== canToggle) {
-    t3 = canToggle && <ConfigurableShortcutHint action="plugin:toggle" context="Plugin" fallback="Space" description="toggle" />;
+    t3 = canToggle && <ConfigurableShortcutHint action="plugin:toggle" context="Plugin" fallback="Space" description="перемкнути" />;
     $[3] = canToggle;
     $[4] = t3;
   } else {
@@ -680,8 +680,8 @@ function DiscoverPluginsKeyHint(t0) {
   let t4;
   let t5;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="details" />;
-    t5 = <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="back" />;
+    t4 = <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="деталі" />;
+    t5 = <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />;
     $[5] = t4;
     $[6] = t5;
   } else {
@@ -713,7 +713,7 @@ function EmptyStateMessage(t0) {
       {
         let t1;
         if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <><Text dimColor={true}>Git is required to install marketplaces.</Text><Text dimColor={true}>Please install git and restart Neural Network.</Text></>;
+          t1 = <><Text dimColor={true}>Для встановлення marketplaces потрібен Git.</Text><Text dimColor={true}>Будь ласка, встановіть git і перезапустіть Нейромережу.</Text></>;
           $[0] = t1;
         } else {
           t1 = $[0];
@@ -724,7 +724,7 @@ function EmptyStateMessage(t0) {
       {
         let t1;
         if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <><Text dimColor={true}>Your organization policy does not allow any external marketplaces.</Text><Text dimColor={true}>Contact your administrator.</Text></>;
+          t1 = <><Text dimColor={true}>Політика вашої організації не дозволяє зовнішні marketplaces.</Text><Text dimColor={true}>Зверніться до адміністратора.</Text></>;
           $[1] = t1;
         } else {
           t1 = $[1];
@@ -735,7 +735,7 @@ function EmptyStateMessage(t0) {
       {
         let t1;
         if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <><Text dimColor={true}>Your organization restricts which marketplaces can be added.</Text><Text dimColor={true}>Switch to the Marketplaces tab to view allowed sources.</Text></>;
+          t1 = <><Text dimColor={true}>Ваша організація обмежує, які marketplaces можна додавати.</Text><Text dimColor={true}>Перейдіть на вкладку Marketplaces, щоб переглянути дозволені джерела.</Text></>;
           $[2] = t1;
         } else {
           t1 = $[2];
@@ -746,7 +746,7 @@ function EmptyStateMessage(t0) {
       {
         let t1;
         if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <><Text dimColor={true}>Failed to load marketplace data.</Text><Text dimColor={true}>Check your network connection.</Text></>;
+          t1 = <><Text dimColor={true}>Не вдалося завантажити дані marketplace.</Text><Text dimColor={true}>Перевірте з'єднання з мережею.</Text></>;
           $[3] = t1;
         } else {
           t1 = $[3];
@@ -757,7 +757,7 @@ function EmptyStateMessage(t0) {
       {
         let t1;
         if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <><Text dimColor={true}>All available plugins are already installed.</Text><Text dimColor={true}>Check for new plugins later or add more marketplaces.</Text></>;
+          t1 = <><Text dimColor={true}>Усі доступні плагіни вже встановлено.</Text><Text dimColor={true}>Перевірте нові плагіни пізніше або додайте більше marketplaces.</Text></>;
           $[4] = t1;
         } else {
           t1 = $[4];
@@ -769,7 +769,7 @@ function EmptyStateMessage(t0) {
       {
         let t1;
         if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-          t1 = <><Text dimColor={true}>No plugins available.</Text><Text dimColor={true}>Add a marketplace first using the Marketplaces tab.</Text></>;
+          t1 = <><Text dimColor={true}>Плагіни недоступні.</Text><Text dimColor={true}>Спочатку додайте marketplace на вкладці Marketplaces.</Text></>;
           $[5] = t1;
         } else {
           t1 = $[5];

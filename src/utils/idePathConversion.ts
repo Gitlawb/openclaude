@@ -1,26 +1,26 @@
 /**
  * Path conversion utilities for IDE communication
- * Handles conversions between Claude's environment and the IDE's environment
+ * Handles conversions between Neural Network's environment and the IDE's environment
  */
 
 import { execFileSync } from 'child_process'
 
 export interface IDEPathConverter {
   /**
-   * Convert path from IDE format to Claude's local format
+   * Convert path from IDE format to Neural Network's local format
    * Used when reading workspace folders from IDE lockfile
    */
   toLocalPath(idePath: string): string
 
   /**
-   * Convert path from Claude's local format to IDE format
+   * Convert path from Neural Network's local format to IDE format
    * Used when sending paths to IDE (showDiffInIDE, etc.)
    */
   toIDEPath(localPath: string): string
 }
 
 /**
- * Converter for Windows IDE + WSL Claude scenario
+ * Converter for Windows IDE + WSL Neural Network scenario
  */
 export class WindowsToWSLConverter implements IDEPathConverter {
   constructor(private wslDistroName: string | undefined) {}

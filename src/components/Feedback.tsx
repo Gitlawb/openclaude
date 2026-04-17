@@ -10,7 +10,7 @@ import type { CommandResultDisplay } from '../commands.js';
 import { useTerminalSize } from '../hooks/useTerminalSize.js';
 import { Box, Text, useInput } from '../ink.js';
 import { useKeybinding } from '../keybindings/useKeybinding.js';
-import { queryHaiku } from '../services/api/claude.js';
+import { queryHaiku } from '../services/api/messagesClient.js';
 import { startsWithApiErrorPrefix } from '../services/api/errors.js';
 import type { Message } from '../types/message.js';
 import { checkAndRefreshOAuthTokenIfNeeded } from '../utils/auth.js';
@@ -312,15 +312,15 @@ export function Feedback({
       void submitReport();
     }
   });
-  return <Dialog title="Submit Feedback / Bug Report" onCancel={handleCancel} isCancelActive={step !== 'userInput'} inputGuide={exitState => exitState.pending ? <Text>Press {exitState.keyName} again to exit</Text> : step === 'userInput' ? <Byline>
-            <KeyboardShortcutHint shortcut="Enter" action="continue" />
-            <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
+  return <Dialog title="Надіслати відгук / звіт про баг" onCancel={handleCancel} isCancelActive={step !== 'userInput'} inputGuide={exitState => exitState.pending ? <Text>Натисніть {exitState.keyName} ще раз для виходу</Text> : step === 'userInput' ? <Byline>
+            <KeyboardShortcutHint shortcut="Enter" action="продовжити" />
+            <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="скасувати" />
           </Byline> : step === 'consent' ? <Byline>
-            <KeyboardShortcutHint shortcut="Enter" action="submit" />
-            <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
+            <KeyboardShortcutHint shortcut="Enter" action="надіслати" />
+            <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="скасувати" />
           </Byline> : null}>
       {step === 'userInput' && <Box flexDirection="column" gap={1}>
-          <Text>Describe the issue below:</Text>
+          <Text>Опишіть проблему нижче:</Text>
           <TextInput value={description} onChange={value => {
         setDescription(value);
         // Clear error when user starts editing to allow retry
@@ -333,63 +333,63 @@ export function Feedback({
           {error && <Box flexDirection="column" gap={1}>
               <Text color="error">{error}</Text>
               <Text dimColor>
-                Edit and press Enter to retry, or Esc to cancel
+                Відредагуйте та натисніть Enter для повтору, або Esc для скасування
               </Text>
             </Box>}
         </Box>}
 
       {step === 'consent' && <Box flexDirection="column">
-          <Text>This report will include:</Text>
+          <Text>Цей звіт буде містити:</Text>
           <Box marginLeft={2} flexDirection="column">
             <Text>
-              - Your feedback / bug description:{' '}
+              - Ваш відгук / опис бага:{' '}
               <Text dimColor>{description}</Text>
             </Text>
             <Text>
-              - Environment info:{' '}
+              - Інфо про середовище:{' '}
               <Text dimColor>
                 {env.platform}, {env.terminal}, v{MACRO.VERSION}
               </Text>
             </Text>
             {envInfo.gitState && <Text>
-                - Git repo metadata:{' '}
+                - Метадані Git репо:{' '}
                 <Text dimColor>
                   {envInfo.gitState.branchName}
                   {envInfo.gitState.commitHash ? `, ${envInfo.gitState.commitHash.slice(0, 7)}` : ''}
                   {envInfo.gitState.remoteUrl ? ` @ ${envInfo.gitState.remoteUrl}` : ''}
-                  {!envInfo.gitState.isHeadOnRemote && ', not synced'}
-                  {!envInfo.gitState.isClean && ', has local changes'}
+                  {!envInfo.gitState.isHeadOnRemote && ', не синхронізовано'}
+                  {!envInfo.gitState.isClean && ', є локальні зміни'}
                 </Text>
               </Text>}
-            <Text>- Current session transcript</Text>
+            <Text>- Транскрипт поточної сесії</Text>
           </Box>
           <Box marginTop={1}>
             <Text wrap="wrap" dimColor>
-              We will use your feedback to debug related issues or to improve{' '}
-              Neural Network&apos;s functionality (eg. to reduce the risk of bugs
-              occurring in the future).
+              Ми використаємо ваш відгук для діагностики пов'язаних проблем або для покращення{' '}
+              функціональності Нейромережі (напр., щоб зменшити ризик появи багів
+              у майбутньому).
             </Text>
           </Box>
           <Box marginTop={1}>
             <Text>
-              Press <Text bold>Enter</Text> to confirm and submit.
+              Натисніть <Text bold>Enter</Text> для підтвердження та надсилання.
             </Text>
           </Box>
         </Box>}
 
       {step === 'submitting' && <Box flexDirection="row" gap={1}>
-          <Text>Submitting report…</Text>
+          <Text>Надсилаємо звіт…</Text>
         </Box>}
 
       {step === 'done' && <Box flexDirection="column">
-          {error ? <Text color="error">{error}</Text> : <Text color="success">{completionMode === 'issue-draft' ? 'Your GitHub issue draft is ready.' : 'Thank you for your report!'}</Text>}
-          {feedbackId && <Text dimColor>Feedback ID: {feedbackId}</Text>}
+          {error ? <Text color="error">{error}</Text> : <Text color="success">{completionMode === 'issue-draft' ? 'Чернетку GitHub issue готово.' : 'Дякуємо за ваш звіт!'}</Text>}
+          {feedbackId && <Text dimColor>ID відгуку: {feedbackId}</Text>}
           <Box marginTop={1}>
-            <Text>Press </Text>
+            <Text>Натисніть </Text>
             <Text bold>Enter </Text>
             <Text>
-              to open your browser and draft a GitHub issue, or any other key to
-              close.
+              щоб відкрити браузер і створити GitHub issue, або будь-яку іншу клавішу щоб
+              закрити.
             </Text>
           </Box>
         </Box>}

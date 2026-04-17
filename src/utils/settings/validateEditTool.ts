@@ -16,7 +16,7 @@ export function validateInputForSettingsFileEdit(
   originalContent: string,
   getUpdatedContent: () => string,
 ): Extract<ValidationResult, { result: false }> | null {
-  // Only validate Claude settings files
+  // Only validate Neural Network settings files
   if (!isClaudeSettingsPath(filePath)) {
     return null
   }

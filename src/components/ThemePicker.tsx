@@ -48,7 +48,7 @@ const DEMO_PATCH: StructuredPatchHunk = {
   lines: [
     ' function greet() {',
     '-  console.log("Hello, World!");',
-    '+  console.log("Hello, Claude!");',
+    '+  console.log("Hello, Neural Network!");',
     ' }',
   ],
 }
@@ -115,27 +115,27 @@ export function ThemePicker({
   const themeOptions = React.useMemo(
     () => [
       ...(feature("AUTO_THEME")
-        ? [{ label: "Auto (match terminal)", value: "auto" as const }]
+        ? [{ label: "Авто (відповідно до терміналу)", value: "auto" as const }]
         : []), {
-        label: "Fire (sunset — Neural Network default)",
+        label: "Вогонь (захід — типова Нейромережі)",
         value: "fire" as const
       }, {
-        label: "Dark mode",
+        label: "Темний режим",
         value: "dark" as const
       }, {
-        label: "Light mode",
+        label: "Світлий режим",
         value: "light" as const
       }, {
-        label: "Dark mode (colorblind-friendly)",
+        label: "Темний режим (для дальтоніків)",
         value: "dark-daltonized" as const,
       }, {
-        label: "Light mode (colorblind-friendly)",
+        label: "Світлий режим (для дальтоніків)",
         value: "light-daltonized" as const,
       }, {
-        label: "Dark mode (ANSI colors only)",
+        label: "Темний режим (лише ANSI кольори)",
         value: "dark-ansi" as const
       }, {
-        label: "Light mode (ANSI colors only)",
+        label: "Світлий режим (лише ANSI кольори)",
         value: "light-ansi" as const
       },],
     [],
@@ -167,24 +167,24 @@ export function ThemePicker({
 
   const syntaxHint =
     colorModuleUnavailableReason === 'env'
-      ? `Syntax highlighting disabled (via CLAUDE_CODE_SYNTAX_HIGHLIGHT=${process.env.CLAUDE_CODE_SYNTAX_HIGHLIGHT})`
+      ? `Підсвічування синтаксису вимкнено (через CLAUDE_CODE_SYNTAX_HIGHLIGHT=${process.env.CLAUDE_CODE_SYNTAX_HIGHLIGHT})`
       : syntaxHighlightingDisabled
-        ? `Syntax highlighting disabled (${syntaxToggleShortcut} to enable)`
+        ? `Підсвічування синтаксису вимкнено (${syntaxToggleShortcut} щоб увімкнути)`
         : syntaxTheme
-          ? `Syntax theme: ${syntaxTheme.theme}${syntaxTheme.source ? ` (from ${syntaxTheme.source})` : ''} (${syntaxToggleShortcut} to disable)`
-          : `Syntax highlighting enabled (${syntaxToggleShortcut} to disable)`
+          ? `Тема синтаксису: ${syntaxTheme.theme}${syntaxTheme.source ? ` (з ${syntaxTheme.source})` : ''} (${syntaxToggleShortcut} щоб вимкнути)`
+          : `Підсвічування синтаксису увімкнено (${syntaxToggleShortcut} щоб вимкнути)`
 
   const header = showIntroText ? (
-    <Text>{"Let's get started."}</Text>
+    <Text>{"Почнімо."}</Text>
   ) : (
     <Text bold color="permission">
-      Theme
+      Тема
     </Text>
   )
 
   const introBlock = (
     <Box flexDirection="column">
-      <Text bold>Choose the text style that looks best with your terminal</Text>
+      <Text bold>Оберіть стиль тексту, який найкраще виглядає у вашому терміналі</Text>
       {helpText && !showHelpTextBelow ? (
         <Text dimColor>{helpText}</Text>
       ) : null}
@@ -246,11 +246,11 @@ export function ThemePicker({
           <Box marginTop={1}>
             <Text dimColor italic>
               {exitState.pending ? (
-                <>Press {exitState.keyName} again to exit</>
+                <>Натисніть {exitState.keyName} ще раз для виходу</>
               ) : (
                 <Byline>
-                  <KeyboardShortcutHint shortcut="Enter" action="select" />
-                  <KeyboardShortcutHint shortcut="Esc" action="cancel" />
+                  <KeyboardShortcutHint shortcut="Enter" action="обрати" />
+                  <KeyboardShortcutHint shortcut="Esc" action="скасувати" />
                 </Byline>
               )}
             </Text>

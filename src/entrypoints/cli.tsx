@@ -1,7 +1,7 @@
 import { feature } from 'bun:bundle';
 import {
-  applyProfileEnvToProcessEnv,
   buildStartupEnvFromProfile,
+  applyProfileEnvToProcessEnv,
 } from '../utils/providerProfile.js'
 import {
   getProviderValidationError,
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
     // MACRO.VERSION is inlined at build time
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (Open Claude)`);
+    console.log(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (Open Neural Network)`);
     return;
   }
 
@@ -103,46 +103,102 @@ async function main(): Promise<void> {
     }
   }
 
-  // --modellist: interactive provider + model wizard
-  if (args.includes('--modellist')) {
-    // Remove the flag so the main CLI doesn't see it as unknown
+  // --modellist: force interactive favorites picker
+  const forcePicker = args.includes('--modellist')
+  if (forcePicker) {
     process.argv = process.argv.filter(a => a !== '--modellist')
+  }
 
-    const { render } = await import('../ink.js')
-    const React = await import('react')
-    const { StartupProviderWizard } = await import('../components/StartupProviderWizard.js')
-
-    let resolveResult: (r: import('../components/StartupProviderWizard.js').WizardResult | null) => void
-    const resultPromise = new Promise<import('../components/StartupProviderWizard.js').WizardResult | null>(
-      res => { resolveResult = res },
+  // Whether we already have a provider configured via env (explicit shell flags, etc.)
+  function hasExplicitProviderSelectionCheck() {
+    return (
+      process.env.ANTHROPIC_MODEL !== undefined ||
+      process.env.OPENAI_MODEL !== undefined ||
+      process.env.CLAUDE_CODE_USE_OPENAI !== undefined ||
+      process.env.CLAUDE_CODE_USE_GEMINI !== undefined ||
+      process.env.CLAUDE_CODE_USE_MISTRAL !== undefined ||
+      process.env.CLAUDE_CODE_USE_GITHUB !== undefined ||
+      process.env.CLAUDE_CODE_USE_BEDROCK !== undefined ||
+      process.env.ANTHROPIC_BASE_URL !== undefined ||
+      process.env.OPENAI_BASE_URL !== undefined
     )
+  }
 
-    const instance = await render(
-      React.createElement(StartupProviderWizard, {
-        onSelect: result => resolveResult(result),
-        onCancel: () => resolveResult(null),
-      }),
-    )
-    const result = await resultPromise
-    instance.unmount()
+  // Run the favorites picker at startup by default. The cursor is pre-seeded
+  // on the last-used favorite, so Enter keeps the previous choice — this is
+  // the "review-and-confirm" flow. Skip it when:
+  // - stdin/stdout is not a TTY (piped input, CI) — no way to interact
+  // - CLAUDE_CODE_SKIP_MODEL_PICKER is truthy — explicit opt-out for scripts
+  // - a subcommand is invoked (first non-flag arg) — those bypass the REPL
+  //   and should not block on an interactive prompt
+  // --modellist still forces the picker regardless.
+  let modelSelectedViaPicker = false
+  {
+    const { getFavoriteModels } = await import('../utils/favorites.js')
+    const { autoPopulateFavoritesFromHistory } = await import('../utils/favorites.js')
+    const favs = getFavoriteModels()
+    const skipEnv =
+      process.env.CLAUDE_CODE_SKIP_MODEL_PICKER === '1' ||
+      process.env.CLAUDE_CODE_SKIP_MODEL_PICKER === 'true'
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY)
+    const hasSubcommand = args.some(a => !a.startsWith('-'))
+    const isReplInvocation = !hasSubcommand
+    const needsPicker =
+      forcePicker ||
+      favs.length === 0 ||
+      (interactive && isReplInvocation && !skipEnv)
 
-    if (!result) {
-      // biome-ignore lint/suspicious/noConsole:: intentional
-      console.log('Cancelled.')
-      // eslint-disable-next-line custom-rules/no-process-exit
-      process.exit(0)
+    if (needsPicker) {
+      // Auto-populate from history if empty
+      if (favs.length === 0) {
+        autoPopulateFavoritesFromHistory()
+      }
+
+      const { render } = await import('../ink.js')
+      const React = await import('react')
+      const { StartupFavoritesPicker } = await import('../components/StartupFavoritesPicker.js')
+      const { applyFavoriteModelToProcessEnv, setSelectedModelId } = await import('../utils/favorites.js')
+
+      let resolveResult: (r: import('../components/StartupFavoritesPicker.js').FavoritesPickerResult | null) => void
+      const resultPromise = new Promise<import('../components/StartupFavoritesPicker.js').FavoritesPickerResult | null>(
+        res => { resolveResult = res },
+      )
+
+      const instance = await render(
+        React.createElement(StartupFavoritesPicker, {
+          onSelect: result => resolveResult(result),
+          onCancel: () => resolveResult(null),
+        }),
+      )
+      const result = await resultPromise
+      instance.unmount()
+
+      if (!result) {
+        console.log('Cancelled.')
+        process.exit(0)
+      }
+
+      // Apply env vars for the selected model
+      const updatedFavs = getFavoriteModels()
+      const favorite = updatedFavs.find(f => f.id === result.favoriteId) || updatedFavs[0]
+      if (favorite) {
+        applyFavoriteModelToProcessEnv(favorite)
+        setSelectedModelId(favorite.id)
+      }
+
+      const { addRecentModel } = await import('../utils/model/modelHistory.js')
+      addRecentModel(result.model)
+
+      console.log(`Provider: ${result.providerName}  Model: ${result.model}`)
+      modelSelectedViaPicker = true
+    } else if (favs.length > 0) {
+      // Has favorites — auto-select the last-used (or first) favorite
+      const { applyFavoriteModelToProcessEnv, getSelectedFavoriteModel, setSelectedModelId } = await import('../utils/favorites.js')
+      const selected = getSelectedFavoriteModel() || favs[0]
+      applyFavoriteModelToProcessEnv(selected)
+      if (selected) setSelectedModelId(selected.id)
+      modelSelectedViaPicker = true
     }
-
-    // Apply env vars to the current process so startup sees the new provider
-    Object.assign(process.env, result.envVars)
-
-    // Persist to GlobalConfig via provider profiles (no chokidar watcher —
-    // other running sessions won't pick up the change, preserving session isolation)
-    const { addRecentModel } = await import('../utils/model/modelHistory.js')
-    addRecentModel(result.model)
-
-    // biome-ignore lint/suspicious/noConsole:: intentional
-    console.log(`Provider: ${result.provider}  Model: ${result.model}`)
   }
 
   // Apply settings.env from user settings (includes GitHub provider settings from /onboard-github)
@@ -151,17 +207,20 @@ async function main(): Promise<void> {
     applySafeConfigEnvironmentVariables()
   }
 
-  const startupEnv = await buildStartupEnvFromProfile({
-    processEnv: process.env,
-  })
-  if (startupEnv !== process.env) {
-    const startupProfileError = await getProviderValidationError(startupEnv)
-    if (startupProfileError) {
-      console.error(
-        `Warning: ignoring saved provider profile. ${startupProfileError}`,
-      )
-    } else {
-      applyProfileEnvToProcessEnv(process.env, startupEnv)
+  // Apply legacy profile only if favorites picker was NOT used
+  if (!modelSelectedViaPicker) {
+    const startupEnv = await buildStartupEnvFromProfile({
+      processEnv: process.env,
+    })
+    if (startupEnv !== process.env) {
+      const startupProfileError = await getProviderValidationError(startupEnv)
+      if (startupProfileError) {
+        console.error(
+          `Warning: ignoring saved provider profile. ${startupProfileError}`,
+        )
+      } else {
+        applyProfileEnvToProcessEnv(process.env, startupEnv)
+      }
     }
   }
 
@@ -245,7 +304,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude remote-control` (also accepts legacy `claude remote` / `claude sync` / `claude bridge`):
+  // Fast-path for `nnc remote-control` (also accepts legacy `nnc remote` / `nnc sync` / `nnc bridge`):
   // serve local machine as bridge environment.
   // feature() must stay inline for build-time dead code elimination;
   // isBridgeEnabled() checks the runtime GrowthBook gate.
@@ -301,7 +360,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude daemon [subcommand]`: long-running supervisor.
+  // Fast-path for `nnc daemon [subcommand]`: long-running supervisor.
   if (feature('DAEMON') && args[0] === 'daemon') {
     profileCheckpoint('cli_daemon_path');
     const {
@@ -319,8 +378,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude ps|logs|attach|kill` and `--bg`/`--background`.
-  // Session management against the ~/.claude/sessions/ registry. Flag
+  // Fast-path for `nnc ps|logs|attach|kill` and `--bg`/`--background`.
+  // Session management against the ~/.nnc/sessions/ registry. Flag
   // literals are inlined so bg.js only loads when actually dispatching.
   if (feature('BG_SESSIONS') && (args[0] === 'ps' || args[0] === 'logs' || args[0] === 'attach' || args[0] === 'kill' || args.includes('--bg') || args.includes('--background'))) {
     profileCheckpoint('cli_bg_path');
@@ -361,7 +420,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Fast-path for `claude environment-runner`: headless BYOC runner.
+  // Fast-path for `nnc environment-runner`: headless BYOC runner.
   // feature() must stay inline for build-time dead code elimination.
   if (feature('BYOC_ENVIRONMENT_RUNNER') && args[0] === 'environment-runner') {
     profileCheckpoint('cli_environment_runner_path');
@@ -372,7 +431,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Fast-path for `claude self-hosted-runner`: headless self-hosted-runner
+  // Fast-path for `nnc self-hosted-runner`: headless self-hosted-runner
   // targeting the SelfHostedRunnerWorkerService API (register + poll; poll IS
   // heartbeat). feature() must stay inline for build-time dead code elimination.
   if (feature('SELF_HOSTED_RUNNER') && args[0] === 'self-hosted-runner') {

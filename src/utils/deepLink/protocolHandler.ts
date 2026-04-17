@@ -1,7 +1,7 @@
 /**
  * Protocol Handler
  *
- * Entry point for `claude --handle-uri <url>`. When the OS invokes claude
+ * Entry point for `nnc --handle-uri <url>`. When the OS invokes claude
  * with a `claude-cli://` URL, this module:
  *   1. Parses the URI into a structured action
  *   2. Detects the user's terminal emulator
@@ -50,7 +50,7 @@ export async function handleDeepLinkUri(uri: string): Promise<number> {
 
   // Always the running executable — no PATH lookup. The OS launched us via
   // an absolute path (bundle symlink / .desktop Exec= / registry command)
-  // baked at registration time, and we want the terminal-launched Claude to
+  // baked at registration time, and we want the terminal-launched Neural Network to
   // be the same binary. process.execPath is that binary.
   const { cwd, resolvedRepo } = await resolveCwd(action)
   // Resolve FETCH_HEAD age here, in the trampoline process, so main.tsx
@@ -105,10 +105,10 @@ export async function handleUrlSchemeLaunch(): Promise<number | null> {
 }
 
 /**
- * Resolve the working directory for the launched Claude instance.
+ * Resolve the working directory for the launched Neural Network instance.
  * Precedence: explicit cwd > repo lookup (MRU clone) > home.
  * A repo that isn't cloned locally is not an error — fall through to home
- * so a web link referencing a repo the user doesn't have still opens Claude.
+ * so a web link referencing a repo the user doesn't have still opens Neural Network.
  *
  * Returns the resolved cwd, and the repo slug if (and only if) the MRU
  * lookup hit — so the launched instance can show which clone was selected

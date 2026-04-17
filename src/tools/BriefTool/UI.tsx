@@ -35,7 +35,7 @@ export function renderToolResultMessage(output: Output, _progressMessages: Progr
       </Box>;
   }
 
-  // Brief-only (chat) view: "Claude" label + 2-col indent, matching the "You"
+  // Brief-only (chat) view: "Neural Network" label + 2-col indent, matching the "You"
   // label UserPromptMessage applies to user input (#20889). The "N in background"
   // spinner status lives in BriefSpinner (Spinner.tsx) — stateless label here.
   if (options?.isBriefOnly) {

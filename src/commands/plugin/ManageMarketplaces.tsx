@@ -365,23 +365,23 @@ export function ManageMarketplaces({
       secondaryLabel?: string;
       value: string;
     }> = [{
-      label: `Browse plugins (${marketplace.pluginCount ?? 0})`,
+      label: `Огляд плагінів (${marketplace.pluginCount ?? 0})`,
       value: 'browse'
     }, {
-      label: 'Update marketplace',
-      secondaryLabel: marketplace.lastUpdated ? `(last updated ${new Date(marketplace.lastUpdated).toLocaleDateString()})` : undefined,
+      label: 'Оновити marketplace',
+      secondaryLabel: marketplace.lastUpdated ? `(востаннє оновлено ${new Date(marketplace.lastUpdated).toLocaleDateString()})` : undefined,
       value: 'update'
     }];
 
     // Only show auto-update toggle if auto-updater is not globally disabled
     if (!shouldSkipPluginAutoupdate()) {
       options.push({
-        label: marketplace.autoUpdate ? 'Disable auto-update' : 'Enable auto-update',
+        label: marketplace.autoUpdate ? 'Вимкнути автооновлення' : 'Увімкнути автооновлення',
         value: 'toggle-auto-update'
       });
     }
     options.push({
-      label: 'Remove marketplace',
+      label: 'Видалити marketplace',
       value: 'remove'
     });
     return options;
@@ -536,27 +536,27 @@ export function ManageMarketplaces({
     isActive: !isProcessing && internalView === 'confirm-remove'
   });
   if (loading) {
-    return <Text>Loading marketplaces…</Text>;
+    return <Text>Завантаження marketplaces…</Text>;
   }
   if (marketplaceStates.length === 0) {
     return <Box flexDirection="column">
         <Box marginBottom={1}>
-          <Text bold>Manage marketplaces</Text>
+          <Text bold>Керування marketplaces</Text>
         </Box>
 
         {/* Add Marketplace option */}
         <Box flexDirection="row" gap={1}>
           <Text color="suggestion">{figures.pointer} +</Text>
           <Text bold color="suggestion">
-            Add Marketplace
+            Додати marketplace
           </Text>
         </Box>
 
         <Box marginLeft={3}>
           <Text dimColor italic>
-            {exitState.pending ? <>Press {exitState.keyName} again to go back</> : <Byline>
-                <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="select" />
-                <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="go back" />
+            {exitState.pending ? <>Натисніть {exitState.keyName} ще раз для повернення</> : <Byline>
+                <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="обрати" />
+                <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
               </Byline>}
           </Text>
         </Box>
@@ -568,13 +568,13 @@ export function ManageMarketplaces({
     const pluginCount = selectedMarketplace.installedPlugins?.length || 0;
     return <Box flexDirection="column">
         <Text bold color="warning">
-          Remove marketplace <Text italic>{selectedMarketplace.name}</Text>?
+          Видалити marketplace <Text italic>{selectedMarketplace.name}</Text>?
         </Text>
         <Box flexDirection="column">
           {pluginCount > 0 && <Box marginTop={1}>
               <Text color="warning">
-                This will also uninstall {pluginCount}{' '}
-                {plural(pluginCount, 'plugin')} from this marketplace:
+                Це також видалить {pluginCount}{' '}
+                плагін(ів) з цього marketplace:
               </Text>
             </Box>}
           {selectedMarketplace.installedPlugins && selectedMarketplace.installedPlugins.length > 0 && <Box flexDirection="column" marginTop={1} marginLeft={2}>
@@ -584,8 +584,8 @@ export function ManageMarketplaces({
               </Box>}
           <Box marginTop={1}>
             <Text>
-              Press <Text bold>y</Text> to confirm or <Text bold>n</Text> to
-              cancel
+              Натисніть <Text bold>y</Text> для підтвердження або <Text bold>n</Text> для
+              скасування
             </Text>
           </Box>
         </Box>
@@ -603,15 +603,14 @@ export function ManageMarketplaces({
         <Text dimColor>{selectedMarketplace.source}</Text>
         <Box marginTop={1}>
           <Text>
-            {selectedMarketplace.pluginCount || 0} available{' '}
-            {plural(selectedMarketplace.pluginCount || 0, 'plugin')}
+            Доступно {selectedMarketplace.pluginCount || 0} плагін(ів)
           </Text>
         </Box>
 
         {/* Installed plugins section */}
         {selectedMarketplace.installedPlugins && selectedMarketplace.installedPlugins.length > 0 && <Box flexDirection="column" marginTop={1}>
               <Text bold>
-                Installed plugins ({selectedMarketplace.installedPlugins.length}
+                Встановлені плагіни ({selectedMarketplace.installedPlugins.length}
                 ):
               </Text>
               <Box flexDirection="column" marginLeft={1}>
@@ -627,7 +626,7 @@ export function ManageMarketplaces({
 
         {/* Processing indicator */}
         {isUpdating && <Box marginTop={1} flexDirection="column">
-            <Text color="claude">Updating marketplace…</Text>
+            <Text color="claude">Оновлення marketplace…</Text>
             {progressMessage && <Text dimColor>{progressMessage}</Text>}
           </Box>}
 
@@ -658,16 +657,16 @@ export function ManageMarketplaces({
         {/* Show explanatory text at the bottom when auto-update is enabled */}
         {!isUpdating && !shouldSkipPluginAutoupdate() && selectedMarketplace.autoUpdate && <Box marginTop={1}>
               <Text dimColor>
-                Auto-update enabled. Neural Network will automatically update this
-                marketplace and its installed plugins.
+                Автооновлення увімкнено. Нейромережа автоматично оновлюватиме цей
+                marketplace і встановлені з нього плагіни.
               </Text>
             </Box>}
 
         <Box marginLeft={3}>
           <Text dimColor italic>
-            {isUpdating ? <>Please wait…</> : <Byline>
-                <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="select" />
-                <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="go back" />
+            {isUpdating ? <>Зачекайте…</> : <Byline>
+                <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="обрати" />
+                <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
               </Byline>}
           </Text>
         </Box>
@@ -681,7 +680,7 @@ export function ManageMarketplaces({
   } = getPendingCounts();
   return <Box flexDirection="column">
       <Box marginBottom={1}>
-        <Text bold>Manage marketplaces</Text>
+        <Text bold>Керування marketplaces</Text>
       </Box>
 
       {/* Add Marketplace option */}
@@ -690,7 +689,7 @@ export function ManageMarketplaces({
           {selectedIndex === 0 ? figures.pointer : ' '} +
         </Text>
         <Text bold color={selectedIndex === 0 ? 'suggestion' : undefined}>
-          Add Marketplace
+          Додати marketplace
         </Text>
       </Box>
 
@@ -701,8 +700,8 @@ export function ManageMarketplaces({
 
         // Build status indicators
         const indicators: string[] = [];
-        if (state.pendingUpdate) indicators.push('UPDATE');
-        if (state.pendingRemove) indicators.push('REMOVE');
+        if (state.pendingUpdate) indicators.push('ОНОВИТИ');
+        if (state.pendingRemove) indicators.push('ВИДАЛИТИ');
         return <Box key={state.name} flexDirection="row" gap={1} marginBottom={1}>
               <Text color={isSelected ? 'suggestion' : undefined}>
                 {isSelected ? figures.pointer : ' '}{' '}
@@ -719,11 +718,11 @@ export function ManageMarketplaces({
                 </Box>
                 <Text dimColor>{state.source}</Text>
                 <Text dimColor>
-                  {state.pluginCount !== undefined && <>{state.pluginCount} available</>}
-                  {state.installedPlugins && state.installedPlugins.length > 0 && <> • {state.installedPlugins.length} installed</>}
+                  {state.pluginCount !== undefined && <>{state.pluginCount} доступно</>}
+                  {state.installedPlugins && state.installedPlugins.length > 0 && <> • {state.installedPlugins.length} встановлено</>}
                   {state.lastUpdated && <>
                       {' '}
-                      • Updated{' '}
+                      • Оновлено{' '}
                       {new Date(state.lastUpdated).toLocaleDateString()}
                     </>}
                 </Text>
@@ -735,20 +734,20 @@ export function ManageMarketplaces({
       {/* Pending changes summary */}
       {hasPendingChanges() && <Box marginTop={1} flexDirection="column">
           <Text>
-            <Text bold>Pending changes:</Text>{' '}
-            <Text dimColor>Enter to apply</Text>
+            <Text bold>Очікувані зміни:</Text>{' '}
+            <Text dimColor>Enter — застосувати</Text>
           </Text>
           {updateCount > 0 && <Text>
-              • Update {updateCount} {plural(updateCount, 'marketplace')}
+              • Оновити {updateCount} marketplace(ів)
             </Text>}
           {removeCount > 0 && <Text color="warning">
-              • Remove {removeCount} {plural(removeCount, 'marketplace')}
+              • Видалити {removeCount} marketplace(ів)
             </Text>}
         </Box>}
 
       {/* Processing indicator */}
       {isProcessing && <Box marginTop={1}>
-          <Text color="claude">Processing changes…</Text>
+          <Text color="claude">Обробка змін…</Text>
         </Box>}
 
       {/* Error display */}
@@ -772,7 +771,7 @@ function ManageMarketplacesKeyHints(t0) {
   if (exitState.pending) {
     let t1;
     if ($[0] !== exitState.keyName) {
-      t1 = <Box marginTop={1}><Text dimColor={true} italic={true}>Press {exitState.keyName} again to go back</Text></Box>;
+      t1 = <Box marginTop={1}><Text dimColor={true} italic={true}>Натисніть {exitState.keyName} ще раз для повернення</Text></Box>;
       $[0] = exitState.keyName;
       $[1] = t1;
     } else {

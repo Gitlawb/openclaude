@@ -8,7 +8,7 @@ function handleEPIPE(
   }
 }
 
-// Prevents memory leak when pipe is broken (e.g., `claude -p | head -1`)
+// Prevents memory leak when pipe is broken (e.g., `nnc -p | head -1`)
 export function registerProcessOutputErrorHandlers(): void {
   process.stdout.on('error', handleEPIPE(process.stdout))
   process.stderr.on('error', handleEPIPE(process.stderr))

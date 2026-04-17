@@ -32,18 +32,18 @@ export function CostThresholdDialog({ onDone }: Props): React.ReactNode {
   const providerLabel = getProviderLabel()
   return (
     <Dialog
-      title={`You've spent $5 on the ${providerLabel} this session.`}
+      title={`Ви витратили $5 на ${providerLabel} у цій сесії.`}
       onCancel={onDone}
     >
       <Box flexDirection="column">
-        <Text>Learn more about how to monitor your spending:</Text>
+        <Text>Докладніше про те, як відстежувати витрати:</Text>
         <Link url="https://code.claude.com/docs/en/costs" />
       </Box>
       <Select
         options={[
           {
             value: 'ok',
-            label: 'Got it, thanks!',
+            label: 'Зрозуміло, дякую!',
           },
         ]}
         onChange={onDone}

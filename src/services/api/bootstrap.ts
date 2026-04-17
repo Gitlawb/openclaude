@@ -17,8 +17,13 @@ import { isEssentialTrafficOnly } from '../../utils/privacyLevel.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
 import {
   getLocalOpenAICompatibleProviderLabel,
+  getOpenAICompatibleModelsBaseUrl,
   listOpenAICompatibleModels,
 } from '../../utils/providerDiscovery.js'
+import {
+  listOpenRouterModels,
+  type OpenRouterModel,
+} from '../../utils/openRouterModels.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
 import {
   getAdditionalModelOptionsCacheScope,
@@ -142,9 +147,34 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
   }
 
   const { baseUrl } = resolveProviderRequest()
+  const resolvedBaseUrl = getOpenAICompatibleModelsBaseUrl(baseUrl)
+  const providerLabel = getLocalOpenAICompatibleProviderLabel(baseUrl)
+  const apiKey =
+    process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY
+
+  // OpenRouter exposes pricing via its /models endpoint; prefer that over the
+  // generic OpenAI-compatible listing so the picker can surface $/Mtok again.
+  if (resolvedBaseUrl.includes('openrouter.ai')) {
+    const models = await listOpenRouterModels(apiKey)
+    if (models.length === 0) {
+      logForDebugging('[Bootstrap] OpenRouter model discovery returned empty')
+      return null
+    }
+
+    return {
+      clientData: getGlobalConfig().clientDataCache ?? null,
+      additionalModelOptionsScope: scope,
+      additionalModelOptions: models.map(model => ({
+        value: model.id,
+        label: model.name,
+        description: buildOpenRouterDescription(model, providerLabel),
+      })),
+    }
+  }
+
   const models = await listOpenAICompatibleModels({
     baseUrl,
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey,
   })
 
   if (models === null) {
@@ -152,17 +182,84 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     return null
   }
 
-  const providerLabel = getLocalOpenAICompatibleProviderLabel(baseUrl)
+  // Some local proxies (e.g. litellm) relay OpenRouter and return ids in
+  // `provider/slug` form. When we spot those, enrich the descriptions with
+  // OpenRouter's public pricing catalog so the picker surfaces $/Mtok.
+  const priceMap = models.some(looksLikeOpenRouterId)
+    ? await fetchOpenRouterPriceMap(apiKey)
+    : null
 
   return {
     clientData: getGlobalConfig().clientDataCache ?? null,
     additionalModelOptionsScope: scope,
-    additionalModelOptions: models.map(model => ({
-      value: model,
-      label: model,
-      description: `Detected from ${providerLabel}`,
-    })),
+    additionalModelOptions: models.map(model => {
+      const priced = priceMap?.get(model)
+      return {
+        value: model,
+        label: priced?.name ?? model,
+        description: priced
+          ? buildOpenRouterDescription(priced, providerLabel)
+          : `Detected from ${providerLabel}`,
+      }
+    }),
   }
+}
+
+function looksLikeOpenRouterId(id: string): boolean {
+  // OpenRouter ids are `provider/slug` (optionally `:tag`). Match conservatively
+  // so we don't ping OpenRouter for providers that happen to share an id style.
+  return /^[a-z0-9._-]+\/[a-z0-9._-]+(:[a-z0-9._-]+)?$/i.test(id)
+}
+
+async function fetchOpenRouterPriceMap(
+  apiKey: string | undefined,
+): Promise<Map<string, OpenRouterModel> | null> {
+  try {
+    const catalog = await listOpenRouterModels(apiKey)
+    if (catalog.length === 0) return null
+    return new Map(catalog.map(m => [m.id, m]))
+  } catch {
+    return null
+  }
+}
+
+function formatOpenRouterPrice(value: number): string {
+  // OpenRouter ships prices down to fractions of a cent per Mtok — keep 2
+  // decimals for typical $/Mtok and fall back to 4 for sub-cent rates so
+  // tiny models don't flatten to "$0.00".
+  if (!Number.isFinite(value)) return ''
+  return value >= 0.1 ? `$${value.toFixed(2)}` : `$${value.toFixed(4)}`
+}
+
+function formatOpenRouterContext(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) return ''
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}M ctx`
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k ctx`
+  return `${tokens} ctx`
+}
+
+function buildOpenRouterDescription(
+  model: { promptPricePerMToken: number | null; completionPricePerMToken: number | null; contextLength: number },
+  providerLabel: string,
+): string {
+  const parts = [`Detected from ${providerLabel}`]
+
+  const { promptPricePerMToken: prompt, completionPricePerMToken: completion } =
+    model
+  if (prompt !== null && completion !== null) {
+    parts.push(
+      `${formatOpenRouterPrice(prompt)} / ${formatOpenRouterPrice(completion)} per Mtok`,
+    )
+  } else if (prompt !== null) {
+    parts.push(`${formatOpenRouterPrice(prompt)} per Mtok`)
+  } else if (completion !== null) {
+    parts.push(`${formatOpenRouterPrice(completion)} per Mtok`)
+  }
+
+  const ctx = formatOpenRouterContext(model.contextLength)
+  if (ctx) parts.push(ctx)
+
+  return parts.join(' · ')
 }
 
 /**

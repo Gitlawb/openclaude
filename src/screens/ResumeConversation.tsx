@@ -193,7 +193,7 @@ export function ResumeConversation({
     try {
       const result_3 = await loadConversationForResume(log_0, undefined);
       if (!result_3) {
-        throw new Error('Failed to load conversation');
+        throw new Error('Не вдалося завантажити розмову');
       }
       if (feature('COORDINATOR_MODE')) {
         /* eslint-disable @typescript-eslint/no-require-imports */
@@ -303,19 +303,19 @@ export function ResumeConversation({
   if (loading) {
     return <Box>
         <Spinner />
-        <Text> Loading conversations…</Text>
+        <Text> Завантаження розмов…</Text>
       </Box>;
   }
   if (resuming) {
     return <Box>
         <Spinner />
-        <Text> Resuming conversation…</Text>
+        <Text> Відновлення розмови…</Text>
       </Box>;
   }
   const resumeErrorBanner = resumeError ? <Box flexDirection="column" marginBottom={1}>
-      <Text color="red">Failed to resume conversation.</Text>
+      <Text color="red">Не вдалося відновити розмову.</Text>
       <Text>{resumeError}</Text>
-      <Text dimColor={true}>Choose a different conversation to continue.</Text>
+      <Text dimColor={true}>Оберіть іншу розмову для продовження.</Text>
     </Box> : null;
   if (filteredLogs.length === 0) {
     return <NoConversationsMessage />;
@@ -339,7 +339,7 @@ function NoConversationsMessage() {
   useKeybinding("app:interrupt", _temp, t0);
   let t1;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = <Box flexDirection="column"><Text>No conversations found to resume.</Text><Text dimColor={true}>Press Ctrl+C to exit and start a new conversation.</Text></Box>;
+    t1 = <Box flexDirection="column"><Text>Не знайдено розмов для відновлення.</Text><Text dimColor={true}>Натисніть Ctrl+C, щоб вийти й почати нову розмову.</Text></Box>;
     $[1] = t1;
   } else {
     t1 = $[1];
@@ -364,14 +364,14 @@ function CrossProjectMessage(t0) {
   React.useEffect(_temp3, t1);
   let t2;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Text>This conversation is from a different directory.</Text>;
+    t2 = <Text>Ця розмова з іншої директорії.</Text>;
     $[1] = t2;
   } else {
     t2 = $[1];
   }
   let t3;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Text>To resume, run:</Text>;
+    t3 = <Text>Для відновлення запустіть:</Text>;
     $[2] = t3;
   } else {
     t3 = $[2];
@@ -386,7 +386,7 @@ function CrossProjectMessage(t0) {
   }
   let t5;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t5 = <Text dimColor={true}>(Command copied to clipboard)</Text>;
+    t5 = <Text dimColor={true}>(Команду скопійовано у буфер обміну)</Text>;
     $[5] = t5;
   } else {
     t5 = $[5];

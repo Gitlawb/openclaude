@@ -46,9 +46,9 @@ type StatsResult = {
   type: 'empty';
 };
 const DATE_RANGE_LABELS: Record<StatsDateRange, string> = {
-  '7d': 'Last 7 days',
-  '30d': 'Last 30 days',
-  all: 'All time'
+  '7d': 'Останні 7 днів',
+  '30d': 'Останні 30 днів',
+  all: 'Весь час'
 };
 const DATE_RANGE_ORDER: StatsDateRange[] = ['all', '7d', '30d'];
 function getNextDateRange(current: StatsDateRange): StatsDateRange {
@@ -72,7 +72,7 @@ function createAllTimeStatsPromise(): Promise<StatsResult> {
       data
     };
   }).catch((err): StatsResult => {
-    const message = err instanceof Error ? err.message : 'Failed to load stats';
+    const message = err instanceof Error ? err.message : 'Не вдалося завантажити статистику';
     return {
       type: 'error',
       message
@@ -94,7 +94,7 @@ export function Stats(t0) {
   const allTimePromise = t1;
   let t2;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Box marginTop={1}><Spinner /><Text> Loading your Neural Network stats…</Text></Box>;
+    t2 = <Box marginTop={1}><Spinner /><Text> Завантаження вашої статистики Нейромережі…</Text></Box>;
     $[1] = t2;
   } else {
     t2 = $[1];
@@ -231,7 +231,7 @@ function StatsContent(t0) {
   if (allTimeResult.type === "error") {
     let t7;
     if ($[13] !== allTimeResult.message) {
-      t7 = <Box marginTop={1}><Text color="error">Failed to load stats: {allTimeResult.message}</Text></Box>;
+      t7 = <Box marginTop={1}><Text color="error">Не вдалося завантажити статистику: {allTimeResult.message}</Text></Box>;
       $[13] = allTimeResult.message;
       $[14] = t7;
     } else {
@@ -242,7 +242,7 @@ function StatsContent(t0) {
   if (allTimeResult.type === "empty") {
     let t7;
     if ($[15] === Symbol.for("react.memo_cache_sentinel")) {
-      t7 = <Box marginTop={1}><Text color="warning">No stats available yet. Start using Neural Network!</Text></Box>;
+      t7 = <Box marginTop={1}><Text color="warning">Статистики поки немає. Почніть користуватися Нейромережею!</Text></Box>;
       $[15] = t7;
     } else {
       t7 = $[15];
@@ -292,7 +292,7 @@ function StatsContent(t0) {
   const t10 = copyStatus ? ` · ${copyStatus}` : "";
   let t11;
   if ($[29] !== t10) {
-    t11 = <Box paddingLeft={2}><Text dimColor={true}>Esc to cancel · r to cycle dates · ctrl+s to copy{t10}</Text></Box>;
+    t11 = <Box paddingLeft={2}><Text dimColor={true}>Esc — скасувати · r — перемкнути діапазон · ctrl+s — копіювати{t10}</Text></Box>;
     $[29] = t10;
     $[30] = t11;
   } else {
@@ -526,7 +526,7 @@ function OverviewTab({
       {/* Shot stats (internal-only) */}
       {shotStatsData && <>
           <Box marginTop={1}>
-            <Text>Shot distribution</Text>
+            <Text>Розподіл запитів</Text>
           </Box>
           <Box flexDirection="row" gap={4}>
             <Box flexDirection="column" width={28}>
@@ -755,7 +755,7 @@ function ModelsTab(t0) {
   if (modelEntries.length === 0) {
     let t3;
     if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-      t3 = <Box><Text color="subtle">No model usage data available</Text></Box>;
+      t3 = <Box><Text color="subtle">Даних про використання моделей немає</Text></Box>;
       $[2] = t3;
     } else {
       t3 = $[2];
@@ -808,7 +808,7 @@ function ModelsTab(t0) {
   } else {
     t10 = $[14];
   }
-  return <Box flexDirection="column" marginTop={1}>{chartOutput && <Box flexDirection="column" marginBottom={1}><Text bold={true}>Tokens per Day</Text><Ansi>{chartOutput.chart}</Ansi><Text color="subtle">{chartOutput.xAxisLabels}</Text><Box>{chartOutput.legend.map(_temp1)}</Box></Box>}{t3}<Box flexDirection="row" gap={4}><Box flexDirection="column" width={36}>{leftModels.map(t4 => {
+  return <Box flexDirection="column" marginTop={1}>{chartOutput && <Box flexDirection="column" marginBottom={1}><Text bold={true}>Токенів на день</Text><Ansi>{chartOutput.chart}</Ansi><Text color="subtle">{chartOutput.xAxisLabels}</Text><Box>{chartOutput.legend.map(_temp1)}</Box></Box>}{t3}<Box flexDirection="row" gap={4}><Box flexDirection="column" width={36}>{leftModels.map(t4 => {
           const [model_0, usage_0] = t4;
           return <ModelEntry key={model_0} model={model_0} usage={usage_0} totalTokens={totalTokens} />;
         })}</Box>{t9}</Box>{t10}</Box>;

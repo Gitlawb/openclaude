@@ -20,7 +20,7 @@ type Props = {
   isEmbedded?: boolean;
 };
 type LoadErrorType = 'network' | 'auth' | 'api' | 'other';
-const UPDATED_STRING = 'Updated';
+const UPDATED_STRING = 'Оновлено';
 const SPACE_BETWEEN_TABLE_COLUMNS = '  ';
 export function ResumeTask({
   onSelect,
@@ -119,36 +119,36 @@ export function ResumeTask({
     return <Box flexDirection="column" padding={1}>
         <Box flexDirection="row">
           <Spinner />
-          <Text bold>Loading Neural Network sessions…</Text>
+          <Text bold>Завантаження сесій Нейромережі…</Text>
         </Box>
         <Text dimColor>
-          {retrying ? 'Retrying…' : 'Fetching your Neural Network sessions…'}
+          {retrying ? 'Повторна спроба…' : 'Отримуємо ваші сесії Нейромережі…'}
         </Text>
       </Box>;
   }
   if (loadErrorType) {
     return <Box flexDirection="column" padding={1}>
         <Text bold color="error">
-          Error loading Neural Network sessions
+          Помилка завантаження сесій Нейромережі
         </Text>
 
         {renderErrorSpecificGuidance(loadErrorType)}
 
         <Text dimColor>
-          Press <Text bold>Ctrl+R</Text> to retry · Press{' '}
-          <Text bold>{escKey}</Text> to cancel
+          Натисніть <Text bold>Ctrl+R</Text> для повтору · Натисніть{' '}
+          <Text bold>{escKey}</Text> для скасування
         </Text>
       </Box>;
   }
   if (sessions.length === 0) {
     return <Box flexDirection="column" padding={1}>
         <Text bold>
-          No Neural Network sessions found
-          {currentRepo && <Text> for {currentRepo}</Text>}
+          Сесій Нейромережі не знайдено
+          {currentRepo && <Text> для {currentRepo}</Text>}
         </Text>
         <Box marginTop={1}>
           <Text dimColor>
-            Press <Text bold>{escKey}</Text> to cancel
+            Натисніть <Text bold>{escKey}</Text> для скасування
           </Text>
         </Box>
       </Box>;
@@ -182,10 +182,10 @@ export function ResumeTask({
   const showScrollPosition = sessions.length > maxVisibleOptions;
   return <Box flexDirection="column" padding={1} height={maxHeight}>
       <Text bold>
-        Select a session to resume
+        Оберіть сесію для продовження
         {showScrollPosition && <Text dimColor>
             {' '}
-            ({focusedIndex} of {sessions.length})
+            ({focusedIndex} з {sessions.length})
           </Text>}
         {currentRepo && <Text dimColor> ({currentRepo})</Text>}:
       </Text>
@@ -194,7 +194,7 @@ export function ResumeTask({
           <Text bold>
             {UPDATED_STRING.padEnd(maxTimeStringLength, ' ')}
             {SPACE_BETWEEN_TABLE_COLUMNS}
-            {'Session Title'}
+            {'Назва сесії'}
           </Text>
         </Box>
         <Select visibleOptionCount={maxVisibleOptions} options={options} onChange={value => {
@@ -212,9 +212,9 @@ export function ResumeTask({
       <Box flexDirection="row">
         <Text dimColor>
           <Byline>
-            <KeyboardShortcutHint shortcut="↑/↓" action="select" />
-            <KeyboardShortcutHint shortcut="Enter" action="confirm" />
-            <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
+            <KeyboardShortcutHint shortcut="↑/↓" action="обрати" />
+            <KeyboardShortcutHint shortcut="Enter" action="підтвердити" />
+            <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="скасувати" />
           </Byline>
         </Text>
       </Box>
@@ -245,23 +245,23 @@ function renderErrorSpecificGuidance(errorType: LoadErrorType): React.ReactNode 
   switch (errorType) {
     case 'network':
       return <Box marginY={1} flexDirection="column">
-          <Text dimColor>Check your internet connection</Text>
+          <Text dimColor>Перевірте з'єднання з інтернетом</Text>
         </Box>;
     case 'auth':
       return <Box marginY={1} flexDirection="column">
-          <Text dimColor>Teleport requires an account</Text>
+          <Text dimColor>Teleport потребує акаунта</Text>
           <Text dimColor>
-            Run <Text bold>/login</Text> and select &quot;account with
-            subscription&quot;
+            Запустіть <Text bold>/login</Text> і оберіть &quot;акаунт з
+            підпискою&quot;
           </Text>
         </Box>;
     case 'api':
       return <Box marginY={1} flexDirection="column">
-          <Text dimColor>Sorry, an error was encountered</Text>
+          <Text dimColor>Вибачте, сталася помилка</Text>
         </Box>;
     case 'other':
       return <Box marginY={1} flexDirection="row">
-          <Text dimColor>Sorry, Neural Network encountered an error</Text>
+          <Text dimColor>Вибачте, Нейромережа зіткнулася з помилкою</Text>
         </Box>;
   }
 }

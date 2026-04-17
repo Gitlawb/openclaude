@@ -3,9 +3,10 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
-export function resolveClaudeConfigHomeDir(options?: {
+export function resolveConfigHomeDir(options?: {
   configDirEnv?: string
   homeDir?: string
+  nncExists?: boolean
   openClaudeExists?: boolean
   legacyClaudeExists?: boolean
 }): string {
@@ -14,26 +15,44 @@ export function resolveClaudeConfigHomeDir(options?: {
   }
 
   const homeDir = options?.homeDir ?? homedir()
+  const nncDir = join(homeDir, '.nnc')
   const openClaudeDir = join(homeDir, '.openclaude')
-  const legacyClaudeDir = join(homeDir, '.claude')
+  const legacyClaudeDir = join(homeDir, '.nnc')
+  const nncExists = options?.nncExists ?? existsSync(nncDir)
   const openClaudeExists =
     options?.openClaudeExists ?? existsSync(openClaudeDir)
   const legacyClaudeExists =
     options?.legacyClaudeExists ?? existsSync(legacyClaudeDir)
 
-  // Preserve existing user config/install state until we ship an explicit
-  // migration. New installs (neither path exists) use ~/.openclaude.
-  if (!openClaudeExists && legacyClaudeExists) {
+  // Priority: explicit env > ~/.nnc (new default) > ~/.openclaude (legacy) > ~/.nnc (oldest legacy)
+  if (nncExists) {
+    return nncDir.normalize('NFC')
+  }
+  if (openClaudeExists) {
+    return openClaudeDir.normalize('NFC')
+  }
+  if (legacyClaudeExists) {
     return legacyClaudeDir.normalize('NFC')
   }
 
-  return openClaudeDir.normalize('NFC')
+  // New install — default to ~/.nnc
+  return nncDir.normalize('NFC')
+}
+
+// Backward compat alias for existing callers
+export function resolveClaudeConfigHomeDir(options?: {
+  configDirEnv?: string
+  homeDir?: string
+  openClaudeExists?: boolean
+  legacyClaudeExists?: boolean
+}): string {
+  return resolveConfigHomeDir(options)
 }
 
 // Memoized: 150+ callers, many on hot paths. Keyed off CLAUDE_CONFIG_DIR so
 // tests that change the env var get a fresh value without explicit cache.clear.
 export const getClaudeConfigHomeDir = memoize(
-  (): string => resolveClaudeConfigHomeDir({
+  (): string => resolveConfigHomeDir({
     configDirEnv: process.env.CLAUDE_CONFIG_DIR,
   }),
   () => process.env.CLAUDE_CONFIG_DIR,

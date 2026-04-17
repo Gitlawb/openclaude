@@ -28,7 +28,7 @@ export function TeammateViewHeader() {
   const nameColor = t0;
   let t1;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = <Text>Viewing </Text>;
+    t1 = <Text>Перегляд </Text>;
     $[2] = t1;
   } else {
     t1 = $[2];
@@ -44,7 +44,7 @@ export function TeammateViewHeader() {
   }
   let t3;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Text dimColor={true}>{" \xB7 "}<KeyboardShortcutHint shortcut="esc" action="return" /></Text>;
+    t3 = <Text dimColor={true}>{" \xB7 "}<KeyboardShortcutHint shortcut="esc" action="повернутися" /></Text>;
     $[6] = t3;
   } else {
     t3 = $[6];

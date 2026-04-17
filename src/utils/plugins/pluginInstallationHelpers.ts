@@ -110,7 +110,7 @@ export function validatePathWithinBase(
  * Cache a plugin (local or external) and add it to installed_plugins.json
  *
  * This function combines the common pattern of:
- * 1. Caching a plugin to ~/.claude/plugins/cache/
+ * 1. Caching a plugin to ~/.nnc/plugins/cache/
  * 2. Adding it to the installed plugins registry
  *
  * Both local plugins (with string source like "./path") and external plugins
@@ -189,7 +189,7 @@ export async function cacheAndRegisterPlugin(
       // errors when /tmp is on a different filesystem (e.g., tmpfs)
       const tempPath = join(
         dirname(cacheResult.path),
-        `.claude-plugin-temp-${Date.now()}-${randomBytes(4).toString('hex')}`,
+        `.nnc-plugin-temp-${Date.now()}-${randomBytes(4).toString('hex')}`,
       )
       await rename(cacheResult.path, tempPath)
       await getFsImplementation().mkdir(dirname(versionedPath))

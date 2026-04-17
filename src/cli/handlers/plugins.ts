@@ -1,6 +1,6 @@
 /**
  * Plugin and marketplace subcommand handlers — extracted from main.tsx for lazy loading.
- * These are dynamically imported only when `claude plugin *` or `claude plugin marketplace *` runs.
+ * These are dynamically imported only when `nnc plugin *` or `nnc plugin marketplace *` runs.
  */
 /* eslint-disable custom-rules/no-process-exit -- CLI subcommand handlers intentionally exit */
 import figures from 'figures'
@@ -67,14 +67,14 @@ export { VALID_INSTALLABLE_SCOPES, VALID_UPDATE_SCOPES }
  */
 export function handleMarketplaceError(error: unknown, action: string): never {
   logError(error)
-  cliError(`${figures.cross} Failed to ${action}: ${errorMessage(error)}`)
+  cliError(`${figures.cross} Не вдалося ${action}: ${errorMessage(error)}`)
 }
 
 function printValidationResult(result: ValidationResult): void {
   if (result.errors.length > 0) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.log(
-      `${figures.cross} Found ${result.errors.length} ${plural(result.errors.length, 'error')}:\n`,
+      `${figures.cross} Знайдено помилок: ${result.errors.length}:\n`,
     )
     result.errors.forEach(error => {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
@@ -86,7 +86,7 @@ function printValidationResult(result: ValidationResult): void {
   if (result.warnings.length > 0) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.log(
-      `${figures.warning} Found ${result.warnings.length} ${plural(result.warnings.length, 'warning')}:\n`,
+      `${figures.warning} Знайдено попереджень: ${result.warnings.length}:\n`,
     )
     result.warnings.forEach(warning => {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
@@ -107,21 +107,21 @@ export async function pluginValidateHandler(
     const result = await validateManifest(manifestPath)
 
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`Validating ${result.fileType} manifest: ${result.filePath}\n`)
+    console.log(`Перевірка ${result.fileType} маніфесту: ${result.filePath}\n`)
     printValidationResult(result)
 
-    // If this is a plugin manifest located inside a .claude-plugin directory,
+    // If this is a plugin manifest located inside a .nnc-plugin directory,
     // also validate the plugin's content files (skills, agents, commands,
     // hooks). Works whether the user passed a directory or the plugin.json
     // path directly.
     let contentResults: ValidationResult[] = []
     if (result.fileType === 'plugin') {
       const manifestDir = dirname(result.filePath)
-      if (basename(manifestDir) === '.claude-plugin') {
+      if (basename(manifestDir) === '.nnc-plugin') {
         contentResults = await validatePluginContents(dirname(manifestDir))
         for (const r of contentResults) {
           // biome-ignore lint/suspicious/noConsole:: intentional console output
-          console.log(`Validating ${r.fileType}: ${r.filePath}\n`)
+          console.log(`Перевірка ${r.fileType}: ${r.filePath}\n`)
           printValidationResult(r)
         }
       }
@@ -135,19 +135,19 @@ export async function pluginValidateHandler(
     if (allSuccess) {
       cliOk(
         hasWarnings
-          ? `${figures.tick} Validation passed with warnings`
-          : `${figures.tick} Validation passed`,
+          ? `${figures.tick} Перевірку пройдено з попередженнями`
+          : `${figures.tick} Перевірку пройдено`,
       )
     } else {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`${figures.cross} Validation failed`)
+      console.log(`${figures.cross} Перевірку не пройдено`)
       process.exit(1)
     }
   } catch (error) {
     logError(error)
     // biome-ignore lint/suspicious/noConsole:: intentional console output
     console.error(
-      `${figures.cross} Unexpected error during validation: ${errorMessage(error)}`,
+      `${figures.cross} Неочікувана помилка під час перевірки: ${errorMessage(error)}`,
     )
     process.exit(2)
   }
@@ -352,14 +352,14 @@ export async function pluginListHandler(options: {
     // through to the session section so the failure is visible.
     if (inlineLoadErrors.length === 0) {
       cliOk(
-        'No plugins installed. Use `claude plugin install` to install a plugin.',
+        'Плагіни не встановлено. Використайте `nnc plugin install` для встановлення плагіна.',
       )
     }
   }
 
   if (pluginIds.length > 0) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log('Installed plugins:\n')
+    console.log('Встановлені плагіни:\n')
   }
 
   for (const pluginId of pluginIds.sort()) {
@@ -376,24 +376,24 @@ export async function pluginListHandler(options: {
       const isEnabled = enabledPlugins.has(pluginId)
       const status =
         pluginErrors.length > 0
-          ? `${figures.cross} failed to load`
+          ? `${figures.cross} не вдалося завантажити`
           : isEnabled
-            ? `${figures.tick} enabled`
-            : `${figures.cross} disabled`
-      const version = installation.version || 'unknown'
+            ? `${figures.tick} увімкнено`
+            : `${figures.cross} вимкнено`
+      const version = installation.version || 'невідомо'
       const scope = installation.scope
 
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.log(`  ${figures.pointer} ${pluginId}`)
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`    Version: ${version}`)
+      console.log(`    Версія: ${version}`)
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`    Scope: ${scope}`)
+      console.log(`    Область: ${scope}`)
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`    Status: ${status}`)
+      console.log(`    Статус: ${status}`)
       for (const error of pluginErrors) {
         // biome-ignore lint/suspicious/noConsole:: intentional console output
-        console.log(`    Error: ${getPluginErrorMessage(error)}`)
+        console.log(`    Помилка: ${getPluginErrorMessage(error)}`)
       }
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.log('')
@@ -402,7 +402,7 @@ export async function pluginListHandler(options: {
 
   if (inlinePlugins.length > 0 || inlineLoadErrors.length > 0) {
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log('Session-only plugins (--plugin-dir):\n')
+    console.log('Плагіни лише для сесії (--plugin-dir):\n')
     for (const p of inlinePlugins) {
       // Same dirName≠manifestName fallback as the JSON path above — error
       // sources use the dir basename but p.source uses the manifest name.
@@ -411,19 +411,19 @@ export async function pluginListHandler(options: {
       )
       const status =
         pErrors.length > 0
-          ? `${figures.cross} loaded with errors`
-          : `${figures.tick} loaded`
+          ? `${figures.cross} завантажено з помилками`
+          : `${figures.tick} завантажено`
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.log(`  ${figures.pointer} ${p.source}`)
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`    Version: ${p.manifest.version ?? 'unknown'}`)
+      console.log(`    Версія: ${p.manifest.version ?? 'невідомо'}`)
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`    Path: ${p.path}`)
+      console.log(`    Шлях: ${p.path}`)
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`    Status: ${status}`)
+      console.log(`    Статус: ${status}`)
       for (const e of pErrors) {
         // biome-ignore lint/suspicious/noConsole:: intentional console output
-        console.log(`    Error: ${getPluginErrorMessage(e)}`)
+        console.log(`    Помилка: ${getPluginErrorMessage(e)}`)
       }
       // biome-ignore lint/suspicious/noConsole:: intentional console output
       console.log('')
@@ -454,7 +454,7 @@ export async function marketplaceAddHandler(
 
     if (!parsed) {
       cliError(
-        `${figures.cross} Invalid marketplace source format. Try: owner/repo, https://..., or ./path`,
+        `${figures.cross} Невірний формат джерела marketplace. Спробуйте: owner/repo, https://..., або ./path`,
       )
     }
 
@@ -466,7 +466,7 @@ export async function marketplaceAddHandler(
     const scope = options.scope ?? 'user'
     if (scope !== 'user' && scope !== 'project' && scope !== 'local') {
       cliError(
-        `${figures.cross} Invalid scope '${scope}'. Use: user, project, or local`,
+        `${figures.cross} Невірна область '${scope}'. Використайте: user, project, або local`,
       )
     }
     const settingSource = scopeToSettingSource(scope)
@@ -484,13 +484,13 @@ export async function marketplaceAddHandler(
         }
       } else {
         cliError(
-          `${figures.cross} --sparse is only supported for github and git marketplace sources (got: ${marketplaceSource.source})`,
+          `${figures.cross} --sparse підтримується лише для github та git джерел marketplace (отримано: ${marketplaceSource.source})`,
         )
       }
     }
 
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log('Adding marketplace...')
+    console.log('Додаємо marketplace...')
 
     const { name, alreadyMaterialized, resolvedSource } =
       await addMarketplaceSource(marketplaceSource, message => {
@@ -515,11 +515,11 @@ export async function marketplaceAddHandler(
 
     cliOk(
       alreadyMaterialized
-        ? `${figures.tick} Marketplace '${name}' already on disk — declared in ${scope} settings`
-        : `${figures.tick} Successfully added marketplace: ${name} (declared in ${scope} settings)`,
+        ? `${figures.tick} Marketplace '${name}' вже на диску — оголошено у ${scope} налаштуваннях`
+        : `${figures.tick} Успішно додано marketplace: ${name} (оголошено у ${scope} налаштуваннях)`,
     )
   } catch (error) {
-    handleMarketplaceError(error, 'add marketplace')
+    handleMarketplaceError(error, 'додати marketplace')
   }
 }
 
@@ -552,11 +552,11 @@ export async function marketplaceListHandler(options: {
     }
 
     if (names.length === 0) {
-      cliOk('No marketplaces configured')
+      cliOk('Marketplaces не налаштовано')
     }
 
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log('Configured marketplaces:\n')
+    console.log('Налаштовані marketplaces:\n')
     names.forEach(name => {
       const marketplace = config[name]
       // biome-ignore lint/suspicious/noConsole:: intentional console output
@@ -566,19 +566,19 @@ export async function marketplaceListHandler(options: {
         const src = marketplace.source
         if (src.source === 'github') {
           // biome-ignore lint/suspicious/noConsole:: intentional console output
-          console.log(`    Source: GitHub (${src.repo})`)
+          console.log(`    Джерело: GitHub (${src.repo})`)
         } else if (src.source === 'git') {
           // biome-ignore lint/suspicious/noConsole:: intentional console output
-          console.log(`    Source: Git (${src.url})`)
+          console.log(`    Джерело: Git (${src.url})`)
         } else if (src.source === 'url') {
           // biome-ignore lint/suspicious/noConsole:: intentional console output
-          console.log(`    Source: URL (${src.url})`)
+          console.log(`    Джерело: URL (${src.url})`)
         } else if (src.source === 'directory') {
           // biome-ignore lint/suspicious/noConsole:: intentional console output
-          console.log(`    Source: Directory (${src.path})`)
+          console.log(`    Джерело: Директорія (${src.path})`)
         } else if (src.source === 'file') {
           // biome-ignore lint/suspicious/noConsole:: intentional console output
-          console.log(`    Source: File (${src.path})`)
+          console.log(`    Джерело: Файл (${src.path})`)
         }
       }
       // biome-ignore lint/suspicious/noConsole:: intentional console output
@@ -587,7 +587,7 @@ export async function marketplaceListHandler(options: {
 
     cliOk()
   } catch (error) {
-    handleMarketplaceError(error, 'list marketplaces')
+    handleMarketplaceError(error, 'отримати список marketplaces')
   }
 }
 
@@ -606,9 +606,9 @@ export async function marketplaceRemoveHandler(
         name as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
 
-    cliOk(`${figures.tick} Successfully removed marketplace: ${name}`)
+    cliOk(`${figures.tick} Успішно видалено marketplace: ${name}`)
   } catch (error) {
-    handleMarketplaceError(error, 'remove marketplace')
+    handleMarketplaceError(error, 'видалити marketplace')
   }
 }
 
@@ -621,7 +621,7 @@ export async function marketplaceUpdateHandler(
   try {
     if (name) {
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`Updating marketplace: ${name}...`)
+      console.log(`Оновлюємо marketplace: ${name}...`)
 
       await refreshMarketplace(name, message => {
         // biome-ignore lint/suspicious/noConsole:: intentional console output
@@ -635,17 +635,17 @@ export async function marketplaceUpdateHandler(
           name as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
 
-      cliOk(`${figures.tick} Successfully updated marketplace: ${name}`)
+      cliOk(`${figures.tick} Успішно оновлено marketplace: ${name}`)
     } else {
       const config = await loadKnownMarketplacesConfig()
       const marketplaceNames = Object.keys(config)
 
       if (marketplaceNames.length === 0) {
-        cliOk('No marketplaces configured')
+        cliOk('Marketplaces не налаштовано')
       }
 
       // biome-ignore lint/suspicious/noConsole:: intentional console output
-      console.log(`Updating ${marketplaceNames.length} marketplace(s)...`)
+      console.log(`Оновлюємо ${marketplaceNames.length} marketplace(s)...`)
 
       await refreshAllMarketplaces()
       clearAllCaches()
@@ -656,11 +656,11 @@ export async function marketplaceUpdateHandler(
       })
 
       cliOk(
-        `${figures.tick} Successfully updated ${marketplaceNames.length} marketplace(s)`,
+        `${figures.tick} Успішно оновлено ${marketplaceNames.length} marketplace(s)`,
       )
     }
   } catch (error) {
-    handleMarketplaceError(error, 'update marketplace(s)')
+    handleMarketplaceError(error, 'оновити marketplace(s)')
   }
 }
 
@@ -672,7 +672,7 @@ export async function pluginInstallHandler(
   if (options.cowork) setUseCoworkPlugins(true)
   const scope = options.scope || 'user'
   if (options.cowork && scope !== 'user') {
-    cliError('--cowork can only be used with user scope')
+    cliError('--cowork можна використовувати лише з user scope')
   }
   if (
     !VALID_INSTALLABLE_SCOPES.includes(
@@ -680,7 +680,7 @@ export async function pluginInstallHandler(
     )
   ) {
     cliError(
-      `Invalid scope: ${scope}. Must be one of: ${VALID_INSTALLABLE_SCOPES.join(', ')}.`,
+      `Невірна область: ${scope}. Має бути одне з: ${VALID_INSTALLABLE_SCOPES.join(', ')}.`,
     )
   }
   // _PROTO_* routes to PII-tagged plugin_name/marketplace_name BQ columns.
@@ -708,7 +708,7 @@ export async function pluginUninstallHandler(
   if (options.cowork) setUseCoworkPlugins(true)
   const scope = options.scope || 'user'
   if (options.cowork && scope !== 'user') {
-    cliError('--cowork can only be used with user scope')
+    cliError('--cowork можна використовувати лише з user scope')
   }
   if (
     !VALID_INSTALLABLE_SCOPES.includes(
@@ -716,7 +716,7 @@ export async function pluginUninstallHandler(
     )
   ) {
     cliError(
-      `Invalid scope: ${scope}. Must be one of: ${VALID_INSTALLABLE_SCOPES.join(', ')}.`,
+      `Невірна область: ${scope}. Має бути одне з: ${VALID_INSTALLABLE_SCOPES.join(', ')}.`,
     )
   }
   const { name, marketplace } = parsePluginIdentifier(plugin)
@@ -750,7 +750,7 @@ export async function pluginEnableHandler(
       )
     ) {
       cliError(
-        `Invalid scope "${options.scope}". Valid scopes: ${VALID_INSTALLABLE_SCOPES.join(', ')}`,
+        `Невірна область "${options.scope}". Допустимі області: ${VALID_INSTALLABLE_SCOPES.join(', ')}`,
       )
     }
     scope = options.scope as (typeof VALID_INSTALLABLE_SCOPES)[number]
@@ -784,18 +784,18 @@ export async function pluginDisableHandler(
   options: { scope?: string; cowork?: boolean; all?: boolean },
 ): Promise<void> {
   if (options.all && plugin) {
-    cliError('Cannot use --all with a specific plugin')
+    cliError('Не можна використовувати --all з конкретним плагіном')
   }
 
   if (!options.all && !plugin) {
-    cliError('Please specify a plugin name or use --all to disable all plugins')
+    cliError('Вкажіть назву плагіна або використайте --all, щоб вимкнути всі плагіни')
   }
 
   if (options.cowork) setUseCoworkPlugins(true)
 
   if (options.all) {
     if (options.scope) {
-      cliError('Cannot use --scope with --all')
+      cliError('Не можна використовувати --scope з --all')
     }
 
     // No _PROTO_plugin_name here — --all disables all plugins.
@@ -814,7 +814,7 @@ export async function pluginDisableHandler(
       )
     ) {
       cliError(
-        `Invalid scope "${options.scope}". Valid scopes: ${VALID_INSTALLABLE_SCOPES.join(', ')}`,
+        `Невірна область "${options.scope}". Допустимі області: ${VALID_INSTALLABLE_SCOPES.join(', ')}`,
       )
     }
     scope = options.scope as (typeof VALID_INSTALLABLE_SCOPES)[number]
@@ -865,13 +865,13 @@ export async function pluginUpdateHandler(
       )
     ) {
       cliError(
-        `Invalid scope "${options.scope}". Valid scopes: ${VALID_UPDATE_SCOPES.join(', ')}`,
+        `Невірна область "${options.scope}". Допустимі області: ${VALID_UPDATE_SCOPES.join(', ')}`,
       )
     }
     scope = options.scope as (typeof VALID_UPDATE_SCOPES)[number]
   }
   if (options.cowork && scope !== 'user') {
-    cliError('--cowork can only be used with user scope')
+    cliError('--cowork можна використовувати лише з user scope')
   }
 
   await updatePluginCli(plugin, scope)

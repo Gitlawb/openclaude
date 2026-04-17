@@ -20,7 +20,7 @@ import type { AssistantMessage, Message } from '../../types/message.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { extractTextContent, stripPromptXMLTags } from '../../utils/messages.js';
 import { countCharInString } from '../../utils/stringUtils.js';
-const COPY_DIR = join(tmpdir(), 'claude');
+const COPY_DIR = join(tmpdir(), "nnc");
 const RESPONSE_FILENAME = 'response.md';
 const MAX_LOOKBACK = 20;
 type CodeBlock = {
@@ -87,9 +87,9 @@ async function copyOrWriteToFile(text: string, filename: string): Promise<string
   // terminal support), so the file provides a reliable fallback.
   try {
     const filePath = await writeToFile(text, filename);
-    return `Copied to clipboard (${charCount} characters, ${lineCount} lines)\nAlso written to ${filePath}`;
+    return `Скопійовано у буфер обміну (${charCount} символів, ${lineCount} рядків)\nТакож записано у ${filePath}`;
   } catch {
-    return `Copied to clipboard (${charCount} characters, ${lineCount} lines)`;
+    return `Скопійовано у буфер обміну (${charCount} символів, ${lineCount} рядків)`;
   }
 }
 function truncateLine(text: string, maxLen: number): string {
@@ -126,11 +126,11 @@ function CopyPicker(t0) {
     onDone
   } = t0;
   const focusedRef = useRef("full");
-  const t1 = `${fullText.length} chars, ${countCharInString(fullText, "\n") + 1} lines`;
+  const t1 = `${fullText.length} символів, ${countCharInString(fullText, "\n") + 1} рядків`;
   let t2;
   if ($[0] !== t1) {
     t2 = {
-      label: "Full response",
+      label: "Повна відповідь",
       value: "full" as const,
       description: t1
     };
@@ -144,9 +144,9 @@ function CopyPicker(t0) {
     let t4;
     if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
       t4 = {
-        label: "Always copy full response",
+        label: "Завжди копіювати повну відповідь",
         value: "always" as const,
-        description: "Skip this picker in the future (revert via /config)"
+        description: "Пропускати цей вибір у майбутньому (повернути через /config)"
       };
       $[5] = t4;
     } else {
@@ -197,7 +197,7 @@ function CopyPicker(t0) {
           message_age: messageAge
         });
         const result = await copyOrWriteToFile(content.text, content.filename);
-        onDone(`${result}\nPreference saved. Use /config to change copyFullResponse`);
+        onDone(`${result}\nВибір збережено. Використайте /config, щоб змінити copyFullResponse`);
         return;
       }
       logEvent("tengu_copy", {
@@ -230,10 +230,10 @@ function CopyPicker(t0) {
       ;
       try {
         const filePath = await writeToFile(content_0.text, content_0.filename);
-        onDone(`Written to ${filePath}`);
+        onDone(`Записано у ${filePath}`);
       } catch (t7) {
         const e = t7;
-        onDone(`Failed to write file: ${e instanceof Error ? e.message : e}`);
+        onDone(`Не вдалося записати файл: ${e instanceof Error ? e.message : e}`);
       }
     };
     t6 = function handleKeyDown(e_0) {
@@ -253,7 +253,7 @@ function CopyPicker(t0) {
   const handleKeyDown = t6;
   let t7;
   if ($[19] === Symbol.for("react.memo_cache_sentinel")) {
-    t7 = <Text dimColor={true}>Select content to copy:</Text>;
+    t7 = <Text dimColor={true}>Оберіть вміст для копіювання:</Text>;
     $[19] = t7;
   } else {
     t7 = $[19];
@@ -280,7 +280,7 @@ function CopyPicker(t0) {
   let t10;
   if ($[23] !== onDone) {
     t10 = () => {
-      onDone("Copy cancelled", {
+      onDone("Копіювання скасовано", {
         display: "system"
       });
     };
@@ -301,7 +301,7 @@ function CopyPicker(t0) {
   }
   let t12;
   if ($[29] === Symbol.for("react.memo_cache_sentinel")) {
-    t12 = <Text dimColor={true}><Byline><KeyboardShortcutHint shortcut="enter" action="copy" /><KeyboardShortcutHint shortcut="w" action="write to file" /><KeyboardShortcutHint shortcut="esc" action="cancel" /></Byline></Text>;
+    t12 = <Text dimColor={true}><Byline><KeyboardShortcutHint shortcut="enter" action="копіювати" /><KeyboardShortcutHint shortcut="w" action="записати у файл" /><KeyboardShortcutHint shortcut="esc" action="скасувати" /></Byline></Text>;
     $[29] = t12;
   } else {
     t12 = $[29];
@@ -328,13 +328,13 @@ function _temp(block, index) {
   return {
     label: truncateLine(block.code, 60),
     value: index,
-    description: [block.lang, blockLines > 1 ? `${blockLines} lines` : undefined].filter(Boolean).join(", ") || undefined
+    description: [block.lang, blockLines > 1 ? `${blockLines} рядків` : undefined].filter(Boolean).join(", ") || undefined
   };
 }
 export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   const texts = collectRecentAssistantTexts(context.messages);
   if (texts.length === 0) {
-    onDone('No assistant message to copy');
+    onDone('Немає повідомлень асистента для копіювання');
     return null;
   }
 
@@ -344,11 +344,11 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
   if (arg) {
     const n = Number(arg);
     if (!Number.isInteger(n) || n < 1) {
-      onDone(`Usage: /copy [N] where N is 1 (latest), 2, 3, \u2026 Got: ${arg}`);
+      onDone(`Використання: /copy [N] де N — це 1 (останнє), 2, 3, \u2026 Отримано: ${arg}`);
       return null;
     }
     if (n > texts.length) {
-      onDone(`Only ${texts.length} assistant ${texts.length === 1 ? 'message' : 'messages'} available to copy`);
+      onDone(`Доступно лише ${texts.length} повідомлень асистента для копіювання`);
       return null;
     }
     age = n - 1;

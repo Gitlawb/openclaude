@@ -15,7 +15,7 @@ import {
 } from '../../utils/file.js'
 import type { EditInput, FileEdit } from './types.js'
 
-// Claude can't output curly quotes, so we define them as constants here for Claude to use
+// Neural Network can't output curly quotes, so we define them as constants here for Neural Network to use
 // in the code. We do this because we normalize curly quotes to straight quotes
 // when applying edits.
 export const LEFT_SINGLE_CURLY_QUOTE = '‘'
@@ -524,8 +524,8 @@ export function getEditsForPatch(patch: StructuredPatchHunk[]): FileEdit[] {
 }
 
 /**
- * Contains replacements to de-sanitize strings from Claude
- * Since Claude can't see any of these strings (sanitized in the API)
+ * Contains replacements to de-sanitize strings from Neural Network
+ * Since Neural Network can't see any of these strings (sanitized in the API)
  * It'll output the sanitized versions in the edit response
  */
 const DESANITIZATIONS: Record<string, string> = {

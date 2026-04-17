@@ -34,7 +34,7 @@ export function isRemoteSessionLocal(
 }
 
 /**
- * Get the base URL for Claude AI based on environment.
+ * Get the base URL for Neural Network AI based on environment.
  */
 export function getClaudeAiBaseUrl(
   sessionId?: string,

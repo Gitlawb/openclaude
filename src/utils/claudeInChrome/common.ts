@@ -527,7 +527,7 @@ export function getAllSocketPaths(): string[] {
 }
 
 function getSocketName(): string {
-  // NOTE: This must match the one used in the Claude in Chrome MCP
+  // NOTE: This must match the one used in the Neural Network in Chrome MCP
   return `claude-mcp-browser-bridge-${getUsername()}`
 }
 

@@ -23,7 +23,7 @@ export function CreatingStep(t0) {
   const skipWorkflow = t1 === undefined ? false : t1;
   let t2;
   if ($[0] !== secretExists || $[1] !== secretName || $[2] !== selectedWorkflows || $[3] !== skipWorkflow || $[4] !== useExistingSecret) {
-    t2 = skipWorkflow ? ["Getting repository information", secretExists && useExistingSecret ? "Using existing API key secret" : `Setting up ${secretName} secret`] : ["Getting repository information", "Creating branch", selectedWorkflows.length > 1 ? "Creating workflow files" : "Creating workflow file", secretExists && useExistingSecret ? "Using existing API key secret" : `Setting up ${secretName} secret`, "Opening pull request page"];
+    t2 = skipWorkflow ? ["Отримання інформації про репозиторій", secretExists && useExistingSecret ? "Використовується наявний API ключ secret" : `Налаштовуємо ${secretName} secret`] : ["Отримання інформації про репозиторій", "Створення гілки", selectedWorkflows.length > 1 ? "Створення workflow файлів" : "Створення workflow файлу", secretExists && useExistingSecret ? "Використовується наявний API ключ secret" : `Налаштовуємо ${secretName} secret`, "Відкриваємо сторінку pull request"];
     $[0] = secretExists;
     $[1] = secretName;
     $[2] = selectedWorkflows;
@@ -36,7 +36,7 @@ export function CreatingStep(t0) {
   const progressSteps = t2;
   let t3;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>Install GitHub App</Text><Text dimColor={true}>Create GitHub Actions workflow</Text></Box>;
+    t3 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>Встановлення GitHub застосунку</Text><Text dimColor={true}>Створення GitHub Actions workflow</Text></Box>;
     $[6] = t3;
   } else {
     t3 = $[6];

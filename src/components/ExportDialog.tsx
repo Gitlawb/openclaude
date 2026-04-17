@@ -47,7 +47,7 @@ export function ExportDialog({
       if (raw) process.stdout.write(raw);
       onDone({
         success: true,
-        message: 'Conversation copied to clipboard'
+        message: 'Розмову скопійовано у буфер обміну'
       });
     } else if (value === 'file') {
       setSelectedOption('file');
@@ -64,12 +64,12 @@ export function ExportDialog({
       });
       onDone({
         success: true,
-        message: `Conversation exported to: ${filepath}`
+        message: `Розмову експортовано у: ${filepath}`
       });
     } catch (error) {
       onDone({
         success: false,
-        message: `Failed to export conversation: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Не вдалося експортувати розмову: ${error instanceof Error ? error.message : 'Невідома помилка'}`
       });
     }
   };
@@ -82,32 +82,32 @@ export function ExportDialog({
     } else {
       onDone({
         success: false,
-        message: 'Export cancelled'
+        message: 'Експорт скасовано'
       });
     }
   }, [showFilenameInput, handleGoBack, onDone]);
   const options = [{
-    label: 'Copy to clipboard',
+    label: 'Скопіювати у буфер обміну',
     value: 'clipboard',
-    description: 'Copy the conversation to your system clipboard'
+    description: 'Скопіювати розмову у системний буфер обміну'
   }, {
-    label: 'Save to file',
+    label: 'Зберегти у файл',
     value: 'file',
-    description: 'Save the conversation to a file in the current directory'
+    description: 'Зберегти розмову у файл в поточній директорії'
   }];
 
   // Custom input guide that changes based on dialog state
   function renderInputGuide(exitState: ExitState): React.ReactNode {
     if (showFilenameInput) {
       return <Byline>
-          <KeyboardShortcutHint shortcut="Enter" action="save" />
-          <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="go back" />
+          <KeyboardShortcutHint shortcut="Enter" action="зберегти" />
+          <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
         </Byline>;
     }
     if (exitState.pending) {
-      return <Text>Press {exitState.keyName} again to exit</Text>;
+      return <Text>Натисніть {exitState.keyName} ще раз для виходу</Text>;
     }
-    return <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />;
+    return <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="скасувати" />;
   }
 
   // Use Settings context so 'n' key doesn't cancel (allows typing 'n' in filename input)
@@ -115,9 +115,9 @@ export function ExportDialog({
     context: 'Settings',
     isActive: showFilenameInput
   });
-  return <Dialog title="Export Conversation" subtitle="Select export method:" color="permission" onCancel={handleCancel} inputGuide={renderInputGuide} isCancelActive={!showFilenameInput}>
+  return <Dialog title="Експорт розмови" subtitle="Оберіть спосіб експорту:" color="permission" onCancel={handleCancel} inputGuide={renderInputGuide} isCancelActive={!showFilenameInput}>
       {!showFilenameInput ? <Select options={options} onChange={handleSelectOption} onCancel={handleCancel} /> : <Box flexDirection="column">
-          <Text>Enter filename:</Text>
+          <Text>Введіть ім'я файлу:</Text>
           <Box flexDirection="row" gap={1} marginTop={1}>
             <Text>&gt;</Text>
             <TextInput value={filename} onChange={setFilename} onSubmit={handleFilenameSubmit} focus={true} showCursor={true} columns={columns} cursorOffset={cursorOffset} onChangeCursorOffset={setCursorOffset} />

@@ -7,7 +7,7 @@ const command: Command = {
   availability: ['claude-ai'],
   isEnabled: () => !getIsNonInteractiveSession(),
   type: 'local-jsx',
-  load: () => import('.Enable Chrome integration.js'),
+  load: () => import('./chrome.js'),
 }
 
 export default command

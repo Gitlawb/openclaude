@@ -12,8 +12,8 @@
  * relay content. Servers opt in by declaring
  * capabilities.experimental['claude/channel/permission'].
  *
- * Kenneth's "would this let Claude self-approve?": the approving party is
- * the human via the channel, not Claude. But the trust boundary isn't the
+ * Kenneth's "would this let Neural Network self-approve?": the approving party is
+ * the human via the channel, not Neural Network. But the trust boundary isn't the
  * terminal — it's the allowlist (tengu_harbor_ledger). A compromised
  * channel server CAN fabricate "yes <id>" without the human seeing the
  * prompt. Accepted risk: a compromised channel already has unlimited
@@ -195,7 +195,7 @@ export function filterPermissionRelayClients<
 
 /**
  * Factory for the callbacks object. The pending Map is closed over — NOT
- * module-level (per src/CLAUDE.md), NOT in AppState (functions-in-state
+ * module-level (per src/NNC.md), NOT in AppState (functions-in-state
  * causes issues with equality/serialization). Same lifetime pattern as
  * `replBridgePermissionCallbacks`: constructed once per session inside
  * a React hook, stable reference stored in AppState.

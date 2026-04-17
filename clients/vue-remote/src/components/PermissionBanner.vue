@@ -149,16 +149,24 @@ const inputText = computed(() => {
 
 <style scoped>
 .banner {
-  margin: 6px 8px 0 8px;
-  padding: 10px 12px 12px 12px;
-  border-radius: 0;
+  margin: 8px 10px 0 10px;
+  margin-left: max(10px, env(safe-area-inset-left));
+  margin-right: max(10px, env(safe-area-inset-right));
+  padding: 12px 14px 14px 14px;
+  border-radius: var(--radius);
   background: var(--bg-elev);
   border: 1px solid var(--warning);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   position: relative;
-  animation: slide-in 0.18s ease-out;
+  animation: slide-in 0.2s ease-out;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  box-shadow: var(--shadow-md);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* TUI-style title tag on the top border */
@@ -265,26 +273,34 @@ const inputText = computed(() => {
 .option {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   background: transparent;
   border: 1px solid var(--border);
   color: var(--fg);
   font: inherit;
   font-size: var(--font-size-sm);
-  padding: 6px 10px;
+  padding: 8px 12px;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.1s, background 0.1s;
-  border-radius: 0;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  border-radius: var(--radius-sm);
   min-height: 44px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 .option:hover {
   border-color: var(--accent-dim);
   background: var(--bg-chip);
 }
+.option:active {
+  transform: scale(0.99);
+}
 .option.selected {
   border-color: var(--accent-dim);
-  background: rgba(177, 185, 249, 0.08);
+  background: rgba(177, 185, 249, 0.1);
   color: var(--accent-dim);
 }
 
@@ -320,22 +336,26 @@ const inputText = computed(() => {
 
 .actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   justify-content: flex-end;
-  margin-top: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 button {
   /* 44px min-height satisfies Apple HIG touch target guidelines */
   min-height: 44px;
-  padding: 8px 20px;
-  border-radius: 0;
+  padding: 8px 22px;
+  border-radius: var(--radius);
   font: inherit;
   font-weight: 600;
   font-size: var(--font-size-base);
   cursor: pointer;
   background: transparent;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+  flex: 1 1 auto;
+  min-width: 100px;
 }
 
 .allow {
@@ -345,6 +365,10 @@ button {
 .allow:hover:not(:disabled) {
   background: var(--success);
   color: var(--bg);
+  box-shadow: 0 4px 12px rgba(78, 186, 101, 0.25);
+}
+.allow:active:not(:disabled) {
+  transform: scale(0.985);
 }
 .allow:disabled {
   opacity: 0.35;
@@ -357,5 +381,9 @@ button {
 .deny:hover {
   background: var(--danger);
   color: var(--bg);
+  box-shadow: 0 4px 12px rgba(255, 107, 128, 0.25);
+}
+.deny:active {
+  transform: scale(0.985);
 }
 </style>

@@ -234,7 +234,7 @@ export function BrowseMarketplace({
           }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load marketplaces');
+        setError(err instanceof Error ? err.message : 'Не вдалося завантажити marketplaces');
       } finally {
         setLoading(false);
       }
@@ -299,7 +299,7 @@ export function BrowseMarketplace({
         setSelectedForInstall(new Set());
       } catch (err_0) {
         if (cancelled) return;
-        setError(err_0 instanceof Error ? err_0.message : 'Failed to load plugins');
+        setError(err_0 instanceof Error ? err_0.message : 'Не вдалося завантажити плагіни');
       } finally {
         setLoading(false);
       }
@@ -567,7 +567,7 @@ export function BrowseMarketplace({
 
   // Loading state
   if (loading) {
-    return <Text>Loading…</Text>;
+    return <Text>Завантаження…</Text>;
   }
 
   // Error state
@@ -580,22 +580,22 @@ export function BrowseMarketplace({
     if (marketplaces.length === 0) {
       return <Box flexDirection="column">
           <Box marginBottom={1}>
-            <Text bold>Select marketplace</Text>
+            <Text bold>Оберіть marketplace</Text>
           </Box>
-          <Text>No marketplaces configured.</Text>
+          <Text>Marketplaces не налаштовано.</Text>
           <Text dimColor>
-            Add a marketplace first using {"'Add marketplace'"}.
+            Спочатку додайте marketplace через {"'Додати marketplace'"}.
           </Text>
           <Box marginTop={1} paddingLeft={1}>
             <Text dimColor>
-              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="go back" />
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
             </Text>
           </Box>
         </Box>;
     }
     return <Box flexDirection="column">
         <Box marginBottom={1}>
-          <Text bold>Select marketplace</Text>
+          <Text bold>Оберіть marketplace</Text>
         </Box>
 
         {/* Warning banner for marketplace load failures */}
@@ -613,9 +613,8 @@ export function BrowseMarketplace({
             </Box>
             <Box marginLeft={2}>
               <Text dimColor>
-                {marketplace_3.totalPlugins}{' '}
-                {plural(marketplace_3.totalPlugins, 'plugin')} available
-                {marketplace_3.installedCount > 0 && ` · ${marketplace_3.installedCount} already installed`}
+                Доступно {marketplace_3.totalPlugins} плагін(ів)
+                {marketplace_3.installedCount > 0 && ` · вже встановлено ${marketplace_3.installedCount}`}
                 {marketplace_3.source && ` · ${marketplace_3.source}`}
               </Text>
             </Box>
@@ -624,8 +623,8 @@ export function BrowseMarketplace({
         <Box marginTop={1}>
           <Text dimColor italic>
             <Byline>
-              <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="select" />
-              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="go back" />
+              <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="обрати" />
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
             </Byline>
           </Text>
         </Box>
@@ -639,19 +638,19 @@ export function BrowseMarketplace({
     const menuOptions = buildPluginDetailsMenuOptions(hasHomepage_1, githubRepo_1);
     return <Box flexDirection="column">
         <Box marginBottom={1}>
-          <Text bold>Plugin Details</Text>
+          <Text bold>Деталі плагіна</Text>
         </Box>
 
         {/* Plugin metadata */}
         <Box flexDirection="column" marginBottom={1}>
           <Text bold>{selectedPlugin.entry.name}</Text>
-          {selectedPlugin.entry.version && <Text dimColor>Version: {selectedPlugin.entry.version}</Text>}
+          {selectedPlugin.entry.version && <Text dimColor>Версія: {selectedPlugin.entry.version}</Text>}
           {selectedPlugin.entry.description && <Box marginTop={1}>
               <Text>{selectedPlugin.entry.description}</Text>
             </Box>}
           {selectedPlugin.entry.author && <Box marginTop={1}>
               <Text dimColor>
-                By:{' '}
+                Автор:{' '}
                 {typeof selectedPlugin.entry.author === 'string' ? selectedPlugin.entry.author : selectedPlugin.entry.author.name}
               </Text>
             </Box>}
@@ -659,25 +658,25 @@ export function BrowseMarketplace({
 
         {/* What will be installed */}
         <Box flexDirection="column" marginBottom={1}>
-          <Text bold>Will install:</Text>
+          <Text bold>Буде встановлено:</Text>
           {selectedPlugin.entry.commands && <Text dimColor>
-              · Commands:{' '}
+              · Команди:{' '}
               {Array.isArray(selectedPlugin.entry.commands) ? selectedPlugin.entry.commands.join(', ') : Object.keys(selectedPlugin.entry.commands).join(', ')}
             </Text>}
           {selectedPlugin.entry.agents && <Text dimColor>
-              · Agents:{' '}
+              · Агенти:{' '}
               {Array.isArray(selectedPlugin.entry.agents) ? selectedPlugin.entry.agents.join(', ') : Object.keys(selectedPlugin.entry.agents).join(', ')}
             </Text>}
           {selectedPlugin.entry.hooks && <Text dimColor>
-              · Hooks: {Object.keys(selectedPlugin.entry.hooks).join(', ')}
+              · Хуки: {Object.keys(selectedPlugin.entry.hooks).join(', ')}
             </Text>}
           {selectedPlugin.entry.mcpServers && <Text dimColor>
-              · MCP Servers:{' '}
-              {Array.isArray(selectedPlugin.entry.mcpServers) ? selectedPlugin.entry.mcpServers.join(', ') : typeof selectedPlugin.entry.mcpServers === 'object' ? Object.keys(selectedPlugin.entry.mcpServers).join(', ') : 'configured'}
+              · MCP сервери:{' '}
+              {Array.isArray(selectedPlugin.entry.mcpServers) ? selectedPlugin.entry.mcpServers.join(', ') : typeof selectedPlugin.entry.mcpServers === 'object' ? Object.keys(selectedPlugin.entry.mcpServers).join(', ') : 'налаштовано'}
             </Text>}
           {!selectedPlugin.entry.commands && !selectedPlugin.entry.agents && !selectedPlugin.entry.hooks && !selectedPlugin.entry.mcpServers && <>
                 {typeof selectedPlugin.entry.source === 'object' && 'source' in selectedPlugin.entry.source && (selectedPlugin.entry.source.source === 'github' || selectedPlugin.entry.source.source === 'url' || selectedPlugin.entry.source.source === 'npm' || selectedPlugin.entry.source.source === 'pip') ? <Text dimColor>
-                    · Component summary not available for remote plugin
+                    · Перелік компонентів недоступний для віддаленого плагіна
                   </Text> :
           // TODO: Actually scan local plugin directories to show real components
           // This would require accessing the filesystem to check for:
@@ -686,7 +685,7 @@ export function BrowseMarketplace({
           // - hooks/ directory and list files
           // - .mcp.json or mcp-servers.json files
           <Text dimColor>
-                    · Components will be discovered at installation
+                    · Компоненти будуть знайдені під час встановлення
                   </Text>}
               </>}
         </Box>
@@ -695,7 +694,7 @@ export function BrowseMarketplace({
 
         {/* Error message */}
         {installError && <Box marginBottom={1}>
-            <Text color="error">Error: {installError}</Text>
+            <Text color="error">Помилка: {installError}</Text>
           </Box>}
 
         {/* Menu options */}
@@ -704,7 +703,7 @@ export function BrowseMarketplace({
               {detailsMenuIndex === index_0 && <Text>{'> '}</Text>}
               {detailsMenuIndex !== index_0 && <Text>{'  '}</Text>}
               <Text bold={detailsMenuIndex === index_0}>
-                {isInstalling && option.action === 'install' ? 'Installing…' : option.label}
+                {isInstalling && option.action === 'install' ? 'Встановлюється…' : option.label}
               </Text>
             </Box>)}
         </Box>
@@ -712,8 +711,8 @@ export function BrowseMarketplace({
         <Box marginTop={1} paddingLeft={1}>
           <Text dimColor>
             <Byline>
-              <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="select" />
-              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="back" />
+              <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="обрати" />
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
             </Byline>
           </Text>
         </Box>
@@ -724,15 +723,15 @@ export function BrowseMarketplace({
   if (availablePlugins.length === 0) {
     return <Box flexDirection="column">
         <Box marginBottom={1}>
-          <Text bold>Install plugins</Text>
+          <Text bold>Встановлення плагінів</Text>
         </Box>
-        <Text dimColor>No new plugins available to install.</Text>
+        <Text dimColor>Немає нових плагінів для встановлення.</Text>
         <Text dimColor>
-          All plugins from this marketplace are already installed.
+          Усі плагіни з цього marketplace уже встановлено.
         </Text>
         <Box marginLeft={3}>
           <Text dimColor italic>
-            <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="go back" />
+            <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
           </Text>
         </Box>
       </Box>;
@@ -742,12 +741,12 @@ export function BrowseMarketplace({
   const visiblePlugins = pagination.getVisibleItems(availablePlugins);
   return <Box flexDirection="column">
       <Box marginBottom={1}>
-        <Text bold>Install Plugins</Text>
+        <Text bold>Встановлення плагінів</Text>
       </Box>
 
       {/* Scroll up indicator */}
       {pagination.scrollPosition.canScrollUp && <Box>
-          <Text dimColor> {figures.arrowUp} more above</Text>
+          <Text dimColor> {figures.arrowUp} більше вище</Text>
         </Box>}
 
       {/* Plugin list */}

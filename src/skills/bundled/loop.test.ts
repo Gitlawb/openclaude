@@ -18,7 +18,7 @@ test('bare /loop returns dynamic maintenance instructions', async () => {
   const text = (blocks[0] as { text: string }).text
 
   expect(text).toContain('# /loop — dynamic rescheduling')
-  expect(text).toContain('If .claude/loop.md exists, read it and use it.')
+  expect(text).toContain('If .nnc/loop.md exists, read it and use it.')
   expect(text).toContain('continue any unfinished work from the conversation')
   expect(text).toContain('Set the scheduled prompt to this exact text so the next iteration stays in dynamic mode:')
   expect(text).toContain('/loop')

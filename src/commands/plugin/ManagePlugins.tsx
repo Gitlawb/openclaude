@@ -333,8 +333,8 @@ function PluginComponentsDisplay({
   }
   if (error) {
     return <Box flexDirection="column" marginBottom={1}>
-        <Text bold>Components:</Text>
-        <Text dimColor>Error: {error}</Text>
+        <Text bold>Компоненти:</Text>
+        <Text dimColor>Помилка: {error}</Text>
       </Box>;
   }
   if (!components) {
@@ -345,25 +345,25 @@ function PluginComponentsDisplay({
     return null; // No components defined
   }
   return <Box flexDirection="column" marginBottom={1}>
-      <Text bold>Installed components:</Text>
+      <Text bold>Встановлені компоненти:</Text>
       {components.commands ? <Text dimColor>
-          • Commands:{' '}
+          • Команди:{' '}
           {typeof components.commands === 'string' ? components.commands : Array.isArray(components.commands) ? components.commands.join(', ') : Object.keys(components.commands).join(', ')}
         </Text> : null}
       {components.agents ? <Text dimColor>
-          • Agents:{' '}
+          • Агенти:{' '}
           {typeof components.agents === 'string' ? components.agents : Array.isArray(components.agents) ? components.agents.join(', ') : Object.keys(components.agents).join(', ')}
         </Text> : null}
       {components.skills ? <Text dimColor>
-          • Skills:{' '}
+          • Навички:{' '}
           {typeof components.skills === 'string' ? components.skills : Array.isArray(components.skills) ? components.skills.join(', ') : Object.keys(components.skills).join(', ')}
         </Text> : null}
       {components.hooks ? <Text dimColor>
-          • Hooks:{' '}
+          • Хуки:{' '}
           {typeof components.hooks === 'string' ? components.hooks : Array.isArray(components.hooks) ? components.hooks.map(String).join(', ') : typeof components.hooks === 'object' && components.hooks !== null ? Object.keys(components.hooks).join(', ') : String(components.hooks)}
         </Text> : null}
       {components.mcpServers ? <Text dimColor>
-          • MCP Servers:{' '}
+          • MCP сервери:{' '}
           {typeof components.mcpServers === 'string' ? components.mcpServers : Array.isArray(components.mcpServers) ? components.mcpServers.map(String).join(', ') : typeof components.mcpServers === 'object' && components.mcpServers !== null ? Object.keys(components.mcpServers).join(', ') : String(components.mcpServers)}
         </Text> : null}
     </Box>;
@@ -377,7 +377,7 @@ async function checkIfLocalPlugin(pluginName: string, marketplaceName: string): 
   const marketplace = await getMarketplace(marketplaceName);
   const entry = marketplace?.plugins.find(p => p.name === pluginName);
   if (entry && typeof entry.source === 'string') {
-    return `Local plugins cannot be updated remotely. To update, modify the source at: ${entry.source}`;
+    return `Локальні плагіни не можна оновлювати віддалено. Щоб оновити, змініть джерело: ${entry.source}`;
   }
   return null;
 }
@@ -468,7 +468,7 @@ export function ManagePlugins({
       // User can configure later via the Configure options menu if they want.
       setViewState('plugin-list');
       setSelectedPlugin(null);
-      setResult('Plugin enabled. Configuration skipped — run /reload-plugins to apply.');
+      setResult('Плагін увімкнено. Конфігурацію пропущено — запустіть /reload-plugins, щоб застосувати.');
       if (onManageComplete) {
         void onManageComplete();
       }
@@ -490,7 +490,7 @@ export function ManagePlugins({
       });
     } else {
       if (pendingToggles.size > 0) {
-        setResult('Run /reload-plugins to apply plugin changes.');
+        setResult('Запустіть /reload-plugins, щоб застосувати зміни плагінів.');
         return;
       }
       setParentViewState({
@@ -837,7 +837,7 @@ export function ManagePlugins({
       if (!hasMcpb) {
         try {
           const marketplaceDir = path.join(selectedPlugin!.plugin.path, '..');
-          const marketplaceJsonPath = path.join(marketplaceDir, '.claude-plugin', 'marketplace.json');
+          const marketplaceJsonPath = path.join(marketplaceDir, '.nnc-plugin', 'marketplace.json');
           const content = await fs.readFile(marketplaceJsonPath, 'utf-8');
           const marketplace_1 = jsonParse(content);
           const entry_0 = marketplace_1.plugins?.find((p: {
@@ -989,7 +989,7 @@ export function ManagePlugins({
       // plain navigation (/plugin manage) should still just show the list.
       if (!hasAutoNavigated.current && action) {
         hasAutoNavigated.current = true;
-        setResult(`Plugin "${targetPlugin}" is not installed in this project`);
+        setResult(`Плагін "${targetPlugin}" не встановлено у цьому проєкті`);
       }
     }
   }, [targetPlugin, targetMarketplace, marketplaces, loading, unifiedItems, action, setResult]);
@@ -1043,7 +1043,7 @@ export function ManagePlugins({
           {
             if (isBuiltin) break; // guarded above; narrows pluginScope
             if (!isInstallableScope(pluginScope)) break;
-            // If the plugin is enabled in .claude/settings.json (shared with the
+            // If the plugin is enabled in .nnc/settings.json (shared with the
             // team), divert to a confirmation dialog that offers to disable in
             // settings.local.json instead. Check the settings file directly —
             // `pluginScope` (from installed_plugins.json) can be 'user' even when
@@ -1337,7 +1337,7 @@ export function ManagePlugins({
       });
       if (selectedPluginHasMcpb) {
         menuItems.push({
-          label: 'Configure',
+          label: 'Налаштувати',
           action: async () => {
             setIsLoadingConfig(true);
             try {
@@ -1354,7 +1354,7 @@ export function ManagePlugins({
                 }
               }
               if (!mcpbPath) {
-                setProcessError('No MCPB file found in plugin');
+                setProcessError('MCPB файл не знайдено у плагіні');
                 setIsLoadingConfig(false);
                 return;
               }
@@ -1364,11 +1364,11 @@ export function ManagePlugins({
                 setConfigNeeded(result_1);
                 setViewState('configuring');
               } else {
-                setProcessError('Failed to load MCPB for configuration');
+                setProcessError('Не вдалося завантажити MCPB для конфігурації');
               }
             } catch (err_2) {
               const errorMsg = errorMessage(err_2);
-              setProcessError(`Failed to load configuration: ${errorMsg}`);
+              setProcessError(`Не вдалося завантажити конфігурацію: ${errorMsg}`);
             } finally {
               setIsLoadingConfig(false);
             }
@@ -1377,7 +1377,7 @@ export function ManagePlugins({
       }
       if (selectedPlugin.plugin.manifest.userConfig && Object.keys(selectedPlugin.plugin.manifest.userConfig).length > 0) {
         menuItems.push({
-          label: 'Configure options',
+          label: 'Налаштувати опції',
           action: () => {
             setViewState({
               type: 'configuring-options',
@@ -1387,17 +1387,17 @@ export function ManagePlugins({
         });
       }
       menuItems.push({
-        label: 'Update now',
+        label: 'Оновити зараз',
         action: () => void handleSingleOperation('update')
       });
       menuItems.push({
-        label: 'Uninstall',
+        label: 'Видалити',
         action: () => void handleSingleOperation('uninstall')
       });
     }
     if (selectedPlugin.plugin.manifest.homepage) {
       menuItems.push({
-        label: 'Open homepage',
+        label: 'Відкрити домашню сторінку',
         action: () => void openBrowser(selectedPlugin.plugin.manifest.homepage!)
       });
     }
@@ -1406,12 +1406,12 @@ export function ManagePlugins({
         // Generic label — manifest.repository can be GitLab, Bitbucket,
         // Azure DevOps, etc. (gh-31598). pluginDetailsHelpers.tsx:74 keeps
         // 'View on GitHub' because that path has an explicit isGitHub check.
-        label: 'View repository',
+        label: 'Перейти до репозиторію',
         action: () => void openBrowser(selectedPlugin.plugin.manifest.repository!)
       });
     }
     menuItems.push({
-      label: 'Back to plugin list',
+      label: 'Назад до списку плагінів',
       action: () => {
         setViewState('plugin-list');
         setSelectedPlugin(null);
@@ -1523,7 +1523,7 @@ export function ManagePlugins({
         return;
       }
       clearAllCaches();
-      setResult(`✓ Disabled ${selectedPlugin.plugin.name} in .claude/settings.local.json. Run /reload-plugins to apply.`);
+      setResult(`✓ Вимкнено ${selectedPlugin.plugin.name} у .nnc/settings.local.json. Запустіть /reload-plugins, щоб застосувати зміни.`);
       if (onManageComplete) void onManageComplete();
       setParentViewState({
         type: 'menu'
@@ -1613,18 +1613,18 @@ export function ManagePlugins({
 
   // Loading state
   if (loading) {
-    return <Text>Loading installed plugins…</Text>;
+    return <Text>Завантаження встановлених плагінів…</Text>;
   }
 
   // No plugins or MCPs installed
   if (unifiedItems.length === 0) {
     return <Box flexDirection="column">
         <Box marginBottom={1}>
-          <Text bold>Manage plugins</Text>
+          <Text bold>Керування плагінами</Text>
         </Box>
-        <Text>No plugins or MCP servers installed.</Text>
+        <Text>Плагінів або MCP серверів не встановлено.</Text>
         <Box marginTop={1}>
-          <Text dimColor>Esc to go back</Text>
+          <Text dimColor>Esc — назад</Text>
         </Box>
       </Box>;
   }
@@ -1645,13 +1645,13 @@ export function ManagePlugins({
     return <PluginOptionsFlow plugin={selectedPlugin.plugin} pluginId={pluginId_10} onDone={(outcome, detail) => {
       switch (outcome) {
         case 'configured':
-          finish(`✓ Enabled and configured ${selectedPlugin.plugin.name}. Run /reload-plugins to apply.`);
+          finish(`✓ Увімкнено та налаштовано ${selectedPlugin.plugin.name}. Запустіть /reload-plugins, щоб застосувати.`);
           break;
         case 'skipped':
-          finish(`✓ Enabled ${selectedPlugin.plugin.name}. Run /reload-plugins to apply.`);
+          finish(`✓ Увімкнено ${selectedPlugin.plugin.name}. Запустіть /reload-plugins, щоб застосувати.`);
           break;
         case 'error':
-          finish(`Failed to save configuration: ${detail}`);
+          finish(`Не вдалося зберегти конфігурацію: ${detail}`);
           break;
       }
     }} />;
@@ -1660,13 +1660,13 @@ export function ManagePlugins({
   // Configure options (from the Manage menu)
   if (typeof viewState === 'object' && viewState.type === 'configuring-options' && selectedPlugin) {
     const pluginId_11 = `${selectedPlugin.plugin.name}@${selectedPlugin.marketplace}`;
-    return <PluginOptionsDialog title={`Configure ${selectedPlugin.plugin.name}`} subtitle="Plugin options" configSchema={viewState.schema} initialValues={loadPluginOptions(pluginId_11)} onSave={values => {
+    return <PluginOptionsDialog title={`Налаштувати ${selectedPlugin.plugin.name}`} subtitle="Опції плагіна" configSchema={viewState.schema} initialValues={loadPluginOptions(pluginId_11)} onSave={values => {
       try {
         savePluginOptions(pluginId_11, values, viewState.schema);
         clearAllCaches();
-        setResult('Configuration saved. Run /reload-plugins for changes to take effect.');
+        setResult('Конфігурацію збережено. Запустіть /reload-plugins, щоб застосувати зміни.');
       } catch (err_3) {
-        setProcessError(`Failed to save configuration: ${errorMessage(err_3)}`);
+        setProcessError(`Не вдалося зберегти конфігурацію: ${errorMessage(err_3)}`);
       }
       setViewState('plugin-details');
     }} onCancel={() => setViewState('plugin-details')} />;
@@ -1692,7 +1692,7 @@ export function ManagePlugins({
           }
         }
         if (!mcpbPath_0) {
-          setProcessError('No MCPB file found');
+          setProcessError('MCPB файл не знайдено');
           setViewState('plugin-details');
           return;
         }
@@ -1704,10 +1704,10 @@ export function ManagePlugins({
         setProcessError(null);
         setConfigNeeded(null);
         setViewState('plugin-details');
-        setResult('Configuration saved. Run /reload-plugins for changes to take effect.');
+        setResult('Конфігурацію збережено. Запустіть /reload-plugins, щоб застосувати зміни.');
       } catch (err_4) {
         const errorMsg_0 = errorMessage(err_4);
-        setProcessError(`Failed to save configuration: ${errorMsg_0}`);
+        setProcessError(`Не вдалося зберегти конфігурацію: ${errorMsg_0}`);
         setViewState('plugin-details');
       }
     }
@@ -1715,7 +1715,7 @@ export function ManagePlugins({
       setConfigNeeded(null);
       setViewState('plugin-details');
     }
-    return <PluginOptionsDialog title={`Configure ${configNeeded.manifest.name}`} subtitle={`Plugin: ${selectedPlugin.plugin.name}`} configSchema={configNeeded.configSchema} initialValues={configNeeded.existingConfig} onSave={handleSave} onCancel={handleCancel} />;
+    return <PluginOptionsDialog title={`Налаштувати ${configNeeded.manifest.name}`} subtitle={`Плагін: ${selectedPlugin.plugin.name}`} configSchema={configNeeded.configSchema} initialValues={configNeeded.existingConfig} onSave={handleSave} onCancel={handleCancel} />;
   }
 
   // Flagged plugin detail view
@@ -1729,56 +1729,56 @@ export function ManagePlugins({
         </Box>
 
         <Box marginBottom={1}>
-          <Text dimColor>Status: </Text>
-          <Text color="error">Removed</Text>
+          <Text dimColor>Статус: </Text>
+          <Text color="error">Видалено</Text>
         </Box>
 
         <Box marginBottom={1} flexDirection="column">
           <Text color="error">
-            Removed from marketplace · reason: {fp.reason}
+            Видалено з marketplace · причина: {fp.reason}
           </Text>
           <Text>{fp.text}</Text>
           <Text dimColor>
-            Flagged on {new Date(fp.flaggedAt).toLocaleDateString()}
+            Позначено {new Date(fp.flaggedAt).toLocaleDateString()}
           </Text>
         </Box>
 
         <Box marginTop={1} flexDirection="column">
           <Box>
             <Text>{figures.pointer} </Text>
-            <Text color="suggestion">Dismiss</Text>
+            <Text color="suggestion">Закрити</Text>
           </Box>
         </Box>
 
         <Byline>
-          <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="dismiss" />
-          <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="back" />
+          <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="закрити" />
+          <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
         </Byline>
       </Box>;
   }
 
-  // Confirm-project-uninstall: warn about shared .claude/settings.json,
+  // Confirm-project-uninstall: warn about shared .nnc/settings.json,
   // offer to disable in settings.local.json instead.
   if (viewState === 'confirm-project-uninstall' && selectedPlugin) {
     return <Box flexDirection="column">
         <Text bold color="warning">
-          {selectedPlugin.plugin.name} is enabled in .claude/settings.json
-          (shared with your team)
+          {selectedPlugin.plugin.name} увімкнено в .nnc/settings.json
+          (спільно для вашої команди)
         </Text>
         <Box marginTop={1} flexDirection="column">
-          <Text>Disable it just for you in .claude/settings.local.json?</Text>
+          <Text>Вимкнути лише для вас у .nnc/settings.local.json?</Text>
           <Text dimColor>
-            This has the same effect as uninstalling, without affecting other
-            contributors.
+            Це має той самий ефект, що й видалення, але не впливає на інших
+            учасників.
           </Text>
         </Box>
         {processError && <Box marginTop={1}>
             <Text color="error">{processError}</Text>
           </Box>}
         <Box marginTop={1}>
-          {isProcessing ? <Text dimColor>Disabling…</Text> : <Byline>
-              <ConfigurableShortcutHint action="confirm:yes" context="Confirmation" fallback="y" description="disable" />
-              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
+          {isProcessing ? <Text dimColor>Вимикаю…</Text> : <Byline>
+              <ConfigurableShortcutHint action="confirm:yes" context="Confirmation" fallback="y" description="вимкнути" />
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="скасувати" />
             </Byline>}
         </Box>
       </Box>;
@@ -1788,11 +1788,11 @@ export function ManagePlugins({
   if (typeof viewState === 'object' && viewState.type === 'confirm-data-cleanup' && selectedPlugin) {
     return <Box flexDirection="column">
         <Text bold>
-          {selectedPlugin.plugin.name} has {viewState.size.human} of persistent
-          data
+          {selectedPlugin.plugin.name} має {viewState.size.human} постійних
+          даних
         </Text>
         <Box marginTop={1} flexDirection="column">
-          <Text>Delete it along with the plugin?</Text>
+          <Text>Видалити їх разом із плагіном?</Text>
           <Text dimColor>
             {pluginDataDirPath(`${selectedPlugin.plugin.name}@${selectedPlugin.marketplace}`)}
           </Text>
@@ -1801,9 +1801,9 @@ export function ManagePlugins({
             <Text color="error">{processError}</Text>
           </Box>}
         <Box marginTop={1}>
-          {isProcessing ? <Text dimColor>Uninstalling…</Text> : <Text>
-              <Text bold>y</Text> to delete · <Text bold>n</Text> to keep ·{' '}
-              <Text bold>esc</Text> to cancel
+          {isProcessing ? <Text dimColor>Видалення…</Text> : <Text>
+              <Text bold>y</Text> — видалити · <Text bold>n</Text> — залишити ·{' '}
+              <Text bold>esc</Text> — скасувати
             </Text>}
         </Box>
       </Box>;
@@ -1841,13 +1841,13 @@ export function ManagePlugins({
 
         {/* Scope */}
         <Box>
-          <Text dimColor>Scope: </Text>
+          <Text dimColor>Область: </Text>
           <Text>{selectedPlugin.scope || 'user'}</Text>
         </Box>
 
         {/* Plugin details */}
         {selectedPlugin.plugin.manifest.version && <Box>
-            <Text dimColor>Version: </Text>
+            <Text dimColor>Версія: </Text>
             <Text>{selectedPlugin.plugin.manifest.version}</Text>
           </Box>}
 
@@ -1856,17 +1856,17 @@ export function ManagePlugins({
           </Box>}
 
         {selectedPlugin.plugin.manifest.author && <Box>
-            <Text dimColor>Author: </Text>
+            <Text dimColor>Автор: </Text>
             <Text>{selectedPlugin.plugin.manifest.author.name}</Text>
           </Box>}
 
         {/* Current status */}
         <Box marginBottom={1}>
-          <Text dimColor>Status: </Text>
+          <Text dimColor>Статус: </Text>
           <Text color={isEnabled_2 ? 'success' : 'warning'}>
-            {isEnabled_2 ? 'Enabled' : 'Disabled'}
+            {isEnabled_2 ? 'Увімкнено' : 'Вимкнено'}
           </Text>
-          {selectedPlugin.pendingUpdate && <Text color="suggestion"> · Marked for update</Text>}
+          {selectedPlugin.pendingUpdate && <Text color="suggestion"> · Позначено для оновлення</Text>}
         </Box>
 
         {/* Installed components */}
@@ -1891,7 +1891,7 @@ export function ManagePlugins({
 
         {/* Processing state */}
         {isProcessing && <Box marginTop={1}>
-            <Text>Processing…</Text>
+            <Text>Обробка…</Text>
           </Box>}
 
         {/* Error message */}
@@ -1902,9 +1902,9 @@ export function ManagePlugins({
         <Box marginTop={1}>
           <Text dimColor italic>
             <Byline>
-              <ConfigurableShortcutHint action="select:previous" context="Select" fallback="↑" description="navigate" />
-              <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="select" />
-              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="back" />
+              <ConfigurableShortcutHint action="select:previous" context="Select" fallback="↑" description="навігація" />
+              <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="обрати" />
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
             </Byline>
           </Text>
         </Box>
@@ -1915,7 +1915,7 @@ export function ManagePlugins({
   if (typeof viewState === 'object' && viewState.type === 'failed-plugin-details') {
     const failedPlugin_0 = viewState.plugin;
     const firstError = failedPlugin_0.errors[0];
-    const errorMessage_0 = firstError ? formatErrorMessage(firstError) : 'Failed to load';
+    const errorMessage_0 = firstError ? formatErrorMessage(firstError) : 'Не вдалося завантажити';
     return <Box flexDirection="column">
         <Text>
           <Text bold>{failedPlugin_0.name}</Text>
@@ -1926,21 +1926,21 @@ export function ManagePlugins({
 
         {failedPlugin_0.scope === 'managed' ? <Box marginTop={1}>
             <Text dimColor>
-              Managed by your organization — contact your admin
+              Керується вашою організацією — зверніться до адміністратора
             </Text>
           </Box> : <Box marginTop={1}>
             <Text color="suggestion">{figures.pointer} </Text>
-            <Text bold>Remove</Text>
+            <Text bold>Видалити</Text>
           </Box>}
 
-        {isProcessing && <Text>Processing…</Text>}
+        {isProcessing && <Text>Обробка…</Text>}
         {processError && <Text color="error">{processError}</Text>}
 
         <Box marginTop={1}>
           <Text dimColor italic>
             <Byline>
-              {failedPlugin_0.scope !== 'managed' && <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="remove" />}
-              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="back" />
+              {failedPlugin_0.scope !== 'managed' && <ConfigurableShortcutHint action="select:accept" context="Select" fallback="Enter" description="видалити" />}
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="назад" />
             </Byline>
           </Text>
         </Box>
@@ -2137,7 +2137,7 @@ export function ManagePlugins({
 
       {/* No search results */}
       {filteredItems.length === 0 && searchQuery && <Box marginBottom={1}>
-          <Text dimColor>No items match &quot;{searchQuery}&quot;</Text>
+          <Text dimColor>Жоден елемент не відповідає &quot;{searchQuery}&quot;</Text>
         </Box>}
 
       {/* Scroll up indicator */}

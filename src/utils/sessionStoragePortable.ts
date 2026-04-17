@@ -3,7 +3,7 @@
  *
  * Pure Node.js — no internal dependencies on logging, experiments, or feature
  * flags. Shared between the CLI (src/utils/sessionStorage.ts) and the VS Code
- * extension (packages/claude-vscode/src/common-host/sessionStorage.ts).
+ * extension (packages/nnc-vscode/src/common-host/sessionStorage.ts).
  */
 
 import type { UUID } from 'crypto'
@@ -387,7 +387,7 @@ export async function findProjectDir(
  * to sibling git worktrees. `projectPath` in the result is the canonical
  * user-facing directory the file was found under.
  *
- * When `dir` is omitted: scan all project directories under ~/.claude/projects/.
+ * When `dir` is omitted: scan all project directories under ~/.nnc/projects/.
  * `projectPath` is undefined in this case (no meaningful project path to report).
  *
  * Existence is checked by stat (operate-then-catch-ENOENT, no existsSync).

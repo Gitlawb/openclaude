@@ -56,7 +56,7 @@ export type RemoteSessionConfig = {
   /**
    * When true, this client is a pure viewer. Ctrl+C/Escape do NOT send
    * interrupt to the remote agent; 60s reconnect timeout is disabled;
-   * session title is never updated. Used by `claude assistant`.
+   * session title is never updated. Used by `nnc assistant`.
    */
   viewerOnly?: boolean
 }

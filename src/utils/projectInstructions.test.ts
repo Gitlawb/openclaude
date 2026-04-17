@@ -12,7 +12,7 @@ import {
 } from './projectInstructions.js'
 
 describe('projectInstructions', () => {
-  test('prefers AGENTS.md over CLAUDE.md for root project instructions', () => {
+  test('prefers AGENTS.md over NNC.md for root project instructions', () => {
     const dir = '/repo'
     const existingPaths = new Set([
       join(dir, PRIMARY_PROJECT_INSTRUCTION_FILE),
@@ -27,7 +27,7 @@ describe('projectInstructions', () => {
     expect(filePath).toBe(join(dir, PRIMARY_PROJECT_INSTRUCTION_FILE))
   })
 
-  test('falls back to CLAUDE.md when AGENTS.md is absent', () => {
+  test('falls back to NNC.md when AGENTS.md is absent', () => {
     const dir = '/repo'
     const existingPaths = new Set([join(dir, FALLBACK_PROJECT_INSTRUCTION_FILE)])
 

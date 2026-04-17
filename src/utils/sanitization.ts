@@ -9,7 +9,7 @@
  *
  * The vulnerability was demonstrated in HackerOne report #3086545 targeting Claude Desktop's
  * MCP (Model Context Protocol) implementation, where attackers could inject hidden instructions
- * using Unicode Tag characters that would be executed by Claude but remain invisible to users.
+ * using Unicode Tag characters that would be executed by Neural Network but remain invisible to users.
  *
  * Reference: https://embracethered.com/blog/posts/2024/hiding-and-finding-text-with-unicode-tags/
  *

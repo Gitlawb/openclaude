@@ -203,7 +203,7 @@ function OnboardGithub(props: {
       if (!activated.ok) {
         setErrorMsg(
           `Token saved, but settings were not updated: ${activated.detail ?? 'unknown error'}. ` +
-            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.claude/settings.json manually.`,
+            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.nnc/settings.json manually.`,
         )
         setStep('error')
         return
@@ -219,7 +219,7 @@ function OnboardGithub(props: {
       hydrateGithubModelsTokenFromSecureStorage()
       onChangeAPIKey()
       onDone(
-        'GitHub Copilot onboard complete. Copilot token and OAuth token stored in secure storage (Windows/Linux: ~/.claude/.credentials.json, macOS: Keychain fallback to ~/.claude/.credentials.json); user settings updated. Restart if the model does not switch.',
+        'GitHub Copilot onboard complete. Copilot token and OAuth token stored in secure storage (Windows/Linux: ~/.nnc/.credentials.json, macOS: Keychain fallback to ~/.nnc/.credentials.json); user settings updated. Restart if the model does not switch.',
         { display: 'user' },
       )
     },

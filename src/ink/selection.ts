@@ -136,7 +136,7 @@ export function clearSelection(s: SelectionState): void {
 // Unicode-aware word character matcher: letters (any script), digits,
 // and the punctuation set iTerm2 treats as word-part by default.
 // Matching iTerm2's default means double-clicking a path like
-// `/usr/bin/bash` or `~/.claude/config.json` selects the whole thing,
+// `/usr/bin/bash` or `~/.nnc/config.json` selects the whole thing,
 // which is the muscle memory most macOS terminal users have.
 // iTerm2 default "characters considered part of a word": /-+\~_.
 const WORD_CHAR = /[\p{L}\p{N}_/.\-+~\\]/u

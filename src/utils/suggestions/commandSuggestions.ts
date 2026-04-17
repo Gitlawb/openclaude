@@ -560,7 +560,7 @@ export function applyCommandSuggestion(
   }
 }
 
-// Helper function at bottom of file per CLAUDE.md
+// Helper function at bottom of file per NNC.md
 function cleanWord(word: string) {
   return word.toLowerCase().replace(/[^a-z0-9]/g, '')
 }

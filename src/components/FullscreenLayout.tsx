@@ -191,7 +191,7 @@ export function useUnseenDivider(messageCount: number): {
 
 /**
  * Counts assistant turns in messages[dividerIndex..end). A "turn" is what
- * users think of as "a new message from Claude" — not raw assistant entries
+ * users think of as "a new message from Neural Network" — not raw assistant entries
  * (one turn yields multiple entries: tool_use blocks + text blocks). We count
  * non-assistant→assistant transitions, but only for entries that actually
  * carry text — tool-use-only entries are skipped (like progress messages)
@@ -234,7 +234,7 @@ export type UnseenDivider = {
  * that countUnseenAssistantTurns skips — count floors at 1 so the pill
  * flips from "Jump to bottom" to "1 new message". Without the floor,
  * the pill stays "Jump to bottom" through an entire tool-call sequence
- * until Claude's text response lands.
+ * until Neural Network's text response lands.
  */
 export function computeUnseenDivider(messages: readonly Message[], dividerIndex: number | null): UnseenDivider | undefined {
   if (dividerIndex === null) return undefined;
@@ -537,7 +537,7 @@ function NewMessagesPill(t0) {
 }
 
 // Context breadcrumb: when scrolled up into history, pin the current
-// conversation turn's prompt above the viewport so you know what Claude was
+// conversation turn's prompt above the viewport so you know what Neural Network was
 // responding to. Normal-flow sibling BEFORE the ScrollBox (mirrors the pill
 // below it) — shrinks the ScrollBox by exactly 1 row via flex, stays outside
 // the DECSTBM scroll region. Click jumps back to the prompt.

@@ -35,8 +35,6 @@ import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
 import {
   getActiveOpenAIModelOptionsCache,
-  getActiveProviderProfile,
-  getProfileModelOptions,
 } from '../providerProfiles.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
@@ -374,14 +372,14 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
   }
 
-  // When using Ollama, show models from the Ollama server instead of Claude models
+  // When using Ollama, show models from the Ollama server instead of Neural Network models
   if (getAPIProvider() === 'openai' && isOllamaProvider()) {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const ollamaModels = getCachedOllamaModelOptions()
     if (ollamaModels.length > 0) {
       return [defaultOption, ...ollamaModels]
     }
-    // Fallback: if models not yet fetched, show current model instead of Claude models
+    // Fallback: if models not yet fetched, show current model instead of Neural Network models
     const currentModel = getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
     if (currentModel != null) {
       return [
@@ -480,20 +478,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     ]
   }
 
-  // When a provider profile's env is applied, collect its models so they
-  // can be appended to the standard picker options below.
-  // We check PROFILE_ENV_APPLIED to avoid the ?? profiles[0] fallback in
-  // getActiveProviderProfile which would affect users with inactive profiles.
-  const profileEnvApplied = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
-  const profileModelOptions: ModelOption[] = []
-  if (profileEnvApplied) {
-    const activeProfile = getActiveProviderProfile()
-    if (activeProfile) {
-      const models = getProfileModelOptions(activeProfile)
-      profileModelOptions.push(...models)
-    }
-  }
-
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.6 + Opus 1M + Haiku
   if (getAPIProvider() === 'firstParty') {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
@@ -509,7 +493,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       }
     }
     payg1POptions.push(getHaiku45Option())
-    payg1POptions.push(...profileModelOptions)
     return payg1POptions
   }
 
@@ -549,7 +532,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   } else {
     payg3pOptions.push(getHaikuOption())
   }
-  payg3pOptions.push(...profileModelOptions)
   return payg3pOptions
 }
 

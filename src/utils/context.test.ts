@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 
-import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
+import { getMaxOutputTokensForModel } from '../services/api/messagesClient.ts'
 import {
   getContextWindowForModel,
   getModelMaxOutputTokens,

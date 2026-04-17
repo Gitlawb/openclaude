@@ -60,8 +60,8 @@ export function DiagnosticsDisplay(t0) {
     } else {
       t2 = $[7];
     }
-    const t3 = totalIssues === 1 ? "issue" : "issues";
-    const t4 = fileCount === 1 ? "file" : "files";
+    const t3 = totalIssues === 1 ? "проблему" : "проблем";
+    const t4 = fileCount === 1 ? "файлі" : "файлах";
     let t5;
     if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
       t5 = <CtrlOToExpand />;
@@ -71,7 +71,7 @@ export function DiagnosticsDisplay(t0) {
     }
     let t6;
     if ($[9] !== fileCount || $[10] !== t2 || $[11] !== t3 || $[12] !== t4) {
-      t6 = <MessageResponse><Text dimColor={true} wrap="wrap">Found {t2} new diagnostic{" "}{t3} in {fileCount}{" "}{t4} {t5}</Text></MessageResponse>;
+      t6 = <MessageResponse><Text dimColor={true} wrap="wrap">Знайдено {t2} нову(их){" "}{t3} у {fileCount}{" "}{t4} {t5}</Text></MessageResponse>;
       $[9] = fileCount;
       $[10] = t2;
       $[11] = t3;
@@ -87,7 +87,7 @@ function _temp3(file_0, fileIndex) {
   return <React.Fragment key={fileIndex}><MessageResponse><Text dimColor={true} wrap="wrap"><Text bold={true}>{relative(getCwd(), file_0.uri.replace("file://", "").replace("_claude_fs_right:", ""))}</Text>{" "}<Text dimColor={true}>{file_0.uri.startsWith("file://") ? "(file://)" : file_0.uri.startsWith("_claude_fs_right:") ? "(claude_fs_right)" : `(${file_0.uri.split(":")[0]})`}</Text>:</Text></MessageResponse>{file_0.diagnostics.map(_temp2)}</React.Fragment>;
 }
 function _temp2(diagnostic, diagIndex) {
-  return <MessageResponse key={diagIndex}><Text dimColor={true} wrap="wrap">{"  "}{DiagnosticTrackingService.getSeveritySymbol(diagnostic.severity)}{" [Line "}{diagnostic.range.start.line + 1}:{diagnostic.range.start.character + 1}{"] "}{diagnostic.message}{diagnostic.code ? ` [${diagnostic.code}]` : ""}{diagnostic.source ? ` (${diagnostic.source})` : ""}</Text></MessageResponse>;
+  return <MessageResponse key={diagIndex}><Text dimColor={true} wrap="wrap">{"  "}{DiagnosticTrackingService.getSeveritySymbol(diagnostic.severity)}{" [Рядок "}{diagnostic.range.start.line + 1}:{diagnostic.range.start.character + 1}{"] "}{diagnostic.message}{diagnostic.code ? ` [${diagnostic.code}]` : ""}{diagnostic.source ? ` (${diagnostic.source})` : ""}</Text></MessageResponse>;
 }
 function _temp(sum, file) {
   return sum + file.diagnostics.length;

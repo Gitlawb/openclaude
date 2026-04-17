@@ -35,7 +35,7 @@ export function IdleReturnDialog(t0) {
     t2 = $[3];
   }
   const formattedTokens = t2;
-  const t3 = `You've been away ${formattedIdle} and this conversation is ${formattedTokens} tokens.`;
+  const t3 = `Вас не було ${formattedIdle}, а ця розмова містить ${formattedTokens} токенів.`;
   let t4;
   if ($[4] !== onDone) {
     t4 = () => onDone("dismiss");
@@ -46,7 +46,7 @@ export function IdleReturnDialog(t0) {
   }
   let t5;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-    t5 = <Box flexDirection="column"><Text>If this is a new task, clearing context will save usage and be faster.</Text></Box>;
+    t5 = <Box flexDirection="column"><Text>Якщо це нова задача, очищення контексту заощадить використання і буде швидшим.</Text></Box>;
     $[6] = t5;
   } else {
     t5 = $[6];
@@ -55,7 +55,7 @@ export function IdleReturnDialog(t0) {
   if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
     t6 = {
       value: "continue" as const,
-      label: "Continue this conversation"
+      label: "Продовжити цю розмову"
     };
     $[7] = t6;
   } else {
@@ -65,7 +65,7 @@ export function IdleReturnDialog(t0) {
   if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
     t7 = {
       value: "clear" as const,
-      label: "Send message as a new conversation"
+      label: "Відправити повідомлення як нову розмову"
     };
     $[8] = t7;
   } else {
@@ -75,7 +75,7 @@ export function IdleReturnDialog(t0) {
   if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
     t8 = [t6, t7, {
       value: "never" as const,
-      label: "Don't ask me again"
+      label: "Більше не запитувати"
     }];
     $[9] = t8;
   } else {

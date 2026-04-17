@@ -70,7 +70,7 @@ export function getChromeSystemPrompt(): string {
 }
 
 /**
- * Minimal hint about Claude in Chrome skill availability. This is injected at startup when the extension is installed
+ * Minimal hint about Neural Network in Chrome skill availability. This is injected at startup when the extension is installed
  * to guide the model to invoke the skill before using the MCP tools.
  */
 export const CLAUDE_IN_CHROME_SKILL_HINT = `**Browser Automation**: Chrome browser tools are available via the "claude-in-chrome" skill. CRITICAL: Before using any mcp__claude-in-chrome__* tools, invoke the skill by calling the Skill tool with skill: "claude-in-chrome". The skill provides browser automation instructions and enables the tools.`

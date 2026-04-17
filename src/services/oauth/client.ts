@@ -1,4 +1,4 @@
-// OAuth client for handling authentication flows with Claude services
+// OAuth client for handling authentication flows with Neural Network services
 import axios from 'axios'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -32,7 +32,7 @@ import type {
 } from './types.js'
 
 /**
- * Check if the user has Claude.ai authentication scope
+ * Check if the user has Neural Network.ai authentication scope
  * @private Only call this if you're OAuth / auth related code!
  */
 export function shouldUseClaudeAIAuth(scopes: string[] | undefined): boolean {
@@ -151,7 +151,7 @@ export async function refreshOAuthToken(
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
     client_id: getOauthConfig().CLIENT_ID,
-    // Request specific scopes, defaulting to the full Claude AI set. The
+    // Request specific scopes, defaulting to the full Neural Network AI set. The
     // backend's refresh-token grant allows scope expansion beyond what the
     // initial authorize granted (see ALLOWED_SCOPE_EXPANSIONS), so this is
     // safe even for tokens issued before scopes were added to the app's

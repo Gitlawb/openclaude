@@ -42,7 +42,7 @@ export async function call(
     <Login
       onDone={async result => {
         if (result.type === 'cancel') {
-          onDone('Login interrupted')
+          onDone('Вхід перервано')
           return
         }
 
@@ -91,7 +91,7 @@ export async function call(
           authVersion: prev.authVersion + 1,
         }))
 
-        onDone('Login successful')
+        onDone('Вхід успішний')
       }}
     />
   )
@@ -105,18 +105,18 @@ export function Login(props: {
 
   return (
     <Dialog
-      title="Login"
+      title="Вхід"
       onCancel={() => props.onDone({ type: 'cancel' }, mainLoopModel)}
       color="permission"
       inputGuide={exitState =>
         exitState.pending ? (
-          <Text>Press {exitState.keyName} again to exit</Text>
+          <Text>Натисніть {exitState.keyName} ще раз для виходу</Text>
         ) : (
           <ConfigurableShortcutHint
             action="confirm:no"
             context="Confirmation"
             fallback="Esc"
-            description="cancel"
+            description="скасувати"
           />
         )
       }

@@ -70,20 +70,20 @@ export async function isBridgeEnabledBlocking(): Promise<boolean> {
 export async function getBridgeDisabledReason(): Promise<string | null> {
   if (feature('BRIDGE_MODE')) {
     if (!isClaudeAISubscriber()) {
-      return 'Remote Control requires a claude.ai subscription. Run `claude auth login` to sign in with your Anthropic account.'
+      return 'Віддалене керування потребує підписки claude.ai. Запустіть `nnc auth login`, щоб увійти в акаунт Anthropic.'
     }
     if (!hasProfileScope()) {
-      return 'Remote Control requires a full-scope login token. Long-lived tokens (from `claude setup-token` or CLAUDE_CODE_OAUTH_TOKEN) are limited to inference-only for security reasons. Run `claude auth login` to use Remote Control.'
+      return 'Віддалене керування потребує токен автентифікації з повним скоупом. Довготривалі токени (від `nnc setup-token` або CLAUDE_CODE_OAUTH_TOKEN) обмежені лише інференсом з безпекових міркувань. Запустіть `nnc auth login` для використання віддаленого керування.'
     }
     if (!getOauthAccountInfo()?.organizationUuid) {
-      return 'Unable to determine your organization for Remote Control eligibility. Run `claude auth login` to refresh your account information.'
+      return 'Не вдалося визначити вашу організацію для віддаленого керування. Запустіть `nnc auth login`, щоб оновити інформацію акаунта.'
     }
     if (!(await checkGate_CACHED_OR_BLOCKING('tengu_ccr_bridge'))) {
-      return 'Remote Control is not yet enabled for your account.'
+      return 'Віддалене керування ще не увімкнено для вашого акаунта.'
     }
     return null
   }
-  return 'Remote Control is not available in this build.'
+  return 'Віддалене керування недоступне в цій збірці.'
 }
 
 // try/catch: main.tsx:5698 calls isBridgeEnabled() while defining the Commander
@@ -166,7 +166,7 @@ export function checkBridgeMinVersion(): string | null {
       minVersion: string
     }>('tengu_bridge_min_version', { minVersion: '0.0.0' })
     if (config.minVersion && lt(MACRO.VERSION, config.minVersion)) {
-      return `Your version of Neural Network (${MACRO.VERSION}) is too old for Remote Control.\nVersion ${config.minVersion} or higher is required. Run \`claude update\` to update.`
+      return `Ваша версія Нейромережі (${MACRO.VERSION}) застара для віддаленого керування.\nПотрібна версія ${config.minVersion} або вище. Запустіть \`nnc update\` для оновлення.`
     }
   }
   return null

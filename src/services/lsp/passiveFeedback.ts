@@ -9,9 +9,9 @@ import { registerPendingLSPDiagnostic } from './LSPDiagnosticRegistry.js'
 import type { LSPServerManager } from './LSPServerManager.js'
 
 /**
- * Map LSP severity to Claude diagnostic severity
+ * Map LSP severity to Neural Network diagnostic severity
  *
- * Maps LSP severity numbers to Claude diagnostic severity strings.
+ * Maps LSP severity numbers to Neural Network diagnostic severity strings.
  * Accepts numeric severity values (1=Error, 2=Warning, 3=Information, 4=Hint)
  * or undefined, defaulting to 'Error' for invalid/missing values.
  */
@@ -35,10 +35,10 @@ function mapLSPSeverity(
 }
 
 /**
- * Convert LSP diagnostics to Claude diagnostic format
+ * Convert LSP diagnostics to Neural Network diagnostic format
  *
  * Converts LSP PublishDiagnosticsParams to DiagnosticFile[] format
- * used by Claude's attachment system.
+ * used by Neural Network's attachment system.
  */
 export function formatDiagnosticsForAttachment(
   params: PublishDiagnosticsParams,
@@ -117,7 +117,7 @@ export type HandlerRegistrationResult = {
  * Register LSP notification handlers on all servers
  *
  * Sets up handlers to listen for textDocument/publishDiagnostics notifications
- * from all LSP servers and routes them to Claude's diagnostic system.
+ * from all LSP servers and routes them to Neural Network's diagnostic system.
  * Uses public getAllServers() API for clean access to server instances.
  *
  * @returns Tracking data for registration status and runtime failures
@@ -187,7 +187,7 @@ export function registerLSPNotificationHandlers(
               `Received diagnostics from ${serverName}: ${diagnosticParams.diagnostics.length} diagnostic(s) for ${diagnosticParams.uri}`,
             )
 
-            // Convert LSP diagnostics to Claude format (can throw on invalid URIs)
+            // Convert LSP diagnostics to Neural Network format (can throw on invalid URIs)
             const diagnosticFiles =
               formatDiagnosticsForAttachment(diagnosticParams)
 

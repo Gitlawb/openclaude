@@ -99,7 +99,7 @@ function BridgeToggle(t0) {
             replBridgeInitialName: name
           };
         });
-        onDone("Remote Control connecting\u2026", {
+        onDone("Віддалене керування підключається\u2026", {
           display: "system"
         });
       })();
@@ -288,15 +288,15 @@ function BridgeDisconnectDialog(t0) {
   if ($[17] !== displayUrl || $[18] !== handleContinue || $[19] !== qrText || $[20] !== showQR) {
     const qrLines = qrText ? qrText.split("\n").filter(_temp1) : [];
     T1 = Dialog;
-    t14 = "Remote Control";
+    t14 = "Віддалене керування";
     t15 = handleContinue;
     t16 = true;
     T0 = Box;
     t10 = "column";
     t11 = 1;
-    const t17 = displayUrl ? ` at ${displayUrl}` : "";
+    const t17 = displayUrl ? ` за адресою ${displayUrl}` : "";
     if ($[30] !== t17) {
-      t12 = <Text>This session is available via Remote Control{t17}.</Text>;
+      t12 = <Text>Ця сесія доступна через Віддалене керування{t17}.</Text>;
       $[30] = t17;
       $[31] = t12;
     } else {
@@ -330,7 +330,7 @@ function BridgeDisconnectDialog(t0) {
   const t17 = focusIndex === 0;
   let t18;
   if ($[32] === Symbol.for("react.memo_cache_sentinel")) {
-    t18 = <Text>Disconnect this session</Text>;
+    t18 = <Text>Відключити цю сесію</Text>;
     $[32] = t18;
   } else {
     t18 = $[32];
@@ -344,7 +344,7 @@ function BridgeDisconnectDialog(t0) {
     t19 = $[34];
   }
   const t20 = focusIndex === 1;
-  const t21 = showQR ? "Hide QR code" : "Show QR code";
+  const t21 = showQR ? "Сховати QR-код" : "Показати QR-код";
   let t22;
   if ($[35] !== t21) {
     t22 = <Text>{t21}</Text>;
@@ -365,7 +365,7 @@ function BridgeDisconnectDialog(t0) {
   const t24 = focusIndex === 2;
   let t25;
   if ($[40] === Symbol.for("react.memo_cache_sentinel")) {
-    t25 = <Text>Continue</Text>;
+    t25 = <Text>Продовжити</Text>;
     $[40] = t25;
   } else {
     t25 = $[40];
@@ -390,7 +390,7 @@ function BridgeDisconnectDialog(t0) {
   }
   let t28;
   if ($[47] === Symbol.for("react.memo_cache_sentinel")) {
-    t28 = <Text dimColor={true}>Enter to select · Esc to continue</Text>;
+    t28 = <Text dimColor={true}>Enter — обрати · Esc — продовжити</Text>;
     $[47] = t28;
   } else {
     t28 = $[47];
@@ -472,7 +472,7 @@ async function checkBridgePrerequisites(): Promise<string | null> {
   } = await import('../../services/policyLimits/index.js');
   await waitForPolicyLimitsToLoad();
   if (!isPolicyAllowed('allow_remote_control')) {
-    return "Remote Control is disabled by your organization's policy.";
+    return "Віддалене керування вимкнено політикою вашої організації.";
   }
   const disabledReason = await getBridgeDisabledReason();
   if (disabledReason) {

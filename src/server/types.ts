@@ -40,7 +40,7 @@ export type SessionInfo = {
 }
 
 /**
- * Stable session key → session metadata. Persisted to ~/.claude/server-sessions.json
+ * Stable session key → session metadata. Persisted to ~/.nnc/server-sessions.json
  * so sessions can be resumed across server restarts.
  */
 export type SessionIndexEntry = {

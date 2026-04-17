@@ -1,6 +1,6 @@
 import { c as _c } from "react-compiler-runtime";
 /**
- * Surfaces plugin-install prompts driven by `<claude-code-hint />` tags
+ * Surfaces plugin-install prompts driven by `<nnc-hint />` tags
  * that CLIs/SDKs emit to stderr. See docs/claude-code-hints.md.
  *
  * Show-once semantics: each plugin is prompted for at most once ever,

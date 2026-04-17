@@ -300,7 +300,7 @@ export async function generateUniqueTeammateName(
 // ============================================================================
 
 /**
- * Ensures a team file exists on disk. If it doesn't (e.g. when a non-Claude
+ * Ensures a team file exists on disk. If it doesn't (e.g. when a non-Neural Network
  * model skips the TeamCreate step), auto-creates a minimal team file so
  * the spawn can proceed.
  */

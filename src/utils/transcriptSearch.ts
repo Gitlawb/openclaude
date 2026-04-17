@@ -114,7 +114,7 @@ function computeSearchText(msg: RenderableMessage): string {
       // grouped_tool_use, system — no text content
       break
   }
-  // Strip <system-reminder> anywhere — Claude context, not user-visible.
+  // Strip <system-reminder> anywhere — Neural Network context, not user-visible.
   // Mid-message on cc -c resumes (memory reminders between prompt lines).
   let t = raw
   let open = t.indexOf('<system-reminder>')

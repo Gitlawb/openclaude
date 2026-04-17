@@ -97,7 +97,7 @@ type VoiceStreamMessage =
 
 export function isVoiceStreamAvailable(): boolean {
   // voice_stream uses the same OAuth as Neural Network — available when the
-  // user is authenticated with Anthropic (Claude.ai subscriber or has
+  // user is authenticated with Anthropic (Neural Network.ai subscriber or has
   // valid OAuth tokens).
   if (!isAnthropicAuthEnabled()) {
     return false

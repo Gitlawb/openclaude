@@ -22,7 +22,7 @@ export function PluginTrustWarning() {
   }
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Box marginBottom={1}>{t1}<Text dimColor={true} italic={true}>Make sure you trust a plugin before installing, updating, or using it. Anthropic does not control what MCP servers, files, or other software are included in plugins and cannot verify that they will work as intended or that they won't change. See each plugin's homepage for more information.{customMessage ? ` ${customMessage}` : ""}</Text></Box>;
+    t2 = <Box marginBottom={1}>{t1}<Text dimColor={true} italic={true}>Переконайтесь, що довіряєте плагіну, перш ніж встановлювати, оновлювати чи використовувати його. Anthropic не контролює MCP сервери, файли чи інше ПЗ, включене у плагіни, і не може гарантувати їхню роботу чи незмінність. Дивіться домашню сторінку кожного плагіна для докладнішої інформації.{customMessage ? ` ${customMessage}` : ""}</Text></Box>;
     $[2] = t2;
   } else {
     t2 = $[2];

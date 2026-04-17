@@ -344,7 +344,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
   prompt: async () => getPrompt(getProjectRoot()),
 
   // Only one skill/command should run at a time, since the tool expands the
-  // command into a full prompt that Claude must process before continuing.
+  // command into a full prompt that Neural Network must process before continuing.
   // Skill-coach needs the skill name to avoid false-positive "you could have
   // used skill X" suggestions when X was actually invoked. Backseat classifies
   // downstream tool calls from the expanded prompt, not this wrapper, so the

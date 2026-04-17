@@ -18,20 +18,20 @@ type Props = {
 };
 const WORKFLOWS: WorkflowOption[] = [{
   value: 'claude' as const,
-  label: '@Neural Network - Tag @claude in issues and PR comments'
+  label: '@Нейромережа — позначайте @claude у issues та коментарях PR'
 }, {
   value: 'claude-review' as const,
-  label: 'Neural Network Review - Automated code review on new PRs'
+  label: 'Огляд Нейромережею — автоматичний огляд коду на нових PR'
 }];
 function renderInputGuide(exitState: ExitState): React.ReactNode {
   if (exitState.pending) {
-    return <Text>Press {exitState.keyName} again to exit</Text>;
+    return <Text>Натисніть {exitState.keyName} ще раз для виходу</Text>;
   }
   return <Byline>
-      <KeyboardShortcutHint shortcut="↑↓" action="navigate" />
-      <KeyboardShortcutHint shortcut="Space" action="toggle" />
-      <KeyboardShortcutHint shortcut="Enter" action="confirm" />
-      <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
+      <KeyboardShortcutHint shortcut="↑↓" action="навігація" />
+      <KeyboardShortcutHint shortcut="Space" action="перемкнути" />
+      <KeyboardShortcutHint shortcut="Enter" action="підтвердити" />
+      <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="скасувати" />
     </Byline>;
 }
 export function WorkflowMultiselectDialog(t0) {
@@ -79,7 +79,7 @@ export function WorkflowMultiselectDialog(t0) {
   const handleCancel = t3;
   let t4;
   if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = <Box><Text dimColor={true}>More workflow examples (issue triage, CI fixes, etc.) at:{" "}<Link url="https://github.com/anthropics/claude-code-action/blob/main/examples/">https://github.com/anthropics/claude-code-action/blob/main/examples/</Link></Text></Box>;
+    t4 = <Box><Text dimColor={true}>Більше прикладів workflow (сортування issues, виправлення CI тощо) на:{" "}<Link url="https://github.com/anthropics/claude-code-action/blob/main/examples/">https://github.com/anthropics/claude-code-action/blob/main/examples/</Link></Text></Box>;
     $[4] = t4;
   } else {
     t4 = $[4];
@@ -102,7 +102,7 @@ export function WorkflowMultiselectDialog(t0) {
   }
   let t7;
   if ($[9] !== showError) {
-    t7 = showError && <Box><Text color="error">You must select at least one workflow to continue</Text></Box>;
+    t7 = showError && <Box><Text color="error">Для продовження оберіть хоча б один workflow</Text></Box>;
     $[9] = showError;
     $[10] = t7;
   } else {
@@ -110,7 +110,7 @@ export function WorkflowMultiselectDialog(t0) {
   }
   let t8;
   if ($[11] !== t6 || $[12] !== t7) {
-    t8 = <Dialog title="Select GitHub workflows to install" subtitle="We'll create a workflow file in your repository for each one you select." onCancel={handleCancel} inputGuide={renderInputGuide}>{t4}{t6}{t7}</Dialog>;
+    t8 = <Dialog title="Оберіть GitHub workflows для встановлення" subtitle="Ми створимо файл workflow у вашому репозиторії для кожного обраного." onCancel={handleCancel} inputGuide={renderInputGuide}>{t4}{t6}{t7}</Dialog>;
     $[11] = t6;
     $[12] = t7;
     $[13] = t8;

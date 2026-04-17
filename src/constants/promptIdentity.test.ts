@@ -25,58 +25,58 @@ afterEach(() => {
   process.env.CLAUDE_CODE_SIMPLE = originalSimpleEnv
 })
 
-test('CLI identity prefixes describe Neural Network instead of Neural Network', () => {
+test('CLI identity prefixes describe Neural Network instead of legacy Claude branding', () => {
   expect(getCLISyspromptPrefix()).toContain('Neural Network')
-  expect(getCLISyspromptPrefix()).not.toContain('Neural Network')
+  expect(getCLISyspromptPrefix()).not.toContain('Claude Code')
   expect(getCLISyspromptPrefix()).not.toContain("Anthropic's official CLI for Claude")
 
   for (const prefix of CLI_SYSPROMPT_PREFIXES) {
     expect(prefix).toContain('Neural Network')
-    expect(prefix).not.toContain('Neural Network')
+    expect(prefix).not.toContain('Claude Code')
     expect(prefix).not.toContain("Anthropic's official CLI for Claude")
   }
 })
 
-test('simple mode identity describes Neural Network instead of Neural Network', async () => {
+test('simple mode identity describes Neural Network instead of legacy Claude branding', async () => {
   process.env.CLAUDE_CODE_SIMPLE = '1'
 
   const prompt = await getSystemPrompt([], 'gpt-4o')
 
   expect(prompt[0]).toContain('Neural Network')
-  expect(prompt[0]).not.toContain('Neural Network')
+  expect(prompt[0]).not.toContain('Claude Code')
   expect(prompt[0]).not.toContain("Anthropic's official CLI for Claude")
 })
 
-test('built-in agent prompts describe Neural Network instead of Neural Network', () => {
+test('built-in agent prompts describe Neural Network instead of legacy Claude branding', () => {
   expect(DEFAULT_AGENT_PROMPT).toContain('Neural Network')
-  expect(DEFAULT_AGENT_PROMPT).not.toContain('Neural Network')
+  expect(DEFAULT_AGENT_PROMPT).not.toContain('Claude Code')
   expect(DEFAULT_AGENT_PROMPT).not.toContain("Anthropic's official CLI for Claude")
 
   const generalPrompt = GENERAL_PURPOSE_AGENT.getSystemPrompt({
     toolUseContext: { options: {} as never },
   })
   expect(generalPrompt).toContain('Neural Network')
-  expect(generalPrompt).not.toContain('Neural Network')
+  expect(generalPrompt).not.toContain('Claude Code')
   expect(generalPrompt).not.toContain("Anthropic's official CLI for Claude")
 
   const explorePrompt = EXPLORE_AGENT.getSystemPrompt({
     toolUseContext: { options: {} as never },
   })
   expect(explorePrompt).toContain('Neural Network')
-  expect(explorePrompt).not.toContain('Neural Network')
+  expect(explorePrompt).not.toContain('Claude Code')
   expect(explorePrompt).not.toContain("Anthropic's official CLI for Claude")
 
   const planPrompt = PLAN_AGENT.getSystemPrompt({
     toolUseContext: { options: {} as never },
   })
   expect(planPrompt).toContain('Neural Network')
-  expect(planPrompt).not.toContain('Neural Network')
+  expect(planPrompt).not.toContain('Claude Code')
 
   const statuslinePrompt = STATUSLINE_SETUP_AGENT.getSystemPrompt({
     toolUseContext: { options: {} as never },
   })
   expect(statuslinePrompt).toContain('Neural Network')
-  expect(statuslinePrompt).not.toContain('Neural Network')
+  expect(statuslinePrompt).not.toContain('Claude Code')
 
   const guidePrompt = CLAUDE_CODE_GUIDE_AGENT.getSystemPrompt({
     toolUseContext: {
@@ -90,6 +90,6 @@ test('built-in agent prompts describe Neural Network instead of Neural Network',
   expect(guidePrompt).toContain('Neural Network')
   expect(guidePrompt).toContain('You are the Neural Network guide agent.')
   expect(guidePrompt).toContain('**Neural Network** (the CLI tool)')
-  expect(guidePrompt).not.toContain('You are the Claude guide agent.')
-  expect(guidePrompt).not.toContain('**Neural Network** (the CLI tool)')
+  expect(guidePrompt).not.toContain('You are the Claude Code guide agent.')
+  expect(guidePrompt).not.toContain('**Claude Code** (the CLI tool)')
 })

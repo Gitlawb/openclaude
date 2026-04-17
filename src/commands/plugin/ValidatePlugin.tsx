@@ -23,17 +23,17 @@ export function ValidatePlugin(t0) {
     t1 = () => {
       const runValidation = async function runValidation() {
         if (!path) {
-          onComplete("Usage: /plugin validate <path>\n\nValidate a plugin or marketplace manifest file or directory.\n\nExamples:\n  /plugin validate .claude-plugin/plugin.json\n  /plugin validate /path/to/plugin-directory\n  /plugin validate .\n\nWhen given a directory, automatically validates .claude-plugin/marketplace.json\nor .claude-plugin/plugin.json (prefers marketplace if both exist).\n\nOr from the command line:\n  claude plugin validate <path>");
+          onComplete("Використання: /plugin validate <шлях>\n\nПеревіряє маніфест плагіна або marketplace (файл або директорію).\n\nПриклади:\n  /plugin validate .nnc-plugin/plugin.json\n  /plugin validate /path/to/plugin-directory\n  /plugin validate .\n\nЯкщо вказано директорію, автоматично перевіряється .nnc-plugin/marketplace.json\nабо .nnc-plugin/plugin.json (перевага marketplace, якщо існують обидва).\n\nАбо з командного рядка:\n  nnc plugin validate <шлях>");
           return;
         }
         ;
         try {
           const result = await validateManifest(path);
           let output = "";
-          output = output + `Validating ${result.fileType} manifest: ${result.filePath}\n\n`;
+          output = output + `Перевірка ${result.fileType} маніфесту: ${result.filePath}\n\n`;
           output;
           if (result.errors.length > 0) {
-            output = output + `${figures.cross} Found ${result.errors.length} ${plural(result.errors.length, "error")}:\n\n`;
+            output = output + `${figures.cross} Знайдено помилок: ${result.errors.length}:\n\n`;
             output;
             result.errors.forEach(error_0 => {
               output = output + `  ${figures.pointer} ${error_0.path}: ${error_0.message}\n`;
@@ -43,7 +43,7 @@ export function ValidatePlugin(t0) {
             output;
           }
           if (result.warnings.length > 0) {
-            output = output + `${figures.warning} Found ${result.warnings.length} ${plural(result.warnings.length, "warning")}:\n\n`;
+            output = output + `${figures.warning} Знайдено попереджень: ${result.warnings.length}:\n\n`;
             output;
             result.warnings.forEach(warning => {
               output = output + `  ${figures.pointer} ${warning.path}: ${warning.message}\n`;
@@ -54,15 +54,15 @@ export function ValidatePlugin(t0) {
           }
           if (result.success) {
             if (result.warnings.length > 0) {
-              output = output + `${figures.tick} Validation passed with warnings\n`;
+              output = output + `${figures.tick} Перевірку пройдено з попередженнями\n`;
               output;
             } else {
-              output = output + `${figures.tick} Validation passed\n`;
+              output = output + `${figures.tick} Перевірку пройдено\n`;
               output;
             }
             process.exitCode = 0;
           } else {
-            output = output + `${figures.cross} Validation failed\n`;
+            output = output + `${figures.cross} Перевірку не пройдено\n`;
             output;
             process.exitCode = 1;
           }
@@ -71,7 +71,7 @@ export function ValidatePlugin(t0) {
           const error = t3;
           process.exitCode = 2;
           logError(error);
-          onComplete(`${figures.cross} Unexpected error during validation: ${errorMessage(error)}`);
+          onComplete(`${figures.cross} Неочікувана помилка під час перевірки: ${errorMessage(error)}`);
         }
       };
       runValidation();
@@ -88,7 +88,7 @@ export function ValidatePlugin(t0) {
   useEffect(t1, t2);
   let t3;
   if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Box flexDirection="column"><Text>Running validation...</Text></Box>;
+    t3 = <Box flexDirection="column"><Text>Виконується перевірка...</Text></Box>;
     $[4] = t3;
   } else {
     t3 = $[4];

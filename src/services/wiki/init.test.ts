@@ -26,10 +26,10 @@ test('initializeWiki creates the expected wiki scaffold', async () => {
 
   expect(result.alreadyExisted).toBe(false)
   expect(result.createdFiles).toEqual([
-    '.openclaude/wiki/schema.md',
-    '.openclaude/wiki/index.md',
-    '.openclaude/wiki/log.md',
-    '.openclaude/wiki/pages/architecture.md',
+    '.nnc/wiki/schema.md',
+    '.nnc/wiki/index.md',
+    '.nnc/wiki/log.md',
+    '.nnc/wiki/pages/architecture.md',
   ])
   expect(await readFile(paths.schemaFile, 'utf8')).toContain(
     '# Neural Network Wiki Schema',

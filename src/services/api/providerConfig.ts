@@ -461,11 +461,23 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
     return null
   }
 
-  if (!isLocalProviderUrl(request.baseUrl)) {
+  if (
+    !isLocalProviderUrl(request.baseUrl) &&
+    !isOpenRouterBaseUrl(request.baseUrl)
+  ) {
     return null
   }
 
   return `openai:${request.baseUrl.toLowerCase()}`
+}
+
+function isOpenRouterBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    return new URL(baseUrl).hostname.toLowerCase().includes('openrouter.ai')
+  } catch {
+    return false
+  }
 }
 
 export function resolveCodexAuthPath(

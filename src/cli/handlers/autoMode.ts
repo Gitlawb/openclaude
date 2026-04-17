@@ -1,6 +1,6 @@
 /**
  * Auto mode subcommand handlers — dump default/merged classifier rules and
- * critique user-written rules. Dynamically imported when `claude auto-mode ...` runs.
+ * critique user-written rules. Dynamically imported when `nnc auto-mode ...` runs.
  */
 
 import { errorMessage } from '../../utils/errors.js'
@@ -81,9 +81,9 @@ export async function autoModeCritiqueHandler(options: {
 
   if (!hasCustomRules) {
     process.stdout.write(
-      'No custom auto mode rules found.\n\n' +
-        'Add rules to your settings file under autoMode.{allow, soft_deny, environment}.\n' +
-        'Run `claude auto-mode defaults` to see the default rules for reference.\n',
+      'Власних правил авто-режиму не знайдено.\n\n' +
+        'Додайте правила у файл налаштувань під autoMode.{allow, soft_deny, environment}.\n' +
+        'Запустіть `nnc auto-mode defaults`, щоб подивитися стандартні правила для прикладу.\n',
     )
     return
   }
@@ -108,7 +108,7 @@ export async function autoModeCritiqueHandler(options: {
       defaults.environment,
     )
 
-  process.stdout.write('Analyzing your auto mode rules…\n\n')
+  process.stdout.write('Аналізуємо ваші правила авто-режиму…\n\n')
 
   let response
   try {
@@ -133,7 +133,7 @@ export async function autoModeCritiqueHandler(options: {
     })
   } catch (error) {
     process.stderr.write(
-      'Failed to analyze rules: ' + errorMessage(error) + '\n',
+      'Не вдалося проаналізувати правила: ' + errorMessage(error) + '\n',
     )
     process.exitCode = 1
     return
@@ -143,7 +143,7 @@ export async function autoModeCritiqueHandler(options: {
   if (textBlock?.type === 'text') {
     process.stdout.write(textBlock.text + '\n')
   } else {
-    process.stdout.write('No critique was generated. Please try again.\n')
+    process.stdout.write('Критику не згенеровано. Спробуйте ще раз.\n')
   }
 }
 

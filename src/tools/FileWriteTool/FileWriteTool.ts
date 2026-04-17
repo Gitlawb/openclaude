@@ -339,7 +339,7 @@ export const FileWriteTool = buildTool({
     // Log when writing to the root project instruction file
     if (
       fullFilePath.endsWith(`${sep}AGENTS.md`) ||
-      fullFilePath.endsWith(`${sep}CLAUDE.md`)
+      fullFilePath.endsWith(`${sep}NNC.md`)
     ) {
       logEvent('tengu_write_claudemd', {})
     }

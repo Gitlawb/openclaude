@@ -18,14 +18,14 @@ export function SuccessStep(t0) {
   const skipWorkflow = t1 === undefined ? false : t1;
   let t2;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>Install GitHub App</Text><Text dimColor={true}>Success</Text></Box>;
+    t2 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>Встановлення GitHub застосунку</Text><Text dimColor={true}>Успішно</Text></Box>;
     $[0] = t2;
   } else {
     t2 = $[0];
   }
   let t3;
   if ($[1] !== skipWorkflow) {
-    t3 = !skipWorkflow && <Text color="success">✓ GitHub Actions workflow created!</Text>;
+    t3 = !skipWorkflow && <Text color="success">✓ GitHub Actions workflow створено!</Text>;
     $[1] = skipWorkflow;
     $[2] = t3;
   } else {
@@ -33,7 +33,7 @@ export function SuccessStep(t0) {
   }
   let t4;
   if ($[3] !== secretExists || $[4] !== useExistingSecret) {
-    t4 = secretExists && useExistingSecret && <Box marginTop={1}><Text color="success">✓ Using existing ANTHROPIC_API_KEY secret</Text></Box>;
+    t4 = secretExists && useExistingSecret && <Box marginTop={1}><Text color="success">✓ Використовується наявний ANTHROPIC_API_KEY secret</Text></Box>;
     $[3] = secretExists;
     $[4] = useExistingSecret;
     $[5] = t4;
@@ -42,7 +42,7 @@ export function SuccessStep(t0) {
   }
   let t5;
   if ($[6] !== secretExists || $[7] !== secretName || $[8] !== useExistingSecret) {
-    t5 = (!secretExists || !useExistingSecret) && <Box marginTop={1}><Text color="success">✓ API key saved as {secretName} secret</Text></Box>;
+    t5 = (!secretExists || !useExistingSecret) && <Box marginTop={1}><Text color="success">✓ API ключ збережено як {secretName} secret</Text></Box>;
     $[6] = secretExists;
     $[7] = secretName;
     $[8] = useExistingSecret;
@@ -52,14 +52,14 @@ export function SuccessStep(t0) {
   }
   let t6;
   if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = <Box marginTop={1}><Text>Next steps:</Text></Box>;
+    t6 = <Box marginTop={1}><Text>Наступні кроки:</Text></Box>;
     $[10] = t6;
   } else {
     t6 = $[10];
   }
   let t7;
   if ($[11] !== skipWorkflow) {
-    t7 = skipWorkflow ? <><Text>1. Install the Claude GitHub App if you haven't already</Text><Text>2. Your workflow file was kept unchanged</Text><Text>3. API key is configured and ready to use</Text></> : <><Text>1. A pre-filled PR page has been created</Text><Text>2. Install the Claude GitHub App if you haven't already</Text><Text>3. Merge the PR to enable Claude PR assistance</Text></>;
+    t7 = skipWorkflow ? <><Text>1. Встановіть GitHub застосунок Нейромережі, якщо ще не зробили цього</Text><Text>2. Ваш workflow файл залишено без змін</Text><Text>3. API ключ налаштовано і готовий до використання</Text></> : <><Text>1. Створено заповнену сторінку PR</Text><Text>2. Встановіть GitHub застосунок Нейромережі, якщо ще не зробили цього</Text><Text>3. Злийте PR, щоб увімкнути допомогу Нейромережі для PR</Text></>;
     $[11] = skipWorkflow;
     $[12] = t7;
   } else {
@@ -78,7 +78,7 @@ export function SuccessStep(t0) {
   }
   let t9;
   if ($[18] === Symbol.for("react.memo_cache_sentinel")) {
-    t9 = <Box marginLeft={3}><Text dimColor={true}>Press any key to exit</Text></Box>;
+    t9 = <Box marginLeft={3}><Text dimColor={true}>Натисніть будь-яку клавішу для виходу</Text></Box>;
     $[18] = t9;
   } else {
     t9 = $[18];

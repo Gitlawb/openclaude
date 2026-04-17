@@ -103,7 +103,7 @@ function extractConversationContext(
   messages: Message[],
   maxChars = 1000,
 ): string {
-  // Get recent assistant messages (they contain Claude's reasoning)
+  // Get recent assistant messages (they contain Neural Network's reasoning)
   const assistantMessages = messages
     .filter((m): m is AssistantMessage => m.type === 'assistant')
     .slice(-3) // Last 3 assistant messages

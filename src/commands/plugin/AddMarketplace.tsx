@@ -45,12 +45,12 @@ export function AddMarketplace({
   const handleAdd = async () => {
     const input = inputValue.trim();
     if (!input) {
-      setError('Please enter a marketplace source');
+      setError('Введіть джерело marketplace');
       return;
     }
     const parsed = await parseMarketplaceInput(input);
     if (!parsed) {
-      setError('Invalid marketplace source format. Try: owner/repo, https://..., or ./path');
+      setError('Невірний формат джерела marketplace. Спробуйте: owner/repo, https://..., або ./path');
       return;
     }
 
@@ -87,7 +87,7 @@ export function AddMarketplace({
       setLoading(false);
       if (cliMode) {
         // In CLI mode, set result to trigger completion
-        setResult(`Successfully added marketplace: ${name}`);
+        setResult(`Marketplace успішно додано: ${name}`);
       } else {
         // In interactive mode, switch to browse view
         setViewState({
@@ -103,7 +103,7 @@ export function AddMarketplace({
       setLoading(false);
       if (cliMode) {
         // In CLI mode, set result with error to trigger completion
-        setResult(`Error: ${error.message}`);
+        setResult(`Помилка: ${error.message}`);
       } else {
         setResult(null);
       }
@@ -123,11 +123,11 @@ export function AddMarketplace({
   return <Box flexDirection="column">
       <Box flexDirection="column" paddingX={1} borderStyle="round">
         <Box marginBottom={1}>
-          <Text bold>Add Marketplace</Text>
+          <Text bold>Додати marketplace</Text>
         </Box>
         <Box flexDirection="column">
-          <Text>Enter marketplace source:</Text>
-          <Text dimColor>Examples:</Text>
+          <Text>Введіть джерело marketplace:</Text>
+          <Text dimColor>Приклади:</Text>
           <Text dimColor> · owner/repo (GitHub)</Text>
           <Text dimColor> · git@github.com:owner/repo.git (SSH)</Text>
           <Text dimColor> · https://example.com/marketplace.json</Text>
@@ -139,7 +139,7 @@ export function AddMarketplace({
         {isLoading && <Box marginTop={1}>
             <Spinner />
             <Text>
-              {progressMessage || 'Adding marketplace to configuration…'}
+              {progressMessage || 'Додаємо marketplace до конфігурації…'}
             </Text>
           </Box>}
         {error && <Box marginTop={1}>
@@ -152,8 +152,8 @@ export function AddMarketplace({
       <Box marginLeft={3}>
         <Text dimColor italic>
           <Byline>
-            <KeyboardShortcutHint shortcut="Enter" action="add" />
-            <ConfigurableShortcutHint action="confirm:no" context="Settings" fallback="Esc" description="cancel" />
+            <KeyboardShortcutHint shortcut="Enter" action="додати" />
+            <ConfigurableShortcutHint action="confirm:no" context="Settings" fallback="Esc" description="скасувати" />
           </Byline>
         </Text>
       </Box>

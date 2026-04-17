@@ -22,7 +22,7 @@ function getLocalInstallDir(): string {
 }
 
 function getLegacyLocalInstallDir(homeDir = homedir()): string {
-  return join(homeDir, '.claude', 'local')
+  return join(homeDir, '.nnc', 'local')
 }
 
 export function getCandidateLocalInstallDirs(options?: {
@@ -46,7 +46,7 @@ function getCandidateLocalBinaryPaths(localInstallDir: string): string[] {
 export function isManagedLocalInstallationPath(execPath: string): boolean {
   return (
     execPath.includes('/.openclaude/local/node_modules/') ||
-    execPath.includes('/.claude/local/node_modules/')
+    execPath.includes('/.nnc/local/node_modules/')
   )
 }
 
@@ -120,7 +120,7 @@ export async function ensureLocalPackageEnvironment(): Promise<boolean> {
 }
 
 /**
- * Install or update Claude CLI package in the local directory
+ * Install or update Neural Network CLI package in the local directory
  * @param channel - Release channel to use (latest or stable)
  * @param specificVersion - Optional specific version to install (overrides channel)
  */

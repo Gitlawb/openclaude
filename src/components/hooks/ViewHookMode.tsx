@@ -3,7 +3,7 @@ import { c as _c } from "react-compiler-runtime";
  * ViewHookMode shows read-only details for a single configured hook.
  *
  * The /hooks menu is read-only; this view replaces the former delete-hook
- * confirmation screen and directs users to settings.json or Claude for edits.
+ * confirmation screen and directs users to settings.json or Neural Network for edits.
  */
 import * as React from 'react';
 import { Box, Text } from '../../ink.js';

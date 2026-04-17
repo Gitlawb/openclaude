@@ -147,7 +147,7 @@ test('strips Anthropic-specific custom headers before sending OpenAI-compatible 
   process.env.ANTHROPIC_CUSTOM_HEADERS = [
     'anthropic-version: 2023-06-01',
     'anthropic-beta: prompt-caching-2024-07-31',
-    'x-anthropic-additional-protection: true',
+    'x-additional-protection: true',
     'x-claude-remote-session-id: remote-123',
     'x-app: cli',
     'x-safe-header: keep-me',
@@ -198,7 +198,7 @@ test('strips Anthropic-specific custom headers before sending OpenAI-compatible 
 
   expect(capturedHeaders?.get('anthropic-version')).toBeNull()
   expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
-  expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
+  expect(capturedHeaders?.get('x-additional-protection')).toBeNull()
   expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
   expect(capturedHeaders?.get('x-app')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')

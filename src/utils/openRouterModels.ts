@@ -6,6 +6,8 @@ export type OpenRouterModel = {
   contextLength: number
   /** USD per million prompt tokens, or null if unknown */
   promptPricePerMToken: number | null
+  /** USD per million completion tokens, or null if unknown */
+  completionPricePerMToken: number | null
 }
 
 /**
@@ -41,25 +43,28 @@ export async function listOpenRouterModels(
         id?: string
         name?: string
         context_length?: number
-        pricing?: { prompt?: string | number }
+        pricing?: {
+          prompt?: string | number
+          completion?: string | number
+        }
       }>
+    }
+
+    const toPerMToken = (raw: string | number | undefined): number | null => {
+      if (raw === undefined || raw === null) return null
+      const value = parseFloat(String(raw)) * 1_000_000
+      return Number.isFinite(value) ? value : null
     }
 
     return (data.data ?? [])
       .filter(m => Boolean(m.id))
-      .map(m => {
-        const promptRaw = m.pricing?.prompt
-        const promptPrice =
-          promptRaw !== undefined && promptRaw !== null
-            ? parseFloat(String(promptRaw)) * 1_000_000
-            : null
-        return {
-          id: m.id!,
-          name: m.name || m.id!,
-          contextLength: typeof m.context_length === 'number' ? m.context_length : 0,
-          promptPricePerMToken: Number.isFinite(promptPrice) ? promptPrice! : null,
-        }
-      })
+      .map(m => ({
+        id: m.id!,
+        name: m.name || m.id!,
+        contextLength: typeof m.context_length === 'number' ? m.context_length : 0,
+        promptPricePerMToken: toPerMToken(m.pricing?.prompt),
+        completionPricePerMToken: toPerMToken(m.pricing?.completion),
+      }))
       .sort((a, b) => a.id.localeCompare(b.id))
   } catch {
     return []

@@ -2,7 +2,7 @@
  * Upload BriefTool attachments to private_api so web viewers can preview them.
  *
  * When the repl bridge is active, attachment paths are meaningless to a web
- * viewer (they're on Claude's machine). We upload to /api/oauth/file_upload —
+ * viewer (they're on Neural Network's machine). We upload to /api/oauth/file_upload —
  * the same store MessageComposer/SpaceMessage render from — and stash the
  * returned file_uuid alongside the path. Web resolves file_uuid → preview;
  * desktop/local try path first.

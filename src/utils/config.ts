@@ -132,7 +132,7 @@ export type ProjectConfig = {
     sessionId: string
     hookBased?: boolean
   }
-  /** Spawn mode for `claude remote-control` multi-session. Set by first-run dialog or `w` toggle. */
+  /** Spawn mode for `nnc remote-control` multi-session. Set by first-run dialog or `w` toggle. */
   remoteControlSpawnMode?: 'same-dir' | 'worktree'
 }
 
@@ -181,6 +181,36 @@ export type DiffTool = 'terminal' | 'auto'
 
 export type OutputStyle = string
 
+export type ProviderApiKeyEntry = {
+  id: string
+  apiKey: string
+  label?: string
+  createdAt: number
+}
+
+export type FavoriteModelPricing = {
+  /** USD per million prompt (input) tokens. */
+  promptPricePerMToken: number | null
+  /** USD per million completion (output) tokens. */
+  completionPricePerMToken: number | null
+  /** Context window in tokens, when reported by the provider. */
+  contextLength: number
+}
+
+export type FavoriteModelEntry = {
+  id: string
+  providerName: string
+  model: string
+  baseUrl: string
+  apiKeyId?: string
+  displayName?: string
+  addedAt: number
+  lastUsedAt?: number
+  /** Cached pricing/context info captured when the favorite was added. */
+  pricing?: FavoriteModelPricing
+}
+
+/** @deprecated Use FavoriteModelEntry and ProviderApiKeyEntry instead */
 export type ProviderProfile = {
   id: string
   name: string
@@ -217,9 +247,9 @@ export type GlobalConfig = {
   lastOnboardingVersion?: string
   // Tracks the last version for which release notes were seen, used for managing release notes
   lastReleaseNotesSeen?: string
-  // Timestamp when changelog was last fetched (content stored in ~/.claude/cache/changelog.md)
+  // Timestamp when changelog was last fetched (content stored in ~/.nnc/cache/changelog.md)
   changelogLastFetched?: number
-  // @deprecated - Migrated to ~/.claude/cache/changelog.md. Keep for migration support.
+  // @deprecated - Migrated to ~/.nnc/cache/changelog.md. Keep for migration support.
   cachedChangelog?: string
   mcpServers?: Record<string, McpServerConfig>
   // claude.ai MCP connectors that have successfully connected at least once.
@@ -392,7 +422,7 @@ export type GlobalConfig = {
   // First start time tracking
   firstStartTime?: string // ISO timestamp when Neural Network was first started on this machine
 
-  messageIdleNotifThresholdMs: number // How long the user has to have been idle to get a notification that Claude is done generating
+  messageIdleNotifThresholdMs: number // How long the user has to have been idle to get a notification that Neural Network is done generating
 
   githubActionSetupCount?: number // Number of times the user has set up the GitHub Action
   slackAppInstallCount?: number // Number of times the user has clicked to install the Slack app
@@ -516,7 +546,7 @@ export type GlobalConfig = {
   officialMarketplaceAutoInstallLastAttemptTime?: number // Timestamp of last attempt
   officialMarketplaceAutoInstallNextRetryTime?: number // Earliest time to retry again
 
-  // Claude in Chrome settings
+  // Neural Network in Chrome settings
   hasCompletedClaudeInChromeOnboarding?: boolean // Whether Chrome Extension onboarding has been shown
   claudeInChromeDefaultEnabled?: boolean // Whether Chrome Extension is enabled by default (undefined means platform default)
   cachedChromeExtensionInstalled?: boolean // Cached result of whether Chrome extension is installed
@@ -532,7 +562,7 @@ export type GlobalConfig = {
   lspRecommendationNeverPlugins?: string[] // Plugin IDs to never suggest
   lspRecommendationIgnoredCount?: number // Track ignored recommendations (stops after 5)
 
-  // Neural Network hint protocol state (<claude-code-hint /> tags from CLIs/SDKs).
+  // Neural Network hint protocol state (<nnc-hint /> tags from CLIs/SDKs).
   // Nested by hint type so future types (docs, mcp, ...) slot in without new
   // top-level keys.
   claudeCodeHints?: {
@@ -592,9 +622,16 @@ export type GlobalConfig = {
   // Additional model options discovered from OpenAI-compatible endpoints.
   openaiAdditionalModelOptionsCache?: ModelOption[]
 
-  // Provider profiles managed inside the TUI. The active profile determines
-  // which API provider env vars are applied for the current session.
+  // Favorite models: user-curated list of provider+model combos for startup selection.
+  favoriteModels?: FavoriteModelEntry[]
+  // Currently selected favorite (last picked model for next startup default)
+  selectedFavoriteModelId?: string
+  // Per-provider API keys — stored once per provider, referenced by favorites.
+  providerApiKeys?: ProviderApiKeyEntry[]
+
+  /** @deprecated Use favoriteModels instead. Migrated on first access. */
   providerProfiles?: ProviderProfile[]
+  /** @deprecated Use selectedFavoriteModelId instead. */
   activeProviderProfileId?: string
 
   // Per-profile cache for models discovered from OpenAI-compatible endpoints.
@@ -608,7 +645,7 @@ export type GlobalConfig = {
 
   // Disk cache for /api/claude_code/organizations/metrics_enabled.
   // Org-level settings change rarely; persisting across processes avoids a
-  // cold API call on every `claude -p` invocation.
+  // cold API call on every `nnc -p` invocation.
   metricsStatusCache?: {
     enabled: boolean
     timestamp: number
@@ -673,7 +710,6 @@ function createDefaultGlobalConfig(): GlobalConfig {
     cachedGrowthBookFeatures: {},
     respectGitignore: true,
     copyFullResponse: false,
-    providerProfiles: [],
     openaiAdditionalModelOptionsCacheByProfile: {},
     recentlyUsedModels: [],
   }
@@ -943,7 +979,7 @@ let configCacheHits = 0
 let configCacheMisses = 0
 // Session-total count of actual disk writes to the global config file.
 // Exposed for internal-only dev diagnostics (see inc-4552) so anomalous write
-// rates surface in the UI before they corrupt ~/.claude.json.
+// rates surface in the UI before they corrupt ~/.nnc.json.
 let globalConfigWriteCount = 0
 
 export function getGlobalConfigWriteCount(): number {
@@ -975,11 +1011,76 @@ registerCleanup(async () => {
  * Migrates old autoUpdaterStatus to new installMethod and autoUpdates fields
  * @internal
  */
+function migrateProviderProfilesToFavorites(config: GlobalConfig): GlobalConfig {
+  // New install or already migrated
+  if (!config.providerProfiles || config.providerProfiles.length === 0) {
+    return config
+  }
+  if (config.favoriteModels && config.favoriteModels.length > 0) {
+    return config
+  }
+
+  const newFavorites: FavoriteModelEntry[] = []
+  const newApiKeys: ProviderApiKeyEntry[] = []
+
+  for (const profile of config.providerProfiles) {
+    // Create API key entry for providers that have keys
+    if (profile.apiKey) {
+      const existingKey = newApiKeys.find(k => k.id === profile.provider)
+      if (!existingKey) {
+        newApiKeys.push({
+          id: profile.provider,
+          apiKey: profile.apiKey,
+          label: profile.name,
+          createdAt: Date.now(),
+        })
+      }
+    }
+
+    // Create favorite model entry
+    newFavorites.push({
+      id: `fav_${profile.provider}_${profile.model.replace(/[^a-z0-9.-]/gi, '_')}`,
+      providerName: profile.provider,
+      model: profile.model,
+      baseUrl: profile.baseUrl,
+      apiKeyId: profile.apiKey ? profile.provider : undefined,
+      displayName: profile.name,
+      addedAt: Date.now(),
+    })
+  }
+
+  // Set selectedModelId from active profile
+  let selectedId: string | undefined
+  if (config.activeProviderProfileId) {
+    const activeProfile = config.providerProfiles.find(
+      p => p.id === config.activeProviderProfileId
+    )
+    if (activeProfile) {
+      selectedId = newFavorites.find(
+        f => f.providerName === activeProfile.provider && f.model === activeProfile.model
+      )?.id
+    }
+  }
+  if (!selectedId && newFavorites.length > 0) {
+    selectedId = newFavorites[0].id
+  }
+
+  return {
+    ...config,
+    favoriteModels: newFavorites,
+    providerApiKeys: newApiKeys,
+    selectedFavoriteModelId: selectedId,
+  }
+}
+
 function migrateConfigFields(config: GlobalConfig): GlobalConfig {
   // Already migrated
   if (config.installMethod !== undefined) {
     return config
   }
+
+  // Migrate provider profiles to favorites
+  config = migrateProviderProfilesToFavorites(config)
 
   // autoUpdaterStatus is removed from the type but may exist in old configs
   const legacy = config as GlobalConfig & {
@@ -1282,7 +1383,7 @@ function saveConfigWithLock<A extends object>(
     const currentConfig = getConfig(file, createDefault)
     if (file === getGlobalClaudeFile() && wouldLoseAuthState(currentConfig)) {
       logForDebugging(
-        'saveConfigWithLock: re-read config is missing auth that cache has; refusing to write to avoid wiping ~/.claude.json. See GH #3117.',
+        'saveConfigWithLock: re-read config is missing auth that cache has; refusing to write to avoid wiping ~/.nnc.json. See GH #3117.',
         { level: 'error' },
       )
       logEvent('tengu_config_auth_loss_prevented', {})
@@ -1306,7 +1407,7 @@ function saveConfigWithLock<A extends object>(
 
     // Create timestamped backup of existing config before writing
     // We keep multiple backups to prevent data loss if a reset/corrupted config
-    // overwrites a good backup. Backups are stored in ~/.claude/backups/ to
+    // overwrites a good backup. Backups are stored in ~/.nnc/backups/ to
     // keep the home directory clean.
     try {
       const fileBase = basename(file)
@@ -1423,7 +1524,7 @@ export function enableConfigs(): void {
 
 /**
  * Returns the directory where config backup files are stored.
- * Uses ~/.claude/backups/ to keep the home directory clean.
+ * Uses ~/.nnc/backups/ to keep the home directory clean.
  */
 function getConfigBackupDir(): string {
   return join(getClaudeConfigHomeDir(), 'backups')
@@ -1431,7 +1532,7 @@ function getConfigBackupDir(): string {
 
 /**
  * Find the most recent backup file for a given config file.
- * Checks ~/.claude/backups/ first, then falls back to the legacy location
+ * Checks ~/.nnc/backups/ first, then falls back to the legacy location
  * (next to the config file) for backwards compatibility.
  * Returns the full path to the most recent backup, or null if none exist.
  */
@@ -1847,13 +1948,13 @@ export function getMemoryPath(memoryType: MemoryType): string {
 
   switch (memoryType) {
     case 'User':
-      return join(getClaudeConfigHomeDir(), 'CLAUDE.md')
+      return join(getClaudeConfigHomeDir(), 'NNC.md')
     case 'Local':
       return join(cwd, 'CLAUDE.local.md')
     case 'Project':
       return join(cwd, PRIMARY_PROJECT_INSTRUCTION_FILE)
     case 'Managed':
-      return join(getManagedFilePath(), 'CLAUDE.md')
+      return join(getManagedFilePath(), 'NNC.md')
     case 'AutoMem':
       return getAutoMemEntrypoint()
   }
@@ -1865,7 +1966,7 @@ export function getMemoryPath(memoryType: MemoryType): string {
 }
 
 export function getManagedClaudeRulesDir(): string {
-  return join(getManagedFilePath(), '.claude', 'rules')
+  return join(getManagedFilePath(), '.nnc', 'rules')
 }
 
 export function getUserClaudeRulesDir(): string {

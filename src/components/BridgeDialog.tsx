@@ -193,7 +193,7 @@ export function BridgeDialog(t0) {
     }
     footerText = t18;
     T1 = Dialog;
-    t15 = "Remote Control";
+    t15 = "Віддалене керування";
     t16 = onDone;
     t17 = true;
     T0 = Box;
@@ -236,7 +236,7 @@ export function BridgeDialog(t0) {
     }
     let t23;
     if ($[60] !== environmentId || $[61] !== verbose) {
-      t23 = verbose && environmentId && <Text dimColor={true}>Environment: {environmentId}</Text>;
+      t23 = verbose && environmentId && <Text dimColor={true}>Середовище: {environmentId}</Text>;
       $[60] = environmentId;
       $[61] = verbose;
       $[62] = t23;
@@ -245,7 +245,7 @@ export function BridgeDialog(t0) {
     }
     let t24;
     if ($[63] !== sessionId || $[64] !== verbose) {
-      t24 = verbose && sessionId && <Text dimColor={true}>Session: {sessionId}</Text>;
+      t24 = verbose && sessionId && <Text dimColor={true}>Сесія: {sessionId}</Text>;
       $[63] = sessionId;
       $[64] = verbose;
       $[65] = t24;

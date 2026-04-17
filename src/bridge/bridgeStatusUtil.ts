@@ -113,10 +113,10 @@ export function computeShimmerSegments(
 /** Computed bridge status label and color from connection state. */
 export type BridgeStatusInfo = {
   label:
-    | 'Remote Control failed'
-    | 'Remote Control reconnecting'
-    | 'Remote Control active'
-    | 'Remote Control connecting\u2026'
+    | 'Віддалене керування не вдалося'
+    | 'Віддалене керування перепідключається'
+    | 'Віддалене керування активне'
+    | 'Віддалене керування підключається\u2026'
   color: 'error' | 'warning' | 'success'
 }
 
@@ -132,26 +132,26 @@ export function getBridgeStatus({
   sessionActive: boolean
   reconnecting: boolean
 }): BridgeStatusInfo {
-  if (error) return { label: 'Remote Control failed', color: 'error' }
+  if (error) return { label: 'Віддалене керування не вдалося', color: 'error' }
   if (reconnecting)
-    return { label: 'Remote Control reconnecting', color: 'warning' }
+    return { label: 'Віддалене керування перепідключається', color: 'warning' }
   if (sessionActive || connected)
-    return { label: 'Remote Control active', color: 'success' }
-  return { label: 'Remote Control connecting\u2026', color: 'warning' }
+    return { label: 'Віддалене керування активне', color: 'success' }
+  return { label: 'Віддалене керування підключається\u2026', color: 'warning' }
 }
 
 /** Footer text shown when bridge is idle (Ready state). */
 export function buildIdleFooterText(url: string): string {
-  return `Code everywhere with the app or ${url}`
+  return `Кодьте будь-де через застосунок або ${url}`
 }
 
 /** Footer text shown when a session is active (Connected state). */
 export function buildActiveFooterText(url: string): string {
-  return `Continue coding in the app or ${url}`
+  return `Продовжуйте кодити у застосунку або ${url}`
 }
 
 /** Footer text shown when the bridge has failed. */
-export const FAILED_FOOTER_TEXT = 'Something went wrong, please try again'
+export const FAILED_FOOTER_TEXT = 'Щось пішло не так, спробуйте ще раз'
 
 /**
  * Wrap text in an OSC 8 terminal hyperlink. Zero visual width for layout purposes.

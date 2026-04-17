@@ -38,7 +38,7 @@ export function FileEditToolUseRejectedMessage(t0) {
   } = useTerminalSize();
   let t1;
   if ($[0] !== operation) {
-    t1 = <Text color="subtle">User rejected {operation} to </Text>;
+    t1 = <Text color="subtle">Користувач відхилив {operation === 'write' ? 'запис' : 'оновлення'} у </Text>;
     $[0] = operation;
     $[1] = t1;
   } else {
@@ -99,7 +99,7 @@ export function FileEditToolUseRejectedMessage(t0) {
       t5 = $[15];
     }
     const truncatedContent = t5;
-    const t6 = truncatedContent || "(No content)";
+    const t6 = truncatedContent || "(Немає вмісту)";
     const t7 = columns - 12;
     let t8;
     if ($[16] !== file_path || $[17] !== t6 || $[18] !== t7) {
@@ -113,7 +113,7 @@ export function FileEditToolUseRejectedMessage(t0) {
     }
     let t9;
     if ($[20] !== plusLines || $[21] !== verbose) {
-      t9 = !verbose && plusLines > 0 && <Text dimColor={true}>… +{plusLines} lines</Text>;
+      t9 = !verbose && plusLines > 0 && <Text dimColor={true}>… +{plusLines} рядків</Text>;
       $[20] = plusLines;
       $[21] = verbose;
       $[22] = t9;

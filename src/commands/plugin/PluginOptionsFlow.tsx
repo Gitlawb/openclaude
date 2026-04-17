@@ -71,8 +71,8 @@ export function PluginOptionsFlow({
     if (Object.keys(unconfigured).length > 0) {
       result.push({
         key: 'top-level',
-        title: `Configure ${plugin.name}`,
-        subtitle: 'Plugin options',
+        title: `Налаштувати ${plugin.name}`,
+        subtitle: 'Опції плагіна',
         schema: unconfigured,
         load: () => loadPluginOptions(pluginId),
         save: values => savePluginOptions(pluginId, values, plugin.manifest.userConfig!)
@@ -84,8 +84,8 @@ export function PluginOptionsFlow({
     for (const channel of channels) {
       result.push({
         key: `channel:${channel.server}`,
-        title: `Configure ${channel.displayName}`,
-        subtitle: `Plugin: ${plugin.name}`,
+        title: `Налаштувати ${channel.displayName}`,
+        subtitle: `Плагін: ${plugin.name}`,
         schema: channel.configSchema,
         load: () => loadMcpServerUserConfig(pluginId, channel.server) ?? undefined,
         save: values_0 => saveMcpServerUserConfig(pluginId, channel.server, values_0, channel.configSchema)

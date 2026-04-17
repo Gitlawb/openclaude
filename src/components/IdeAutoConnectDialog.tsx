@@ -33,10 +33,10 @@ export function IdeAutoConnectDialog(t0) {
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = [{
-      label: "Yes",
+      label: "Так",
       value: "yes"
     }, {
-      label: "No",
+      label: "Ні",
       value: "no"
     }];
     $[2] = t2;
@@ -54,14 +54,14 @@ export function IdeAutoConnectDialog(t0) {
   }
   let t4;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = <Text dimColor={true}>You can also configure this in /config or with the --ide flag</Text>;
+    t4 = <Text dimColor={true}>Це також можна налаштувати у /config або через прапорець --ide</Text>;
     $[5] = t4;
   } else {
     t4 = $[5];
   }
   let t5;
   if ($[6] !== onComplete || $[7] !== t3) {
-    t5 = <Dialog title="Do you wish to enable auto-connect to IDE?" color="ide" onCancel={onComplete}>{t3}{t4}</Dialog>;
+    t5 = <Dialog title="Увімкнути автопідключення до IDE?" color="ide" onCancel={onComplete}>{t3}{t4}</Dialog>;
     $[6] = onComplete;
     $[7] = t3;
     $[8] = t5;
@@ -111,10 +111,10 @@ export function IdeDisableAutoConnectDialog(t0) {
   let t3;
   if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
     t3 = [{
-      label: "No",
+      label: "Ні",
       value: "no"
     }, {
-      label: "Yes",
+      label: "Так",
       value: "yes"
     }];
     $[4] = t3;
@@ -132,7 +132,7 @@ export function IdeDisableAutoConnectDialog(t0) {
   }
   let t5;
   if ($[7] !== handleCancel || $[8] !== t4) {
-    t5 = <Dialog title="Do you wish to disable auto-connect to IDE?" subtitle="You can also configure this in /config" onCancel={handleCancel} color="ide">{t4}</Dialog>;
+    t5 = <Dialog title="Вимкнути автопідключення до IDE?" subtitle="Це також можна налаштувати у /config" onCancel={handleCancel} color="ide">{t4}</Dialog>;
     $[7] = handleCancel;
     $[8] = t4;
     $[9] = t5;

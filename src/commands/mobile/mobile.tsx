@@ -209,7 +209,7 @@ function MobileQRCode(t0) {
   }
   let t24;
   if ($[33] === Symbol.for("react.memo_cache_sentinel")) {
-    t24 = <Text dimColor={true}>(tab to switch, esc to close)</Text>;
+    t24 = <Text dimColor={true}>(tab — перемкнути, esc — закрити)</Text>;
     $[33] = t24;
   } else {
     t24 = $[33];

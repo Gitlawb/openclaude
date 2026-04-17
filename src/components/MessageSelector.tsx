@@ -93,20 +93,20 @@ export function MessageSelector({
   function getRestoreOptions(canRestoreCode: boolean): OptionWithDescription<RestoreOption>[] {
     const baseOptions: OptionWithDescription<RestoreOption>[] = canRestoreCode ? [{
       value: 'both',
-      label: 'Restore code and conversation'
+      label: 'Відновити код і розмову'
     }, {
       value: 'conversation',
-      label: 'Restore conversation'
+      label: 'Відновити розмову'
     }, {
       value: 'code',
-      label: 'Restore code'
+      label: 'Відновити код'
     }] : [{
       value: 'conversation',
-      label: 'Restore conversation'
+      label: 'Відновити розмову'
     }];
     const summarizeInputProps = {
       type: 'input' as const,
-      placeholder: 'add context (optional)',
+      placeholder: 'додати контекст (необов\'язково)',
       initialValue: '',
       allowEmptySubmitToCancel: true,
       showLabelWithValue: true,
@@ -114,21 +114,21 @@ export function MessageSelector({
     };
     baseOptions.push({
       value: 'summarize',
-      label: 'Summarize from here',
+      label: 'Стиснути звідси',
       ...summarizeInputProps,
       onChange: setSummarizeFromFeedback
     });
     if ("external" === 'ant') {
       baseOptions.push({
         value: 'summarize_up_to',
-        label: 'Summarize up to here',
+        label: 'Стиснути до цього місця',
         ...summarizeInputProps,
         onChange: setSummarizeUpToFeedback
       });
     }
     baseOptions.push({
       value: 'nevermind',
-      label: 'Never mind'
+      label: 'Скасувати'
     });
     return baseOptions;
   }

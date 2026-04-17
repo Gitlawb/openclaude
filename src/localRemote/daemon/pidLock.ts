@@ -14,7 +14,7 @@ import { constants } from 'node:fs'
 const PID_FILE_NAME = 'remote-daemon.pid'
 
 function pidFilePath(): string {
-  return join(homedir(), '.claude', PID_FILE_NAME)
+  return join(homedir(), '.nnc', PID_FILE_NAME)
 }
 
 function isProcessAlive(pid: number): boolean {

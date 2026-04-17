@@ -48,7 +48,7 @@ export function InvalidSettingsDialog(t0) {
   }
   let t3;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Text dimColor={true}>Files with errors are skipped entirely, not just the invalid settings.</Text>;
+    t3 = <Text dimColor={true}>Файли з помилками пропускаються повністю, а не лише окремі невалідні налаштування.</Text>;
     $[5] = t3;
   } else {
     t3 = $[5];
@@ -56,10 +56,10 @@ export function InvalidSettingsDialog(t0) {
   let t4;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
     t4 = [{
-      label: "Exit and fix manually",
+      label: "Вийти та виправити вручну",
       value: "exit"
     }, {
-      label: "Continue without these settings",
+      label: "Продовжити без цих налаштувань",
       value: "continue"
     }];
     $[6] = t4;
@@ -76,7 +76,7 @@ export function InvalidSettingsDialog(t0) {
   }
   let t6;
   if ($[9] !== onExit || $[10] !== t2 || $[11] !== t5) {
-    t6 = <Dialog title="Settings Error" onCancel={onExit} color="warning">{t2}{t3}{t5}</Dialog>;
+    t6 = <Dialog title="Помилка налаштувань" onCancel={onExit} color="warning">{t2}{t3}{t5}</Dialog>;
     $[9] = onExit;
     $[10] = t2;
     $[11] = t5;

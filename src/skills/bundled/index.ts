@@ -49,9 +49,9 @@ export function initBundledSkills(): void {
   }
   if (feature('BUILDING_CLAUDE_APPS')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
-    const { registerClaudeApiSkill } = require('./claudeApi.js')
+    const { registerAiApiSkill } = require('./aiApi.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
-    registerClaudeApiSkill()
+    registerAiApiSkill()
   }
   if (shouldAutoEnableClaudeInChrome()) {
     registerClaudeInChromeSkill()

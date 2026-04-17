@@ -8,6 +8,8 @@
 import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/providerConfig.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
 import { getMainLoopModel } from '../utils/model/model.js'
+import { getSelectedFavoriteModel } from '../utils/favorites.js'
+import type { FavoriteModelPricing } from '../utils/config.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
@@ -146,6 +148,36 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
   return { name: 'Anthropic', model: getMainLoopModel(), baseUrl: 'https://api.anthropic.com', isLocal: false }
 }
 
+// ─── Pricing formatting ───────────────────────────────────────────────────────
+
+function formatStartupPrice(value: number): string {
+  return value >= 0.1 ? `$${value.toFixed(2)}` : `$${value.toFixed(4)}`
+}
+
+function formatStartupContext(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) return ''
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}M ctx`
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k ctx`
+  return `${tokens} ctx`
+}
+
+function formatStartupPricingLine(p: FavoriteModelPricing): string {
+  const parts: string[] = []
+  const { promptPricePerMToken: prompt, completionPricePerMToken: completion } = p
+  if (prompt !== null && completion !== null) {
+    parts.push(
+      `${formatStartupPrice(prompt)} / ${formatStartupPrice(completion)} per Mtok`,
+    )
+  } else if (prompt !== null) {
+    parts.push(`${formatStartupPrice(prompt)} per Mtok`)
+  } else if (completion !== null) {
+    parts.push(`${formatStartupPrice(completion)} per Mtok`)
+  }
+  const ctx = formatStartupContext(p.contextLength)
+  if (ctx) parts.push(ctx)
+  return parts.join(' · ')
+}
+
 // ─── Box drawing ──────────────────────────────────────────────────────────────
 
 function boxRow(content: string, width: number, rawLen: number): string {
@@ -208,6 +240,17 @@ export function printStartupScreen(): void {
   const ep = p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl
   ;[r, l] = lbl('Адреса', ep)
   out.push(boxRow(r, W, l))
+
+  // Pricing (if cached on the selected favorite). Skipped silently for
+  // providers without published per-token pricing (local models, etc).
+  const pricing = getSelectedFavoriteModel()?.pricing
+  if (pricing) {
+    const priceLine = formatStartupPricingLine(pricing)
+    if (priceLine) {
+      ;[r, l] = lbl('Ціна', priceLine)
+      out.push(boxRow(r, W, l))
+    }
+  }
 
   // Current working directory (truncated from the left if too long)
   const cwd = process.cwd()

@@ -38,7 +38,7 @@ describe('Neural Network paths', () => {
     ).toBe(join(homedir(), '.openclaude'))
   })
 
-  test('falls back to ~/.claude when legacy config exists and ~/.openclaude does not', async () => {
+  test('falls back to ~/.nnc when legacy config exists and ~/.openclaude does not', async () => {
     delete process.env.CLAUDE_CONFIG_DIR
     const { resolveClaudeConfigHomeDir } = await importFreshEnvUtils()
 
@@ -48,7 +48,7 @@ describe('Neural Network paths', () => {
         openClaudeExists: false,
         legacyClaudeExists: true,
       }),
-    ).toBe(join(homedir(), '.claude'))
+    ).toBe(join(homedir(), '.nnc'))
   })
 
   test('uses CLAUDE_CONFIG_DIR override when provided', async () => {
@@ -64,20 +64,20 @@ describe('Neural Network paths', () => {
     ).toBe('/tmp/custom-openclaude')
   })
 
-  test('project and local settings paths use .openclaude', async () => {
+  test('project and local settings paths use .nnc', async () => {
     const { getRelativeSettingsFilePathForSource } = await importFreshSettings()
 
     expect(getRelativeSettingsFilePathForSource('projectSettings')).toBe(
-      '.openclaude/settings.json',
+      '.nnc/settings.json',
     )
     expect(getRelativeSettingsFilePathForSource('localSettings')).toBe(
-      '.openclaude/settings.local.json',
+      '.nnc/settings.local.json',
     )
   })
 
   test('local installer uses openclaude wrapper path', async () => {
     // Force .openclaude config home so the test doesn't fall back to
-    // ~/.claude when ~/.openclaude doesn't exist on this machine.
+    // ~/.nnc when ~/.openclaude doesn't exist on this machine.
     process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
     const { getLocalClaudePath } = await importFreshLocalInstaller()
 
@@ -103,7 +103,7 @@ describe('Neural Network paths', () => {
 
     expect(
       isManagedLocalInstallationPath(
-        `${join(homedir(), '.claude', 'local')}/node_modules/.bin/openclaude`,
+        `${join(homedir(), '.nnc', 'local')}/node_modules/.bin/openclaude`,
       ),
     ).toBe(true)
   })
@@ -118,7 +118,7 @@ describe('Neural Network paths', () => {
       }),
     ).toEqual([
       join(homedir(), '.openclaude', 'local'),
-      join(homedir(), '.claude', 'local'),
+      join(homedir(), '.nnc', 'local'),
     ])
   })
 
@@ -127,7 +127,7 @@ describe('Neural Network paths', () => {
       ...fsPromises,
       access: async (path: string) => {
         if (
-          path === join(homedir(), '.claude', 'local', 'node_modules', '.bin', 'claude')
+          path === join(homedir(), '.nnc', 'local', 'node_modules', '.bin', 'claude')
         ) {
           return
         }
@@ -140,7 +140,7 @@ describe('Neural Network paths', () => {
 
     expect(await localInstallationExists()).toBe(true)
     expect(await getDetectedLocalInstallDir()).toBe(
-      join(homedir(), '.claude', 'local'),
+      join(homedir(), '.nnc', 'local'),
     )
   })
 })

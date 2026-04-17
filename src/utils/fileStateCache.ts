@@ -6,7 +6,7 @@ export type FileState = {
   timestamp: number
   offset: number | undefined
   limit: number | undefined
-  // True when this entry was populated by auto-injection (e.g. CLAUDE.md) and
+  // True when this entry was populated by auto-injection (e.g. NNC.md) and
   // the injected content did not match disk (stripped HTML comments, stripped
   // frontmatter, truncated MEMORY.md). The model has only seen a partial view;
   // Edit/Write must require an explicit Read first. `content` here holds the

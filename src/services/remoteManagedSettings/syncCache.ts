@@ -67,7 +67,7 @@ export function isRemoteManagedSettingsEligible(): boolean {
     return (cached = setEligibility(false))
   }
 
-  // Check OAuth first: most Claude.ai users have no API key in the keychain.
+  // Check OAuth first: most Neural Network.ai users have no API key in the keychain.
   // The API key check spawns `security find-generic-password` (~20-50ms) which
   // returns null for OAuth-only users. Checking OAuth first short-circuits
   // that subprocess for the common case.

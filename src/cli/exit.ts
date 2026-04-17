@@ -2,7 +2,7 @@
  * CLI exit helpers for subcommand handlers.
  *
  * Consolidates the 4-5 line "print + lint-suppress + exit" block that was
- * copy-pasted ~60 times across `claude mcp *` / `claude plugin *` handlers.
+ * copy-pasted ~60 times across `nnc mcp *` / `nnc plugin *` handlers.
  * The `: never` return type lets TypeScript narrow control flow at call sites
  * without a trailing `return`.
  */

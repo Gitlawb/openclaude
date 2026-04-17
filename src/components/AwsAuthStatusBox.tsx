@@ -36,7 +36,7 @@ export function AwsAuthStatusBox() {
   }
   let t3;
   if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Text bold={true} color="permission">Cloud Authentication</Text>;
+    t3 = <Text bold={true} color="permission">Хмарна автентифікація</Text>;
     $[3] = t3;
   } else {
     t3 = $[3];

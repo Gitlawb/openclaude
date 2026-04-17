@@ -41,8 +41,14 @@ export function modelSupportsEffort(model: string): boolean {
   if (modelUsesOpenAIEffort(model) && supportsCodexReasoningEffort(model)) {
     return true
   }
-  // Supported by a subset of Claude 4 models
-  if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
+  // Supported by a subset of Claude 4 models. Opus 4.7 requires
+  // output_config.effort because the legacy thinking.budget_tokens path is
+  // no longer accepted on that model.
+  if (
+    m.includes('opus-4-7') ||
+    m.includes('opus-4-6') ||
+    m.includes('sonnet-4-6')
+  ) {
     return true
   }
   // Exclude any other known legacy models (haiku, older opus/sonnet variants)

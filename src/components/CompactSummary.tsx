@@ -38,14 +38,14 @@ export function CompactSummary(t0) {
     }
     let t3;
     if ($[3] === Symbol.for("react.memo_cache_sentinel")) {
-      t3 = <Text bold={true}>Summarized conversation</Text>;
+      t3 = <Text bold={true}>Стиснена розмова</Text>;
       $[3] = t3;
     } else {
       t3 = $[3];
     }
     let t4;
     if ($[4] !== isTranscriptMode || $[5] !== metadata) {
-      t4 = !isTranscriptMode && <MessageResponse><Box flexDirection="column"><Text dimColor={true}>Summarized {metadata.messagesSummarized} messages{" "}{metadata.direction === "up_to" ? "up to this point" : "from this point"}</Text>{metadata.userContext && <Text dimColor={true}>Context: {"\u201C"}{metadata.userContext}{"\u201D"}</Text>}<Text dimColor={true}><ConfigurableShortcutHint action="app:toggleTranscript" context="Global" fallback="ctrl+o" description="expand history" parens={true} /></Text></Box></MessageResponse>;
+      t4 = !isTranscriptMode && <MessageResponse><Box flexDirection="column"><Text dimColor={true}>Стиснуто {metadata.messagesSummarized} повідомлень{" "}{metadata.direction === "up_to" ? "до цієї точки" : "від цієї точки"}</Text>{metadata.userContext && <Text dimColor={true}>Контекст: {"\u201C"}{metadata.userContext}{"\u201D"}</Text>}<Text dimColor={true}><ConfigurableShortcutHint action="app:toggleTranscript" context="Global" fallback="ctrl+o" description="розгорнути історію" parens={true} /></Text></Box></MessageResponse>;
       $[4] = isTranscriptMode;
       $[5] = metadata;
       $[6] = t4;
@@ -81,7 +81,7 @@ export function CompactSummary(t0) {
   }
   let t3;
   if ($[14] !== isTranscriptMode) {
-    t3 = !isTranscriptMode && <Text dimColor={true}>{" "}<ConfigurableShortcutHint action="app:toggleTranscript" context="Global" fallback="ctrl+o" description="expand" parens={true} /></Text>;
+    t3 = !isTranscriptMode && <Text dimColor={true}>{" "}<ConfigurableShortcutHint action="app:toggleTranscript" context="Global" fallback="ctrl+o" description="розгорнути" parens={true} /></Text>;
     $[14] = isTranscriptMode;
     $[15] = t3;
   } else {
@@ -89,7 +89,7 @@ export function CompactSummary(t0) {
   }
   let t4;
   if ($[16] !== t3) {
-    t4 = <Box flexDirection="row">{t2}<Box flexDirection="column"><Text bold={true}>Compact summary{t3}</Text></Box></Box>;
+    t4 = <Box flexDirection="row">{t2}<Box flexDirection="column"><Text bold={true}>Стислий підсумок{t3}</Text></Box></Box>;
     $[16] = t3;
     $[17] = t4;
   } else {

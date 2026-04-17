@@ -180,7 +180,7 @@ function BridgeStatusIndicator({
   });
 
   // For implicit (config-driven) remote, only show the reconnecting state
-  if (!explicit && status.label !== 'Remote Control reconnecting') {
+  if (!explicit && status.label !== 'Віддалене керування перепідключається') {
     return null;
   }
   return <Text color={bridgeSelected ? 'background' : status.color} inverse={bridgeSelected} wrap="truncate">

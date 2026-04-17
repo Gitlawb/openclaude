@@ -145,18 +145,18 @@ export function TeleportError(t0) {
         }
         let t9;
         if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
-          t9 = <Box flexDirection="column"><Text dimColor={true}>Teleport requires authentication.</Text><Text dimColor={true}>Your Pro/Max subscription will be used by Neural Network.</Text></Box>;
+          t9 = <Box flexDirection="column"><Text dimColor={true}>Teleport потребує автентифікації.</Text><Text dimColor={true}>Нейромережа використовуватиме вашу підписку Pro/Max.</Text></Box>;
           $[16] = t9;
         } else {
           t9 = $[16];
         }
         let t10;
         if ($[17] === Symbol.for("react.memo_cache_sentinel")) {
-          t10 = <Dialog title="Log in" onCancel={onCancel}>{t9}<Select options={[{
-              label: "Login with your account",
+          t10 = <Dialog title="Увійти" onCancel={onCancel}>{t9}<Select options={[{
+              label: "Увійти під вашим акаунтом",
               value: "login"
             }, {
-              label: "Exit",
+              label: "Вийти",
               value: "exit"
             }]} onChange={handleLoginDialogSelect} /></Dialog>;
           $[17] = t10;

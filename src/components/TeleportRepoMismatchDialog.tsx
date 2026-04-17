@@ -41,7 +41,7 @@ export function TeleportRepoMismatchDialog(t0) {
       const updatedPaths = availablePaths.filter(p => p !== value);
       setAvailablePaths(updatedPaths);
       setValidating(false);
-      setErrorMessage(`${getDisplayPath(value)} no longer contains the correct repository. Select another path.`);
+      setErrorMessage(`${getDisplayPath(value)} більше не містить потрібного репозиторію. Оберіть інший шлях.`);
     };
     $[0] = availablePaths;
     $[1] = onCancel;
@@ -57,7 +57,7 @@ export function TeleportRepoMismatchDialog(t0) {
     let t3;
     if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
       t3 = {
-        label: "Cancel",
+        label: "Скасувати",
         value: "cancel"
       };
       $[7] = t3;
@@ -73,7 +73,7 @@ export function TeleportRepoMismatchDialog(t0) {
   const options = t2;
   let t3;
   if ($[8] !== availablePaths.length || $[9] !== errorMessage || $[10] !== handleChange || $[11] !== options || $[12] !== targetRepo || $[13] !== validating) {
-    t3 = availablePaths.length > 0 ? <><Box flexDirection="column" gap={1}>{errorMessage && <Text color="error">{errorMessage}</Text>}<Text>Open Neural Network in <Text bold={true}>{targetRepo}</Text>:</Text></Box>{validating ? <Box><Spinner /><Text> Validating repository…</Text></Box> : <Select options={options} onChange={value_0 => void handleChange(value_0)} />}</> : <Box flexDirection="column" gap={1}>{errorMessage && <Text color="error">{errorMessage}</Text>}<Text dimColor={true}>Run claude --teleport from a checkout of {targetRepo}</Text></Box>;
+    t3 = availablePaths.length > 0 ? <><Box flexDirection="column" gap={1}>{errorMessage && <Text color="error">{errorMessage}</Text>}<Text>Відкрити Нейромережу в <Text bold={true}>{targetRepo}</Text>:</Text></Box>{validating ? <Box><Spinner /><Text> Перевірка репозиторію…</Text></Box> : <Select options={options} onChange={value_0 => void handleChange(value_0)} />}</> : <Box flexDirection="column" gap={1}>{errorMessage && <Text color="error">{errorMessage}</Text>}<Text dimColor={true}>Запустіть nnc --teleport з чекауту {targetRepo}</Text></Box>;
     $[8] = availablePaths.length;
     $[9] = errorMessage;
     $[10] = handleChange;
@@ -86,7 +86,7 @@ export function TeleportRepoMismatchDialog(t0) {
   }
   let t4;
   if ($[15] !== onCancel || $[16] !== t3) {
-    t4 = <Dialog title="Teleport to Repo" onCancel={onCancel} color="background">{t3}</Dialog>;
+    t4 = <Dialog title="Teleport у репозиторій" onCancel={onCancel} color="background">{t3}</Dialog>;
     $[15] = onCancel;
     $[16] = t3;
     $[17] = t4;
@@ -97,7 +97,7 @@ export function TeleportRepoMismatchDialog(t0) {
 }
 function _temp(path) {
   return {
-    label: <Text>Use <Text bold={true}>{getDisplayPath(path)}</Text></Text>,
+    label: <Text>Використати <Text bold={true}>{getDisplayPath(path)}</Text></Text>,
     value: path
   };
 }

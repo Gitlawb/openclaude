@@ -52,7 +52,7 @@ type ShadowResult =
  * - command: From slash command frontmatter, potentially shared
  *
  * Personal settings include:
- * - userSettings: User's global ~/.claude settings
+ * - userSettings: User's global ~/.nnc settings
  * - localSettings: Gitignored per-project settings
  * - cliArg: Runtime CLI arguments
  * - session: In-memory session rules

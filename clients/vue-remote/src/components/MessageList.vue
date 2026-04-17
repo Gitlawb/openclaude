@@ -79,22 +79,27 @@ defineExpose({ jumpToBottom })
   flex: 1 1 auto;
   /* min-height:0 lets the flex item shrink below its content height */
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   /* Prevent any wide content (code blocks, long tokens) from pushing the
      layout wider than the viewport and sending the send button off-screen */
   overflow-x: hidden;
-  padding: 6px 8px;
+  padding: 8px 10px;
+  padding-left: max(10px, env(safe-area-inset-left));
+  padding-right: max(10px, env(safe-area-inset-right));
   position: relative;
   display: flex;
   flex-direction: column;
   scroll-behavior: smooth;
   background: var(--bg);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 .messages {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   min-height: 100%;
   /* Ensure the column never forces horizontal overflow */
   min-width: 0;
@@ -105,24 +110,31 @@ defineExpose({ jumpToBottom })
   margin: auto;
   color: var(--fg-dim);
   font-size: var(--font-size-sm);
-  padding: 40px 0;
+  padding: 48px 16px;
   text-align: center;
   letter-spacing: 0.3px;
+  line-height: 1.55;
 }
 
 .jump-latest {
   position: sticky;
-  bottom: 6px;
+  bottom: 8px;
   align-self: center;
   background: var(--bg-elev);
   color: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 0;
-  padding: 4px 12px;
+  border-radius: 999px;
+  padding: 6px 16px;
   font-size: var(--font-size-sm);
+  font-weight: 500;
   cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: background 0.15s, transform 0.1s;
 }
 .jump-latest:hover {
-  background: var(--bg-chip);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+.jump-latest:active {
+  transform: scale(0.97);
 }
 </style>

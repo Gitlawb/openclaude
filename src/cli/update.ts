@@ -152,7 +152,7 @@ export async function update() {
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(
-          chalk.bold('  winget upgrade Anthropic.ClaudeCode') + '\n',
+          chalk.bold('  winget upgrade Anthropic.NeuralNetworkCoder') + '\n',
         )
       } else {
         writeToStdout('Neural Network is up to date!\n')
@@ -266,7 +266,7 @@ export async function update() {
     } catch (error) {
       process.stderr.write('Error: Failed to install native update\n')
       process.stderr.write(String(error) + '\n')
-      process.stderr.write('Try running "claude doctor" for diagnostics\n')
+      process.stderr.write('Try running "nnc doctor" for diagnostics\n')
       await gracefulShutdown(1)
     }
   }

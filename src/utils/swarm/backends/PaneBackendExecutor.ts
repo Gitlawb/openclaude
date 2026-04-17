@@ -30,7 +30,7 @@ import type {
  * return a meaningful executor regardless of execution mode.
  *
  * The adapter handles:
- * - spawn(): Creates a pane and sends the Claude CLI command to it
+ * - spawn(): Creates a pane and sends the Neural Network CLI command to it
  * - sendMessage(): Writes to the teammate's file-based mailbox
  * - terminate(): Sends a shutdown request via mailbox
  * - kill(): Kills the pane via the backend

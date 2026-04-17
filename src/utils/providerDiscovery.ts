@@ -68,6 +68,9 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     const path = parsed.pathname.toLowerCase()
     const haystack = `${hostname} ${path}`
 
+    if (haystack.includes('openrouter')) {
+      return 'OpenRouter'
+    }
     if (
       host.endsWith(':1234') ||
       haystack.includes('lmstudio') ||

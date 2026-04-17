@@ -28,7 +28,7 @@ type Props = {
  * Hook that watches a task list directory and automatically picks up
  * open, unowned tasks to work on.
  *
- * This enables "tasks mode" where Claude watches for externally-created
+ * This enables "tasks mode" where Neural Network watches for externally-created
  * tasks and processes them one at a time.
  */
 export function useTaskListWatcher({
@@ -208,7 +208,7 @@ function findAvailableTask(tasks: Task[]): Task | undefined {
 }
 
 /**
- * Format a task as a prompt for Claude to work on.
+ * Format a task as a prompt for Neural Network to work on.
  */
 function formatTaskAsPrompt(task: Task): string {
   let prompt = `Complete all open tasks. Start with task #${task.id}: \n\n ${task.subject}`

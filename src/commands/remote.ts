@@ -19,7 +19,7 @@ const USAGE = [
   'The remote daemon holds the HTTP+WS port and routes sessions.',
   'All Neural Network instances connect to it as workers.',
   '',
-  'Configure port/host via "localRemote" in ~/.claude/settings (or ~/.claude/config).',
+  'Configure port/host via "localRemote" in ~/.nnc/settings (or ~/.nnc/config).',
   'The server binds to 127.0.0.1 by default. For phone/VPS access, set host to 0.0.0.0',
   'and front the port with Cloudflare Tunnel, SSH tunnel, or a reverse proxy.',
   '',

@@ -19,7 +19,7 @@ export function renderToolResultMessage(_output: Output, _progressMessagesForMes
       </Box>
       <Box paddingLeft={2}>
         <Text dimColor>
-          Claude is now exploring and designing an implementation approach.
+          Neural Network is now exploring and designing an implementation approach.
         </Text>
       </Box>
     </Box>;

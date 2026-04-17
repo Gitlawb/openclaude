@@ -147,7 +147,7 @@ test('strips canonical Anthropic headers from direct shim defaultHeaders', async
     defaultHeaders: {
       'anthropic-version': '2023-06-01',
       'anthropic-beta': 'prompt-caching-2024-07-31',
-      'x-anthropic-additional-protection': 'true',
+      'x-additional-protection': 'true',
       'x-claude-remote-session-id': 'remote-123',
       'x-app': 'cli',
       'x-client-app': 'sdk',
@@ -165,7 +165,7 @@ test('strips canonical Anthropic headers from direct shim defaultHeaders', async
 
   expect(capturedHeaders?.get('anthropic-version')).toBeNull()
   expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
-  expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
+  expect(capturedHeaders?.get('x-additional-protection')).toBeNull()
   expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
   expect(capturedHeaders?.get('x-app')).toBeNull()
   expect(capturedHeaders?.get('x-client-app')).toBeNull()
@@ -262,7 +262,7 @@ test('strips Anthropic-specific headers on GitHub Codex transport requests', asy
       headers: {
         'anthropic-version': '2023-06-01',
         'anthropic-beta': 'prompt-caching-2024-07-31',
-        'x-anthropic-additional-protection': 'true',
+        'x-additional-protection': 'true',
         'x-safe-header': 'keep-me',
       },
     },
@@ -270,7 +270,7 @@ test('strips Anthropic-specific headers on GitHub Codex transport requests', asy
 
   expect(capturedHeaders?.get('anthropic-version')).toBeNull()
   expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
-  expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
+  expect(capturedHeaders?.get('x-additional-protection')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer github-test-key')
   expect(capturedHeaders?.get('editor-plugin-version')).toBe('copilot-chat/0.26.7')

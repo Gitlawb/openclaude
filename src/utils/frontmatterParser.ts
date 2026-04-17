@@ -48,7 +48,7 @@ export type FrontmatterData = {
   // Glob patterns for file paths this skill applies to. Accepts either a
   // comma-separated string or a YAML list of strings.
   // When set, the skill is only activated when the model touches matching files
-  // Uses the same format as CLAUDE.md paths frontmatter
+  // Uses the same format as NNC.md paths frontmatter
   paths?: string | string[] | null
   // Shell to use for !`cmd` and ```! blocks in skill/command .md content.
   // 'bash' (default) or 'powershell'. File-scoped — applies to all !-blocks.

@@ -101,7 +101,7 @@ export async function* handleStopHooks(
   // state after each turn. Gate on repl_main_thread so background forks
   // (extract-memories, auto-dream) don't pollute the timeline with their own
   // assistant messages. Await the classifier so state.json is written before
-  // the turn returns — otherwise `claude list` shows stale state for the gap.
+  // the turn returns — otherwise `nnc list` shows stale state for the gap.
   // Env key hardcoded (vs importing JOB_ENV_KEY from jobs/state) to match the
   // require()-gated jobs/ import pattern above; spawn.test.ts asserts the
   // string matches.

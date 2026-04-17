@@ -177,17 +177,17 @@ function buildPrompt(
   return parts.join('\n\n')
 }
 
-export function registerClaudeApiSkill(): void {
+export function registerAiApiSkill(): void {
   registerBundledSkill({
-    name: 'claude-api',
+    name: 'ai-api',
     description:
-      'Build apps with the Anthropic API or Anthropic SDK.\n' +
-      'TRIGGER when: code imports `anthropic`/`@anthropic-ai/sdk`/`claude_agent_sdk`, or user asks to use Anthropic API, Anthropic SDKs, or Agent SDK.\n' +
+      'Build apps with the AI messages API or AI SDK.\n' +
+      'TRIGGER when: code imports `anthropic`/`@anthropic-ai/sdk`/`claude_agent_sdk`, or user asks to use AI API, AI SDKs, or Agent SDK.\n' +
       'DO NOT TRIGGER when: code imports `openai`/other AI SDK, general programming, or ML/data-science tasks.',
     allowedTools: ['Read', 'Grep', 'Glob', 'WebFetch'],
     userInvocable: true,
     async getPromptForCommand(args) {
-      const content = await import('./claudeApiContent.js')
+      const content = await import('./aiApiContent.js')
       const lang = await detectLanguage()
       const prompt = buildPrompt(lang, args, content)
       return [{ type: 'text', text: prompt }]

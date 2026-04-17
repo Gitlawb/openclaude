@@ -71,5 +71,5 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
   await cleanupNpmInstallations()
 
   expect(removedPaths).toContain(join(homedir(), '.openclaude', 'local'))
-  expect(removedPaths).toContain(join(homedir(), '.claude', 'local'))
+  expect(removedPaths).toContain(join(homedir(), '.nnc', 'local'))
 })

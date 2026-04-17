@@ -163,7 +163,7 @@ export function getVersionedCachePathIn(
 
 /**
  * Get versioned cache path for a plugin under the primary plugins directory.
- * Format: ~/.claude/plugins/cache/{marketplace}/{plugin}/{version}/
+ * Format: ~/.nnc/plugins/cache/{marketplace}/{plugin}/{version}/
  *
  * @param pluginId - Plugin identifier in format "name@marketplace"
  * @param version - Version string (semver, git SHA, etc.)
@@ -239,7 +239,7 @@ export async function probeSeedCacheAnyVersion(
 
 /**
  * Get legacy (non-versioned) cache path for a plugin.
- * Format: ~/.claude/plugins/cache/{plugin-name}/
+ * Format: ~/.nnc/plugins/cache/{plugin-name}/
  *
  * Used for backward compatibility with existing installations.
  *
@@ -976,7 +976,7 @@ export async function cachePlugin(
     throw error
   }
 
-  const manifestPath = join(tempPath, '.claude-plugin', 'plugin.json')
+  const manifestPath = join(tempPath, '.nnc-plugin', 'plugin.json')
   const legacyManifestPath = join(tempPath, 'plugin.json')
   let manifest: PluginManifest
 
@@ -1140,7 +1140,7 @@ export async function cachePlugin(
  *
  * @param manifestPath - Full path to the plugin.json file
  * @param pluginName - Name to use in default manifest (e.g., "my-plugin")
- * @param source - Source description for default manifest (e.g., "git:repo" or ".claude-plugin/name")
+ * @param source - Source description for default manifest (e.g., "git:repo" or ".nnc-plugin/name")
  * @returns A valid PluginManifest object (either loaded or default)
  * @throws Error if manifest exists but is invalid (corrupt JSON or schema validation failure)
  */
@@ -1339,7 +1339,7 @@ async function validatePluginPaths(
  * are reported as errors but don't prevent plugin loading.
  *
  * @param pluginPath - Absolute path to the plugin directory
- * @param source - Source identifier (e.g., "git:repo", ".claude-plugin/my-plugin")
+ * @param source - Source identifier (e.g., "git:repo", ".nnc-plugin/my-plugin")
  * @param enabled - Initial enabled state (may be overridden by settings)
  * @param fallbackName - Name to use if manifest doesn't specify one
  * @param strict - When true, adds errors for duplicate hook files (default: true)
@@ -1356,7 +1356,7 @@ export async function createPluginFromPath(
 
   // Step 1: Load or create the plugin manifest
   // This provides metadata about the plugin (name, version, etc.)
-  const manifestPath = join(pluginPath, '.claude-plugin', 'plugin.json')
+  const manifestPath = join(pluginPath, '.nnc-plugin', 'plugin.json')
   const manifest = await loadPluginManifest(manifestPath, fallbackName, source)
 
   // Step 2: Create the base plugin object
@@ -1365,7 +1365,7 @@ export async function createPluginFromPath(
     name: manifest.name, // Use name from manifest (or fallback)
     manifest, // Store full manifest for later use
     path: pluginPath, // Absolute path to plugin directory
-    source, // Source identifier (e.g., "git:repo" or ".claude-plugin/name")
+    source, // Source identifier (e.g., "git:repo" or ".nnc-plugin/name")
     repository: source, // For backward compatibility with Plugin Repository
     enabled, // Current enabled state
   }
@@ -2229,7 +2229,7 @@ async function loadPluginFromMarketplaceEntry(
       // Try to load manifest from plugin directory to check for version field first
       const manifestPath = join(
         sourcePluginPath,
-        '.claude-plugin',
+        '.nnc-plugin',
         'plugin.json',
       )
       let pluginManifest: PluginManifest | undefined
@@ -2427,7 +2427,7 @@ async function finishLoadingPluginFromPath(
   const errors: PluginError[] = []
 
   // Check if plugin.json exists to determine if we should use marketplace manifest
-  const manifestPath = join(pluginPath, '.claude-plugin', 'plugin.json')
+  const manifestPath = join(pluginPath, '.nnc-plugin', 'plugin.json')
   const hasManifest = await pathExists(manifestPath)
 
   const { plugin, errors: pluginErrors } = await createPluginFromPath(
@@ -3257,7 +3257,7 @@ async function assemblePluginLoadResult(
  *
  * Use cases:
  * - After installing/uninstalling plugins
- * - After modifying .claude-plugin/ directory (for export)
+ * - After modifying .nnc-plugin/ directory (for export)
  * - After changing enabledPlugins settings
  * - When debugging plugin loading issues
  */

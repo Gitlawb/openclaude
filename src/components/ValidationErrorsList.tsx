@@ -126,7 +126,7 @@ export function ValidationErrorsList(t0) {
   return t3;
 }
 function _temp3(pair, index) {
-  return <Box key={`suggestion-pair-${index}`} flexDirection="column" marginBottom={1}>{pair.suggestion && <Text dimColor={true} wrap="wrap">{pair.suggestion}</Text>}{pair.docLink && <Text dimColor={true} wrap="wrap">Learn more: {pair.docLink}</Text>}</Box>;
+  return <Box key={`suggestion-pair-${index}`} flexDirection="column" marginBottom={1}>{pair.suggestion && <Text dimColor={true} wrap="wrap">{pair.suggestion}</Text>}{pair.docLink && <Text dimColor={true} wrap="wrap">Докладніше: {pair.docLink}</Text>}</Box>;
 }
 function _temp2(a, b) {
   if (!a.path && b.path) {
@@ -138,7 +138,7 @@ function _temp2(a, b) {
   return (a.path || "").localeCompare(b.path || "");
 }
 function _temp(acc, error) {
-  const file = error.file || "(file not specified)";
+  const file = error.file || "(файл не вказано)";
   if (!acc[file]) {
     acc[file] = [];
   }

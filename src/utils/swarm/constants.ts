@@ -7,7 +7,7 @@ export const HIDDEN_SESSION_NAME = 'claude-hidden'
 /**
  * Gets the socket name for external swarm sessions (when user is not in tmux).
  * Uses a separate socket to isolate swarm operations from user's tmux sessions.
- * Includes PID to ensure multiple Claude instances don't conflict.
+ * Includes PID to ensure multiple Neural Network instances don't conflict.
  */
 export function getSwarmSocketName(): string {
   return `claude-swarm-${process.pid}`
@@ -15,7 +15,7 @@ export function getSwarmSocketName(): string {
 
 /**
  * Environment variable to override the command used to spawn teammate instances.
- * If not set, defaults to process.execPath (the current Claude binary).
+ * If not set, defaults to process.execPath (the current Neural Network binary).
  * This allows customization for different environments or testing.
  */
 export const TEAMMATE_COMMAND_ENV_VAR = 'CLAUDE_CODE_TEAMMATE_COMMAND'

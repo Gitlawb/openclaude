@@ -129,7 +129,7 @@ export async function getSessionPluginCachePath(): Promise<string> {
   if (!sessionPluginCachePromise) {
     sessionPluginCachePromise = (async () => {
       const suffix = randomBytes(8).toString('hex')
-      const dir = join(tmpdir(), `claude-plugin-session-${suffix}`)
+      const dir = join(tmpdir(), `nnc-plugin-session-${suffix}`)
       await getFsImplementation().mkdir(dir)
       sessionPluginCachePath = dir
       logForDebugging(`Created session plugin cache at ${dir}`)

@@ -24,10 +24,10 @@ export function NotebookEditToolUseRejectedMessage(t0) {
     verbose
   } = t0;
   const edit_mode = t1 === undefined ? "replace" : t1;
-  const operation = edit_mode === "delete" ? "delete" : `${edit_mode} cell in`;
+  const operation = edit_mode === "delete" ? "видалення" : edit_mode === "insert" ? "додавання комірки у" : "редагування комірки у";
   let t2;
   if ($[0] !== operation) {
-    t2 = <Text color="subtle">User rejected {operation} </Text>;
+    t2 = <Text color="subtle">Користувач відхилив {operation} </Text>;
     $[0] = operation;
     $[1] = t2;
   } else {
@@ -52,7 +52,7 @@ export function NotebookEditToolUseRejectedMessage(t0) {
   }
   let t5;
   if ($[7] !== cell_id) {
-    t5 = <Text color="subtle"> at cell {cell_id}</Text>;
+    t5 = <Text color="subtle"> у комірці {cell_id}</Text>;
     $[7] = cell_id;
     $[8] = t5;
   } else {

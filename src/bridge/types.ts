@@ -5,7 +5,7 @@ export const DEFAULT_SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000
 export const BRIDGE_LOGIN_INSTRUCTION =
   'Remote Control is only available with claude.ai subscriptions. Please use `/login` to sign in with your Anthropic account.'
 
-/** Full error printed when `claude remote-control` is run without auth. */
+/** Full error printed when `nnc remote-control` is run without auth. */
 export const BRIDGE_LOGIN_ERROR =
   'Error: You must be logged in to use Remote Control.\n\n' +
   BRIDGE_LOGIN_INSTRUCTION
@@ -61,7 +61,7 @@ export type SessionActivity = {
 }
 
 /**
- * How `claude remote-control` chooses session working directories.
+ * How `nnc remote-control` chooses session working directories.
  * - `single-session`: one session in cwd, bridge tears down when it ends
  * - `worktree`: persistent server, every session gets an isolated git worktree
  * - `same-dir`: persistent server, every session shares cwd (can stomp each other)
@@ -99,7 +99,7 @@ export type BridgeConfig = {
   /**
    * Backend-issued environment_id to reuse on re-register. When set, the
    * backend treats registration as a reconnect to the existing environment
-   * instead of creating a new one. Used by `claude remote-control
+   * instead of creating a new one. Used by `nnc remote-control
    * --session-id` resume. Must be a backend-format ID — client UUIDs are
    * rejected with 400.
    */

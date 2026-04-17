@@ -29,12 +29,12 @@ export function ThinkingToggle(t0) {
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = [{
       value: "true",
-      label: "Enabled",
-      description: "Will think before responding"
+      label: "Увімкнено",
+      description: "Думатиме перед відповіддю"
     }, {
       value: "false",
-      label: "Disabled",
-      description: "Will respond without extended thinking"
+      label: "Вимкнено",
+      description: "Відповідатиме без розширеного мислення"
     }];
     $[0] = t1;
   } else {
@@ -112,14 +112,14 @@ export function ThinkingToggle(t0) {
   const handleSelectChange = t7;
   let t8;
   if ($[14] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Box marginBottom={1} flexDirection="column"><Text color="remember" bold={true}>Toggle thinking mode</Text><Text dimColor={true}>Enable or disable thinking for this session.</Text></Box>;
+    t8 = <Box marginBottom={1} flexDirection="column"><Text color="remember" bold={true}>Перемикання режиму мислення</Text><Text dimColor={true}>Увімкніть або вимкніть мислення для цієї сесії.</Text></Box>;
     $[14] = t8;
   } else {
     t8 = $[14];
   }
   let t9;
   if ($[15] !== confirmationPending || $[16] !== currentValue || $[17] !== handleSelectChange || $[18] !== onCancel) {
-    t9 = <Box flexDirection="column">{t8}{confirmationPending !== null ? <Box flexDirection="column" marginBottom={1} gap={1}><Text color="warning">Changing thinking mode mid-conversation will increase latency and may reduce quality. For best results, set this at the start of a session.</Text><Text color="warning">Do you want to proceed?</Text></Box> : <Box flexDirection="column" marginBottom={1}><Select defaultValue={currentValue ? "true" : "false"} defaultFocusValue={currentValue ? "true" : "false"} options={options} onChange={handleSelectChange} onCancel={onCancel ?? _temp} visibleOptionCount={2} /></Box>}</Box>;
+    t9 = <Box flexDirection="column">{t8}{confirmationPending !== null ? <Box flexDirection="column" marginBottom={1} gap={1}><Text color="warning">Зміна режиму мислення посеред розмови збільшить затримку і може знизити якість. Для найкращих результатів встановіть це на початку сесії.</Text><Text color="warning">Продовжити?</Text></Box> : <Box flexDirection="column" marginBottom={1}><Select defaultValue={currentValue ? "true" : "false"} defaultFocusValue={currentValue ? "true" : "false"} options={options} onChange={handleSelectChange} onCancel={onCancel ?? _temp} visibleOptionCount={2} /></Box>}</Box>;
     $[15] = confirmationPending;
     $[16] = currentValue;
     $[17] = handleSelectChange;
@@ -130,7 +130,7 @@ export function ThinkingToggle(t0) {
   }
   let t10;
   if ($[20] !== confirmationPending || $[21] !== exitState.keyName || $[22] !== exitState.pending) {
-    t10 = <Text dimColor={true} italic={true}>{exitState.pending ? <>Press {exitState.keyName} again to exit</> : confirmationPending !== null ? <Byline><KeyboardShortcutHint shortcut="Enter" action="confirm" /><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" /></Byline> : <Byline><KeyboardShortcutHint shortcut="Enter" action="confirm" /><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="exit" /></Byline>}</Text>;
+    t10 = <Text dimColor={true} italic={true}>{exitState.pending ? <>Натисніть {exitState.keyName} ще раз для виходу</> : confirmationPending !== null ? <Byline><KeyboardShortcutHint shortcut="Enter" action="підтвердити" /><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="скасувати" /></Byline> : <Byline><KeyboardShortcutHint shortcut="Enter" action="підтвердити" /><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="вийти" /></Byline>}</Text>;
     $[20] = confirmationPending;
     $[21] = exitState.keyName;
     $[22] = exitState.pending;

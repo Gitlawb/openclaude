@@ -2,7 +2,7 @@
  * Built-in terminal panel toggled with Meta+J.
  *
  * Uses tmux for shell persistence: a separate tmux server with a per-instance
- * socket (e.g., "claude-panel-a1b2c3d4") holds the shell session. Each Claude
+ * socket (e.g., "claude-panel-a1b2c3d4") holds the shell session. Each Neural Network
  * Code instance gets its own isolated terminal panel that persists within the
  * session but is destroyed when the instance exits.
  *

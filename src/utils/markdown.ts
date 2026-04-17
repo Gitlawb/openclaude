@@ -23,7 +23,7 @@ const EOL = '\n'
  * code without touching this file.
  *
  * Kept separate from the formatter logic so it reads like a stylesheet — the
- * fire theme sets `permission` and `claude` to orange, so inline code and
+ * fire theme sets `permission` and `nnc` to orange, so inline code and
  * headings adopt the ember palette automatically.
  */
 const MARKDOWN_THEME = {

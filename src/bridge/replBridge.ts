@@ -186,7 +186,7 @@ export type BridgeCoreParams = {
    * isBypassPermissionsModeAvailable) BEFORE calling transitionPermissionMode —
    * that function's internal auto-gate check is a defensive throw, not a
    * graceful guard, and its side-effect order is setAutoModeActive(true) then
-   * throw, which corrupts the 3-way invariant documented in src/CLAUDE.md if
+   * throw, which corrupts the 3-way invariant documented in src/NNC.md if
    * the callback lets the throw escape here.
    */
   onSetPermissionMode?: (
@@ -306,7 +306,7 @@ export async function initBridgeCore(
   // state. The pointer is written unconditionally after session create
   // (crash-recovery for all sessions); perpetual mode just skips the
   // teardown clear so it survives clean exits too. Only reuse 'repl'
-  // pointers — a crashed standalone bridge (`claude remote-control`)
+  // pointers — a crashed standalone bridge (`nnc remote-control`)
   // writes source:'standalone' with a different workerType.
   const rawPrior = perpetual ? await readBridgePointer(dir) : null
   const prior = rawPrior?.source === 'repl' ? rawPrior : null
@@ -468,7 +468,7 @@ export async function initBridgeCore(
       )
       logEvent('tengu_bridge_repl_session_failed', {})
       await api.deregisterEnvironment(environmentId).catch(() => {})
-      onStateChange?.('failed', 'Session creation failed')
+      onStateChange?.('failed', 'Не вдалося створити сесію')
       return null
     }
 
@@ -479,7 +479,7 @@ export async function initBridgeCore(
   // Crash-recovery pointer: written now so a kill -9 at any point after
   // this leaves a recoverable trail. Cleared in teardown (non-perpetual)
   // or left alone (perpetual mode — pointer survives clean exit too).
-  // `claude remote-control --continue` from the same directory will detect
+  // `nnc remote-control --continue` from the same directory will detect
   // it and offer to resume.
   await writeBridgePointer(dir, {
     sessionId: currentSessionId,
@@ -920,7 +920,7 @@ export async function initBridgeCore(
 
     if (closeCode === 1000) {
       // Clean close — session ended normally. Tear down the bridge.
-      onStateChange?.('failed', 'session ended')
+      onStateChange?.('failed', 'сесію завершено')
       pollController.abort()
       triggerTeardown()
       return
@@ -960,7 +960,7 @@ export async function initBridgeCore(
       logEvent('tengu_bridge_repl_reconnect_failed', {
         close_code: closeCode,
       })
-      onStateChange?.('failed', 'reconnection failed')
+      onStateChange?.('failed', 'не вдалося перепідключитися')
       triggerTeardown()
     })
   }

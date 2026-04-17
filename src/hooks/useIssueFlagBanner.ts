@@ -28,16 +28,16 @@ const FRICTION_PATTERNS = [
   // "No," or "No!" at start — comma/exclamation implies correction tone
   // (avoids "No problem", "No thanks", "No I think we should...")
   /^no[,!]\s/i,
-  // Direct corrections about Claude's output
+  // Direct corrections about Neural Network's output
   /\bthat'?s (wrong|incorrect|not (what|right|correct))\b/i,
   /\bnot what I (asked|wanted|meant|said)\b/i,
-  // Referencing prior instructions Claude missed
+  // Referencing prior instructions Neural Network missed
   /\bI (said|asked|wanted|told you|already said)\b/i,
-  // Questioning Claude's actions
+  // Questioning Neural Network's actions
   /\bwhy did you\b/i,
   /\byou should(n'?t| not)? have\b/i,
   /\byou were supposed to\b/i,
-  // Explicit retry/revert of Claude's work
+  // Explicit retry/revert of Neural Network's work
   /\btry again\b/i,
   /\b(undo|revert) (that|this|it|what you)\b/i,
 ]

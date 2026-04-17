@@ -131,23 +131,23 @@ type SessionSpawnerDeps = {
 
 /** Map tool names to human-readable verbs for the status display. */
 const TOOL_VERBS: Record<string, string> = {
-  Read: 'Reading',
-  Write: 'Writing',
-  Edit: 'Editing',
-  MultiEdit: 'Editing',
-  Bash: 'Running',
-  Glob: 'Searching',
-  Grep: 'Searching',
-  WebFetch: 'Fetching',
-  WebSearch: 'Searching',
-  Task: 'Running task',
-  FileReadTool: 'Reading',
-  FileWriteTool: 'Writing',
-  FileEditTool: 'Editing',
-  GlobTool: 'Searching',
-  GrepTool: 'Searching',
-  BashTool: 'Running',
-  NotebookEditTool: 'Editing notebook',
+  Read: 'Читаю',
+  Write: 'Пишу',
+  Edit: 'Редагую',
+  MultiEdit: 'Редагую',
+  Bash: 'Виконую',
+  Glob: 'Шукаю',
+  Grep: 'Шукаю',
+  WebFetch: 'Завантажую',
+  WebSearch: 'Шукаю',
+  Task: 'Виконую задачу',
+  FileReadTool: 'Читаю',
+  FileWriteTool: 'Пишу',
+  FileEditTool: 'Редагую',
+  GlobTool: 'Шукаю',
+  GrepTool: 'Шукаю',
+  BashTool: 'Виконую',
+  NotebookEditTool: 'Редагую ноутбук',
   LSP: 'LSP',
 }
 
@@ -231,7 +231,7 @@ function extractActivities(
       if (subtype === 'success') {
         activities.push({
           type: 'result',
-          summary: 'Session completed',
+          summary: 'Сесія завершена',
           timestamp: now,
         })
         onDebug(
@@ -325,7 +325,7 @@ export function createSessionSpawner(deps: SessionSpawnerDeps): SessionSpawner {
           debugFile = `${deps.debugFile}-${safeId}`
         }
       } else if (deps.verbose || process.env.USER_TYPE === 'ant') {
-        debugFile = join(tmpdir(), 'claude', `bridge-session-${safeId}.log`)
+        debugFile = join(tmpdir(), "nnc", `bridge-session-${safeId}.log`)
       }
 
       // Transcript file: write raw NDJSON lines for post-hoc analysis.

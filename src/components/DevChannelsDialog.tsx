@@ -39,8 +39,8 @@ export function DevChannelsDialog(t0: Props) {
   let t2;
   let t3;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Text>--dangerously-load-development-channels is for local channel development only. Do not use this option to run channels you have downloaded off the internet.</Text>;
-    t3 = <Text>Please use --channels to run a list of approved channels.</Text>;
+    t2 = <Text>--dangerously-load-development-channels призначено лише для локальної розробки каналів. Не використовуйте цю опцію для запуску каналів, завантажених з інтернету.</Text>;
+    t3 = <Text>Будь ласка, використовуйте --channels для запуску списку підтверджених каналів.</Text>;
     $[2] = t2;
     $[3] = t3;
   } else {
@@ -57,7 +57,7 @@ export function DevChannelsDialog(t0: Props) {
   }
   let t5;
   if ($[6] !== t4) {
-    t5 = <Box flexDirection="column" gap={1}>{t2}{t3}<Text dimColor={true}>Channels:{" "}{t4}</Text></Box>;
+    t5 = <Box flexDirection="column" gap={1}>{t2}{t3}<Text dimColor={true}>Канали:{" "}{t4}</Text></Box>;
     $[6] = t4;
     $[7] = t5;
   } else {
@@ -66,10 +66,10 @@ export function DevChannelsDialog(t0: Props) {
   let t6;
   if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
     t6 = [{
-      label: "I am using this for local development",
+      label: "Я використовую це для локальної розробки",
       value: "accept"
     }, {
-      label: "Exit",
+      label: "Вийти",
       value: "exit"
     }];
     $[8] = t6;
@@ -86,7 +86,7 @@ export function DevChannelsDialog(t0: Props) {
   }
   let t8;
   if ($[11] !== t5 || $[12] !== t7) {
-    t8 = <Dialog title="WARNING: Loading development channels" color="error" onCancel={handleEscape}>{t5}{t7}</Dialog>;
+    t8 = <Dialog title="УВАГА: Завантаження каналів розробки" color="error" onCancel={handleEscape}>{t5}{t7}</Dialog>;
     $[11] = t5;
     $[12] = t7;
     $[13] = t8;

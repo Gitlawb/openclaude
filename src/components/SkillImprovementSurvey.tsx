@@ -99,7 +99,7 @@ function SkillImprovementSurveyView(t0) {
   }
   let t4;
   if ($[6] !== skillName) {
-    t4 = <Box>{t3}<Text bold={true}>Skill improvement suggested for "{skillName}"</Text></Box>;
+    t4 = <Box>{t3}<Text bold={true}>Пропонується покращення навички "{skillName}"</Text></Box>;
     $[6] = skillName;
     $[7] = t4;
   } else {
@@ -123,14 +123,14 @@ function SkillImprovementSurveyView(t0) {
   }
   let t7;
   if ($[12] === Symbol.for("react.memo_cache_sentinel")) {
-    t7 = <Box width={12}><Text><Text color="ansi:cyan">1</Text>: Apply</Text></Box>;
+    t7 = <Box width={12}><Text><Text color="ansi:cyan">1</Text>: Застосувати</Text></Box>;
     $[12] = t7;
   } else {
     t7 = $[12];
   }
   let t8;
   if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Box marginLeft={2} marginTop={1}>{t7}<Box width={14}><Text><Text color="ansi:cyan">0</Text>: Dismiss</Text></Box></Box>;
+    t8 = <Box marginLeft={2} marginTop={1}>{t7}<Box width={14}><Text><Text color="ansi:cyan">0</Text>: Відхилити</Text></Box></Box>;
     $[13] = t8;
   } else {
     t8 = $[13];

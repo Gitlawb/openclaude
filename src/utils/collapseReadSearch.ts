@@ -817,7 +817,7 @@ export function collapseReadSearchGroups(
         currentGroup.bashCount = (currentGroup.bashCount ?? 0) + count
         const input = toolInfo.input as { command?: string } | undefined
         if (input?.command) {
-          // Prefer the stripped `# comment` if present (it's what Claude wrote
+          // Prefer the stripped `# comment` if present (it's what Neural Network wrote
           // for the human — same trigger as the comment-as-label tool-use render).
           currentGroup.latestDisplayHint =
             extractBashCommentLabel(input.command) ??
@@ -982,35 +982,35 @@ export function getSearchReadSummaryText(
     if (memoryReadCount > 0) {
       const verb = isActive
         ? parts.length === 0
-          ? 'Recalling'
-          : 'recalling'
+          ? 'Згадує'
+          : 'згадуючи'
         : parts.length === 0
-          ? 'Recalled'
-          : 'recalled'
+          ? 'Згадав'
+          : 'згадавши'
       parts.push(
-        `${verb} ${memoryReadCount} ${memoryReadCount === 1 ? 'memory' : 'memories'}`,
+        `${verb} ${memoryReadCount} ${memoryReadCount === 1 ? "пам'ять" : "пам'яті"}`,
       )
     }
     if (memorySearchCount > 0) {
       const verb = isActive
         ? parts.length === 0
-          ? 'Searching'
-          : 'searching'
+          ? 'Шукає'
+          : 'шукаючи'
         : parts.length === 0
-          ? 'Searched'
-          : 'searched'
-      parts.push(`${verb} memories`)
+          ? 'Знайшов'
+          : 'знайшовши'
+      parts.push(`${verb} пам'яті`)
     }
     if (memoryWriteCount > 0) {
       const verb = isActive
         ? parts.length === 0
-          ? 'Writing'
-          : 'writing'
+          ? 'Записує'
+          : 'записуючи'
         : parts.length === 0
-          ? 'Wrote'
-          : 'wrote'
+          ? 'Записав'
+          : 'записавши'
       parts.push(
-        `${verb} ${memoryWriteCount} ${memoryWriteCount === 1 ? 'memory' : 'memories'}`,
+        `${verb} ${memoryWriteCount} ${memoryWriteCount === 1 ? "пам'ять" : "пам'яті"}`,
       )
     }
     // Team memory operations
@@ -1022,43 +1022,42 @@ export function getSearchReadSummaryText(
   if (searchCount > 0) {
     const searchVerb = isActive
       ? parts.length === 0
-        ? 'Searching for'
-        : 'searching for'
+        ? 'Шукає'
+        : 'шукаючи'
       : parts.length === 0
-        ? 'Searched for'
-        : 'searched for'
+        ? 'Знайшов'
+        : 'знайшовши'
     parts.push(
-      `${searchVerb} ${searchCount} ${searchCount === 1 ? 'pattern' : 'patterns'}`,
+      `${searchVerb} ${searchCount} ${searchCount === 1 ? 'патерн' : 'патерни'}`,
     )
   }
 
   if (readCount > 0) {
     const readVerb = isActive
       ? parts.length === 0
-        ? 'Reading'
-        : 'reading'
+        ? 'Читає'
+        : 'читаючи'
       : parts.length === 0
-        ? 'Read'
-        : 'read'
-    parts.push(`${readVerb} ${readCount} ${readCount === 1 ? 'file' : 'files'}`)
+        ? 'Прочитав'
+        : 'прочитавши'
+    parts.push(`${readVerb} ${readCount} ${readCount === 1 ? 'файл' : 'файли'}`)
   }
 
   if (listCount > 0) {
     const listVerb = isActive
       ? parts.length === 0
-        ? 'Listing'
-        : 'listing'
+        ? 'Переглядає'
+        : 'переглядаючи'
       : parts.length === 0
-        ? 'Listed'
-        : 'listed'
+        ? 'Переглянув'
+        : 'переглянувши'
     parts.push(
-      `${listVerb} ${listCount} ${listCount === 1 ? 'directory' : 'directories'}`,
+      `${listVerb} ${listCount} ${listCount === 1 ? 'каталог' : 'каталоги'}`,
     )
   }
 
   if (replCount > 0) {
-    const replVerb = isActive ? "REPL'ing" : "REPL'd"
-    parts.push(`${replVerb} ${replCount} ${replCount === 1 ? 'time' : 'times'}`)
+    parts.push(`${replCount} REPL ${replCount === 1 ? 'раз' : 'рази'}`)
   }
 
   const text = parts.join(', ')

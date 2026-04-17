@@ -243,13 +243,15 @@ const computedHasStatusClass = computed(() => (status: string) => {
   width: 100%;
   background: transparent;
   border: none;
-  padding: 2px 4px;
+  padding: 4px 8px;
   color: var(--fg);
   font: inherit;
   font-size: var(--font-size-base);
   cursor: pointer;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   text-align: left;
+  transition: background 0.12s;
+  min-width: 0;
 }
 .tool-header:hover {
   background: var(--bg-chip);
@@ -310,7 +312,7 @@ const computedHasStatusClass = computed(() => (status: string) => {
 .diff {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   padding: 4px 0;
   max-height: 400px;
   overflow: auto;
@@ -365,8 +367,8 @@ const computedHasStatusClass = computed(() => (status: string) => {
 .code {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 0;
-  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
   margin: 0;
   font-size: var(--font-size-sm);
   color: var(--fg);
@@ -381,6 +383,7 @@ const computedHasStatusClass = computed(() => (status: string) => {
   /* Ensure block never exceeds its container */
   max-width: 100%;
   min-width: 0;
+  box-sizing: border-box;
 }
 .code.shell {
   color: var(--success);
@@ -451,7 +454,7 @@ const computedHasStatusClass = computed(() => (status: string) => {
 
 .image {
   max-width: 100%;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
 }
 

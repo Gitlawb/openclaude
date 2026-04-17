@@ -17,7 +17,7 @@
  * 2. Optionally set CLAUDE_CODE_PERFETTO_WRITE_INTERVAL_S=<positive integer> to write the
  *    trace file periodically (default: write only on exit).
  * 3. Run Neural Network normally
- * 4. Trace file is written to ~/.claude/traces/trace-<session-id>.json
+ * 4. Trace file is written to ~/.nnc/traces/trace-<session-id>.json
  *    or to the specified path
  * 5. Open in ui.perfetto.dev to visualize
  */

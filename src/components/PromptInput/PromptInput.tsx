@@ -830,8 +830,8 @@ function PromptInput({
         addNotification({
           key: 'stash-hint',
           jsx: <Text dimColor>
-              Tip:{' '}
-              <ConfigurableShortcutHint action="chat:stash" context="Chat" fallback="ctrl+s" description="stash" />
+              Порада:{' '}
+              <ConfigurableShortcutHint action="chat:stash" context="Chat" fallback="ctrl+s" description="відкласти" />
             </Text>,
           priority: 'immediate',
           timeoutMs: FOOTER_TEMPORARY_STATUS_TIMEOUT
@@ -1914,9 +1914,9 @@ function PromptInput({
       const shortcut = MACOS_OPTION_SPECIAL_CHARS[char];
       const terminalName = getNativeCSIuTerminalDisplayName();
       const jsx = terminalName ? <Text dimColor>
-          To enable {shortcut}, set <Text bold>Option as Meta</Text> in{' '}
-          {terminalName} preferences (⌘,)
-        </Text> : <Text dimColor>To enable {shortcut}, run /terminal-setup</Text>;
+          Щоб увімкнути {shortcut}, встановіть <Text bold>Option as Meta</Text> у{' '}
+          налаштуваннях {terminalName} (⌘,)
+        </Text> : <Text dimColor>Щоб увімкнути {shortcut}, запустіть /terminal-setup</Text>;
       addNotification({
         key: 'option-meta-hint',
         jsx,
@@ -2282,7 +2282,7 @@ function PromptInput({
   return <Box flexDirection="column" marginTop={briefOwnsGap ? 0 : 1}>
       {!isFullscreenEnvEnabled() && <PromptInputQueuedCommands />}
       {hasSuppressedDialogs && <Box marginTop={1} marginLeft={2}>
-          <Text dimColor>Waiting for permission…</Text>
+          <Text dimColor>Очікування дозволу…</Text>
         </Box>}
       <PromptInputStashNotice hasStash={stashedPrompt !== undefined} />
       {swarmBanner ? <>

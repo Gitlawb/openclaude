@@ -32,8 +32,8 @@ const FETCH_TIMEOUT_MS = 5000
 const MCP_SERVERS_BETA_HEADER = 'mcp-servers-2025-12-04'
 
 /**
- * Fetches MCP server configurations from Claude.ai org configs.
- * These servers are managed by the organization via Claude.ai.
+ * Fetches MCP server configurations from Neural Network.ai org configs.
+ * These servers are managed by the organization via Neural Network.ai.
  *
  * Results are memoized for the session lifetime (fetch once per CLI session).
  */

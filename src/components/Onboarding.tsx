@@ -169,7 +169,7 @@ export function Onboarding({
             }
           }} onCancel={() => goToNextStep()} />
             <Text dimColor>
-              {exitState.pending ? <>Press {exitState.keyName} again to exit</> : <>Enter to confirm · Esc to skip</>}
+              {exitState.pending ? <>Натисніть {exitState.keyName} ще раз для виходу</> : <>Enter — підтвердити · Esc — пропустити</>}
             </Text>
           </Box>
         </Box>
@@ -206,7 +206,7 @@ export function Onboarding({
       <Box flexDirection="column" marginTop={1}>
         {currentStep?.component}
         {exitState.pending && <Box padding={1}>
-            <Text dimColor>Press {exitState.keyName} again to exit</Text>
+            <Text dimColor>Натисніть {exitState.keyName} ще раз для виходу</Text>
           </Box>}
       </Box>
     </Box>;

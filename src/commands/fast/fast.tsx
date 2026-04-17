@@ -79,11 +79,11 @@ export function FastModePicker(t0) {
       });
       if (enableFastMode) {
         const fastIcon = getFastIconString(enableFastMode);
-        const modelUpdated = !isFastModeSupportedByModel(model) ? ` · model set to ${FAST_MODE_MODEL_DISPLAY}` : "";
-        onDone(`${fastIcon} Fast mode ON${modelUpdated} · ${pricing}`);
+        const modelUpdated = !isFastModeSupportedByModel(model) ? ` · модель встановлено на ${FAST_MODE_MODEL_DISPLAY}` : "";
+        onDone(`${fastIcon} Швидкий режим УВІМКНЕНО${modelUpdated} · ${pricing}`);
       } else {
         setAppState(_temp3);
-        onDone("Fast mode OFF");
+        onDone("Швидкий режим ВИМКНЕНО");
       }
     };
     $[2] = enableFastMode;
@@ -103,12 +103,12 @@ export function FastModePicker(t0) {
         if (initialFastMode) {
           applyFastMode(false, setAppState);
         }
-        onDone("Fast mode OFF", {
+        onDone("Швидкий режим ВИМКНЕНО", {
           display: "system"
         });
         return;
       }
-      const message = initialFastMode ? `${getFastIconString()} Kept Fast mode ON` : "Kept Fast mode OFF";
+      const message = initialFastMode ? `${getFastIconString()} Залишено швидкий режим УВІМКНЕНИМ` : "Залишено швидкий режим ВИМКНЕНИМ";
       onDone(message, {
         display: "system"
       });
@@ -164,7 +164,7 @@ export function FastModePicker(t0) {
   useKeybindings(t6, t7);
   let t8;
   if ($[19] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Text><FastIcon cooldown={isCooldown} /> Fast mode (research preview)</Text>;
+    t8 = <Text><FastIcon cooldown={isCooldown} /> Швидкий режим (дослідний перегляд)</Text>;
     $[19] = t8;
   } else {
     t8 = $[19];
@@ -172,7 +172,7 @@ export function FastModePicker(t0) {
   const title = t8;
   let t9;
   if ($[20] !== isUnavailable) {
-    t9 = exitState => exitState.pending ? <Text>Press {exitState.keyName} again to exit</Text> : isUnavailable ? <Text>Esc to cancel</Text> : <Text>Tab to toggle · Enter to confirm · Esc to cancel</Text>;
+    t9 = exitState => exitState.pending ? <Text>Натисніть {exitState.keyName} ще раз для виходу</Text> : isUnavailable ? <Text>Esc — скасувати</Text> : <Text>Tab — перемкнути · Enter — підтвердити · Esc — скасувати</Text>;
     $[20] = isUnavailable;
     $[21] = t9;
   } else {
@@ -180,7 +180,7 @@ export function FastModePicker(t0) {
   }
   let t10;
   if ($[22] !== enableFastMode || $[23] !== unavailableReason) {
-    t10 = unavailableReason ? <Box marginLeft={2}><Text color="error">{unavailableReason}</Text></Box> : <><Box flexDirection="column" gap={0} marginLeft={2}><Box flexDirection="row" gap={2}><Text bold={true}>Fast mode</Text><Text color={enableFastMode ? "fastMode" : undefined} bold={enableFastMode}>{enableFastMode ? "ON " : "OFF"}</Text><Text dimColor={true}>{pricing}</Text></Box></Box>{isCooldown && runtimeState.status === "cooldown" && <Box marginLeft={2}><Text color="warning">{runtimeState.reason === "overloaded" ? "Fast mode overloaded and is temporarily unavailable" : "You've hit your fast limit"}{" \xB7 resets in "}{formatDuration(runtimeState.resetAt - Date.now(), {
+    t10 = unavailableReason ? <Box marginLeft={2}><Text color="error">{unavailableReason}</Text></Box> : <><Box flexDirection="column" gap={0} marginLeft={2}><Box flexDirection="row" gap={2}><Text bold={true}>Швидкий режим</Text><Text color={enableFastMode ? "fastMode" : undefined} bold={enableFastMode}>{enableFastMode ? "УВІМК " : "ВИМК"}</Text><Text dimColor={true}>{pricing}</Text></Box></Box>{isCooldown && runtimeState.status === "cooldown" && <Box marginLeft={2}><Text color="warning">{runtimeState.reason === "overloaded" ? "Швидкий режим перевантажений і тимчасово недоступний" : "Ви досягли ліміту швидкого режиму"}{" \xB7 скидання за "}{formatDuration(runtimeState.resetAt - Date.now(), {
             hideTrailingZeros: true
           })}</Text></Box>}</>;
     $[22] = enableFastMode;
@@ -191,14 +191,14 @@ export function FastModePicker(t0) {
   }
   let t11;
   if ($[25] === Symbol.for("react.memo_cache_sentinel")) {
-    t11 = <Text dimColor={true}>Learn more:{" "}<Link url="https://code.claude.com/docs/en/fast-mode">https://code.claude.com/docs/en/fast-mode</Link></Text>;
+    t11 = <Text dimColor={true}>Докладніше:{" "}<Link url="https://code.claude.com/docs/en/fast-mode">https://code.claude.com/docs/en/fast-mode</Link></Text>;
     $[25] = t11;
   } else {
     t11 = $[25];
   }
   let t12;
   if ($[26] !== handleCancel || $[27] !== t10 || $[28] !== t9) {
-    t12 = <Dialog title={title} subtitle={`High-speed mode for ${FAST_MODE_MODEL_DISPLAY}. Billed as extra usage at a premium rate. Separate rate limits apply.`} onCancel={handleCancel} color="fastMode" inputGuide={t9}>{t10}{t11}</Dialog>;
+    t12 = <Dialog title={title} subtitle={`Високошвидкісний режим для ${FAST_MODE_MODEL_DISPLAY}. Тарифікується як додаткове використання за преміум ставкою. Окремі ліміти.`} onCancel={handleCancel} color="fastMode" inputGuide={t9}>{t10}{t11}</Dialog>;
     $[26] = handleCancel;
     $[27] = t10;
     $[28] = t9;
@@ -226,7 +226,7 @@ function _temp(s) {
 async function handleFastModeShortcut(enable: boolean, getAppState: () => AppState, setAppState: (f: (prev: AppState) => AppState) => void): Promise<string> {
   const unavailableReason = getFastModeUnavailableReason();
   if (unavailableReason) {
-    return `Fast mode unavailable: ${unavailableReason}`;
+    return `Швидкий режим недоступний: ${unavailableReason}`;
   }
   const {
     mainLoopModel
@@ -238,11 +238,11 @@ async function handleFastModeShortcut(enable: boolean, getAppState: () => AppSta
   });
   if (enable) {
     const fastIcon = getFastIconString(true);
-    const modelUpdated = !isFastModeSupportedByModel(mainLoopModel) ? ` · model set to ${FAST_MODE_MODEL_DISPLAY}` : '';
+    const modelUpdated = !isFastModeSupportedByModel(mainLoopModel) ? ` · модель встановлено на ${FAST_MODE_MODEL_DISPLAY}` : '';
     const pricing = formatModelPricing(getOpus46CostTier(true));
-    return `${fastIcon} Fast mode ON${modelUpdated} · ${pricing}`;
+    return `${fastIcon} Швидкий режим УВІМКНЕНО${modelUpdated} · ${pricing}`;
   } else {
-    return `Fast mode OFF`;
+    return `Швидкий режим ВИМКНЕНО`;
   }
 }
 export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXCommandContext, args?: string): Promise<React.ReactNode | null> {

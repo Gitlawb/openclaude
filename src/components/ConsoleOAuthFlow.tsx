@@ -12,7 +12,7 @@ import { OAuthService } from '../services/oauth/index.js';
 import { getOauthAccountInfo, validateForceLoginOrg } from '../utils/auth.js';
 import { logError } from '../utils/log.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
-import { ProviderManager } from './ProviderManager.js';
+import { StartupFavoritesPicker } from './StartupFavoritesPicker.js';
 import { Select } from './CustomSelect/select.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
 import { Spinner } from './Spinner.js';
@@ -96,7 +96,7 @@ export function ConsoleOAuthFlow({
   const [cursorOffset, setCursorOffset] = useState(0);
   const [oauthService] = useState(() => new OAuthService());
   const [loginWithClaudeAi, setLoginWithClaudeAi] = useState(() => {
-    // Use Claude AI auth for setup-token mode to support user:inference scope
+    // Use Neural Network AI auth for setup-token mode to support user:inference scope
     return mode === 'setup-token' || forceLoginMethod === 'claudeai';
   });
   // After a few seconds we suggest the user to copy/paste url if the
@@ -330,17 +330,17 @@ export function ConsoleOAuthFlow({
         </Box>}
       {mode === 'setup-token' && oauthStatus.state === 'success' && oauthStatus.token && <Box key="tokenOutput" flexDirection="column" gap={1} paddingTop={1}>
             <Text color="success">
-              ✓ Long-lived authentication token created successfully!
+              ✓ Довготривалий токен автентифікації успішно створено!
             </Text>
             <Box flexDirection="column" gap={1}>
-              <Text>Your OAuth token (valid for 1 year):</Text>
+              <Text>Ваш OAuth токен (дійсний 1 рік):</Text>
               <Text color="warning">{oauthStatus.token}</Text>
               <Text dimColor>
-                Store this token securely. You won&apos;t be able to see it
-                again.
+                Збережіть цей токен у надійному місці. Ви більше не зможете
+                його побачити.
               </Text>
               <Text dimColor>
-                Use this token by setting: export
+                Використайте цей токен: export
                 CLAUDE_CODE_OAUTH_TOKEN=&lt;token&gt;
               </Text>
             </Box>
@@ -384,14 +384,14 @@ function OAuthStatusMessage({
     case 'idle': {
       const promptText =
         startingMessage ||
-        'Neural Network can be used with your subscription or billed based on API usage through your Console account.'
+        'Нейромережу можна використовувати з вашою підпискою або з оплатою на основі використання API через ваш Console акаунт.'
 
       const loginOptions = [
         {
           label: (
             <Text>
-              Account with subscription ·{' '}
-              <Text dimColor>Pro, Max, Team, or Enterprise</Text>
+              Акаунт з підпискою ·{' '}
+              <Text dimColor>Pro, Max, Team або Enterprise</Text>
               {'\n'}
             </Text>
           ),
@@ -400,8 +400,8 @@ function OAuthStatusMessage({
         {
           label: (
             <Text>
-              Anthropic Console account ·{' '}
-              <Text dimColor>API usage billing</Text>
+              Акаунт Anthropic Console ·{' '}
+              <Text dimColor>оплата за API використання</Text>
               {'\n'}
             </Text>
           ),
@@ -410,8 +410,8 @@ function OAuthStatusMessage({
         {
           label: (
             <Text>
-              3rd-party platform ·{' '}
-              <Text dimColor>OpenAI, Gemini, Bedrock, Ollama, and more</Text>
+              Сторонні платформи ·{' '}
+              <Text dimColor>OpenAI, Gemini, Bedrock, Ollama та інші</Text>
               {'\n'}
             </Text>
           ),
@@ -422,7 +422,7 @@ function OAuthStatusMessage({
       return (
         <Box flexDirection="column" gap={1} marginTop={1}>
           <Text bold>{promptText}</Text>
-          <Text>Select login method:</Text>
+          <Text>Оберіть спосіб входу:</Text>
           <Box>
             <Select
               options={loginOptions}
@@ -450,19 +450,14 @@ function OAuthStatusMessage({
 
     case 'platform_setup':
       return (
-        <ProviderManager
-          mode="first-run"
-          onDone={result => {
-            if (!result || result.action !== 'saved' || !result.message) {
-              setOAuthStatus({ state: 'idle' })
-              return
-            }
-
+        <StartupFavoritesPicker
+          onSelect={result => {
             setOAuthStatus({
               state: 'platform_setup_complete',
-              message: result.message,
+              message: `${result.providerName}/${result.model}`,
             })
           }}
+          onCancel={() => setOAuthStatus({ state: 'idle' })}
         />
       )
 
@@ -471,7 +466,7 @@ function OAuthStatusMessage({
         <Box flexDirection="column" gap={1}>
           <Text color="success">{oauthStatus.message}</Text>
           <Text dimColor>
-            Press <Text bold>Enter</Text> to continue.
+            Натисніть <Text bold>Enter</Text> для продовження.
           </Text>
         </Box>
       )
@@ -487,7 +482,7 @@ function OAuthStatusMessage({
           {!showPastePrompt ? (
             <Box>
               <Spinner />
-              <Text>Opening browser to sign in…</Text>
+              <Text>Відкриваємо браузер для входу…</Text>
             </Box>
           ) : null}
           {showPastePrompt ? (
@@ -512,7 +507,7 @@ function OAuthStatusMessage({
         <Box flexDirection="column" gap={1}>
           <Box>
             <Spinner />
-            <Text>Creating API key for Neural Network…</Text>
+            <Text>Створюємо API ключ для Нейромережі…</Text>
           </Box>
         </Box>
       )
@@ -520,7 +515,7 @@ function OAuthStatusMessage({
     case 'about_to_retry':
       return (
         <Box flexDirection="column" gap={1}>
-          <Text color="permission">Retrying…</Text>
+          <Text color="permission">Повторна спроба…</Text>
         </Box>
       )
 
@@ -531,11 +526,11 @@ function OAuthStatusMessage({
             <>
               {getOauthAccountInfo()?.emailAddress ? (
                 <Text dimColor>
-                  Logged in as <Text>{getOauthAccountInfo()?.emailAddress}</Text>
+                  Увійшли як <Text>{getOauthAccountInfo()?.emailAddress}</Text>
                 </Text>
               ) : null}
               <Text color="success">
-                Login successful. Press <Text bold>Enter</Text> to continue…
+                Вхід успішний. Натисніть <Text bold>Enter</Text> для продовження…
               </Text>
             </>
           )}
@@ -545,11 +540,11 @@ function OAuthStatusMessage({
     case 'error':
       return (
         <Box flexDirection="column" gap={1}>
-          <Text color="error">OAuth error: {oauthStatus.message}</Text>
+          <Text color="error">Помилка OAuth: {oauthStatus.message}</Text>
           {oauthStatus.toRetry ? (
             <Box marginTop={1}>
               <Text color="permission">
-                Press <Text bold>Enter</Text> to retry.
+                Натисніть <Text bold>Enter</Text> для повтору.
               </Text>
             </Box>
           ) : null}

@@ -182,7 +182,7 @@ export function modelSupportsAutoMode(model: string): boolean {
       return true
     }
     if (process.env.USER_TYPE === 'ant') {
-      // Denylist: block known-unsupported claude models, allow everything else (ant-internal models etc.)
+      // Denylist: block known-unsupported nnc models, allow everything else (ant-internal models etc.)
       if (m.includes('claude-3-')) return false
       // claude-*-4 not followed by -[6-9]: blocks bare -4, -4-YYYYMMDD, -4@, -4-0 thru -4-5
       if (/claude-(opus|sonnet|haiku)-4(?!-[6-9])/.test(m)) return false

@@ -1,5 +1,5 @@
 /**
- * XDG Base Directory utilities for Claude CLI Native Installer
+ * XDG Base Directory utilities for Neural Network CLI Native Installer
  *
  * Implements the XDG Base Directory specification for organizing
  * native installer components across appropriate system directories.

@@ -112,7 +112,7 @@ export function OAuthFlowStep({
         timersRef.current.add(timer_0);
       }, {
         loginWithClaudeAi: true,
-        // Always use Claude AI for subscription tokens
+        // Always use Neural Network AI for subscription tokens
         inferenceOnly: true,
         expiresIn: 365 * 24 * 60 * 60 // 1 year
       });

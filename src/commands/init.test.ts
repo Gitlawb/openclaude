@@ -16,7 +16,7 @@ afterEach(() => {
   }
 })
 
-test('NEW_INIT prompt preserves existing root CLAUDE.md by default', async () => {
+test('NEW_INIT prompt preserves existing root NNC.md by default', async () => {
   process.env.CLAUDE_CODE_NEW_INIT = '1'
 
   mock.module('../projectOnboardingState.js', () => ({
@@ -32,12 +32,12 @@ test('NEW_INIT prompt preserves existing root CLAUDE.md by default', async () =>
   expect(blocks).toHaveLength(1)
   expect(blocks[0]?.type).toBe('text')
   expect(String(blocks[0]?.text)).toContain(
-    'checked-in root `CLAUDE.md` and does NOT already have a root `AGENTS.md`',
+    'checked-in root `NNC.md` and does NOT already have a root `AGENTS.md`',
   )
   expect(String(blocks[0]?.text)).toContain(
     'do NOT silently create a second root instruction file',
   )
   expect(String(blocks[0]?.text)).toContain(
-    'update the existing root `CLAUDE.md` in place by default',
+    'update the existing root `NNC.md` in place by default',
   )
 })

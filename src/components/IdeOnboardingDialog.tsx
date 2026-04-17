@@ -59,7 +59,7 @@ export function IdeOnboardingDialog(t0) {
   }
   const ideName = t4;
   const installedVersion = installationStatus?.installedVersion;
-  const pluginOrExtension = isJetBrains ? "plugin" : "extension";
+  const pluginOrExtension = isJetBrains ? "плагін" : "розширення";
   const mentionShortcut = env.platform === "darwin" ? "Cmd+Option+K" : "Ctrl+Alt+K";
   let t5;
   if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
@@ -70,23 +70,23 @@ export function IdeOnboardingDialog(t0) {
   }
   let t6;
   if ($[8] !== ideName) {
-    t6 = <>{t5}<Text>Welcome to Neural Network for {ideName}</Text></>;
+    t6 = <>{t5}<Text>Вітаємо у Нейромережі для {ideName}</Text></>;
     $[8] = ideName;
     $[9] = t6;
   } else {
     t6 = $[9];
   }
-  const t7 = installedVersion ? `installed ${pluginOrExtension} v${installedVersion}` : undefined;
+  const t7 = installedVersion ? `встановлений ${pluginOrExtension} v${installedVersion}` : undefined;
   let t8;
   if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
-    t8 = <Text color="suggestion">⧉ open files</Text>;
+    t8 = <Text color="suggestion">⧉ відкритих файлів</Text>;
     $[10] = t8;
   } else {
     t8 = $[10];
   }
   let t9;
   if ($[11] === Symbol.for("react.memo_cache_sentinel")) {
-    t9 = <Text>• Has context of {t8}{" "}and <Text color="suggestion">⧉ selected lines</Text></Text>;
+    t9 = <Text>• Бачить контекст {t8}{" "}та <Text color="suggestion">⧉ виділених рядків</Text></Text>;
     $[11] = t9;
   } else {
     t9 = $[11];
@@ -100,21 +100,21 @@ export function IdeOnboardingDialog(t0) {
   }
   let t11;
   if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-    t11 = <Text>• Review Neural Network's changes{" "}{t10}{" "}<Text color="diffRemovedWord">-22</Text> in the comfort of your IDE</Text>;
+    t11 = <Text>• Переглядайте зміни Нейромережі{" "}{t10}{" "}<Text color="diffRemovedWord">-22</Text> у зручному IDE</Text>;
     $[13] = t11;
   } else {
     t11 = $[13];
   }
   let t12;
   if ($[14] === Symbol.for("react.memo_cache_sentinel")) {
-    t12 = <Text>• Cmd+Esc<Text dimColor={true}> for Quick Launch</Text></Text>;
+    t12 = <Text>• Cmd+Esc<Text dimColor={true}> для швидкого запуску</Text></Text>;
     $[14] = t12;
   } else {
     t12 = $[14];
   }
   let t13;
   if ($[15] === Symbol.for("react.memo_cache_sentinel")) {
-    t13 = <Box flexDirection="column" gap={1}>{t9}{t11}{t12}<Text>• {mentionShortcut}<Text dimColor={true}> to reference files or lines in your input</Text></Text></Box>;
+    t13 = <Box flexDirection="column" gap={1}>{t9}{t11}{t12}<Text>• {mentionShortcut}<Text dimColor={true}> щоб посилатися на файли або рядки в запиті</Text></Text></Box>;
     $[15] = t13;
   } else {
     t13 = $[15];
@@ -131,7 +131,7 @@ export function IdeOnboardingDialog(t0) {
   }
   let t15;
   if ($[20] === Symbol.for("react.memo_cache_sentinel")) {
-    t15 = <Box paddingX={1}><Text dimColor={true} italic={true}>Press Enter to continue</Text></Box>;
+    t15 = <Box paddingX={1}><Text dimColor={true} italic={true}>Натисніть Enter для продовження</Text></Box>;
     $[20] = t15;
   } else {
     t15 = $[20];

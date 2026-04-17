@@ -42,7 +42,7 @@ function buildDesktopDeepLink(sessionId: string): string {
 
 /**
  * Check if Claude Desktop app is installed.
- * On macOS, checks for /Applications/Claude.app.
+ * On macOS, checks for /Applications/Neural Network.app.
  * On Linux, checks if xdg-open can handle claude:// protocol.
  * On Windows, checks if the protocol handler exists.
  * In dev mode, always returns true (assumes dev Desktop is running).
@@ -56,8 +56,8 @@ async function isDesktopInstalled(): Promise<boolean> {
   const platform = process.platform
 
   if (platform === 'darwin') {
-    // Check for Claude.app in /Applications
-    return pathExists('/Applications/Claude.app')
+    // Check for Neural Network.app in /Applications
+    return pathExists('/Applications/Neural Network.app')
   } else if (platform === 'linux') {
     // Check if xdg-mime can find a handler for claude://
     // Note: xdg-mime returns exit code 0 even with no handler, so check stdout too
@@ -71,7 +71,7 @@ async function isDesktopInstalled(): Promise<boolean> {
     // On Windows, try to query the registry for the protocol handler
     const { code } = await execFileNoThrow('reg', [
       'query',
-      'HKEY_CLASSES_ROOT\\claude',
+      'HKEY_CLASSES_ROOT.nnc',
       '/ve',
     ])
     return code === 0
@@ -92,7 +92,7 @@ async function getDesktopVersion(): Promise<string | null> {
   if (platform === 'darwin') {
     const { code, stdout } = await execFileNoThrow('defaults', [
       'read',
-      '/Applications/Claude.app/Contents/Info.plist',
+      '/Applications/Neural Network.app/Contents/Info.plist',
       'CFBundleShortVersionString',
     ])
     if (code !== 0) {

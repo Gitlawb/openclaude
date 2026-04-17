@@ -28,7 +28,7 @@ import { getSettingsForSource } from './settings/settings.js'
  * is lazy-initialized) and ensure Node.js compatibility.
  *
  * This is safe to call before the trust dialog because we only read from
- * user-controlled files (~/.claude/settings.json and ~/.claude.json),
+ * user-controlled files (~/.nnc/settings.json and ~/.nnc.json),
  * not from project-level settings.
  */
 export function applyExtraCACertsFromConfig(): void {
@@ -52,15 +52,15 @@ export function applyExtraCACertsFromConfig(): void {
  * after the trust dialog. But we need the CA cert early to establish the TLS
  * connection to an HTTPS proxy during init().
  *
- * We read from global config (~/.claude.json) and user settings
- * (~/.claude/settings.json). These are user-controlled files that don't
+ * We read from global config (~/.nnc.json) and user settings
+ * (~/.nnc/settings.json). These are user-controlled files that don't
  * require trust approval.
  */
 function getExtraCertsPathFromConfig(): string | undefined {
   try {
     const globalConfig = getGlobalConfig()
     const globalEnv = globalConfig?.env
-    // Only read from user-controlled settings (~/.claude/settings.json),
+    // Only read from user-controlled settings (~/.nnc/settings.json),
     // not project-level settings, to prevent malicious projects from
     // injecting CA certs before the trust dialog.
     const settings = getSettingsForSource('userSettings')

@@ -162,7 +162,7 @@ export function createBridgeLogger(options: {
       suffix += chalk.dim(' \u00b7 ') + chalk.dim(branch)
     }
     writeStatus(
-      `${chalk.yellow(frame)} ${chalk.yellow('Connecting')}${suffix}\n`,
+      `${chalk.yellow(frame)} ${chalk.yellow('Підключення')}${suffix}\n`,
     )
   }
 
@@ -232,15 +232,15 @@ export function createBridgeLogger(options: {
     if (sessionMax > 1) {
       const modeHint =
         spawnMode === 'worktree'
-          ? 'New sessions will be created in an isolated worktree'
-          : 'New sessions will be created in the current directory'
+          ? 'Нові сесії будуть створені в ізольованому worktree'
+          : 'Нові сесії будуть створені в поточній директорії'
       writeStatus(
-        `    ${chalk.dim(`Capacity: ${sessionActive}/${sessionMax} \u00b7 ${modeHint}`)}\n`,
+        `    ${chalk.dim(`Місткість: ${sessionActive}/${sessionMax} \u00b7 ${modeHint}`)}\n`,
       )
       for (const [, info] of sessionDisplayInfo) {
         const titleText = info.title
           ? truncatePrompt(info.title, 35)
-          : chalk.dim('Attached')
+          : chalk.dim('Підключено')
         const titleLinked = wrapWithOsc8Link(titleText, info.url)
         const act = info.activity
         const showAct = act && act.type !== 'result' && act.type !== 'error'
@@ -360,7 +360,7 @@ export function createBridgeLogger(options: {
     logReconnected(disconnectedMs: number): void {
       printLog(
         chalk.dim(`[${timestamp()}]`) +
-          ` ${chalk.green('Reconnected')} after ${formatDuration(disconnectedMs)}\n`,
+          ` ${chalk.green('Перепідключено')} через ${formatDuration(disconnectedMs)}\n`,
       )
     },
 
@@ -420,7 +420,7 @@ export function createBridgeLogger(options: {
         BRIDGE_SPINNER_FRAMES[connectingTick % BRIDGE_SPINNER_FRAMES.length]!
       connectingTick++
       writeStatus(
-        `${chalk.yellow(frame)} ${chalk.yellow('Reconnecting')} ${chalk.dim('\u00b7')} ${chalk.dim(`retrying in ${delayStr}`)} ${chalk.dim('\u00b7')} ${chalk.dim(`disconnected ${elapsedStr}`)}\n`,
+        `${chalk.yellow(frame)} ${chalk.yellow('Перепідключення')} ${chalk.dim('\u00b7')} ${chalk.dim(`повторна спроба через ${delayStr}`)} ${chalk.dim('\u00b7')} ${chalk.dim(`відключено ${elapsedStr}`)}\n`,
       )
     },
 
@@ -438,7 +438,7 @@ export function createBridgeLogger(options: {
       }
 
       writeStatus(
-        `${chalk.red(BRIDGE_FAILED_INDICATOR)} ${chalk.red('Remote Control Failed')}${suffix}\n`,
+        `${chalk.red(BRIDGE_FAILED_INDICATOR)} ${chalk.red('Віддалене керування не вдалося')}${suffix}\n`,
       )
       writeStatus(`${chalk.dim(FAILED_FOOTER_TEXT)}\n`)
 

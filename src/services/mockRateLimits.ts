@@ -8,7 +8,7 @@
 // Always validate against actual API responses before relying on this for production features.
 
 import { setMockBillingAccessOverride } from '../utils/billing.js'
-import type { OverageDisabledReason } from './claudeAiLimits.js'
+import type { OverageDisabledReason } from './aiLimits.js'
 
 type SubscriptionType = string
 

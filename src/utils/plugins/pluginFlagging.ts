@@ -2,7 +2,7 @@
  * Flagged plugin tracking utilities
  *
  * Tracks plugins that were auto-removed because they were delisted from
- * their marketplace. Data is stored in ~/.claude/plugins/flagged-plugins.json.
+ * their marketplace. Data is stored in ~/.nnc/plugins/flagged-plugins.json.
  * Flagged plugins appear in a "Flagged" section in /plugins until the user
  * dismisses them.
  *

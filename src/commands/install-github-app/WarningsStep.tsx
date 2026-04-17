@@ -27,7 +27,7 @@ export function WarningsStep(t0) {
   useKeybinding("confirm:yes", onContinue, t1);
   let t2;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>{figures.warning} Setup Warnings</Text><Text dimColor={true}>We found some potential issues, but you can continue anyway</Text></Box>;
+    t2 = <Box flexDirection="column" marginBottom={1}><Text bold={true}>{figures.warning} Попередження налаштування</Text><Text dimColor={true}>Знайдено деякі можливі проблеми, але ви можете продовжити</Text></Box>;
     $[1] = t2;
   } else {
     t2 = $[1];
@@ -42,14 +42,14 @@ export function WarningsStep(t0) {
   }
   let t4;
   if ($[4] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = <Box marginTop={1}><Text bold={true} color="permission">Press Enter to continue anyway, or Ctrl+C to exit and fix issues</Text></Box>;
+    t4 = <Box marginTop={1}><Text bold={true} color="permission">Натисніть Enter, щоб продовжити, або Ctrl+C, щоб вийти і виправити</Text></Box>;
     $[4] = t4;
   } else {
     t4 = $[4];
   }
   let t5;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t5 = <Box marginTop={1}><Text dimColor={true}>You can also try the manual setup steps if needed:{" "}<Text color="claude">{GITHUB_ACTION_SETUP_DOCS_URL}</Text></Text></Box>;
+    t5 = <Box marginTop={1}><Text dimColor={true}>Можна спробувати ручні кроки налаштування за потреби:{" "}<Text color="claude">{GITHUB_ACTION_SETUP_DOCS_URL}</Text></Text></Box>;
     $[5] = t5;
   } else {
     t5 = $[5];

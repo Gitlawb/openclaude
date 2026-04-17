@@ -1549,7 +1549,7 @@ export async function powershellToolHasPermission(
     // gate, `Set-Location ./.claude; Set-Content ./settings.json '...'` would
     // pass: Set-Content is checked in isolation, matches ACCEPT_EDITS_ALLOWED_CMDLETS,
     // and auto-allows — but PowerShell runs it from the changed cwd, writing to
-    // .claude/settings.json (a Claude config file the path validator didn't check).
+    // .nnc/settings.json (a Neural Network config file the path validator didn't check).
     // This matches BashTool's compoundCommandHasCd guard.
     if (statement !== null && !hasCdSubCommand && !hasSymlinkCreate) {
       const subModeResult = checkPermissionMode(

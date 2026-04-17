@@ -151,7 +151,7 @@ export function ContextVisualization(t0) {
     t6 = "column";
     t7 = 1;
     if ($[21] === Symbol.for("react.memo_cache_sentinel")) {
-      t8 = <Text bold={true}>Context Usage</Text>;
+      t8 = <Text bold={true}>Використання контексту</Text>;
       $[21] = t8;
     } else {
       t8 = $[21];
@@ -205,7 +205,7 @@ export function ContextVisualization(t0) {
     if ($[35] === Symbol.for("react.memo_cache_sentinel")) {
       t16 = <CollapseStatus />;
       t17 = <Text> </Text>;
-      t18 = <Text dimColor={true} italic={true}>Estimated usage by category</Text>;
+      t18 = <Text dimColor={true} italic={true}>Оціночне використання за категоріями</Text>;
       $[35] = t16;
       $[36] = t17;
       $[37] = t18;
@@ -263,7 +263,7 @@ export function ContextVisualization(t0) {
     t2 = "column";
     t3 = -1;
     if ($[51] !== hasDeferredMcpTools || $[52] !== mcpTools) {
-      t4 = mcpTools.length > 0 && <Box flexDirection="column" marginTop={1}><Box><Text bold={true}>MCP tools</Text><Text dimColor={true}>{" "}· /mcp{hasDeferredMcpTools ? " (loaded on-demand)" : ""}</Text></Box>{mcpTools.some(_temp9) && <Box flexDirection="column" marginTop={1}><Text dimColor={true}>Loaded</Text>{mcpTools.filter(_temp0).map(_temp1)}</Box>}{hasDeferredMcpTools && mcpTools.some(_temp10) && <Box flexDirection="column" marginTop={1}><Text dimColor={true}>Available</Text>{mcpTools.filter(_temp11).map(_temp12)}</Box>}{!hasDeferredMcpTools && mcpTools.map(_temp13)}</Box>;
+      t4 = mcpTools.length > 0 && <Box flexDirection="column" marginTop={1}><Box><Text bold={true}>MCP інструменти</Text><Text dimColor={true}>{" "}· /mcp{hasDeferredMcpTools ? " (завантаж. на вимогу)" : ""}</Text></Box>{mcpTools.some(_temp9) && <Box flexDirection="column" marginTop={1}><Text dimColor={true}>Завантажено</Text>{mcpTools.filter(_temp0).map(_temp1)}</Box>}{hasDeferredMcpTools && mcpTools.some(_temp10) && <Box flexDirection="column" marginTop={1}><Text dimColor={true}>Доступні</Text>{mcpTools.filter(_temp11).map(_temp12)}</Box>}{!hasDeferredMcpTools && mcpTools.map(_temp13)}</Box>;
       $[51] = hasDeferredMcpTools;
       $[52] = mcpTools;
       $[53] = t4;
@@ -312,7 +312,7 @@ export function ContextVisualization(t0) {
   }
   let t11;
   if ($[56] !== agents) {
-    t11 = agents.length > 0 && <Box flexDirection="column" marginTop={1}><Box><Text bold={true}>Custom agents</Text><Text dimColor={true}> · /agents</Text></Box>{Array.from(groupBySource(agents).entries()).map(_temp22)}</Box>;
+    t11 = agents.length > 0 && <Box flexDirection="column" marginTop={1}><Box><Text bold={true}>Користувацькі агенти</Text><Text dimColor={true}> · /agents</Text></Box>{Array.from(groupBySource(agents).entries()).map(_temp22)}</Box>;
     $[56] = agents;
     $[57] = t11;
   } else {
@@ -320,7 +320,7 @@ export function ContextVisualization(t0) {
   }
   let t12;
   if ($[58] !== memoryFiles) {
-    t12 = memoryFiles.length > 0 && <Box flexDirection="column" marginTop={1}><Box><Text bold={true}>Memory files</Text><Text dimColor={true}> · /memory</Text></Box>{memoryFiles.map(_temp23)}</Box>;
+    t12 = memoryFiles.length > 0 && <Box flexDirection="column" marginTop={1}><Box><Text bold={true}>Файли пам'яті</Text><Text dimColor={true}> · /memory</Text></Box>{memoryFiles.map(_temp23)}</Box>;
     $[58] = memoryFiles;
     $[59] = t12;
   } else {
@@ -328,7 +328,7 @@ export function ContextVisualization(t0) {
   }
   let t13;
   if ($[60] !== skills) {
-    t13 = skills && skills.tokens > 0 && <Box flexDirection="column" marginTop={1}><Box><Text bold={true}>Skills</Text><Text dimColor={true}> · /skills</Text></Box>{Array.from(groupBySource(skills.skillFrontmatter).entries()).map(_temp25)}</Box>;
+    t13 = skills && skills.tokens > 0 && <Box flexDirection="column" marginTop={1}><Box><Text bold={true}>Навички</Text><Text dimColor={true}> · /skills</Text></Box>{Array.from(groupBySource(skills.skillFrontmatter).entries()).map(_temp25)}</Box>;
     $[60] = skills;
     $[61] = t13;
   } else {

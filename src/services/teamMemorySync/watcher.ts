@@ -244,9 +244,9 @@ async function startFileWatcher(teamDir: string): Promise<void> {
  *
  * Pulls from server, then starts the file watcher unconditionally.
  * The watcher must start even when the server has no content yet
- * (fresh EAP repo) — otherwise Claude's first team-memory write
+ * (fresh EAP repo) — otherwise Neural Network's first team-memory write
  * depends entirely on PostToolUse hooks firing notifyTeamMemoryWrite,
- * which is a chicken-and-egg: Claude's write rate is low enough that
+ * which is a chicken-and-egg: Neural Network's write rate is low enough that
  * a fresh partner can sit in the bootstrap dead zone for days.
  */
 export async function startTeamMemoryWatcher(): Promise<void> {

@@ -61,12 +61,12 @@ export function WorktreeExitDialog({
             setCwd(worktreeSession.originalCwd);
             recordWorktreeExit();
             getPlansDirectory.cache.clear?.();
-            setResultMessage('Worktree removed (no changes)');
+            setResultMessage('Worktree видалено (без змін)');
           }).catch(error => {
             logForDebugging(`Failed to clean up worktree: ${error}`, {
               level: 'error'
             });
-            setResultMessage('Worktree cleanup failed, exiting anyway');
+            setResultMessage('Не вдалося очистити worktree, все одно виходимо');
           }).then(() => {
             setStatus('done');
           });
@@ -86,7 +86,7 @@ export function WorktreeExitDialog({
     }
   }, [status, onDone, resultMessage]);
   if (!worktreeSession) {
-    onDone('No active worktree session found', {
+    onDone('Активної worktree сесії не знайдено', {
       display: 'system'
     });
     return null;
@@ -109,9 +109,9 @@ export function WorktreeExitDialog({
       recordWorktreeExit();
       getPlansDirectory.cache.clear?.();
       if (hasTmux) {
-        setResultMessage(`Worktree kept. Your work is saved at ${worktreeSession.worktreePath} on branch ${worktreeSession.worktreeBranch}. Reattach to tmux session with: tmux attach -t ${worktreeSession.tmuxSessionName}`);
+        setResultMessage(`Worktree збережено. Ваша робота знаходиться в ${worktreeSession.worktreePath} на гілці ${worktreeSession.worktreeBranch}. Перепідключіться до tmux сесії: tmux attach -t ${worktreeSession.tmuxSessionName}`);
       } else {
-        setResultMessage(`Worktree kept. Your work is saved at ${worktreeSession.worktreePath} on branch ${worktreeSession.worktreeBranch}`);
+        setResultMessage(`Worktree збережено. Ваша робота знаходиться в ${worktreeSession.worktreePath} на гілці ${worktreeSession.worktreeBranch}`);
       }
       setStatus('done');
     } else if (value === 'keep-kill-tmux') {
@@ -128,7 +128,7 @@ export function WorktreeExitDialog({
       setCwd(worktreeSession.originalCwd);
       recordWorktreeExit();
       getPlansDirectory.cache.clear?.();
-      setResultMessage(`Worktree kept at ${worktreeSession.worktreePath} on branch ${worktreeSession.worktreeBranch}. Tmux session terminated.`);
+      setResultMessage(`Worktree збережено в ${worktreeSession.worktreePath} на гілці ${worktreeSession.worktreeBranch}. Tmux сесію завершено.`);
       setStatus('done');
     } else if (value === 'remove' || value === 'remove-with-tmux') {
       setStatus('removing');
@@ -149,19 +149,19 @@ export function WorktreeExitDialog({
         logForDebugging(`Failed to clean up worktree: ${error}`, {
           level: 'error'
         });
-        setResultMessage('Worktree cleanup failed, exiting anyway');
+        setResultMessage('Не вдалося очистити worktree, все одно виходимо');
         setStatus('done');
         return;
       }
-      const tmuxNote = hasTmux ? ' Tmux session terminated.' : '';
+      const tmuxNote = hasTmux ? ' Tmux сесію завершено.' : '';
       if (commitCount > 0 && changes.length > 0) {
-        setResultMessage(`Worktree removed. ${commitCount} ${commitCount === 1 ? 'commit' : 'commits'} and uncommitted changes were discarded.${tmuxNote}`);
+        setResultMessage(`Worktree видалено. ${commitCount} ${commitCount === 1 ? 'коміт' : 'комітів'} та незакомічені зміни відкинуто.${tmuxNote}`);
       } else if (commitCount > 0) {
-        setResultMessage(`Worktree removed. ${commitCount} ${commitCount === 1 ? 'commit' : 'commits'} on ${worktreeSession.worktreeBranch} ${commitCount === 1 ? 'was' : 'were'} discarded.${tmuxNote}`);
+        setResultMessage(`Worktree видалено. ${commitCount} ${commitCount === 1 ? 'коміт' : 'комітів'} на ${worktreeSession.worktreeBranch} відкинуто.${tmuxNote}`);
       } else if (changes.length > 0) {
-        setResultMessage(`Worktree removed. Uncommitted changes were discarded.${tmuxNote}`);
+        setResultMessage(`Worktree видалено. Незакомічені зміни відкинуто.${tmuxNote}`);
       } else {
-        setResultMessage(`Worktree removed.${tmuxNote}`);
+        setResultMessage(`Worktree видалено.${tmuxNote}`);
       }
       setStatus('done');
     }
@@ -169,13 +169,13 @@ export function WorktreeExitDialog({
   if (status === 'keeping') {
     return <Box flexDirection="row" marginY={1}>
         <Spinner />
-        <Text>Keeping worktree…</Text>
+        <Text>Зберігаємо worktree…</Text>
       </Box>;
   }
   if (status === 'removing') {
     return <Box flexDirection="row" marginY={1}>
         <Spinner />
-        <Text>Removing worktree…</Text>
+        <Text>Видаляємо worktree…</Text>
       </Box>;
   }
   const branchName = worktreeSession.worktreeBranch;
@@ -183,13 +183,13 @@ export function WorktreeExitDialog({
   const hasCommits = commitCount > 0;
   let subtitle = '';
   if (hasUncommitted && hasCommits) {
-    subtitle = `You have ${changes.length} uncommitted ${changes.length === 1 ? 'file' : 'files'} and ${commitCount} ${commitCount === 1 ? 'commit' : 'commits'} on ${branchName}. All will be lost if you remove.`;
+    subtitle = `У вас ${changes.length} незакомічених ${changes.length === 1 ? 'файл' : 'файлів'} та ${commitCount} ${commitCount === 1 ? 'коміт' : 'комітів'} на ${branchName}. Усе буде втрачено при видаленні.`;
   } else if (hasUncommitted) {
-    subtitle = `You have ${changes.length} uncommitted ${changes.length === 1 ? 'file' : 'files'}. These will be lost if you remove the worktree.`;
+    subtitle = `У вас ${changes.length} незакомічених ${changes.length === 1 ? 'файл' : 'файлів'}. Вони будуть втрачені при видаленні worktree.`;
   } else if (hasCommits) {
-    subtitle = `You have ${commitCount} ${commitCount === 1 ? 'commit' : 'commits'} on ${branchName}. The branch will be deleted if you remove the worktree.`;
+    subtitle = `У вас ${commitCount} ${commitCount === 1 ? 'коміт' : 'комітів'} на ${branchName}. Гілку буде видалено разом з worktree.`;
   } else {
-    subtitle = 'You are working in a worktree. Keep it to continue working there, or remove it to clean up.';
+    subtitle = 'Ви працюєте у worktree. Збережіть її, щоб продовжити роботу там, або видаліть для очищення.';
   }
   function handleCancel() {
     if (onCancel) {
@@ -200,31 +200,31 @@ export function WorktreeExitDialog({
     // Fallback: treat Escape as "keep" if no onCancel provided
     void handleSelect('keep');
   }
-  const removeDescription = hasUncommitted || hasCommits ? 'All changes and commits will be lost.' : 'Clean up the worktree directory.';
+  const removeDescription = hasUncommitted || hasCommits ? 'Усі зміни та коміти будуть втрачені.' : 'Очистити директорію worktree.';
   const hasTmuxSession = Boolean(worktreeSession.tmuxSessionName);
   const options = hasTmuxSession ? [{
-    label: 'Keep worktree and tmux session',
+    label: 'Зберегти worktree та tmux сесію',
     value: 'keep-with-tmux',
-    description: `Stays at ${worktreeSession.worktreePath}. Reattach with: tmux attach -t ${worktreeSession.tmuxSessionName}`
+    description: `Залишиться в ${worktreeSession.worktreePath}. Перепідключіться: tmux attach -t ${worktreeSession.tmuxSessionName}`
   }, {
-    label: 'Keep worktree, kill tmux session',
+    label: 'Зберегти worktree, завершити tmux сесію',
     value: 'keep-kill-tmux',
-    description: `Keeps worktree at ${worktreeSession.worktreePath}, terminates tmux session.`
+    description: `Зберігає worktree в ${worktreeSession.worktreePath}, завершує tmux сесію.`
   }, {
-    label: 'Remove worktree and tmux session',
+    label: 'Видалити worktree та tmux сесію',
     value: 'remove-with-tmux',
     description: removeDescription
   }] : [{
-    label: 'Keep worktree',
+    label: 'Зберегти worktree',
     value: 'keep',
-    description: `Stays at ${worktreeSession.worktreePath}`
+    description: `Залишиться в ${worktreeSession.worktreePath}`
   }, {
-    label: 'Remove worktree',
+    label: 'Видалити worktree',
     value: 'remove',
     description: removeDescription
   }];
   const defaultValue = hasTmuxSession ? 'keep-with-tmux' : 'keep';
-  return <Dialog title="Exiting worktree session" subtitle={subtitle} onCancel={handleCancel}>
+  return <Dialog title="Вихід з worktree сесії" subtitle={subtitle} onCancel={handleCancel}>
       <Select defaultFocusValue={defaultValue} options={options} onChange={handleSelect} />
     </Dialog>;
 }
