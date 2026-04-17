@@ -73,6 +73,8 @@ describe('dogfood: codebase mapping on bridgeai/', () => {
     vault = mkdtempSync(path.join(os.tmpdir(), 'bridgeai-dogfood-'))
 
     const cfg: VaultConfig = {
+      local: { path: vault },
+      global: null,
       vaultPath: vault,
       provider: 'claude',
       projectName: 'bridgeai',

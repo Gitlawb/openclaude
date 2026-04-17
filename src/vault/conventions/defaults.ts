@@ -51,8 +51,9 @@ All notes carry a YAML frontmatter block delimited by \`---\` fences. Required f
 - \`status\` — one of: \`draft | active | review | stable | deprecated | archived\`
 - \`created\` — ISO date (\`YYYY-MM-DD\`)
 - \`updated\` — ISO date (\`YYYY-MM-DD\`)
-- \`confidence\` — one of: \`high | medium | low | speculative\`
+- \`confidence\` — one of: \`high | medium | low | speculative\` (see Confidence tiers below)
 - \`summary\` — one-line string, machine-readable
+- \`scope\` — one of: \`project | global\`; optional in frontmatter (default \`project\` applied at write time, PIFA-01)
 - \`aliases\` — optional array of strings
 - \`related\` — optional array of WikiLinks (\`"[[note-slug]]"\`)
 
@@ -102,13 +103,35 @@ Token budgets per note type:
 
 Atomic notes overall: 300–500 words. No-RAG bucket: 500–1500 tokens. RAG chunk: 256–512 tokens.
 
+## Confidence tiers (PIFA-06, F-2)
+
+Every note's \`confidence\` uses one of four values, ordered from most to least trustworthy:
+
+- **\`high\`** — Static-only ground truth: deterministic facts derived from code analysis (exports, imports, dependency edges, file paths). No LLM involvement. Cache-aside serves these without re-checking source.
+- **\`medium\`** — Clean LLM-derived semantic content with successful structured-output validation. Mapper output for \`summary\`, \`responsibilities\`, \`domain\`, \`layer\` lands here. Cache-aside threshold is \`≥ medium\`.
+- **\`low\`** — Fallback placeholders (LLM call failed and was retried), escape-hatch deferred content, or output the agent flagged as needing dev confirmation. Cache-aside ALWAYS re-analyzes.
+- **\`speculative\`** — Hypothetical or exploratory content explicitly flagged as untrusted. Treated identically to \`low\` by the cache layer.
+
+Provenance pairs with confidence: every \`_log.md\` entry tags \`source: code-analysis\` (deterministic write) or \`source: llm-inference\` (LLM-derived write).
+
+## Scope (PIFA-01)
+
+Every note carries a \`scope\` field declaring where it lives:
+
+- **\`project\`** (default) — the project-local vault at \`<repo>/.bridgeai/vault/\`. Specific to one codebase.
+- **\`global\`** — the dev's portable vault at \`~/.bridgeai/global-vault/\` (or \`$BRIDGEAI_GLOBAL_VAULT\`). Carried across projects. Used for principles, lessons, patterns, cross-project decisions.
+
+\`writeNote\` dispatches by scope. Module notes (\`type: module\`) are inherently project-scoped — \`type: module + scope: global\` is rejected by the \`type-scope-mismatch\` rule. Cross-vault references use the \`[[global:slug]]\` namespace prefix (see PIF-E).
+
 ## Write-time rules
 
 1. **search-before-create** — scan \`_index.md\` and existing titles/aliases before writing a new note; link to canonical if it exists.
 2. **Hallucinated WikiLinks are rejected** — every \`[[target]]\` must resolve to an existing note or a note in the same write batch.
 3. **Append-only \`_log.md\`** — every vault mutation adds an entry; tag entries with \`source: code-analysis\` or \`source: llm-inference\`.
 4. **Template conformance** — each note type has a fixed section order (see §10.2). Deviation is a violation.
-5. **Frontmatter field order is canonical** — the serializer enforces field order regardless of input order.`
+5. **Frontmatter field order is canonical** — the serializer enforces field order regardless of input order.
+6. **Scope dispatch** — \`writeNote\` reads \`scope\` (default \`project\`) and routes to the matching vault; \`scope: global\` with no global vault configured returns a \`no-global-vault-configured\` violation without touching disk.
+7. **Type-scope-mismatch** — \`type: module + scope: global\` is rejected; modules are inherently project-scoped.`
 
 export const TEMPLATES: Record<NoteType, string> = {
   module: `---
