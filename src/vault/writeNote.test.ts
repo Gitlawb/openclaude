@@ -420,3 +420,135 @@ describe('writeNote — escape-hatch on scope: global (PIFC-07)', () => {
     ).toBe(true)
   })
 })
+
+describe('writeNote — cross-vault WikiLink rules (PIFE-03/04/06)', () => {
+  let repoRoot: string
+  let cfg: VaultConfig
+  let globalRoot: string
+
+  beforeEach(async () => {
+    repoRoot = makeRepo()
+    cfg = makeConfig(repoRoot)
+    globalRoot = mkdtempSync(join(tmpdir(), 'writenote-global-pife-'))
+    await bootstrapVault(cfg, { gitignore: false })
+    const globalCfg: VaultConfig = {
+      ...cfg,
+      local: { path: globalRoot },
+      vaultPath: globalRoot,
+    }
+    await bootstrapVault(globalCfg, { gitignore: false })
+  })
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true })
+    rmSync(globalRoot, { recursive: true, force: true })
+  })
+
+  test('PIFE-03: local note with [[global:slug]] in body → write succeeds (link skipped)', async () => {
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const draft = validConceptDraft({
+      body: '# Foo\n\nSee [[global:typescript-strict-on]] for context.\n',
+    })
+    const result = await writeNote(cfgWithGlobal, draft)
+    expect(result.ok).toBe(true)
+    expect(
+      existsSync(join(cfg.local.path, 'knowledge', 'concept-foo.md')),
+    ).toBe(true)
+  })
+
+  test('PIFE-06: local note with [[global:slug]] in `related:` → write succeeds (link skipped)', async () => {
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const base = validConceptDraft()
+    const draft = {
+      ...base,
+      frontmatter: {
+        ...base.frontmatter,
+        related: ['[[global:typescript-strict-on]]'],
+      },
+    }
+    const result = await writeNote(cfgWithGlobal, draft)
+    expect(result.ok).toBe(true)
+  })
+
+  test('PIFE-04: global note with [[project:my-module]] in body → REJECTED with type-scope-mismatch', async () => {
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const base = validConceptDraft()
+    const draft = {
+      ...base,
+      frontmatter: { ...base.frontmatter, scope: 'global' as const },
+      body: '# Foo\n\nSee [[project:my-module]] for the implementation.\n',
+    }
+    const result = await writeNote(cfgWithGlobal, draft, { confirmedGlobal: true })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.violations[0]?.rule).toBe('type-scope-mismatch')
+    expect(result.violations[0]?.field).toBe('body')
+    expect(result.violations[0]?.got).toBe('project:my-module')
+    // No fs mutation in either vault.
+    expect(existsSync(join(globalRoot, 'knowledge', 'concept-foo.md'))).toBe(false)
+  })
+
+  test('PIFE-04: global note with [[project:slug]] in `related:` → REJECTED with type-scope-mismatch on `related` field', async () => {
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const base = validConceptDraft()
+    const draft = {
+      ...base,
+      frontmatter: {
+        ...base.frontmatter,
+        scope: 'global' as const,
+        related: ['[[project:my-module]]'],
+      },
+    }
+    const result = await writeNote(cfgWithGlobal, draft, { confirmedGlobal: true })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    const v = result.violations.find((x) => x.rule === 'type-scope-mismatch')
+    expect(v?.field).toBe('related')
+  })
+
+  test('PIFE-05: [[hallucinated-foo]] AND [[global:foo]] in same body → exactly ONE hallucinated-link (the local one); global skipped', async () => {
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const draft = validConceptDraft({
+      body: '# Foo\n\nSee [[hallucinated-foo]] and [[global:foo]].\n',
+    })
+    const result = await writeNote(cfgWithGlobal, draft)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    const hallucinated = result.violations.filter(
+      (v) => v.rule === 'hallucinated-link',
+    )
+    expect(hallucinated).toHaveLength(1)
+    expect(hallucinated[0]?.got).toBe('hallucinated-foo')
+  })
+
+  test('global note with [[global:other]] (sibling-link via _pendingLinks) → write succeeds', async () => {
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const base = validConceptDraft()
+    const draft = {
+      ...base,
+      frontmatter: {
+        ...base.frontmatter,
+        scope: 'global' as const,
+        // _pendingLinks lets the resolver accept the bare slug 'other-global'
+        // as if it were already on disk (used for batch writes).
+        _pendingLinks: ['other-global'],
+      },
+      body: '# Foo\n\nSee [[global:other-global]].\n',
+    }
+    const result = await writeNote(cfgWithGlobal, draft, { confirmedGlobal: true })
+    expect(result.ok).toBe(true)
+    expect(existsSync(join(globalRoot, 'knowledge', 'concept-foo.md'))).toBe(true)
+  })
+
+  test('local note with [[project:my-module]] (redundant explicit prefix) → treated as local, succeeds when slug exists', async () => {
+    const cfgWithGlobal: VaultConfig = { ...cfg, global: { path: globalRoot } }
+    const base = validConceptDraft()
+    const draft = {
+      ...base,
+      frontmatter: { ...base.frontmatter, _pendingLinks: ['my-module'] },
+      body: '# Foo\n\nSee [[project:my-module]].\n',
+    }
+    const result = await writeNote(cfgWithGlobal, draft)
+    expect(result.ok).toBe(true)
+  })
+})

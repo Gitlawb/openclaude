@@ -157,18 +157,43 @@ function extractWikiLinkTargets(text: string): WikiLinkTarget[] {
 }
 
 /**
- * Validate one resolved WikiLink target. PIF-E (T3) adds cross-vault
- * branches; for T2 the helper preserves the existing local-only check
- * (resolve `target.slug` against the in-target-vault `resolvableTargets`
- * set, regardless of `target.vault`).
+ * Validate one resolved WikiLink target against the cross-vault rules
+ * (PIFE-03/04). Decision matrix by `(scope, target.vault)`:
+ *
+ *   project → global   SKIP — local validator can't see global vault.
+ *                      The link is the dev's read-time promise.
+ *   global  → project  REJECT (type-scope-mismatch). Global notes must
+ *                      not depend on project-scoped knowledge.
+ *   project → project  Treat as local (redundant explicit prefix).
+ *   global  → global   Treat as local (writing to global vault, slug
+ *                      resolves there).
+ *   * → local          Resolve `target.slug` against the in-vault
+ *                      `resolvableTargets` set (existing behavior).
  */
 function checkLink(
   target: WikiLinkTarget,
   field: string,
-  _scope: 'project' | 'global',
+  scope: 'project' | 'global',
   resolvableTargets: Set<string>,
   linkViolations: Violation[],
 ): void {
+  // Cross-vault project link (skip): local note → global vault.
+  if (scope === 'project' && target.vault === 'global') return
+
+  // Cross-vault project link (reject): global note → project vault.
+  if (scope === 'global' && target.vault === 'project') {
+    linkViolations.push({
+      field,
+      expected: 'global or local link (no project: prefix in global notes)',
+      got: `project:${target.slug}`,
+      rule: 'type-scope-mismatch',
+    })
+    return
+  }
+
+  // Otherwise: target.vault is 'local', or it's a redundant explicit
+  // same-vault prefix. Resolve the bare slug against the existing
+  // in-vault basenames (existing behavior).
   if (!resolvableTargets.has(target.slug)) {
     linkViolations.push({
       field,
