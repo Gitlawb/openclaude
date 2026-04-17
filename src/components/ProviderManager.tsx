@@ -36,8 +36,8 @@ import {
   readGithubModelsTokenAsync,
 } from '../utils/githubModelsCredentials.js'
 import {
-  hasLocalOllama,
-  listOllamaModels,
+  probeOllamaGenerationReadiness,
+  type OllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
 import {
   rankOllamaModels,
@@ -219,6 +219,29 @@ function getGithubProviderSummary(
         : 'no token found'
   const activeSuffix = isActive ? ' (active)' : ''
   return `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel(processEnv)} · ${credentialSummary}${activeSuffix}`
+}
+
+function describeOllamaSelectionIssue(
+  readiness: OllamaGenerationReadiness,
+  baseUrl: string,
+): string {
+  if (readiness.state === 'unreachable') {
+    return `Could not reach Ollama at ${baseUrl}. Start Ollama first, or enter the endpoint manually.`
+  }
+
+  if (readiness.state === 'no_models') {
+    return 'Ollama is running, but no installed models were found. Pull a chat model such as qwen2.5-coder:7b or llama3.1:8b first, or enter details manually.'
+  }
+
+  if (readiness.state === 'generation_failed') {
+    const modelHint = readiness.probeModel ?? 'the selected model'
+    const detailSuffix = readiness.detail
+      ? ` Details: ${readiness.detail}.`
+      : ''
+    return `Ollama is reachable and models are installed, but a generation probe failed for ${modelHint}.${detailSuffix} Run "ollama run ${modelHint}" once and retry, or enter details manually.`
+  }
+
+  return ''
 }
 
 function findCodexOAuthProfile(
@@ -449,32 +472,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setOllamaSelection({ state: 'loading' })
 
     void (async () => {
-      const available = await hasLocalOllama(draft.baseUrl)
-      if (!available) {
+      const readiness = await probeOllamaGenerationReadiness({
+        baseUrl: draft.baseUrl,
+      })
+      if (readiness.state !== 'ready') {
         if (!cancelled) {
           setOllamaSelection({
             state: 'unavailable',
-            message:
-              'Could not reach Ollama. Start Ollama first, or enter the endpoint manually.',
+            message: describeOllamaSelectionIssue(readiness, draft.baseUrl),
           })
         }
         return
       }
 
-      const models = await listOllamaModels(draft.baseUrl)
-      if (models.length === 0) {
-        if (!cancelled) {
-          setOllamaSelection({
-            state: 'unavailable',
-            message:
-              'Ollama is running, but no installed models were found. Pull a chat model such as qwen2.5-coder:7b or llama3.1:8b first, or enter details manually.',
-          })
-        }
-        return
-      }
-
-      const ranked = rankOllamaModels(models, 'balanced')
-      const recommended = recommendOllamaModel(models, 'balanced')
+      const ranked = rankOllamaModels(readiness.models, 'balanced')
+      const recommended = recommendOllamaModel(readiness.models, 'balanced')
       if (!cancelled) {
         setOllamaSelection({
           state: 'ready',

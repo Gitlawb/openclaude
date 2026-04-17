@@ -4,6 +4,13 @@ import { DEFAULT_OPENAI_BASE_URL } from '../services/api/providerConfig.js'
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434'
 export const DEFAULT_ATOMIC_CHAT_BASE_URL = 'http://127.0.0.1:1337'
 
+export type OllamaGenerationReadiness = {
+  state: 'ready' | 'unreachable' | 'no_models' | 'generation_failed'
+  models: OllamaModelDescriptor[]
+  probeModel?: string
+  detail?: string
+}
+
 function withTimeoutSignal(timeoutMs: number): {
   signal: AbortSignal
   clear: () => void
@@ -18,6 +25,19 @@ function withTimeoutSignal(timeoutMs: number): {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
+}
+
+function compactDetail(value: string, maxLength = 180): string {
+  const compact = value.trim().replace(/\s+/g, ' ')
+  if (!compact) {
+    return ''
+  }
+
+  if (compact.length <= maxLength) {
+    return compact
+  }
+
+  return `${compact.slice(0, maxLength)}...`
 }
 
 export function getOllamaApiBaseUrl(baseUrl?: string): string {
@@ -290,6 +310,90 @@ export async function benchmarkOllamaModel(
     return Date.now() - start
   } catch {
     return null
+  } finally {
+    clear()
+  }
+}
+
+export async function probeOllamaGenerationReadiness(options?: {
+  baseUrl?: string
+  model?: string
+  timeoutMs?: number
+}): Promise<OllamaGenerationReadiness> {
+  const models = await listOllamaModels(options?.baseUrl)
+  if (models.length === 0) {
+    const reachable = await hasLocalOllama(options?.baseUrl)
+    if (!reachable) {
+      return {
+        state: 'unreachable',
+        models: [],
+      }
+    }
+
+    return {
+      state: 'no_models',
+      models: [],
+    }
+  }
+
+  const requestedModel = options?.model?.trim()
+  const probeModel =
+    requestedModel && models.some(model => model.name === requestedModel)
+      ? requestedModel
+      : models[0]!.name
+  const { signal, clear } = withTimeoutSignal(options?.timeoutMs ?? 8000)
+
+  try {
+    const response = await fetch(`${getOllamaApiBaseUrl(options?.baseUrl)}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      signal,
+      body: JSON.stringify({
+        model: probeModel,
+        stream: false,
+        messages: [{ role: 'user', content: 'Reply with OK.' }],
+        options: {
+          temperature: 0,
+          num_predict: 8,
+        },
+      }),
+    })
+
+    if (!response.ok) {
+      const responseBody = await response.text().catch(() => '')
+      const detailSuffix = compactDetail(responseBody)
+      return {
+        state: 'generation_failed',
+        models,
+        probeModel,
+        detail: detailSuffix
+          ? `status ${response.status}: ${detailSuffix}`
+          : `status ${response.status}`,
+      }
+    }
+
+    await response.json().catch(() => undefined)
+    return {
+      state: 'ready',
+      models,
+      probeModel,
+    }
+  } catch (error) {
+    const detail =
+      error instanceof Error
+        ? error.name === 'AbortError'
+          ? 'request timed out'
+          : error.message
+        : String(error)
+
+    return {
+      state: 'generation_failed',
+      models,
+      probeModel,
+      detail,
+    }
   } finally {
     clear()
   }
