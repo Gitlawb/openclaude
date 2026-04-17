@@ -6,20 +6,26 @@ import {
   loadMachineConfig,
   saveMachineConfig,
   resolveMachineConfigPath,
+  resolveGlobalVault,
 } from './globalConfig.js'
 
 let savedEnv: string | undefined
+let savedGlobalEnv: string | undefined
 let tmpHome: string
 
 beforeEach(() => {
   savedEnv = process.env.BRIDGEAI_MACHINE_CONFIG_PATH
+  savedGlobalEnv = process.env.BRIDGEAI_GLOBAL_VAULT
   tmpHome = mkdtempSync(join(tmpdir(), 'pifb-machinecfg-'))
   process.env.BRIDGEAI_MACHINE_CONFIG_PATH = join(tmpHome, 'config.json')
+  delete process.env.BRIDGEAI_GLOBAL_VAULT
 })
 
 afterEach(() => {
   if (savedEnv === undefined) delete process.env.BRIDGEAI_MACHINE_CONFIG_PATH
   else process.env.BRIDGEAI_MACHINE_CONFIG_PATH = savedEnv
+  if (savedGlobalEnv === undefined) delete process.env.BRIDGEAI_GLOBAL_VAULT
+  else process.env.BRIDGEAI_GLOBAL_VAULT = savedGlobalEnv
   rmSync(tmpHome, { recursive: true, force: true })
 })
 
@@ -56,5 +62,36 @@ describe('machine config — load + save', () => {
     rmSync(tmpHome, { recursive: true, force: true })
     saveMachineConfig({ globalVaultPath: '/x' })
     expect(existsSync(resolveMachineConfigPath())).toBe(true)
+  })
+})
+
+describe('resolveGlobalVault — priority order', () => {
+  test('env set → configured (source: env), regardless of config state', () => {
+    process.env.BRIDGEAI_GLOBAL_VAULT = '/from/env'
+    saveMachineConfig({ declinedGlobalVault: true }) // would otherwise win
+    const r = resolveGlobalVault()
+    expect(r).toEqual({ kind: 'configured', path: '/from/env', source: 'env' })
+  })
+
+  test('env unset + declined config → declined', () => {
+    saveMachineConfig({ declinedGlobalVault: true })
+    expect(resolveGlobalVault()).toEqual({ kind: 'declined' })
+  })
+
+  test('env unset + config has globalVaultPath → configured (source: config)', () => {
+    saveMachineConfig({ globalVaultPath: '/from/config' })
+    const r = resolveGlobalVault()
+    expect(r).toEqual({
+      kind: 'configured',
+      path: '/from/config',
+      source: 'config',
+    })
+  })
+
+  test('env unset + empty config → unconfigured (with default path)', () => {
+    const r = resolveGlobalVault()
+    expect(r.kind).toBe('unconfigured')
+    if (r.kind !== 'unconfigured') return
+    expect(r.defaultPath).toMatch(/[\\/](\.bridgeai|bridgeai)[\\/]global-vault$/)
   })
 })

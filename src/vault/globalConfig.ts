@@ -72,3 +72,42 @@ export function saveMachineConfig(cfg: MachineConfig): void {
     // Windows + some FUSE filesystems don't support POSIX modes — best effort.
   }
 }
+
+/** Default global vault location when no env override and no recorded path. */
+export function defaultGlobalVaultPath(): string {
+  if (process.platform === 'win32' && process.env.APPDATA) {
+    return join(process.env.APPDATA, 'bridgeai', 'global-vault')
+  }
+  return join(homedir(), '.bridgeai', 'global-vault')
+}
+
+/** Outcome of `resolveGlobalVault()` — what to do with the dev's global state. */
+export type GlobalVaultResolution =
+  | { kind: 'configured'; path: string; source: 'env' | 'config' }
+  | { kind: 'declined' }
+  | { kind: 'unconfigured'; defaultPath: string }
+
+/**
+ * Resolve the global vault path with priority:
+ *   1. `$BRIDGEAI_GLOBAL_VAULT` env var → `configured` (source: 'env')
+ *   2. `loadMachineConfig().declinedGlobalVault === true` → `declined`
+ *   3. `loadMachineConfig().globalVaultPath` set → `configured` (source: 'config')
+ *   4. Otherwise → `unconfigured` (with `defaultPath` for the prompt)
+ *
+ * Note: env (1) wins over declined (2) — an explicit per-process opt-in
+ * should bypass a persisted decline.
+ */
+export function resolveGlobalVault(): GlobalVaultResolution {
+  const envPath = process.env.BRIDGEAI_GLOBAL_VAULT
+  if (envPath && envPath.length > 0) {
+    return { kind: 'configured', path: envPath, source: 'env' }
+  }
+  const cfg = loadMachineConfig()
+  if (cfg.declinedGlobalVault === true) {
+    return { kind: 'declined' }
+  }
+  if (cfg.globalVaultPath && cfg.globalVaultPath.length > 0) {
+    return { kind: 'configured', path: cfg.globalVaultPath, source: 'config' }
+  }
+  return { kind: 'unconfigured', defaultPath: defaultGlobalVaultPath() }
+}
