@@ -141,3 +141,116 @@ test('MiniMax-M2.5 and M2.1 use explicit provider-specific context and output ca
     upperLimit: 131_072,
   })
 })
+
+test('DashScope qwen3.6-plus uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('qwen3.6-plus')).toBe(1_000_000)
+  expect(getModelMaxOutputTokens('qwen3.6-plus')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('qwen3.6-plus')).toBe(65_536)
+})
+
+test('DashScope qwen3.5-plus uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('qwen3.5-plus')).toBe(1_000_000)
+  expect(getModelMaxOutputTokens('qwen3.5-plus')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+  expect(getMaxOutputTokensForModel('qwen3.5-plus')).toBe(65_536)
+})
+
+test('DashScope qwen3-coder-plus uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('qwen3-coder-plus')).toBe(1_000_000)
+  expect(getModelMaxOutputTokens('qwen3-coder-plus')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+})
+
+test('DashScope qwen3-coder-next uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('qwen3-coder-next')).toBe(262_144)
+  expect(getModelMaxOutputTokens('qwen3-coder-next')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+})
+
+test('DashScope qwen3-max uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('qwen3-max')).toBe(262_144)
+  expect(getModelMaxOutputTokens('qwen3-max')).toEqual({
+    default: 32_768,
+    upperLimit: 32_768,
+  })
+})
+
+test('DashScope qwen3-max dated variant resolves to base entry via prefix match', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('qwen3-max-2026-01-23')).toBe(262_144)
+  expect(getModelMaxOutputTokens('qwen3-max-2026-01-23')).toEqual({
+    default: 32_768,
+    upperLimit: 32_768,
+  })
+})
+
+test('DashScope kimi-k2.5 uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('kimi-k2.5')).toBe(262_144)
+  expect(getModelMaxOutputTokens('kimi-k2.5')).toEqual({
+    default: 32_768,
+    upperLimit: 32_768,
+  })
+})
+
+test('DashScope glm-5 uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('glm-5')).toBe(202_752)
+  expect(getModelMaxOutputTokens('glm-5')).toEqual({
+    default: 16_384,
+    upperLimit: 16_384,
+  })
+})
+
+test('DashScope glm-4.7 uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('glm-4.7')).toBe(202_752)
+  expect(getModelMaxOutputTokens('glm-4.7')).toEqual({
+    default: 16_384,
+    upperLimit: 16_384,
+  })
+})
+
+test('DashScope models clamp oversized max output overrides to the provider limit', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '100000'
+
+  expect(getMaxOutputTokensForModel('qwen3.6-plus')).toBe(65_536)
+  expect(getMaxOutputTokensForModel('qwen3.5-plus')).toBe(65_536)
+  expect(getMaxOutputTokensForModel('qwen3-coder-next')).toBe(65_536)
+  expect(getMaxOutputTokensForModel('qwen3-max')).toBe(32_768)
+  expect(getMaxOutputTokensForModel('kimi-k2.5')).toBe(32_768)
+  expect(getMaxOutputTokensForModel('glm-5')).toBe(16_384)
+})

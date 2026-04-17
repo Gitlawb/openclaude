@@ -2856,7 +2856,6 @@ test('classifies chat-completions endpoint 404 failures with endpoint_not_found 
     }),
   ).rejects.toThrow('openai_category=endpoint_not_found')
 })
-
 test('self-heals localhost resolution failures by retrying local loopback base URL', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 

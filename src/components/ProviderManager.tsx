@@ -3,6 +3,7 @@ import * as React from 'react'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
 import { Box, Text } from '../ink.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
+import { useSetAppState } from '../state/AppState.js'
 import type { ProviderProfile } from '../utils/config.js'
 import {
   clearCodexCredentials,
@@ -593,6 +594,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           return
         }
 
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
+          mainLoopModelForSession: null,
+        }))
         refreshProfiles()
         setAppState(prev => ({
           ...prev,
@@ -621,6 +627,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       }))
 
       providerLabel = active.name
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: active.model,
+        mainLoopModelForSession: null,
+      }))
       const settingsOverrideError =
         clearStartupProviderOverrideFromUserSettings()
       const isActiveCodexOAuth = isCodexOAuthProfile(
@@ -813,6 +824,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     const isActiveSavedProfile = getActiveProviderProfile()?.id === saved.id
+    if (isActiveSavedProfile) {
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: saved.model,
+        mainLoopModelForSession: null,
+      }))
+    }
     const settingsOverrideError = isActiveSavedProfile
       ? clearStartupProviderOverrideFromUserSettings()
       : null
@@ -1043,6 +1061,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         value: 'lmstudio',
         label: 'LM Studio',
         description: 'Local LM Studio endpoint',
+      },
+      {
+        value: 'dashscope-cn',
+        label: 'Alibaba Coding Plan (China)',
+        description: 'Alibaba DashScope China endpoint',
+      },
+      {
+        value: 'dashscope-intl',
+        label: 'Alibaba Coding Plan',
+        description: 'Alibaba DashScope International endpoint',
       },
       {
         value: 'custom',

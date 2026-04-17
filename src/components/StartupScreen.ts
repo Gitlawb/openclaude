@@ -153,7 +153,9 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
   const settings = getSettings_DEPRECATED() || {}
   const modelSetting = settings.model || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
-  return { name: 'Anthropic', model: resolvedModel, baseUrl: 'https://api.anthropic.com', isLocal: false }
+  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
+  const isLocal = isLocalProviderUrl(baseUrl)
+  return { name: 'Anthropic', model: resolvedModel, baseUrl, isLocal }
 }
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────

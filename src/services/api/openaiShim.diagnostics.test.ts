@@ -117,7 +117,6 @@ test('redacts credentials in transport diagnostic URL logs', async () => {
   expect(logLine).not.toContain('user:supersecret')
   expect(logLine).not.toContain('supersecret@')
 })
-
 test('logs self-heal localhost fallback with redacted from/to URLs', async () => {
   const debugSpy = mock(() => {})
   mock.module('../../utils/debug.js', () => ({
