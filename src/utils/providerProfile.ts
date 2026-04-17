@@ -6,29 +6,32 @@ import {
   isCodexBaseUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
-} from '../services/api/providerConfig.ts'
+} from '../services/api/providerConfig.js'
 import { parseChatgptAccountId } from '../services/api/codexOAuthShared.js'
 import {
   getGoalDefaultOpenAIModel,
   normalizeRecommendationGoal,
   type RecommendationGoal,
-} from './providerRecommendation.ts'
-import { readGeminiAccessToken } from './geminiCredentials.ts'
-import { getOllamaChatBaseUrl } from './providerDiscovery.ts'
-import { getProviderValidationError } from './providerValidation.ts'
+} from './providerRecommendation.js'
+import { readGeminiAccessToken } from './geminiCredentials.js'
+import { getOllamaChatBaseUrl } from './providerDiscovery.js'
+import { getProviderValidationError } from './providerValidation.js'
 import {
   maskSecretForDisplay,
   redactSecretValueForDisplay,
   sanitizeApiKey,
   sanitizeProviderConfigValue,
-} from './providerSecrets.ts'
+} from './providerSecrets.js'
 
 export {
   maskSecretForDisplay,
   redactSecretValueForDisplay,
   sanitizeApiKey,
   sanitizeProviderConfigValue,
-} from './providerSecrets.ts'
+} from './providerSecrets.js'
+import { isEnvTruthy } from './envUtils.ts'
+
+import { PROVIDERS } from './configConstants.js'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
@@ -57,18 +60,28 @@ const PROFILE_ENV_KEYS = [
   'GEMINI_MODEL',
   'GEMINI_BASE_URL',
   'GOOGLE_API_KEY',
+  'NVIDIA_NIM',
+  'NVIDIA_API_KEY',
+  'NVIDIA_MODEL',
+  'MINIMAX_API_KEY',
+  'MINIMAX_BASE_URL',
+  'MINIMAX_MODEL',
   'MISTRAL_BASE_URL',
   'MISTRAL_API_KEY',
   'MISTRAL_MODEL',
 ] as const
 
-export type ProviderProfile =
-  | 'openai'
-  | 'ollama'
-  | 'codex'
-  | 'gemini'
-  | 'atomic-chat'
-  | 'mistral'
+const SECRET_ENV_KEYS = [
+  'OPENAI_API_KEY',
+  'CODEX_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'NVIDIA_API_KEY',
+  'MINIMAX_API_KEY',
+  'MISTRAL_API_KEY',
+] as const
+
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
@@ -82,6 +95,12 @@ export type ProfileEnv = {
   GEMINI_AUTH_MODE?: 'api-key' | 'access-token' | 'adc'
   GEMINI_MODEL?: string
   GEMINI_BASE_URL?: string
+  GOOGLE_API_KEY?: string
+  NVIDIA_NIM?: string
+  NVIDIA_API_KEY?: string
+  MINIMAX_API_KEY?: string
+  MINIMAX_BASE_URL?: string
+  MINIMAX_MODEL?: string
   MISTRAL_BASE_URL?: string
   MISTRAL_API_KEY?: string
   MISTRAL_MODEL?: string
@@ -92,6 +111,19 @@ export type ProfileFile = {
   env: ProfileEnv
   createdAt: string
 }
+
+type SecretValueSource = Partial<
+  Record<
+    | 'OPENAI_API_KEY'
+    | 'CODEX_API_KEY'
+    | 'GEMINI_API_KEY'
+    | 'GOOGLE_API_KEY'
+    | 'NVIDIA_API_KEY'
+    | 'MINIMAX_API_KEY'
+    | 'MISTRAL_API_KEY',
+    string | undefined
+  >
+>
 
 type ProfileFileLocation = {
   cwd?: string
@@ -113,6 +145,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'codex' ||
     value === 'gemini' ||
     value === 'atomic-chat' ||
+    value === 'nvidia-nim' ||
+    value === 'minimax' ||
     value === 'mistral'
   )
 }
@@ -143,6 +177,67 @@ export function buildAtomicChatProfileEnv(
   }
 }
 
+export function buildNvidiaNimProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.NVIDIA_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = 'https://integrate.api.nvidia.com/v1'
+  const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      sanitizeProviderConfigValue(options.model, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource) ||
+      'nvidia/llama-3.1-nemotron-70b-instruct',
+    OPENAI_API_KEY: key,
+    NVIDIA_NIM: '1',
+  }
+}
+
+export function buildMiniMaxProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.MINIMAX_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = 'https://api.minimax.io/v1'
+  const defaultModel = 'MiniMax-M2.5'
+  const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      sanitizeProviderConfigValue(options.model, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    MINIMAX_API_KEY: key,
+    MINIMAX_BASE_URL: defaultBaseUrl,
+    MINIMAX_MODEL: defaultModel,
+  }
+}
+
 export function buildGeminiProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
@@ -161,15 +256,13 @@ export function buildGeminiProfileEnv(options: {
     return null
   }
 
+  const secretSource: SecretValueSource = key ? { GEMINI_API_KEY: key } : {}
+
   const env: ProfileEnv = {
     GEMINI_AUTH_MODE: authMode,
     GEMINI_MODEL:
-      sanitizeProviderConfigValue(options.model, { GEMINI_API_KEY: key }, processEnv) ||
-      sanitizeProviderConfigValue(
-        processEnv.GEMINI_MODEL,
-        { GEMINI_API_KEY: key },
-        processEnv,
-      ) ||
+      sanitizeProviderConfigValue(options.model, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource) ||
       DEFAULT_GEMINI_MODEL,
   }
 
@@ -178,12 +271,8 @@ export function buildGeminiProfileEnv(options: {
   }
 
   const baseUrl =
-    sanitizeProviderConfigValue(options.baseUrl, { GEMINI_API_KEY: key }, processEnv) ||
-    sanitizeProviderConfigValue(
-      processEnv.GEMINI_BASE_URL,
-      { GEMINI_API_KEY: key },
-      processEnv,
-    )
+    sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.GEMINI_BASE_URL, secretSource)
   if (baseUrl) {
     env.GEMINI_BASE_URL = baseUrl
   }
@@ -205,15 +294,14 @@ export function buildOpenAIProfileEnv(options: {
   }
 
   const defaultModel = getGoalDefaultOpenAIModel(options.goal)
+  const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
   const shellOpenAIModel = sanitizeProviderConfigValue(
     processEnv.OPENAI_MODEL,
-    { OPENAI_API_KEY: key },
-    processEnv,
+    secretSource,
   )
   const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
     processEnv.OPENAI_BASE_URL,
-    { OPENAI_API_KEY: key },
-    processEnv,
+    secretSource,
   )
   const shellOpenAIRequest = resolveProviderRequest({
     model: shellOpenAIModel,
@@ -224,19 +312,11 @@ export function buildOpenAIProfileEnv(options: {
 
   return {
     OPENAI_BASE_URL:
-      sanitizeProviderConfigValue(
-        options.baseUrl,
-        { OPENAI_API_KEY: key },
-        processEnv,
-      ) ||
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
       (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
       DEFAULT_OPENAI_BASE_URL,
     OPENAI_MODEL:
-      sanitizeProviderConfigValue(
-        options.model,
-        { OPENAI_API_KEY: key },
-        processEnv,
-      ) ||
+      sanitizeProviderConfigValue(options.model, secretSource) ||
       (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
       defaultModel,
     OPENAI_API_KEY: key,
@@ -293,21 +373,19 @@ export function buildMistralProfileEnv(options: {
   const env: ProfileEnv = {
     MISTRAL_API_KEY: key,
     MISTRAL_MODEL:
-      sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }, processEnv) ||
+      sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }) ||
       sanitizeProviderConfigValue(
         processEnv.MISTRAL_MODEL,
         { MISTRAL_API_KEY: key },
-        processEnv,
       ) ||
       DEFAULT_MISTRAL_MODEL,
   }
 
   const baseUrl =
-    sanitizeProviderConfigValue(options.baseUrl, { MISTRAL_API_KEY: key }, processEnv) ||
+    sanitizeProviderConfigValue(options.baseUrl, { MISTRAL_API_KEY: key }) ||
     sanitizeProviderConfigValue(
       processEnv.MISTRAL_BASE_URL,
       { MISTRAL_API_KEY: key },
-      processEnv,
     )
   if (baseUrl) {
     env.MISTRAL_BASE_URL = baseUrl
@@ -423,13 +501,13 @@ export function hasExplicitProviderSelection(
   }
 
   return (
-    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
-    processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
-    processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
-    processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
   )
 }
 
@@ -465,11 +543,11 @@ export async function buildLaunchEnv(options: {
   )
   const shellOpenAIModel = sanitizeProviderConfigValue(
     processEnv.OPENAI_MODEL,
-    processEnv,
+    processEnv as SecretValueSource,
   )
   const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
     processEnv.OPENAI_BASE_URL,
-    processEnv,
+    processEnv as SecretValueSource,
   )
   const persistedGeminiModel = sanitizeProviderConfigValue(
     persistedEnv.GEMINI_MODEL,
@@ -481,11 +559,11 @@ export async function buildLaunchEnv(options: {
   )
   const shellGeminiModel = sanitizeProviderConfigValue(
     processEnv.GEMINI_MODEL,
-    processEnv,
+    processEnv as SecretValueSource,
   )
   const shellGeminiBaseUrl = sanitizeProviderConfigValue(
     processEnv.GEMINI_BASE_URL,
-    processEnv,
+    processEnv as SecretValueSource,
   )
   const shellGeminiAccessToken =
     processEnv.GEMINI_ACCESS_TOKEN?.trim() || undefined
@@ -497,6 +575,20 @@ export async function buildLaunchEnv(options: {
   )
   const persistedGeminiKey = sanitizeApiKey(persistedEnv.GEMINI_API_KEY)
   const persistedGeminiAuthMode = persistedEnv.GEMINI_AUTH_MODE
+
+  if (hasExplicitProviderSelection(processEnv)) {
+    for (let provider of PROVIDERS) {
+      if (provider === "anthropic") {
+        continue;
+      }
+
+      const env_key_name = `CLAUDE_CODE_USE_${provider.toUpperCase()}`
+
+      if (env_key_name in processEnv && isEnvTruthy(processEnv[env_key_name])) {
+        options.profile = provider;
+      }
+    }
+  }
 
   if (options.profile === 'gemini') {
     const env: NodeJS.ProcessEnv = {
@@ -567,19 +659,15 @@ export async function buildLaunchEnv(options: {
 
     const shellMistralModel = sanitizeProviderConfigValue(
       processEnv.MISTRAL_MODEL,
-      processEnv,
     )
     const persistedMistralModel = sanitizeProviderConfigValue(
       persistedEnv.MISTRAL_MODEL,
-      persistedEnv,
     )
     const shellMistralBaseUrl = sanitizeProviderConfigValue(
       processEnv.MISTRAL_BASE_URL,
-      processEnv,
     )
     const persistedMistralBaseUrl = sanitizeProviderConfigValue(
       persistedEnv.MISTRAL_BASE_URL,
-      persistedEnv,
     )
 
     env.MISTRAL_MODEL =
@@ -754,12 +842,18 @@ export async function buildStartupEnvFromProfile(options?: {
   const persisted = options?.persisted ?? loadProfileFile()
 
   // Saved /provider profiles should still win over provider-manager env that was
-  // auto-applied during startup. Only explicit shell/flag provider selection
+  // auto-applied during startup. Only an explicit shell/flag provider selection
   // should bypass the persisted startup profile.
+  //
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
-  if (hasExplicitProviderSelection(processEnv) && !profileManagedEnv) {
-    return processEnv
-  }
+
+  // If the user explicitly selected a provider via env, allow it to bypass
+  // the persisted profile only when we can prove it was managed by the
+  // persisted profile env itself.
+  //
+  // Practically: on initial startup, provider routing env vars can already
+  // be present due to earlier auto-application steps. We should still apply
+  // the persisted profile rather than returning early.
 
   if (!persisted) {
     return processEnv

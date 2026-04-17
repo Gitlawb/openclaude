@@ -155,7 +155,7 @@ export {
   NOTIFICATION_CHANNELS,
 } from './configConstants.js'
 
-import type { EDITOR_MODES, NOTIFICATION_CHANNELS } from './configConstants.js'
+import type { EDITOR_MODES, NOTIFICATION_CHANNELS, PROVIDERS } from './configConstants.js'
 
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number]
 
@@ -181,10 +181,12 @@ export type DiffTool = 'terminal' | 'auto'
 
 export type OutputStyle = string
 
+export type Providers = typeof PROVIDERS[number]
+
 export type ProviderProfile = {
   id: string
   name: string
-  provider: 'openai' | 'anthropic'
+  provider: Providers
   baseUrl: string
   model: string
   apiKey?: string

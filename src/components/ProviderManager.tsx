@@ -3,12 +3,14 @@ import * as React from 'react'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
 import { Box, Text } from '../ink.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
+import { useSetAppState } from '../state/AppState.js'
 import type { ProviderProfile } from '../utils/config.js'
 import {
   clearCodexCredentials,
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
+import { getPrimaryModel, hasMultipleModels, parseModelList } from '../utils/providerModels.js'
 import {
   applySavedProfileToCurrentSession,
   buildCodexOAuthProfileEnv,
@@ -50,6 +52,7 @@ import {
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
+import { useSetAppState } from '../state/AppState.js'
 
 export type ProviderManagerResult = {
   action: 'saved' | 'cancelled'
@@ -108,8 +111,8 @@ const FORM_STEPS: Array<{
   {
     key: 'model',
     label: 'Default model',
-    placeholder: 'e.g. llama3.1:8b',
-    helpText: 'Model name to use when this provider is active.',
+    placeholder: 'e.g. llama3.1:8b or glm-4.7, glm-4.7-flash',
+    helpText: 'Model name(s) to use. Separate multiple with commas; first is default.',
   },
   {
     key: 'apiKey',
@@ -153,7 +156,12 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   const keyInfo = profile.apiKey ? 'key set' : 'no key'
   const providerKind =
     profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'
-  return `${providerKind} · ${profile.baseUrl} · ${profile.model} · ${keyInfo}${activeSuffix}`
+  const models = parseModelList(profile.model)
+  const modelDisplay =
+    models.length <= 3
+      ? models.join(', ')
+      : `${models[0]}, ${models[1]} + ${models.length - 2} more`
+  return `${providerKind} · ${profile.baseUrl} · ${modelDisplay} · ${keyInfo}${activeSuffix}`
 }
 
 function getGithubCredentialSourceFromEnv(
@@ -320,6 +328,7 @@ function CodexOAuthSetup({
 }
 
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
+  const setAppState = useSetAppState()
   const initialGithubCredentialSource = getGithubCredentialSourceFromEnv()
   const initialIsGithubActive = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const initialHasGithubCredential = initialGithubCredentialSource !== 'none'
@@ -353,6 +362,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
   const [errorMessage, setErrorMessage] = React.useState<string | undefined>()
+  const [menuFocusValue, setMenuFocusValue] = React.useState<string | undefined>()
   const [hasStoredCodexOAuthCredentials, setHasStoredCodexOAuthCredentials] =
     React.useState(false)
   const [storedCodexOAuthProfileId, setStoredCodexOAuthProfileId] =
@@ -568,24 +578,48 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         const githubError = activateGithubProvider()
         if (githubError) {
           setErrorMessage(`Could not activate GitHub provider: ${githubError}`)
-          setScreen('menu')
+          returnToMenu()
           return
         }
 
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
+          mainLoopModelForSession: null,
+        }))
         refreshProfiles()
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
+        }))
         setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
-        setScreen('menu')
+        returnToMenu()
         return
       }
 
       const active = setActiveProviderProfile(profileId)
       if (!active) {
         setErrorMessage('Could not change active provider.')
-        setScreen('menu')
+        returnToMenu()
         return
       }
 
+      // Update the session model to the new provider's first model.
+      // persistActiveProviderProfileModel (called by onChangeAppState) will
+      // not overwrite the multi-model list because it checks if the model
+      // is already in the profile's comma-separated model list.
+      const newModel = getPrimaryModel(active.model)
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: newModel,
+      }))
+
       providerLabel = active.name
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: active.model,
+        mainLoopModelForSession: null,
+      }))
       const settingsOverrideError =
         clearStartupProviderOverrideFromUserSettings()
       const isActiveCodexOAuth = isCodexOAuthProfile(
@@ -613,14 +647,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
             : `Active provider: ${active.name}`,
       )
-      setScreen('menu')
+      returnToMenu()
     } catch (error) {
       refreshProfiles()
       setStatusMessage(undefined)
       const detail = error instanceof Error ? error.message : String(error)
       setErrorMessage(`Could not finish activating ${providerLabel}: ${detail}`)
-      setScreen('menu')
+      returnToMenu()
     }
+  }
+
+  function returnToMenu(): void {
+    setMenuFocusValue('done')
+    setScreen('menu')
   }
 
   function closeWithCancelled(message: string): void {
@@ -773,6 +812,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     const isActiveSavedProfile = getActiveProviderProfile()?.id === saved.id
+    if (isActiveSavedProfile) {
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: saved.model,
+        mainLoopModelForSession: null,
+      }))
+    }
     const settingsOverrideError = isActiveSavedProfile
       ? clearStartupProviderOverrideFromUserSettings()
       : null
@@ -800,7 +846,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setEditingProfileId(null)
     setFormStepIndex(0)
     setErrorMessage(undefined)
-    setScreen('menu')
+    returnToMenu()
   }
 
   function renderOllamaSelection(): React.ReactNode {
@@ -923,7 +969,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    setScreen('menu')
+    returnToMenu()
   }
 
   useKeybinding('confirm:no', handleBackFromForm, {
@@ -1005,9 +1051,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'Local LM Studio endpoint',
       },
       {
+        value: 'dashscope-cn',
+        label: 'Alibaba Coding Plan (China)',
+        description: 'Alibaba DashScope China endpoint',
+      },
+      {
+        value: 'dashscope-intl',
+        label: 'Alibaba Coding Plan',
+        description: 'Alibaba DashScope International endpoint',
+      },
+      {
         value: 'custom',
         label: 'Custom',
         description: 'Any OpenAI-compatible provider',
+      },
+      {
+        value: 'nvidia-nim',
+        label: 'NVIDIA NIM',
+        description: 'NVIDIA NIM endpoint',
+      },
+      {
+        value: 'minimax',
+        label: 'MiniMax',
+        description: 'MiniMax API endpoint',
       },
       ...(mode === 'first-run'
         ? [
@@ -1046,7 +1112,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               closeWithCancelled('Provider setup skipped')
               return
             }
-            setScreen('menu')
+            returnToMenu()
           }}
           visibleOptionCount={Math.min(13, options.length)}
         />
@@ -1246,6 +1312,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
           }}
           onCancel={() => closeWithCancelled('Provider manager closed')}
+          defaultFocusValue={menuFocusValue}
           visibleOptionCount={options.length}
         />
       </Box>
@@ -1293,8 +1360,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 description: 'Return to provider manager',
               },
             ]}
-            onChange={() => setScreen('menu')}
-            onCancel={() => setScreen('menu')}
+            onChange={() => returnToMenu()}
+            onCancel={() => returnToMenu()}
             visibleOptionCount={1}
           />
         </Box>
@@ -1309,7 +1376,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Select
           options={selectOptions}
           onChange={onSelect}
-          onCancel={() => setScreen('menu')}
+          onCancel={() => returnToMenu()}
           visibleOptionCount={Math.min(10, Math.max(2, selectOptions.length))}
         />
       </Box>
@@ -1350,7 +1417,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               setErrorMessage(
                 'Codex OAuth login finished, but the provider profile could not be saved.',
               )
-              setScreen('menu')
+              returnToMenu()
               return
             }
 
@@ -1362,7 +1429,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               setErrorMessage(
                 'Codex OAuth login finished, but the provider could not be set as the startup provider.',
               )
-              setScreen('menu')
+              returnToMenu()
               return
             }
 
@@ -1396,7 +1463,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
             setStatusMessage(message)
             setErrorMessage(undefined)
-            setScreen('menu')
+            returnToMenu()
           }}
         />
       )
@@ -1436,7 +1503,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               refreshProfiles()
               setStatusMessage('GitHub provider deleted')
             }
-            setScreen('menu')
+            returnToMenu()
             return
           }
 
@@ -1471,7 +1538,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 : 'Provider deleted',
             )
           }
-          setScreen('menu')
+          returnToMenu()
         },
         { includeGithub: true },
       )

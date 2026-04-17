@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   release-please:
+    if: ${{ github.repository == 'Gitlawb/openclaude' }}
     name: Release Please
     runs-on: ubuntu-latest
     permissions:

@@ -367,8 +367,16 @@ export const SeverityNumber = {};
               const full = pathMod.join(dir, ent.name)
               if (ent.isDirectory()) { walk(full); continue }
               if (!/\.(ts|tsx)$/.test(ent.name)) continue
-              const code: string = fs.readFileSync(full, 'utf-8')
+              const rawCode: string = fs.readFileSync(full, 'utf-8')
               const fileDir = pathMod.dirname(full)
+
+              // Strip comments before scanning for imports/requires.
+              // The regex scanner matches require()/import() patterns
+              // inside JSDoc comments, causing false-positive missing
+              // module detection that breaks the build with noop stubs.
+              const code = rawCode
+                .replace(/\/\*[\s\S]*?\*\//g, '')  // block comments
+                .replace(/\/\/.*$/gm, '')           // line comments
 
               // Collect static imports: import { X } from '...'
               for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {

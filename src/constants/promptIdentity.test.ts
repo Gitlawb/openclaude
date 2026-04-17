@@ -1,5 +1,16 @@
 import { afterEach, expect, test } from 'bun:test'
 
+// MACRO is replaced at build time by Bun.define but not in test mode.
+// Define it globally so tests that import modules using MACRO don't crash.
+;(globalThis as Record<string, unknown>).MACRO = {
+  VERSION: '99.0.0',
+  DISPLAY_VERSION: '0.0.0-test',
+  BUILD_TIME: new Date().toISOString(),
+  ISSUES_EXPLAINER: 'report the issue at https://github.com/anthropics/claude-code/issues',
+  PACKAGE_URL: '@gitlawb/openclaude',
+  NATIVE_PACKAGE_URL: undefined,
+}
+
 import { getSystemPrompt, DEFAULT_AGENT_PROMPT } from './prompts.js'
 import { CLI_SYSPROMPT_PREFIXES, getCLISyspromptPrefix } from './system.js'
 import { CLAUDE_CODE_GUIDE_AGENT } from '../tools/AgentTool/built-in/claudeCodeGuideAgent.js'

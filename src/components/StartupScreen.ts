@@ -117,17 +117,28 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
     const baseUrl = resolvedRequest.baseUrl
     const isLocal = isLocalProviderUrl(baseUrl)
     let name = 'OpenAI'
-    // Override to Codex when resolved endpoint is Codex
-    if (resolvedRequest.transport === 'codex_responses' || baseUrl.includes('chatgpt.com/backend-api/codex')) {
+    if (/nvidia/i.test(baseUrl) || /nvidia/i.test(rawModel) || process.env.NVIDIA_NIM)
+      name = 'NVIDIA NIM'
+    else if (/minimax/i.test(baseUrl) || /minimax/i.test(rawModel) || process.env.MINIMAX_API_KEY)
+      name = 'MiniMax'
+    else if (resolvedRequest.transport === 'codex_responses' || baseUrl.includes('chatgpt.com/backend-api/codex'))
       name = 'Codex'
-    } else if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))       name = 'DeepSeek'
-    else if (/openrouter/i.test(baseUrl))                             name = 'OpenRouter'
-    else if (/together/i.test(baseUrl))                               name = 'Together AI'
-    else if (/groq/i.test(baseUrl))                                   name = 'Groq'
-    else if (/mistral/i.test(baseUrl) || /mistral/i.test(rawModel))     name = 'Mistral'
-    else if (/azure/i.test(baseUrl))                                  name = 'Azure OpenAI'
-    else if (/llama/i.test(rawModel))                                    name = 'Meta Llama'
-    else if (isLocal)                                                  name = getLocalOpenAICompatibleProviderLabel(baseUrl)
+    else if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))
+      name = 'DeepSeek'
+    else if (/openrouter/i.test(baseUrl))
+      name = 'OpenRouter'
+    else if (/together/i.test(baseUrl))
+      name = 'Together AI'
+    else if (/groq/i.test(baseUrl))
+      name = 'Groq'
+    else if (/mistral/i.test(baseUrl) || /mistral/i.test(rawModel))
+      name = 'Mistral'
+    else if (/azure/i.test(baseUrl))
+      name = 'Azure OpenAI'
+    else if (/llama/i.test(rawModel))
+      name = 'Meta Llama'
+    else if (isLocal)
+      name = getLocalOpenAICompatibleProviderLabel(baseUrl)
     
     // Resolve model alias to actual model name + reasoning effort
     let displayModel = resolvedRequest.resolvedModel
@@ -142,7 +153,9 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
   const settings = getSettings_DEPRECATED() || {}
   const modelSetting = settings.model || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
-  return { name: 'Anthropic', model: resolvedModel, baseUrl: 'https://api.anthropic.com', isLocal: false }
+  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
+  const isLocal = isLocalProviderUrl(baseUrl)
+  return { name: 'Anthropic', model: resolvedModel, baseUrl, isLocal }
 }
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────
