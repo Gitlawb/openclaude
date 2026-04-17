@@ -19,6 +19,8 @@
  *   - `type-required-fields`
  *   - `filename-casing`
  *   - `filename-prefix`
+ *   - `invalid-value` (PIFA-05, on `scope`)
+ *   - `type-scope-mismatch` (PIFA-05)
  */
 
 import {
@@ -28,6 +30,9 @@ import {
   type ConventionSchema,
   type NoteType,
 } from './defaults.js'
+
+/** Project-local vs portable global scope marker on every note. PIFA-01. */
+export type NoteScope = 'project' | 'global'
 
 /** Raw frontmatter from an in-flight note draft (unvalidated). */
 export type NoteDraftFrontmatter = {
@@ -39,6 +44,13 @@ export type NoteDraftFrontmatter = {
   updated?: unknown
   confidence?: unknown
   summary?: unknown
+  /**
+   * PIFA-01: vault scope. `'project'` writes to the local vault, `'global'`
+   * writes to the dev's portable vault. Default `'project'` is applied by
+   * `writeNote` before validation. Typed as `NoteScope | unknown` so the
+   * validator catches garbage values rather than letting them silently pass.
+   */
+  scope?: NoteScope | unknown
   [key: string]: unknown
 }
 
