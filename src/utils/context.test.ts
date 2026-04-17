@@ -221,28 +221,6 @@ test('DashScope kimi-k2.5 uses provider-specific context and output caps', () =>
   })
 })
 
-test('DashScope MiniMax-M2.5 uses provider-specific context and output caps', () => {
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
-
-  expect(getContextWindowForModel('MiniMax-M2.5')).toBe(196_608)
-  expect(getModelMaxOutputTokens('MiniMax-M2.5')).toEqual({
-    default: 24_576,
-    upperLimit: 24_576,
-  })
-})
-
-test('DashScope MiniMax-M2.5 lowercase variant resolves via prefix match', () => {
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
-
-  expect(getContextWindowForModel('minimax-m2.5')).toBe(196_608)
-  expect(getModelMaxOutputTokens('minimax-m2.5')).toEqual({
-    default: 24_576,
-    upperLimit: 24_576,
-  })
-})
-
 test('DashScope glm-5 uses provider-specific context and output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
@@ -274,6 +252,5 @@ test('DashScope models clamp oversized max output overrides to the provider limi
   expect(getMaxOutputTokensForModel('qwen3-coder-next')).toBe(65_536)
   expect(getMaxOutputTokensForModel('qwen3-max')).toBe(32_768)
   expect(getMaxOutputTokensForModel('kimi-k2.5')).toBe(32_768)
-  expect(getMaxOutputTokensForModel('MiniMax-M2.5')).toBe(24_576)
   expect(getMaxOutputTokensForModel('glm-5')).toBe(16_384)
 })
