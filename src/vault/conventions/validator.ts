@@ -281,5 +281,31 @@ export function validateNote(
     }
   }
 
+  // PIFA-05: scope rules — invalid-value + type-scope-mismatch.
+  // Missing scope is NOT a violation here; writeNote defaults it to 'project'
+  // before validation. The validator only catches values that ARE present
+  // but malformed.
+  const rawScope = fm.scope
+  if (rawScope !== undefined && rawScope !== null) {
+    if (rawScope !== 'project' && rawScope !== 'global') {
+      violations.push({
+        field: 'scope',
+        expected: 'one of: project | global',
+        got: rawScope,
+        rule: 'invalid-value',
+      })
+    } else if (rawScope === 'global' && rawType === 'module') {
+      // Modules describe code that lives in a specific repo — they are
+      // inherently project-scoped. Promoting a module note to global would
+      // pollute every other project's vault with this repo's structure.
+      violations.push({
+        field: 'scope',
+        expected: 'project (modules are project-scoped)',
+        got: 'global',
+        rule: 'type-scope-mismatch',
+      })
+    }
+  }
+
   return { ok: violations.length === 0, violations }
 }

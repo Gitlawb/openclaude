@@ -215,3 +215,56 @@ describe('validateNote - aggregate reporting', () => {
     expect(rules.has('tag-taxonomy')).toBe(true)
   })
 })
+
+describe('validateNote - scope rules (PIFA-05)', () => {
+  test('absent `scope` is not a violation (default applied at write time)', () => {
+    const draft = validConceptDraft()
+    delete draft.frontmatter.scope
+    const result = validateNote(schema, draft)
+    expect(result.violations.find((v) => v.field === 'scope')).toBeUndefined()
+  })
+
+  test('explicit `scope: project` on a concept passes', () => {
+    const draft = validConceptDraft()
+    draft.frontmatter.scope = 'project'
+    const result = validateNote(schema, draft)
+    expect(result.ok).toBe(true)
+  })
+
+  test('explicit `scope: global` on a non-module type passes', () => {
+    const draft = validConceptDraft()
+    draft.frontmatter.scope = 'global'
+    const result = validateNote(schema, draft)
+    expect(result.ok).toBe(true)
+  })
+
+  test('garbage `scope` value fires `invalid-value`', () => {
+    const draft = validConceptDraft()
+    draft.frontmatter.scope = 'globl'
+    const result = validateNote(schema, draft)
+    expect(result.ok).toBe(false)
+    const v = result.violations.find((x) => x.field === 'scope')
+    expect(v?.rule).toBe('invalid-value')
+    expect(v?.got).toBe('globl')
+  })
+
+  test('`type: module` + `scope: global` fires `type-scope-mismatch`', () => {
+    const draft = validModuleDraft()
+    draft.frontmatter.scope = 'global'
+    const result = validateNote(schema, draft)
+    expect(result.ok).toBe(false)
+    const v = result.violations.find((x) => x.field === 'scope')
+    expect(v?.rule).toBe('type-scope-mismatch')
+    expect(v?.got).toBe('global')
+  })
+
+  test('`type: module` + `scope: project` (or absent) passes scope check', () => {
+    const explicit = validModuleDraft()
+    explicit.frontmatter.scope = 'project'
+    expect(validateNote(schema, explicit).ok).toBe(true)
+
+    const implicit = validModuleDraft()
+    delete implicit.frontmatter.scope
+    expect(validateNote(schema, implicit).ok).toBe(true)
+  })
+})
