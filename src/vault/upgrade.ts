@@ -25,6 +25,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   statSync,
   unlinkSync,
@@ -290,6 +291,134 @@ export async function upgradeVault(cfg: VaultConfig): Promise<UpgradeResult> {
     notesMoved,
     failures: failures.length > 0 ? failures : undefined,
   }
+}
+
+/* ---------- PIFA-10..12: scope backfill (--add-scope) ---------- */
+
+const NOTE_FOLDERS = [
+  'knowledge',
+  'maps',
+  'decisions',
+  'flows',
+  'incidents',
+  'archive',
+] as const
+
+export type AddScopeResult = {
+  notesAdded: number
+  notesUntouched: number
+  notesSkipped: number
+  skippedFiles: string[]
+}
+
+/**
+ * PIFA-10..12: backfill `scope: project` to every note's frontmatter that
+ * doesn't already declare a `scope`. Idempotent — notes that already carry
+ * `scope: project` or `scope: global` are left untouched. Bodies are
+ * byte-identical post-write; only the frontmatter block changes.
+ *
+ * Files with malformed frontmatter (no fences, parse failure) are skipped
+ * and logged.
+ */
+export function addScopeToVault(cfg: VaultConfig): AddScopeResult {
+  const vaultPath = cfg.local.path
+  const result: AddScopeResult = {
+    notesAdded: 0,
+    notesUntouched: 0,
+    notesSkipped: 0,
+    skippedFiles: [],
+  }
+
+  const skippedDetails: string[] = []
+  for (const folder of NOTE_FOLDERS) {
+    const folderPath = join(vaultPath, folder)
+    if (!existsSync(folderPath)) continue
+    walkAndAddScope(folderPath, folder, result, skippedDetails)
+  }
+
+  if (result.notesAdded > 0) {
+    appendLogEntry(
+      vaultPath,
+      `- ${new Date().toISOString()}  vault-upgrade: scope-added (${result.notesAdded} notes)  source: code-analysis`,
+    )
+  }
+  for (const detail of skippedDetails) {
+    appendLogEntry(
+      vaultPath,
+      `- ${new Date().toISOString()}  upgrade-skipped  ${detail}  source: code-analysis`,
+    )
+  }
+
+  return result
+}
+
+function walkAndAddScope(
+  dir: string,
+  folderRel: string,
+  result: AddScopeResult,
+  skippedDetails: string[],
+): void {
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry)
+    let s
+    try {
+      s = statSync(full)
+    } catch {
+      continue
+    }
+    if (s.isDirectory()) {
+      walkAndAddScope(full, `${folderRel}/${entry}`, result, skippedDetails)
+      continue
+    }
+    if (!entry.endsWith('.md') || entry.startsWith('_')) continue
+    processOneNote(full, `${folderRel}/${entry}`, result, skippedDetails)
+  }
+}
+
+function processOneNote(
+  absPath: string,
+  relPath: string,
+  result: AddScopeResult,
+  skippedDetails: string[],
+): void {
+  const raw = readFileSync(absPath, 'utf-8')
+  // Match the leading frontmatter block: ---\n...\n---
+  const fenceMatch = raw.match(/^---\n([\s\S]*?)\n---\n?/)
+  if (!fenceMatch) {
+    result.notesSkipped++
+    result.skippedFiles.push(relPath)
+    skippedDetails.push(`${relPath} (no-frontmatter-fence)`)
+    return
+  }
+  const frontmatterText = fenceMatch[1]
+  // Quick presence check: a line that starts with `scope:` (any indentation 0).
+  if (/^scope:\s*\S/m.test(frontmatterText)) {
+    result.notesUntouched++
+    return
+  }
+  // Insert `scope: project` after the line that starts with `type:`. If `type:`
+  // is absent, append at the end of the frontmatter block.
+  const lines = frontmatterText.split('\n')
+  let insertIdx = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (/^type:\s*\S/.test(lines[i])) {
+      insertIdx = i + 1
+      break
+    }
+  }
+  if (insertIdx === -1) insertIdx = lines.length
+  lines.splice(insertIdx, 0, 'scope: project')
+  const newFrontmatter = lines.join('\n')
+  const rest = raw.slice(fenceMatch[0].length)
+  const newRaw = `---\n${newFrontmatter}\n---\n${rest.startsWith('\n') ? rest.slice(1) : rest}`
+  writeFileSync(absPath, newRaw, 'utf-8')
+  result.notesAdded++
 }
 
 function regenerateIndex(vaultPath: string, movedSlugs: string[]): void {

@@ -9,7 +9,7 @@ import {
 } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { upgradeVault, inferNoteType } from './upgrade'
+import { upgradeVault, inferNoteType, addScopeToVault } from './upgrade'
 import { bootstrapVault } from './scaffold'
 import { saveVaultManifest } from './config'
 import type { VaultConfig, VaultManifest } from './types'
@@ -171,5 +171,104 @@ describe('upgradeVault', () => {
     const index = readFileSync(join(cfg.vaultPath, '_index.md'), 'utf-8')
     expect(index).toContain('concept-alpha')
     expect(index).toContain('concept-beta')
+  })
+})
+
+describe('addScopeToVault (PIFA-10..12)', () => {
+  let repoRoot: string
+  let cfg: VaultConfig
+
+  beforeEach(async () => {
+    repoRoot = makeRepo()
+    cfg = makeConfig(repoRoot)
+    await bootstrapVault(cfg, { gitignore: false })
+  })
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true })
+  })
+
+  function seedNote(folder: string, filename: string, fmLines: string[], body: string): string {
+    const dir = join(cfg.local.path, folder)
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${filename}.md`)
+    const content = `---\n${fmLines.join('\n')}\n---\n${body}`
+    writeFileSync(file, content, 'utf-8')
+    return file
+  }
+
+  test('inserts scope: project after type: line for notes missing scope; bodies byte-identical', () => {
+    const body = 'BODY-MARKER\nmore body content\nfinal line\n'
+    const f1 = seedNote('knowledge', 'concept-alpha', ['title: Alpha', 'type: concept'], body)
+    const f2 = seedNote('knowledge', 'concept-beta', ['title: Beta', 'type: concept'], body)
+
+    const r = addScopeToVault(cfg)
+    expect(r.notesAdded).toBe(2)
+    expect(r.notesUntouched).toBe(0)
+    expect(r.notesSkipped).toBe(0)
+
+    const after1 = readFileSync(f1, 'utf-8')
+    expect(after1).toContain('type: concept\nscope: project')
+    // Body byte-identical (after the closing fence + newline).
+    expect(after1.endsWith(body)).toBe(true)
+
+    const after2 = readFileSync(f2, 'utf-8')
+    expect(after2).toContain('scope: project')
+  })
+
+  test('notes with explicit scope (project or global) are left untouched', () => {
+    const f1 = seedNote('knowledge', 'concept-with-scope', ['title: WithScope', 'type: concept', 'scope: project'], 'body\n')
+    const f2 = seedNote('knowledge', 'concept-with-global', ['title: Global', 'type: concept', 'scope: global'], 'body\n')
+    const before1 = readFileSync(f1, 'utf-8')
+    const before2 = readFileSync(f2, 'utf-8')
+
+    const r = addScopeToVault(cfg)
+    expect(r.notesAdded).toBe(0)
+    expect(r.notesUntouched).toBe(2)
+
+    expect(readFileSync(f1, 'utf-8')).toBe(before1)
+    expect(readFileSync(f2, 'utf-8')).toBe(before2)
+  })
+
+  test('idempotent: second run on same vault is a no-op (notesAdded=0, no extra log entry)', () => {
+    seedNote('knowledge', 'concept-idem', ['title: I', 'type: concept'], 'body\n')
+
+    const first = addScopeToVault(cfg)
+    expect(first.notesAdded).toBe(1)
+
+    const logBefore = readFileSync(join(cfg.local.path, '_log.md'), 'utf-8')
+
+    const second = addScopeToVault(cfg)
+    expect(second.notesAdded).toBe(0)
+    expect(second.notesUntouched).toBe(1)
+
+    const logAfter = readFileSync(join(cfg.local.path, '_log.md'), 'utf-8')
+    expect(logAfter).toBe(logBefore)
+  })
+
+  test('malformed frontmatter (no fences) is skipped and logged', () => {
+    const dir = join(cfg.local.path, 'knowledge')
+    mkdirSync(dir, { recursive: true })
+    const broken = join(dir, 'concept-broken.md')
+    writeFileSync(broken, '# Just markdown, no frontmatter at all\n', 'utf-8')
+
+    const r = addScopeToVault(cfg)
+    expect(r.notesSkipped).toBe(1)
+    expect(r.skippedFiles[0]).toContain('concept-broken')
+
+    const log = readFileSync(join(cfg.local.path, '_log.md'), 'utf-8')
+    expect(log).toContain('upgrade-skipped')
+    expect(log).toContain('no-frontmatter-fence')
+    // No vault-upgrade entry because nothing was added.
+    expect(log).not.toContain('vault-upgrade: scope-added')
+  })
+
+  test('walks all 6 note folders, not just knowledge/', () => {
+    seedNote('knowledge', 'concept-k', ['title: K', 'type: concept'], 'body\n')
+    seedNote('decisions', 'adr-0001-foo', ['title: D', 'type: decision'], 'body\n')
+    seedNote('archive', 'concept-old', ['title: O', 'type: concept'], 'body\n')
+
+    const r = addScopeToVault(cfg)
+    expect(r.notesAdded).toBe(3)
   })
 })
