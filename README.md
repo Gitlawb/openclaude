@@ -333,47 +333,6 @@ For larger changes, open an issue first so the scope is clear before implementat
 - `bun run smoke`
 - focused `bun test ...` runs for files and flows you changed
 
-## My Fork & Contributions
-
-This is **@sbusanelli's fork** of OpenClaude with enhancements to the diagnostic tracking system.
-
-### My Contributions
-
-#### Diagnostic Tracking Enhancement (PR #727)
-
-**Problem Solved:**
-- Fixed TODO comment about not caching connected `mcpClient` since it can change
-- Prevented stale client references during MCP reconnections
-- Improved reliability of diagnostic tracking system
-
-**Changes Made:**
-- Removed cached `mcpClient` field from `DiagnosticTrackingService`
-- Added `currentMcpClients` storage to track active connections
-- Updated `beforeFileEdited`, `getNewDiagnostics`, and `ensureFileOpened` to accept client parameter
-- Added backward-compatible methods to maintain existing API
-- Updated all callers to use new methods
-- Added comprehensive test coverage (11 test cases)
-
-**Benefits:**
-- Prevents stale client usage during MCP reconnections
-- Maintains backward compatibility - no breaking changes
-- Comprehensive test coverage for future maintenance
-- Improves overall system reliability
-
-**PR Status:** [![PR #727](https://github.com/Gitlawb/openclaude/pull/727)](https://img.shields.io/badge/PR-727-blue?style=flat-square) - Approved and awaiting merge
-
-**Technical Skills Demonstrated:**
-- **TypeScript/JavaScript** - Service refactoring and API design
-- **Testing** - Comprehensive test suite with Jest/Bun test framework
-- **Open Source Workflow** - Proper fork/branch/PR process
-- **Code Quality** - Backward compatibility and error handling
-- **Documentation** - Clear PR descriptions and test coverage
-
-### Links
-- **Original Project:** https://github.com/Gitlawb/openclaude
-- **My Pull Request:** https://github.com/Gitlawb/openclaude/pull/727
-- **My GitHub:** https://github.com/sbusanelli
-- **Twitter:** [@busanelli](https://twitter.com/busanelli)
 
 ## Disclaimer
 
