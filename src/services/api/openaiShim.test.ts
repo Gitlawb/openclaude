@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { createOpenAIShimClient } from './openaiShim.ts'
+import {
+  applyGroqPayloadAdjustments,
+  clampGroqMaxTokens,
+  compactPayloadForGroq,
+  createOpenAIShimClient,
+} from './openaiShim.ts'
 
 type FetchType = typeof globalThis.fetch
 
@@ -2855,4 +2860,141 @@ test('classifies chat-completions endpoint 404 failures with endpoint_not_found 
       stream: false,
     }),
   ).rejects.toThrow('openai_category=endpoint_not_found')
+})
+
+// ---------------------------------------------------------------------------
+// Groq token-budget compaction (#449)
+// ---------------------------------------------------------------------------
+
+function makeLargeText(approxChars: number): string {
+  return 'x'.repeat(approxChars)
+}
+
+test('Groq compaction is a no-op for small payloads', () => {
+  const body: Record<string, unknown> = {
+    model: 'llama-3.1-8b-instant',
+    messages: [
+      { role: 'system', content: 'you are helpful' },
+      { role: 'user', content: 'oi' },
+    ],
+  }
+  const report = compactPayloadForGroq(body, 'llama-3.1-8b-instant')
+  expect(report.strippedToolDescriptions).toBe(false)
+  expect(report.droppedMessages).toBe(0)
+  expect(report.removedTools).toBe(false)
+  expect(report.keptOnlyLastUser).toBe(false)
+})
+
+test('Groq compaction strips top-level tool descriptions but keeps nested schema descriptions', () => {
+  const body: Record<string, unknown> = {
+    model: 'llama-3.1-8b-instant',
+    messages: [{ role: 'user', content: 'small user prompt' }],
+    tools: [
+      {
+        type: 'function',
+        function: {
+          name: 'search',
+          description: makeLargeText(30_000),
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'The search query' },
+            },
+          },
+        },
+      },
+    ],
+  }
+  compactPayloadForGroq(body, 'llama-3.1-8b-instant')
+  const tool = (body.tools as Array<{ function: { description?: string; parameters: { properties: { query: { description?: string } } } } }>)[0]
+  expect(tool.function.description).toBeUndefined()
+  expect(tool.function.parameters.properties.query.description).toBe('The search query')
+})
+
+test('Groq compaction preserves assistant tool_calls ↔ tool message pairing', () => {
+  const body: Record<string, unknown> = {
+    model: 'llama-3.1-8b-instant',
+    messages: [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: makeLargeText(10_000) },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'f', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'call_1', content: makeLargeText(10_000) },
+      { role: 'user', content: makeLargeText(10_000) },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: 'call_2', type: 'function', function: { name: 'f', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'call_2', content: 'recent' },
+      { role: 'user', content: 'final question' },
+    ],
+  }
+
+  compactPayloadForGroq(body, 'llama-3.1-8b-instant')
+  const remaining = body.messages as Array<Record<string, unknown>>
+
+  const callIds = new Set<string>()
+  for (const m of remaining) {
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls as Array<{ id?: string }>) {
+        if (tc.id) callIds.add(tc.id)
+      }
+    }
+  }
+  for (const m of remaining) {
+    if (m.role === 'tool') {
+      expect(callIds.has(m.tool_call_id as string)).toBe(true)
+    }
+  }
+  expect(remaining[remaining.length - 1]).toEqual({ role: 'user', content: 'final question' })
+})
+
+test('Groq max_tokens is clamped based on estimated prompt size and model TPM', () => {
+  const body: Record<string, unknown> = {
+    model: 'llama-3.1-8b-instant',
+    messages: [{ role: 'user', content: makeLargeText(8_000) }],
+    max_tokens: 100_000,
+  }
+  clampGroqMaxTokens(body, 'llama-3.1-8b-instant')
+  expect(typeof body.max_tokens).toBe('number')
+  expect(body.max_tokens as number).toBeGreaterThan(0)
+  expect(body.max_tokens as number).toBeLessThan(100_000)
+  expect(body.max_completion_tokens).toBeUndefined()
+})
+
+test('Groq model-aware TPM: 70b model allows larger prompt budget than 8b', () => {
+  const bigPrompt = makeLargeText(40_000)
+  const body70b: Record<string, unknown> = {
+    model: 'llama-3.3-70b-versatile',
+    messages: [{ role: 'user', content: bigPrompt }],
+    tools: [{ type: 'function', function: { name: 't', description: 'desc', parameters: {} } }],
+  }
+  const body8b: Record<string, unknown> = {
+    model: 'llama-3.1-8b-instant',
+    messages: [{ role: 'user', content: bigPrompt }],
+    tools: [{ type: 'function', function: { name: 't', description: 'desc', parameters: {} } }],
+  }
+
+  const r70 = compactPayloadForGroq(body70b, 'llama-3.3-70b-versatile')
+  const r8 = compactPayloadForGroq(body8b, 'llama-3.1-8b-instant')
+  // 8b (6k TPM) should compact more aggressively than 70b (32k TPM).
+  const score70 = Number(r70.strippedToolDescriptions) + Number(r70.removedTools) + Number(r70.keptOnlyLastUser)
+  const score8 = Number(r8.strippedToolDescriptions) + Number(r8.removedTools) + Number(r8.keptOnlyLastUser)
+  expect(score8).toBeGreaterThanOrEqual(score70)
+})
+
+test('applyGroqPayloadAdjustments performs compaction + clamp and is idempotent on small payloads', () => {
+  const body: Record<string, unknown> = {
+    model: 'llama-3.1-8b-instant',
+    messages: [{ role: 'user', content: 'oi' }],
+    max_completion_tokens: 4000,
+  }
+  applyGroqPayloadAdjustments(body, 'llama-3.1-8b-instant')
+  expect(body.max_completion_tokens).toBeUndefined()
+  expect(typeof body.max_tokens).toBe('number')
+  expect((body.messages as unknown[]).length).toBe(1)
 })
