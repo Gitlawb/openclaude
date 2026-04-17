@@ -3,6 +3,8 @@
  * 
  * Provides efficient in-memory caching with LRU eviction
  * for conversation messages to reduce memory usage.
+ * 
+ * Uses Map for O(1) access order tracking (instead of array filtering).
  */
 
 export interface CacheEntry<T> {
@@ -14,22 +16,19 @@ export interface CacheEntry<T> {
 export interface ConversationCacheConfig {
   maxSize?: number
   ttlMs?: number
-  maxMemoryMb?: number
 }
 
 export class ConversationCache {
   private cache = new Map<string, CacheEntry<Message[]>>()
-  private accessOrder: string[] = []
+  private accessOrder = new Map<string, number>()
   private evictions = 0
 
   private readonly maxSize: number
   private readonly ttlMs: number
-  private readonly maxMemoryMb: number
 
   constructor(config: ConversationCacheConfig = {}) {
     this.maxSize = config.maxSize ?? 100
     this.ttlMs = config.ttlMs ?? 24 * 60 * 60 * 1000 // 24 hours default
-    this.maxMemoryMb = config.maxMemoryMb ?? 50 // 50MB default
   }
 
   get size(): number {
@@ -41,7 +40,6 @@ export class ConversationCache {
   }
 
   set(key: string, messages: Message[]): void {
-    // Evict if at capacity
     if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
       this.evictLRU()
     }
@@ -51,22 +49,20 @@ export class ConversationCache {
       timestamp: Date.now(),
       hits: 0,
     })
-    this.updateAccessOrder(key)
+    this.accessOrder.set(key, this.accessOrder.size)
   }
 
   get(key: string): Message[] | undefined {
     const entry = this.cache.get(key)
     if (!entry) return undefined
 
-    // Check TTL
     if (Date.now() - entry.timestamp > this.ttlMs) {
       this.delete(key)
       return undefined
     }
 
-    // Update hit count and access order
     entry.hits++
-    this.updateAccessOrder(key)
+    this.accessOrder.set(key, this.accessOrder.size)
     return entry.value
   }
 
@@ -81,13 +77,13 @@ export class ConversationCache {
   }
 
   delete(key: string): boolean {
-    this.accessOrder = this.accessOrder.filter(k => k !== key)
+    this.accessOrder.delete(key)
     return this.cache.delete(key)
   }
 
   clear(): void {
     this.cache.clear()
-    this.accessOrder = []
+    this.accessOrder.clear()
   }
 
   getStats(): { size: number; evictions: number; hits: number } {
@@ -105,29 +101,39 @@ export class ConversationCache {
   prune(): number {
     const now = Date.now()
     let pruned = 0
+    const keysToDelete: string[] = []
 
     for (const [key, entry] of this.cache.entries()) {
       if (now - entry.timestamp > this.ttlMs) {
-        this.cache.delete(key)
-        this.accessOrder = this.accessOrder.filter(k => k !== key)
-        pruned++
+        keysToDelete.push(key)
       }
+    }
+
+    for (const key of keysToDelete) {
+      this.cache.delete(key)
+      this.accessOrder.delete(key)
+      pruned++
     }
 
     return pruned
   }
 
   private evictLRU(): void {
-    if (this.accessOrder.length === 0) return
+    let oldestKey: string | null = null
+    let oldestOrder = Infinity
 
-    const lruKey = this.accessOrder.shift()!
-    this.cache.delete(lruKey)
-    this.evictions++
-  }
+    for (const [key, order] of this.accessOrder.entries()) {
+      if (order < oldestOrder) {
+        oldestOrder = order
+        oldestKey = key
+      }
+    }
 
-  private updateAccessOrder(key: string): void {
-    this.accessOrder = this.accessOrder.filter(k => k !== key)
-    this.accessOrder.push(key)
+    if (oldestKey) {
+      this.cache.delete(oldestKey)
+      this.accessOrder.delete(oldestKey)
+      this.evictions++
+    }
   }
 }
 
@@ -144,4 +150,17 @@ export function createConversationCache(
   config?: ConversationCacheConfig,
 ): ConversationCache {
   return new ConversationCache(config)
+}
+
+/**
+ * @deprecated maxMemoryMb is no longer supported as memory tracking
+ * requires serializing/deserializing all cached content. Use maxSize instead.
+ */
+export function createConversationCacheWithMemoryLimit(
+  _config?: ConversationCacheConfig & { maxMemoryMb?: never },
+): ConversationCache {
+  console.warn(
+    'maxMemoryMb is deprecated. Use createConversationCache() with maxSize instead.',
+  )
+  return new ConversationCache(_config)
 }

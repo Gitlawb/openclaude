@@ -52,6 +52,10 @@ function getConfigDir(): string {
 }
 
 function getSessionsDir(): string {
+  // Test override for temp directory
+  if (process.env.OPENCLAUDE_TEST_SESSIONS_DIR) {
+    return process.env.OPENCLAUDE_TEST_SESSIONS_DIR
+  }
   return path.join(getConfigDir(), 'sessions')
 }
 
