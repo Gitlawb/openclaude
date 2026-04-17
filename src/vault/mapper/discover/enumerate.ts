@@ -66,7 +66,10 @@ function walk(
 
 function toKebab(relPath: string): string {
   return relPath
-    .replace(/\\/g, '/')  // normalize Windows separators
-    .replace(/\//g, '-')  // path segments become dashes
+    .replace(/\\/g, '/') // normalize Windows separators
+    .replace(/\//g, '-') // path segments become dashes
     .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-') // underscores and other non-kebab chars
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }

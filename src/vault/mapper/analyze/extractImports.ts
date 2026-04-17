@@ -1,6 +1,4 @@
-import path from 'node:path'
-import type { SourceFile } from 'ts-morph'
-import { SyntaxKind } from 'ts-morph'
+import { ts } from 'ts-morph'
 import type { TsParser } from './tsParser.js'
 
 export interface ImportRef {
@@ -23,6 +21,9 @@ export interface ExtractImportsResult {
  * Handles: `import`, `export ... from`, `require()`, dynamic `import('literal')`.
  * Non-literal dynamic imports are recorded in the skip list.
  * Deduplicates per (specifier, fromFile) pair.
+ *
+ * F-4 perf fix: walks the raw `ts.SourceFile` instead of going through
+ * ts-morph node wrappers; sub-millisecond per file vs hundreds of ms.
  */
 export function extractImports(parser: TsParser, files: string[]): ExtractImportsResult {
   const imports: ImportRef[] = []
@@ -31,9 +32,9 @@ export function extractImports(parser: TsParser, files: string[]): ExtractImport
   const seen = new Set<string>()
 
   for (const file of files) {
-    let sf: SourceFile
+    let sf: ts.SourceFile
     try {
-      sf = parser.sourceFile(file)
+      sf = parser.nativeSourceFile(file)
     } catch (err) {
       errors.push({ file, message: `Failed to parse: ${err instanceof Error ? err.message : String(err)}` })
       continue
@@ -73,91 +74,88 @@ function resolveSpecifier(
   return { resolvedPath: null, isExternal: !isRelative }
 }
 
-function getPackageName(specifier: string): string {
-  if (specifier.startsWith('@')) {
-    const parts = specifier.split('/')
-    return parts.slice(0, 2).join('/')
-  }
-  return specifier.split('/')[0]
-}
-
 function collectFromFile(
   parser: TsParser,
-  sf: SourceFile,
+  sf: ts.SourceFile,
   filePath: string,
   imports: ImportRef[],
   skipped: Array<{ file: string; reason: string }>,
   seen: Set<string>,
 ): void {
-  // 1. Import declarations: import { x } from 'y', import x from 'y', import 'y'
-  for (const decl of sf.getImportDeclarations()) {
-    const specifier = decl.getModuleSpecifierValue()
-    const isTypeOnly = decl.isTypeOnly()
-    const { resolvedPath, isExternal } = resolveSpecifier(parser, specifier, filePath)
-
-    addRef(
-      { specifier, fromFile: filePath, resolvedPath, isTypeOnly, isExternal },
-      imports,
-      seen,
-    )
-  }
-
-  // 2. Export declarations with module specifier: export { x } from 'y'
-  for (const decl of sf.getExportDeclarations()) {
-    const modSpec = decl.getModuleSpecifierValue()
-    if (!modSpec) continue
-    const isTypeOnly = decl.isTypeOnly()
-    const { resolvedPath, isExternal } = resolveSpecifier(parser, modSpec, filePath)
-
-    addRef(
-      { specifier: modSpec, fromFile: filePath, resolvedPath, isTypeOnly, isExternal },
-      imports,
-      seen,
-    )
-  }
-
-  // 3. require() calls
-  for (const callExpr of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    const expr = callExpr.getExpression()
-    if (expr.getText() !== 'require') continue
-    const args = callExpr.getArguments()
-    if (args.length === 0) continue
-    const arg = args[0]
-    if (arg.getKind() !== SyntaxKind.StringLiteral) continue
-    const specifier = arg.asKind(SyntaxKind.StringLiteral)!.getLiteralValue()
-    const { resolvedPath, isExternal } = resolveSpecifier(parser, specifier, filePath)
-
-    addRef(
-      { specifier, fromFile: filePath, resolvedPath, isTypeOnly: false, isExternal },
-      imports,
-      seen,
-    )
-  }
-
-  // 4. Dynamic imports: import('...')
-  for (const callExpr of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    const expr = callExpr.getExpression()
-    if (expr.getKind() !== SyntaxKind.ImportKeyword) continue
-    const args = callExpr.getArguments()
-    if (args.length === 0) continue
-    const arg = args[0]
-    if (arg.getKind() === SyntaxKind.StringLiteral) {
-      // Literal dynamic import
-      const specifier = arg.asKind(SyntaxKind.StringLiteral)!.getLiteralValue()
+  // 1. Top-level import / export-from declarations.
+  for (const stmt of sf.statements) {
+    // import { x } from 'y' / import x from 'y' / import 'y' / import type { x } from 'y'
+    if (ts.isImportDeclaration(stmt)) {
+      if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue
+      const specifier = stmt.moduleSpecifier.text
+      const isTypeOnly = !!stmt.importClause?.isTypeOnly
       const { resolvedPath, isExternal } = resolveSpecifier(parser, specifier, filePath)
       addRef(
-        { specifier, fromFile: filePath, resolvedPath, isTypeOnly: false, isExternal },
+        { specifier, fromFile: filePath, resolvedPath, isTypeOnly, isExternal },
         imports,
         seen,
       )
-    } else {
-      // Non-literal dynamic import — skip
-      skipped.push({ file: filePath, reason: `dynamic-import-skipped: import(${arg.getText()})` })
+      continue
+    }
+
+    // export { x } from 'y' / export * from 'y' (re-export with module specifier)
+    if (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier && ts.isStringLiteral(stmt.moduleSpecifier)) {
+      const specifier = stmt.moduleSpecifier.text
+      const isTypeOnly = stmt.isTypeOnly
+      const { resolvedPath, isExternal } = resolveSpecifier(parser, specifier, filePath)
       addRef(
-        { specifier: '<dynamic>', fromFile: filePath, resolvedPath: null, isTypeOnly: false, isExternal: false },
+        { specifier, fromFile: filePath, resolvedPath, isTypeOnly, isExternal },
         imports,
         seen,
       )
     }
+  }
+
+  // 2 + 3. require('...') and dynamic import('...') — full descendant walk.
+  walk(sf)
+
+  function walk(node: ts.Node): void {
+    if (ts.isCallExpression(node)) {
+      // import('...')
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        if (node.arguments.length > 0) {
+          const arg = node.arguments[0]
+          if (ts.isStringLiteral(arg)) {
+            const specifier = arg.text
+            const { resolvedPath, isExternal } = resolveSpecifier(parser, specifier, filePath)
+            addRef(
+              { specifier, fromFile: filePath, resolvedPath, isTypeOnly: false, isExternal },
+              imports,
+              seen,
+            )
+          } else {
+            skipped.push({ file: filePath, reason: `dynamic-import-skipped: import(${arg.getText(sf)})` })
+            addRef(
+              { specifier: '<dynamic>', fromFile: filePath, resolvedPath: null, isTypeOnly: false, isExternal: false },
+              imports,
+              seen,
+            )
+          }
+        }
+      }
+      // require('...')
+      else if (
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === 'require' &&
+        node.arguments.length > 0
+      ) {
+        const arg = node.arguments[0]
+        if (ts.isStringLiteral(arg)) {
+          const specifier = arg.text
+          const { resolvedPath, isExternal } = resolveSpecifier(parser, specifier, filePath)
+          addRef(
+            { specifier, fromFile: filePath, resolvedPath, isTypeOnly: false, isExternal },
+            imports,
+            seen,
+          )
+        }
+      }
+    }
+    ts.forEachChild(node, walk)
   }
 }
