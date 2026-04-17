@@ -10,23 +10,33 @@ import {
   isRepoOnboarded,
   adaptLegacyConfig,
 } from './config.js'
+import { saveMachineConfig } from './globalConfig.js'
 import type { VaultManifest, VaultConfig, LegacyVaultConfig } from './types.js'
 
 let tempDir: string
 let savedEnv: string | undefined
+let savedGlobalEnv: string | undefined
+let savedMachineEnv: string | undefined
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'vault-test-'))
   savedEnv = process.env.BRIDGEAI_VAULT_PATH
+  savedGlobalEnv = process.env.BRIDGEAI_GLOBAL_VAULT
+  savedMachineEnv = process.env.BRIDGEAI_MACHINE_CONFIG_PATH
   delete process.env.BRIDGEAI_VAULT_PATH
+  delete process.env.BRIDGEAI_GLOBAL_VAULT
+  // Isolate the machine config to a per-test path so PIFB resolution
+  // doesn't leak state between tests / between this file and others.
+  process.env.BRIDGEAI_MACHINE_CONFIG_PATH = join(tempDir, 'machine-config.json')
 })
 
 afterEach(() => {
-  if (savedEnv !== undefined) {
-    process.env.BRIDGEAI_VAULT_PATH = savedEnv
-  } else {
-    delete process.env.BRIDGEAI_VAULT_PATH
-  }
+  if (savedEnv !== undefined) process.env.BRIDGEAI_VAULT_PATH = savedEnv
+  else delete process.env.BRIDGEAI_VAULT_PATH
+  if (savedGlobalEnv !== undefined) process.env.BRIDGEAI_GLOBAL_VAULT = savedGlobalEnv
+  else delete process.env.BRIDGEAI_GLOBAL_VAULT
+  if (savedMachineEnv !== undefined) process.env.BRIDGEAI_MACHINE_CONFIG_PATH = savedMachineEnv
+  else delete process.env.BRIDGEAI_MACHINE_CONFIG_PATH
   rmSync(tempDir, { recursive: true, force: true })
 })
 
@@ -91,6 +101,27 @@ describe('resolveVaultConfig', () => {
     const config = resolveVaultConfig(tempDir)
     expect(config.local.path).toBe(config.vaultPath)
     expect(config.global).toBeNull()
+  })
+
+  test('PIFB-01: cfg.global is null when no env override and no machine config', () => {
+    expect(resolveVaultConfig(tempDir).global).toBeNull()
+  })
+
+  test('PIFB-01: BRIDGEAI_GLOBAL_VAULT env populates cfg.global', () => {
+    process.env.BRIDGEAI_GLOBAL_VAULT = '/tmp/from-env'
+    const config = resolveVaultConfig(tempDir)
+    expect(config.global).toEqual({ path: '/tmp/from-env' })
+  })
+
+  test('PIFB-04: machine config globalVaultPath populates cfg.global', () => {
+    saveMachineConfig({ globalVaultPath: '/tmp/from-config' })
+    const config = resolveVaultConfig(tempDir)
+    expect(config.global).toEqual({ path: '/tmp/from-config' })
+  })
+
+  test('PIFB-03: declinedGlobalVault: true → cfg.global stays null', () => {
+    saveMachineConfig({ declinedGlobalVault: true, globalVaultPath: '/tmp/x' })
+    expect(resolveVaultConfig(tempDir).global).toBeNull()
   })
 })
 

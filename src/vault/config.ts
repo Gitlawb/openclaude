@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, basename } from 'path'
-import type { VaultConfig, VaultManifest, ProviderType, LegacyVaultConfig } from './types.js'
+import type { VaultConfig, VaultManifest, ProviderType, LegacyVaultConfig, VaultRef } from './types.js'
+import { resolveGlobalVault } from './globalConfig.js'
 
 /**
  * Resolve the vault path for a given project root.
@@ -44,12 +45,21 @@ export function resolveVaultConfig(
   const vaultPath = resolveVaultPath(projectRoot)
   return {
     local: { path: vaultPath },
-    global: null,
+    global: resolveGlobal(),
     provider,
     projectName: basename(projectRoot),
     projectRoot,
     vaultPath,
   }
+}
+
+/** PIFB-01/04: turn resolveGlobalVault() into a VaultRef or null. */
+function resolveGlobal(): VaultRef | null {
+  const r = resolveGlobalVault()
+  if (r.kind === 'configured') return { path: r.path }
+  // 'declined' or 'unconfigured' → no global vault attached. The first-
+  // machine prompt (T5) will materialise one when the dev accepts.
+  return null
 }
 
 /**
