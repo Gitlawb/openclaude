@@ -138,6 +138,8 @@ export interface Message {
   tool_use_id?: string
 }
 
+export type CacheMessage = Message
+
 export function createConversationCache(
   config?: ConversationCacheConfig,
 ): ConversationCache {

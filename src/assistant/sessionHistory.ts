@@ -3,8 +3,17 @@ import { getOauthConfig } from '../constants/oauth.js'
 import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
 import { logForDebugging } from '../utils/debug.js'
 import { getOAuthHeaders, prepareApiRequest } from '../utils/teleport/api.js'
-import { ConversationCache, createConversationCache } from '../utils/conversationCache.js'
-import { saveSession, loadSession, listSessions, createSession } from '../utils/sessionPersistence.js'
+import {
+  ConversationCache,
+  createConversationCache,
+  type CacheMessage,
+} from '../utils/conversationCache.js'
+import {
+  saveSession,
+  loadSession,
+  listSessions,
+  createSession,
+} from '../utils/sessionPersistence.js'
 
 export const HISTORY_PAGE_SIZE = 100
 
@@ -22,11 +31,8 @@ function getHistoryCache(): ConversationCache {
 }
 
 export type HistoryPage = {
-  /** Chronological order within the page. */
   events: SDKMessage[]
-  /** Oldest event ID in this page → before_id cursor for next-older page. */
   firstId: string | null
-  /** true = older events exist. */
   hasMore: boolean
 }
 
@@ -42,7 +48,6 @@ export type HistoryAuthCtx = {
   headers: Record<string, string>
 }
 
-/** Prepare auth + headers + base URL once, reuse across pages. */
 export async function createHistoryAuthCtx(
   sessionId: string,
 ): Promise<HistoryAuthCtx> {
@@ -81,26 +86,46 @@ async function fetchPage(
   }
 }
 
-/**
- * Newest page: last `limit` events, chronological, via anchor_to_latest.
- * has_more=true means older events exist.
- */
+function extractSessionId(baseUrl: string): string {
+  const match = baseUrl.split('/v1/sessions/')[1]
+  return match ? match.split('/')[0] : 'default'
+}
+
+function serializeToCacheMessage(events: SDKMessage[]): CacheMessage[] {
+  return events.map((m): CacheMessage => ({
+    role: m.role,
+    content:
+      typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+    tool_calls: m.tool_calls as CacheMessage['tool_calls'],
+    tool_use_id: m.tool_use_id,
+  }))
+}
+
+function deserializeFromCacheMessage(messages: CacheMessage[]): SDKMessage[] {
+  return messages.map((m): SDKMessage => ({
+    role: m.role,
+    content: m.content,
+    tool_calls: m.tool_calls as SDKMessage['tool_calls'],
+    tool_use_id: m.tool_use_id,
+  }))
+}
+
 export async function fetchLatestEvents(
   ctx: HistoryAuthCtx,
   limit = HISTORY_PAGE_SIZE,
 ): Promise<HistoryPage | null> {
   const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
-  
-  // Cache the fetched events for faster subsequent access
+
   if (page && page.events.length > 0) {
     const cache = getHistoryCache()
-    cache.set(ctx.baseUrl.split('/v1/sessions/')[1]?.split('/')[0] ?? 'default', page.events as any)
+    const sessionId = extractSessionId(ctx.baseUrl)
+    const cacheMessages = serializeToCacheMessage(page.events)
+    cache.set(sessionId, cacheMessages)
   }
-  
+
   return page
 }
 
-/** Older page: events immediately before `beforeId` cursor. */
 export async function fetchOlderEvents(
   ctx: HistoryAuthCtx,
   beforeId: string,
@@ -109,26 +134,14 @@ export async function fetchOlderEvents(
   return fetchPage(ctx, { limit, before_id: beforeId }, 'fetchOlderEvents')
 }
 
-// ---------------------------------------------------------------------------
-// Session persistence helpers using conversationCache + sessionPersistence
-// ---------------------------------------------------------------------------
-
 export async function cacheSession(
   sessionId: string,
   events: SDKMessage[],
 ): Promise<void> {
   const cache = getHistoryCache()
-  const messages = events.map(m => ({
-    role: m.role,
-    content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-    timestamp: Date.now(),
-    tool_calls: m.tool_calls,
-    tool_use_id: (m as any).tool_use_id,
-  }))
+  const messages = serializeToCacheMessage(events)
+  cache.set(sessionId, messages)
 
-  cache.set(sessionId, messages as any)
-
-  // Also persist to disk for cross-device sync
   const session = createSession(
     messages as any,
     { model: process.env.OPENAI_MODEL },
@@ -140,26 +153,18 @@ export async function cacheSession(
 export async function loadCachedSession(
   sessionId: string,
 ): Promise<SDKMessage[] | null> {
-  // Try cache first
   const cache = getHistoryCache()
   const cached = cache.get(sessionId)
   if (cached) {
-    return cached as any
+    return deserializeFromCacheMessage(cached)
   }
 
-  // Try disk
   try {
     const session = await loadSession(sessionId)
     if (session) {
-      const events = session.messages.map(m => ({
-        role: m.role,
-        content: m.content,
-        tool_calls: m.tool_calls,
-        tool_use_id: m.tool_use_id,
-      })) as any
-      // Populate cache
+      const events = session.messages as CacheMessage[]
       cache.set(sessionId, events)
-      return events
+      return deserializeFromCacheMessage(events)
     }
   } catch {
     // Session not found or corrupt
