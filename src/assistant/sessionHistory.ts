@@ -114,13 +114,23 @@ export async function fetchLatestEvents(
   ctx: HistoryAuthCtx,
   limit = HISTORY_PAGE_SIZE,
 ): Promise<HistoryPage | null> {
+  const sessionId = extractSessionId(ctx.baseUrl)
+
+  // Check cache first before fetching from API
+  const cached = await loadCachedSession(sessionId)
+  if (cached) {
+    return {
+      events: cached,
+      firstId: null,
+      hasMore: true,
+    }
+  }
+
   const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
 
   if (page && page.events.length > 0) {
-    const cache = getHistoryCache()
-    const sessionId = extractSessionId(ctx.baseUrl)
-    const cacheMessages = serializeToCacheMessage(page.events)
-    cache.set(sessionId, cacheMessages)
+    // Cache and persist the fetched events
+    await cacheSession(sessionId, page.events)
   }
 
   return page
@@ -171,8 +181,4 @@ export async function loadCachedSession(
   }
 
   return null
-}
-
-export async function listPersistedSessions() {
-  return listSessions()
 }
