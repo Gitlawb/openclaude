@@ -110,9 +110,14 @@ export function calculateTokenWarningState(
     ? autoCompactThreshold
     : getEffectiveContextWindowSize(model)
 
+  // Use the raw context window (without output reservation) for the percentage
+  // display, so users see remaining context relative to the model's full capacity.
+  // The threshold (which subtracts buffer) should only affect when we warn/compact,
+  // not what percentage we display.
+  const rawContextWindow = getContextWindowForModel(model, getSdkBetas())
   const percentLeft = Math.max(
     0,
-    Math.round(((threshold - tokenUsage) / threshold) * 100),
+    Math.round(((rawContextWindow - tokenUsage) / rawContextWindow) * 100),
   )
 
   const warningThreshold = threshold - WARNING_THRESHOLD_BUFFER_TOKENS
