@@ -21,6 +21,8 @@ function makeTmpRepo(): string {
 
 function makeConfig(repoDir: string, vaultDir: string): VaultConfig {
   return {
+    local: { path: vaultDir },
+    global: null,
     vaultPath: vaultDir,
     provider: 'claude',
     projectName: 'test-project',

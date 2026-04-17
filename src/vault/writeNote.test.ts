@@ -21,8 +21,11 @@ function makeRepo(): string {
 }
 
 function makeConfig(repoRoot: string): VaultConfig {
+  const vaultPath = join(repoRoot, '.bridgeai', 'vault')
   return {
-    vaultPath: join(repoRoot, '.bridgeai', 'vault'),
+    local: { path: vaultPath },
+    global: null,
+    vaultPath,
     provider: 'generic',
     projectName: 'test-project',
     projectRoot: repoRoot,

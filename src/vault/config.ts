@@ -41,11 +41,14 @@ export function resolveVaultConfig(
   projectRoot: string,
   provider: ProviderType = 'generic',
 ): VaultConfig {
+  const vaultPath = resolveVaultPath(projectRoot)
   return {
-    vaultPath: resolveVaultPath(projectRoot),
+    local: { path: vaultPath },
+    global: null,
     provider,
     projectName: basename(projectRoot),
     projectRoot,
+    vaultPath,
   }
 }
 

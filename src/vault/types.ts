@@ -1,6 +1,32 @@
 export type ProviderType = 'claude' | 'cursor' | 'gemini' | 'generic'
 
+/** Pointer to a vault root directory. PIF-B will extend with sync metadata. */
+export type VaultRef = {
+  path: string
+}
+
 export type VaultConfig = {
+  /** Project-local vault. Always present. */
+  local: VaultRef
+  /** Optional global vault. Null when the dev declined or hasn't bootstrapped (PIF-B). */
+  global: VaultRef | null
+  provider: ProviderType
+  projectName: string
+  projectRoot: string
+  /**
+   * @deprecated Use `local.path`. Kept as an alias for backward compat with
+   * the existing `cfg.vaultPath` access sites (~100 across mapper, onboard,
+   * scaffold, upgrade, lint, tests). Config builders MUST populate both;
+   * always equals `local.path`. Will be removed in a future cleanup feature.
+   */
+  vaultPath: string
+}
+
+/**
+ * Legacy single-vault shape from before PIF-A. Retained ONLY for the
+ * `adaptLegacyConfig` adapter — do NOT add new fields here.
+ */
+export type LegacyVaultConfig = {
   vaultPath: string
   provider: ProviderType
   projectName: string
