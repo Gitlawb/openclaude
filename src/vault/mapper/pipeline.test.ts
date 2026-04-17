@@ -187,6 +187,32 @@ describe('pipeline', () => {
     expect(logContent).toContain('map-complete')
   })
 
+  test('_log.md tags source: code-analysis when LLM was not used (F-1)', async () => {
+    const cfg = makeConfig(repo, vault)
+
+    await runMapping(cfg, makeIndex(), {
+      mode: 'full',
+      disableLlm: true,
+    })
+
+    const logContent = readFileSync(path.join(vault, '_log.md'), 'utf-8')
+    expect(logContent).toContain('source: code-analysis')
+    expect(logContent).not.toContain('source: llm-inference')
+  })
+
+  test('_log.md tags source: llm-inference when real LLM content was persisted (F-1)', async () => {
+    const cfg = makeConfig(repo, vault)
+
+    await runMapping(cfg, makeIndex(), {
+      mode: 'full',
+      provider: stubProvider(),
+    })
+
+    const logContent = readFileSync(path.join(vault, '_log.md'), 'utf-8')
+    expect(logContent).toContain('source: llm-inference')
+    expect(logContent).toContain('map-complete')
+  })
+
   test('cycle detection reports circular deps without failing', async () => {
     const cfg = makeConfig(repo, vault)
     const report = await runMapping(cfg, makeIndex(), {

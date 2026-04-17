@@ -319,9 +319,18 @@ export async function runMapping(
     const orphanResult = runOrphanGate(cfg.vaultPath)
     report.orphans = orphanResult.orphans
 
-    // 8. Append to _log.md
+    // 8. Append to _log.md — tag llm-inference when real LLM-derived semantic
+    // content was persisted to any note this run; code-analysis otherwise
+    // (static-only, --no-llm, dry-run, all-fallback). F-1 fix.
     const logEntry = buildLogEntry(report)
-    appendLog(cfg.vaultPath, report.errors.some((e) => e.startsWith('write-error:')) ? 'map-aborted' : 'map-complete', logEntry)
+    const llmContentPersisted = descriptors.some((d) => !d.staticOnly && !d.fallback)
+    const logSource: LogSource = llmContentPersisted ? 'llm-inference' : 'code-analysis'
+    appendLog(
+      cfg.vaultPath,
+      report.errors.some((e) => e.startsWith('write-error:')) ? 'map-aborted' : 'map-complete',
+      logEntry,
+      logSource,
+    )
 
   } catch (err) {
     report.errors.push(`pipeline-error: ${err instanceof Error ? err.message : String(err)}`)
@@ -396,9 +405,16 @@ function extractFmArray(fm: string, key: string): string[] {
   return []
 }
 
-function appendLog(vaultPath: string, kind: string, detail: string): void {
+type LogSource = 'code-analysis' | 'llm-inference'
+
+function appendLog(
+  vaultPath: string,
+  kind: string,
+  detail: string,
+  source: LogSource = 'code-analysis',
+): void {
   const ts = new Date().toISOString()
-  const line = `- ${ts}  ${kind}  ${detail}  source: code-analysis\n`
+  const line = `- ${ts}  ${kind}  ${detail}  source: ${source}\n`
   const logPath = join(vaultPath, '_log.md')
   mkdirSync(vaultPath, { recursive: true })
   if (!existsSync(logPath)) {
