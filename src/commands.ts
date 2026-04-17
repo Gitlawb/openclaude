@@ -64,6 +64,7 @@ import vaultUpgrade from './commands/vault/upgrade.js'
 import vaultLint from './commands/vault/lint.js'
 import vaultRegenerateConventions from './commands/vault/regenerateConventions.js'
 import vaultMap from './commands/vault/map.js'
+import vaultEnableGlobal from './commands/vault/enableGlobal.js'
 import vim from './commands/vim/index.js'
 import { feature } from 'bun:bundle'
 import { isBuddyEnabled } from './buddy/feature.js'
@@ -338,6 +339,7 @@ const COMMANDS = memoize((): Command[] => [
   vaultLint,
   vaultRegenerateConventions,
   vaultMap,
+  vaultEnableGlobal,
   vim,
   ...(webCmd ? [webCmd] : []),
   ...(forkCmd ? [forkCmd] : []),
