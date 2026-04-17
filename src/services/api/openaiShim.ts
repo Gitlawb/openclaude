@@ -91,18 +91,27 @@ const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
 // model is not listed we fall back to GROQ_DEFAULT_MAX_REQUEST_TOKENS.
 const GROQ_DEFAULT_MAX_REQUEST_TOKENS = 6_000
 const GROQ_COMPLETION_TOKEN_SAFETY_MARGIN = 500
-const GROQ_TARGET_PROMPT_RATIO = 0.75
+// Target prompt ≤ 60% of TPM budget, reserving 40% for completion + retries
+// within the same minute. Lower ratio = more aggressive trimming but fewer
+// unsolicited 413s on bursty conversations (e.g. Claude Code loops).
+const GROQ_TARGET_PROMPT_RATIO = 0.6
 // Approx chars-per-token for mixed English prose + code. OpenAI's tokenizer
 // averages ~4 chars/token for English and ~3 for code; we pick 4 as a
 // conservative blend so we slightly UNDER-estimate rather than over-trim.
 const GROQ_CHARS_PER_TOKEN = 4
 
+// Free-tier TPM limits per https://console.groq.com/docs/rate-limits (2026-04).
+// Paid tiers are higher, but we're conservative because we can't detect tier.
 const GROQ_MODEL_TPM_LIMITS: Array<{ pattern: RegExp; tpm: number }> = [
-  { pattern: /llama-3\.3-70b/i, tpm: 32_000 },
-  { pattern: /llama-3\.1-70b/i, tpm: 20_000 },
+  { pattern: /llama-3\.3-70b/i, tpm: 12_000 },
+  { pattern: /llama-3\.1-70b/i, tpm: 12_000 },
   { pattern: /llama-3\.1-8b/i, tpm: 6_000 },
+  { pattern: /llama-3-70b/i, tpm: 6_000 },
+  { pattern: /llama-3-8b/i, tpm: 6_000 },
   { pattern: /mixtral-8x7b/i, tpm: 5_000 },
   { pattern: /gemma2?-/i, tpm: 15_000 },
+  { pattern: /qwen/i, tpm: 6_000 },
+  { pattern: /deepseek/i, tpm: 6_000 },
 ]
 
 const SHARED_TEXT_ENCODER = new TextEncoder()
