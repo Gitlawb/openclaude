@@ -54,6 +54,11 @@ import {
   resolveProviderRequest,
   getGithubEndpointType,
 } from './providerConfig.js'
+import {
+  buildOpenAICompatibilityErrorMessage,
+  classifyOpenAIHttpFailure,
+  classifyOpenAINetworkFailure,
+} from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
 import {
@@ -82,6 +87,19 @@ const COPILOT_HEADERS: Record<string, string> = {
   'Editor-Plugin-Version': 'copilot-chat/0.26.7',
   'Copilot-Integration-Id': 'vscode-chat',
 }
+
+const SENSITIVE_URL_QUERY_PARAM_NAMES = [
+  'api_key',
+  'key',
+  'token',
+  'access_token',
+  'refresh_token',
+  'signature',
+  'sig',
+  'secret',
+  'password',
+  'authorization',
+]
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
@@ -130,6 +148,34 @@ function hasGeminiApiHost(baseUrl: string | undefined): boolean {
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
+}
+
+function shouldRedactUrlQueryParam(name: string): boolean {
+  const lower = name.toLowerCase()
+  return SENSITIVE_URL_QUERY_PARAM_NAMES.some(token => lower.includes(token))
+}
+
+function redactUrlForDiagnostics(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.username) {
+      parsed.username = 'redacted'
+    }
+    if (parsed.password) {
+      parsed.password = 'redacted'
+    }
+
+    for (const key of parsed.searchParams.keys()) {
+      if (shouldRedactUrlQueryParam(key)) {
+        parsed.searchParams.set(key, 'redacted')
+      }
+    }
+
+    const serialized = parsed.toString()
+    return redactSecretValueForDisplay(serialized, process.env as SecretValueSource) ?? serialized
+  } catch {
+    return redactSecretValueForDisplay(url, process.env as SecretValueSource) ?? url
+  }
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -1430,12 +1476,97 @@ class OpenAIShimMessages {
     }
 
     const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
+
+    const throwClassifiedTransportError = (
+      error: unknown,
+      requestUrl: string,
+    ): never => {
+      if (options?.signal?.aborted) {
+        throw error
+      }
+
+      const failure = classifyOpenAINetworkFailure(error, {
+        url: requestUrl,
+      })
+      const redactedUrl = redactUrlForDiagnostics(requestUrl)
+      const safeMessage =
+        redactSecretValueForDisplay(
+          failure.message,
+          process.env as SecretValueSource,
+        ) || 'Request failed'
+
+      logForDebugging(
+        `[OpenAIShim] transport failure category=${failure.category} retryable=${failure.retryable} code=${failure.code ?? 'unknown'} method=POST url=${redactedUrl} model=${request.resolvedModel} message=${safeMessage}`,
+        { level: 'warn' },
+      )
+
+      throw APIError.generate(
+        503,
+        undefined,
+        buildOpenAICompatibilityErrorMessage(
+          `OpenAI API transport error: ${safeMessage}${failure.code ? ` (code=${failure.code})` : ''}`,
+          failure,
+        ),
+        new Headers(),
+      )
+    }
+
+    const throwClassifiedHttpError = (
+      status: number,
+      errorBody: string,
+      parsedBody: object | undefined,
+      responseHeaders: Headers,
+      requestUrl: string,
+      rateHint = '',
+    ): never => {
+      const failure = classifyOpenAIHttpFailure({
+        status,
+        body: errorBody,
+      })
+      const redactedUrl = redactUrlForDiagnostics(requestUrl)
+
+      logForDebugging(
+        `[OpenAIShim] request failed category=${failure.category} retryable=${failure.retryable} status=${status} method=POST url=${redactedUrl} model=${request.resolvedModel}`,
+        { level: 'warn' },
+      )
+
+      throw APIError.generate(
+        status,
+        parsedBody,
+        buildOpenAICompatibilityErrorMessage(
+          `OpenAI API error ${status}: ${errorBody}${rateHint}`,
+          failure,
+        ),
+        responseHeaders,
+      )
+    }
+
     let response: Response | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      response = await fetchWithProxyRetry(chatCompletionsUrl, fetchInit)
+      try {
+        response = await fetchWithProxyRetry(chatCompletionsUrl, fetchInit)
+      } catch (error) {
+        const isAbortError =
+          fetchInit.signal?.aborted === true ||
+          (typeof DOMException !== 'undefined' &&
+            error instanceof DOMException &&
+            error.name === 'AbortError') ||
+          (typeof error === 'object' &&
+            error !== null &&
+            'name' in error &&
+            error.name === 'AbortError')
+
+        if (isAbortError) {
+          throw error
+        }
+
+        throwClassifiedTransportError(error, chatCompletionsUrl)
+      }
+
       if (response.ok) {
         return response
       }
+
       if (
         isGithub &&
         response.status === 429 &&
@@ -1505,34 +1636,43 @@ class OpenAIShimMessages {
             }
           }
 
-          const responsesResponse = await fetchWithProxyRetry(responsesUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(responsesBody),
-            signal: options?.signal,
-          })
+          let responsesResponse: Response
+          try {
+            responsesResponse = await fetchWithProxyRetry(responsesUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(responsesBody),
+              signal: options?.signal,
+            })
+          } catch (error) {
+            throwClassifiedTransportError(error, responsesUrl)
+          }
+          
           if (responsesResponse.ok) {
             return responsesResponse
           }
           const responsesErrorBody = await responsesResponse.text().catch(() => 'unknown error')
           let responsesErrorResponse: object | undefined
           try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
-          throw APIError.generate(
+          throwClassifiedHttpError(
             responsesResponse.status,
+            responsesErrorBody,
             responsesErrorResponse,
-            `OpenAI API error ${responsesResponse.status}: ${responsesErrorBody}`,
             responsesResponse.headers,
+            responsesUrl,
           )
         }
       }
 
       let errorResponse: object | undefined
       try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
-      throw APIError.generate(
+      throwClassifiedHttpError(
         response.status,
+        errorBody,
         errorResponse,
-        `OpenAI API error ${response.status}: ${errorBody}${rateHint}`,
         response.headers as unknown as Headers,
+        chatCompletionsUrl,
+        rateHint,
       )
     }
 

@@ -50,8 +50,109 @@ import {
 } from '../claudeAiLimits.js'
 import { shouldProcessRateLimits } from '../rateLimitMocking.js' // Used for /mock-limits command
 import { extractConnectionErrorDetails, formatAPIError } from './errorUtils.js'
+import {
+  extractOpenAICategoryMarker,
+  type OpenAICompatibilityFailureCategory,
+} from './openaiErrorClassification.js'
 
 export const API_ERROR_MESSAGE_PREFIX = 'API Error'
+
+function stripOpenAICompatibilityMetadata(message: string): string {
+  return message
+    .replace(/\s*\[openai_category=[a-z_]+\]\s*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function mapOpenAICompatibilityFailureToAssistantMessage(options: {
+  category: OpenAICompatibilityFailureCategory
+  model: string
+  rawMessage: string
+}): AssistantMessage {
+  const switchCmd = getIsNonInteractiveSession() ? '--model' : '/model'
+  const compactHint = getIsNonInteractiveSession()
+    ? 'Reduce prompt size or start a new session.'
+    : 'Run /compact or start a new session with /new.'
+
+  switch (options.category) {
+    case 'localhost_resolution_failed':
+    case 'connection_refused':
+      return createAssistantAPIErrorMessage({
+        content:
+          'Could not connect to the local OpenAI-compatible provider. Ensure the local server is running, then use OPENAI_BASE_URL=http://127.0.0.1:11434/v1 for Ollama.',
+        error: 'unknown',
+      })
+
+    case 'endpoint_not_found':
+      return createAssistantAPIErrorMessage({
+        content:
+          'Provider endpoint was not found. Confirm OPENAI_BASE_URL targets an OpenAI-compatible /v1 endpoint (for Ollama: http://127.0.0.1:11434/v1).',
+        error: 'invalid_request',
+      })
+
+    case 'model_not_found':
+      return createAssistantAPIErrorMessage({
+        content: `The selected model (${options.model}) is not available on this provider. Run ${switchCmd} to choose another model, or verify installed local models (for Ollama: ollama list).`,
+        error: 'invalid_request',
+      })
+
+    case 'auth_invalid':
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: Authentication failed for your OpenAI-compatible provider. Verify OPENAI_API_KEY and endpoint-specific auth requirements.`,
+        error: 'authentication_failed',
+      })
+
+    case 'rate_limited':
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: Provider rate limit reached. Retry in a few seconds.`,
+        error: 'rate_limit',
+      })
+
+    case 'request_timeout':
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: Provider request timed out. Local models may be loading or overloaded; retry shortly or increase API_TIMEOUT_MS.`,
+        error: 'unknown',
+      })
+
+    case 'context_overflow':
+      return createAssistantAPIErrorMessage({
+        content: `The conversation exceeded the provider context limit. ${compactHint}`,
+        error: 'invalid_request',
+      })
+
+    case 'tool_call_incompatible':
+      return createAssistantAPIErrorMessage({
+        content: `The selected provider/model rejected tool-calling payloads. Try ${switchCmd} to pick a tool-capable model or continue without tools.`,
+        error: 'invalid_request',
+      })
+
+    case 'malformed_provider_response':
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: Provider returned a malformed response. Confirm endpoint compatibility and check local proxy/network middleware.`,
+        error: 'unknown',
+        errorDetails: stripOpenAICompatibilityMetadata(options.rawMessage),
+      })
+
+    case 'provider_unavailable':
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: Provider is temporarily unavailable. Retry in a moment.`,
+        error: 'unknown',
+      })
+
+    case 'network_error':
+    case 'unknown':
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: ${stripOpenAICompatibilityMetadata(options.rawMessage)}`,
+        error: 'unknown',
+      })
+
+    default:
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: ${stripOpenAICompatibilityMetadata(options.rawMessage)}`,
+        error: 'unknown',
+      })
+  }
+}
 
 export function startsWithApiErrorPrefix(text: string): boolean {
   return (
@@ -455,6 +556,19 @@ export function getAssistantMessageFromError(
     return createAssistantAPIErrorMessage({
       content: getImageTooLargeErrorMessage(),
     })
+  }
+
+  // OpenAI-compatible transport and HTTP failures include structured category
+  // markers from openaiShim.ts for actionable end-user remediation.
+  if (error instanceof APIError) {
+    const openaiCategory = extractOpenAICategoryMarker(error.message)
+    if (openaiCategory) {
+      return mapOpenAICompatibilityFailureToAssistantMessage({
+        category: openaiCategory,
+        model,
+        rawMessage: error.message,
+      })
+    }
   }
 
   // Check for emergency capacity off switch for Opus PAYG users
