@@ -73,7 +73,8 @@ aliases:
 status: stable              # draft | active | review | stable | deprecated | archived
 created: 2026-04-15
 updated: 2026-04-15
-confidence: high            # high | medium | low | speculative
+confidence: high            # high | medium | low | speculative   (see "Confidence tiers" below)
+scope: project              # project | global   (PIFA-01; default: project)
 summary: "Token bucket and sliding window rate-limiting strategies."
 related:
   - "[[api-gateway-architecture]]"
@@ -89,10 +90,24 @@ related:
 
 ### Fields exclusive to AI-maintained vaults
 
-- **`confidence`** — LLM prioritizes `high` over `speculative` when assembling context
+- **`confidence`** — LLM prioritizes `high` over `speculative` when assembling context (full tier definitions below)
 - **`summary`** — enables scanning dozens of notes without reading the body
 - **`last_verified`** — combined with source `mtime`, detects staleness
 - **`source: code-analysis` vs `source: llm-inference`** — prevents model collapse on rewrites
+- **`scope`** — `project` (default) writes to the local vault; `global` writes to the dev's portable global vault. Modules are always `scope: project` (`type-scope-mismatch` rule rejects `type: module + scope: global`).
+
+### Confidence tiers (PIFA-06, F-2 reconciliation)
+
+Every note's `confidence` field uses one of four values, in order from most to least trustworthy:
+
+- **`high`** — Static-only ground truth: deterministic facts derived from code analysis (exports, imports, dependency edges, file paths, line counts). No LLM involvement at all. The cache-aside layer can serve these without re-checking source.
+- **`medium`** — Clean LLM-derived semantic content with successful structured-output validation. Current mapper output for `summary`, `responsibilities`, `domain`, `layer` lands here. The cache-aside threshold is `≥ medium` — these serve from cache when `updated < 30 days`.
+- **`low`** — Fallback placeholders (LLM call failed, retried, fell back), escape-hatch deferred content, or output the agent flagged as needing dev confirmation. Cache-aside ALWAYS re-analyzes notes at this tier.
+- **`speculative`** — Hypothetical or exploratory content explicitly flagged as untrusted. Reserved for content the dev or agent KNOWS is unverified (e.g. "we *think* this module handles X — needs confirmation"). Treated identically to `low` by the cache layer.
+
+**Cache-aside threshold:** the (separate, downstream) cache-aside query layer reads notes with `confidence ≥ medium` from cache. `low` and `speculative` always re-analyze the source.
+
+**Provenance pairing:** every `_log.md` entry tags the source of the change as `source: code-analysis` (deterministic write) or `source: llm-inference` (LLM-derived write). The pairing of `confidence` + `source` lets future readers tell ground truth from inference at a glance.
 
 ---
 
