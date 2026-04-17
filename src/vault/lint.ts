@@ -40,6 +40,7 @@ import {
   type Violation,
 } from './conventions/validator.js'
 import type { VaultConfig } from './types.js'
+import { parseWikiLinkTarget } from './wikiLinkParser.js'
 
 export type LintIssueKind =
   | 'orphan'
@@ -165,13 +166,22 @@ function collectAllNotes(vaultPath: string): NoteEntry[] {
   return all
 }
 
+/**
+ * PIFE: lint extracts only LOCAL link targets — namespaced links
+ * (`[[global:slug]]`, `[[project:slug]]`) are skipped here because lint
+ * operates on a single vault at a time and cannot resolve cross-vault
+ * targets. writeNote handles cross-vault link rules at write time.
+ */
 function extractWikiLinkTargets(text: string): string[] {
   const targets: string[] = []
   for (const match of text.matchAll(WIKILINK_RE)) {
     const raw = match[1]
     const pipeIdx = raw.indexOf('|')
     const left = pipeIdx === -1 ? raw : raw.slice(0, pipeIdx)
-    targets.push(left.trim())
+    const parsed = parseWikiLinkTarget(left)
+    // Cross-vault links are not lint-able from a single vault perspective.
+    if (parsed.vault !== 'local') continue
+    targets.push(parsed.slug)
   }
   return targets
 }
@@ -182,8 +192,13 @@ function extractLinksFromFrontmatterField(value: unknown): string[] {
   for (const item of value) {
     if (typeof item !== 'string') continue
     const wiki = extractWikiLinkTargets(item)
-    if (wiki.length > 0) out.push(...wiki)
-    else out.push(item.trim())
+    if (wiki.length > 0) {
+      out.push(...wiki)
+    } else {
+      const parsed = parseWikiLinkTarget(item)
+      if (parsed.vault !== 'local') continue
+      out.push(parsed.slug)
+    }
   }
   return out
 }

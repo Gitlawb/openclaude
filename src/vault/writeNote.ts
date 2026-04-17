@@ -43,6 +43,10 @@ import type { VaultConfig } from './types.js'
 import { writeVaultFile } from './writer.js'
 import type { NeedsInput } from './escapeHatch/contract.js'
 import { resolveNeedsInput, type ResolverContext } from './escapeHatch/resolver.js'
+import {
+  parseWikiLinkTarget,
+  type WikiLinkTarget,
+} from './wikiLinkParser.js'
 
 export type { NoteDraft, Violation } from './conventions/validator.js'
 
@@ -139,21 +143,45 @@ function collectAllNoteBasenames(vaultPath: string): Set<string> {
 
 const WIKILINK_RE = /\[\[([^\]]+)\]\]/g
 
-function extractWikiLinkTargets(text: string): string[] {
-  const targets: string[] = []
+function extractWikiLinkTargets(text: string): WikiLinkTarget[] {
+  const targets: WikiLinkTarget[] = []
   for (const match of text.matchAll(WIKILINK_RE)) {
     const raw = match[1]
     // Strip `|display` alias suffix.
     const pipeIdx = raw.indexOf('|')
     const left = pipeIdx === -1 ? raw : raw.slice(0, pipeIdx)
-    targets.push(left.trim())
+    // PIFE-01: parse global:/project: namespace prefix → typed target.
+    targets.push(parseWikiLinkTarget(left))
   }
   return targets
 }
 
-function extractLinksFromFrontmatterField(value: unknown): string[] {
+/**
+ * Validate one resolved WikiLink target. PIF-E (T3) adds cross-vault
+ * branches; for T2 the helper preserves the existing local-only check
+ * (resolve `target.slug` against the in-target-vault `resolvableTargets`
+ * set, regardless of `target.vault`).
+ */
+function checkLink(
+  target: WikiLinkTarget,
+  field: string,
+  _scope: 'project' | 'global',
+  resolvableTargets: Set<string>,
+  linkViolations: Violation[],
+): void {
+  if (!resolvableTargets.has(target.slug)) {
+    linkViolations.push({
+      field,
+      expected: 'existing note',
+      got: target.slug,
+      rule: 'hallucinated-link',
+    })
+  }
+}
+
+function extractLinksFromFrontmatterField(value: unknown): WikiLinkTarget[] {
   if (!Array.isArray(value)) return []
-  const out: string[] = []
+  const out: WikiLinkTarget[] = []
   for (const item of value) {
     if (typeof item !== 'string') continue
     // Accept either `[[target]]` or bare `target`.
@@ -161,7 +189,9 @@ function extractLinksFromFrontmatterField(value: unknown): string[] {
     if (wikiTargets.length > 0) {
       out.push(...wikiTargets)
     } else {
-      out.push(item.trim())
+      // Bare `target` (no fences) — parse as a literal slug. Same prefix
+      // rules apply.
+      out.push(parseWikiLinkTarget(item))
     }
   }
   return out
@@ -311,17 +341,14 @@ export async function writeNote(
   ])
 
   const linkViolations: Violation[] = []
+  // Narrow scope to the validated NoteScope union for the link check.
+  // Garbage values were already caught by validateNote (T4 invalid-value
+  // rule); treat anything that isn't 'global' as 'project' here.
+  const effectiveScope: 'project' | 'global' = scope === 'global' ? 'global' : 'project'
 
   // Body links.
   for (const target of extractWikiLinkTargets(draft.body)) {
-    if (!resolvableTargets.has(target)) {
-      linkViolations.push({
-        field: 'body',
-        expected: 'existing note',
-        got: target,
-        rule: 'hallucinated-link',
-      })
-    }
+    checkLink(target, 'body', effectiveScope, resolvableTargets, linkViolations)
   }
 
   // Frontmatter link-bearing fields.
@@ -329,14 +356,7 @@ export async function writeNote(
   for (const field of LINK_FIELDS) {
     const targets = extractLinksFromFrontmatterField(draft.frontmatter[field])
     for (const target of targets) {
-      if (!resolvableTargets.has(target)) {
-        linkViolations.push({
-          field,
-          expected: 'existing note',
-          got: target,
-          rule: 'hallucinated-link',
-        })
-      }
+      checkLink(target, field, effectiveScope, resolvableTargets, linkViolations)
     }
   }
 
