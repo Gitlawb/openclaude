@@ -86,11 +86,6 @@ import {
   truncateMcpContentIfNeeded,
 } from '../../utils/mcpValidation.js'
 import { WebSocketTransport } from '../../utils/mcpWebSocketTransport.js'
-import {
-  detectMCPTransport,
-  isHTTPBasedMCPTransport,
-  type MCPTransportType,
-} from '../../utils/mcpTransportHelper.js'
 import { memoizeWithLRU } from '../../utils/memoize.js'
 import { getWebSocketTLSOptions } from '../../utils/mtls.js'
 import {
