@@ -161,11 +161,10 @@ function SpinnerWithVerbInner({
 
       const showDuration = (): void => {
         setThinkingStatus(duration)
-        // "thought for Xs" persists for 30s — long enough to stay visible
-        // through the entire tool-use + responding phase of a typical turn.
-        // It auto-clears only if no new thinking period replaces it.
-        const clearTimer = setTimeout(() => setThinkingStatus(null), 30_000)
-        thinkingTimersRef.current.push(clearTimer)
+        // No auto-clear timer: "thought for Xs" stays visible for the entire
+        // turn. The Spinner component unmounts when the turn ends (showSpinner
+        // becomes false), which resets everything naturally. On the next
+        // thinking period, the new "thinking..." replaces it.
       }
       if (remainingThinkingTime > 0) {
         const showTimer = setTimeout(showDuration, remainingThinkingTime)
