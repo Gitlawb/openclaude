@@ -839,13 +839,13 @@ export function REPL({
   useIdeSelection(isRemoteSession ? EMPTY_MCP_CLIENTS : mcp.clients, setIDESelection);
   const [streamMode, setStreamMode] = useState<SpinnerMode>('responding');
   // Track whether thinking occurred during the current turn so the Spinner
-  // stays visible (showing "thought for Xs") even after text starts streaming.
-  // Without this, the Spinner unmounts when visibleStreamingText appears and
-  // the thinking indicator vanishes mid-generation.
-  const hadThinkingThisTurnRef = useRef(false);
+  // stays visible (showing "thought for Xs") even after text starts streaming
+  // or tools produce JSX output. Using state (not ref) so showSpinner re-computes
+  // when the flag changes — refs don't trigger re-renders.
+  const [hadThinkingThisTurn, setHadThinkingThisTurn] = useState(false);
   useEffect(() => {
     if (streamMode === 'thinking') {
-      hadThinkingThisTurnRef.current = true;
+      setHadThinkingThisTurn(true);
     }
   }, [streamMode]);
   // Ref mirror so onSubmit can read the latest value without adding
@@ -1618,7 +1618,7 @@ export function REPL({
     setSpinnerMessage(null);
     setSpinnerColor(null);
     setSpinnerShimmerColor(null);
-    hadThinkingThisTurnRef.current = false;
+    setHadThinkingThisTurn(false);
     pickNewSpinnerTip();
     endInteractionSpan();
     // Speculative bash classifier checks are only valid for the current
@@ -1712,9 +1712,8 @@ export function REPL({
   });
   // Keep Spinner visible when thinking occurred this turn, even if toolJSX
   // is showing (e.g. BashTool output) or streaming text is visible.
-  // hadThinkingThisTurnRef is reset in resetLoadingState at turn end.
-  const keepSpinnerForThinking = hadThinkingThisTurnRef.current;
-  const showSpinner = ((!toolJSX || toolJSX.showSpinner === true || keepSpinnerForThinking) && toolUseConfirmQueue.length === 0 && promptQueue.length === 0 && (
+  // hadThinkingThisTurn is reset in resetLoadingState at turn end.
+  const showSpinner = ((!toolJSX || toolJSX.showSpinner === true || hadThinkingThisTurn) && toolUseConfirmQueue.length === 0 && promptQueue.length === 0 && (
     // Show spinner during input processing, API call, while teammates are running,
     // or while pending task notifications are queued (prevents spinner bounce between consecutive notifications)
     isLoading || userInputOnProcessing || hasRunningTeammates ||
@@ -1728,7 +1727,7 @@ export function REPL({
       // Hide spinner when streaming text is visible (the text IS the feedback),
       // but keep it when isBriefOnly suppresses the streaming text display,
       // or when thinking occurred during this turn (keep "thought for Xs" visible).
-      !visibleStreamingText || isBriefOnly || keepSpinnerForThinking));
+      !visibleStreamingText || isBriefOnly || hadThinkingThisTurn));
 
   // Check if any permission or ask question prompt is currently visible
   // This is used to prevent the survey from opening while prompts are active
