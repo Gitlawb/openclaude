@@ -838,6 +838,16 @@ export function REPL({
   useIdeLogging(isRemoteSession ? EMPTY_MCP_CLIENTS : mcp.clients);
   useIdeSelection(isRemoteSession ? EMPTY_MCP_CLIENTS : mcp.clients, setIDESelection);
   const [streamMode, setStreamMode] = useState<SpinnerMode>('responding');
+  // Track whether thinking occurred during the current turn so the Spinner
+  // stays visible (showing "thought for Xs") even after text starts streaming.
+  // Without this, the Spinner unmounts when visibleStreamingText appears and
+  // the thinking indicator vanishes mid-generation.
+  const hadThinkingThisTurnRef = useRef(false);
+  useEffect(() => {
+    if (streamMode === 'thinking') {
+      hadThinkingThisTurnRef.current = true;
+    }
+  }, [streamMode]);
   // Ref mirror so onSubmit can read the latest value without adding
   // streamMode to its deps. streamMode flips between
   // requesting/responding/tool-use ~10x per turn during streaming; having it
@@ -1608,6 +1618,7 @@ export function REPL({
     setSpinnerMessage(null);
     setSpinnerColor(null);
     setSpinnerShimmerColor(null);
+    hadThinkingThisTurnRef.current = false;
     pickNewSpinnerTip();
     endInteractionSpan();
     // Speculative bash classifier checks are only valid for the current
@@ -1711,8 +1722,9 @@ export function REPL({
     // Hide spinner when waiting for leader to approve permission request
     !pendingWorkerRequest && !onlySleepToolActive && (
       // Hide spinner when streaming text is visible (the text IS the feedback),
-      // but keep it when isBriefOnly suppresses the streaming text display
-      !visibleStreamingText || isBriefOnly);
+      // but keep it when isBriefOnly suppresses the streaming text display,
+      // or when thinking occurred during this turn (keep "thought for Xs" visible).
+      !visibleStreamingText || isBriefOnly || hadThinkingThisTurnRef.current);
 
   // Check if any permission or ask question prompt is currently visible
   // This is used to prevent the survey from opening while prompts are active
