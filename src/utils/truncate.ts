@@ -13,10 +13,11 @@ import { getGraphemeSegmenter } from './intl.js'
  * @param maxLength Maximum display width of the result in terminal columns (must be > 0)
  * @returns The truncated path, or original if it fits within maxLength
  */
-export function truncatePathMiddle(path: string, maxLength: number): string {
+export function truncatePathMiddle(path: string | undefined, maxLength: number): string {
+  const safePath = path ?? ''
   // No truncation needed
-  if (stringWidth(path) <= maxLength) {
-    return path
+  if (stringWidth(safePath) <= maxLength) {
+    return safePath
   }
 
   // Handle edge case of very small or non-positive maxLength
@@ -26,14 +27,14 @@ export function truncatePathMiddle(path: string, maxLength: number): string {
 
   // Need at least room for "…" + something meaningful
   if (maxLength < 5) {
-    return truncateToWidth(path, maxLength)
+    return truncateToWidth(safePath, maxLength)
   }
 
   // Find the filename (last path segment)
-  const lastSlash = path.lastIndexOf('/')
+  const lastSlash = safePath.lastIndexOf('/')
   // Include the leading slash in filename for display
-  const filename = lastSlash >= 0 ? path.slice(lastSlash) : path
-  const directory = lastSlash >= 0 ? path.slice(0, lastSlash) : ''
+  const filename = lastSlash >= 0 ? safePath.slice(lastSlash) : safePath
+  const directory = lastSlash >= 0 ? safePath.slice(0, lastSlash) : ''
   const filenameWidth = stringWidth(filename)
 
   // If filename alone is too long, truncate from start
@@ -60,12 +61,13 @@ export function truncatePathMiddle(path: string, maxLength: number): string {
  * Splits on grapheme boundaries to avoid breaking emoji or surrogate pairs.
  * Appends '…' when truncation occurs.
  */
-export function truncateToWidth(text: string, maxWidth: number): string {
-  if (stringWidth(text) <= maxWidth) return text
+export function truncateToWidth(text: string | undefined, maxWidth: number): string {
+  const safeText = text ?? ''
+  if (stringWidth(safeText) <= maxWidth) return safeText
   if (maxWidth <= 1) return '…'
   let width = 0
   let result = ''
-  for (const { segment } of getGraphemeSegmenter().segment(text)) {
+  for (const { segment } of getGraphemeSegmenter().segment(safeText)) {
     const segWidth = stringWidth(segment)
     if (width + segWidth > maxWidth - 1) break
     result += segment
@@ -79,10 +81,11 @@ export function truncateToWidth(text: string, maxWidth: number): string {
  * Prepends '…' when truncation occurs.
  * Width-aware and grapheme-safe.
  */
-export function truncateStartToWidth(text: string, maxWidth: number): string {
-  if (stringWidth(text) <= maxWidth) return text
+export function truncateStartToWidth(text: string | undefined, maxWidth: number): string {
+  const safeText = text ?? ''
+  if (stringWidth(safeText) <= maxWidth) return safeText
   if (maxWidth <= 1) return '…'
-  const segments = [...getGraphemeSegmenter().segment(text)]
+  const segments = [...getGraphemeSegmenter().segment(safeText)]
   let width = 0
   let startIdx = segments.length
   for (let i = segments.length - 1; i >= 0; i--) {
@@ -106,14 +109,15 @@ export function truncateStartToWidth(text: string, maxWidth: number): string {
  * Width-aware and grapheme-safe.
  */
 export function truncateToWidthNoEllipsis(
-  text: string,
+  text: string | undefined,
   maxWidth: number,
 ): string {
-  if (stringWidth(text) <= maxWidth) return text
+  const safeText = text ?? ''
+  if (stringWidth(safeText) <= maxWidth) return safeText
   if (maxWidth <= 0) return ''
   let width = 0
   let result = ''
-  for (const { segment } of getGraphemeSegmenter().segment(text)) {
+  for (const { segment } of getGraphemeSegmenter().segment(safeText)) {
     const segWidth = stringWidth(segment)
     if (width + segWidth > maxWidth) break
     result += segment
@@ -133,20 +137,19 @@ export function truncateToWidthNoEllipsis(
  */
 
 export function truncate(
-  str: string,
+  str: string | undefined,
   maxWidth: number,
   singleLine: boolean = false,
 ): string {
-  // Undefined or null protection
-  if (!str) return ''
-
-  let result = str
+  const safeStr = str ?? ''
+  if (safeStr === '') return ''
+  let result = safeStr
 
   // If singleLine is true, truncate at first newline
   if (singleLine) {
-    const firstNewline = str.indexOf('\n')
+    const firstNewline = safeStr.indexOf('\n')
     if (firstNewline !== -1) {
-      result = str.substring(0, firstNewline)
+      result = safeStr.substring(0, firstNewline)
       // Ensure total width including ellipsis doesn't exceed maxWidth
       if (stringWidth(result) + 1 > maxWidth) {
         return truncateToWidth(result, maxWidth)
