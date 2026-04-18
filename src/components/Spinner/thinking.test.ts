@@ -99,12 +99,12 @@ describe('thinking status tracker', () => {
     tracker.dispose()
   })
 
-  test('transitions to duration after thinking ends (long think > 3s)', () => {
+  test('transitions to duration after thinking ends (long think > 5s)', () => {
     const tracker = createThinkingTracker()
     tracker.onModeChange('thinking', 1000)
-    tracker.onModeChange('responding', 6000) // 5 seconds of thinking
-    // Should immediately show duration since elapsed > 3s
-    expect(tracker.statusChanges).toContain(5000)
+    tracker.onModeChange('responding', 8000) // 7 seconds of thinking
+    // Should immediately show duration since elapsed > 5s
+    expect(tracker.statusChanges).toContain(7000)
     tracker.dispose()
   })
 
@@ -157,13 +157,13 @@ describe('thinking status tracker', () => {
     const tracker = createThinkingTracker()
     tracker.onModeChange('thinking', 0)
     tracker.onModeChange('tool-input', 2000)
-    // Duration is 2000ms, remainingThinkingTime = 3000 - 2000 = 1000ms
-    // So the showDuration callback is scheduled after 1000ms
+    // Duration is 2000ms, remainingThinkingTime = 5000 - 2000 = 3000ms
+    // So the showDuration callback is scheduled after 3000ms
     tracker.onModeChange('tool-use', 2100)
     tracker.onModeChange('responding', 5000)
 
-    // Wait for the scheduled timer to fire (remainingThinkingTime was 1000ms)
-    await new Promise(r => setTimeout(r, 1200))
+    // Wait for the scheduled timer to fire (remainingThinkingTime was 3000ms)
+    await new Promise(r => setTimeout(r, 3200))
     expect(tracker.statusChanges.filter(s => s === 2000).length).toBeGreaterThan(0)
     tracker.dispose()
   })

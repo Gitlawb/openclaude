@@ -120,9 +120,11 @@ function SpinnerWithVerbInner({
   } = useTerminalSize();
   const tasksV2 = useTasksV2();
 
-  // Track thinking status: 'thinking' | number (duration in ms) | null
-  // Shows each state for minimum 3s to avoid UI jank and prevent the
-  // thinking indicator from disappearing too quickly on short thoughts.
+  // Track thinking status: 'thinking' | number (duration in ms) | null.
+  // The "thinking..." text shows while mode is 'thinking' and for a minimum
+  // period after. The "thought for Xs" text persists long enough to be read
+  // and stays visible during subsequent tool-use/responding phases unless
+  // a new thinking period replaces it.
   const [thinkingStatus, setThinkingStatus] = useState<'thinking' | number | null>(null);
   const thinkingStartRef = useRef<number | null>(null);
   const thinkingTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
@@ -131,10 +133,10 @@ function SpinnerWithVerbInner({
   // from firing after mode changes (fixes rapid cycling where timers race).
   const clearThinkingTimers = (): void => {
     for (const timer of thinkingTimersRef.current) {
-      clearTimeout(timer);
+      clearTimeout(timer)
     }
-    thinkingTimersRef.current = [];
-  };
+    thinkingTimersRef.current = []
+  }
 
   useEffect(() => {
     if (mode === 'thinking') {
@@ -143,38 +145,41 @@ function SpinnerWithVerbInner({
       // (thinking → tool-use → thinking) where the old ref was nulled out
       // by the tool-use transition, so the second thinking period would
       // silently skip restarting.
-      thinkingStartRef.current = Date.now();
-      setThinkingStatus('thinking');
-      // Clear any lingering "thought for Xs" timers from a previous cycle
-      clearThinkingTimers();
+      thinkingStartRef.current = Date.now()
+      setThinkingStatus('thinking')
+      // Clear any lingering timers from a previous cycle
+      clearThinkingTimers()
     } else if (thinkingStartRef.current !== null) {
-      // Stopped thinking — calculate duration, ensure minimum 3s display
-      const duration = Date.now() - thinkingStartRef.current;
-      const elapsed = Date.now() - thinkingStartRef.current;
-      const remainingThinkingTime = Math.max(0, 3000 - elapsed);
-      thinkingStartRef.current = null;
-      clearThinkingTimers();
+      // Stopped thinking — calculate duration and show it
+      const duration = Date.now() - thinkingStartRef.current
+      const elapsed = Date.now() - thinkingStartRef.current
+      // Keep "thinking..." visible for at least 5s so the user always sees it,
+      // even for very short thoughts (< 1s). After that, switch to "thought for Xs".
+      const remainingThinkingTime = Math.max(0, 5000 - elapsed)
+      thinkingStartRef.current = null
+      clearThinkingTimers()
 
-      // Show "thinking..." for remaining time if < 3s elapsed, then show duration
       const showDuration = (): void => {
-        setThinkingStatus(duration);
-        // Show "thought for Xs" for 4s before clearing (was 2s — too fast to read)
-        const clearTimer = setTimeout(() => setThinkingStatus(null), 4000);
-        thinkingTimersRef.current.push(clearTimer);
-      };
+        setThinkingStatus(duration)
+        // "thought for Xs" persists for 30s — long enough to stay visible
+        // through the entire tool-use + responding phase of a typical turn.
+        // It auto-clears only if no new thinking period replaces it.
+        const clearTimer = setTimeout(() => setThinkingStatus(null), 30_000)
+        thinkingTimersRef.current.push(clearTimer)
+      }
       if (remainingThinkingTime > 0) {
-        const showTimer = setTimeout(showDuration, remainingThinkingTime);
-        thinkingTimersRef.current.push(showTimer);
+        const showTimer = setTimeout(showDuration, remainingThinkingTime)
+        thinkingTimersRef.current.push(showTimer)
       } else {
-        showDuration();
+        showDuration()
       }
     }
     return () => {
       // Don't clear timers on cleanup — let them fire naturally.
       // This prevents rapid mode cycles (thinking→tool-use→thinking)
       // from killing the "thought for Xs" display before it's readable.
-    };
-  }, [mode]);
+    }
+  }, [mode])
 
   // Find the current in-progress task and next pending task
   const currentTodo = tasksV2?.find(task => task.status !== 'pending' && task.status !== 'completed');
