@@ -597,8 +597,10 @@ function convertTools(
         function: {
           name: t.name,
           description: t.description ?? '',
-          parameters: normalizeSchemaForOpenAI(schema, !isGemini),
-        },
+          parameters: normalizeSchemaForOpenAI(
+            schema,
+            !isGemini && !isEnvTruthy(process.env.OPENCLAUDE_DISABLE_STRICT_TOOLS),
+          ),
       }
     })
 }
