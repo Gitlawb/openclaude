@@ -7,6 +7,7 @@ import btw from './commands/btw/index.js'
 import goodClaude from './commands/good-claude/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
+import generateReport from './commands/generate-report/index.js'
 import clear from './commands/clear/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
@@ -40,6 +41,8 @@ import onboarding from './commands/onboarding/index.js'
 import pr_comments from './commands/pr_comments/index.js'
 import releaseNotes from './commands/release-notes/index.js'
 import rename from './commands/rename/index.js'
+import scanSecurity from './commands/scan-security/index.js'
+import runPipeline from './commands/run-pipeline/index.js'
 import resume from './commands/resume/index.js'
 import review, { ultrareview } from './commands/review.js'
 import session from './commands/session/index.js'
@@ -309,6 +312,7 @@ const COMMANDS = memoize((): Command[] => [
   releaseNotes,
   reloadPlugins,
   rename,
+  scanSecurity,
   resume,
   session,
   skills,
@@ -319,9 +323,11 @@ const COMMANDS = memoize((): Command[] => [
   tag,
   theme,
   feedback,
+  generateReport,
   review,
   ultrareview,
   rewind,
+  runPipeline,
   securityReview,
   terminalSetup,
   upgrade,
