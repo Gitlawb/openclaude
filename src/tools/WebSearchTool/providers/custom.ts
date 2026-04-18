@@ -395,6 +395,16 @@ function parseExtraParams(): Record<string, string> {
   return {}
 }
 
+/**
+ * Max results to request from the custom API.
+ * Override via WEB_MAX_RESULTS env var (e.g. WEB_MAX_RESULTS=20).
+ * Some APIs paginate; this param is passed as a hint where the API supports it.
+ * Default: 10.
+ */
+function getMaxResults(): number {
+  return Number(process.env.WEB_MAX_RESULTS) || 10
+}
+
 function buildRequest(query: string) {
   const config = resolveConfig()
   const method = config.method.toUpperCase()
@@ -412,6 +422,17 @@ function buildRequest(query: string) {
   // If {query} wasn't in template, add as param
   if (!rawTemplate.includes('{query}')) {
     url.searchParams.set(config.queryParam, query)
+  }
+
+  // Add max results param — common param names across APIs.
+  // Skipped if WEB_PARAMS already set one of these (user override wins).
+  const maxResults = getMaxResults()
+  const resultCountParams = ['count', 'num', 'limit', 'size', 'per_page', 'max_results', 'rows', 'results']
+  const hasResultParam = resultCountParams.some(p => url.searchParams.has(p))
+  if (!hasResultParam) {
+    // Use the most common default (count) — APIs that use a different name
+    // should set it via WEB_PARAMS or WEB_URL_TEMPLATE
+    url.searchParams.set('count', String(maxResults))
   }
 
   const urlString = url.toString()
@@ -463,7 +484,11 @@ function buildRequest(query: string) {
       }
       init.body = body
     } else {
-      init.body = JSON.stringify({ [config.queryParam]: query })
+      init.body = JSON.stringify({
+        [config.queryParam]: query,
+        count: getMaxResults(),
+        max_results: getMaxResults(),
+      })
     }
   }
 

@@ -121,40 +121,58 @@ function SpinnerWithVerbInner({
   const tasksV2 = useTasksV2();
 
   // Track thinking status: 'thinking' | number (duration in ms) | null
-  // Shows each state for minimum 2s to avoid UI jank
+  // Shows each state for minimum 3s to avoid UI jank and prevent the
+  // thinking indicator from disappearing too quickly on short thoughts.
   const [thinkingStatus, setThinkingStatus] = useState<'thinking' | number | null>(null);
   const thinkingStartRef = useRef<number | null>(null);
+  const thinkingTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+
+  // Helper: clear all pending thinking timers to prevent stale callbacks
+  // from firing after mode changes (fixes rapid cycling where timers race).
+  const clearThinkingTimers = (): void => {
+    for (const timer of thinkingTimersRef.current) {
+      clearTimeout(timer);
+    }
+    thinkingTimersRef.current = [];
+  };
+
   useEffect(() => {
-    let showDurationTimer: ReturnType<typeof setTimeout> | null = null;
-    let clearStatusTimer: ReturnType<typeof setTimeout> | null = null;
     if (mode === 'thinking') {
-      // Started thinking
-      if (thinkingStartRef.current === null) {
-        thinkingStartRef.current = Date.now();
-        setThinkingStatus('thinking');
-      }
+      // Started thinking — always restart the timer, even if a previous
+      // "thought for Xs" display is still visible. This fixes rapid cycling
+      // (thinking → tool-use → thinking) where the old ref was nulled out
+      // by the tool-use transition, so the second thinking period would
+      // silently skip restarting.
+      thinkingStartRef.current = Date.now();
+      setThinkingStatus('thinking');
+      // Clear any lingering "thought for Xs" timers from a previous cycle
+      clearThinkingTimers();
     } else if (thinkingStartRef.current !== null) {
-      // Stopped thinking - calculate duration and ensure 2s minimum display
+      // Stopped thinking — calculate duration, ensure minimum 3s display
       const duration = Date.now() - thinkingStartRef.current;
       const elapsed = Date.now() - thinkingStartRef.current;
-      const remainingThinkingTime = Math.max(0, 2000 - elapsed);
+      const remainingThinkingTime = Math.max(0, 3000 - elapsed);
       thinkingStartRef.current = null;
+      clearThinkingTimers();
 
-      // Show "thinking..." for remaining time if < 2s elapsed, then show duration
+      // Show "thinking..." for remaining time if < 3s elapsed, then show duration
       const showDuration = (): void => {
         setThinkingStatus(duration);
-        // Clear after 2s
-        clearStatusTimer = setTimeout(setThinkingStatus, 2000, null);
+        // Show "thought for Xs" for 4s before clearing (was 2s — too fast to read)
+        const clearTimer = setTimeout(() => setThinkingStatus(null), 4000);
+        thinkingTimersRef.current.push(clearTimer);
       };
       if (remainingThinkingTime > 0) {
-        showDurationTimer = setTimeout(showDuration, remainingThinkingTime);
+        const showTimer = setTimeout(showDuration, remainingThinkingTime);
+        thinkingTimersRef.current.push(showTimer);
       } else {
         showDuration();
       }
     }
     return () => {
-      if (showDurationTimer) clearTimeout(showDurationTimer);
-      if (clearStatusTimer) clearTimeout(clearStatusTimer);
+      // Don't clear timers on cleanup — let them fire naturally.
+      // This prevents rapid mode cycles (thinking→tool-use→thinking)
+      // from killing the "thought for Xs" display before it's readable.
     };
   }, [mode]);
 

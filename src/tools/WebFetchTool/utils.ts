@@ -125,8 +125,9 @@ const DOMAIN_CHECK_TIMEOUT_MS = 10_000
 // common client defaults (axios=5, follow-redirects=21, Chrome=20).
 const MAX_REDIRECTS = 10
 
-// Truncate to not spend too many tokens
-export const MAX_MARKDOWN_LENGTH = 100_000
+// Truncate to not spend too many tokens. Override via MAX_WEBFETCH_CHARS env var.
+// e.g. MAX_WEBFETCH_CHARS=200000 for larger pages, or MAX_WEBFETCH_CHARS=50000 to save tokens.
+export const MAX_MARKDOWN_LENGTH = Number(process.env.MAX_WEBFETCH_CHARS) || 100_000
 
 export function isPreapprovedUrl(url: string): boolean {
   try {
