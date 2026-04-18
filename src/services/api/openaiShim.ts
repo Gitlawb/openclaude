@@ -446,7 +446,12 @@ function convertMessages(
 
               // Handle Gemini thought_signature
               if (isGeminiMode()) {
+                // If the model provided a signature in the tool_use block itself (e.g. from a previous Turn/Step)
+                // Use thinkingBlock.signature for ALL tool calls in the same assistant turn if available.
+                // The API requires the same signature on every replayed function call part in a parallel set.
                 const signature = tu.signature ?? (thinkingBlock as any)?.signature
+
+                // Merge into existing google-specific metadata if present
                 const existingGoogle = (toolCall.extra_content?.google as Record<string, unknown>) ?? {}
                 toolCall.extra_content = {
                   ...toolCall.extra_content,
