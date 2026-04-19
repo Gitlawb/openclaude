@@ -1774,6 +1774,7 @@ class OpenAIShimMessages {
         didRetryWithoutTools = true
         delete body.tools
         delete body.tool_choice
+        refreshSerializedBody()
 
         logForDebugging(
           `[OpenAIShim] self-heal retry reason=tool_call_incompatible mode=toolless method=POST url=${redactUrlForDiagnostics(chatCompletionsUrl)} model=${request.resolvedModel}`,
