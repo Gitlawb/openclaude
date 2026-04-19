@@ -1177,6 +1177,14 @@ export class QueryEngine {
     return this.mutableMessages
   }
 
+  /**
+   * Inject messages into the engine's message store.
+   * Used by SDK query() when fork=true to resume from a forked session.
+   */
+  injectMessages(messages: Message[]): void {
+    this.mutableMessages.push(...messages)
+  }
+
   getReadFileState(): FileStateCache {
     return this.readFileState
   }

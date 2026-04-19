@@ -210,6 +210,83 @@ export type AxiosErrorKind =
  * Checks the `.isAxiosError` marker property directly (same as
  * axios.isAxiosError()) to keep this module dependency-free.
  */
+// ============================================================================
+// SDK-specific error classes
+// ============================================================================
+
+export class SDKAuthenticationError extends ClaudeError {
+  constructor(message?: string) {
+    super(message ?? 'Authentication failed')
+    this.name = 'SDKAuthenticationError'
+  }
+}
+
+export class SDKBillingError extends ClaudeError {
+  constructor(message?: string) {
+    super(message ?? 'Billing error - check subscription')
+    this.name = 'SDKBillingError'
+  }
+}
+
+export class SDKRateLimitError extends ClaudeError {
+  constructor(
+    message?: string,
+    public readonly resetsAt?: number,
+    public readonly rateLimitType?: string,
+  ) {
+    super(message ?? 'Rate limit exceeded')
+    this.name = 'SDKRateLimitError'
+  }
+}
+
+export class SDKInvalidRequestError extends ClaudeError {
+  constructor(message?: string) {
+    super(message ?? 'Invalid request')
+    this.name = 'SDKInvalidRequestError'
+  }
+}
+
+export class SDKServerError extends ClaudeError {
+  constructor(message?: string) {
+    super(message ?? 'Server error')
+    this.name = 'SDKServerError'
+  }
+}
+
+export class SDKMaxOutputTokensError extends ClaudeError {
+  constructor(message?: string) {
+    super(message ?? 'Max output tokens reached')
+    this.name = 'SDKMaxOutputTokensError'
+  }
+}
+
+export type SDKAssistantMessageError =
+  | 'authentication_failed'
+  | 'billing_error'
+  | 'rate_limit'
+  | 'invalid_request'
+  | 'server_error'
+  | 'unknown'
+  | 'max_output_tokens'
+
+/**
+ * Convert an SDKAssistantMessageError type string to the proper Error class.
+ */
+export function sdkErrorFromType(
+  errorType: SDKAssistantMessageError,
+  message?: string,
+): ClaudeError {
+  switch (errorType) {
+    case 'authentication_failed': return new SDKAuthenticationError(message)
+    case 'billing_error': return new SDKBillingError(message)
+    case 'rate_limit': return new SDKRateLimitError(message)
+    case 'invalid_request': return new SDKInvalidRequestError(message)
+    case 'server_error': return new SDKServerError(message)
+    case 'max_output_tokens': return new SDKMaxOutputTokensError(message)
+    default: return new ClaudeError(message ?? 'Unknown error')
+  }
+}
+
 export function classifyAxiosError(e: unknown): {
   kind: AxiosErrorKind
   status?: number

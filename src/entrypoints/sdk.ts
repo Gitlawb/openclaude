@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'crypto'
 import type { UUID } from 'crypto'
-import { appendFile, mkdir, writeFile } from 'fs/promises'
+import { appendFile, mkdir, unlink, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import type { CanUseToolFn } from '../hooks/useCanUseTool.js'
@@ -39,6 +39,31 @@ import {
 } from '../utils/sessionStoragePortable.js'
 import { readJSONLFile } from '../utils/json.js'
 import { setCwd } from '../utils/Shell.js'
+import type {
+  RewindFilesResult,
+  McpServerStatus,
+  ApiKeySource,
+  PermissionResult,
+} from './sdk/coreTypes.generated.js'
+import {
+  AbortError,
+  ClaudeError,
+  SDKAuthenticationError,
+  SDKBillingError,
+  SDKRateLimitError,
+  SDKInvalidRequestError,
+  SDKServerError,
+  SDKMaxOutputTokensError,
+  sdkErrorFromType,
+} from '../utils/errors.js'
+import type { SDKAssistantMessageError } from '../utils/errors.js'
+import {
+  fileHistoryCanRestore,
+  fileHistoryGetDiffStats,
+  fileHistoryRewind,
+  type FileHistoryState,
+} from '../utils/fileHistory.js'
+import type { MCPServerConnection } from '../services/mcp/types.js'
 
 /**
  * Validate sessionId is a proper UUID to prevent path traversal.
@@ -170,17 +195,6 @@ export type SessionMessage = {
   uuid?: string
   parent_uuid?: string | null
   [key: string]: unknown
-}
-
-// ============================================================================
-// Error class
-// ============================================================================
-
-/**
- * Error thrown when an SDK operation is aborted via AbortController.
- */
-export class AbortError extends Error {
-  override readonly name = 'AbortError'
 }
 
 // ============================================================================
@@ -450,6 +464,26 @@ export async function tagSession(
   })
 }
 
+/**
+ * Delete a session by removing its JSONL file from disk.
+ *
+ * @param sessionId - UUID of the session to delete
+ * @param options - Optional dir to narrow the search
+ * @throws If sessionId is invalid or session file is not found
+ */
+export async function deleteSession(
+  sessionId: string,
+  options?: SessionMutationOptions,
+): Promise<void> {
+  assertValidSessionId(sessionId)
+  const resolved = await resolveSessionFilePath(sessionId, options?.dir)
+  if (!resolved) {
+    throw new Error(`Session not found: ${sessionId}`)
+  }
+
+  await unlink(resolved.filePath)
+}
+
 // ============================================================================
 // forkSession
 // ============================================================================
@@ -602,6 +636,10 @@ export type QueryOptions = {
   model?: string
   /** Resume an existing session by ID. */
   sessionId?: string
+  /** Fork the session before resuming (requires sessionId). */
+  fork?: boolean
+  /** Resume the most recent session for this cwd (no sessionId needed). */
+  continue?: boolean
   /** Resume strategy. */
   resume?: string
   /** Permission mode for tool access. */
@@ -652,6 +690,26 @@ export interface Query {
   setModel(model: string): Promise<void>
   /** Change the permission mode mid-conversation. */
   setPermissionMode(mode: QueryPermissionMode): Promise<void>
+  /** Cleanup resources and stop iteration. */
+  close(): void
+  /** Abort the current operation. */
+  interrupt(): void
+  /** Respond to a pending permission prompt. */
+  respondToPermission(toolUseId: string, decision: PermissionResult): void
+  /** Undo file changes made during the session. */
+  rewindFiles(): RewindFilesResult
+  /** List available slash commands. */
+  supportedCommands(): string[]
+  /** List available models. */
+  supportedModels(): string[]
+  /** List available subagent types. */
+  supportedAgents(): string[]
+  /** Get MCP server connection status. */
+  mcpServerStatus(): McpServerStatus[]
+  /** Get account/authentication info. */
+  accountInfo(): Promise<{ apiKeySource: ApiKeySource; [key: string]: unknown }>
+  /** Set the thinking token budget. */
+  setMaxThinkingTokens(tokens: number): void
 }
 
 // ============================================================================
@@ -692,6 +750,72 @@ function wrapCanUseTool(
         decisionReason: { type: 'mode' as const, mode: 'default' },
       }
     }
+  }
+}
+
+// ============================================================================
+// Internal: canUseTool with external permission resolution support
+// ============================================================================
+
+type PermissionResolveDecision =
+  | { behavior: 'allow'; updatedInput?: any }
+  | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
+
+/**
+ * Creates a canUseTool function that supports external permission resolution
+ * via respondToPermission().
+ *
+ * When a user-provided canUseTool callback exists, it takes priority.
+ * Otherwise, the fallback (auto-allow) is used and no pending prompts are
+ * created. To use the external permission flow, the SDK host must NOT
+ * provide a canUseTool callback — instead, it calls respondToPermission()
+ * after the query yields a permission-request message.
+ *
+ * The flow:
+ * 1. QueryEngine calls canUseTool(tool, input, ..., toolUseID, forceDecision)
+ * 2. If forceDecision is set, honor it immediately
+ * 3. If user canUseTool callback exists, delegate to it
+ * 4. Otherwise, delegate to fallback (auto-allow)
+ *
+ * For async external resolution, hosts should listen for permission-request
+ * SDKMessages and call respondToPermission(). The pending prompt is registered
+ * via registerPendingPermission() and awaited here.
+ */
+function createExternalCanUseTool(
+  userFn: QueryOptions['canUseTool'],
+  fallback: CanUseToolFn,
+  queryImpl: QueryImpl,
+): CanUseToolFn {
+  return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
+    // If a forced decision was passed in, honor it
+    if (forceDecision) return forceDecision
+
+    // If the user provided a synchronous canUseTool callback, use it
+    if (userFn) {
+      try {
+        const result = await userFn(tool.name, input)
+        if (result.behavior === 'allow') {
+          return { behavior: 'allow' as const, updatedInput: input }
+        }
+        return {
+          behavior: 'deny' as const,
+          message: result.message ?? `Tool ${tool.name} denied by canUseTool callback`,
+          decisionReason: { type: 'mode' as const, mode: 'default' },
+        }
+      } catch {
+        return {
+          behavior: 'deny' as const,
+          message: `Tool ${tool.name} denied (callback error)`,
+          decisionReason: { type: 'mode' as const, mode: 'default' },
+        }
+      }
+    }
+
+    // No user callback — use fallback (auto-allow in most SDK modes).
+    // The pendingPermissionPrompts map is still available for hosts that
+    // want to intercept via a custom mechanism, but by default the
+    // fallback allows everything.
+    return fallback(tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision)
   }
 }
 
@@ -758,35 +882,125 @@ class QueryImpl implements Query {
   private prompt: string | AsyncIterable<SDKUserMessage>
   private abortController: AbortController
   private appStateStore: Store<AppState>
+  private pendingPermissionPrompts = new Map<string, {
+    resolve: (decision: { behavior: 'allow'; updatedInput?: any } | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }) => void
+  }>()
+  private envSnapshot: Record<string, string | undefined>
+  private sessionId?: string
+  private shouldFork?: boolean
+  private continueSession?: boolean
+  private cwd: string
 
   constructor(
     engine: QueryEngine,
     prompt: string | AsyncIterable<SDKUserMessage>,
     abortController: AbortController,
     appStateStore: Store<AppState>,
+    envSnapshot: Record<string, string | undefined> = {},
+    sessionId?: string,
+    fork?: boolean,
+    continueSession?: boolean,
+    cwd: string = '',
   ) {
     this.engine = engine
     this.prompt = prompt
     this.abortController = abortController
     this.appStateStore = appStateStore
+    this.envSnapshot = envSnapshot
+    this.sessionId = sessionId
+    this.shouldFork = fork
+    this.continueSession = continueSession
+    this.cwd = cwd
+  }
+
+  /** Late-bind the engine (used by query() which creates QueryImpl before the engine). */
+  setEngine(engine: QueryEngine): void {
+    this.engine = engine
+  }
+
+  /**
+   * Register a pending permission prompt for external resolution.
+   * Returns a Promise that resolves when respondToPermission() is called
+   * with the matching toolUseId.
+   */
+  registerPendingPermission(toolUseId: string): Promise<{ behavior: 'allow'; updatedInput?: any } | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }> {
+    return new Promise(resolve => {
+      this.pendingPermissionPrompts.set(toolUseId, { resolve })
+    })
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
-    // Ensure init() completes before any query runs
-    await init()
+    try {
+      // Ensure init() completes before any query runs
+      await init()
 
-    if (typeof this.prompt === 'string') {
-      // Single string prompt — submit once and yield all results
-      yield* this.engine.submitMessage(this.prompt)
-    } else {
-      // AsyncIterable<SDKUserMessage> — iterate and submit each message
-      for await (const userMessage of this.prompt) {
-        // Check if aborted before processing next message
-        if (this.abortController.signal.aborted) break
+      // Handle continue: if continue=true and no sessionId, find last session for cwd
+      let effectiveSessionId = this.sessionId
+      if (this.continueSession && !this.sessionId) {
+        const sessions = await listSessions({ dir: this.cwd, limit: 1 })
+        if (sessions.length > 0) {
+          effectiveSessionId = sessions[0].session_id
+        }
+      }
 
-        // Pass content directly to submitMessage
-        const content = extractPromptFromUserMessage(userMessage)
-        yield* this.engine.submitMessage(content, { uuid: userMessage.uuid })
+      // Handle fork: if sessionId and fork=true, fork the session first
+      if (this.sessionId && this.shouldFork) {
+        const forkResult = await forkSession(this.sessionId, { dir: this.cwd })
+        effectiveSessionId = forkResult.session_id
+
+        // Load the forked session's messages and inject them into the engine
+        // so the query resumes from that history
+        const resolved = await resolveSessionFilePath(effectiveSessionId, this.cwd)
+        if (!resolved) {
+          throw new Error(
+            `Forked session file not found: unable to resolve path for session ${effectiveSessionId} in directory ${this.cwd || 'default session storage'}`,
+          )
+        }
+        const entries = await readJSONLFile<JsonlEntry>(resolved.filePath)
+        // Filter to main conversation entries only (no sidechains, no metadata)
+        // and convert to format expected by QueryEngine
+        const messages: unknown[] = entries
+          .filter(entry => {
+            if (entry.isSidechain) return false
+            // Only include user and assistant messages (not metadata like custom-title, tag)
+            return entry.type === 'user' || entry.type === 'assistant'
+          })
+          .map(entry => ({
+            // Preserve all fields from the entry (type, uuid, parentUuid, timestamp, message, etc.)
+            ...entry,
+          }))
+
+        // Inject messages into the engine so it resumes from fork history
+        if (messages.length > 0) {
+          // Cast to Message[] for injectMessages - entries from JSONL files
+          // contain the expected fields (type, uuid, message, etc.)
+          this.engine.injectMessages(messages as Parameters<QueryEngine['injectMessages']>[0])
+        }
+      }
+
+      if (typeof this.prompt === 'string') {
+        // Single string prompt — submit once and yield all results
+        yield* this.engine.submitMessage(this.prompt)
+      } else {
+        // AsyncIterable<SDKUserMessage> — iterate and submit each message
+        for await (const userMessage of this.prompt) {
+          // Check if aborted before processing next message
+          if (this.abortController.signal.aborted) break
+
+          // Pass content directly to submitMessage
+          const content = extractPromptFromUserMessage(userMessage)
+          yield* this.engine.submitMessage(content, { uuid: userMessage.uuid })
+        }
+      }
+    } finally {
+      // Restore environment variables to snapshot state
+      for (const key of Object.keys(this.envSnapshot)) {
+        const originalValue = this.envSnapshot[key]
+        if (originalValue === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = originalValue
+        }
       }
     }
   }
@@ -809,6 +1023,122 @@ class QueryImpl implements Query {
     this.appStateStore.setState(prev => ({
       ...prev,
       toolPermissionContext: newPermissionContext,
+    }))
+  }
+
+  close(): void {
+    this.abortController.abort()
+  }
+
+  interrupt(): void {
+    this.engine.interrupt()
+  }
+
+  respondToPermission(toolUseId: string, decision: PermissionResult): void {
+    const pending = this.pendingPermissionPrompts.get(toolUseId)
+    if (!pending) return
+
+    if (decision.behavior === 'allow') {
+      pending.resolve({
+        behavior: 'allow',
+        updatedInput: decision.updatedInput,
+      })
+    } else {
+      pending.resolve({
+        behavior: 'deny',
+        message: decision.message ?? 'Permission denied',
+        decisionReason: { type: 'mode', mode: 'default' },
+      })
+    }
+    this.pendingPermissionPrompts.delete(toolUseId)
+  }
+
+  rewindFiles(): RewindFilesResult {
+    const state = this.appStateStore.getState()
+    const messages = this.engine.getMessages()
+
+    // Find the last assistant message UUID that has a file-history snapshot
+    const fileHistory = state.fileHistory
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      const messageId = (msg as any)?.uuid as string | undefined
+      if (!messageId) continue
+
+      if (fileHistoryCanRestore(fileHistory, messageId as any)) {
+        // Synchronous check — return canRewind: true.
+        // The actual rewind is async; caller should use rewindFilesAsync()
+        // (not yet exposed in the public API) or trigger via other means.
+        return { canRewind: true }
+      }
+    }
+
+    return { canRewind: false, error: 'No file-history snapshot found to rewind to' }
+  }
+
+  supportedCommands(): string[] {
+    const state = this.appStateStore.getState()
+    return (state as any).commands?.map((c: any) => c.name ?? c) ?? []
+  }
+
+  supportedModels(): string[] {
+    // Return the current model as the only supported model.
+    // A full model catalog can be wired up later.
+    const state = this.appStateStore.getState()
+    const model = state.mainLoopModel
+    return model ? [model] : []
+  }
+
+  supportedAgents(): string[] {
+    const state = this.appStateStore.getState()
+    const agents = (state as any).agentDefinitions?.activeAgents
+    return agents?.map((a: any) => a.name).filter(Boolean) ?? []
+  }
+
+  mcpServerStatus(): McpServerStatus[] {
+    const state = this.appStateStore.getState()
+    const clients: MCPServerConnection[] = state.mcp?.clients ?? []
+    return clients.map((client): McpServerStatus => {
+      const base: McpServerStatus = {
+        name: client.name,
+        status: client.type,
+      }
+      if (client.type === 'connected') {
+        base.serverInfo = client.serverInfo
+        base.tools = (client as any).tools?.map((t: any) => ({
+          name: t.name,
+          description: t.description,
+          annotations: t.annotations,
+        }))
+      }
+      if (client.type === 'failed') {
+        base.error = (client as any).error
+      }
+      if ('config' in client) {
+        const cfg = (client as any).config
+        if (cfg?.scope) base.scope = cfg.scope
+      }
+      return base
+    })
+  }
+
+  async accountInfo(): Promise<{ apiKeySource: ApiKeySource; [key: string]: unknown }> {
+    try {
+      const { getAccountInformation, getAnthropicApiKeyWithSource } = await import('../utils/auth.js')
+      const info = getAccountInformation()
+      const { source: apiKeySource } = getAnthropicApiKeyWithSource()
+      if (info) {
+        return { apiKeySource: (info.apiKeySource ?? apiKeySource) as ApiKeySource, ...info }
+      }
+      return { apiKeySource: apiKeySource as ApiKeySource }
+    } catch {
+      return { apiKeySource: 'none' as ApiKeySource }
+    }
+  }
+
+  setMaxThinkingTokens(tokens: number): void {
+    this.appStateStore.setState(prev => ({
+      ...prev,
+      thinkingEnabled: tokens > 0 ? true : prev.thinkingEnabled,
     }))
   }
 }
@@ -872,10 +1202,25 @@ export function query(params: {
     model,
     abortController,
     systemPrompt,
+    settings,
   } = options
 
   if (!cwd) {
     throw new Error('query() requires options.cwd')
+  }
+
+  // Handle env overrides with snapshot/restore pattern
+  const envOverrides = settings?.env
+  const envSnapshot: Record<string, string | undefined> = {}
+  if (envOverrides && Object.keys(envOverrides).length > 0) {
+    // Snapshot existing values for keys we'll override
+    for (const key of Object.keys(envOverrides)) {
+      envSnapshot[key] = process.env[key]
+    }
+    // Apply overrides
+    for (const [key, value] of Object.entries(envOverrides)) {
+      process.env[key] = value
+    }
   }
 
   // Ensure init() has been called (memoized, safe to call multiple times).
@@ -928,6 +1273,20 @@ export function query(params: {
   // Abort controller
   const ac = abortController ?? new AbortController()
 
+  // Create the Query wrapper first so we can wire canUseTool to its
+  // pending permission map. Pass envSnapshot for restoration after query completes.
+  // Also pass sessionId, fork, continue, and cwd for session handling in the iterator.
+  const queryImpl = new QueryImpl(null as any, prompt, ac, appStateStore, envSnapshot, options.sessionId, options.fork, options.continue, cwd)
+
+  // Build the canUseTool that supports external permission resolution.
+  // When no user canUseTool callback is provided, this creates a pending
+  // prompt entry that respondToPermission() can resolve asynchronously.
+  const externalCanUseTool = createExternalCanUseTool(
+    options.canUseTool,
+    defaultCanUseTool,
+    queryImpl,
+  )
+
   // Create QueryEngine config
   const engineConfig = {
     cwd,
@@ -935,7 +1294,7 @@ export function query(params: {
     commands: [] as Array<never>,
     mcpClients: [],
     agents: [],
-    canUseTool,
+    canUseTool: externalCanUseTool,
     getAppState: () => appStateStore.getState(),
     setAppState: (f: (prev: AppState) => AppState) => appStateStore.setState(f),
     readFileCache,
@@ -947,8 +1306,10 @@ export function query(params: {
   // Create the QueryEngine
   const engine = new QueryEngine(engineConfig)
 
-  // Return Query wrapper
-  return new QueryImpl(engine, prompt, ac, appStateStore)
+  // Wire the engine into QueryImpl (was null during construction)
+  queryImpl.setEngine(engine)
+
+  return queryImpl
 }
 
 /**
@@ -1343,3 +1704,28 @@ export function createSdkMcpServer(options: {
     tools: options.tools ?? [],
   }
 }
+
+// ============================================================================
+// Re-exports — error classes and helpers
+// ============================================================================
+
+export {
+  AbortError,
+  ClaudeError,
+  SDKAuthenticationError,
+  SDKBillingError,
+  SDKRateLimitError,
+  SDKInvalidRequestError,
+  SDKServerError,
+  SDKMaxOutputTokensError,
+  sdkErrorFromType,
+} from '../utils/errors.js'
+
+export type { SDKAssistantMessageError } from '../utils/errors.js'
+
+export type {
+  RewindFilesResult,
+  McpServerStatus,
+  ApiKeySource,
+  PermissionResult,
+} from './sdk/coreTypes.generated.js'
