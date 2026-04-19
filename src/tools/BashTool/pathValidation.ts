@@ -21,7 +21,7 @@ import {
   validatePath,
 } from '../../utils/permissions/pathValidation.js'
 import type { BashTool } from './BashTool.js'
-import { stripSafeWrappers } from './bashPermissions.js'
+import { stripSafeWrappers } from '../../utils/permissions/commandWrapperDetection.js'
 import { sedCommandIsAllowedByAllowlist } from './sedValidation.js'
 
 export type PathCommand =

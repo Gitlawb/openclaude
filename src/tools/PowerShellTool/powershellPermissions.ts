@@ -14,8 +14,11 @@ import { isCurrentDirectoryBareGitRepo } from '../../utils/git.js'
 import type { PermissionRule } from '../../utils/permissions/PermissionRule.js'
 import type { PermissionUpdate } from '../../utils/permissions/PermissionUpdateSchema.js'
 import {
+  matchingRulesForInput as sharedMatchingRulesForInput,
+  type FilterRulesFn,
+} from '../../utils/permissions/permissionChecker.js'
+import {
   createPermissionRequestMessage,
-  getRuleByContentsForToolName,
 } from '../../utils/permissions/permissions.js'
 import {
   matchWildcardPattern,
@@ -334,49 +337,22 @@ function filterRulesByContentsMatchingInput(
 
 /**
  * Get matching rules for input across all rule types (deny, ask, allow)
+ * Delegates to shared implementation with PowerShell-specific filter function.
  */
 function matchingRulesForInput(
   input: PowerShellInput,
   toolPermissionContext: ToolPermissionContext,
   matchMode: 'exact' | 'prefix',
 ) {
-  const denyRuleByContents = getRuleByContentsForToolName(
-    toolPermissionContext,
-    POWERSHELL_TOOL_NAME,
-    'deny',
-  )
-  const matchingDenyRules = filterRulesByContentsMatchingInput(
-    input,
-    denyRuleByContents,
-    matchMode,
-    'deny',
-  )
+  const filterFn: FilterRulesFn = (rules, mode, behavior) =>
+    filterRulesByContentsMatchingInput(input, rules, mode, behavior)
 
-  const askRuleByContents = getRuleByContentsForToolName(
-    toolPermissionContext,
+  return sharedMatchingRulesForInput(
     POWERSHELL_TOOL_NAME,
-    'ask',
-  )
-  const matchingAskRules = filterRulesByContentsMatchingInput(
-    input,
-    askRuleByContents,
-    matchMode,
-    'ask',
-  )
-
-  const allowRuleByContents = getRuleByContentsForToolName(
     toolPermissionContext,
-    POWERSHELL_TOOL_NAME,
-    'allow',
-  )
-  const matchingAllowRules = filterRulesByContentsMatchingInput(
-    input,
-    allowRuleByContents,
     matchMode,
-    'allow',
+    filterFn,
   )
-
-  return { matchingDenyRules, matchingAskRules, matchingAllowRules }
 }
 
 /**

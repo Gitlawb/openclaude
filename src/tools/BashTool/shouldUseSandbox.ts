@@ -4,10 +4,12 @@ import { SandboxManager } from '../../utils/sandbox/sandbox-adapter.js'
 import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
 import {
   BINARY_HIJACK_VARS,
-  bashPermissionRule,
-  matchWildcardPattern,
   stripAllLeadingEnvVars,
   stripSafeWrappers,
+} from '../../utils/permissions/commandWrapperDetection.js'
+import {
+  bashPermissionRule,
+  matchWildcardPattern,
 } from './bashPermissions.js'
 
 type SandboxInput = {
