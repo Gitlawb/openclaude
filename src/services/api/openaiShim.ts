@@ -1515,10 +1515,16 @@ class OpenAIShimMessages {
       return false
     }
 
+    let serializedBody = JSON.stringify(body)
+
+    const refreshSerializedBody = (): void => {
+      serializedBody = JSON.stringify(body)
+    }
+
     const buildFetchInit = () => ({
       method: 'POST' as const,
       headers,
-      body: JSON.stringify(body),
+      body: serializedBody,
       signal: options?.signal,
     })
 
