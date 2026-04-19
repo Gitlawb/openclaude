@@ -46,6 +46,9 @@ import type {
   McpServerStatus,
   ApiKeySource,
   PermissionResult,
+  SDKMessage as GeneratedSDKMessage,
+  SDKUserMessage as GeneratedSDKUserMessage,
+  SDKResultMessage as GeneratedSDKResultMessage,
 } from './sdk/coreTypes.generated.js'
 import {
   AbortError,
@@ -83,39 +86,15 @@ function assertValidSessionId(sessionId: string): void {
 
 /**
  * A message emitted by the query engine during a conversation.
- *
- * This is a simplified representation for the SDK; the full union type is
- * defined in the Zod schemas (coreSchemas.ts). Until the generated types
- * file is populated, we define the essential shape here.
- *
- * TODO: Replace with the full generated type from coreTypes.generated.ts
- *       once type generation is wired up.
+ * Re-exports the full generated type from coreTypes.generated.ts.
  */
-export type SDKMessage = {
-  type: string
-  [key: string]: unknown
-}
+export type SDKMessage = GeneratedSDKMessage
 
 /**
  * A user message fed into query() via AsyncIterable.
- *
- * Matches the SDKUserMessage Zod schema shape:
- * { type: 'user', message: string | ContentBlock[], ... }
- *
- * TODO: Replace with the full generated type from coreTypes.generated.ts
- *       once type generation is wired up.
+ * Re-exports the full generated type from coreTypes.generated.ts.
  */
-export type SDKUserMessage = {
-  type: 'user'
-  message: string | Array<{ type: string; text?: string; [key: string]: unknown }>
-  parent_tool_use_id?: string | null
-  isSynthetic?: boolean
-  tool_use_result?: unknown
-  priority?: 'now' | 'next' | 'later'
-  timestamp?: string
-  uuid?: string
-  session_id?: string
-}
+export type SDKUserMessage = GeneratedSDKUserMessage
 
 /**
  * Session metadata returned by listSessions and getSessionInfo.
@@ -875,6 +854,30 @@ function createDefaultCanUseTool(
   }
 }
 
+/**
+ * Load a session's conversation messages from its JSONL file and inject
+ * them into the QueryEngine so the conversation resumes from that history.
+ * Returns true if messages were loaded, false if the session file was not found.
+ */
+async function loadAndInjectSessionMessages(
+  sessionId: string,
+  cwd: string,
+  engine: QueryEngine,
+): Promise<boolean> {
+  const resolved = await resolveSessionFilePath(sessionId, cwd)
+  if (!resolved) return false
+
+  const entries = await readJSONLFile<JsonlEntry>(resolved.filePath)
+  const messages: unknown[] = entries
+    .filter(entry => !entry.isSidechain && (entry.type === 'user' || entry.type === 'assistant'))
+    .map(entry => ({ ...entry }))
+
+  if (messages.length > 0) {
+    engine.injectMessages(messages as Parameters<QueryEngine['injectMessages']>[0])
+  }
+  return true
+}
+
 // ============================================================================
 // QueryImpl — the concrete Query class
 // ============================================================================
@@ -938,17 +941,25 @@ class QueryImpl implements Query {
       // init() applies config env vars, so we apply our overrides AFTER
       await init()
 
-      // Load agent definitions from .claude/agents directory
-      // Required for subagent support - AgentTool uses agentDefinitions.activeAgents
+      // Load agent definitions BEFORE creating engine context
+      // QueryEngine uses config.agents for toolUseContext.options.agentDefinitions
+      let agentDefs = { activeAgents: [], allAgents: [] }
       try {
-        const agentDefs = await getAgentDefinitionsWithOverrides(this.cwd)
-        this.appStateStore.setState(prev => ({
-          ...prev,
-          agentDefinitions: agentDefs,
-        }))
-      } catch (err) {
-        console.log(`[sdk] Failed to load agents:`, err)
-        // Continue without agents - some tools may fail but basic queries work
+        agentDefs = await getAgentDefinitionsWithOverrides(this.cwd)
+      } catch {
+        // Agent loading failed — continue without agents
+      }
+
+      // Update AppState with agents (for UI/SDK methods like supportedAgents())
+      this.appStateStore.setState(prev => ({
+        ...prev,
+        agentDefinitions: agentDefs,
+      }))
+
+      // Inject agents into the engine so AgentTool can use them
+      // QueryEngine's submitMessage reads from config.agents for toolUseContext
+      if (agentDefs.activeAgents.length > 0) {
+        this.engine.injectAgents(agentDefs.activeAgents)
       }
 
       // Apply env overrides AFTER init() so they override config file env vars
@@ -962,13 +973,6 @@ class QueryImpl implements Query {
         for (const [key, value] of Object.entries(this.envOverrides)) {
           process.env[key] = value
         }
-        console.log(`[sdk] Applied ${Object.keys(this.envOverrides).length} env overrides. Key env vars:`)
-        console.log(`[sdk]   CLAUDE_CODE_USE_OPENAI=${process.env.CLAUDE_CODE_USE_OPENAI}`)
-        console.log(`[sdk]   OPENAI_BASE_URL=${process.env.OPENAI_BASE_URL}`)
-        console.log(`[sdk]   OPENAI_API_KEY=${process.env.OPENAI_API_KEY ? 'SET' : 'NOT SET'}`)
-        console.log(`[sdk]   OPENAI_MODEL=${process.env.OPENAI_MODEL}`)
-      } else {
-        console.log(`[sdk] WARNING: No env overrides provided. envOverrides=${!!this.envOverrides}`)
       }
 
       // Handle continue: if continue=true and no sessionId, find last session for cwd
@@ -977,6 +981,11 @@ class QueryImpl implements Query {
         const sessions = await listSessions({ dir: this.cwd, limit: 1 })
         if (sessions.length > 0) {
           effectiveSessionId = sessions[0].session_id
+          // Load the session's messages into the engine so conversation resumes
+          const loaded = await loadAndInjectSessionMessages(effectiveSessionId, this.cwd, this.engine)
+          if (!loaded) {
+            effectiveSessionId = undefined
+          }
         }
       }
 
@@ -989,37 +998,12 @@ class QueryImpl implements Query {
           effectiveSessionId = forkResult.session_id
 
           // Load the forked session's messages and inject them into the engine
-          // so the query resumes from that history
-          const resolved = await resolveSessionFilePath(effectiveSessionId, this.cwd)
-          if (!resolved) {
-            // Forked session file not found - start fresh
-            console.log(`[sdk] Forked session file not found for ${effectiveSessionId}, starting fresh session`)
+          const loaded = await loadAndInjectSessionMessages(effectiveSessionId, this.cwd, this.engine)
+          if (!loaded) {
             effectiveSessionId = undefined
-          } else {
-            const entries = await readJSONLFile<JsonlEntry>(resolved.filePath)
-            // Filter to main conversation entries only (no sidechains, no metadata)
-            // and convert to format expected by QueryEngine
-            const messages: unknown[] = entries
-              .filter(entry => {
-                if (entry.isSidechain) return false
-                // Only include user and assistant messages (not metadata like custom-title, tag)
-                return entry.type === 'user' || entry.type === 'assistant'
-              })
-              .map(entry => ({
-                // Preserve all fields from the entry (type, uuid, parentUuid, timestamp, message, etc.)
-                ...entry,
-              }))
-
-            // Inject messages into the engine so it resumes from fork history
-            if (messages.length > 0) {
-              // Cast to Message[] for injectMessages - entries from JSONL files
-              // contain the expected fields (type, uuid, message, etc.)
-              this.engine.injectMessages(messages as Parameters<QueryEngine['injectMessages']>[0])
-            }
           }
-        } catch (forkError) {
+        } catch {
           // Session not found or other fork error - just start fresh
-          console.log(`[sdk] Fork failed: ${forkError}. Starting fresh session instead of resuming ${this.sessionId}`)
           effectiveSessionId = undefined
         }
       }
@@ -1072,6 +1056,9 @@ class QueryImpl implements Query {
       ...prev,
       toolPermissionContext: newPermissionContext,
     }))
+    // Refresh the engine's tool list to reflect new permissions
+    const updatedTools = getTools(newPermissionContext)
+    this.engine.updateTools(updatedTools)
   }
 
   close(): void {
@@ -1187,6 +1174,7 @@ class QueryImpl implements Query {
     this.appStateStore.setState(prev => ({
       ...prev,
       thinkingEnabled: tokens > 0 ? true : prev.thinkingEnabled,
+      thinkingBudgetTokens: tokens > 0 ? tokens : undefined,
     }))
   }
 }
@@ -1194,21 +1182,22 @@ class QueryImpl implements Query {
 /**
  * Extract a prompt from an SDKUserMessage.
  *
- * SDKUserMessage has a `message` field that can be a string or an array of
- * content blocks. QueryEngine.submitMessage() accepts both `string` and
- * `ContentBlockParam[]`, so we pass through directly when possible.
+ * SDKUserMessage.message is always an object: { role: "user", content: string | Array<unknown> }
+ * per coreTypes.generated.ts. QueryEngine.submitMessage() accepts both `string` and
+ * `ContentBlockParam[]`, so we extract message.content and pass through directly.
  */
 function extractPromptFromUserMessage(
   msg: SDKUserMessage,
 ): string | Array<{ type: string; text?: string; [key: string]: unknown }> {
   const { message } = msg
-  if (typeof message === 'string') {
-    return message
+  // message is always { role: "user", content: string | Array<unknown> }
+  if (typeof message.content === 'string') {
+    return message.content
   }
-  if (Array.isArray(message)) {
-    return message
+  if (Array.isArray(message.content)) {
+    return message.content as Array<{ type: string; text?: string; [key: string]: unknown }>
   }
-  return String(message ?? '')
+  return String(message.content ?? '')
 }
 
 // ============================================================================
@@ -1414,23 +1403,9 @@ export interface SDKSession {
 /**
  * An SDKResultMessage is the final message emitted by a query turn,
  * containing the result text, usage stats, and cost information.
- *
- * TODO: Replace with the full generated type from coreTypes.generated.ts
- *       once type generation is wired up.
+ * Re-exports the full generated type from coreTypes.generated.ts.
  */
-export type SDKResultMessage = SDKMessage & {
-  type: 'result'
-  subtype: string
-  is_error: boolean
-  duration_ms: number
-  duration_api_ms: number
-  num_turns: number
-  result: string
-  stop_reason: string | null
-  session_id: string
-  total_cost_usd: number
-  uuid: string
-}
+export type SDKResultMessage = GeneratedSDKResultMessage
 
 // ============================================================================
 // SdkMcpToolDefinition — tool() return type
@@ -1460,6 +1435,7 @@ class SDKSessionImpl implements SDKSession {
   private _sessionId: string
   private options: SDKSessionOptions
   private appStateStore: Store<AppState>
+  private agentsLoaded = false
 
   constructor(
     engine: QueryEngine,
@@ -1480,15 +1456,21 @@ class SDKSessionImpl implements SDKSession {
   async *sendMessage(content: string): AsyncIterable<SDKMessage> {
     await init()
 
-    // Load agent definitions for subagent support
-    try {
-      const agentDefs = await getAgentDefinitionsWithOverrides(this.options.cwd)
-      this.appStateStore.setState(prev => ({
-        ...prev,
-        agentDefinitions: agentDefs,
-      }))
-    } catch (err) {
-      console.log(`[sdk] Failed to load agents:`, err)
+    // Load agent definitions once (not on every sendMessage call)
+    if (!this.agentsLoaded) {
+      try {
+        const agentDefs = await getAgentDefinitionsWithOverrides(this.options.cwd)
+        this.appStateStore.setState(prev => ({
+          ...prev,
+          agentDefinitions: agentDefs,
+        }))
+        if (agentDefs.activeAgents.length > 0) {
+          this.engine.injectAgents(agentDefs.activeAgents)
+        }
+      } catch {
+        // Agent loading failed — continue without agents
+      }
+      this.agentsLoaded = true
     }
 
     yield* this.engine.submitMessage(content)
@@ -1616,27 +1598,46 @@ export function unstable_v2_createSession(options: SDKSessionOptions): SDKSessio
 /**
  * V2 API - UNSTABLE
  * Resume an existing session by ID. Loads the session's prior messages
- * from disk and replays them into the QueryEngine so the conversation
+ * from disk and passes them to the QueryEngine so the conversation
  * continues from where it left off.
  *
  * @alpha
  *
  * @param sessionId - UUID of the session to resume
  * @param options - Session options (cwd is required)
+ * @returns SDKSession with prior conversation history loaded
+ *
+ * @example
+ * ```typescript
+ * const session = await unstable_v2_resumeSession(sessionId, { cwd: '/my/project' })
+ * for await (const msg of session.sendMessage('Continue where we left off')) {
+ *   console.log(msg)
+ * }
+ * ```
  */
-export function unstable_v2_resumeSession(
+export async function unstable_v2_resumeSession(
   sessionId: string,
   options: SDKSessionOptions,
-): SDKSession {
+): Promise<SDKSession> {
   assertValidSessionId(sessionId)
 
-  // Load existing session messages synchronously — we construct the engine
-  // with initialMessages so the conversation history is available.
-  // NOTE: This is synchronous construction. The actual message loading from
-  // disk would need to be done before calling resumeSession and passed in
-  // via a future API extension. For now, we create a fresh engine and the
-  // caller is responsible for re-sending context.
-  const { engine, appStateStore } = createEngineFromOptions(options)
+  // Load prior messages from the session's JSONL transcript
+  const priorMessages = await getSessionMessages(sessionId, {
+    dir: options.cwd,
+    includeSystemMessages: false,
+  })
+
+  // Convert SessionMessage[] to the format QueryEngine expects
+  const initialMessages = priorMessages.map((msg): Record<string, unknown> => ({
+    role: msg.role,
+    content: msg.content,
+    ...(msg as Record<string, unknown>),
+  }))
+
+  const { engine, appStateStore } = createEngineFromOptions(
+    options,
+    initialMessages as any[],
+  )
   return new SDKSessionImpl(engine, sessionId, options, appStateStore)
 }
 

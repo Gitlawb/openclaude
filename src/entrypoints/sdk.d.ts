@@ -339,7 +339,7 @@ export function unstable_v2_createSession(options: SDKSessionOptions): SDKSessio
 export function unstable_v2_resumeSession(
   sessionId: string,
   options: SDKSessionOptions,
-): SDKSession
+): Promise<SDKSession>
 
 export function unstable_v2_prompt(
   message: string,
