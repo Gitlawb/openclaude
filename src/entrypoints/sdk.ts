@@ -39,6 +39,8 @@ import {
 } from '../utils/sessionStoragePortable.js'
 import { readJSONLFile } from '../utils/json.js'
 import { setCwd } from '../utils/Shell.js'
+import { setOriginalCwd } from '../bootstrap/state.js'
+import { getAgentDefinitionsWithOverrides } from '../tools/AgentTool/loadAgentsDir.js'
 import type {
   RewindFilesResult,
   McpServerStatus,
@@ -885,7 +887,8 @@ class QueryImpl implements Query {
   private pendingPermissionPrompts = new Map<string, {
     resolve: (decision: { behavior: 'allow'; updatedInput?: any } | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }) => void
   }>()
-  private envSnapshot: Record<string, string | undefined>
+  private envOverrides: Record<string, string> | undefined
+  private envSnapshot: Record<string, string | undefined> | undefined
   private sessionId?: string
   private shouldFork?: boolean
   private continueSession?: boolean
@@ -896,7 +899,7 @@ class QueryImpl implements Query {
     prompt: string | AsyncIterable<SDKUserMessage>,
     abortController: AbortController,
     appStateStore: Store<AppState>,
-    envSnapshot: Record<string, string | undefined> = {},
+    envOverrides: Record<string, string> | undefined,
     sessionId?: string,
     fork?: boolean,
     continueSession?: boolean,
@@ -906,7 +909,7 @@ class QueryImpl implements Query {
     this.prompt = prompt
     this.abortController = abortController
     this.appStateStore = appStateStore
-    this.envSnapshot = envSnapshot
+    this.envOverrides = envOverrides
     this.sessionId = sessionId
     this.shouldFork = fork
     this.continueSession = continueSession
@@ -932,7 +935,41 @@ class QueryImpl implements Query {
   async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
     try {
       // Ensure init() completes before any query runs
+      // init() applies config env vars, so we apply our overrides AFTER
       await init()
+
+      // Load agent definitions from .claude/agents directory
+      // Required for subagent support - AgentTool uses agentDefinitions.activeAgents
+      try {
+        const agentDefs = await getAgentDefinitionsWithOverrides(this.cwd)
+        this.appStateStore.setState(prev => ({
+          ...prev,
+          agentDefinitions: agentDefs,
+        }))
+      } catch (err) {
+        console.log(`[sdk] Failed to load agents:`, err)
+        // Continue without agents - some tools may fail but basic queries work
+      }
+
+      // Apply env overrides AFTER init() so they override config file env vars
+      if (this.envOverrides && Object.keys(this.envOverrides).length > 0) {
+        // Snapshot existing values for keys we'll override
+        this.envSnapshot = {}
+        for (const key of Object.keys(this.envOverrides)) {
+          this.envSnapshot[key] = process.env[key]
+        }
+        // Apply overrides
+        for (const [key, value] of Object.entries(this.envOverrides)) {
+          process.env[key] = value
+        }
+        console.log(`[sdk] Applied ${Object.keys(this.envOverrides).length} env overrides. Key env vars:`)
+        console.log(`[sdk]   CLAUDE_CODE_USE_OPENAI=${process.env.CLAUDE_CODE_USE_OPENAI}`)
+        console.log(`[sdk]   OPENAI_BASE_URL=${process.env.OPENAI_BASE_URL}`)
+        console.log(`[sdk]   OPENAI_API_KEY=${process.env.OPENAI_API_KEY ? 'SET' : 'NOT SET'}`)
+        console.log(`[sdk]   OPENAI_MODEL=${process.env.OPENAI_MODEL}`)
+      } else {
+        console.log(`[sdk] WARNING: No env overrides provided. envOverrides=${!!this.envOverrides}`)
+      }
 
       // Handle continue: if continue=true and no sessionId, find last session for cwd
       let effectiveSessionId = this.sessionId
@@ -944,37 +981,46 @@ class QueryImpl implements Query {
       }
 
       // Handle fork: if sessionId and fork=true, fork the session first
+      // If the session file doesn't exist (e.g., first query didn't persist),
+      // just start a new session instead of throwing an error
       if (this.sessionId && this.shouldFork) {
-        const forkResult = await forkSession(this.sessionId, { dir: this.cwd })
-        effectiveSessionId = forkResult.session_id
+        try {
+          const forkResult = await forkSession(this.sessionId, { dir: this.cwd })
+          effectiveSessionId = forkResult.session_id
 
-        // Load the forked session's messages and inject them into the engine
-        // so the query resumes from that history
-        const resolved = await resolveSessionFilePath(effectiveSessionId, this.cwd)
-        if (!resolved) {
-          throw new Error(
-            `Forked session file not found: unable to resolve path for session ${effectiveSessionId} in directory ${this.cwd || 'default session storage'}`,
-          )
-        }
-        const entries = await readJSONLFile<JsonlEntry>(resolved.filePath)
-        // Filter to main conversation entries only (no sidechains, no metadata)
-        // and convert to format expected by QueryEngine
-        const messages: unknown[] = entries
-          .filter(entry => {
-            if (entry.isSidechain) return false
-            // Only include user and assistant messages (not metadata like custom-title, tag)
-            return entry.type === 'user' || entry.type === 'assistant'
-          })
-          .map(entry => ({
-            // Preserve all fields from the entry (type, uuid, parentUuid, timestamp, message, etc.)
-            ...entry,
-          }))
+          // Load the forked session's messages and inject them into the engine
+          // so the query resumes from that history
+          const resolved = await resolveSessionFilePath(effectiveSessionId, this.cwd)
+          if (!resolved) {
+            // Forked session file not found - start fresh
+            console.log(`[sdk] Forked session file not found for ${effectiveSessionId}, starting fresh session`)
+            effectiveSessionId = undefined
+          } else {
+            const entries = await readJSONLFile<JsonlEntry>(resolved.filePath)
+            // Filter to main conversation entries only (no sidechains, no metadata)
+            // and convert to format expected by QueryEngine
+            const messages: unknown[] = entries
+              .filter(entry => {
+                if (entry.isSidechain) return false
+                // Only include user and assistant messages (not metadata like custom-title, tag)
+                return entry.type === 'user' || entry.type === 'assistant'
+              })
+              .map(entry => ({
+                // Preserve all fields from the entry (type, uuid, parentUuid, timestamp, message, etc.)
+                ...entry,
+              }))
 
-        // Inject messages into the engine so it resumes from fork history
-        if (messages.length > 0) {
-          // Cast to Message[] for injectMessages - entries from JSONL files
-          // contain the expected fields (type, uuid, message, etc.)
-          this.engine.injectMessages(messages as Parameters<QueryEngine['injectMessages']>[0])
+            // Inject messages into the engine so it resumes from fork history
+            if (messages.length > 0) {
+              // Cast to Message[] for injectMessages - entries from JSONL files
+              // contain the expected fields (type, uuid, message, etc.)
+              this.engine.injectMessages(messages as Parameters<QueryEngine['injectMessages']>[0])
+            }
+          }
+        } catch (forkError) {
+          // Session not found or other fork error - just start fresh
+          console.log(`[sdk] Fork failed: ${forkError}. Starting fresh session instead of resuming ${this.sessionId}`)
+          effectiveSessionId = undefined
         }
       }
 
@@ -994,12 +1040,14 @@ class QueryImpl implements Query {
       }
     } finally {
       // Restore environment variables to snapshot state
-      for (const key of Object.keys(this.envSnapshot)) {
-        const originalValue = this.envSnapshot[key]
-        if (originalValue === undefined) {
-          delete process.env[key]
-        } else {
-          process.env[key] = originalValue
+      if (this.envSnapshot) {
+        for (const key of Object.keys(this.envSnapshot)) {
+          const originalValue = this.envSnapshot[key]
+          if (originalValue === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = originalValue
+          }
         }
       }
     }
@@ -1209,19 +1257,10 @@ export function query(params: {
     throw new Error('query() requires options.cwd')
   }
 
-  // Handle env overrides with snapshot/restore pattern
+  // Note: We pass settings?.env to QueryImpl for application AFTER init() runs.
+  // This ensures our env vars override config file env vars, not vice versa.
+  // init() calls applyConfigEnvironmentVariables() which would override pre-applied env.
   const envOverrides = settings?.env
-  const envSnapshot: Record<string, string | undefined> = {}
-  if (envOverrides && Object.keys(envOverrides).length > 0) {
-    // Snapshot existing values for keys we'll override
-    for (const key of Object.keys(envOverrides)) {
-      envSnapshot[key] = process.env[key]
-    }
-    // Apply overrides
-    for (const [key, value] of Object.entries(envOverrides)) {
-      process.env[key] = value
-    }
-  }
 
   // Ensure init() has been called (memoized, safe to call multiple times).
   // We fire-and-forget the init promise — QueryEngine.submitMessage() will
@@ -1237,6 +1276,9 @@ export function query(params: {
 
   // Set up cwd immediately (synchronous)
   setCwd(cwd)
+  // Also set originalCwd for session storage - getTranscriptPath() uses getOriginalCwd()
+  // Without this, sessions would be saved to wrong directory (Electron app's cwd, not user's cwd)
+  setOriginalCwd(cwd)
 
   // Build permission context
   const permissionContext = buildPermissionContext(options)
@@ -1274,9 +1316,9 @@ export function query(params: {
   const ac = abortController ?? new AbortController()
 
   // Create the Query wrapper first so we can wire canUseTool to its
-  // pending permission map. Pass envSnapshot for restoration after query completes.
+  // pending permission map. Pass envOverrides for application AFTER init().
   // Also pass sessionId, fork, continue, and cwd for session handling in the iterator.
-  const queryImpl = new QueryImpl(null as any, prompt, ac, appStateStore, envSnapshot, options.sessionId, options.fork, options.continue, cwd)
+  const queryImpl = new QueryImpl(null as any, prompt, ac, appStateStore, envOverrides, options.sessionId, options.fork, options.continue, cwd)
 
   // Build the canUseTool that supports external permission resolution.
   // When no user canUseTool callback is provided, this creates a pending
@@ -1437,6 +1479,18 @@ class SDKSessionImpl implements SDKSession {
 
   async *sendMessage(content: string): AsyncIterable<SDKMessage> {
     await init()
+
+    // Load agent definitions for subagent support
+    try {
+      const agentDefs = await getAgentDefinitionsWithOverrides(this.options.cwd)
+      this.appStateStore.setState(prev => ({
+        ...prev,
+        agentDefinitions: agentDefs,
+      }))
+    } catch (err) {
+      console.log(`[sdk] Failed to load agents:`, err)
+    }
+
     yield* this.engine.submitMessage(content)
   }
 
@@ -1469,6 +1523,9 @@ function createEngineFromOptions(
   }
 
   setCwd(cwd)
+  // Also set originalCwd for session storage - getTranscriptPath() uses getOriginalCwd()
+  // Without this, sessions would be saved to wrong directory
+  setOriginalCwd(cwd)
 
   // Build permission context
   const permissionContext = buildPermissionContext({
