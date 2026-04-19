@@ -111,7 +111,6 @@ test('ollama generation readiness reports unreachable when tags endpoint is down
 
   expect(calledUrls).toEqual([
     'http://localhost:11434/api/tags',
-    'http://localhost:11434/api/tags',
   ])
 })
 
@@ -141,8 +140,41 @@ test('ollama generation readiness reports no models when server is reachable', a
 
   expect(calledUrls).toEqual([
     'http://localhost:11434/api/tags',
-    'http://localhost:11434/api/tags',
   ])
+})
+
+test('ollama generation readiness reports generation_failed when requested model is missing', async () => {
+  const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
+
+  const calledUrls: string[] = []
+  globalThis.fetch = mock(input => {
+    const url = typeof input === 'string' ? input : input.url
+    calledUrls.push(url)
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          models: [{ name: 'llama3.1:8b', size: 1024 }],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    )
+  }) as typeof globalThis.fetch
+
+  await expect(
+    probeOllamaGenerationReadiness({
+      baseUrl: 'http://localhost:11434',
+      model: 'qwen2.5-coder:7b',
+    }),
+  ).resolves.toMatchObject({
+    state: 'generation_failed',
+    probeModel: 'qwen2.5-coder:7b',
+    detail: 'requested model not installed: qwen2.5-coder:7b',
+  })
+
+  expect(calledUrls).toEqual(['http://localhost:11434/api/tags'])
 })
 
 test('ollama generation readiness reports generation failures when chat probe fails', async () => {

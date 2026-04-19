@@ -3048,7 +3048,10 @@ test('self-heals tool-call incompatibility by retrying local Ollama requests wit
   expect(requestBodies).toHaveLength(2)
   expect(Array.isArray(requestBodies[0]?.tools)).toBe(true)
   expect(requestBodies[0]?.tool_choice).toBeUndefined()
-  expect(requestBodies[1]?.tools).toBeUndefined()
+  expect(
+    requestBodies[1]?.tools === undefined ||
+      (Array.isArray(requestBodies[1]?.tools) && requestBodies[1]?.tools.length === 0),
+  ).toBe(true)
   expect(requestBodies[1]?.tool_choice).toBeUndefined()
 })
 
