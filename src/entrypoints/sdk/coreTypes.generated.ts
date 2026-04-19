@@ -30,7 +30,7 @@ export type OutputFormat = {
   schema: Record<string, unknown>
 }
 
-export type ApiKeySource = "user" | "project" | "org" | "temporary" | "oauth"
+export type ApiKeySource = "user" | "project" | "org" | "temporary" | "oauth" | "none"
 
 /** Config scope for settings. */
 export type ConfigScope = "local" | "user" | "project"
@@ -1775,7 +1775,7 @@ export type SDKSystemMessage = {
   type: "system"
   subtype: "init"
   agents?: string[]
-  apiKeySource: "user" | "project" | "org" | "temporary" | "oauth"
+  apiKeySource: "user" | "project" | "org" | "temporary" | "oauth" | "none"
   betas?: string[]
   claude_code_version: string
   cwd: string
@@ -2132,7 +2132,7 @@ export type SDKMessage = ({
   type: "system"
   subtype: "init"
   agents?: string[]
-  apiKeySource: "user" | "project" | "org" | "temporary" | "oauth"
+  apiKeySource: "user" | "project" | "org" | "temporary" | "oauth" | "none"
   betas?: string[]
   claude_code_version: string
   cwd: string
@@ -2337,6 +2337,14 @@ export type SDKMessage = ({
 }) | ({
   type: "prompt_suggestion"
   suggestion: string
+  uuid: string
+  session_id: string
+}) | ({
+  type: "permission_request"
+  request_id: string
+  tool_name: string
+  tool_use_id: string
+  input: Record<string, unknown>
   uuid: string
   session_id: string
 })

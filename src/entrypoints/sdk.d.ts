@@ -59,7 +59,7 @@ export function sdkErrorFromType(
 // Types
 // ============================================================================
 
-export type ApiKeySource = 'user' | 'project' | 'org' | 'temporary' | 'oauth'
+export type ApiKeySource = 'user' | 'project' | 'org' | 'temporary' | 'oauth' | 'none'
 
 export type RewindFilesResult = {
   canRewind: boolean
@@ -74,6 +74,7 @@ export type McpServerStatus = {
   status: 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled'
   serverInfo?: { name: string; version: string }
   error?: string
+  scope?: string
   tools?: {
     name: string
     description?: string
@@ -157,13 +158,18 @@ export type SessionMessage = {
 
 export type SDKMessage = {
   type: string
+  uuid?: string
+  message?: unknown
+  parent_tool_use_id?: string | null
+  timestamp?: string
+  session_id?: string
   [key: string]: unknown
 }
 
 export type SDKUserMessage = {
   type: 'user'
-  message: string | Array<{ type: string; text?: string; [key: string]: unknown }>
-  parent_tool_use_id?: string | null
+  message: Record<string, unknown> & { role: 'user'; content: string | Array<unknown> }
+  parent_tool_use_id: string | null
   isSynthetic?: boolean
   tool_use_result?: unknown
   priority?: 'now' | 'next' | 'later'
@@ -172,19 +178,69 @@ export type SDKUserMessage = {
   session_id?: string
 }
 
-export type SDKResultMessage = SDKMessage & {
-  type: 'result'
-  subtype: string
-  is_error: boolean
-  duration_ms: number
-  duration_api_ms: number
-  num_turns: number
-  result: string
-  stop_reason: string | null
-  session_id: string
-  total_cost_usd: number
-  uuid: string
-}
+export type SDKResultMessage = SDKMessage & (
+  | {
+      type: 'result'
+      subtype: 'success'
+      is_error: boolean
+      duration_ms: number
+      duration_api_ms: number
+      num_turns: number
+      result: string
+      stop_reason: string | null
+      total_cost_usd: number
+      usage: Record<string, number>
+      modelUsage: Record<string, {
+        inputTokens: number
+        outputTokens: number
+        cacheReadInputTokens: number
+        cacheCreationInputTokens: number
+        webSearchRequests: number
+        costUSD: number
+        contextWindow: number
+        maxOutputTokens: number
+      }>
+      permission_denials: {
+        tool_name: string
+        tool_use_id: string
+        tool_input: Record<string, unknown>
+      }[]
+      structured_output?: unknown
+      fast_mode_state?: 'off' | 'cooldown' | 'on'
+      uuid: string
+      session_id: string
+    }
+  | {
+      type: 'result'
+      subtype: 'error_during_execution' | 'error_max_turns' | 'error_max_budget_usd' | 'error_max_structured_output_retries'
+      is_error: boolean
+      duration_ms: number
+      duration_api_ms: number
+      num_turns: number
+      stop_reason: string | null
+      total_cost_usd: number
+      usage: Record<string, number>
+      modelUsage: Record<string, {
+        inputTokens: number
+        outputTokens: number
+        cacheReadInputTokens: number
+        cacheCreationInputTokens: number
+        webSearchRequests: number
+        costUSD: number
+        contextWindow: number
+        maxOutputTokens: number
+      }>
+      permission_denials: {
+        tool_name: string
+        tool_use_id: string
+        tool_input: Record<string, unknown>
+      }[]
+      errors: string[]
+      fast_mode_state?: 'off' | 'cooldown' | 'on'
+      uuid: string
+      session_id: string
+    }
+)
 
 // ============================================================================
 // Query types
@@ -195,13 +251,23 @@ export type QueryPermissionMode =
   | 'plan'
   | 'auto-accept'
   | 'bypass-permissions'
+  | 'bypassPermissions'
+  | 'acceptEdits'
 
 export type QueryOptions = {
   cwd: string
   additionalDirectories?: string[]
   model?: string
   sessionId?: string
+  /** Fork the session before resuming (requires sessionId). */
+  fork?: boolean
+  /** Alias for fork. When true, resumed session forks to a new session ID. */
+  forkSession?: boolean
+  /** Resume the most recent session for this cwd (no sessionId needed). */
+  continue?: boolean
   resume?: string
+  /** When resuming, resume messages up to and including this message UUID. */
+  resumeSessionAt?: string
   permissionMode?: QueryPermissionMode
   abortController?: AbortController
   executable?: string
@@ -213,14 +279,29 @@ export type QueryOptions = {
     env?: Record<string, string>
     attribution?: { commit: string; pr: string }
   }
+  /** Environment variables to apply during query execution. Overrides process.env. Takes precedence over settings.env. */
+  env?: Record<string, string | undefined>
   canUseTool?: (
     name: string,
     input: unknown,
-  ) => Promise<{ behavior: 'allow' | 'deny'; message?: string }>
+    options?: { toolUseID?: string },
+  ) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
   systemPrompt?:
-    | { type: 'preset'; preset: string }
+    | string
+    | { type: 'preset'; preset: string; append?: string }
     | { type: 'custom'; content: string }
+  /** Agent definitions to register with the query engine. */
+  agents?: Record<string, {
+    description: string
+    prompt: string
+    tools?: string[]
+    disallowedTools?: string[]
+    model?: string
+    maxTurns?: number
+  }>
   settingSources?: string[]
+  /** When true, yields stream_event messages for token-by-token streaming. */
+  includePartialMessages?: boolean
   stderr?: (data: string) => void
 }
 
@@ -231,7 +312,10 @@ export interface Query {
   close(): void
   interrupt(): void
   respondToPermission(toolUseId: string, decision: PermissionResult): void
+  /** Check if file rewind is possible. */
   rewindFiles(): RewindFilesResult
+  /** Actually perform the file rewind. Returns files changed and diff stats. */
+  rewindFilesAsync(): Promise<RewindFilesResult>
   supportedCommands(): string[]
   supportedModels(): string[]
   supportedAgents(): string[]
@@ -252,7 +336,8 @@ export type SDKSessionOptions = {
   canUseTool?: (
     name: string,
     input: unknown,
-  ) => Promise<{ behavior: 'allow' | 'deny'; message?: string }>
+    options?: { toolUseID?: string },
+  ) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
 }
 
 export interface SDKSession {
@@ -260,6 +345,8 @@ export interface SDKSession {
   sendMessage(content: string): AsyncIterable<SDKMessage>
   getMessages(): SDKMessage[]
   interrupt(): void
+  /** Respond to a pending permission prompt. */
+  respondToPermission(toolUseId: string, decision: PermissionResult): void
 }
 
 // ============================================================================

@@ -44,6 +44,7 @@ export {
   renameSession,
   tagSession,
   forkSession,
+  deleteSession,
 } from './sdk.js'
 
 // Import types needed for @internal function signatures kept below
@@ -166,15 +167,6 @@ export function watchScheduledTasks(_opts: {
 }
 
 /**
- * Format missed one-shot tasks into a prompt that asks the model to confirm
- * with the user (via AskUserQuestion) before executing.
- * @internal
- */
-export function buildMissedTaskNotification(_missed: CronTask[]): string {
-  throw new Error('not implemented')
-}
-
-/**
  * A user message typed on claude.ai, extracted from the bridge WS.
  * @internal
  */
@@ -253,6 +245,10 @@ export async function connectRemoteControl(
 }
 
 // add exit reason types for removing the error within gracefulShutdown file
-export type ExitReason = {
-
-}
+export type ExitReason =
+  | 'clear'
+  | 'resume'
+  | 'logout'
+  | 'prompt_input_exit'
+  | 'other'
+  | 'bypass_permissions_disabled'

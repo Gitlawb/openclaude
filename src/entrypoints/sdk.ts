@@ -23,6 +23,7 @@ import { createStore, type Store } from '../state/store.js'
 import {
   getEmptyToolPermissionContext,
   type ToolPermissionContext,
+  type Tool,
 } from '../Tool.js'
 import { getTools } from '../tools.js'
 import { createFileStateCacheWithSizeLimit } from '../utils/fileStateCache.js'
@@ -39,7 +40,16 @@ import {
 } from '../utils/sessionStoragePortable.js'
 import { readJSONLFile } from '../utils/json.js'
 import { setCwd } from '../utils/Shell.js'
-import { setOriginalCwd } from '../bootstrap/state.js'
+import {
+  setOriginalCwd,
+  getCwdState,
+  getOriginalCwd,
+  setCwdState,
+  switchSession,
+  getSessionProjectDir,
+  regenerateSessionId,
+  getSessionId,
+} from '../bootstrap/state.js'
 import { getAgentDefinitionsWithOverrides } from '../tools/AgentTool/loadAgentsDir.js'
 import type {
   RewindFilesResult,
@@ -68,7 +78,10 @@ import {
   fileHistoryRewind,
   type FileHistoryState,
 } from '../utils/fileHistory.js'
-import type { MCPServerConnection } from '../services/mcp/types.js'
+import type { MCPServerConnection, ScopedMcpServerConfig } from '../services/mcp/types.js'
+import { filterToolsByServer } from '../services/mcp/utils.js'
+import { connectToServer, fetchToolsForClient } from '../services/mcp/client.js'
+import type { ThinkingConfig } from '../utils/thinking.js'
 
 /**
  * Validate sessionId is a proper UUID to prevent path traversal.
@@ -77,6 +90,66 @@ import type { MCPServerConnection } from '../services/mcp/types.js'
 function assertValidSessionId(sessionId: string): void {
   if (!validateUuid(sessionId)) {
     throw new Error(`Invalid session ID: ${sessionId}`)
+  }
+}
+
+// ============================================================================
+// Environment mutation mutex for parallel query safety
+// ============================================================================
+
+/**
+ * Global mutex for process.env mutations.
+ * Prevents race conditions when multiple queries run in parallel.
+ */
+const envMutationQueue: Array<() => void> = []
+let envMutationLocked = false
+
+function acquireEnvMutex(): Promise<void> {
+  if (!envMutationLocked) {
+    envMutationLocked = true
+    return Promise.resolve()
+  }
+  return new Promise(resolve => {
+    envMutationQueue.push(resolve)
+  })
+}
+
+function releaseEnvMutex(): void {
+  if (envMutationQueue.length > 0) {
+    const next = envMutationQueue.shift()
+    if (next) next()
+  } else {
+    envMutationLocked = false
+  }
+}
+
+// ============================================================================
+// Cwd mutex for parallel session safety
+// ============================================================================
+
+/**
+ * Global mutex for global cwd state mutations (STATE.cwd, STATE.originalCwd).
+ * Prevents concurrent SDK sessions from overwriting each other's working directory.
+ */
+const cwdMutexQueue: Array<() => void> = []
+let cwdMutexLocked = false
+
+function acquireCwdMutex(): Promise<void> {
+  if (!cwdMutexLocked) {
+    cwdMutexLocked = true
+    return Promise.resolve()
+  }
+  return new Promise(resolve => {
+    cwdMutexQueue.push(resolve)
+  })
+}
+
+function releaseCwdMutex(): void {
+  if (cwdMutexQueue.length > 0) {
+    const next = cwdMutexQueue.shift()
+    if (next) next()
+  } else {
+    cwdMutexLocked = false
   }
 }
 
@@ -95,6 +168,22 @@ export type SDKMessage = GeneratedSDKMessage
  * Re-exports the full generated type from coreTypes.generated.ts.
  */
 export type SDKUserMessage = GeneratedSDKUserMessage
+
+/**
+ * Map an internal Message object to an SDKMessage.
+ * Internal messages have a different shape from SDK types — this function
+ * performs the conversion instead of relying on unsafe casts.
+ */
+function mapMessageToSDK(msg: Record<string, unknown>): SDKMessage {
+  // Internal messages from QueryEngine already use the SDK field naming
+  // convention (snake_case: parent_tool_use_id, session_id, etc.).
+  // We spread all fields through and let the discriminated-union type
+  // narrow via the `type` field.
+  return {
+    ...msg,
+    type: (msg.type as string) ?? 'unknown',
+  } as SDKMessage
+}
 
 /**
  * Session metadata returned by listSessions and getSessionInfo.
@@ -606,6 +695,8 @@ export type QueryPermissionMode =
   | 'plan'
   | 'auto-accept'
   | 'bypass-permissions'
+  | 'bypassPermissions'
+  | 'acceptEdits'
 
 /** Options for the query() function. */
 export type QueryOptions = {
@@ -619,10 +710,14 @@ export type QueryOptions = {
   sessionId?: string
   /** Fork the session before resuming (requires sessionId). */
   fork?: boolean
+  /** Alias for fork. When true, resumed session forks to a new session ID. */
+  forkSession?: boolean
   /** Resume the most recent session for this cwd (no sessionId needed). */
   continue?: boolean
   /** Resume strategy. */
   resume?: string
+  /** When resuming, resume messages up to and including this message UUID. */
+  resumeSessionAt?: string
   /** Permission mode for tool access. */
   permissionMode?: QueryPermissionMode
   /** AbortController to cancel the query. */
@@ -642,6 +737,8 @@ export type QueryOptions = {
     env?: Record<string, string>
     attribution?: { commit: string; pr: string }
   }
+  /** Environment variables to apply during query execution. Takes precedence over settings.env. */
+  env?: Record<string, string | undefined>
   /**
    * Callback invoked before each tool use. Return `{ behavior: 'allow' }` to
    * permit the call or `{ behavior: 'deny', message?: string }` to reject it.
@@ -649,13 +746,34 @@ export type QueryOptions = {
   canUseTool?: (
     name: string,
     input: unknown,
-  ) => Promise<{ behavior: 'allow' | 'deny'; message?: string }>
+    options?: { toolUseID?: string },
+  ) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
+  /**
+   * Callback invoked when a tool needs permission approval. The host receives
+   * the request immediately and can resolve it by calling
+   * `query.respondToPermission(toolUseId, decision)` before the 30s timeout.
+   * If omitted, tools that require permission fall through to the default
+   * permission logic immediately (no timeout).
+   */
+  onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
   /** System prompt override. */
   systemPrompt?:
-    | { type: 'preset'; preset: string }
+    | string
+    | { type: 'preset'; preset: string; append?: string }
     | { type: 'custom'; content: string }
+  /** Agent definitions to register with the query engine. */
+  agents?: Record<string, {
+    description: string
+    prompt: string
+    tools?: string[]
+    disallowedTools?: string[]
+    model?: string
+    maxTurns?: number
+  }>
   /** Setting sources to load. */
   settingSources?: string[]
+  /** When true, yields stream_event messages for token-by-token streaming. */
+  includePartialMessages?: boolean
   /** Callback for stderr output. */
   stderr?: (data: string) => void
 }
@@ -679,6 +797,8 @@ export interface Query {
   respondToPermission(toolUseId: string, decision: PermissionResult): void
   /** Undo file changes made during the session. */
   rewindFiles(): RewindFilesResult
+  /** Actually perform the file rewind. Returns files changed and diff stats. */
+  rewindFilesAsync(): Promise<RewindFilesResult>
   /** List available slash commands. */
   supportedCommands(): string[]
   /** List available models. */
@@ -694,47 +814,6 @@ export interface Query {
 }
 
 // ============================================================================
-// Internal: canUseTool adapter
-// ============================================================================
-
-/**
- * Wraps a user-provided canUseTool callback (simple signature) into the
- * full CanUseToolFn signature expected by QueryEngine. The user callback
- * only receives tool name and input; the remaining arguments are ignored.
- */
-function wrapCanUseTool(
-  userFn: QueryOptions['canUseTool'],
-  fallback: CanUseToolFn,
-): CanUseToolFn {
-  if (!userFn) return fallback
-  return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
-    // If a forced decision was passed in (e.g. from speculation), honor it
-    if (forceDecision) return forceDecision
-
-    try {
-      const result = await userFn(tool.name, input)
-      if (result.behavior === 'allow') {
-        return {
-          behavior: 'allow' as const,
-          updatedInput: input,
-        }
-      }
-      return {
-        behavior: 'deny' as const,
-        message: result.message ?? `Tool ${tool.name} denied by canUseTool callback`,
-        decisionReason: { type: 'mode' as const, mode: 'default' },
-      }
-    } catch {
-      return {
-        behavior: 'deny' as const,
-        message: `Tool ${tool.name} denied (callback error)`,
-        decisionReason: { type: 'mode' as const, mode: 'default' },
-      }
-    }
-  }
-}
-
-// ============================================================================
 // Internal: canUseTool with external permission resolution support
 // ============================================================================
 
@@ -743,29 +822,44 @@ type PermissionResolveDecision =
   | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
 
 /**
+ * Permission request message emitted when a tool needs permission approval.
+ * Hosts can respond via respondToPermission() using the request_id.
+ */
+export type SDKPermissionRequestMessage = {
+  type: 'permission_request'
+  request_id: string
+  tool_name: string
+  tool_use_id: string
+  input: Record<string, unknown>
+  session_id?: string
+}
+
+/**
  * Creates a canUseTool function that supports external permission resolution
  * via respondToPermission().
  *
  * When a user-provided canUseTool callback exists, it takes priority.
- * Otherwise, the fallback (auto-allow) is used and no pending prompts are
- * created. To use the external permission flow, the SDK host must NOT
- * provide a canUseTool callback — instead, it calls respondToPermission()
- * after the query yields a permission-request message.
+ * Otherwise, a permission_request message is emitted to the SDK stream,
+ * and the host can resolve it via respondToPermission() before the timeout.
  *
  * The flow:
  * 1. QueryEngine calls canUseTool(tool, input, ..., toolUseID, forceDecision)
  * 2. If forceDecision is set, honor it immediately
  * 3. If user canUseTool callback exists, delegate to it
- * 4. Otherwise, delegate to fallback (auto-allow)
+ * 4. Otherwise, emit permission_request message and await external resolution
  *
- * For async external resolution, hosts should listen for permission-request
+ * For async external resolution, hosts should listen for permission_request
  * SDKMessages and call respondToPermission(). The pending prompt is registered
  * via registerPendingPermission() and awaited here.
  */
 function createExternalCanUseTool(
   userFn: QueryOptions['canUseTool'],
   fallback: CanUseToolFn,
-  queryImpl: QueryImpl,
+  permissionTarget: {
+    registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>
+    pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }>
+  },
+  onPermissionRequest?: (message: SDKPermissionRequestMessage) => void,
 ): CanUseToolFn {
   return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
     // If a forced decision was passed in, honor it
@@ -774,9 +868,9 @@ function createExternalCanUseTool(
     // If the user provided a synchronous canUseTool callback, use it
     if (userFn) {
       try {
-        const result = await userFn(tool.name, input)
+        const result = await userFn(tool.name, input, { toolUseID })
         if (result.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: input }
+          return { behavior: 'allow' as const, updatedInput: result.updatedInput ?? input }
         }
         return {
           behavior: 'deny' as const,
@@ -792,10 +886,50 @@ function createExternalCanUseTool(
       }
     }
 
-    // No user callback — use fallback (auto-allow in most SDK modes).
-    // The pendingPermissionPrompts map is still available for hosts that
-    // want to intercept via a custom mechanism, but by default the
-    // fallback allows everything.
+    // No user callback — if host registered an onPermissionRequest callback,
+    // call it directly and await external resolution with timeout.
+    if (toolUseID && onPermissionRequest) {
+      const requestId = randomUUID()
+
+      onPermissionRequest({
+        type: 'permission_request',
+        request_id: requestId,
+        tool_name: tool.name,
+        tool_use_id: toolUseID,
+        input: input as Record<string, unknown>,
+      })
+
+      const pendingPromise = permissionTarget.registerPendingPermission(toolUseID)
+      const timeoutMs = 30000
+
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+      const timeoutPromise = new Promise<{ timedOut: true }>(resolve => {
+        timeoutId = setTimeout(() => resolve({ timedOut: true }), timeoutMs)
+      })
+
+      const raceResult = await Promise.race([
+        pendingPromise.then(result => ({ result, timedOut: false })),
+        timeoutPromise,
+      ])
+
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId)
+      }
+
+      if (!raceResult.timedOut && raceResult.result) {
+        permissionTarget.pendingPermissionPrompts.delete(toolUseID)
+        return raceResult.result
+      }
+
+      // Timeout — clean up
+      const pending = permissionTarget.pendingPermissionPrompts.get(toolUseID)
+      if (pending) {
+        pending.resolve({ behavior: 'deny', message: 'Permission resolution timed out' })
+        permissionTarget.pendingPermissionPrompts.delete(toolUseID)
+      }
+    }
+
+    // No callback or no toolUseID — fall through to default permission logic
     return fallback(tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision)
   }
 }
@@ -815,21 +949,106 @@ function buildPermissionContext(options: QueryOptions): ToolPermissionContext {
       internalMode = 'plan'
       break
     case 'auto-accept':
+    case 'acceptEdits':
       internalMode = 'acceptEdits'
       break
     case 'bypass-permissions':
+    case 'bypassPermissions':
       internalMode = 'bypassPermissions'
       break
     default:
       internalMode = 'default'
   }
 
+  // Wire additionalDirectories into the permission context
+  if (options.additionalDirectories && options.additionalDirectories.length > 0) {
+    for (const dir of options.additionalDirectories) {
+      base.additionalWorkingDirectories.set(dir, true)
+    }
+  }
+
   return {
     ...base,
     mode: internalMode as ToolPermissionContext['mode'],
     isBypassPermissionsModeAvailable:
-      mode === 'bypass-permissions' || options.allowDangerouslySkipPermissions === true,
+      mode === 'bypass-permissions' || mode === 'bypassPermissions' || options.allowDangerouslySkipPermissions === true,
   }
+}
+
+// ============================================================================
+// Internal: MCP server connection for SDK
+// ============================================================================
+
+/**
+ * Connects to MCP servers from SDK options.
+ * Takes the mcpServers config and connects to each server,
+ * returning connected clients and their tools.
+ *
+ * @param mcpServers - MCP server configurations from SDK options
+ * @returns Connected clients and their tools
+ */
+async function connectSdkMcpServers(
+  mcpServers: Record<string, unknown> | undefined,
+): Promise<{ clients: MCPServerConnection[]; tools: Tool[] }> {
+  if (!mcpServers || Object.keys(mcpServers).length === 0) {
+    return { clients: [], tools: [] }
+  }
+
+  const clients: MCPServerConnection[] = []
+  const tools: Tool[] = []
+
+  // Connect to each server in parallel
+  const results = await Promise.allSettled(
+    Object.entries(mcpServers).map(async ([name, config]) => {
+      // Convert SDK config to ScopedMcpServerConfig format
+      const scopedConfig: ScopedMcpServerConfig = {
+        ...(config as Record<string, unknown>),
+        scope: 'session' as const, // SDK servers are scoped to session
+      }
+
+      try {
+        // Connect to the server
+        const client = await connectToServer(name, scopedConfig, {
+          totalServers: Object.keys(mcpServers).length,
+          stdioCount: 0,
+          sseCount: 0,
+          httpCount: 0,
+          sseIdeCount: 0,
+          wsIdeCount: 0,
+        })
+
+        // If connected, fetch tools
+        if (client.type === 'connected') {
+          const serverTools = await fetchToolsForClient(client)
+          return { client, tools: serverTools }
+        }
+
+        // Return failed/pending client with no tools
+        return { client, tools: [] }
+      } catch (error) {
+        // Connection failed, return failed client
+        return {
+          client: {
+            type: 'failed' as const,
+            name,
+            config: scopedConfig,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          },
+          tools: [],
+        }
+      }
+    }),
+  )
+
+  // Process results
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      clients.push(result.value.client)
+      tools.push(...result.value.tools)
+    }
+  }
+
+  return { clients, tools }
 }
 
 // ============================================================================
@@ -837,9 +1056,9 @@ function buildPermissionContext(options: QueryOptions): ToolPermissionContext {
 // ============================================================================
 
 /**
- * Default canUseTool that auto-allows in bypass mode or denies interactive
- * prompts (since the SDK is non-interactive). For non-bypass modes, it
- * checks the permission context rules via hasPermissionsToUseTool.
+ * Default canUseTool that allows all tool uses. Permission filtering is
+ * already handled at the tool-list level by getTools(permissionContext),
+ * and bypass-permissions mode is reflected in the permission context itself.
  */
 function createDefaultCanUseTool(
   _permissionContext: ToolPermissionContext,
@@ -863,14 +1082,46 @@ async function loadAndInjectSessionMessages(
   sessionId: string,
   cwd: string,
   engine: QueryEngine,
+  upToUuid?: string,
 ): Promise<boolean> {
   const resolved = await resolveSessionFilePath(sessionId, cwd)
   if (!resolved) return false
 
   const entries = await readJSONLFile<JsonlEntry>(resolved.filePath)
-  const messages: unknown[] = entries
+  let messages: unknown[] = entries
     .filter(entry => !entry.isSidechain && (entry.type === 'user' || entry.type === 'assistant'))
     .map(entry => ({ ...entry }))
+
+  // If upToUuid is specified, walk the parentUuid chain from that UUID backwards
+  // and only include messages in the chain (rollback/resumeSessionAt support)
+  if (upToUuid && messages.length > 0) {
+    const byUuid = new Map<string, (typeof messages)[0] & { parentUuid?: string | null; uuid?: string }>()
+    for (const msg of messages) {
+      const m = msg as typeof byUuid extends Map<string, infer V> ? V : never
+      if (m.uuid) byUuid.set(m.uuid, m)
+    }
+
+    const target = byUuid.get(upToUuid)
+    if (!target) {
+      // UUID not found — throw error like forkSession does
+      throw new Error(
+        `resumeSessionAt ${upToUuid} not found in session ${sessionId}`
+      )
+    }
+    // Walk chain from target backwards
+    const chainSet = new Set<string>()
+    let current: typeof target | undefined = target
+    while (current) {
+      if (!current.uuid || chainSet.has(current.uuid)) break
+      chainSet.add(current.uuid)
+      const parentRef: string | null | undefined = current.parentUuid
+      current = parentRef ? byUuid.get(parentRef) : undefined
+    }
+    messages = messages.filter(msg => {
+      const m = msg as { uuid?: string }
+      return m.uuid && chainSet.has(m.uuid)
+    })
+  }
 
   if (messages.length > 0) {
     engine.injectMessages(messages as Parameters<QueryEngine['injectMessages']>[0])
@@ -888,25 +1139,33 @@ class QueryImpl implements Query {
   private abortController: AbortController
   private appStateStore: Store<AppState>
   private pendingPermissionPrompts = new Map<string, {
-    resolve: (decision: { behavior: 'allow'; updatedInput?: any } | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }) => void
+    resolve: (decision: PermissionResolveDecision) => void
   }>()
-  private envOverrides: Record<string, string> | undefined
+  private envOverrides: Record<string, string | undefined> | undefined
   private envSnapshot: Record<string, string | undefined> | undefined
   private sessionId?: string
   private shouldFork?: boolean
   private continueSession?: boolean
   private cwd: string
+  private resumeSessionAt?: string
+  private userAgents?: QueryOptions['agents']
+  private mcpServers?: Record<string, unknown>
+  private permissionContext: ToolPermissionContext
 
   constructor(
     engine: QueryEngine,
     prompt: string | AsyncIterable<SDKUserMessage>,
     abortController: AbortController,
     appStateStore: Store<AppState>,
-    envOverrides: Record<string, string> | undefined,
+    envOverrides: Record<string, string | undefined> | undefined,
     sessionId?: string,
     fork?: boolean,
     continueSession?: boolean,
     cwd: string = '',
+    resumeSessionAt?: string,
+    userAgents?: QueryOptions['agents'],
+    mcpServers?: Record<string, unknown>,
+    permissionContext: ToolPermissionContext = getEmptyToolPermissionContext(),
   ) {
     this.engine = engine
     this.prompt = prompt
@@ -917,6 +1176,10 @@ class QueryImpl implements Query {
     this.shouldFork = fork
     this.continueSession = continueSession
     this.cwd = cwd
+    this.resumeSessionAt = resumeSessionAt
+    this.userAgents = userAgents
+    this.mcpServers = mcpServers
+    this.permissionContext = permissionContext
   }
 
   /** Late-bind the engine (used by query() which creates QueryImpl before the engine). */
@@ -929,13 +1192,21 @@ class QueryImpl implements Query {
    * Returns a Promise that resolves when respondToPermission() is called
    * with the matching toolUseId.
    */
-  registerPendingPermission(toolUseId: string): Promise<{ behavior: 'allow'; updatedInput?: any } | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }> {
+  registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision> {
     return new Promise(resolve => {
       this.pendingPermissionPrompts.set(toolUseId, { resolve })
     })
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
+    // Acquire cwd mutex for the entire query lifetime to prevent concurrent
+    // sessions from corrupting each other's working directory.
+    await acquireCwdMutex()
+    const savedCwd = getCwdState()
+    const savedOriginalCwd = getOriginalCwd()
+    setCwd(this.cwd)
+    setOriginalCwd(this.cwd)
+
     try {
       // Ensure init() completes before any query runs
       // init() applies config env vars, so we apply our overrides AFTER
@@ -943,7 +1214,7 @@ class QueryImpl implements Query {
 
       // Load agent definitions BEFORE creating engine context
       // QueryEngine uses config.agents for toolUseContext.options.agentDefinitions
-      let agentDefs = { activeAgents: [], allAgents: [] }
+      let agentDefs: { activeAgents: any[]; allAgents: any[] } = { activeAgents: [], allAgents: [] }
       try {
         agentDefs = await getAgentDefinitionsWithOverrides(this.cwd)
       } catch {
@@ -958,47 +1229,82 @@ class QueryImpl implements Query {
 
       // Inject agents into the engine so AgentTool can use them
       // QueryEngine's submitMessage reads from config.agents for toolUseContext
+      // Merge user-provided agents (from options.agents) with disk-loaded agents
+      if (this.userAgents && Object.keys(this.userAgents).length > 0) {
+        const userAgents = Object.entries(this.userAgents).map(([name, def]) => ({
+          name,
+          ...def,
+        }))
+        agentDefs.activeAgents.push(...userAgents)
+      }
       if (agentDefs.activeAgents.length > 0) {
         this.engine.injectAgents(agentDefs.activeAgents)
       }
 
       // Apply env overrides AFTER init() so they override config file env vars
+      // Use mutex to ensure safe parallel query execution
       if (this.envOverrides && Object.keys(this.envOverrides).length > 0) {
-        // Snapshot existing values for keys we'll override
-        this.envSnapshot = {}
-        for (const key of Object.keys(this.envOverrides)) {
-          this.envSnapshot[key] = process.env[key]
+        await acquireEnvMutex()
+        try {
+          // Snapshot existing values for keys we'll override
+          this.envSnapshot = {}
+          for (const key of Object.keys(this.envOverrides)) {
+            this.envSnapshot[key] = process.env[key]
+          }
+          // Apply overrides - undefined means explicit unset
+          for (const [key, value] of Object.entries(this.envOverrides)) {
+            if (value === undefined) {
+              delete process.env[key]
+            } else {
+              process.env[key] = value
+            }
+          }
+        } finally {
+          releaseEnvMutex()
         }
-        // Apply overrides
-        for (const [key, value] of Object.entries(this.envOverrides)) {
-          process.env[key] = value
+      }
+
+      // Connect MCP servers if provided
+      // This must happen before session loading so MCP tools are available
+      if (this.mcpServers && Object.keys(this.mcpServers).length > 0) {
+        const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(this.mcpServers)
+        // Update engine config with MCP clients and merge tools
+        if (mcpClients.length > 0) {
+          this.engine.config.mcpClients = mcpClients
+          // Merge MCP tools with existing tools
+          const allTools = getTools(this.permissionContext)
+          for (const mcpTool of mcpTools) {
+            if (!allTools.some(t => t.name === mcpTool.name)) {
+              allTools.push(mcpTool)
+            }
+          }
+          this.engine.updateTools(allTools)
         }
       }
 
       // Handle continue: if continue=true and no sessionId, find last session for cwd
       let effectiveSessionId = this.sessionId
+
       if (this.continueSession && !this.sessionId) {
         const sessions = await listSessions({ dir: this.cwd, limit: 1 })
         if (sessions.length > 0) {
           effectiveSessionId = sessions[0].session_id
           // Load the session's messages into the engine so conversation resumes
-          const loaded = await loadAndInjectSessionMessages(effectiveSessionId, this.cwd, this.engine)
+          const loaded = await loadAndInjectSessionMessages(effectiveSessionId, this.cwd, this.engine, this.resumeSessionAt)
           if (!loaded) {
             effectiveSessionId = undefined
           }
         }
-      }
-
-      // Handle fork: if sessionId and fork=true, fork the session first
-      // If the session file doesn't exist (e.g., first query didn't persist),
-      // just start a new session instead of throwing an error
-      if (this.sessionId && this.shouldFork) {
+      } else if (this.shouldFork && this.sessionId) {
+        // Handle fork: if sessionId and fork=true (or forkSession=true), fork the session first
+        // If the session file doesn't exist (e.g., first query didn't persist),
+        // just start a new session instead of throwing an error
         try {
           const forkResult = await forkSession(this.sessionId, { dir: this.cwd })
           effectiveSessionId = forkResult.session_id
 
           // Load the forked session's messages and inject them into the engine
-          const loaded = await loadAndInjectSessionMessages(effectiveSessionId, this.cwd, this.engine)
+          const loaded = await loadAndInjectSessionMessages(effectiveSessionId, this.cwd, this.engine, this.resumeSessionAt)
           if (!loaded) {
             effectiveSessionId = undefined
           }
@@ -1006,34 +1312,61 @@ class QueryImpl implements Query {
           // Session not found or other fork error - just start fresh
           effectiveSessionId = undefined
         }
+      } else if (this.sessionId) {
+        // Simple resume: sessionId set without fork/continue — load messages directly
+        // Supports rollback via resumeSessionAt (parentUuid chain walking)
+        const loaded = await loadAndInjectSessionMessages(this.sessionId, this.cwd, this.engine, this.resumeSessionAt)
+        if (!loaded) {
+          effectiveSessionId = undefined
+        }
+      }
+
+      // CRITICAL: Switch global session state before submitting to engine
+      // This ensures messages emit correct session_id and transcript writes to correct file
+      if (effectiveSessionId) {
+        switchSession(effectiveSessionId, this.cwd)
+      } else {
+        // Fresh query — allocate a new session to avoid colliding with
+        // other concurrent queries in the same process
+        regenerateSessionId()
+        switchSession(getSessionId(), this.cwd)
       }
 
       if (typeof this.prompt === 'string') {
-        // Single string prompt — submit once and yield all results
-        yield* this.engine.submitMessage(this.prompt)
-      } else {
-        // AsyncIterable<SDKUserMessage> — iterate and submit each message
-        for await (const userMessage of this.prompt) {
-          // Check if aborted before processing next message
-          if (this.abortController.signal.aborted) break
-
-          // Pass content directly to submitMessage
-          const content = extractPromptFromUserMessage(userMessage)
-          yield* this.engine.submitMessage(content, { uuid: userMessage.uuid })
+        for await (const engineMsg of this.engine.submitMessage(this.prompt)) {
+          yield engineMsg
         }
-      }
-    } finally {
-      // Restore environment variables to snapshot state
-      if (this.envSnapshot) {
-        for (const key of Object.keys(this.envSnapshot)) {
-          const originalValue = this.envSnapshot[key]
-          if (originalValue === undefined) {
-            delete process.env[key]
-          } else {
-            process.env[key] = originalValue
+      } else {
+        for await (const userMessage of this.prompt) {
+          if (this.abortController.signal.aborted) break
+          const content = extractPromptFromUserMessage(userMessage)
+          for await (const engineMsg of this.engine.submitMessage(content, { uuid: userMessage.uuid })) {
+            yield engineMsg
           }
         }
       }
+    } finally {
+      // Restore environment variables to snapshot state (with mutex for safety)
+      if (this.envSnapshot) {
+        await acquireEnvMutex()
+        try {
+          for (const key of Object.keys(this.envSnapshot)) {
+            const originalValue = this.envSnapshot[key]
+            if (originalValue === undefined) {
+              delete process.env[key]
+            } else {
+              process.env[key] = originalValue
+            }
+          }
+        } finally {
+          releaseEnvMutex()
+        }
+      }
+
+      // Restore cwd state and release mutex
+      setCwdState(savedCwd)
+      setOriginalCwd(savedOriginalCwd)
+      releaseCwdMutex()
     }
   }
 
@@ -1048,10 +1381,14 @@ class QueryImpl implements Query {
   }
 
   async setPermissionMode(mode: QueryPermissionMode): Promise<void> {
+    // Preserve additionalDirectories from the original permission context
     const newPermissionContext = buildPermissionContext({
-      ...({ cwd: '' } as QueryOptions),
+      cwd: this.cwd,
       permissionMode: mode,
-    })
+      additionalDirectories: Array.from(this.permissionContext.additionalWorkingDirectories.keys()),
+      allowDangerouslySkipPermissions: this.permissionContext.isBypassPermissionsModeAvailable,
+    } as QueryOptions)
+    this.permissionContext = newPermissionContext
     this.appStateStore.setState(prev => ({
       ...prev,
       toolPermissionContext: newPermissionContext,
@@ -1100,14 +1437,66 @@ class QueryImpl implements Query {
       if (!messageId) continue
 
       if (fileHistoryCanRestore(fileHistory, messageId as any)) {
-        // Synchronous check — return canRewind: true.
-        // The actual rewind is async; caller should use rewindFilesAsync()
-        // (not yet exposed in the public API) or trigger via other means.
+        // Synchronous check — return canRewind: true with the messageId.
+        // Use rewindFilesAsync() to actually perform the rewind.
         return { canRewind: true }
       }
     }
 
     return { canRewind: false, error: 'No file-history snapshot found to rewind to' }
+  }
+
+  /**
+   * Actually perform the file rewind to the last file-history snapshot.
+   * Returns the files changed and diff stats if successful.
+   */
+  async rewindFilesAsync(): Promise<RewindFilesResult> {
+    const state = this.appStateStore.getState()
+    const messages = this.engine.getMessages()
+
+    // Find the last assistant message UUID that has a file-history snapshot
+    const fileHistory = state.fileHistory
+    let targetMessageId: string | undefined
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      const messageId = (msg as any)?.uuid as string | undefined
+      if (!messageId) continue
+
+      if (fileHistoryCanRestore(fileHistory, messageId as any)) {
+        targetMessageId = messageId
+        break
+      }
+    }
+
+    if (!targetMessageId) {
+      return { canRewind: false, error: 'No file-history snapshot found to rewind to' }
+    }
+
+    // Get diff stats before rewinding
+    const diffStats = fileHistoryGetDiffStats(fileHistory, targetMessageId as any)
+
+    // Perform the actual rewind
+    try {
+      await fileHistoryRewind(
+        (updater) => this.appStateStore.setState(prev => ({
+          ...prev,
+          fileHistory: updater(prev.fileHistory),
+        })),
+        targetMessageId as any,
+      )
+
+      return {
+        canRewind: true,
+        filesChanged: diffStats?.filesChanged,
+        insertions: diffStats?.insertions ?? 0,
+        deletions: diffStats?.deletions ?? 0,
+      }
+    } catch (err) {
+      return {
+        canRewind: false,
+        error: err instanceof Error ? err.message : 'Rewind failed',
+      }
+    }
   }
 
   supportedCommands(): string[] {
@@ -1132,6 +1521,7 @@ class QueryImpl implements Query {
   mcpServerStatus(): McpServerStatus[] {
     const state = this.appStateStore.getState()
     const clients: MCPServerConnection[] = state.mcp?.clients ?? []
+    const allTools = state.mcp?.tools ?? []
     return clients.map((client): McpServerStatus => {
       const base: McpServerStatus = {
         name: client.name,
@@ -1139,7 +1529,10 @@ class QueryImpl implements Query {
       }
       if (client.type === 'connected') {
         base.serverInfo = client.serverInfo
-        base.tools = (client as any).tools?.map((t: any) => ({
+        // Tools are stored in state.mcp.tools (flat array), not on individual clients.
+        // Use filterToolsByServer to get tools belonging to this server.
+        const serverTools = filterToolsByServer(allTools, client.name)
+        base.tools = serverTools.map(t => ({
           name: t.name,
           description: t.description,
           annotations: t.annotations,
@@ -1166,16 +1559,20 @@ class QueryImpl implements Query {
       }
       return { apiKeySource: apiKeySource as ApiKeySource }
     } catch {
-      return { apiKeySource: 'none' as ApiKeySource }
+      return { apiKeySource: 'none' }
     }
   }
 
   setMaxThinkingTokens(tokens: number): void {
     this.appStateStore.setState(prev => ({
       ...prev,
-      thinkingEnabled: tokens > 0 ? true : prev.thinkingEnabled,
+      thinkingEnabled: tokens > 0,  // Boolean, not prev preservation
       thinkingBudgetTokens: tokens > 0 ? tokens : undefined,
     }))
+    // Also update the engine's thinking config so subsequent API calls use the new budget
+    this.engine.setThinkingConfig(tokens > 0
+      ? { type: 'enabled', budgetTokens: tokens }
+      : { type: 'disabled' })
   }
 }
 
@@ -1249,7 +1646,11 @@ export function query(params: {
   // Note: We pass settings?.env to QueryImpl for application AFTER init() runs.
   // This ensures our env vars override config file env vars, not vice versa.
   // init() calls applyConfigEnvironmentVariables() which would override pre-applied env.
-  const envOverrides = settings?.env
+  // Top-level `env` takes precedence over `settings.env` for Claude SDK compatibility.
+  // NOTE: undefined values are KEPT and treated as explicit unset requests
+  // (Claude SDK convention: { FOO: undefined } means "unset inherited FOO")
+  const rawEnvOverrides = options.env ?? settings?.env
+  const envOverrides: Record<string, string | undefined> | undefined = rawEnvOverrides
 
   // Ensure init() has been called (memoized, safe to call multiple times).
   // We fire-and-forget the init promise — QueryEngine.submitMessage() will
@@ -1263,11 +1664,9 @@ export function query(params: {
   // Query synchronously (not Promise<Query>), so we keep it sync and defer
   // the init to the async iterator.
 
-  // Set up cwd immediately (synchronous)
-  setCwd(cwd)
-  // Also set originalCwd for session storage - getTranscriptPath() uses getOriginalCwd()
-  // Without this, sessions would be saved to wrong directory (Electron app's cwd, not user's cwd)
-  setOriginalCwd(cwd)
+  // NOTE: cwd is NOT set on global state here. It is set inside the
+  // async iterator via withSessionCwd() to prevent concurrent sessions
+  // from overwriting each other's working directory.
 
   // Build permission context
   const permissionContext = buildPermissionContext(options)
@@ -1293,12 +1692,18 @@ export function query(params: {
 
   // Build the canUseTool callback
   const defaultCanUseTool = createDefaultCanUseTool(permissionContext)
-  const canUseTool = wrapCanUseTool(options.canUseTool, defaultCanUseTool)
 
   // Determine custom system prompt
   let customSystemPrompt: string | undefined
-  if (systemPrompt?.type === 'custom') {
+  let appendSystemPrompt: string | undefined
+  if (typeof systemPrompt === 'string') {
+    customSystemPrompt = systemPrompt
+  } else if (systemPrompt?.type === 'custom') {
     customSystemPrompt = systemPrompt.content
+  } else if (systemPrompt?.type === 'preset') {
+    if (systemPrompt.append) {
+      appendSystemPrompt = systemPrompt.append
+    }
   }
 
   // Abort controller
@@ -1306,8 +1711,10 @@ export function query(params: {
 
   // Create the Query wrapper first so we can wire canUseTool to its
   // pending permission map. Pass envOverrides for application AFTER init().
-  // Also pass sessionId, fork, continue, and cwd for session handling in the iterator.
-  const queryImpl = new QueryImpl(null as any, prompt, ac, appStateStore, envOverrides, options.sessionId, options.fork, options.continue, cwd)
+  // Also pass sessionId, fork/forkSession, continue, cwd, resumeSessionAt, and agents.
+  const effectiveSessionId = options.sessionId || options.resume
+  const shouldFork = options.fork || options.forkSession
+  const queryImpl = new QueryImpl(null as any, prompt, ac, appStateStore, envOverrides, effectiveSessionId, shouldFork, options.continue, cwd, options.resumeSessionAt, options.agents, options.mcpServers, permissionContext)
 
   // Build the canUseTool that supports external permission resolution.
   // When no user canUseTool callback is provided, this creates a pending
@@ -1316,6 +1723,7 @@ export function query(params: {
     options.canUseTool,
     defaultCanUseTool,
     queryImpl,
+    options.onPermissionRequest,
   )
 
   // Create QueryEngine config
@@ -1330,8 +1738,10 @@ export function query(params: {
     setAppState: (f: (prev: AppState) => AppState) => appStateStore.setState(f),
     readFileCache,
     customSystemPrompt,
+    appendSystemPrompt,
     userSpecifiedModel: model,
     abortController: ac,
+    includePartialMessages: options.includePartialMessages ?? false,
   }
 
   // Create the QueryEngine
@@ -1380,7 +1790,14 @@ export type SDKSessionOptions = {
    * Callback invoked before each tool use. Return `{ behavior: 'allow' }` to
    * permit the call or `{ behavior: 'deny', message?: string }` to reject it.
    */
-  canUseTool?: (name: string, input: unknown) => Promise<{ behavior: 'allow' | 'deny'; message?: string }>
+  canUseTool?: (name: string, input: unknown, options?: { toolUseID?: string }) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
+  /** MCP server configurations for this session. */
+  mcpServers?: Record<string, unknown>
+  /**
+   * Callback invoked when a tool needs permission approval. The host receives
+   * the request immediately and can resolve it via respondToPermission().
+   */
+  onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
 }
 
 /**
@@ -1398,6 +1815,12 @@ export interface SDKSession {
   getMessages(): SDKMessage[]
   /** Abort the current in-flight query. */
   interrupt(): void
+  /**
+   * Respond to a pending permission prompt asynchronously.
+   * Use this when no canUseTool callback was provided — the SDK emits a
+   * permission-request message and the host resolves it via this method.
+   */
+  respondToPermission(toolUseId: string, decision: PermissionResult): void
 }
 
 /**
@@ -1436,6 +1859,11 @@ class SDKSessionImpl implements SDKSession {
   private options: SDKSessionOptions
   private appStateStore: Store<AppState>
   private agentsLoaded = false
+  private mcpServers?: Record<string, unknown>
+  private mcpConnected = false
+  private pendingPermissionPrompts = new Map<string, {
+    resolve: (decision: PermissionResolveDecision) => void
+  }>()
 
   constructor(
     engine: QueryEngine,
@@ -1447,6 +1875,17 @@ class SDKSessionImpl implements SDKSession {
     this._sessionId = sessionId
     this.options = options
     this.appStateStore = appStateStore
+    this.mcpServers = options.mcpServers
+  }
+
+  /** Late-bind the engine (used when session is created before engine). */
+  setEngine(engine: QueryEngine): void {
+    this.engine = engine
+  }
+
+  /** Late-bind the app state store (used when session is created before store). */
+  setAppStateStore(store: Store<AppState>): void {
+    this.appStateStore = store
   }
 
   get sessionId(): string {
@@ -1454,35 +1893,103 @@ class SDKSessionImpl implements SDKSession {
   }
 
   async *sendMessage(content: string): AsyncIterable<SDKMessage> {
-    await init()
+    // Acquire cwd mutex for the duration of this message to prevent
+    // concurrent sessions from overwriting each other's cwd.
+    await acquireCwdMutex()
+    const savedCwd = getCwdState()
+    const savedOriginalCwd = getOriginalCwd()
+    setCwd(this.options.cwd)
+    setOriginalCwd(this.options.cwd)
 
-    // Load agent definitions once (not on every sendMessage call)
-    if (!this.agentsLoaded) {
-      try {
-        const agentDefs = await getAgentDefinitionsWithOverrides(this.options.cwd)
-        this.appStateStore.setState(prev => ({
-          ...prev,
-          agentDefinitions: agentDefs,
-        }))
-        if (agentDefs.activeAgents.length > 0) {
-          this.engine.injectAgents(agentDefs.activeAgents)
+    try {
+      await init()
+
+      // Load agent definitions once (not on every sendMessage call)
+      if (!this.agentsLoaded) {
+        try {
+          const agentDefs = await getAgentDefinitionsWithOverrides(this.options.cwd)
+          this.appStateStore.setState(prev => ({
+            ...prev,
+            agentDefinitions: agentDefs,
+          }))
+          if (agentDefs.activeAgents.length > 0) {
+            this.engine.injectAgents(agentDefs.activeAgents)
+          }
+        } catch {
+          // Agent loading failed — continue without agents
         }
-      } catch {
-        // Agent loading failed — continue without agents
+        this.agentsLoaded = true
       }
-      this.agentsLoaded = true
-    }
 
-    yield* this.engine.submitMessage(content)
+      // Connect MCP servers once (lazy, on first message)
+      if (!this.mcpConnected && this.mcpServers && Object.keys(this.mcpServers).length > 0) {
+        const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(this.mcpServers)
+        if (mcpClients.length > 0) {
+          this.engine.config.mcpClients = mcpClients
+          const permissionContext = (this.appStateStore.getState() as any).toolPermissionContext as ToolPermissionContext
+          const allTools = getTools(permissionContext)
+          for (const mcpTool of mcpTools) {
+            if (!allTools.some(t => t.name === mcpTool.name)) {
+              allTools.push(mcpTool)
+            }
+          }
+          this.engine.updateTools(allTools)
+        }
+        this.mcpConnected = true
+      }
+
+      // CRITICAL: Switch global session state before submitting to engine
+      // This ensures messages emit correct session_id and transcript writes to correct file
+      const projectDir = getSessionProjectDir() || getOriginalCwd()
+      switchSession(this._sessionId, projectDir)
+
+      for await (const engineMsg of this.engine.submitMessage(content)) {
+        yield engineMsg
+      }
+    } finally {
+      // Restore cwd and release mutex
+      setCwdState(savedCwd)
+      setOriginalCwd(savedOriginalCwd)
+      releaseCwdMutex()
+    }
   }
 
   getMessages(): SDKMessage[] {
-    // QueryEngine.getMessages() returns readonly Message[], map to SDKMessage[]
-    return this.engine.getMessages() as unknown as SDKMessage[]
+    return this.engine.getMessages().map(msg => mapMessageToSDK(msg as Record<string, unknown>))
   }
 
   interrupt(): void {
     this.engine.interrupt()
+  }
+
+  /**
+   * Register a pending permission prompt for external resolution.
+   * Returns a Promise that resolves when respondToPermission() is called
+   * with the matching toolUseId.
+   */
+  registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision> {
+    return new Promise(resolve => {
+      this.pendingPermissionPrompts.set(toolUseId, { resolve })
+    })
+  }
+
+  respondToPermission(toolUseId: string, decision: PermissionResult): void {
+    const pending = this.pendingPermissionPrompts.get(toolUseId)
+    if (!pending) return
+
+    if (decision.behavior === 'allow') {
+      pending.resolve({
+        behavior: 'allow',
+        updatedInput: decision.updatedInput,
+      })
+    } else {
+      pending.resolve({
+        behavior: 'deny',
+        message: decision.message ?? 'Permission denied',
+        decisionReason: { type: 'mode', mode: 'default' },
+      })
+    }
+    this.pendingPermissionPrompts.delete(toolUseId)
   }
 }
 
@@ -1496,6 +2003,7 @@ class SDKSessionImpl implements SDKSession {
  */
 function createEngineFromOptions(
   options: SDKSessionOptions,
+  permissionTarget: { registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>; pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }> },
   initialMessages?: any[],
 ): { engine: QueryEngine; appStateStore: Store<AppState> } {
   const { cwd, model, abortController, permissionMode } = options
@@ -1504,10 +2012,9 @@ function createEngineFromOptions(
     throw new Error('SDKSessionOptions requires cwd')
   }
 
-  setCwd(cwd)
-  // Also set originalCwd for session storage - getTranscriptPath() uses getOriginalCwd()
-  // Without this, sessions would be saved to wrong directory
-  setOriginalCwd(cwd)
+  // NOTE: cwd is NOT set on global state here. SDKSessionImpl.sendMessage()
+  // sets/restores it per-message via the cwd mutex to prevent concurrent
+  // sessions from overwriting each other's working directory.
 
   // Build permission context
   const permissionContext = buildPermissionContext({
@@ -1527,19 +2034,28 @@ function createEngineFromOptions(
   }
   const appStateStore = createStore<AppState>(stateWithPermissions)
 
+  // Build thinkingConfig from initial state
+  const thinkingConfig = stateWithPermissions.thinkingEnabled !== false
+    ? (stateWithPermissions.thinkingBudgetTokens
+      ? { type: 'enabled' as const, budgetTokens: stateWithPermissions.thinkingBudgetTokens }
+      : { type: 'adaptive' as const })
+    : { type: 'disabled' as const }
+
   // Get tools filtered by permission context
   const tools = getTools(permissionContext)
 
   // Create file state cache
   const readFileCache = createFileStateCacheWithSizeLimit(100)
 
-  // Build the canUseTool callback
+  // Build the canUseTool callback with external permission resolution support.
+  // When no user canUseTool callback is provided, this creates a pending
+  // prompt entry that respondToPermission() can resolve asynchronously.
   const defaultCanUseTool = createDefaultCanUseTool(permissionContext)
-  const canUseTool = wrapCanUseTool(
-    options.canUseTool
-      ? (name: string, input: unknown) => options.canUseTool!(name, input)
-      : undefined,
+  const canUseTool = createExternalCanUseTool(
+    options.canUseTool ?? undefined,
     defaultCanUseTool,
+    permissionTarget,
+    options.onPermissionRequest,
   )
 
   // Abort controller
@@ -1558,6 +2074,7 @@ function createEngineFromOptions(
     readFileCache,
     userSpecifiedModel: model,
     abortController: ac,
+    thinkingConfig,
     ...(initialMessages ? { initialMessages } : {}),
   }
 
@@ -1591,8 +2108,15 @@ function createEngineFromOptions(
  */
 export function unstable_v2_createSession(options: SDKSessionOptions): SDKSession {
   const sessionId = randomUUID()
-  const { engine, appStateStore } = createEngineFromOptions(options)
-  return new SDKSessionImpl(engine, sessionId, options, appStateStore)
+  // Create SDKSessionImpl first (without engine) so we can pass its
+  // pendingPermissionPrompts map to createEngineFromOptions for
+  // external permission resolution support.
+  const session = new SDKSessionImpl(null as any, sessionId, options, null as any)
+  const { engine, appStateStore } = createEngineFromOptions(options, session)
+  // Wire the engine and store into the session
+  session.setEngine(engine)
+  session.setAppStateStore(appStateStore)
+  return session
 }
 
 /**
@@ -1621,24 +2145,25 @@ export async function unstable_v2_resumeSession(
 ): Promise<SDKSession> {
   assertValidSessionId(sessionId)
 
-  // Load prior messages from the session's JSONL transcript
-  const priorMessages = await getSessionMessages(sessionId, {
-    dir: options.cwd,
-    includeSystemMessages: false,
-  })
+  // Load prior messages directly from JSONL (preserves sidechain/tool history)
+  //getSessionMessages filters out sidechain entries which breaks tool-result chains
+  const resolved = await resolveSessionFilePath(sessionId, options.cwd)
+  const rawEntries = resolved ? await readJSONLFile<JsonlEntry>(resolved.filePath) : []
 
-  // Convert SessionMessage[] to the format QueryEngine expects
-  const initialMessages = priorMessages.map((msg): Record<string, unknown> => ({
-    role: msg.role,
-    content: msg.content,
-    ...(msg as Record<string, unknown>),
-  }))
+  // Filter to user/assistant entries (same as loadAndInjectSessionMessages)
+  const initialMessages = rawEntries
+    .filter(entry => !entry.isSidechain && (entry.type === 'user' || entry.type === 'assistant'))
+    .map(entry => ({ ...entry }))
 
+  const session = new SDKSessionImpl(null as any, sessionId, options, null as any)
   const { engine, appStateStore } = createEngineFromOptions(
     options,
+    session,
     initialMessages as any[],
   )
-  return new SDKSessionImpl(engine, sessionId, options, appStateStore)
+  session.setEngine(engine)
+  session.setAppStateStore(appStateStore)
+  return session
 }
 
 // @[MODEL LAUNCH]: Update the example model ID in this docstring.
@@ -1731,35 +2256,33 @@ export function tool<Schema = any>(
 // ============================================================================
 
 /**
- * Creates an MCP server configuration object from a set of tool definitions.
+ * Wraps an MCP server configuration for use with the SDK.
+ * Adds the 'session' scope marker so the SDK knows this server
+ * should be connected per-session (not globally).
  *
- * Currently returns a plain config object. In a future release this will
- * return a fully wired MCP server instance.
- *
- * @param options - Server name, version, and tool definitions
+ * The `config` parameter must be a valid MCP server config with a
+ * transport type and its required fields:
+ * - stdio: `{ type: 'stdio', command: '...', args: [...] }`
+ * - sse:   `{ type: 'sse', url: '...' }`
+ * - http:  `{ type: 'http', url: '...' }`
  *
  * @example
  * ```typescript
  * const server = createSdkMcpServer({
- *   name: 'my-tools',
- *   version: '1.0.0',
- *   tools: [myTool],
+ *   type: 'stdio',
+ *   command: 'npx',
+ *   args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+ * })
+ * const session = unstable_v2_createSession({
+ *   cwd: '/my/project',
+ *   mcpServers: { 'fs': server },
  * })
  * ```
  */
-export function createSdkMcpServer(options: {
-  name: string
-  version?: string
-  tools?: SdkMcpToolDefinition[]
-}): {
-  name: string
-  version: string | undefined
-  tools: SdkMcpToolDefinition[]
-} {
+export function createSdkMcpServer(config: Omit<ScopedMcpServerConfig, 'scope'>): ScopedMcpServerConfig {
   return {
-    name: options.name,
-    version: options.version,
-    tools: options.tools ?? [],
+    ...config,
+    scope: 'session' as const,
   }
 }
 

@@ -1025,7 +1025,7 @@ export class QueryEngine {
         const maxRetries = parseInt(
           process.env.MAX_STRUCTURED_OUTPUT_RETRIES || '5',
           10,
-        )
+        ) || 5
         if (callsThisQuery >= maxRetries) {
           if (persistSession) {
             if (
@@ -1185,6 +1185,22 @@ export class QueryEngine {
     this.mutableMessages.push(...messages)
   }
 
+  /**
+   * Inject agent definitions into the engine's config.
+   * Used by SDK to load agents after engine creation (async loading).
+   */
+  injectAgents(agents: AgentDefinition[]): void {
+    this.config.agents = agents
+  }
+
+  /**
+   * Update the engine's tool list dynamically.
+   * Used by SDK setPermissionMode to refresh tools when permission mode changes.
+   */
+  updateTools(tools: Tools): void {
+    this.config.tools = tools
+  }
+
   getReadFileState(): FileStateCache {
     return this.readFileState
   }
@@ -1195,6 +1211,14 @@ export class QueryEngine {
 
   setModel(model: string): void {
     this.config.userSpecifiedModel = model
+  }
+
+  /**
+   * Update the engine's thinking config dynamically.
+   * Used by SDK setMaxThinkingTokens to change the thinking token budget.
+   */
+  setThinkingConfig(config: ThinkingConfig): void {
+    this.config.thinkingConfig = config
   }
 }
 

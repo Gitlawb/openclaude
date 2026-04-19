@@ -201,15 +201,6 @@ export type AxiosErrorKind =
   | 'http' // other axios error (may have status)
   | 'other' // not an axios error
 
-/**
- * Classify a caught error from an axios request into one of a few buckets.
- * Replaces the ~20-line isAxiosError → 401/403 → ECONNABORTED → ECONNREFUSED
- * chain duplicated across sync-style services (settingsSync, policyLimits,
- * remoteManagedSettings, teamMemorySync).
- *
- * Checks the `.isAxiosError` marker property directly (same as
- * axios.isAxiosError()) to keep this module dependency-free.
- */
 // ============================================================================
 // SDK-specific error classes
 // ============================================================================
@@ -287,6 +278,15 @@ export function sdkErrorFromType(
   }
 }
 
+/**
+ * Classify a caught error from an axios request into one of a few buckets.
+ * Replaces the ~20-line isAxiosError → 401/403 → ECONNABORTED → ECONNREFUSED
+ * chain duplicated across sync-style services (settingsSync, policyLimits,
+ * remoteManagedSettings, teamMemorySync).
+ *
+ * Checks the `.isAxiosError` marker property directly (same as
+ * axios.isAxiosError()) to keep this module dependency-free.
+ */
 export function classifyAxiosError(e: unknown): {
   kind: AxiosErrorKind
   status?: number
