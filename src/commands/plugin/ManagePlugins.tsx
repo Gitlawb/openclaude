@@ -35,12 +35,11 @@ import { loadInstalledPluginsV2 } from '../../utils/plugins/installedPluginsMana
 import { getMarketplace } from '../../utils/plugins/marketplaceManager.js';
 import { isMcpbSource, loadMcpbFile, type McpbNeedsConfigResult, type UserConfigValues } from '../../utils/plugins/mcpbHandler.js';
 import { getPluginDataDirSize, pluginDataDirPath } from '../../utils/plugins/pluginDirectories.js';
-import { getFlaggedPlugins, markFlaggedPluginsSeen, removeFlaggedPlugin } from '../../utils/plugins/pluginFlagging.js';
+import { markFlaggedPluginsSeen, removeFlaggedPlugin } from '../../utils/plugins/pluginFlagging.js';
 import { type PersistablePluginScope, parsePluginIdentifier } from '../../utils/plugins/pluginIdentifier.js';
 import { loadAllPlugins } from '../../utils/plugins/pluginLoader.js';
 import { loadPluginOptions, type PluginOptionSchema, savePluginOptions } from '../../utils/plugins/pluginOptionsStorage.js';
 import { isPluginBlockedByPolicy } from '../../utils/plugins/pluginPolicy.js';
-import { getPluginEditableScopes } from '../../utils/plugins/pluginStartupCheck.js';
 import { getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
 import { jsonParse } from '../../utils/slowOperations.js';
 import { plural } from '../../utils/stringUtils.js';
@@ -51,6 +50,7 @@ import type { ViewState as ParentViewState } from './types.js';
 import { UnifiedInstalledCell } from './UnifiedInstalledCell.js';
 import type { UnifiedInstalledItem } from './unifiedTypes.js';
 import { usePagination } from './usePagination.js';
+import { useUnifiedItems } from './useUnifiedItems.js';
 type Props = {
   setViewState: (state: ParentViewState) => void;
   setResult: (result: string | null) => void;
@@ -407,7 +407,6 @@ export function ManagePlugins({
   const mcpClients = useAppState(s => s.mcp.clients);
   const mcpTools = useAppState(s_0 => s_0.mcp.tools);
   const pluginErrors = useAppState(s_1 => s_1.plugins.errors);
-  const flaggedPlugins = getFlaggedPlugins();
 
   // Search state
   const [isSearchMode, setIsSearchModeRaw] = useState(false);
@@ -509,277 +508,13 @@ export function ManagePlugins({
     isActive: (viewState !== 'plugin-list' || !isSearchMode) && viewState !== 'confirm-project-uninstall' && !(typeof viewState === 'object' && viewState.type === 'confirm-data-cleanup')
   });
 
-  // Helper to get MCP status
-  const getMcpStatus = (client: MCPServerConnection): 'connected' | 'disabled' | 'pending' | 'needs-auth' | 'failed' => {
-    if (client.type === 'connected') return 'connected';
-    if (client.type === 'disabled') return 'disabled';
-    if (client.type === 'pending') return 'pending';
-    if (client.type === 'needs-auth') return 'needs-auth';
-    return 'failed';
-  };
-
   // Derive unified items from plugins and MCP servers
-  const unifiedItems = useMemo(() => {
-    const mergedSettings = getSettings_DEPRECATED();
-
-    // Build map of plugin name -> child MCPs
-    // Plugin MCPs have names like "plugin:pluginName:serverName"
-    const pluginMcpMap = new Map<string, Array<{
-      displayName: string;
-      client: MCPServerConnection;
-    }>>();
-    for (const client_0 of mcpClients) {
-      if (client_0.name.startsWith('plugin:')) {
-        const parts = client_0.name.split(':');
-        if (parts.length >= 3) {
-          const pluginName = parts[1]!;
-          const serverName = parts.slice(2).join(':');
-          const existing = pluginMcpMap.get(pluginName) || [];
-          existing.push({
-            displayName: serverName,
-            client: client_0
-          });
-          pluginMcpMap.set(pluginName, existing);
-        }
-      }
-    }
-
-    // Build plugin items (unsorted for now)
-    type PluginWithChildren = {
-      item: UnifiedInstalledItem & {
-        type: 'plugin';
-      };
-      originalScope: 'user' | 'project' | 'local' | 'managed' | 'builtin';
-      childMcps: Array<{
-        displayName: string;
-        client: MCPServerConnection;
-      }>;
-    };
-    const pluginsWithChildren: PluginWithChildren[] = [];
-    for (const state of pluginStates) {
-      const pluginId = `${state.plugin.name}@${state.marketplace}`;
-      const isEnabled = mergedSettings?.enabledPlugins?.[pluginId] !== false;
-      const errors = pluginErrors.filter(e => 'plugin' in e && e.plugin === state.plugin.name || e.source === pluginId || e.source.startsWith(`${state.plugin.name}@`));
-
-      // Built-in plugins use 'builtin' scope; others look up from V2 data.
-      const originalScope = state.plugin.isBuiltin ? 'builtin' : state.scope || 'user';
-      pluginsWithChildren.push({
-        item: {
-          type: 'plugin',
-          id: pluginId,
-          name: state.plugin.name,
-          description: state.plugin.manifest.description,
-          marketplace: state.marketplace,
-          scope: originalScope,
-          isEnabled,
-          errorCount: errors.length,
-          errors,
-          plugin: state.plugin,
-          pendingEnable: state.pendingEnable,
-          pendingUpdate: state.pendingUpdate,
-          pendingToggle: pendingToggles.get(pluginId)
-        },
-        originalScope,
-        childMcps: pluginMcpMap.get(state.plugin.name) || []
-      });
-    }
-
-    // Find orphan errors (errors for plugins that failed to load entirely)
-    const matchedPluginIds = new Set(pluginsWithChildren.map(({
-      item
-    }) => item.id));
-    const matchedPluginNames = new Set(pluginsWithChildren.map(({
-      item: item_0
-    }) => item_0.name));
-    const orphanErrorsBySource = new Map<string, typeof pluginErrors>();
-    for (const error of pluginErrors) {
-      if (matchedPluginIds.has(error.source) || 'plugin' in error && typeof error.plugin === 'string' && matchedPluginNames.has(error.plugin)) {
-        continue;
-      }
-      const existing_0 = orphanErrorsBySource.get(error.source) || [];
-      existing_0.push(error);
-      orphanErrorsBySource.set(error.source, existing_0);
-    }
-    const pluginScopes = getPluginEditableScopes();
-    const failedPluginItems: UnifiedInstalledItem[] = [];
-    for (const [pluginId_0, errors_0] of orphanErrorsBySource) {
-      // Skip plugins that are already shown in the flagged section
-      if (pluginId_0 in flaggedPlugins) continue;
-      const parsed = parsePluginIdentifier(pluginId_0);
-      const pluginName_0 = parsed.name || pluginId_0;
-      const marketplace = parsed.marketplace || 'unknown';
-      const rawScope = pluginScopes.get(pluginId_0);
-      // 'flag' is session-only (from --plugin-dir / flagSettings) and undefined
-      // means the plugin isn't in any settings source. Default both to 'user'
-      // since UnifiedInstalledItem doesn't have a 'flag' scope variant.
-      const scope = rawScope === 'flag' || rawScope === undefined ? 'user' : rawScope;
-      failedPluginItems.push({
-        type: 'failed-plugin',
-        id: pluginId_0,
-        name: pluginName_0,
-        marketplace,
-        scope,
-        errorCount: errors_0.length,
-        errors: errors_0
-      });
-    }
-
-    // Build standalone MCP items
-    const standaloneMcps: UnifiedInstalledItem[] = [];
-    for (const client_1 of mcpClients) {
-      if (client_1.name === 'ide') continue;
-      if (client_1.name.startsWith('plugin:')) continue;
-      standaloneMcps.push({
-        type: 'mcp',
-        id: `mcp:${client_1.name}`,
-        name: client_1.name,
-        description: undefined,
-        scope: client_1.config.scope,
-        status: getMcpStatus(client_1),
-        client: client_1
-      });
-    }
-
-    // Define scope order for display
-    const scopeOrder: Record<string, number> = {
-      flagged: -1,
-      project: 0,
-      local: 1,
-      user: 2,
-      enterprise: 3,
-      managed: 4,
-      dynamic: 5,
-      builtin: 6
-    };
-
-    // Build final list by merging plugins (with their child MCPs) and standalone MCPs
-    // Group by scope to avoid duplicate scope headers
-    const unified: UnifiedInstalledItem[] = [];
-
-    // Create a map of scope -> items for proper merging
-    const itemsByScope = new Map<string, UnifiedInstalledItem[]>();
-
-    // Add plugins with their child MCPs
-    for (const {
-      item: item_1,
-      originalScope: originalScope_0,
-      childMcps
-    } of pluginsWithChildren) {
-      const scope_0 = item_1.scope;
-      if (!itemsByScope.has(scope_0)) {
-        itemsByScope.set(scope_0, []);
-      }
-      itemsByScope.get(scope_0)!.push(item_1);
-      // Add child MCPs right after the plugin, indented (use original scope, not 'flagged').
-      // Built-in plugins map to 'user' for display since MCP ConfigScope doesn't include 'builtin'.
-      for (const {
-        displayName,
-        client: client_2
-      } of childMcps) {
-        const displayScope = originalScope_0 === 'builtin' ? 'user' : originalScope_0;
-        if (!itemsByScope.has(displayScope)) {
-          itemsByScope.set(displayScope, []);
-        }
-        itemsByScope.get(displayScope)!.push({
-          type: 'mcp',
-          id: `mcp:${client_2.name}`,
-          name: displayName,
-          description: undefined,
-          scope: displayScope,
-          status: getMcpStatus(client_2),
-          client: client_2,
-          indented: true
-        });
-      }
-    }
-
-    // Add standalone MCPs to their respective scope groups
-    for (const mcp of standaloneMcps) {
-      const scope_1 = mcp.scope;
-      if (!itemsByScope.has(scope_1)) {
-        itemsByScope.set(scope_1, []);
-      }
-      itemsByScope.get(scope_1)!.push(mcp);
-    }
-
-    // Add failed plugins to their respective scope groups
-    for (const failedPlugin of failedPluginItems) {
-      const scope_2 = failedPlugin.scope;
-      if (!itemsByScope.has(scope_2)) {
-        itemsByScope.set(scope_2, []);
-      }
-      itemsByScope.get(scope_2)!.push(failedPlugin);
-    }
-
-    // Add flagged (delisted) plugins from user settings.
-    // Reason/text are looked up from the cached security messages file.
-    for (const [pluginId_1, entry] of Object.entries(flaggedPlugins)) {
-      const parsed_0 = parsePluginIdentifier(pluginId_1);
-      const pluginName_1 = parsed_0.name || pluginId_1;
-      const marketplace_0 = parsed_0.marketplace || 'unknown';
-      if (!itemsByScope.has('flagged')) {
-        itemsByScope.set('flagged', []);
-      }
-      itemsByScope.get('flagged')!.push({
-        type: 'flagged-plugin',
-        id: pluginId_1,
-        name: pluginName_1,
-        marketplace: marketplace_0,
-        scope: 'flagged',
-        reason: 'delisted',
-        text: 'Removed from marketplace',
-        flaggedAt: entry.flaggedAt
-      });
-    }
-
-    // Sort scopes and build final list
-    const sortedScopes = [...itemsByScope.keys()].sort((a, b) => (scopeOrder[a] ?? 99) - (scopeOrder[b] ?? 99));
-    for (const scope_3 of sortedScopes) {
-      const items = itemsByScope.get(scope_3)!;
-
-      // Separate items into plugin groups (with their child MCPs) and standalone MCPs
-      // This preserves parent-child relationships that would be broken by naive sorting
-      const pluginGroups: UnifiedInstalledItem[][] = [];
-      const standaloneMcpsInScope: UnifiedInstalledItem[] = [];
-      let i = 0;
-      while (i < items.length) {
-        const item_2 = items[i]!;
-        if (item_2.type === 'plugin' || item_2.type === 'failed-plugin' || item_2.type === 'flagged-plugin') {
-          // Collect the plugin and its child MCPs as a group
-          const group: UnifiedInstalledItem[] = [item_2];
-          i++;
-          // Look ahead for indented child MCPs
-          let nextItem = items[i];
-          while (nextItem?.type === 'mcp' && nextItem.indented) {
-            group.push(nextItem);
-            i++;
-            nextItem = items[i];
-          }
-          pluginGroups.push(group);
-        } else if (item_2.type === 'mcp' && !item_2.indented) {
-          // Standalone MCP (not a child of a plugin)
-          standaloneMcpsInScope.push(item_2);
-          i++;
-        } else {
-          // Skip orphaned indented MCPs (shouldn't happen)
-          i++;
-        }
-      }
-
-      // Sort plugin groups by the plugin name (first item in each group)
-      pluginGroups.sort((a_0, b_0) => a_0[0]!.name.localeCompare(b_0[0]!.name));
-
-      // Sort standalone MCPs by name
-      standaloneMcpsInScope.sort((a_1, b_1) => a_1.name.localeCompare(b_1.name));
-
-      // Build final list: plugins (with their children) first, then standalone MCPs
-      for (const group_0 of pluginGroups) {
-        unified.push(...group_0);
-      }
-      unified.push(...standaloneMcpsInScope);
-    }
-    return unified;
-  }, [pluginStates, mcpClients, pluginErrors, pendingToggles, flaggedPlugins]);
+  const unifiedItems = useUnifiedItems({
+    pluginStates,
+    mcpClients,
+    pluginErrors,
+    pendingToggles,
+  });
 
   // Mark flagged plugins as seen when the Installed view renders them.
   // After 48 hours from seenAt, they auto-clear on next load.
