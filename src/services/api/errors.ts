@@ -781,6 +781,25 @@ export function getAssistantMessageFromError(
   // Check for request too large errors (413 status)
   // This typically happens when a large PDF + conversation context exceeds the 32MB API limit
   if (error instanceof APIError && error.status === 413) {
+    // Groq's 413 almost always means token-per-minute (TPM) rate-limit exhaustion,
+    // not raw upload size. Surface a more actionable message so users don't chase
+    // the wrong fix. (See #337, #449.)
+    const lowerMsg = error.message.toLowerCase()
+    const looksLikeGroqTpm =
+      lowerMsg.includes('groq.com') ||
+      lowerMsg.includes('tokens per minute') ||
+      lowerMsg.includes('"code":"rate_limit_exceeded"') ||
+      lowerMsg.includes('"type":"tokens"')
+    if (looksLikeGroqTpm) {
+      const innerMatch = error.message.match(/"message"\s*:\s*"([^"]+)"/)
+      const detail = innerMatch?.[1]
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: Groq token-per-minute limit exceeded${detail ? ` — ${detail}` : ''}. Try /compact, reduce enabled tools, or switch to a model with a higher TPM (e.g. llama-3.3-70b-versatile on a paid tier).`,
+        error: 'rate_limit',
+        errorDetails: error.message,
+      })
+    }
+
     return createAssistantAPIErrorMessage({
       content: getRequestTooLargeErrorMessage(),
       error: 'invalid_request',

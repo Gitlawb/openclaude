@@ -81,6 +81,41 @@ const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
 
+// Groq token-per-minute (TPM) limits cause HTTP 413 even for short prompts
+// when tool schemas bloat the outgoing request. We conservatively cap the
+// effective prompt budget and shrink payloads before sending.
+//
+// NOTE: these are conservative defaults based on Groq's free-tier TPM rate
+// limits as documented at https://console.groq.com/docs/rate-limits (as of
+// 2026-04). Per-model overrides come from GROQ_MODEL_TPM_LIMITS below; if a
+// model is not listed we fall back to GROQ_DEFAULT_MAX_REQUEST_TOKENS.
+const GROQ_DEFAULT_MAX_REQUEST_TOKENS = 6_000
+const GROQ_COMPLETION_TOKEN_SAFETY_MARGIN = 500
+// Target prompt ≤ 60% of TPM budget, reserving 40% for completion + retries
+// within the same minute. Lower ratio = more aggressive trimming but fewer
+// unsolicited 413s on bursty conversations (e.g. Claude Code loops).
+const GROQ_TARGET_PROMPT_RATIO = 0.6
+// Approx chars-per-token for mixed English prose + code. OpenAI's tokenizer
+// averages ~4 chars/token for English and ~3 for code; we pick 4 as a
+// conservative blend so we slightly UNDER-estimate rather than over-trim.
+const GROQ_CHARS_PER_TOKEN = 4
+
+// Free-tier TPM limits per https://console.groq.com/docs/rate-limits (2026-04).
+// Paid tiers are higher, but we're conservative because we can't detect tier.
+const GROQ_MODEL_TPM_LIMITS: Array<{ pattern: RegExp; tpm: number }> = [
+  { pattern: /llama-3\.3-70b/i, tpm: 12_000 },
+  { pattern: /llama-3\.1-70b/i, tpm: 12_000 },
+  { pattern: /llama-3\.1-8b/i, tpm: 6_000 },
+  { pattern: /llama-3-70b/i, tpm: 6_000 },
+  { pattern: /llama-3-8b/i, tpm: 6_000 },
+  { pattern: /mixtral-8x7b/i, tpm: 5_000 },
+  { pattern: /gemma2?-/i, tpm: 15_000 },
+  { pattern: /qwen/i, tpm: 6_000 },
+  { pattern: /deepseek/i, tpm: 6_000 },
+]
+
+const SHARED_TEXT_ENCODER = new TextEncoder()
+
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
   'Editor-Version': 'vscode/1.99.3',
@@ -148,6 +183,249 @@ function hasGeminiApiHost(baseUrl: string | undefined): boolean {
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
+}
+
+function isGroqBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return hostname === 'groq.com' || hostname.endsWith('.groq.com')
+  } catch {
+    return baseUrl.toLowerCase().includes('groq.com')
+  }
+}
+
+function getGroqMaxRequestTokens(model: string | undefined): number {
+  if (!model) return GROQ_DEFAULT_MAX_REQUEST_TOKENS
+  for (const entry of GROQ_MODEL_TPM_LIMITS) {
+    if (entry.pattern.test(model)) return entry.tpm
+  }
+  return GROQ_DEFAULT_MAX_REQUEST_TOKENS
+}
+
+// Estimate prompt tokens from a serialized payload. Uses chars-per-token
+// ratio to approximate tokenization without loading a tokenizer. Reuses a
+// module-scoped TextEncoder to avoid re-allocation on hot paths.
+function estimateGroqPromptTokens(value: unknown): number {
+  const serialized = JSON.stringify(value) ?? ''
+  // byteLength approximates character count for ASCII; for mixed content this
+  // slightly over-estimates (in our favor — more conservative compaction).
+  const bytes = SHARED_TEXT_ENCODER.encode(serialized).length
+  return Math.ceil(bytes / GROQ_CHARS_PER_TOKEN)
+}
+
+// Strip top-level tool descriptions only. We intentionally KEEP nested JSON
+// Schema property descriptions because those materially help the model
+// understand parameter semantics; removing them degrades tool-calling quality.
+function stripToolTopLevelDescriptions(
+  tools: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return tools.map(tool => {
+    if (!tool || typeof tool !== 'object') return tool
+    const next: Record<string, unknown> = { ...tool }
+    if (next.function && typeof next.function === 'object') {
+      const fn = { ...(next.function as Record<string, unknown>) }
+      delete fn.description
+      next.function = fn
+    } else {
+      delete next.description
+    }
+    return next
+  })
+}
+
+// Find the lowest message count from the front we can drop while preserving
+// assistant(tool_calls) ↔ tool(tool_call_id) adjacency. Returns a new message
+// array trimmed to fit the target byte budget, or null if no safe trim point.
+function trimGroqMessagesForBudget(
+  messages: Array<Record<string, unknown>>,
+  targetTokens: number,
+  otherTokens: number,
+): { messages: Array<Record<string, unknown>>; removed: number } {
+  // Precompute per-message token estimates
+  const perMessageTokens = messages.map(m => estimateGroqPromptTokens(m))
+  const total = perMessageTokens.reduce((a, b) => a + b, 0)
+
+  let budget = Math.max(0, targetTokens - otherTokens)
+  if (total <= budget) return { messages, removed: 0 }
+
+  // Always keep: leading system messages and the final message (the active user turn).
+  const systemCount = messages.findIndex(m => m.role !== 'system')
+  const systemEnd = systemCount === -1 ? messages.length : systemCount
+  const lastIndex = messages.length - 1
+
+  // Build "keep" flags. Start by keeping system + last, fill forward from the
+  // end (recent context) until we exceed the budget.
+  const keep = new Array(messages.length).fill(false)
+  for (let i = 0; i < systemEnd; i++) keep[i] = true
+  if (lastIndex >= 0) keep[lastIndex] = true
+
+  let used = 0
+  for (let i = 0; i < messages.length; i++) if (keep[i]) used += perMessageTokens[i]
+
+  for (let i = lastIndex - 1; i >= systemEnd; i--) {
+    if (keep[i]) continue
+    if (used + perMessageTokens[i] > budget) break
+    keep[i] = true
+    used += perMessageTokens[i]
+  }
+
+  // Preserve tool_call ↔ tool_result pairing. A message with role === 'tool'
+  // and a tool_call_id must be preceded by an assistant message whose
+  // tool_calls includes that id; drop orphans.
+  const toolCallIdsInScope = new Set<string>()
+  for (let i = 0; i < messages.length; i++) {
+    if (!keep[i]) continue
+    const m = messages[i]
+    if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+      for (const tc of m.tool_calls as Array<Record<string, unknown>>) {
+        if (typeof tc?.id === 'string') toolCallIdsInScope.add(tc.id)
+      }
+    }
+  }
+  for (let i = 0; i < messages.length; i++) {
+    if (!keep[i]) continue
+    const m = messages[i]
+    if (m.role === 'tool') {
+      const id = typeof m.tool_call_id === 'string' ? m.tool_call_id : undefined
+      if (!id || !toolCallIdsInScope.has(id)) keep[i] = false
+    }
+  }
+
+  const trimmed = messages.filter((_, i) => keep[i])
+  return { messages: trimmed, removed: messages.length - trimmed.length }
+}
+
+export type GroqCompactionReport = {
+  strippedToolDescriptions: boolean
+  droppedMessages: number
+  removedTools: boolean
+  keptOnlyLastUser: boolean
+}
+
+// Compacts a Groq-bound OpenAI-compatible chat.completions payload to fit
+// within the conservative token budget for the resolved model. Returns a
+// report describing what was changed so callers can surface user-visible
+// warnings (see #449 review feedback).
+export function compactPayloadForGroq(
+  body: Record<string, unknown>,
+  model: string | undefined,
+): GroqCompactionReport {
+  const maxTokens = getGroqMaxRequestTokens(model)
+  const target = Math.floor(maxTokens * GROQ_TARGET_PROMPT_RATIO)
+  const report: GroqCompactionReport = {
+    strippedToolDescriptions: false,
+    droppedMessages: 0,
+    removedTools: false,
+    keptOnlyLastUser: false,
+  }
+
+  let promptTokens = estimateGroqPromptTokens(body)
+  if (promptTokens <= target) return report
+
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    body.tools = stripToolTopLevelDescriptions(
+      body.tools as Array<Record<string, unknown>>,
+    )
+    report.strippedToolDescriptions = true
+    promptTokens = estimateGroqPromptTokens(body)
+  }
+  if (promptTokens <= target) return report
+
+  if (Array.isArray(body.messages) && body.messages.length > 1) {
+    const messages = body.messages as Array<Record<string, unknown>>
+    // Estimate non-message overhead (tools, system prompt fields, etc.) once.
+    const bodyWithoutMessages = { ...body, messages: [] as unknown[] }
+    const otherTokens = estimateGroqPromptTokens(bodyWithoutMessages)
+
+    const { messages: trimmed, removed } = trimGroqMessagesForBudget(
+      messages,
+      target,
+      otherTokens,
+    )
+    if (removed > 0) {
+      body.messages = trimmed
+      report.droppedMessages = removed
+      promptTokens = estimateGroqPromptTokens(body)
+    }
+  }
+  if (promptTokens <= target) return report
+
+  if (body.tools) {
+    delete body.tools
+    body.tool_choice = 'none'
+    report.removedTools = true
+    promptTokens = estimateGroqPromptTokens(body)
+  }
+  if (promptTokens <= target) return report
+
+  if (Array.isArray(body.messages) && body.messages.length > 1) {
+    const messages = body.messages as Array<Record<string, unknown>>
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find(message => message.role === 'user')
+    const lastMessage = lastUserMessage ?? messages[messages.length - 1]
+    body.messages = lastMessage ? [lastMessage] : []
+    report.keptOnlyLastUser = true
+  }
+
+  return report
+}
+
+// Cap max_tokens so prompt + completion fits inside the model's TPM budget.
+export function clampGroqMaxTokens(
+  body: Record<string, unknown>,
+  model: string | undefined,
+): void {
+  const maxRequestTokens = getGroqMaxRequestTokens(model)
+  const currentMaxTokens =
+    typeof body.max_tokens === 'number'
+      ? body.max_tokens
+      : typeof body.max_completion_tokens === 'number'
+        ? body.max_completion_tokens
+        : 4000
+
+  const estimatedPromptTokens = estimateGroqPromptTokens(body)
+  const availableCompletionTokens =
+    maxRequestTokens -
+    estimatedPromptTokens -
+    GROQ_COMPLETION_TOKEN_SAFETY_MARGIN
+
+  body.max_tokens = Math.min(
+    currentMaxTokens,
+    Math.max(1, availableCompletionTokens),
+  )
+  delete body.max_completion_tokens
+}
+
+function describeGroqCompaction(report: GroqCompactionReport): string | null {
+  const parts: string[] = []
+  if (report.strippedToolDescriptions) parts.push('stripped tool descriptions')
+  if (report.droppedMessages > 0)
+    parts.push(`dropped ${report.droppedMessages} earlier message(s)`)
+  if (report.removedTools) parts.push('disabled tools')
+  if (report.keptOnlyLastUser) parts.push('kept only last user message')
+  if (parts.length === 0) return null
+  return parts.join('; ')
+}
+
+// Apply Groq-specific compaction + max_tokens clamp. Surfaces a warning to
+// the user (via logForDebugging) whenever the payload had to be shrunk so the
+// degraded output isn't silently worse than expected (#449 review feedback).
+export function applyGroqPayloadAdjustments(
+  body: Record<string, unknown>,
+  model: string | undefined,
+): void {
+  const report = compactPayloadForGroq(body, model)
+  clampGroqMaxTokens(body, model)
+
+  const summary = describeGroqCompaction(report)
+  if (summary) {
+    logForDebugging(
+      `[OpenAIShim][Groq] Prompt compacted to fit TPM budget (${summary}). Some tools/context were omitted; consider /compact, fewer tools, or a higher-limit model.`,
+      { level: 'warn' },
+    )
+  }
 }
 
 function shouldRedactUrlQueryParam(name: string): boolean {
@@ -1399,6 +1677,13 @@ class OpenAIShimMessages {
           }
         }
       }
+    }
+
+    if (isGroqBaseUrl(request.baseUrl)) {
+      // Groq rejects stream_options on some endpoints; and has strict TPM
+      // limits that require pre-flight payload shrinking (see #449).
+      delete body.stream_options
+      applyGroqPayloadAdjustments(body, request.resolvedModel)
     }
 
     const headers: Record<string, string> = {
