@@ -9,11 +9,6 @@
  * sdk/controlTypes.ts directly.
  */
 
-import type {
-  CallToolResult,
-  ToolAnnotations,
-} from '@modelcontextprotocol/sdk/types.js'
-
 // Control protocol types for SDK builders (bridge subpath consumers)
 /** @alpha */
 export type {
@@ -31,16 +26,27 @@ export type { Settings } from './sdk/settingsTypes.generated.js'
 export * from './sdk/toolTypes.js'
 
 // ============================================================================
-// Functions
+// Functions — re-exported from the real SDK implementation
 // ============================================================================
 
-import type {
-  SDKMessage,
-  SDKResultMessage,
-  SDKSessionInfo,
-  SDKUserMessage,
-} from './sdk/coreTypes.js'
-// Import types needed for function signatures
+// Re-export function implementations from ./sdk.js
+export {
+  AbortError,
+  tool,
+  createSdkMcpServer,
+  query,
+  unstable_v2_createSession,
+  unstable_v2_resumeSession,
+  unstable_v2_prompt,
+  getSessionMessages,
+  listSessions,
+  getSessionInfo,
+  renameSession,
+  tagSession,
+  forkSession,
+} from './sdk.js'
+
+// Import types needed for @internal function signatures kept below
 import type {
   AnyZodRawShape,
   ForkSessionOptions,
@@ -51,7 +57,6 @@ import type {
   InternalOptions,
   InternalQuery,
   ListSessionsOptions,
-  McpSdkServerConfigWithInstance,
   Options,
   Query,
   SDKSession,
@@ -61,6 +66,13 @@ import type {
   SessionMutationOptions,
 } from './sdk/runtimeTypes.js'
 
+import type {
+  SDKMessage,
+  SDKResultMessage,
+  SDKSessionInfo,
+  SDKUserMessage,
+} from './sdk/coreTypes.js'
+
 export type {
   ListSessionsOptions,
   GetSessionInfoOptions,
@@ -68,208 +80,6 @@ export type {
   ForkSessionOptions,
   ForkSessionResult,
   SDKSessionInfo,
-}
-
-export function tool<Schema extends AnyZodRawShape>(
-  _name: string,
-  _description: string,
-  _inputSchema: Schema,
-  _handler: (
-    args: InferShape<Schema>,
-    extra: unknown,
-  ) => Promise<CallToolResult>,
-  _extras?: {
-    annotations?: ToolAnnotations
-    searchHint?: string
-    alwaysLoad?: boolean
-  },
-): SdkMcpToolDefinition<Schema> {
-  throw new Error('not implemented')
-}
-
-type CreateSdkMcpServerOptions = {
-  name: string
-  version?: string
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tools?: Array<SdkMcpToolDefinition<any>>
-}
-
-/**
- * Creates an MCP server instance that can be used with the SDK transport.
- * This allows SDK users to define custom tools that run in the same process.
- *
- * If your SDK MCP calls will run longer than 60s, override CLAUDE_CODE_STREAM_CLOSE_TIMEOUT
- */
-export function createSdkMcpServer(
-  _options: CreateSdkMcpServerOptions,
-): McpSdkServerConfigWithInstance {
-  throw new Error('not implemented')
-}
-
-export class AbortError extends Error {}
-
-/** @internal */
-export function query(_params: {
-  prompt: string | AsyncIterable<SDKUserMessage>
-  options?: InternalOptions
-}): InternalQuery
-export function query(_params: {
-  prompt: string | AsyncIterable<SDKUserMessage>
-  options?: Options
-}): Query
-export function query(): Query {
-  throw new Error('query is not implemented in the SDK')
-}
-
-/**
- * V2 API - UNSTABLE
- * Create a persistent session for multi-turn conversations.
- * @alpha
- */
-export function unstable_v2_createSession(
-  _options: SDKSessionOptions,
-): SDKSession {
-  throw new Error('unstable_v2_createSession is not implemented in the SDK')
-}
-
-/**
- * V2 API - UNSTABLE
- * Resume an existing session by ID.
- * @alpha
- */
-export function unstable_v2_resumeSession(
-  _sessionId: string,
-  _options: SDKSessionOptions,
-): SDKSession {
-  throw new Error('unstable_v2_resumeSession is not implemented in the SDK')
-}
-
-// @[MODEL LAUNCH]: Update the example model ID in this docstring.
-/**
- * V2 API - UNSTABLE
- * One-shot convenience function for single prompts.
- * @alpha
- *
- * @example
- * ```typescript
- * const result = await unstable_v2_prompt("What files are here?", {
- *   model: 'claude-sonnet-4-6'
- * })
- * ```
- */
-export async function unstable_v2_prompt(
-  _message: string,
-  _options: SDKSessionOptions,
-): Promise<SDKResultMessage> {
-  throw new Error('unstable_v2_prompt is not implemented in the SDK')
-}
-
-/**
- * Reads a session's conversation messages from its JSONL transcript file.
- *
- * Parses the transcript, builds the conversation chain via parentUuid links,
- * and returns user/assistant messages in chronological order. Set
- * `includeSystemMessages: true` in options to also include system messages.
- *
- * @param sessionId - UUID of the session to read
- * @param options - Optional dir, limit, offset, and includeSystemMessages
- * @returns Array of messages, or empty array if session not found
- */
-export async function getSessionMessages(
-  _sessionId: string,
-  _options?: GetSessionMessagesOptions,
-): Promise<SessionMessage[]> {
-  throw new Error('getSessionMessages is not implemented in the SDK')
-}
-
-/**
- * List sessions with metadata.
- *
- * When `dir` is provided, returns sessions for that project directory
- * and its git worktrees. When omitted, returns sessions across all
- * projects.
- *
- * Use `limit` and `offset` for pagination.
- *
- * @example
- * ```typescript
- * // List sessions for a specific project
- * const sessions = await listSessions({ dir: '/path/to/project' })
- *
- * // Paginate
- * const page1 = await listSessions({ limit: 50 })
- * const page2 = await listSessions({ limit: 50, offset: 50 })
- * ```
- */
-export async function listSessions(
-  _options?: ListSessionsOptions,
-): Promise<SDKSessionInfo[]> {
-  throw new Error('listSessions is not implemented in the SDK')
-}
-
-/**
- * Reads metadata for a single session by ID. Unlike `listSessions`, this only
- * reads the single session file rather than every session in the project.
- * Returns undefined if the session file is not found, is a sidechain session,
- * or has no extractable summary.
- *
- * @param sessionId - UUID of the session
- * @param options - `{ dir?: string }` project path; omit to search all project directories
- */
-export async function getSessionInfo(
-  _sessionId: string,
-  _options?: GetSessionInfoOptions,
-): Promise<SDKSessionInfo | undefined> {
-  throw new Error('getSessionInfo is not implemented in the SDK')
-}
-
-/**
- * Rename a session. Appends a custom-title entry to the session's JSONL file.
- * @param sessionId - UUID of the session
- * @param title - New title
- * @param options - `{ dir?: string }` project path; omit to search all projects
- */
-export async function renameSession(
-  _sessionId: string,
-  _title: string,
-  _options?: SessionMutationOptions,
-): Promise<void> {
-  throw new Error('renameSession is not implemented in the SDK')
-}
-
-/**
- * Tag a session. Pass null to clear the tag.
- * @param sessionId - UUID of the session
- * @param tag - Tag string, or null to clear
- * @param options - `{ dir?: string }` project path; omit to search all projects
- */
-export async function tagSession(
-  _sessionId: string,
-  _tag: string | null,
-  _options?: SessionMutationOptions,
-): Promise<void> {
-  throw new Error('tagSession is not implemented in the SDK')
-}
-
-/**
- * Fork a session into a new branch with fresh UUIDs.
- *
- * Copies transcript messages from the source session into a new session file,
- * remapping every message UUID and preserving the parentUuid chain. Supports
- * `upToMessageId` for branching from a specific point in the conversation.
- *
- * Forked sessions start without undo history (file-history snapshots are not
- * copied).
- *
- * @param sessionId - UUID of the source session
- * @param options - `{ dir?, upToMessageId?, title? }`
- * @returns `{ sessionId }` — UUID of the new forked session
- */
-export async function forkSession(
-  _sessionId: string,
-  _options?: ForkSessionOptions,
-): Promise<ForkSessionResult> {
-  throw new Error('forkSession is not implemented in the SDK')
 }
 
 // ============================================================================
@@ -442,7 +252,7 @@ export async function connectRemoteControl(
   throw new Error('not implemented')
 }
 
-// add exit reason types for removing the error within gracefulShutdown file 
+// add exit reason types for removing the error within gracefulShutdown file
 export type ExitReason = {
-  
+
 }
