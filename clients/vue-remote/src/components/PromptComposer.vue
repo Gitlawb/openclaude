@@ -46,6 +46,13 @@ async function setText(value: string) {
   textarea.value?.focus()
 }
 
+function onFocus() {
+  // Скролити до текстового поля при фокусі для мобільних пристроїв
+  nextTick(() => {
+    textarea.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  })
+}
+
 defineExpose({ setText })
 </script>
 
@@ -62,6 +69,7 @@ defineExpose({ setText })
         autocomplete="off"
         autocapitalize="sentences"
         @keydown="onKeydown"
+        @focus="onFocus"
       ></textarea>
     </div>
     <button
@@ -196,15 +204,15 @@ textarea:disabled {
 }
 
 /* On very narrow screens, the send button uses less horizontal padding. */
-@media (max-width: 380px) {
+@media (max-width: 420px) {
   .composer {
-    gap: 6px;
-    padding-left: max(6px, env(safe-area-inset-left));
-    padding-right: max(6px, env(safe-area-inset-right));
+    gap: 4px;
+    padding-left: max(4px, env(safe-area-inset-left));
+    padding-right: max(4px, env(safe-area-inset-right));
   }
   .send {
-    padding: 0 10px;
-    min-width: 44px;
+    padding: 0 8px;
+    min-width: 40px; /* трохи менше для вузьких екранів */
   }
 }
 </style>

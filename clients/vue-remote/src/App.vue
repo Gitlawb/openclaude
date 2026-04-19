@@ -39,6 +39,14 @@ onMounted(() => {
     screen.value = 'sessions'
     session.connect(storedUrl.value, storedToken.value)
   }
+
+  // Обробка повороту екрана для мобільних пристроїв
+  window.addEventListener('orientationchange', () => {
+    // Примусовий рефлоу для виправлення розмірів після повороту
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'))
+    }, 100)
+  })
 })
 
 function handleConnect(url: string, token: string) {

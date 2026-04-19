@@ -6,16 +6,16 @@
   --bg-elev-hover: #464646;            /* userMessageBackgroundHover rgb(70,70,70) */
   --bg-chip: #2c323e;                  /* messageActionsBackground rgb(44,50,62) */
   --fg: #ffffff;                       /* text rgb(255,255,255) */
-  --fg-muted: #999999;                 /* inactive rgb(153,153,153) */
+  --fg-muted: #aaaaaa;                 /* світліший для кращої читабельності на мобільних */
   --fg-dim: #505050;                   /* subtle rgb(80,80,80) */
-  --accent: #d77757;                   /* claude rgb(215,119,87) */
-  --accent-dim: #b1b9f9;              /* permission rgb(177,185,249) */
-  --accent-rgb: 215, 119, 87;         /* for rgba() usage */
-  --permission: #b1b9f9;              /* permission rgb(177,185,249) */
+  --accent: #e88a6a;                   /* світліший відтінок оранжевого для кращого контрасту */
+  --accent-dim: #c0c8ff;               /* світліший блакитний для permission */
+  --accent-rgb: 232, 138, 106;         /* оновлено для нового акцентного кольору */
+  --permission: #c0c8ff;               /* синхронізовано з accent-dim */
   --success: #4eba65;                  /* success rgb(78,186,101) */
   --danger: #ff6b80;                   /* error rgb(255,107,128) */
   --warning: #ffc107;                  /* warning rgb(255,193,7) */
-  --user: #ffc107;                     /* warning yellow for user prompts */
+  --user: #ffd166;                     /* м'якший жовтий для користувацьких повідомлень */
   --bash-border: #fd5db1;             /* bashBorder rgb(253,93,177) */
   --plan-mode: #489690;               /* planMode rgb(72,150,140) */
   --auto-accept: #af87ff;             /* autoAccept rgb(175,135,255) */
@@ -23,9 +23,9 @@
   --border: #373737;                   /* match bg-elev for subtle borders */
   --border-strong: #505050;            /* subtle gray */
   --selection-bg: rgba(38, 79, 120, 0.6); /* selectionBg */
-  --radius: 6px;
-  --radius-sm: 4px;
-  --radius-lg: 10px;
+  --radius: 8px;                      /* більші радіуси для сучасного вигляду */
+  --radius-sm: 6px;
+  --radius-lg: 12px;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
@@ -133,10 +133,18 @@ textarea {
  * We only override the effective size, not the variable, so layout elsewhere
  * remains stable (--font-size-base is still 13.5 px for all other elements).
  */
+input,
+textarea,
+select {
+  font-size: max(var(--font-size-base), 16px) !important;
+  transform: translateZ(0); /* Примусове апаратне прискорення */
+  -webkit-user-select: text; /* Дозволити вибір тексту */
+}
+
 @media (max-width: 768px) {
   input,
   textarea,
   select {
-    font-size: max(var(--font-size-base), 16px);
+    touch-action: manipulation; /* Оптимізувати для дотиків */
   }
 }
