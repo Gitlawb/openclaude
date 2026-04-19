@@ -422,7 +422,7 @@ export const FileEditTool = buildTool({
       activateConditionalSkillsForPaths([absoluteFilePath], cwd)
     }
 
-    await diagnosticTracker.beforeFileEdited(absoluteFilePath)
+    await diagnosticTracker.beforeFileEditedCompat(absoluteFilePath)
 
     // Ensure parent directory exists before the atomic read-modify-write section.
     // These awaits must stay OUTSIDE the critical section below — a yield between
