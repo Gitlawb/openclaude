@@ -2882,7 +2882,7 @@ async function getDiagnosticAttachments(
   }
 
   // Get new diagnostics from the tracker (IDE diagnostics via MCP)
-  const newDiagnostics = await diagnosticTracker.getNewDiagnostics()
+  const newDiagnostics = await diagnosticTracker.getNewDiagnosticsCompat()
   if (newDiagnostics.length === 0) {
     return []
   }

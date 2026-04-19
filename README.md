@@ -331,7 +331,8 @@ For larger changes, open an issue first so the scope is clear before implementat
 - `bun run build`
 - `bun run test:coverage`
 - `bun run smoke`
-- focused `bun test ...` runs for touched areas
+- focused `bun test ...` runs for files and flows you changed
+
 
 ## Disclaimer
 

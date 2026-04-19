@@ -3051,3 +3051,91 @@ test('self-heals tool-call incompatibility by retrying local Ollama requests wit
   expect(requestBodies[1]?.tools).toBeUndefined()
   expect(requestBodies[1]?.tool_choice).toBeUndefined()
 })
+
+test('preserves valid tool_result and drops orphan tool_result', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'mistral-large-latest',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Search and then I will interrupt' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'valid_call_1',
+            name: 'Search',
+            input: { query: 'openclaude' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'valid_call_1',
+            content: 'Found it!',
+          },
+          {
+            type: 'tool_result',
+            tool_use_id: 'orphan_call_2',
+            content: 'Interrupted result',
+          },
+          {
+            role: 'user',
+            content: 'What happened?',
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+
+  // Should have: system, user, assistant (tool_use), tool (valid_call_1), user
+  // Should NOT have: tool (orphan_call_2)
+
+  const toolMessages = messages.filter(m => m.role === 'tool')
+  expect(toolMessages.length).toBe(1)
+  expect(toolMessages[0].tool_call_id).toBe('valid_call_1')
+
+  const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
+  expect(orphanMessage).toBeUndefined()
+})
