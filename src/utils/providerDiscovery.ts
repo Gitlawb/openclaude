@@ -315,21 +315,61 @@ export async function benchmarkOllamaModel(
   }
 }
 
+async function fetchOllamaModelsProbe(
+  baseUrl?: string,
+  timeoutMs = 3000,
+): Promise<{
+  reachable: boolean
+  models: OllamaModelDescriptor[]
+}> {
+  const { signal, clear } = withTimeoutSignal(timeoutMs)
+  try {
+    const response = await fetch(`${getOllamaApiBaseUrl(baseUrl)}/api/tags`, {
+      signal,
+    })
+    if (!response.ok) {
+      return {
+        reachable: false,
+        models: [],
+      }
+    }
+
+    const payload = await response.json().catch(() => ({}))
+    const models = Array.isArray(payload?.models)
+      ? payload.models.filter(
+          (model): model is OllamaModelDescriptor =>
+            !!model && typeof model === 'object' && typeof model.name === 'string',
+        )
+      : []
+
+    return {
+      reachable: true,
+      models,
+    }
+  } catch {
+    return {
+      reachable: false,
+      models: [],
+    }
+  } finally {
+    clear()
+  }
+}
+
 export async function probeOllamaGenerationReadiness(options?: {
   baseUrl?: string
   model?: string
   timeoutMs?: number
 }): Promise<OllamaGenerationReadiness> {
-  const models = await listOllamaModels(options?.baseUrl)
-  if (models.length === 0) {
-    const reachable = await hasLocalOllama(options?.baseUrl)
-    if (!reachable) {
-      return {
-        state: 'unreachable',
-        models: [],
-      }
+  const { reachable, models } = await fetchOllamaModelsProbe(options?.baseUrl)
+  if (!reachable) {
+    return {
+      state: 'unreachable',
+      models: [],
     }
+  }
 
+  if (models.length === 0) {
     return {
       state: 'no_models',
       models: [],
