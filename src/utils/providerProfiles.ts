@@ -5,15 +5,7 @@ import {
   type ProviderProfile,
 } from './config.js'
 import type { ModelOption } from './model/modelOptions.js'
-import { getPrimaryModel, parseModelList } from './providerModels.js'
-import {
-  createProfileFile,
-  saveProfileFile,
-  buildGeminiProfileEnv,
-  buildMistralProfileEnv,
-  buildOpenAIProfileEnv,
-  type ProviderProfile as ProviderProfileStartup,
-} from './providerProfile.js'
+import { getPrimaryModel } from './providerModels.js'
 
 export type ProviderPreset =
   | 'anthropic'
@@ -28,11 +20,7 @@ export type ProviderPreset =
   | 'azure-openai'
   | 'openrouter'
   | 'lmstudio'
-  | 'dashscope-cn'
-  | 'dashscope-intl'
   | 'custom'
-  | 'nvidia-nim'
-  | 'minimax'
 
 export type ProviderProfileInput = {
   provider?: ProviderProfile['provider']
@@ -68,14 +56,7 @@ function normalizeBaseUrl(value: string): string {
 function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const id = trimValue(profile.id)
   const name = trimValue(profile.name)
-  const provider =
-    profile.provider === 'anthropic'
-      ? 'anthropic'
-      : profile.provider === 'mistral'
-        ? 'mistral'
-        : profile.provider === 'gemini'
-          ? 'gemini'
-          : 'openai'
+  const provider = profile.provider === 'anthropic' ? 'anthropic' : 'openai'
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
 
@@ -176,7 +157,7 @@ export function getProviderPresetDefaults(
       }
     case 'gemini':
       return {
-        provider: 'gemini',
+        provider: 'openai',
         name: 'Google Gemini',
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
         model: 'gemini-3-flash-preview',
@@ -185,7 +166,7 @@ export function getProviderPresetDefaults(
       }
     case 'mistral':
       return {
-        provider: 'mistral',
+        provider: 'openai',
         name: 'Mistral',
         baseUrl: 'https://api.mistral.ai/v1',
         model: 'devstral-latest',
@@ -237,24 +218,6 @@ export function getProviderPresetDefaults(
         apiKey: '',
         requiresApiKey: false,
       }
-    case 'dashscope-cn':
-      return {
-        provider: 'openai',
-        name: 'Alibaba Coding Plan (China)',
-        baseUrl: 'https://coding.dashscope.aliyuncs.com/v1',
-        model: 'qwen3.6-plus',
-        apiKey: process.env.DASHSCOPE_API_KEY ?? '',
-        requiresApiKey: true,
-      }
-    case 'dashscope-intl':
-      return {
-        provider: 'openai',
-        name: 'Alibaba Coding Plan',
-        baseUrl: 'https://coding-intl.dashscope.aliyuncs.com/v1',
-        model: 'qwen3.6-plus',
-        apiKey: process.env.DASHSCOPE_API_KEY ?? '',
-        requiresApiKey: true,
-      }
     case 'custom':
       return {
         provider: 'openai',
@@ -266,24 +229,6 @@ export function getProviderPresetDefaults(
         model: process.env.OPENAI_MODEL ?? DEFAULT_OLLAMA_MODEL,
         apiKey: process.env.OPENAI_API_KEY ?? '',
         requiresApiKey: false,
-      }
-    case 'nvidia-nim':
-      return {
-        provider: 'openai',
-        name: 'NVIDIA NIM',
-        baseUrl: 'https://integrate.api.nvidia.com/v1',
-        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
-        apiKey: process.env.NVIDIA_API_KEY ?? '',
-        requiresApiKey: true,
-      }
-    case 'minimax':
-      return {
-        provider: 'openai',
-        name: 'MiniMax',
-        baseUrl: 'https://api.minimax.io/v1',
-        model: 'MiniMax-M2.5',
-        apiKey: process.env.MINIMAX_API_KEY ?? '',
-        requiresApiKey: true,
       }
     case 'ollama':
     default:
@@ -332,7 +277,6 @@ function hasConflictingProviderFlagsForProfile(
 
   return (
     processEnv.CLAUDE_CODE_USE_GEMINI !== undefined ||
-    processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined ||
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
@@ -371,38 +315,6 @@ function isProcessEnvAlignedWithProfile(
       sameOptionalEnvValue(processEnv.ANTHROPIC_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.ANTHROPIC_API_KEY, profile.apiKey))
-    )
-  }
-
-  if (profile.provider === 'mistral') {
-    return (
-      processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined &&
-      processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
-      processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
-      processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
-      processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
-      processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
-      processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
-      sameOptionalEnvValue(processEnv.MISTRAL_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, profile.model) &&
-      (!includeApiKey ||
-        sameOptionalEnvValue(processEnv.MISTRAL_API_KEY, profile.apiKey))
-    )
-  }
-
-  if (profile.provider === 'gemini') {
-    return (
-      processEnv.CLAUDE_CODE_USE_GEMINI !== undefined &&
-      processEnv.CLAUDE_CODE_USE_MISTRAL === undefined &&
-      processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
-      processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
-      processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
-      processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
-      processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
-      sameOptionalEnvValue(processEnv.GEMINI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.GEMINI_MODEL, profile.model) &&
-      (!includeApiKey ||
-        sameOptionalEnvValue(processEnv.GEMINI_API_KEY, profile.apiKey))
     )
   }
 
@@ -454,22 +366,6 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.ANTHROPIC_API_KEY
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
-
-  delete processEnv.GEMINI_MODEL
-  delete processEnv.GEMINI_BASE_URL
-  delete processEnv.GEMINI_API_KEY
-  delete processEnv.GEMINI_AUTH_MODE
-  delete processEnv.GEMINI_ACCESS_TOKEN
-  delete processEnv.GOOGLE_API_KEY
-
-  delete processEnv.MISTRAL_MODEL
-  delete processEnv.MISTRAL_BASE_URL
-  delete processEnv.MISTRAL_API_KEY
-
-  // Clear provider-specific API keys
-  delete processEnv.MINIMAX_API_KEY
-  delete processEnv.NVIDIA_API_KEY
-  delete processEnv.NVIDIA_NIM
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -494,54 +390,12 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     return
   }
 
-  if (profile.provider === 'mistral') {
-    process.env.CLAUDE_CODE_USE_MISTRAL = '1'
-    process.env.MISTRAL_BASE_URL = profile.baseUrl
-    process.env.MISTRAL_MODEL = profile.model
-
-    if (profile.apiKey) {
-      process.env.MISTRAL_API_KEY = profile.apiKey
-    } else {
-      delete process.env.MISTRAL_API_KEY
-    }
-
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_API_KEY
-    delete process.env.OPENAI_MODEL
-    return
-  }
-
-  if (profile.provider === 'gemini') {
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
-    process.env.GEMINI_BASE_URL = profile.baseUrl
-    process.env.GEMINI_MODEL = profile.model
-
-    if (profile.apiKey) {
-      process.env.GEMINI_API_KEY = profile.apiKey
-    } else {
-      delete process.env.GEMINI_API_KEY
-    }
-
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_API_KEY
-    delete process.env.OPENAI_MODEL
-    return
-  }
-
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = profile.baseUrl
   process.env.OPENAI_MODEL = getPrimaryModel(profile.model)
 
   if (profile.apiKey) {
     process.env.OPENAI_API_KEY = profile.apiKey
-    // Also set provider-specific API keys for detection
-    const baseUrl = profile.baseUrl.toLowerCase()
-    if (baseUrl.includes('minimax')) {
-      process.env.MINIMAX_API_KEY = profile.apiKey
-    }
-    if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
-      process.env.NVIDIA_API_KEY = profile.apiKey
-    }
   } else {
     delete process.env.OPENAI_API_KEY
   }
@@ -613,7 +467,7 @@ export function addProviderProfile(
 
   const activeProfile = getActiveProviderProfile()
   if (activeProfile?.id === profile.id) {
-    setActiveProviderProfile(profile.id)
+    applyProviderProfileToProcessEnv(profile)
     clearActiveOpenAIModelOptionsCache()
   }
 
@@ -695,16 +549,6 @@ export function persistActiveProviderProfileModel(
     return null
   }
 
-  // If the model is already part of the profile's model list, don't
-  // overwrite the field. This preserves comma-separated model lists like
-  // "glm-4.5, glm-4.7". Switching between models in the list is a
-  // session-level choice handled by mainLoopModelOverride, not a profile
-  // edit — the profile's model list should only change via explicit edit.
-  const existingModels = parseModelList(activeProfile.model)
-  if (existingModels.includes(nextModel)) {
-    return activeProfile
-  }
-
   saveGlobalConfig(current => {
     const currentProfiles = getProviderProfiles(current)
     const profileIndex = currentProfiles.findIndex(
@@ -747,23 +591,6 @@ export function persistActiveProviderProfileModel(
   return resolvedProfile
 }
 
-/**
- * Generate model options from a provider profile's model field.
- * Each comma-separated model becomes a separate option in the picker.
- */
-export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] {
-  const models = parseModelList(profile.model)
-  if (models.length === 0) {
-    return []
-  }
-
-  return models.map(model => ({
-    value: model,
-    label: model,
-    description: `Provider: ${profile.name}`,
-  }))
-}
-
 export function setActiveProviderProfile(
   profileId: string,
 ): ProviderProfile | null {
@@ -775,85 +602,13 @@ export function setActiveProviderProfile(
     return null
   }
 
-  const profileModelOptions = getProfileModelOptions(activeProfile)
-
   saveGlobalConfig(config => ({
     ...config,
     activeProviderProfileId: profileId,
-    openaiAdditionalModelOptionsCache: profileModelOptions.length > 0
-      ? profileModelOptions
-      : getModelCacheByProfile(profileId, config),
-    openaiAdditionalModelOptionsCacheByProfile: {
-      ...(config.openaiAdditionalModelOptionsCacheByProfile ?? {}),
-      [profileId]: profileModelOptions.length > 0
-        ? profileModelOptions
-        : (config.openaiAdditionalModelOptionsCacheByProfile?.[profileId] ?? []),
-    },
+    openaiAdditionalModelOptionsCache: getModelCacheByProfile(profileId, config),
   }))
 
   applyProviderProfileToProcessEnv(activeProfile)
-
-  // Keep startup persisted provider profile in sync so initial startup
-  // uses the selected provider/model.
-  const persistedProfile = (() => {
-    if (activeProfile.provider === 'anthropic') return 'openai' as const
-    return activeProfile.provider
-  })()
-
-  const profileEnv = (() => {
-    switch (activeProfile.provider) {
-      case 'gemini':
-        return (
-          buildGeminiProfileEnv({
-            model: activeProfile.model,
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            authMode: 'api-key',
-            processEnv: process.env,
-          }) ?? null
-        )
-      case 'mistral':
-        return (
-          buildMistralProfileEnv({
-            model: activeProfile.model,
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        )
-      default:
-        // anthropic and all openai-compatible providers
-        return (
-          buildOpenAIProfileEnv({
-            model: activeProfile.model,
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        )
-    }
-  })()
-
-  if (profileEnv) {
-    const startupProfile =
-      activeProfile.provider === 'anthropic'
-        ? ({
-            profile: 'openai' as ProviderProfileStartup,
-            env: {
-              OPENAI_BASE_URL: activeProfile.baseUrl,
-              OPENAI_MODEL: activeProfile.model,
-              OPENAI_API_KEY: activeProfile.apiKey,
-            },
-          } as const)
-        : ({
-            profile: activeProfile.provider as ProviderProfileStartup,
-            env: profileEnv,
-          } as const)
-
-    const file = createProfileFile(startupProfile.profile, startupProfile.env)
-    saveProfileFile(file)
-  }
-
   return activeProfile
 }
 
