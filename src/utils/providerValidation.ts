@@ -169,3 +169,44 @@ export async function validateProviderEnvOrExit(
     process.exit(1)
   }
 }
+
+export function shouldExitForStartupProviderValidationError(options: {
+  args?: string[]
+  stdoutIsTTY?: boolean
+} = {}): boolean {
+  const args = options.args ?? process.argv.slice(2)
+  const stdoutIsTTY = options.stdoutIsTTY ?? process.stdout.isTTY
+
+  if (!stdoutIsTTY) {
+    return true
+  }
+
+  return (
+    args.includes('-p') ||
+    args.includes('--print') ||
+    args.includes('--init-only') ||
+    args.some(arg => arg.startsWith('--sdk-url'))
+  )
+}
+
+export async function validateProviderEnvForStartupOrExit(
+  env: NodeJS.ProcessEnv = process.env,
+  options?: {
+    args?: string[]
+    stdoutIsTTY?: boolean
+  },
+): Promise<void> {
+  const error = await getProviderValidationError(env)
+  if (!error) {
+    return
+  }
+
+  if (shouldExitForStartupProviderValidationError(options)) {
+    console.error(error)
+    process.exit(1)
+  }
+
+  console.error(
+    `Warning: provider configuration is incomplete.\n${error}\nOpenClaude will continue starting so you can run /provider and repair the saved provider settings.`,
+  )
+}

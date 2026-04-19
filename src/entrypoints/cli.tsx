@@ -5,7 +5,7 @@ import {
 } from '../utils/providerProfile.js'
 import {
   getProviderValidationError,
-  validateProviderEnvOrExit,
+  validateProviderEnvForStartupOrExit,
 } from '../utils/providerValidation.js'
 
 // OpenClaude: polyfill globalThis.File for Node < 20.
@@ -132,7 +132,7 @@ async function main(): Promise<void> {
     hydrateGithubModelsTokenFromSecureStorage()
   }
 
-  await validateProviderEnvOrExit()
+  await validateProviderEnvForStartupOrExit()
 
   // Print the gradient startup screen before the Ink UI loads
   const { printStartupScreen } = await import('../components/StartupScreen.js')
