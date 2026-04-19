@@ -427,8 +427,8 @@ const getWorkflowCommands = feature('WORKFLOW_SCRIPTS')
  * Not memoized — auth state can change mid-session (e.g. after /login),
  * so this must be re-evaluated on every getCommands() call.
  */
-export function meetsAvailabilityRequirement(cmd: Command): boolean {
-  if (!cmd.availability) return true
+export function meetsAvailabilityRequirement(cmd: Command | null | undefined): boolean {
+  if (!cmd || !cmd.availability || !Array.isArray(cmd.availability)) return true
   for (const a of cmd.availability) {
     switch (a) {
       case 'claude-ai':

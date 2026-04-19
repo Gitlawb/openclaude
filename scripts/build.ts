@@ -122,6 +122,8 @@ const result = await Bun.build({
     'MACRO.BUILD_TIME': JSON.stringify(new Date().toISOString()),
     'MACRO.ISSUES_EXPLAINER':
       JSON.stringify('report the issue at https://github.com/anthropics/claude-code/issues'),
+    'MACRO.FEEDBACK_CHANNEL':
+      JSON.stringify('https://github.com/anthropics/claude-code/issues'),
     'MACRO.PACKAGE_URL': JSON.stringify('@gitlawb/openclaude'),
     'MACRO.NATIVE_PACKAGE_URL': 'undefined',
   },
@@ -486,6 +488,10 @@ const sdkResult = await Bun.build({
     'MACRO.VERSION': JSON.stringify('99.0.0'),
     'MACRO.DISPLAY_VERSION': JSON.stringify(version),
     'MACRO.BUILD_TIME': JSON.stringify(new Date().toISOString()),
+    'MACRO.ISSUES_EXPLAINER':
+      JSON.stringify('report the issue at https://github.com/anthropics/claude-code/issues'),
+    'MACRO.FEEDBACK_CHANNEL':
+      JSON.stringify('https://github.com/anthropics/claude-code/issues'),
     'MACRO.PACKAGE_URL': JSON.stringify('@gitlawb/openclaude'),
     'MACRO.NATIVE_PACKAGE_URL': 'undefined',
   },
@@ -573,9 +579,10 @@ export const wrapAnsi = (s) => s;
 export const instances = new Map();
 export const ctrlOToExpand = noop;
 // Sandbox exports
-export const SandboxManager = noopClass;
+export const SandboxManager = class { static isSupportedPlatform = () => false; static create = noop; static Version = ''; };
 export const SandboxRuntimeConfigSchema = { parse: noop };
 export const SandboxViolationStore = null;
+export const BaseSandboxManager = class { static isSupportedPlatform = () => false; };
 // All ink.ts re-exports (SDK shouldn't import ink but init -> gracefulShutdown -> ink chain)
 export const color = noopStr;
 export const ThemeProvider = noopClass;
@@ -609,6 +616,10 @@ export const useAnimationTimer = noop;
 export const useInterval = noop;
 export const useSelection = noop;
 export const useStdin = noop;
+// MessageSelector — used by QueryEngine for message filtering in SDK path
+export const selectableUserMessagesFilter = () => true;
+export const messagesAfterAreOnlySynthetic = () => false;
+export const MessageSelector = noopClass;
 export const useTabStatus = noop;
 export const useTerminalFocus = noop;
 export const useTerminalTitle = noop;
