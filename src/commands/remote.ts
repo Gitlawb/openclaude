@@ -2,6 +2,7 @@ import type { Command } from '../commands.js'
 import {
   getStatus,
   isLocalRemoteRunning,
+  reloadLocalRemote,
   rotateLocalRemoteToken,
   startLocalRemote,
   stopLocalRemote,
@@ -15,6 +16,7 @@ const USAGE = [
   '/remote on        — connect to remote daemon (auto-starts if needed)',
   '/remote off       — disconnect from remote daemon',
   '/remote rotate    — rotate the bearer token',
+  '/remote reload    — restart remote daemon process',
   '',
   'The remote daemon holds the HTTP+WS port and routes sessions.',
   'All Neural Network instances connect to it as workers.',
@@ -126,6 +128,18 @@ const call: LocalCommandCall = async args => {
     return { type: 'text', value: lines.join('\n') }
   }
 
+  if (arg === 'reload' || arg === 'restart') {
+    try {
+      await reloadLocalRemote()
+      return { type: 'text', value: 'Remote daemon перезапущений успішно.' }
+    } catch (err) {
+      return {
+        type: 'text',
+        value: `Не вдалося перезапустити remote daemon: ${errorMessage(err)}`,
+      }
+    }
+  }
+
   if (arg === 'help' || arg === '?' || arg === '--help') {
     return { type: 'text', value: USAGE }
   }
@@ -140,7 +154,7 @@ const remote = {
   type: 'local',
   name: 'remote',
   description: 'Connect to the remote daemon to mirror this session to a browser',
-  argumentHint: '[on|off|status|rotate]',
+  argumentHint: '[on|off|status|rotate|reload]',
   isEnabled: () => true,
   supportsNonInteractive: true,
   load: () => Promise.resolve({ call }),

@@ -110,6 +110,47 @@ export async function stopLocalRemote(): Promise<void> {
   conn.dispose()
 }
 
+/** Перезапустити демон remote-сесії. Зупиняє поточний демон, запускає новий та перепідключає worker. */
+export async function reloadLocalRemote(): Promise<void> {
+  // Зберегти стан підключення
+  const wasConnected = workerConn !== null
+
+  // Зупинити worker-з'єднання
+  if (wasConnected) {
+    await stopLocalRemote()
+  }
+
+  // Зупинити демон (якщо він запущений)
+  try {
+    // Перевірити, чи демон запущений, перед спробою зупинки
+    const { readAliveDaemonPid } = await import('./daemon/pidLock.js')
+    const pid = readAliveDaemonPid()
+    if (pid) {
+      // Демон запущений - зупинити його
+      const { handleDaemonStop } = await import('./daemon/main.js')
+      handleDaemonStop()
+      // Дати демону час на завершення
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    } else {
+      logForDebugging('[localRemote] демон не запущений, переходимо до перезапуску')
+    }
+  } catch (err) {
+    // Якщо не вдалося зупинити демон, все одно спробуємо перезапустити
+    logForDebugging(`[localRemote] помилка при зупинці демона: ${err}`)
+  }
+
+  // Перезапустити демон
+  const daemonReady = await autoSpawnDaemon()
+  if (!daemonReady) {
+    throw new Error('Не вдалося перезапустити демон. Спробуйте запустити вручну: openclaude remote-daemon')
+  }
+
+  // Перепідключити worker, якщо він був підключений
+  if (wasConnected) {
+    await startLocalRemote()
+  }
+}
+
 export function rotateToken(): string {
   const newToken = rotateLocalRemoteToken()
   return newToken
@@ -180,7 +221,7 @@ export function publishResolvedPermission(requestId: string): void {
   events.emit('permissionResolved', requestId)
 }
 
-export { tokenPreview, rotateLocalRemoteToken }
+export { tokenPreview, rotateLocalRemoteToken, reloadLocalRemote }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
