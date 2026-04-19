@@ -44,6 +44,7 @@ import {
   rankOllamaModels,
   recommendOllamaModel,
 } from '../utils/providerRecommendation.js'
+import { redactUrlForDisplay } from '../utils/urlRedaction.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
 import {
   type OptionWithDescription,
@@ -52,7 +53,6 @@ import {
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
-import { useSetAppState } from '../state/AppState.js'
 
 export type ProviderManagerResult = {
   action: 'saved' | 'cancelled'
@@ -227,7 +227,7 @@ function describeOllamaSelectionIssue(
   baseUrl: string,
 ): string {
   if (readiness.state === 'unreachable') {
-    return `Could not reach Ollama at ${baseUrl}. Start Ollama first, or enter the endpoint manually.`
+    return `Could not reach Ollama at ${redactUrlForDisplay(baseUrl)}. Start Ollama first, or enter the endpoint manually.`
   }
 
   if (readiness.state === 'no_models') {

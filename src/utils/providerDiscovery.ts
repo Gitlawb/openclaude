@@ -401,7 +401,17 @@ export async function probeOllamaGenerationReadiness(options?: {
       }
     }
 
-    await response.json().catch(() => undefined)
+    try {
+      await response.json()
+    } catch {
+      return {
+        state: 'generation_failed',
+        models,
+        probeModel,
+        detail: 'invalid JSON response',
+      }
+    }
+
     return {
       state: 'ready',
       models,

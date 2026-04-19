@@ -11,6 +11,7 @@ import {
   getLocalOpenAICompatibleProviderLabel,
   probeOllamaGenerationReadiness,
 } from '../src/utils/providerDiscovery.js'
+import { redactUrlForDisplay } from '../src/utils/urlRedaction.js'
 
 type CheckResult = {
   ok: boolean
@@ -73,7 +74,7 @@ export function formatReachabilityFailureDetail(
   },
 ): string {
   const compactBody = responseBody.trim().replace(/\s+/g, ' ').slice(0, 240)
-  const base = `Unexpected status ${status} from ${endpoint}.`
+  const base = `Unexpected status ${status} from ${redactUrlForDisplay(endpoint)}.`
   const bodySuffix = compactBody ? ` Body: ${compactBody}` : ''
 
   if (request.transport !== 'codex_responses' || status !== 400) {
@@ -259,7 +260,7 @@ function checkOpenAIEnv(): CheckResult[] {
     results.push(pass('OPENAI_MODEL', process.env.OPENAI_MODEL))
   }
 
-  results.push(pass('OPENAI_BASE_URL', request.baseUrl))
+  results.push(pass('OPENAI_BASE_URL', redactUrlForDisplay(request.baseUrl)))
 
   if (request.transport === 'codex_responses') {
     const credentials = resolveCodexApiCredentials(process.env)
@@ -330,6 +331,7 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
   const endpoint = request.transport === 'codex_responses'
     ? `${request.baseUrl}/responses`
     : `${request.baseUrl}/models`
+  const redactedEndpoint = redactUrlForDisplay(endpoint)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 4000)
@@ -379,7 +381,10 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
     })
 
     if (response.status === 200 || response.status === 401 || response.status === 403) {
-      return pass('Provider reachability', `Reached ${endpoint} (status ${response.status}).`)
+      return pass(
+        'Provider reachability',
+        `Reached ${redactedEndpoint} (status ${response.status}).`,
+      )
     }
 
     const responseBody = await response.text().catch(() => '')
@@ -395,7 +400,10 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return fail('Provider reachability', `Failed to reach ${endpoint}: ${message}`)
+    return fail(
+      'Provider reachability',
+      `Failed to reach ${redactedEndpoint}: ${message}`,
+    )
   } finally {
     clearTimeout(timeout)
   }
@@ -468,7 +476,7 @@ async function checkProviderGenerationReadiness(): Promise<CheckResult> {
   if (readiness.state === 'unreachable') {
     return fail(
       'Provider generation readiness',
-      `Could not reach Ollama at ${request.baseUrl}.`,
+      `Could not reach Ollama at ${redactUrlForDisplay(request.baseUrl)}.`,
     )
   }
 

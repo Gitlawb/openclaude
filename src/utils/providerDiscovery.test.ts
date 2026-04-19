@@ -210,6 +210,44 @@ test('ollama generation readiness reports generation failures when chat probe fa
   })
 })
 
+test('ollama generation readiness reports generation_failed when chat probe returns invalid JSON', async () => {
+  const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
+
+  globalThis.fetch = mock(input => {
+    const url = typeof input === 'string' ? input : input.url
+    if (url.endsWith('/api/tags')) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            models: [{ name: 'llama3.1:8b', size: 1024 }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+    }
+
+    return Promise.resolve(
+      new Response('<html>proxy error</html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      }),
+    )
+  }) as typeof globalThis.fetch
+
+  await expect(
+    probeOllamaGenerationReadiness({
+      baseUrl: 'http://localhost:11434',
+    }),
+  ).resolves.toMatchObject({
+    state: 'generation_failed',
+    probeModel: 'llama3.1:8b',
+    detail: 'invalid JSON response',
+  })
+})
+
 test('ollama generation readiness reports ready when chat probe succeeds', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
