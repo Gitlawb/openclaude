@@ -1213,9 +1213,13 @@ export class QueryEngine {
       }
       if (a.tools !== undefined) {
         const validToolNames = new Set(this.config.tools.map(t => t.name))
-        for (const toolName of a.tools as string[]) {
+        for (const toolSpec of a.tools as string[]) {
+          // Wildcard '*' means all tools are allowed - skip validation
+          if (toolSpec === '*') continue
+          // Parse tool spec to get base tool name (may contain permission rules)
+          const toolName = toolSpec.split(':')[0] ?? toolSpec
           if (!validToolNames.has(toolName)) {
-            throw new TypeError(`agent references unknown tool '${toolName}'`)
+            throw new TypeError(`agent references unknown tool '${toolSpec}'`)
           }
         }
       }
@@ -1244,10 +1248,14 @@ export class QueryEngine {
     const validToolNames = new Set(toolArray.map(t => t.name))
     for (const agent of this.config.agents) {
       if (agent.tools) {
-        for (const toolName of agent.tools) {
+        for (const toolSpec of agent.tools) {
+          // Wildcard '*' means all tools are allowed - skip validation
+          if (toolSpec === '*') continue
+          // Parse tool spec to get base tool name
+          const toolName = toolSpec.split(':')[0] ?? toolSpec
           if (!validToolNames.has(toolName)) {
             throw new TypeError(
-              `updateTools: agent '${agent.agentType}' references tool '${toolName}' which is not in the new tool set`
+              `updateTools: agent '${agent.agentType}' references tool '${toolSpec}' which is not in the new tool set`
             )
           }
         }
