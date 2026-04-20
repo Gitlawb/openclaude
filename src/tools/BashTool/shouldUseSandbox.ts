@@ -13,6 +13,7 @@ import {
 type SandboxInput = {
   command?: string
   dangerouslyDisableSandbox?: boolean
+  _dangerouslyDisableSandboxApproved?: boolean
 }
 
 // NOTE: excludedCommands is a user-facing convenience feature, not a security boundary.
@@ -141,9 +142,13 @@ export function shouldUseSandbox(input: Partial<SandboxInput>): boolean {
     return false
   }
 
-  // Don't sandbox if explicitly overridden AND unsandboxed commands are allowed by policy
+  // Only trusted internal callers may request an unsandboxed command. The
+  // model-facing Bash schema omits _dangerouslyDisableSandboxApproved, so a
+  // tool_use payload cannot disable the sandbox by setting
+  // dangerouslyDisableSandbox directly.
   if (
     input.dangerouslyDisableSandbox &&
+    input._dangerouslyDisableSandboxApproved &&
     SandboxManager.areUnsandboxedCommandsAllowed()
   ) {
     return false

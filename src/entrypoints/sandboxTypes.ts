@@ -114,8 +114,8 @@ export const SandboxSettingsSchema = lazySchema(() =>
         .boolean()
         .optional()
         .describe(
-          'Allow commands to run outside the sandbox via the dangerouslyDisableSandbox parameter. ' +
-            'When false, the dangerouslyDisableSandbox parameter is completely ignored and all commands must run sandboxed. ' +
+          'Allow trusted, user-initiated commands to run outside the sandbox. ' +
+            'When false, sandbox override requests are ignored and all commands must run sandboxed. ' +
             'Default: true.',
         ),
       network: SandboxNetworkConfigSchema(),
