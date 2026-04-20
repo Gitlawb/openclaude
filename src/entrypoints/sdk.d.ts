@@ -294,6 +294,14 @@ export type QueryOptions = {
     input: unknown,
     options?: { toolUseID?: string },
   ) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
+  /**
+   * Callback invoked when a tool needs permission approval. The host receives
+   * the request immediately and can resolve it by calling
+   * `query.respondToPermission(toolUseId, decision)` before the timeout.
+   * If omitted, tools that require permission fall through to the default
+   * permission logic immediately (no timeout).
+   */
+  onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
   systemPrompt?:
     | string
     | { type: 'preset'; preset: string; append?: string }
@@ -310,6 +318,8 @@ export type QueryOptions = {
   settingSources?: string[]
   /** When true, yields stream_event messages for token-by-token streaming. */
   includePartialMessages?: boolean
+  /** @internal Timeout in ms for permission request resolution. Default 30000. */
+  _permissionTimeoutMs?: number
   stderr?: (data: string) => void
 }
 
@@ -331,6 +341,19 @@ export interface Query {
   mcpServerStatus(): McpServerStatus[]
   accountInfo(): Promise<{ apiKeySource: ApiKeySource; [key: string]: unknown }>
   setMaxThinkingTokens(tokens: number): void
+}
+
+/**
+ * Permission request message emitted when a tool needs permission approval.
+ * Hosts can respond via respondToPermission() using the request_id.
+ */
+export type SDKPermissionRequestMessage = {
+  type: 'permission_request'
+  request_id: string
+  tool_name: string
+  tool_use_id: string
+  input: Record<string, unknown>
+  session_id?: string
 }
 
 export type SDKPermissionTimeoutMessage = {
@@ -362,6 +385,13 @@ export type SDKSessionOptions = {
     input: unknown,
     options?: { toolUseID?: string },
   ) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
+  /** MCP server configurations for this session. */
+  mcpServers?: Record<string, unknown>
+  /**
+   * Callback invoked when a tool needs permission approval. The host receives
+   * the request immediately and can resolve it via respondToPermission().
+   */
+  onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
 }
 
 export interface SDKSession {

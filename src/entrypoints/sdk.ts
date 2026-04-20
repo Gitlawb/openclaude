@@ -1949,7 +1949,13 @@ class SDKSessionImpl implements SDKSession {
   }
   private _sessionId: string
   private options: SDKSessionOptions
-  private appStateStore: Store<AppState>
+  private _appStateStore: Store<AppState> | null = null
+  private get appStateStore(): Store<AppState> {
+    if (!this._appStateStore) {
+      throw new Error('SDKSessionImpl: appStateStore not initialized. Call setAppStateStore() first.')
+    }
+    return this._appStateStore
+  }
   private agentsLoaded = false
   private mcpServers?: Record<string, unknown>
   private mcpConnected = false
@@ -1962,12 +1968,12 @@ class SDKSessionImpl implements SDKSession {
     engine: QueryEngine | null,
     sessionId: string,
     options: SDKSessionOptions,
-    appStateStore: Store<AppState>,
+    appStateStore: Store<AppState> | null,
   ) {
     if (engine) this._engine = engine
     this._sessionId = sessionId
     this.options = options
-    this.appStateStore = appStateStore
+    if (appStateStore) this._appStateStore = appStateStore
     this.mcpServers = options.mcpServers
   }
 
@@ -1978,7 +1984,7 @@ class SDKSessionImpl implements SDKSession {
 
   /** Late-bind the app state store (used when session is created before store). */
   setAppStateStore(store: Store<AppState>): void {
-    this.appStateStore = store
+    this._appStateStore = store
   }
 
   get sessionId(): string {
@@ -2219,7 +2225,7 @@ export function unstable_v2_createSession(options: SDKSessionOptions): SDKSessio
   // Create SDKSessionImpl first (without engine) so we can pass its
   // pendingPermissionPrompts map to createEngineFromOptions for
   // external permission resolution support.
-  const session = new SDKSessionImpl(null, sessionId, options, null as any)
+  const session = new SDKSessionImpl(null, sessionId, options, null)
   const { engine, appStateStore } = createEngineFromOptions(options, session)
   // Wire the engine and store into the session
   session.setEngine(engine)
@@ -2263,7 +2269,7 @@ export async function unstable_v2_resumeSession(
     .filter(entry => !entry.isSidechain && (entry.type === 'user' || entry.type === 'assistant'))
     .map(entry => ({ ...entry }))
 
-  const session = new SDKSessionImpl(null, sessionId, options, null as any)
+  const session = new SDKSessionImpl(null, sessionId, options, null)
   const { engine, appStateStore } = createEngineFromOptions(
     options,
     session,
@@ -2360,6 +2366,40 @@ export function tool<Schema = any>(
 }
 
 // ============================================================================
+// Public MCP config types — mirror sdk.d.ts declarations
+// ============================================================================
+
+export type SdkMcpStdioConfig = {
+  type?: 'stdio'
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+export type SdkMcpSSEConfig = {
+  type: 'sse'
+  url: string
+  headers?: Record<string, string>
+}
+
+export type SdkMcpHttpConfig = {
+  type: 'http'
+  url: string
+  headers?: Record<string, string>
+}
+
+export type SdkMcpSdkConfig = {
+  type: 'sdk'
+  name: string
+}
+
+export type SdkMcpServerConfig = SdkMcpStdioConfig | SdkMcpSSEConfig | SdkMcpHttpConfig | SdkMcpSdkConfig
+
+export type SdkScopedMcpServerConfig = SdkMcpServerConfig & {
+  scope: 'session'
+}
+
+// ============================================================================
 // createSdkMcpServer() — stub that returns a config object
 // ============================================================================
 
@@ -2387,7 +2427,7 @@ export function tool<Schema = any>(
  * })
  * ```
  */
-export function createSdkMcpServer(config: Omit<ScopedMcpServerConfig, 'scope'>): ScopedMcpServerConfig {
+export function createSdkMcpServer(config: SdkMcpServerConfig): SdkScopedMcpServerConfig {
   return {
     ...config,
     scope: 'session' as const,
