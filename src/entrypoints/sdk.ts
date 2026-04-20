@@ -962,6 +962,11 @@ function createExternalCanUseTool(
       }
 
       // Timeout — clean up
+      console.warn(
+        `[SDK] Permission request for tool "${tool.name}" timed out after ${timeoutMs}ms. ` +
+        'Denying by default. Provide a canUseTool callback or respond to permission_request ' +
+        'messages within the timeout window.',
+      )
       const pending = permissionTarget.pendingPermissionPrompts.get(toolUseID)
       if (pending) {
         pending.resolve({ behavior: 'deny', message: 'Permission resolution timed out' })
@@ -1095,6 +1100,8 @@ async function connectSdkMcpServers(
 // Internal: permission-denying canUseTool for non-interactive use
 // ============================================================================
 
+let warnedDefaultPermissions = false
+
 /**
  * Default canUseTool that allows all tool uses. Permission filtering is
  * already handled at the tool-list level by getTools(permissionContext),
@@ -1103,6 +1110,14 @@ async function connectSdkMcpServers(
 function createDefaultCanUseTool(
   _permissionContext: ToolPermissionContext,
 ): CanUseToolFn {
+  if (!warnedDefaultPermissions) {
+    warnedDefaultPermissions = true
+    console.warn(
+      '[SDK] No canUseTool or onPermissionRequest callback provided. ' +
+      'All tool uses will be automatically allowed. ' +
+      'Provide canUseTool in query options to control tool permissions.',
+    )
+  }
   // Return a simple implementation that allows all tool uses.
   // Permission filtering is already done at the tool-list level by
   // getTools(permissionContext), and the bypass-permissions mode is
@@ -1174,7 +1189,13 @@ async function loadAndInjectSessionMessages(
 // ============================================================================
 
 class QueryImpl implements Query {
-  private engine: QueryEngine
+  private _engine: QueryEngine | null = null
+  private get engine(): QueryEngine {
+    if (!this._engine) {
+      throw new Error('QueryImpl: engine not initialized. Call setEngine() first.')
+    }
+    return this._engine
+  }
   private prompt: string | AsyncIterable<SDKUserMessage>
   private abortController: AbortController
   private appStateStore: Store<AppState>
@@ -1193,7 +1214,7 @@ class QueryImpl implements Query {
   private permissionContext: ToolPermissionContext
 
   constructor(
-    engine: QueryEngine,
+    engine: QueryEngine | null,
     prompt: string | AsyncIterable<SDKUserMessage>,
     abortController: AbortController,
     appStateStore: Store<AppState>,
