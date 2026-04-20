@@ -1228,7 +1228,7 @@ class QueryImpl implements Query {
     mcpServers?: Record<string, unknown>,
     permissionContext: ToolPermissionContext = getEmptyToolPermissionContext(),
   ) {
-    this.engine = engine
+    if (engine) this._engine = engine
     this.prompt = prompt
     this.abortController = abortController
     this.appStateStore = appStateStore
@@ -1250,7 +1250,7 @@ class QueryImpl implements Query {
 
   /** Late-bind the engine (used by query() which creates QueryImpl before the engine). */
   setEngine(engine: QueryEngine): void {
-    this.engine = engine
+    this._engine = engine
   }
 
   /**
@@ -1785,7 +1785,7 @@ export function query(params: {
   // Also pass sessionId, fork/forkSession, continue, cwd, resumeSessionAt, and agents.
   const effectiveSessionId = options.sessionId || options.resume
   const shouldFork = options.fork || options.forkSession
-  const queryImpl = new QueryImpl(null as any, prompt, ac, appStateStore, envOverrides, effectiveSessionId, shouldFork, options.continue, cwd, options.resumeSessionAt, options.agents, options.mcpServers, permissionContext)
+  const queryImpl = new QueryImpl(null, prompt, ac, appStateStore, envOverrides, effectiveSessionId, shouldFork, options.continue, cwd, options.resumeSessionAt, options.agents, options.mcpServers, permissionContext)
 
   // Build the canUseTool that supports external permission resolution.
   // When no user canUseTool callback is provided, this creates a pending
@@ -1925,7 +1925,13 @@ export interface SdkMcpToolDefinition<Schema = any> {
 // ============================================================================
 
 class SDKSessionImpl implements SDKSession {
-  private engine: QueryEngine
+  private _engine: QueryEngine | null = null
+  private get engine(): QueryEngine {
+    if (!this._engine) {
+      throw new Error('SDKSessionImpl: engine not initialized. Call setEngine() first.')
+    }
+    return this._engine
+  }
   private _sessionId: string
   private options: SDKSessionOptions
   private appStateStore: Store<AppState>
@@ -1937,12 +1943,12 @@ class SDKSessionImpl implements SDKSession {
   }>()
 
   constructor(
-    engine: QueryEngine,
+    engine: QueryEngine | null,
     sessionId: string,
     options: SDKSessionOptions,
     appStateStore: Store<AppState>,
   ) {
-    this.engine = engine
+    if (engine) this._engine = engine
     this._sessionId = sessionId
     this.options = options
     this.appStateStore = appStateStore
@@ -1951,7 +1957,7 @@ class SDKSessionImpl implements SDKSession {
 
   /** Late-bind the engine (used when session is created before engine). */
   setEngine(engine: QueryEngine): void {
-    this.engine = engine
+    this._engine = engine
   }
 
   /** Late-bind the app state store (used when session is created before store). */
@@ -2182,7 +2188,7 @@ export function unstable_v2_createSession(options: SDKSessionOptions): SDKSessio
   // Create SDKSessionImpl first (without engine) so we can pass its
   // pendingPermissionPrompts map to createEngineFromOptions for
   // external permission resolution support.
-  const session = new SDKSessionImpl(null as any, sessionId, options, null as any)
+  const session = new SDKSessionImpl(null, sessionId, options, null as any)
   const { engine, appStateStore } = createEngineFromOptions(options, session)
   // Wire the engine and store into the session
   session.setEngine(engine)
@@ -2226,7 +2232,7 @@ export async function unstable_v2_resumeSession(
     .filter(entry => !entry.isSidechain && (entry.type === 'user' || entry.type === 'assistant'))
     .map(entry => ({ ...entry }))
 
-  const session = new SDKSessionImpl(null as any, sessionId, options, null as any)
+  const session = new SDKSessionImpl(null, sessionId, options, null as any)
   const { engine, appStateStore } = createEngineFromOptions(
     options,
     session,

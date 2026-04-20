@@ -43,3 +43,22 @@ describe('Query.sessionId accessor (API-1)', () => {
     q2.interrupt()
   })
 })
+
+describe('Engine lazy-init guard (COR-1)', () => {
+  test('QueryImpl close() works after construction', () => {
+    const q = query({
+      prompt: 'test',
+      options: { cwd: process.cwd() },
+    })
+    expect(() => q.close()).not.toThrow()
+  })
+
+  test('SDKSession getMessages() works after construction', async () => {
+    const { unstable_v2_createSession } = await import('../../src/entrypoints/sdk.js')
+    const session = unstable_v2_createSession({
+      cwd: process.cwd(),
+    })
+    expect(session.sessionId).toBeDefined()
+    expect(Array.isArray(session.getMessages())).toBe(true)
+  })
+})
