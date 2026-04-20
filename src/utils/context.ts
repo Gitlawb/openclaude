@@ -4,6 +4,11 @@ import { getGlobalConfig } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
+import {
+  discoverContextWindow,
+  getCachedContextWindow,
+  rememberContextWindow,
+} from './model/modelContextDiscovery.js'
 import { getOpenAIContextWindow, getOpenAIMaxOutputTokens } from './model/openaiContextWindows.js'
 
 // Model context window size (200k tokens for all models right now)
@@ -91,10 +96,22 @@ export function getContextWindowForModel(
     if (openaiWindow !== undefined) {
       return openaiWindow
     }
+    const baseUrl = (
+      process.env.OPENAI_BASE_URL ??
+      process.env.OPENAI_API_BASE ??
+      'https://api.openai.com/v1'
+    ).replace(/\/+$/, '')
+    const cached = getCachedContextWindow(baseUrl, model)
+    if (cached !== undefined) {
+      return cached
+    }
+    // Fall back to conservative default but trigger a one-shot background
+    // probe so the NEXT call for this model returns an accurate value.
     console.error(
       `[context] Warning: model "${model}" not in context window table — using conservative 128k default. ` +
-      'Add it to src/utils/model/openaiContextWindows.ts for accurate compaction.',
+      'Probing the provider to auto-detect (result cached in ~/.openclaude/model-metadata.json).',
     )
+    triggerBackgroundContextProbe(baseUrl, model)
     return OPENAI_FALLBACK_CONTEXT_WINDOW
   }
 
@@ -122,6 +139,37 @@ export function getContextWindowForModel(
     }
   }
   return MODEL_CONTEXT_WINDOW_DEFAULT
+}
+
+// Track in-flight / completed probes so a single session triggers at most one
+// discovery per (baseUrl, model) pair, regardless of how many compaction calls
+// re-enter getContextWindowForModel().
+const probedThisSession = new Set<string>()
+
+function triggerBackgroundContextProbe(baseUrl: string, model: string): void {
+  const key = `${baseUrl}::${model}`
+  if (probedThisSession.has(key)) return
+  probedThisSession.add(key)
+
+  const headers: Record<string, string> = {}
+  const apiKey = process.env.OPENAI_API_KEY?.trim()
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+
+  // Fire-and-forget; no callers wait on this.
+  void discoverContextWindow(baseUrl, model, headers)
+    .then(result => {
+      if (result) {
+        rememberContextWindow(
+          baseUrl,
+          model,
+          result.contextWindow,
+          result.source,
+        )
+      }
+    })
+    .catch(() => {
+      // Swallow — we already returned the fallback value; next session will retry.
+    })
 }
 
 export function getSonnet1mExpTreatmentEnabled(model: string): boolean {
