@@ -190,16 +190,20 @@ export function getModelMaxOutputTokens(model: string): {
   }
 
   // OpenAI-compatible provider — use known output limits to avoid 400 errors
-  if (
+  const isOpenAICompatProvider =
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
-  ) {
+  if (isOpenAICompatProvider) {
     const openaiMax = getOpenAIMaxOutputTokens(model)
     if (openaiMax !== undefined) {
       return { default: openaiMax, upperLimit: openaiMax }
     }
+    // Unknown 3P model — use conservative default to avoid vLLM/Ollama 400
+    // errors when the default 32k exceeds the model's max_model_len.
+    // Users can override with CLAUDE_CODE_MAX_OUTPUT_TOKENS.
+    return { default: 4_096, upperLimit: 16_384 }
   }
 
   const m = getCanonicalName(model)

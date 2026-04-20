@@ -3019,3 +3019,123 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
   const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
   expect(orphanMessage).toBeUndefined()
 })
+
+test('request body does not contain store field for local providers', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        object: 'chat.completion',
+        model: 'test-model',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as unknown as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'some-model',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody).toBeDefined()
+  expect('store' in requestBody!).toBe(false)
+})
+
+test('preserves reasoning_content on assistant messages with tool_calls during replay', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        object: 'chat.completion',
+        model: 'test-model',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as unknown as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-k2.5',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'read file' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'I should use the read tool' },
+          { type: 'tool_use', id: 'call_1', name: 'Read', input: { file_path: 'test.ts' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'file contents here' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantMsg = messages.find(m => m.role === 'assistant' && m.tool_calls)
+  expect(assistantMsg).toBeDefined()
+  expect(assistantMsg!.reasoning_content).toBe('I should use the read tool')
+})
+
+test('does not add reasoning_content on assistant messages without tool_calls', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        object: 'chat.completion',
+        model: 'test-model',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as unknown as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-reasoner',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'explain' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'Let me think about this' },
+          { type: 'text', text: 'Here is the explanation' },
+        ],
+      },
+      { role: 'user', content: [{ type: 'text', text: 'thanks' }] },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantMsg = messages.find(m => m.role === 'assistant' && !m.tool_calls)
+  expect(assistantMsg).toBeDefined()
+  expect(assistantMsg!.reasoning_content).toBeUndefined()
+})

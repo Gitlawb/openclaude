@@ -192,6 +192,7 @@ function sleepMs(ms: number): Promise<void> {
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content?: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+  reasoning_content?: string
   tool_calls?: Array<{
     id: string
     type: 'function'
@@ -416,6 +417,16 @@ function convertMessages(
         }
 
         if (toolUses.length > 0) {
+          // Preserve thinking text as reasoning_content for providers that
+          // require it on replayed assistant tool-call messages (e.g. Kimi,
+          // DeepSeek). Without this, follow-up requests fail with 400:
+          // "reasoning_content is missing in assistant tool call message".
+          // Note: only the first thinking block per turn is captured (.find);
+          // Anthropic's API typically produces one thinking block per turn.
+          if (thinkingBlock) {
+            assistantMsg.reasoning_content = (thinkingBlock as { thinking?: string }).thinking ?? ''
+          }
+
           assistantMsg.tool_calls = toolUses.map(
             (tu: {
               id?: string
@@ -1345,9 +1356,10 @@ class OpenAIShimMessages {
       delete body.max_completion_tokens
     }
 
-    // mistral and gemini don't recognize body.store — Gemini returns 400
-    // "Invalid JSON payload received. Unknown name 'store': Cannot find field."
-    if (isMistral || isGeminiMode()) {
+    // Strip store for providers that don't recognize it. Only OpenAI's own
+    // API supports this field — Gemini returns 400, local servers (vLLM,
+    // Ollama) reject unknown fields, and other providers silently ignore it.
+    if (isMistral || isGeminiMode() || isLocal) {
       delete body.store
     }
 
