@@ -102,9 +102,12 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
+let result: Awaited<ReturnType<typeof Bun.build>>
+let sdkResult: Awaited<ReturnType<typeof Bun.build>>
+
 try {
 
-const result = await Bun.build({
+result = await Bun.build({
   entrypoints: ['./src/entrypoints/cli.tsx'],
   outdir: './dist',
   target: 'node',
@@ -446,7 +449,7 @@ if (!result.success) {
 // SDK is a separate bundle for npm consumption - must NOT bundle React/Ink
 console.log('Building SDK bundle...')
 
-const sdkResult = await Bun.build({
+sdkResult = await Bun.build({
   entrypoints: ['./src/entrypoints/sdk.ts'],
   outdir: './dist',
   target: 'node',
@@ -739,4 +742,16 @@ if (!sdkResult.success) {
   // Always restore source files, even if Bun.build() throws
   restoreModifiedFiles()
   console.log(`  🔄 feature-flags: pre-processed ${numModified} files (restored)`)
+}
+
+// ── Validate external lists ──────────────────────────────────────────────
+if (result.success && sdkResult.success) {
+  console.log('\nValidating external lists...')
+  const validation = Bun.spawnSync(['bun', 'run', 'scripts/validate-externals.ts'], {
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+  if (validation.exitCode !== 0) {
+    process.exitCode = 1
+  }
 }
