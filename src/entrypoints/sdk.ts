@@ -885,6 +885,8 @@ function createExternalCanUseTool(
     pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }>
   },
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void,
+  onTimeout?: (message: SDKPermissionTimeoutMessage) => void,
+  timeoutMs: number = 30000,
 ): CanUseToolFn {
   return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
     // If a forced decision was passed in, honor it
@@ -925,7 +927,6 @@ function createExternalCanUseTool(
       })
 
       const pendingPromise = permissionTarget.registerPendingPermission(toolUseID)
-      const timeoutMs = 30000
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise<{ timedOut: true }>(resolve => {
@@ -946,7 +947,15 @@ function createExternalCanUseTool(
         return raceResult.result
       }
 
-      // Timeout — clean up
+      // Timeout — emit event and clean up
+      if (onTimeout) {
+        onTimeout({
+          type: 'permission_timeout',
+          tool_name: tool.name,
+          tool_use_id: toolUseID,
+          timed_out_after_ms: timeoutMs,
+        })
+      }
       console.warn(
         `[SDK] Permission request for tool "${tool.name}" timed out after ${timeoutMs}ms. ` +
         'Denying by default. Provide a canUseTool callback or respond to permission_request ' +
