@@ -1259,8 +1259,13 @@ class QueryImpl implements Query {
       // Merge user-provided agents (from options.agents) with disk-loaded agents
       if (this.userAgents && Object.keys(this.userAgents).length > 0) {
         const userAgents = Object.entries(this.userAgents).map(([name, def]) => ({
-          name,
-          ...def,
+          agentType: name,
+          whenToUse: def.description ?? name,
+          getSystemPrompt: () => def.prompt ?? '',
+          ...(def.tools ? { tools: def.tools } : {}),
+          ...(def.disallowedTools ? { disallowedTools: def.disallowedTools } : {}),
+          ...(def.model ? { model: def.model } : {}),
+          ...(def.maxTurns ? { maxTurns: def.maxTurns } : {}),
         }))
         agentDefs.activeAgents.push(...userAgents)
       }

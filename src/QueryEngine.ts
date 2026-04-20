@@ -1207,21 +1207,8 @@ export class QueryEngine {
    */
   injectAgents(agents: AgentDefinition[]): void {
     const validated = validateArrayOf(agents, (agent, _i) => {
-      const a = agent as Record<string, unknown>
-      assertNonEmptyString(a.description, 'description')
-      assertNonEmptyString(a.prompt, 'prompt')
-      if (a.tools !== undefined && !Array.isArray(a.tools)) {
-        throw new TypeError("'tools' must be an array of strings")
-      }
-      if (a.tools !== undefined) {
-        for (const t of a.tools as unknown[]) {
-          if (typeof t !== 'string') {
-            throw new TypeError("'tools' must be an array of strings")
-          }
-        }
-      }
-      if (a.model !== undefined && typeof a.model !== 'string') {
-        throw new TypeError("'model' must be a string")
+      if (typeof agent !== 'object' || agent === null) {
+        throw new TypeError('expected object')
       }
       return agent
     }, 'injectAgents')
