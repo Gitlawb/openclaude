@@ -23,6 +23,7 @@ import { randomUUID } from 'crypto'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
+  isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
 import {
   getAttributionHeader,
@@ -334,8 +335,13 @@ export function getPromptCachingEnabled(model: string): boolean {
   // Prompt caching is an Anthropic-specific feature. Third-party providers
   // do not understand cache_control blocks and strict backends (e.g. Azure
   // Foundry) reject or flag requests that contain them.
+  //
+  // Exception: when the GitHub provider is configured in native Anthropic API
+  // mode (CLAUDE_CODE_GITHUB_ANTHROPIC_API=1), requests are sent in Anthropic
+  // format, so cache_control blocks are supported.
   const provider = getAPIProvider()
-  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex') {
+  const isNativeGithub = isGithubNativeAnthropicMode(model)
+  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex' && !isNativeGithub) {
     return false
   }
 

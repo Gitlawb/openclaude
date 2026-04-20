@@ -107,3 +107,60 @@ test('official OpenAI base URLs now keep provider detection on openai for aliase
   const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('openai')
 })
+
+// isGithubNativeAnthropicMode
+
+test('isGithubNativeAnthropicMode: false when CLAUDE_CODE_USE_GITHUB is not set', async () => {
+  clearProviderEnv()
+  process.env.OPENAI_MODEL = 'claude-sonnet-4-5'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(false)
+})
+
+test('isGithubNativeAnthropicMode: true for bare claude- model via OPENAI_MODEL', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'claude-sonnet-4-5'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(true)
+})
+
+test('isGithubNativeAnthropicMode: true for github:copilot:claude- compound format', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot:claude-sonnet-4'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(true)
+})
+
+test('isGithubNativeAnthropicMode: true when resolvedModel is a claude- model', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode('claude-haiku-4-5')).toBe(true)
+})
+
+test('isGithubNativeAnthropicMode: false for generic github:copilot alias', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(false)
+})
+
+test('isGithubNativeAnthropicMode: false for non-Claude model', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(false)
+})
+
+test('isGithubNativeAnthropicMode: false for github:copilot:gpt- model', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot:gpt-4o'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(false)
+})

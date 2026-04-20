@@ -14,6 +14,7 @@ import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
+  isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
 import {
@@ -173,6 +174,25 @@ export async function getAnthropicClient({
       timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
       providerOverride,
     }) as unknown as Anthropic
+  }
+  // GitHub provider in native Anthropic API mode: send requests in Anthropic
+  // format so cache_control blocks are honoured and prompt caching works.
+  // Requires the GitHub endpoint (OPENAI_BASE_URL) to support Anthropic's
+  // messages API — set CLAUDE_CODE_GITHUB_ANTHROPIC_API=1 to opt in.
+  if (isGithubNativeAnthropicMode(model)) {
+    const githubBaseUrl =
+      process.env.OPENAI_BASE_URL?.replace(/\/$/, '') ??
+      'https://api.githubcopilot.com'
+    const githubToken =
+      process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
+    const nativeArgs: ConstructorParameters<typeof Anthropic>[0] = {
+      ...ARGS,
+      baseURL: githubBaseUrl,
+      authToken: githubToken,
+      // No apiKey — we authenticate via Bearer token (authToken)
+      apiKey: null,
+    }
+    return new Anthropic(nativeArgs)
   }
   if (
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
