@@ -1,5 +1,8 @@
 import { describe, test, expect } from 'bun:test'
 import { query } from '../../src/entrypoints/sdk.js'
+import { getSessionId, getSessionProjectDir, runWithSdkContext } from '../../src/bootstrap/state.js'
+import { randomUUID } from 'crypto'
+import type { SessionId } from '../../src/types/ids.js'
 
 describe('SEC-1: env override isolation', () => {
   test('env overrides are restored after query completes', async () => {
@@ -76,5 +79,71 @@ describe('SEC-1: env override isolation', () => {
 
     try { for await (const _ of q1) {} } catch {}
     try { for await (const _ of q2) {} } catch {}
+  })
+})
+
+describe('CON-1: CWD and session isolation between concurrent queries', () => {
+  test('AsyncLocalStorage context returns query-specific sessionId, not global', () => {
+    // Simulate what the SDK query does: set up a context and verify reads
+    const globalId = getSessionId()
+    const contextId = randomUUID() as SessionId
+
+    const result = runWithSdkContext(
+      { sessionId: contextId, sessionProjectDir: '/test/dir', cwd: '/test/dir', originalCwd: '/test/dir' },
+      () => getSessionId(),
+    )
+
+    expect(result).toBe(contextId)
+    expect(result).not.toBe(globalId)
+    // Global should be unchanged
+    expect(getSessionId()).toBe(globalId)
+  })
+
+  test('AsyncLocalStorage context returns query-specific sessionProjectDir', () => {
+    const contextDir = '/my/project/specific/dir'
+    const result = runWithSdkContext(
+      { sessionId: randomUUID() as SessionId, sessionProjectDir: contextDir, cwd: contextDir, originalCwd: contextDir },
+      () => getSessionProjectDir(),
+    )
+    expect(result).toBe(contextDir)
+  })
+
+  test('nested contexts maintain correct isolation', () => {
+    const id1 = randomUUID() as SessionId
+    const id2 = randomUUID() as SessionId
+
+    const result = runWithSdkContext(
+      { sessionId: id1, sessionProjectDir: '/dir1', cwd: '/dir1', originalCwd: '/dir1' },
+      () => {
+        expect(getSessionId()).toBe(id1)
+        // Inner context overrides
+        const innerResult = runWithSdkContext(
+          { sessionId: id2, sessionProjectDir: '/dir2', cwd: '/dir2', originalCwd: '/dir2' },
+          () => getSessionId(),
+        )
+        expect(innerResult).toBe(id2)
+        // Outer context should still be id1 after inner returns
+        expect(getSessionId()).toBe(id1)
+        return true
+      },
+    )
+    expect(result).toBe(true)
+  })
+
+  test('two concurrent queries with different CWDs get different session project dirs', () => {
+    const cwd1 = '/project-a'
+    const cwd2 = '/project-b'
+
+    // Simulate the AsyncLocalStorage context setup that query() does
+    const ctx1 = { sessionId: randomUUID() as SessionId, sessionProjectDir: cwd1, cwd: cwd1, originalCwd: cwd1 }
+    const ctx2 = { sessionId: randomUUID() as SessionId, sessionProjectDir: cwd2, cwd: cwd2, originalCwd: cwd2 }
+
+    // Verify each context sees its own project dir
+    const dir1 = runWithSdkContext(ctx1, () => getSessionProjectDir())
+    const dir2 = runWithSdkContext(ctx2, () => getSessionProjectDir())
+
+    expect(dir1).toBe(cwd1)
+    expect(dir2).toBe(cwd2)
+    expect(dir1).not.toBe(dir2)
   })
 })
