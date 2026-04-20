@@ -1,5 +1,5 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
+import { estimateWithBounds, roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
@@ -258,4 +258,115 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
     i--
   }
   return roughTokenCountEstimationForMessages(messages)
+}
+
+/**
+ * Cross-session token cache for reusable context.
+ * Stores tokenized content that can be shared across sessions.
+ */
+export interface CrossSessionCacheEntry {
+  contentHash: string
+  contentPreview: string
+  tokenCount: number
+  lastUsed: number
+  useCount: number
+}
+
+export class CrossSessionTokenCache {
+  private cache = new Map<string, CrossSessionCacheEntry>()
+  private readonly maxEntries: number
+  private readonly maxAge: number
+
+  constructor(maxEntries = 100, maxAgeMs = 24 * 60 * 60 * 1000) {
+    this.maxEntries = maxEntries
+    this.maxAge = maxAgeMs
+  }
+
+  getOrCreate(content: string): CrossSessionCacheEntry {
+    const hash = this.hashContent(content)
+    const existing = this.cache.get(hash)
+    if (existing) {
+      existing.lastUsed = Date.now()
+      existing.useCount++
+      return existing
+    }
+
+    const entry: CrossSessionCacheEntry = {
+      contentHash: hash,
+      contentPreview: content.slice(0, 50),
+      tokenCount: roughTokenCountEstimation(content),
+      lastUsed: Date.now(),
+      useCount: 1,
+    }
+
+    this.cache.set(hash, entry)
+    this.prune()
+    return entry
+  }
+
+  getTokenCount(content: string): number {
+    return this.getOrCreate(content).tokenCount
+  }
+
+  has(content: string): boolean {
+    return this.cache.has(this.hashContent(content))
+  }
+
+  estimateWithBounds(content: string) {
+    const entry = this.getOrCreate(content)
+    return {
+      estimate: entry.tokenCount,
+      min: Math.round(entry.tokenCount * 0.8),
+      max: Math.round(entry.tokenCount * 1.2),
+      cached: entry.useCount > 1,
+    }
+  }
+
+  private prune(): void {
+    const now = Date.now()
+    const toDelete: string[] = []
+    for (const [hash, entry] of this.cache) {
+      if (now - entry.lastUsed > this.maxAge) {
+        toDelete.push(hash)
+      }
+    }
+    for (const hash of toDelete) {
+      this.cache.delete(hash)
+    }
+    while (this.cache.size > this.maxEntries) {
+      let oldest: string | null = null
+      let oldestTime = Infinity
+      for (const [hash, entry] of this.cache) {
+        if (entry.lastUsed < oldestTime) {
+          oldestTime = entry.lastUsed
+          oldest = hash
+        }
+      }
+      if (oldest) this.cache.delete(oldest)
+    }
+  }
+
+  getStats() {
+    let totalUses = 0
+    let reused = 0
+    for (const entry of this.cache.values()) {
+      totalUses += entry.useCount
+      if (entry.useCount > 1) reused++
+    }
+    return { size: this.cache.size, totalUses, reusedEntries: reused, reuseRate: 0 }
+  }
+
+  clear(): void {
+    this.cache.clear()
+  }
+
+  private hashContent(content: string): string {
+    let hash = 0
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash
+    }
+    return hash.toString(16)
+  }
 }
