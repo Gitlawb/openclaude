@@ -32,10 +32,9 @@ import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import {
-  looksLikeLeakedReasoningPrefix,
-  shouldBufferPotentialReasoningPrefix,
-  stripLeakedReasoningPreamble,
-} from './reasoningLeakSanitizer.js'
+  createThinkTagFilter,
+  stripThinkTags,
+} from './thinkTagSanitizer.js'
 import {
   codexStreamToAnthropic,
   collectCodexCompletedResponse,
@@ -718,8 +717,7 @@ async function* openaiStreamToAnthropic(
   let hasEmittedContentStart = false
   let hasEmittedThinkingStart = false
   let hasClosedThinking = false
-  let activeTextBuffer = ''
-  let textBufferMode: 'none' | 'pending' | 'strip' = 'none'
+  const thinkFilter = createThinkTagFilter()
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
@@ -798,14 +796,12 @@ async function* openaiStreamToAnthropic(
   const closeActiveContentBlock = async function* () {
     if (!hasEmittedContentStart) return
 
-    if (textBufferMode !== 'none') {
-      const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
-      if (sanitized) {
-        yield {
-          type: 'content_block_delta',
-          index: contentBlockIndex,
-          delta: { type: 'text_delta', text: sanitized },
-        }
+    const tail = thinkFilter.flush()
+    if (tail) {
+      yield {
+        type: 'content_block_delta',
+        index: contentBlockIndex,
+        delta: { type: 'text_delta', text: tail },
       }
     }
 
@@ -815,8 +811,6 @@ async function* openaiStreamToAnthropic(
     }
     contentBlockIndex++
     hasEmittedContentStart = false
-    activeTextBuffer = ''
-    textBufferMode = 'none'
   }
 
   try {
@@ -873,7 +867,6 @@ async function* openaiStreamToAnthropic(
             contentBlockIndex++
             hasClosedThinking = true
           }
-          activeTextBuffer += delta.content
           if (!hasEmittedContentStart) {
             yield {
               type: 'content_block_start',
@@ -883,38 +876,13 @@ async function* openaiStreamToAnthropic(
             hasEmittedContentStart = true
           }
 
-          if (
-            textBufferMode === 'strip' ||
-            looksLikeLeakedReasoningPrefix(activeTextBuffer)
-          ) {
-            textBufferMode = 'strip'
-            continue
-          }
-
-          if (textBufferMode === 'pending') {
-            if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
-              continue
-            }
+          const visible = thinkFilter.feed(delta.content)
+          if (visible) {
             yield {
               type: 'content_block_delta',
               index: contentBlockIndex,
-              delta: {
-                type: 'text_delta',
-                text: activeTextBuffer,
-              },
+              delta: { type: 'text_delta', text: visible },
             }
-            textBufferMode = 'none'
-            continue
-          }
-
-          if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
-            textBufferMode = 'pending'
-            continue
-          }
-          yield {
-            type: 'content_block_delta',
-            index: contentBlockIndex,
-            delta: { type: 'text_delta', text: delta.content },
           }
         }
 
@@ -1742,7 +1710,7 @@ class OpenAIShimMessages {
     if (typeof rawContent === 'string' && rawContent) {
       content.push({
         type: 'text',
-        text: stripLeakedReasoningPreamble(rawContent),
+        text: stripThinkTags(rawContent),
       })
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
       const parts: string[] = []
@@ -1760,7 +1728,7 @@ class OpenAIShimMessages {
       if (joined) {
         content.push({
           type: 'text',
-          text: stripLeakedReasoningPreamble(joined),
+          text: stripThinkTags(joined),
         })
       }
     }
