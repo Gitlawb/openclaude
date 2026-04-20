@@ -43,6 +43,7 @@ import type { Message } from './types/message.js'
 import type { OrphanedPermission } from './types/textInputTypes.js'
 import { createAbortController } from './utils/abortController.js'
 import { validateArrayOf, assertNonEmptyString, assertObject, assertFunction } from './utils/validation.js'
+import { clearToolSchemaCache } from './utils/toolSchemaCache.js'
 import type { AttributionState } from './utils/commitAttribution.js'
 import { getGlobalConfig } from './utils/config.js'
 import { getCwd } from './utils/cwd.js'
@@ -1237,21 +1238,21 @@ export class QueryEngine {
       throw new TypeError(`updateTools: expected iterable, got ${typeof tools}`)
     }
     const toolArray = Array.from(tools as Iterable<unknown>)
+
+    // Phase 1: Validate new tools
     validateArrayOf(toolArray, (tool, _i) => {
       const t = tool as Record<string, unknown>
       assertNonEmptyString(t.name, 'name')
       assertFunction(t.call, 'call')
       return tool
     }, 'updateTools')
-    this.config.tools = toolArray as Tools
-    // Validate that existing agents still have valid tool references
-    const validToolNames = new Set(toolArray.map(t => t.name))
+
+    // Phase 2: Validate agent compatibility BEFORE commit (transactional)
+    const validToolNames = new Set(toolArray.map(t => (t as Record<string, unknown>).name as string))
     for (const agent of this.config.agents) {
       if (agent.tools) {
         for (const toolSpec of agent.tools) {
-          // Wildcard '*' means all tools are allowed - skip validation
           if (toolSpec === '*') continue
-          // Parse tool spec to get base tool name
           const toolName = toolSpec.split(':')[0] ?? toolSpec
           if (!validToolNames.has(toolName)) {
             throw new TypeError(
@@ -1261,6 +1262,12 @@ export class QueryEngine {
         }
       }
     }
+
+    // Phase 3: Commit — only reached if all validations pass
+    this.config.tools = toolArray as Tools
+
+    // Phase 4: Invalidate schema cache since tool set changed
+    clearToolSchemaCache()
   }
 
   getReadFileState(): FileStateCache {
