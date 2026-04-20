@@ -45,20 +45,30 @@ describe('COR-1 regression: typed nullable appStateStore', () => {
     session.interrupt()
   })
 
-  test('SDKSessionImpl sendMessage does not throw after proper init', async () => {
+  test('SDKSessionImpl sendMessage returns async iterator after proper init', async () => {
     const session = unstable_v2_createSession({
       cwd: process.cwd(),
     })
-    let completed = false
+    // sendMessage() must return an async iterable without throwing —
+    // this proves the appStateStore getter guard does not fire spuriously
+    // after late-binding in createSession.
+    const iter = session.sendMessage('test')
+    expect(typeof iter[Symbol.asyncIterator]).toBe('function')
+
+    // Drain the iterator. In CI (no API key, MACRO undefined) we expect a
+    // ReferenceError or AbortError — but NOT the appStateStore guard error.
     try {
-      for await (const _ of session.sendMessage('test')) {
-        break // drain first message only
+      for await (const _ of iter) {
+        break
       }
-    } catch {
-      // abort is acceptable
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // The appStateStore guard would throw:
+      //   "SDKSessionImpl: appStateStore not initialized. Call setAppStateStore() first."
+      // That must NEVER happen here — late-binding in createSession wires it.
+      expect(msg).not.toContain('appStateStore not initialized')
     }
-    completed = true
-    expect(completed).toBe(true)
+    session.interrupt()
   }, 10_000)
 })
 

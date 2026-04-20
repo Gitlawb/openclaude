@@ -1266,7 +1266,10 @@ export class QueryEngine {
     // Phase 3: Commit — only reached if all validations pass
     this.config.tools = toolArray as Tools
 
-    // Phase 4: Invalidate schema cache since tool set changed
+    // Phase 4: Invalidate schema cache since tool set changed.
+    // NOTE: This is a process-wide clear, consistent with auth.ts/logout.tsx usage.
+    // Multi-session SDK consumers share one cache; a scoped invalidation would require
+    // per-engine cache keys — deferred until multi-session perf data warrants it.
     clearToolSchemaCache()
   }
 
