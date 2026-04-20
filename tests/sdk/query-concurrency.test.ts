@@ -3,6 +3,7 @@ import { query } from '../../src/entrypoints/sdk.js'
 import { getSessionId, getSessionProjectDir, runWithSdkContext } from '../../src/bootstrap/state.js'
 import { randomUUID } from 'crypto'
 import type { SessionId } from '../../src/types/ids.js'
+import { drainQuery, UUID_REGEX } from './helpers/query-test-doubles.js'
 
 describe('SEC-1: env override isolation', () => {
   test('env overrides are restored after query completes', async () => {
@@ -145,5 +146,77 @@ describe('CON-1: CWD and session isolation between concurrent queries', () => {
     expect(dir1).toBe(cwd1)
     expect(dir2).toBe(cwd2)
     expect(dir1).not.toBe(dir2)
+  })
+})
+
+describe('CON-2: lifecycle-aware concurrency', () => {
+  test('concurrent queries produce unique session IDs', () => {
+    const queries = Array.from({ length: 5 }, (_, i) =>
+      query({ prompt: `concurrent-${i}`, options: { cwd: process.cwd() } })
+    )
+
+    const sessionIds = queries.map(q => q.sessionId)
+    const uniqueIds = new Set(sessionIds)
+
+    expect(uniqueIds.size).toBe(5)
+
+    for (const id of sessionIds) {
+      expect(UUID_REGEX.test(id)).toBe(true)
+    }
+
+    for (const q of queries) {
+      q.interrupt()
+    }
+  })
+
+  test('concurrent query drain completes without deadlock', async () => {
+    const q1 = query({
+      prompt: 'concurrent drain 1',
+      options: { cwd: process.cwd() },
+    })
+    const q2 = query({
+      prompt: 'concurrent drain 2',
+      options: { cwd: process.cwd() },
+    })
+
+    q1.interrupt()
+    q2.interrupt()
+
+    const [msgs1, msgs2] = await Promise.all([
+      drainQuery(q1),
+      drainQuery(q2),
+    ])
+
+    expect(Array.isArray(msgs1)).toBe(true)
+    expect(Array.isArray(msgs2)).toBe(true)
+  }, 15_000)
+
+  test('concurrent queries with different env overrides maintain isolation', async () => {
+    const key = 'SDK_TEST_CON2_ISOLATION'
+    const originalVal = process.env[key]
+
+    try {
+      const q1 = query({
+        prompt: 'env-a',
+        options: { cwd: process.cwd(), env: { [key]: 'value-a' } },
+      })
+      const q2 = query({
+        prompt: 'env-b',
+        options: { cwd: process.cwd(), env: { [key]: 'value-b' } },
+      })
+
+      q1.interrupt()
+      q2.interrupt()
+
+      await Promise.all([drainQuery(q1), drainQuery(q2)])
+
+      expect(process.env[key]).toBe(originalVal)
+    } finally {
+      if (originalVal === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalVal
+      }
+    }
   })
 })
