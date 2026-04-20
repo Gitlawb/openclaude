@@ -47,6 +47,11 @@ import {
   type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
+import {
+  createCredentialPool,
+  parseKeyList,
+  type CredentialPool,
+} from './credentialPool.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
   isLocalProviderUrl,
@@ -1422,10 +1427,18 @@ class OpenAIShimMessages {
 
     const isGemini = isGeminiMode()
     const isMiniMax = !!process.env.MINIMAX_API_KEY
-    const apiKey =
+    // OPENAI_API_KEYS (plural, comma-separated) takes precedence for multi-key
+    // rotation. Single OPENAI_API_KEY may itself contain commas for convenience.
+    // providerOverride always wins (explicit per-profile key) and produces a
+    // single-key pool.
+    const keyListRaw =
       this.providerOverride?.apiKey ??
+      process.env.OPENAI_API_KEYS ??
       process.env.OPENAI_API_KEY ??
-      (isMiniMax ? process.env.MINIMAX_API_KEY : '')
+      (isMiniMax ? process.env.MINIMAX_API_KEY ?? '' : '')
+    const credentialPool: CredentialPool = createCredentialPool(
+      parseKeyList(keyListRaw),
+    )
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -1435,19 +1448,42 @@ class OpenAIShimMessages {
         (hostname.includes('cognitiveservices') || hostname.includes('openai') || hostname.includes('services.ai'))
     } catch { /* malformed URL — not Azure */ }
 
-    if (apiKey) {
-      if (isAzure) {
-        // Azure uses api-key header instead of Bearer token
-        headers['api-key'] = apiKey
-      } else {
-        headers.Authorization = `Bearer ${apiKey}`
-      }
-    } else if (isGemini) {
+    // Resolve Gemini credential once (not rotatable — tied to the ambient auth).
+    let geminiAuthHeader: string | undefined
+    let geminiProjectId: string | undefined
+    if (credentialPool.size === 0 && isGemini) {
       const geminiCredential = await resolveGeminiCredential(process.env)
       if (geminiCredential.kind !== 'none') {
-        headers.Authorization = `Bearer ${geminiCredential.credential}`
-        if (geminiCredential.kind !== 'api-key' && 'projectId' in geminiCredential && geminiCredential.projectId) {
-          headers['x-goog-user-project'] = geminiCredential.projectId
+        geminiAuthHeader = `Bearer ${geminiCredential.credential}`
+        if (
+          geminiCredential.kind !== 'api-key' &&
+          'projectId' in geminiCredential &&
+          geminiCredential.projectId
+        ) {
+          geminiProjectId = geminiCredential.projectId
+        }
+      }
+    }
+
+    const applyAuthHeaders = (
+      targetHeaders: Record<string, string>,
+      apiKey: string | undefined,
+    ): void => {
+      delete targetHeaders.Authorization
+      delete targetHeaders['api-key']
+      delete targetHeaders['x-goog-user-project']
+      if (apiKey) {
+        if (isAzure) {
+          targetHeaders['api-key'] = apiKey
+        } else {
+          targetHeaders.Authorization = `Bearer ${apiKey}`
+        }
+        return
+      }
+      if (geminiAuthHeader) {
+        targetHeaders.Authorization = geminiAuthHeader
+        if (geminiProjectId) {
+          targetHeaders['x-goog-user-project'] = geminiProjectId
         }
       }
     }
@@ -1488,7 +1524,11 @@ class OpenAIShimMessages {
       signal: options?.signal,
     }
 
-    const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
+    // Base attempts from existing policy (GitHub 429 retry); extend to cover
+    // pool rotation if multiple keys are configured. Single-key pools preserve
+    // the prior one-shot behaviour.
+    const baseAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
+    const maxAttempts = Math.max(baseAttempts, credentialPool.size || 1)
 
     const throwClassifiedTransportError = (
       error: unknown,
@@ -1555,7 +1595,14 @@ class OpenAIShimMessages {
     }
 
     let response: Response | undefined
+    let lastAttemptedKey: string | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // Pick a key for this attempt. Empty-pool falls through to Gemini ADC
+      // or keyless local provider handling inside applyAuthHeaders.
+      const keyAttempt = credentialPool.next()
+      applyAuthHeaders(headers, keyAttempt?.token)
+      lastAttemptedKey = keyAttempt?.token
+
       try {
         response = await fetchWithProxyRetry(chatCompletionsUrl, fetchInit)
       } catch (error) {
@@ -1577,7 +1624,24 @@ class OpenAIShimMessages {
       }
 
       if (response.ok) {
+        if (lastAttemptedKey) credentialPool.markSuccess(lastAttemptedKey)
         return response
+      }
+
+      // Credential-pool rotation: on auth / rate-limit failures with more
+      // healthy keys available, mark the current key and retry with the next.
+      if (
+        credentialPool.size > 1 &&
+        lastAttemptedKey &&
+        (response.status === 401 || response.status === 403 || response.status === 429) &&
+        attempt < maxAttempts - 1
+      ) {
+        const kind = response.status === 429 ? 'rate_limit' : 'auth'
+        credentialPool.markFailed(lastAttemptedKey, kind)
+        if (credentialPool.healthyCount() > 0) {
+          await response.text().catch(() => {})
+          continue
+        }
       }
 
       if (
