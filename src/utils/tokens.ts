@@ -4,6 +4,33 @@ import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
 
+/**
+ * Cached token state for tracking cache read/creation tokens.
+ * Stores the boundaries of cached message ranges to avoid recounting.
+ */
+interface CachedRange {
+  startIndex: number
+  endIndex: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+}
+
+function getCacheInfoFromUsage(usage: Usage): CachedRange | null {
+  const cacheRead = usage.cache_read_input_tokens ?? 0
+  const cacheCreation = usage.cache_creation_input_tokens ?? 0
+
+  if (cacheRead === 0 && cacheCreation === 0) {
+    return null
+  }
+
+  return {
+    startIndex: 0,
+    endIndex: 0,
+    cacheReadTokens: cacheRead,
+    cacheCreationTokens: cacheCreation,
+  }
+}
+
 export function getTokenUsage(message: Message): Usage | undefined {
   if (
     message?.type === 'assistant' &&
@@ -258,4 +285,126 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
     i--
   }
   return roughTokenCountEstimationForMessages(messages)
+}
+
+/**
+ * Incremental token counter that caches state between calls.
+ * 
+ * Tracks last known token count and message length to avoid recounting
+ * entire context when only new messages are added.
+ * 
+ * Use this for high-frequency token counting (e.g., in loops)
+ * where performance matters.
+ */
+export class IncrementalTokenCounter {
+  private lastMessageCount = 0
+  private lastTokenCount = 0
+
+  /**
+   * Get token count, using cached value if messages haven't changed.
+   * Only recomputes when new messages are added.
+   */
+  getCount(messages: readonly Message[]): number {
+    if (messages.length === 0) {
+      this.lastMessageCount = 0
+      this.lastTokenCount = 0
+      return 0
+    }
+
+    if (messages.length === this.lastMessageCount) {
+      return this.lastTokenCount
+    }
+
+    if (messages.length > this.lastMessageCount) {
+      const newMessages = messages.slice(this.lastMessageCount)
+      this.lastTokenCount += roughTokenCountEstimationForMessages(newMessages)
+    } else {
+      this.lastTokenCount = tokenCountWithEstimation(messages)
+    }
+
+    this.lastMessageCount = messages.length
+    return this.lastTokenCount
+  }
+
+  /**
+   * Force recompute from full context.
+   * Use when context may have changed outside this counter.
+   */
+  invalidate(messages: readonly Message[]): number {
+    this.lastMessageCount = messages.length
+    if (messages.length === 0) {
+      this.lastTokenCount = 0
+    } else {
+      this.lastTokenCount = tokenCountWithEstimation(messages)
+    }
+    return this.lastTokenCount
+  }
+
+  /** Reset cached state */
+  reset(): void {
+    this.lastMessageCount = 0
+    this.lastTokenCount = 0
+  }
+
+  /** Get current cached count without recomputation */
+  get cachedCount(): number {
+    return this.lastTokenCount
+  }
+
+  /** Get message count cache */
+  get cachedMessageCount(): number {
+    return this.lastMessageCount
+  }
+}
+
+/**
+ * Extract cache token information from usage data.
+ * Returns breakdown of cache read vs creation tokens.
+ */
+export function getCacheTokens(usage: Usage): {
+  cacheRead: number
+  cacheCreation: number
+} {
+  return {
+    cacheRead: usage.cache_read_input_tokens ?? 0,
+    cacheCreation: usage.cache_creation_input_tokens ?? 0,
+  }
+}
+
+/**
+ * Calculate total tokens excluding cache tokens.
+ * Useful when you want to know NEW tokens (not cached).
+ */
+export function getNewTokensOnly(usage: Usage): number {
+  return (
+    usage.input_tokens + usage.output_tokens
+  )
+}
+
+/**
+ * Get token breakdown showing new vs cached tokens.
+ * For reporting and optimization decisions.
+ */
+export function getTokenBreakdown(usage: Usage): {
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+  total: number
+  cacheEfficiency: number
+} {
+  const cacheRead = usage.cache_read_input_tokens ?? 0
+  const cacheCreation = usage.cache_creation_input_tokens ?? 0
+  const total = getTokenCountFromUsage(usage)
+  const newTokens = usage.input_tokens + usage.output_tokens
+  const cacheEfficiency = total > 0 ? (cacheRead / total) * 100 : 0
+
+  return {
+    input: usage.input_tokens,
+    output: usage.output_tokens,
+    cacheRead,
+    cacheCreation,
+    total,
+    cacheEfficiency: Math.round(cacheEfficiency),
+  }
 }
