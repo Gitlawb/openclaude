@@ -539,19 +539,19 @@ const sdkResult = await Bun.build({
           }))
         }
         // Stub relative imports to TUI directories
-        build.onResolve({ filter: /components\// }, (args) => ({
+        build.onResolve({ filter: /^\.\.?\/components\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        build.onResolve({ filter: /ink\// }, (args) => ({
+        build.onResolve({ filter: /^\.\.?\/ink\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        build.onResolve({ filter: /commands\// }, (args) => ({
+        build.onResolve({ filter: /^\.\.?\/commands\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        build.onResolve({ filter: /cli\// }, (args) => ({
+        build.onResolve({ filter: /^\.\.?\/cli\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
