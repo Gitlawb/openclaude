@@ -1273,6 +1273,8 @@ class QueryImpl implements Query {
     setCwd(this.cwd)
     setOriginalCwd(this.cwd)
 
+    const hasEnvOverrides = this.envOverrides && Object.keys(this.envOverrides).length > 0
+
     try {
       // Ensure init() completes before any query runs
       // init() applies config env vars, so we apply our overrides AFTER
@@ -1313,25 +1315,22 @@ class QueryImpl implements Query {
       }
 
       // Apply env overrides AFTER init() so they override config file env vars
-      // Use mutex to ensure safe parallel query execution
-      if (this.envOverrides && Object.keys(this.envOverrides).length > 0) {
+      // Hold env mutex for FULL query lifetime to prevent parallel queries
+      // from seeing each other's environment variables (SEC-1)
+      if (hasEnvOverrides) {
         await acquireEnvMutex()
-        try {
-          // Snapshot existing values for keys we'll override
-          this.envSnapshot = {}
-          for (const key of Object.keys(this.envOverrides)) {
-            this.envSnapshot[key] = process.env[key]
+        // Snapshot existing values for keys we'll override
+        this.envSnapshot = {}
+        for (const key of Object.keys(this.envOverrides!)) {
+          this.envSnapshot[key] = process.env[key]
+        }
+        // Apply overrides - undefined means explicit unset
+        for (const [key, value] of Object.entries(this.envOverrides!)) {
+          if (value === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = value
           }
-          // Apply overrides - undefined means explicit unset
-          for (const [key, value] of Object.entries(this.envOverrides)) {
-            if (value === undefined) {
-              delete process.env[key]
-            } else {
-              process.env[key] = value
-            }
-          }
-        } finally {
-          releaseEnvMutex()
         }
       }
 
@@ -1417,21 +1416,20 @@ class QueryImpl implements Query {
         }
       }
     } finally {
-      // Restore environment variables to snapshot state (with mutex for safety)
+      // Restore env + release mutex (single acquisition covers set→run→restore)
       if (this.envSnapshot) {
-        await acquireEnvMutex()
-        try {
-          for (const key of Object.keys(this.envSnapshot)) {
-            const originalValue = this.envSnapshot[key]
-            if (originalValue === undefined) {
-              delete process.env[key]
-            } else {
-              process.env[key] = originalValue
-            }
+        for (const key of Object.keys(this.envSnapshot)) {
+          const originalValue = this.envSnapshot[key]
+          if (originalValue === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = originalValue
           }
-        } finally {
-          releaseEnvMutex()
         }
+        this.envSnapshot = undefined
+      }
+      if (hasEnvOverrides) {
+        releaseEnvMutex()
       }
 
       // Restore cwd state and release mutex
