@@ -42,6 +42,7 @@ import { SYNTHETIC_OUTPUT_TOOL_NAME } from './tools/SyntheticOutputTool/Syntheti
 import type { Message } from './types/message.js'
 import type { OrphanedPermission } from './types/textInputTypes.js'
 import { createAbortController } from './utils/abortController.js'
+import { validateArrayOf, assertNonEmptyString, assertObject, assertFunction } from './utils/validation.js'
 import type { AttributionState } from './utils/commitAttribution.js'
 import { getGlobalConfig } from './utils/config.js'
 import { getCwd } from './utils/cwd.js'
@@ -1182,7 +1183,22 @@ export class QueryEngine {
    * Used by SDK query() when fork=true to resume from a forked session.
    */
   injectMessages(messages: Message[]): void {
-    this.mutableMessages.push(...messages)
+    const validated = validateArrayOf(messages, (msg, _i) => {
+      const m = msg as Record<string, unknown>
+      assertNonEmptyString(m.type, 'type')
+      if (m.message !== undefined) {
+        assertObject(m.message, 'message')
+        const inner = m.message as Record<string, unknown>
+        if (inner.role !== undefined) {
+          assertNonEmptyString(inner.role, 'message.role')
+        }
+        if (inner.content !== undefined && typeof inner.content !== 'string' && !Array.isArray(inner.content)) {
+          throw new TypeError("'message.content' must be a string or array")
+        }
+      }
+      return msg
+    }, 'injectMessages')
+    this.mutableMessages.push(...validated)
   }
 
   /**
@@ -1190,7 +1206,26 @@ export class QueryEngine {
    * Used by SDK to load agents after engine creation (async loading).
    */
   injectAgents(agents: AgentDefinition[]): void {
-    this.config.agents = agents
+    const validated = validateArrayOf(agents, (agent, _i) => {
+      const a = agent as Record<string, unknown>
+      assertNonEmptyString(a.description, 'description')
+      assertNonEmptyString(a.prompt, 'prompt')
+      if (a.tools !== undefined && !Array.isArray(a.tools)) {
+        throw new TypeError("'tools' must be an array of strings")
+      }
+      if (a.tools !== undefined) {
+        for (const t of a.tools as unknown[]) {
+          if (typeof t !== 'string') {
+            throw new TypeError("'tools' must be an array of strings")
+          }
+        }
+      }
+      if (a.model !== undefined && typeof a.model !== 'string') {
+        throw new TypeError("'model' must be a string")
+      }
+      return agent
+    }, 'injectAgents')
+    this.config.agents = validated
   }
 
   /**
@@ -1198,7 +1233,17 @@ export class QueryEngine {
    * Used by SDK setPermissionMode to refresh tools when permission mode changes.
    */
   updateTools(tools: Tools): void {
-    this.config.tools = tools
+    if (!Array.isArray(tools) && !(Symbol.iterator in Object(tools))) {
+      throw new TypeError(`updateTools: expected iterable, got ${typeof tools}`)
+    }
+    const toolArray = Array.from(tools as Iterable<unknown>)
+    validateArrayOf(toolArray, (tool, _i) => {
+      const t = tool as Record<string, unknown>
+      assertNonEmptyString(t.name, 'name')
+      assertFunction(t.call, 'call')
+      return tool
+    }, 'updateTools')
+    this.config.tools = toolArray as Tools
   }
 
   getReadFileState(): FileStateCache {
