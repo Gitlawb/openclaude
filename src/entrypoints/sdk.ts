@@ -158,7 +158,7 @@ function releaseEnvMutex(): void {
  * A message emitted by the query engine during a conversation.
  * Re-exports the full generated type from coreTypes.generated.ts.
  */
-export type SDKMessage = GeneratedSDKMessage
+export type SDKMessage = GeneratedSDKMessage | SDKPermissionTimeoutMessage
 
 /**
  * A user message fed into query() via AsyncIterable.
@@ -844,6 +844,19 @@ export type SDKPermissionRequestMessage = {
   tool_use_id: string
   input: Record<string, unknown>
   session_id?: string
+}
+
+/**
+ * Message emitted when a permission request times out without a response.
+ * Hosts can detect timeouts by checking `type === 'permission_timeout'`
+ * in their `for await` loop. The `tool_use_id` matches the original
+ * permission_request, allowing correlation.
+ */
+export type SDKPermissionTimeoutMessage = {
+  type: 'permission_timeout'
+  tool_name: string
+  tool_use_id: string
+  timed_out_after_ms: number
 }
 
 /**

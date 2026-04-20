@@ -333,6 +333,13 @@ export interface Query {
   setMaxThinkingTokens(tokens: number): void
 }
 
+export type SDKPermissionTimeoutMessage = {
+  type: 'permission_timeout'
+  tool_name: string
+  tool_use_id: string
+  timed_out_after_ms: number
+}
+
 // ============================================================================
 // V2 API types
 // ============================================================================
