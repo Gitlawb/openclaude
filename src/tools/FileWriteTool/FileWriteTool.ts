@@ -244,7 +244,7 @@ export const FileWriteTool = buildTool({
     // Activate conditional skills whose path patterns match this file
     activateConditionalSkillsForPaths([fullFilePath], cwd)
 
-    await diagnosticTracker.beforeFileEdited(fullFilePath)
+    await diagnosticTracker.beforeFileEditedCompat(fullFilePath)
 
     // Ensure parent directory exists before the atomic read-modify-write section.
     // Must stay OUTSIDE the critical section below (a yield between the staleness

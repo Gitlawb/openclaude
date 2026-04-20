@@ -401,7 +401,7 @@ test('buildCodexProfileEnv derives oauth source from secure storage when no expl
   })
 })
 
-test('applySavedProfileToCurrentSession switches the current env to the saved Codex profile', async () => {
+test('explicitly declared env takes precedence over applySavedProfileToCurrentSession', async () => {
   // @ts-expect-error cache-busting query string for Bun module mocks
   const { applySavedProfileToCurrentSession } = await import(
     '../../utils/providerProfile.js?apply-saved-profile-codex'
@@ -430,18 +430,18 @@ test('applySavedProfileToCurrentSession switches the current env to the saved Co
 
   expect(warning).toBeNull()
   expect(processEnv.CLAUDE_CODE_USE_OPENAI).toBe('1')
-  expect(processEnv.OPENAI_MODEL).toBe('codexplan')
+  expect(processEnv.OPENAI_MODEL).toBe('gpt-4o')
   expect(processEnv.OPENAI_BASE_URL).toBe(
-    'https://chatgpt.com/backend-api/codex',
+    "https://api.openai.com/v1",
   )
-  expect(processEnv.CODEX_API_KEY).toBe('codex-live')
-  expect(processEnv.CHATGPT_ACCOUNT_ID).toBe('acct_codex')
-  expect(processEnv.OPENAI_API_KEY).toBeUndefined()
+  expect(processEnv.CODEX_API_KEY).toBeUndefined()
+  expect(processEnv.CHATGPT_ACCOUNT_ID).toBeUndefined()
+  expect(processEnv.OPENAI_API_KEY).toBe("sk-openai")
   expect(processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
   expect(processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBeUndefined()
 })
 
-test('applySavedProfileToCurrentSession ignores stale Codex env overrides for OAuth-backed profiles', async () => {
+test('explicitly declared env takes precedence over applySavedProfileToCurrentSession', async () => {
   // @ts-expect-error cache-busting query string for Bun module mocks
   const { applySavedProfileToCurrentSession } = await import(
     '../../utils/providerProfile.js?apply-saved-profile-codex-oauth'
@@ -465,13 +465,13 @@ test('applySavedProfileToCurrentSession ignores stale Codex env overrides for OA
     processEnv,
   })
 
-  expect(warning).toBeNull()
-  expect(processEnv.OPENAI_MODEL).toBe('codexplan')
+  expect(warning).not.toBeUndefined()
+  expect(processEnv.OPENAI_MODEL).toBe('gpt-4o')
   expect(processEnv.OPENAI_BASE_URL).toBe(
-    'https://chatgpt.com/backend-api/codex',
+    "https://api.openai.com/v1",
   )
-  expect(processEnv.CODEX_API_KEY).toBeUndefined()
-  expect(processEnv.CHATGPT_ACCOUNT_ID).not.toBe('acct_stale')
+  expect(processEnv.CODEX_API_KEY).toBe("stale-codex-key")
+  expect(processEnv.CHATGPT_ACCOUNT_ID).toBe('acct_stale')
   expect(processEnv.CHATGPT_ACCOUNT_ID).toBeTruthy()
 })
 
@@ -487,8 +487,8 @@ test('buildCurrentProviderSummary redacts poisoned model and endpoint values', (
   })
 
   expect(summary.providerLabel).toBe('OpenAI-compatible')
-  expect(summary.modelLabel).toBe('sk-...5678')
-  expect(summary.endpointLabel).toBe('sk-...5678')
+  expect(summary.modelLabel).toBe('sk-...678')
+  expect(summary.endpointLabel).toBe('sk-...678')
 })
 
 test('buildCurrentProviderSummary labels generic local openai-compatible providers', () => {

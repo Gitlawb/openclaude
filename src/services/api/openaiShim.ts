@@ -32,10 +32,9 @@ import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import {
-  looksLikeLeakedReasoningPrefix,
-  shouldBufferPotentialReasoningPrefix,
-  stripLeakedReasoningPreamble,
-} from './reasoningLeakSanitizer.js'
+  createThinkTagFilter,
+  stripThinkTags,
+} from './thinkTagSanitizer.js'
 import {
   codexStreamToAnthropic,
   collectCodexCompletedResponse,
@@ -47,12 +46,20 @@ import {
   type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
+import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
+  getLocalProviderRetryBaseUrls,
+  getGithubEndpointType,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
-  getGithubEndpointType,
+  shouldAttemptLocalToollessRetry,
 } from './providerConfig.js'
+import {
+  buildOpenAICompatibilityErrorMessage,
+  classifyOpenAIHttpFailure,
+  classifyOpenAINetworkFailure,
+} from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
 import {
@@ -81,6 +88,19 @@ const COPILOT_HEADERS: Record<string, string> = {
   'Editor-Plugin-Version': 'copilot-chat/0.26.7',
   'Copilot-Integration-Id': 'vscode-chat',
 }
+
+const SENSITIVE_URL_QUERY_PARAM_NAMES = [
+  'api_key',
+  'key',
+  'token',
+  'access_token',
+  'refresh_token',
+  'signature',
+  'sig',
+  'secret',
+  'password',
+  'authorization',
+]
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
@@ -129,6 +149,34 @@ function hasGeminiApiHost(baseUrl: string | undefined): boolean {
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
+}
+
+function shouldRedactUrlQueryParam(name: string): boolean {
+  const lower = name.toLowerCase()
+  return SENSITIVE_URL_QUERY_PARAM_NAMES.some(token => lower.includes(token))
+}
+
+function redactUrlForDiagnostics(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.username) {
+      parsed.username = 'redacted'
+    }
+    if (parsed.password) {
+      parsed.password = 'redacted'
+    }
+
+    for (const key of parsed.searchParams.keys()) {
+      if (shouldRedactUrlQueryParam(key)) {
+        parsed.searchParams.set(key, 'redacted')
+      }
+    }
+
+    const serialized = parsed.toString()
+    return redactSecretValueForDisplay(serialized, process.env as SecretValueSource) ?? serialized
+  } catch {
+    return redactSecretValueForDisplay(url, process.env as SecretValueSource) ?? url
+  }
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -302,6 +350,7 @@ function convertMessages(
   system: unknown,
 ): OpenAIMessage[] {
   const result: OpenAIMessage[] = []
+  const knownToolCallIds = new Set<string>()
 
   // System message first
   const sysText = convertSystemPrompt(system)
@@ -321,13 +370,21 @@ function convertMessages(
         const toolResults = content.filter((b: { type?: string }) => b.type === 'tool_result')
         const otherContent = content.filter((b: { type?: string }) => b.type !== 'tool_result')
 
-        // Emit tool results as tool messages
+        // Emit tool results as tool messages, but ONLY if we have a matching tool_use ID.
+        // Mistral/OpenAI strictly require tool messages to follow an assistant message with tool_calls.
+        // If the user interrupted (ESC) and a synthetic tool_result was generated without a recorded tool_use,
+        // emitting it here would cause a "role must alternate" or "unexpected role" error.
         for (const tr of toolResults) {
-          result.push({
-            role: 'tool',
-            tool_call_id: tr.tool_use_id ?? 'unknown',
-            content: convertToolResultContent(tr.content, tr.is_error),
-          })
+          const id = tr.tool_use_id ?? 'unknown'
+          if (knownToolCallIds.has(id)) {
+            result.push({
+              role: 'tool',
+              tool_call_id: id,
+              content: convertToolResultContent(tr.content, tr.is_error),
+            })
+          } else {
+            logForDebugging(`Dropping orphan tool_result for ID: ${id} to prevent API error`)
+          }
         }
 
         // Emit remaining user content
@@ -368,9 +425,11 @@ function convertMessages(
               input?: unknown
               extra_content?: Record<string, unknown>
               signature?: string
-            }, index) => {
+            }) => {
+              const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
+              knownToolCallIds.add(id)
               const toolCall: NonNullable<OpenAIMessage['tool_calls']>[number] = {
-                id: tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`,
+                id,
                 type: 'function' as const,
                 function: {
                   name: tu.name ?? 'unknown',
@@ -395,7 +454,6 @@ function convertMessages(
 
                 // Merge into existing google-specific metadata if present
                 const existingGoogle = (toolCall.extra_content?.google as Record<string, unknown>) ?? {}
-
                 toolCall.extra_content = {
                   ...toolCall.extra_content,
                   google: {
@@ -550,7 +608,10 @@ function convertTools(
         function: {
           name: t.name,
           description: t.description ?? '',
-          parameters: normalizeSchemaForOpenAI(schema, !isGemini),
+          parameters: normalizeSchemaForOpenAI(
+            schema,
+            !isGemini && !isEnvTruthy(process.env.OPENCLAUDE_DISABLE_STRICT_TOOLS),
+          ),
         },
       }
     })
@@ -658,8 +719,7 @@ async function* openaiStreamToAnthropic(
   let hasEmittedContentStart = false
   let hasEmittedThinkingStart = false
   let hasClosedThinking = false
-  let activeTextBuffer = ''
-  let textBufferMode: 'none' | 'pending' | 'strip' = 'none'
+  const thinkFilter = createThinkTagFilter()
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
@@ -738,14 +798,12 @@ async function* openaiStreamToAnthropic(
   const closeActiveContentBlock = async function* () {
     if (!hasEmittedContentStart) return
 
-    if (textBufferMode !== 'none') {
-      const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
-      if (sanitized) {
-        yield {
-          type: 'content_block_delta',
-          index: contentBlockIndex,
-          delta: { type: 'text_delta', text: sanitized },
-        }
+    const tail = thinkFilter.flush()
+    if (tail) {
+      yield {
+        type: 'content_block_delta',
+        index: contentBlockIndex,
+        delta: { type: 'text_delta', text: tail },
       }
     }
 
@@ -755,8 +813,6 @@ async function* openaiStreamToAnthropic(
     }
     contentBlockIndex++
     hasEmittedContentStart = false
-    activeTextBuffer = ''
-    textBufferMode = 'none'
   }
 
   try {
@@ -813,7 +869,6 @@ async function* openaiStreamToAnthropic(
             contentBlockIndex++
             hasClosedThinking = true
           }
-          activeTextBuffer += delta.content
           if (!hasEmittedContentStart) {
             yield {
               type: 'content_block_start',
@@ -823,38 +878,13 @@ async function* openaiStreamToAnthropic(
             hasEmittedContentStart = true
           }
 
-          if (
-            textBufferMode === 'strip' ||
-            looksLikeLeakedReasoningPrefix(activeTextBuffer)
-          ) {
-            textBufferMode = 'strip'
-            continue
-          }
-
-          if (textBufferMode === 'pending') {
-            if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
-              continue
-            }
+          const visible = thinkFilter.feed(delta.content)
+          if (visible) {
             yield {
               type: 'content_block_delta',
               index: contentBlockIndex,
-              delta: {
-                type: 'text_delta',
-                text: activeTextBuffer,
-              },
+              delta: { type: 'text_delta', text: visible },
             }
-            textBufferMode = 'none'
-            continue
-          }
-
-          if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
-            textBufferMode = 'pending'
-            continue
-          }
-          yield {
-            type: 'content_block_delta',
-            index: contentBlockIndex,
-            delta: { type: 'text_delta', text: delta.content },
           }
         }
 
@@ -1360,8 +1390,12 @@ class OpenAIShimMessages {
       ...filterAnthropicHeaders(options?.headers),
     }
 
-    const isGemini = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
-    const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+    const isGemini = isGeminiMode()
+    const isMiniMax = !!process.env.MINIMAX_API_KEY
+    const apiKey =
+      this.providerOverride?.apiKey ??
+      process.env.OPENAI_API_KEY ??
+      (isMiniMax ? process.env.MINIMAX_API_KEY : '')
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -1395,42 +1429,192 @@ class OpenAIShimMessages {
       headers['X-GitHub-Api-Version'] = '2022-11-28'
     }
 
-    // Build the chat completions URL
-    // Azure Cognitive Services / Azure OpenAI require a deployment-specific path
-    // and an api-version query parameter.
-    // Standard format: {base}/openai/deployments/{model}/chat/completions?api-version={version}
-    // Non-Azure: {base}/chat/completions
-    let chatCompletionsUrl: string
-    if (isAzure) {
-      const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
-      const deployment = request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o'
-      // If base URL already contains /deployments/, use it as-is with api-version
-      if (/\/deployments\//i.test(request.baseUrl)) {
-        const base = request.baseUrl.replace(/\/+$/, '')
-        chatCompletionsUrl = `${base}/chat/completions?api-version=${apiVersion}`
-      } else {
-        // Strip trailing /v1 or /openai/v1 if present, then build Azure path
-        const base = request.baseUrl.replace(/\/(openai\/)?v1\/?$/, '').replace(/\/+$/, '')
-        chatCompletionsUrl = `${base}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
+    const buildChatCompletionsUrl = (baseUrl: string): string => {
+      // Azure Cognitive Services / Azure OpenAI require a deployment-specific
+      // path and an api-version query parameter.
+      if (isAzure) {
+        const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
+        const deployment = request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o'
+
+        // If base URL already contains /deployments/, use it as-is with api-version.
+        if (/\/deployments\//i.test(baseUrl)) {
+          const normalizedBase = baseUrl.replace(/\/+$/, '')
+          return `${normalizedBase}/chat/completions?api-version=${apiVersion}`
+        }
+
+        // Strip trailing /v1 or /openai/v1 if present, then build Azure path.
+        const normalizedBase = baseUrl
+          .replace(/\/(openai\/)?v1\/?$/, '')
+          .replace(/\/+$/, '')
+
+        return `${normalizedBase}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
       }
-    } else {
-      chatCompletionsUrl = `${request.baseUrl}/chat/completions`
+
+      return `${baseUrl}/chat/completions`
     }
 
-    const fetchInit = {
+    const localRetryBaseUrls = isLocal
+      ? getLocalProviderRetryBaseUrls(request.baseUrl)
+      : []
+
+    let activeBaseUrl = request.baseUrl
+    let chatCompletionsUrl = buildChatCompletionsUrl(activeBaseUrl)
+    const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
+    let didRetryWithoutTools = false
+
+    const promoteNextLocalBaseUrl = (
+      reason: 'endpoint_not_found' | 'localhost_resolution_failed',
+    ): boolean => {
+      for (const candidateBaseUrl of localRetryBaseUrls) {
+        if (attemptedLocalBaseUrls.has(candidateBaseUrl)) {
+          continue
+        }
+
+        const previousUrl = chatCompletionsUrl
+        attemptedLocalBaseUrls.add(candidateBaseUrl)
+        activeBaseUrl = candidateBaseUrl
+        chatCompletionsUrl = buildChatCompletionsUrl(activeBaseUrl)
+
+        logForDebugging(
+          `[OpenAIShim] self-heal retry reason=${reason} method=POST from=${redactUrlForDiagnostics(previousUrl)} to=${redactUrlForDiagnostics(chatCompletionsUrl)} model=${request.resolvedModel}`,
+          { level: 'warn' },
+        )
+
+        return true
+      }
+
+      return false
+    }
+
+    let serializedBody = JSON.stringify(body)
+
+    const refreshSerializedBody = (): void => {
+      serializedBody = JSON.stringify(body)
+    }
+
+    const buildFetchInit = () => ({
       method: 'POST' as const,
       headers,
-      body: JSON.stringify(body),
+      body: serializedBody,
       signal: options?.signal,
+    })
+
+    const maxSelfHealAttempts = isLocal
+      ? localRetryBaseUrls.length + 1
+      : 0
+    const maxAttempts = (isGithub ? GITHUB_429_MAX_RETRIES : 1) + maxSelfHealAttempts
+
+    const throwClassifiedTransportError = (
+      error: unknown,
+      requestUrl: string,
+      preclassifiedFailure?: ReturnType<typeof classifyOpenAINetworkFailure>,
+    ): never => {
+      if (options?.signal?.aborted) {
+        throw error
+      }
+
+      const failure =
+        preclassifiedFailure ??
+        classifyOpenAINetworkFailure(error, {
+          url: requestUrl,
+        })
+      const redactedUrl = redactUrlForDiagnostics(requestUrl)
+      const safeMessage =
+        redactSecretValueForDisplay(
+          failure.message,
+          process.env as SecretValueSource,
+        ) || 'Request failed'
+
+      logForDebugging(
+        `[OpenAIShim] transport failure category=${failure.category} retryable=${failure.retryable} code=${failure.code ?? 'unknown'} method=POST url=${redactedUrl} model=${request.resolvedModel} message=${safeMessage}`,
+        { level: 'warn' },
+      )
+
+      throw APIError.generate(
+        503,
+        undefined,
+        buildOpenAICompatibilityErrorMessage(
+          `OpenAI API transport error: ${safeMessage}${failure.code ? ` (code=${failure.code})` : ''}`,
+          failure,
+        ),
+        new Headers(),
+      )
     }
 
-    const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
+    const throwClassifiedHttpError = (
+      status: number,
+      errorBody: string,
+      parsedBody: object | undefined,
+      responseHeaders: Headers,
+      requestUrl: string,
+      rateHint = '',
+      preclassifiedFailure?: ReturnType<typeof classifyOpenAIHttpFailure>,
+    ): never => {
+      const failure =
+        preclassifiedFailure ??
+        classifyOpenAIHttpFailure({
+          status,
+          body: errorBody,
+        })
+      const redactedUrl = redactUrlForDiagnostics(requestUrl)
+
+      logForDebugging(
+        `[OpenAIShim] request failed category=${failure.category} retryable=${failure.retryable} status=${status} method=POST url=${redactedUrl} model=${request.resolvedModel}`,
+        { level: 'warn' },
+      )
+
+      throw APIError.generate(
+        status,
+        parsedBody,
+        buildOpenAICompatibilityErrorMessage(
+          `OpenAI API error ${status}: ${errorBody}${rateHint}`,
+          failure,
+        ),
+        responseHeaders,
+      )
+    }
+
     let response: Response | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      response = await fetch(chatCompletionsUrl, fetchInit)
+      try {
+        response = await fetchWithProxyRetry(
+          chatCompletionsUrl,
+          buildFetchInit(),
+        )
+      } catch (error) {
+        const isAbortError =
+          options?.signal?.aborted === true ||
+          (typeof DOMException !== 'undefined' &&
+            error instanceof DOMException &&
+            error.name === 'AbortError') ||
+          (typeof error === 'object' &&
+            error !== null &&
+            'name' in error &&
+            error.name === 'AbortError')
+
+        if (isAbortError) {
+          throw error
+        }
+
+        const failure = classifyOpenAINetworkFailure(error, {
+          url: chatCompletionsUrl,
+        })
+
+        if (
+          isLocal &&
+          failure.category === 'localhost_resolution_failed' &&
+          promoteNextLocalBaseUrl('localhost_resolution_failed')
+        ) {
+          continue
+        }
+
+        throwClassifiedTransportError(error, chatCompletionsUrl, failure)
+      }
+
       if (response.ok) {
         return response
       }
+
       if (
         isGithub &&
         response.status === 429 &&
@@ -1500,34 +1684,87 @@ class OpenAIShimMessages {
             }
           }
 
-          const responsesResponse = await fetch(responsesUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(responsesBody),
-            signal: options?.signal,
-          })
+          let responsesResponse: Response
+          try {
+            responsesResponse = await fetchWithProxyRetry(responsesUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(responsesBody),
+              signal: options?.signal,
+            })
+          } catch (error) {
+            throwClassifiedTransportError(error, responsesUrl)
+          }
+
           if (responsesResponse.ok) {
             return responsesResponse
           }
           const responsesErrorBody = await responsesResponse.text().catch(() => 'unknown error')
+          const responsesFailure = classifyOpenAIHttpFailure({
+            status: responsesResponse.status,
+            body: responsesErrorBody,
+          })
           let responsesErrorResponse: object | undefined
           try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
-          throw APIError.generate(
+          throwClassifiedHttpError(
             responsesResponse.status,
+            responsesErrorBody,
             responsesErrorResponse,
-            `OpenAI API error ${responsesResponse.status}: ${responsesErrorBody}`,
             responsesResponse.headers,
+            responsesUrl,
+            '',
+            responsesFailure,
           )
         }
       }
 
+      const failure = classifyOpenAIHttpFailure({
+        status: response.status,
+        body: errorBody,
+      })
+
+      if (
+        isLocal &&
+        failure.category === 'endpoint_not_found' &&
+        promoteNextLocalBaseUrl('endpoint_not_found')
+      ) {
+        continue
+      }
+
+      const hasToolsPayload =
+        Array.isArray(body.tools) &&
+        body.tools.length > 0
+
+      if (
+        !didRetryWithoutTools &&
+        failure.category === 'tool_call_incompatible' &&
+        shouldAttemptLocalToollessRetry({
+          baseUrl: activeBaseUrl,
+          hasTools: hasToolsPayload,
+        })
+      ) {
+        didRetryWithoutTools = true
+        delete body.tools
+        delete body.tool_choice
+        refreshSerializedBody()
+
+        logForDebugging(
+          `[OpenAIShim] self-heal retry reason=tool_call_incompatible mode=toolless method=POST url=${redactUrlForDiagnostics(chatCompletionsUrl)} model=${request.resolvedModel}`,
+          { level: 'warn' },
+        )
+        continue
+      }
+
       let errorResponse: object | undefined
       try { errorResponse = JSON.parse(errorBody) } catch { /* raw text */ }
-      throw APIError.generate(
+      throwClassifiedHttpError(
         response.status,
+        errorBody,
         errorResponse,
-        `OpenAI API error ${response.status}: ${errorBody}${rateHint}`,
         response.headers as unknown as Headers,
+        chatCompletionsUrl,
+        rateHint,
+        failure,
       )
     }
 
@@ -1584,7 +1821,7 @@ class OpenAIShimMessages {
     if (typeof rawContent === 'string' && rawContent) {
       content.push({
         type: 'text',
-        text: stripLeakedReasoningPreamble(rawContent),
+        text: stripThinkTags(rawContent),
       })
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
       const parts: string[] = []
@@ -1602,7 +1839,7 @@ class OpenAIShimMessages {
       if (joined) {
         content.push({
           type: 'text',
-          text: stripLeakedReasoningPreamble(joined),
+          text: stripThinkTags(joined),
         })
       }
     }

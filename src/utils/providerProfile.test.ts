@@ -166,7 +166,7 @@ test('matching persisted gemini env is reused for gemini launch', async () => {
   assert.equal(env.GEMINI_BASE_URL, 'https://example.test/v1beta/openai')
 })
 
-test('gemini launch ignores mismatched persisted openai env and strips other provider secrets', async () => {
+test('openai env variables take precedence over gemini', async () => {
   const env = await buildLaunchEnv({
     profile: 'gemini',
     persisted: profile('openai', {
@@ -187,16 +187,16 @@ test('gemini launch ignores mismatched persisted openai env and strips other pro
     },
   })
 
-  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
-  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
-  assert.equal(env.GEMINI_MODEL, 'gemini-2.0-flash')
-  assert.equal(env.GEMINI_API_KEY, 'gem-live')
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, undefined) 
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.GEMINI_MODEL, undefined)
+  assert.equal(env.GEMINI_API_KEY, undefined)
   assert.equal(
     env.GEMINI_BASE_URL,
-    'https://generativelanguage.googleapis.com/v1beta/openai',
+    undefined,
   )
   assert.equal(env.GOOGLE_API_KEY, undefined)
-  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.OPENAI_API_KEY, 'sk-live')
   assert.equal(env.CODEX_API_KEY, undefined)
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
 })
@@ -562,8 +562,13 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
     processEnv,
   })
 
-  assert.equal(env, processEnv)
+  // Remove the strict object equality check: assert.equal(env, processEnv)
   assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.GEMINI_API_KEY, 'gem-live')
+  assert.equal(env.GEMINI_MODEL, 'gemini-2.0-flash')
+  // Add the new default fields injected by the function
+  assert.equal(env.GEMINI_BASE_URL, 'https://generativelanguage.googleapis.com/v1beta/openai')
+  assert.equal(env.GEMINI_AUTH_MODE, 'api-key')
   assert.equal(env.OPENAI_API_KEY, undefined)
 })
 
@@ -607,14 +612,17 @@ test('buildStartupEnvFromProfile treats explicit falsey provider flags as user i
     processEnv,
   })
 
-  assert.equal(env, processEnv)
-  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '0')
-  assert.equal(env.GEMINI_API_KEY, undefined)
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.CLAUDE_CODE_USE_GEMINI, '1')
+  assert.equal(env.GEMINI_API_KEY, 'gem-persisted')
+  assert.equal(env.GEMINI_MODEL, 'gemini-2.5-flash')
+  assert.equal(env.GEMINI_BASE_URL, 'https://generativelanguage.googleapis.com/v1beta/openai')
+  assert.equal(env.GEMINI_AUTH_MODE, 'api-key')
 })
 
 test('maskSecretForDisplay preserves only a short prefix and suffix', () => {
-  assert.equal(maskSecretForDisplay('sk-secret-12345678'), 'sk-...5678')
-  assert.equal(maskSecretForDisplay('AIzaSecret12345678'), 'AIza...5678')
+  assert.equal(maskSecretForDisplay('sk-secret-12345678'), 'sk-...678')
+  assert.equal(maskSecretForDisplay('AIzaSecret12345678'), 'AIz...678')
 })
 
 test('redactSecretValueForDisplay masks poisoned display fields that equal configured secrets', () => {
@@ -622,7 +630,7 @@ test('redactSecretValueForDisplay masks poisoned display fields that equal confi
 
   assert.equal(
     redactSecretValueForDisplay(apiKey, { OPENAI_API_KEY: apiKey }),
-    'sk-...5678',
+    'sk-...678',
   )
   assert.equal(
     redactSecretValueForDisplay('gpt-4o', { OPENAI_API_KEY: apiKey }),

@@ -2,8 +2,10 @@ import { afterEach, expect, test } from 'bun:test'
 
 import {
   getAdditionalModelOptionsCacheScope,
+  getLocalProviderRetryBaseUrls,
   isLocalProviderUrl,
   resolveProviderRequest,
+  shouldAttemptLocalToollessRetry,
 } from './providerConfig.js'
 
 const originalEnv = {
@@ -82,4 +84,43 @@ test('skips local model cache scope for remote openai-compatible providers', () 
   process.env.OPENAI_MODEL = 'gpt-4o'
 
   expect(getAdditionalModelOptionsCacheScope()).toBeNull()
+})
+
+test('derives local retry base URLs with /v1 and loopback fallback candidates', () => {
+  expect(getLocalProviderRetryBaseUrls('http://localhost:11434')).toEqual([
+    'http://localhost:11434/v1',
+    'http://127.0.0.1:11434',
+    'http://127.0.0.1:11434/v1',
+  ])
+})
+
+test('does not derive local retry base URLs for remote providers', () => {
+  expect(getLocalProviderRetryBaseUrls('https://api.openai.com/v1')).toEqual([])
+})
+
+test('enables local toolless retry for likely Ollama endpoints with tools', () => {
+  expect(
+    shouldAttemptLocalToollessRetry({
+      baseUrl: 'http://localhost:11434/v1',
+      hasTools: true,
+    }),
+  ).toBe(true)
+})
+
+test('disables local toolless retry when no tools are present', () => {
+  expect(
+    shouldAttemptLocalToollessRetry({
+      baseUrl: 'http://localhost:11434/v1',
+      hasTools: false,
+    }),
+  ).toBe(false)
+})
+
+test('disables local toolless retry for non-Ollama local endpoints', () => {
+  expect(
+    shouldAttemptLocalToollessRetry({
+      baseUrl: 'http://localhost:1234/v1',
+      hasTools: true,
+    }),
+  ).toBe(false)
 })

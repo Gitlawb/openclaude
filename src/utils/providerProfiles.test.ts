@@ -13,6 +13,7 @@ const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
@@ -24,6 +25,15 @@ const RESTORED_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
+  'GEMINI_BASE_URL',
+  'GEMINI_MODEL',
+  'GEMINI_API_KEY',
+  'GEMINI_AUTH_MODE',
+  'GEMINI_ACCESS_TOKEN',
+  'GOOGLE_API_KEY',
+  'MISTRAL_BASE_URL',
+  'MISTRAL_MODEL',
+  'MISTRAL_API_KEY',
 ] as const
 
 type MockConfigState = {
@@ -98,6 +108,24 @@ function buildProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile
   }
 }
 
+function buildMistralProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'devstral-latest',
+    ...overrides,
+  })
+}
+
+function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    model: 'gemini-3-flash-preview',
+    ...overrides,
+  })
+}
+
 describe('applyProviderProfileToProcessEnv', () => {
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -116,6 +144,36 @@ describe('applyProviderProfileToProcessEnv', () => {
       'provider_test',
     )
     expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('mistral profile sets CLAUDE_CODE_USE_MISTRAL and clears openai flags', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    applyProviderProfileToProcessEnv(buildMistralProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_MISTRAL).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.MISTRAL_MODEL).toBe('devstral-latest')
+    expect(getFreshAPIProvider()).toBe('mistral')
+  })
+
+  test('gemini profile sets CLAUDE_CODE_USE_GEMINI and clears openai flags', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    applyProviderProfileToProcessEnv(buildGeminiProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.GEMINI_MODEL).toBe('gemini-3-flash-preview')
+    expect(getFreshAPIProvider()).toBe('gemini')
   })
 
   test('anthropic profile clears competing gemini/github flags', async () => {
@@ -138,6 +196,39 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(getFreshAPIProvider()).toBe('firstParty')
+  })
+
+  test('openai profile with multi-model string sets only first model in OPENAI_MODEL', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'glm-4.7, glm-4.7-flash, glm-4.7-plus',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('glm-4.7')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+  })
+
+  test('anthropic profile with multi-model string sets only first model in ANTHROPIC_MODEL', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        model: 'claude-sonnet-4-6, claude-opus-4-6',
+      }),
+    )
+
+    expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
   })
 })
 
@@ -361,6 +452,169 @@ describe('getProviderPresetDefaults', () => {
   })
 })
 
+describe('setActiveProviderProfile', () => {
+  test('sets OPENAI_MODEL env var when switching to an openai-type provider', async () => {
+    const { setActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+    const openaiProfile = buildProfile({
+      id: 'openai_prof',
+      name: 'OpenAI Provider',
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+    })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [openaiProfile],
+    }))
+
+    const result = setActiveProviderProfile('openai_prof')
+
+    expect(result?.id).toBe('openai_prof')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
+      'openai_prof',
+    )
+  })
+
+  test('sets ANTHROPIC_MODEL env var when switching to an anthropic-type provider', async () => {
+    const { setActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+    const anthropicProfile = buildProfile({
+      id: 'anthro_prof',
+      name: 'Anthropic Provider',
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-4-6',
+    })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [anthropicProfile],
+    }))
+
+    const result = setActiveProviderProfile('anthro_prof')
+
+    expect(result?.id).toBe('anthro_prof')
+    expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
+      'anthro_prof',
+    )
+  })
+
+  test('clears openai model env and sets anthropic model env when switching from openai to anthropic provider', async () => {
+    const { setActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+    const openaiProfile = buildProfile({
+      id: 'openai_prof',
+      name: 'OpenAI Provider',
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      apiKey: 'sk-openai-key',
+    })
+    const anthropicProfile = buildProfile({
+      id: 'anthro_prof',
+      name: 'Anthropic Provider',
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-4-6',
+      apiKey: 'sk-ant-key',
+    })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [openaiProfile, anthropicProfile],
+    }))
+
+    // First activate the openai profile
+    setActiveProviderProfile('openai_prof')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+
+    // Now switch to the anthropic profile
+    const result = setActiveProviderProfile('anthro_prof')
+
+    expect(result?.id).toBe('anthro_prof')
+    expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
+      'anthro_prof',
+    )
+  })
+
+  test('clears anthropic model env and sets openai model env when switching from anthropic to openai provider', async () => {
+    const { setActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+    const anthropicProfile = buildProfile({
+      id: 'anthro_prof',
+      name: 'Anthropic Provider',
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-4-6',
+      apiKey: 'sk-ant-key',
+    })
+    const openaiProfile = buildProfile({
+      id: 'openai_prof',
+      name: 'OpenAI Provider',
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      apiKey: 'sk-openai-key',
+    })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [anthropicProfile, openaiProfile],
+    }))
+
+    // First activate the anthropic profile
+    setActiveProviderProfile('anthro_prof')
+    expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
+
+    // Now switch to the openai profile
+    const result = setActiveProviderProfile('openai_prof')
+
+    expect(result?.id).toBe('openai_prof')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+    // ANTHROPIC_MODEL is set to the profile model for all provider types
+    expect(process.env.ANTHROPIC_MODEL).toBe('gpt-4o')
+    expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
+      'openai_prof',
+    )
+  })
+
+  test('returns null for non-existent profile id', async () => {
+    const { setActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+    const openaiProfile = buildProfile({ id: 'existing_prof' })
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [openaiProfile],
+    }))
+
+    const result = setActiveProviderProfile('nonexistent_prof')
+
+    expect(result).toBeNull()
+  })
+})
+
 describe('deleteProviderProfile', () => {
   test('deleting final profile clears provider env when active profile applied it', async () => {
     const {
@@ -427,5 +681,84 @@ describe('deleteProviderProfile', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
+  })
+})
+
+describe('getProfileModelOptions', () => {
+  test('generates options for multi-model profile', async () => {
+    const { getProfileModelOptions } =
+      await importFreshProviderProfileModules()
+
+    const options = getProfileModelOptions(
+      buildProfile({
+        name: 'Test Provider',
+        model: 'glm-4.7, glm-4.7-flash, glm-4.7-plus',
+      }),
+    )
+
+    expect(options).toEqual([
+      { value: 'glm-4.7', label: 'glm-4.7', description: 'Provider: Test Provider' },
+      { value: 'glm-4.7-flash', label: 'glm-4.7-flash', description: 'Provider: Test Provider' },
+      { value: 'glm-4.7-plus', label: 'glm-4.7-plus', description: 'Provider: Test Provider' },
+    ])
+  })
+
+  test('returns single option for single-model profile', async () => {
+    const { getProfileModelOptions } =
+      await importFreshProviderProfileModules()
+
+    const options = getProfileModelOptions(
+      buildProfile({
+        name: 'Single Model',
+        model: 'llama3.1:8b',
+      }),
+    )
+
+    expect(options).toEqual([
+      { value: 'llama3.1:8b', label: 'llama3.1:8b', description: 'Provider: Single Model' },
+    ])
+  })
+
+  test('returns empty array for empty model field', async () => {
+    const { getProfileModelOptions } =
+      await importFreshProviderProfileModules()
+
+    const options = getProfileModelOptions(
+      buildProfile({
+        name: 'Empty',
+        model: '',
+      }),
+    )
+
+    expect(options).toEqual([])
+  })
+})
+
+describe('setActiveProviderProfile model cache', () => {
+  test('populates model cache with all models from multi-model profile on activation', async () => {
+    const {
+      setActiveProviderProfile,
+      getActiveOpenAIModelOptionsCache,
+    } = await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [
+        buildProfile({
+          id: 'multi_provider',
+          name: 'Multi Provider',
+          model: 'glm-4.7, glm-4.7-flash, glm-4.7-plus',
+          baseUrl: 'https://api.example.com/v1',
+        }),
+      ],
+    }
+
+    setActiveProviderProfile('multi_provider')
+
+    const cache = getActiveOpenAIModelOptionsCache()
+    const cacheValues = cache.map(opt => opt.value)
+    expect(cacheValues).toContain('glm-4.7')
+    expect(cacheValues).toContain('glm-4.7-flash')
+    expect(cacheValues).toContain('glm-4.7-plus')
   })
 })

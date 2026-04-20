@@ -78,3 +78,28 @@ test('toolToAPISchema keeps skill required for SkillTool', async () => {
     required: ['skill'],
   })
 })
+
+test('toolToAPISchema removes extra required keys not in properties (MCP schema sanitization)', async () => {
+  const schema = await toolToAPISchema(
+    {
+      name: 'mcp__test__create_object',
+      inputSchema: z.strictObject({}),
+      inputJSONSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+        },
+        required: ['name', 'attributes'],
+      },
+      prompt: async () => 'Create an object',
+    } as unknown as Tool,
+    {
+      getToolPermissionContext: async () => getEmptyToolPermissionContext(),
+      tools: [] as unknown as Tools,
+      agents: [],
+    },
+  )
+
+  const inputSchema = (schema as { input_schema: { required?: string[] } }).input_schema
+  expect(inputSchema.required).toEqual(['name'])
+})

@@ -19,3 +19,5 @@ export const EDITOR_MODES = ['normal', 'vim'] as const
 // 'in-process' = in-process teammates running in same process
 // 'auto' = automatically choose based on context (default)
 export const TEAMMATE_MODES = ['auto', 'tmux', 'in-process'] as const
+
+export const PROVIDERS = ['openai', 'anthropic', 'mistral', 'gemini'] as const

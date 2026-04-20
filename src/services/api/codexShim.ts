@@ -1,14 +1,14 @@
 import { APIError } from '@anthropic-ai/sdk'
+import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import type {
   ResolvedCodexCredentials,
   ResolvedProviderRequest,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from './openaiSchemaSanitizer.js'
 import {
-  looksLikeLeakedReasoningPrefix,
-  shouldBufferPotentialReasoningPrefix,
-  stripLeakedReasoningPreamble,
-} from './reasoningLeakSanitizer.js'
+  createThinkTagFilter,
+  stripThinkTags,
+} from './thinkTagSanitizer.js'
 
 export interface AnthropicUsage {
   input_tokens: number
@@ -559,12 +559,15 @@ export async function performCodexRequest(options: {
   }
   headers.originator ??= 'openclaude'
 
-  const response = await fetch(`${options.request.baseUrl}/responses`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal: options.signal,
-  })
+  const response = await fetchWithProxyRetry(
+    `${options.request.baseUrl}/responses`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: options.signal,
+    },
+  )
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => 'unknown error')
@@ -730,25 +733,22 @@ export async function* codexStreamToAnthropic(
     { index: number; toolUseId: string }
   >()
   let activeTextBlockIndex: number | null = null
-  let activeTextBuffer = ''
-  let textBufferMode: 'none' | 'pending' | 'strip' = 'none'
+  const thinkFilter = createThinkTagFilter()
   let nextContentBlockIndex = 0
   let sawToolUse = false
   let finalResponse: Record<string, any> | undefined
 
   const closeActiveTextBlock = async function* () {
     if (activeTextBlockIndex === null) return
-    if (textBufferMode !== 'none') {
-      const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
-      if (sanitized) {
-        yield {
-          type: 'content_block_delta',
-          index: activeTextBlockIndex,
-          delta: {
-            type: 'text_delta',
-            text: sanitized,
-          },
-        }
+    const tail = thinkFilter.flush()
+    if (tail) {
+      yield {
+        type: 'content_block_delta',
+        index: activeTextBlockIndex,
+        delta: {
+          type: 'text_delta',
+          text: tail,
+        },
       }
     }
     yield {
@@ -756,8 +756,6 @@ export async function* codexStreamToAnthropic(
       index: activeTextBlockIndex,
     }
     activeTextBlockIndex = null
-    activeTextBuffer = ''
-    textBufferMode = 'none'
   }
 
   const startTextBlockIfNeeded = async function* () {
@@ -833,43 +831,17 @@ export async function* codexStreamToAnthropic(
 
     if (event.event === 'response.output_text.delta') {
       yield* startTextBlockIfNeeded()
-      activeTextBuffer += payload.delta ?? ''
       if (activeTextBlockIndex !== null) {
-        if (
-          textBufferMode === 'strip' ||
-          looksLikeLeakedReasoningPrefix(activeTextBuffer)
-        ) {
-          textBufferMode = 'strip'
-          continue
-        }
-
-        if (textBufferMode === 'pending') {
-          if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
-            continue
-          }
+        const visible = thinkFilter.feed(payload.delta ?? '')
+        if (visible) {
           yield {
             type: 'content_block_delta',
             index: activeTextBlockIndex,
             delta: {
               type: 'text_delta',
-              text: activeTextBuffer,
+              text: visible,
             },
           }
-          textBufferMode = 'none'
-          continue
-        }
-
-        if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
-          textBufferMode = 'pending'
-          continue
-        }
-        yield {
-          type: 'content_block_delta',
-          index: activeTextBlockIndex,
-          delta: {
-            type: 'text_delta',
-            text: payload.delta ?? '',
-          },
         }
       }
       continue
@@ -965,7 +937,7 @@ export function convertCodexResponseToAnthropicMessage(
         if (part?.type === 'output_text') {
           content.push({
             type: 'text',
-            text: stripLeakedReasoningPreamble(part.text ?? ''),
+            text: stripThinkTags(part.text ?? ''),
           })
         }
       }

@@ -1,7 +1,8 @@
+import { Ajv } from 'ajv'
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef } from '../../Tool.js'
+import { buildTool, type ToolDef, type ValidationResult } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
-import type { PermissionResult } from '../../utils/permissions/PermissionResult.js'
+import type { PermissionResult } from '../../types/permissions.js'
 import { isOutputLineTruncated } from '../../utils/terminal.js'
 import { DESCRIPTION, PROMPT } from './prompt.js'
 import {
@@ -36,6 +37,8 @@ export type Output = z.infer<OutputSchema>
 
 // Re-export MCPProgress from centralized types to break import cycles
 export type { MCPProgress } from '../../types/tools.js'
+
+const ajv = new Ajv({ strict: false })
 
 export const MCPTool = buildTool({
   isMcp: true,
@@ -72,6 +75,27 @@ export const MCPTool = buildTool({
       message: 'MCPTool requires permission.',
     }
   },
+  async validateInput(input, context): Promise<ValidationResult> {
+    if (this.inputJSONSchema) {
+      try {
+        const validate = ajv.compile(this.inputJSONSchema)
+        if (!validate(input)) {
+          return {
+            result: false,
+            message: ajv.errorsText(validate.errors),
+            errorCode: 400,
+          }
+        }
+      } catch (error) {
+        return {
+          result: false,
+          message: `Failed to compile JSON schema for validation: ${error}`,
+          errorCode: 500,
+        }
+      }
+    }
+    return { result: true }
+  },
   renderToolUseMessage,
   // Overridden in mcpClient.ts
   userFacingName: () => 'mcp',
@@ -100,3 +124,4 @@ export const MCPTool = buildTool({
     }
   },
 } satisfies ToolDef<InputSchema, Output>)
+

@@ -6,6 +6,7 @@ import stripAnsi from 'strip-ansi'
 
 import { createRoot } from '../ink.js'
 import { AppStateProvider } from '../state/AppState.js'
+import { maskTextWithVisibleEdges } from '../utils/Cursor.js'
 import TextInput from './TextInput.js'
 import VimTextInput from './VimTextInput.js'
 
@@ -197,6 +198,13 @@ test('TextInput renders typed characters before delayed parent value commits', a
 
   expect(output).toContain('ab')
   expect(output).not.toContain('Type here...')
+})
+
+test('maskTextWithVisibleEdges preserves only the first and last three chars', () => {
+  expect(maskTextWithVisibleEdges('sk-secret-12345678', '*')).toBe(
+    'sk-************678',
+  )
+  expect(maskTextWithVisibleEdges('abcdef', '*')).toBe('******')
 })
 
 test('VimTextInput preserves rapid typed characters before delayed parent value commits', async () => {

@@ -149,17 +149,21 @@ function mockProviderManagerDependencies(
     applySavedProfileToCurrentSession?: (...args: unknown[]) => Promise<string | null>
     clearCodexCredentials?: () => { success: boolean; warning?: string }
     getProviderProfiles?: () => unknown[]
-    hasLocalOllama?: () => Promise<boolean>
-    listOllamaModels?: () => Promise<
-      Array<{
-        name: string
-        sizeBytes?: number | null
-        family?: string | null
-        families?: string[]
-        parameterSize?: string | null
-        quantizationLevel?: string | null
-      }>
-    >
+    probeOllamaGenerationReadiness?: () => Promise<{
+      state: 'ready' | 'unreachable' | 'no_models' | 'generation_failed'
+      models: Array<
+        {
+          name: string
+          sizeBytes?: number | null
+          family?: string | null
+          families?: string[]
+          parameterSize?: string | null
+          quantizationLevel?: string | null
+        }
+      >
+      probeModel?: string
+      detail?: string
+    }>
     codexSyncRead?: () => unknown
     codexAsyncRead?: () => Promise<unknown>
     updateProviderProfile?: (...args: unknown[]) => unknown
@@ -189,8 +193,12 @@ function mockProviderManagerDependencies(
   })
 
   mock.module('../utils/providerDiscovery.js', () => ({
-    hasLocalOllama: options?.hasLocalOllama ?? (async () => false),
-    listOllamaModels: options?.listOllamaModels ?? (async () => []),
+    probeOllamaGenerationReadiness:
+      options?.probeOllamaGenerationReadiness ??
+      (async () => ({
+        state: 'unreachable' as const,
+        models: [],
+      })),
   }))
 
   mock.module('../utils/githubModelsCredentials.js', () => ({
@@ -455,19 +463,22 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
     async () => undefined,
     {
       addProviderProfile,
-      hasLocalOllama: async () => true,
-      listOllamaModels: async () => [
-        {
-          name: 'gemma4:31b-cloud',
-          family: 'gemma',
-          parameterSize: '31b',
-        },
-        {
-          name: 'kimi-k2.5:cloud',
-          family: 'kimi',
-          parameterSize: '2.5b',
-        },
-      ],
+      probeOllamaGenerationReadiness: async () => ({
+        state: 'ready',
+        models: [
+          {
+            name: 'gemma4:31b-cloud',
+            family: 'gemma',
+            parameterSize: '31b',
+          },
+          {
+            name: 'kimi-k2.5:cloud',
+            family: 'kimi',
+            parameterSize: '2.5b',
+          },
+        ],
+        probeModel: 'gemma4:31b-cloud',
+      }),
     },
   )
 

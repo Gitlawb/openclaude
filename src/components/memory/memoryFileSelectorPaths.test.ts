@@ -53,17 +53,20 @@ describe('getProjectMemoryPathForSelector', () => {
   })
 
   test('defaults to a new AGENTS.md in the current cwd when no project file is loaded', () => {
-    expect(getProjectMemoryPathForSelector([], '/repo/packages/app')).toBe(
-      '/repo/packages/app/AGENTS.md',
+    const cwd = join('/repo', 'packages', 'app')
+    expect(getProjectMemoryPathForSelector([], cwd)).toBe(
+      join(cwd, 'AGENTS.md'),
     )
   })
 
   test('ignores loaded project instruction files outside the current cwd ancestry', () => {
+    const outsideRepoPath = join('/other-worktree', 'AGENTS.md')
+    const cwd = join('/repo', 'packages', 'app')
     expect(
       getProjectMemoryPathForSelector(
-        [projectFile('/other-worktree/AGENTS.md')],
-        '/repo/packages/app',
+        [projectFile(outsideRepoPath)],
+        cwd,
       ),
-    ).toBe('/repo/packages/app/AGENTS.md')
+    ).toBe(join(cwd, 'AGENTS.md'))
   })
 })

@@ -8,17 +8,20 @@ import {
   readCodexCredentials,
   type CodexCredentialBlob,
 } from '../../utils/codexCredentials.js'
+import { logForDebugging } from '../../utils/debug.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import {
   asTrimmedString,
   parseChatgptAccountId,
 } from './codexOAuthShared.js'
+import { DEFAULT_GEMINI_BASE_URL } from 'src/utils/providerProfile.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
+const warnedUndefinedEnvNames = new Set<string>()
 
 const CODEX_ALIAS_MODELS: Record<
   string,
@@ -129,7 +132,33 @@ function isPrivateIpv6Address(hostname: string): boolean {
 function asEnvUrl(value: string | undefined): string | undefined {
   if (!value) return undefined
   const trimmed = value.trim()
-  if (!trimmed || trimmed === 'undefined') return undefined
+  if (!trimmed) return undefined
+  if (trimmed === 'undefined') {
+    return undefined
+  }
+  return trimmed
+}
+
+function asNamedEnvUrl(
+  value: string | undefined,
+  envName: string,
+): string | undefined {
+  if (!value) return undefined
+
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+
+  if (trimmed === 'undefined') {
+    if (!warnedUndefinedEnvNames.has(envName)) {
+      warnedUndefinedEnvNames.add(envName)
+      logForDebugging(
+        `[provider-config] Environment variable ${envName} is the literal string "undefined"; ignoring it.`,
+        { level: 'warn' },
+      )
+    }
+    return undefined
+  }
+
   return trimmed
 }
 
@@ -276,6 +305,101 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
   }
 }
 
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '')
+}
+
+function normalizePathWithV1(pathname: string): string {
+  const trimmed = trimTrailingSlash(pathname)
+  if (!trimmed || trimmed === '/') {
+    return '/v1'
+  }
+
+  if (trimmed.toLowerCase().endsWith('/v1')) {
+    return trimmed
+  }
+
+  return `${trimmed}/v1`
+}
+
+function isLikelyOllamaEndpoint(baseUrl: string): boolean {
+  try {
+    const parsed = new URL(baseUrl)
+    const hostname = parsed.hostname.toLowerCase()
+    const pathname = parsed.pathname.toLowerCase()
+
+    if (parsed.port === '11434') {
+      return true
+    }
+
+    return (
+      hostname.includes('ollama') ||
+      pathname.includes('ollama')
+    )
+  } catch {
+    return false
+  }
+}
+
+export function getLocalProviderRetryBaseUrls(baseUrl: string): string[] {
+  if (!isLocalProviderUrl(baseUrl)) {
+    return []
+  }
+
+  try {
+    const parsed = new URL(baseUrl)
+    const original = trimTrailingSlash(parsed.toString())
+    const seen = new Set<string>([original])
+    const candidates: string[] = []
+
+    const addCandidate = (hostname: string, pathname: string): void => {
+      const next = new URL(parsed.toString())
+      next.hostname = hostname
+      next.pathname = pathname
+      next.search = ''
+      next.hash = ''
+
+      const normalized = trimTrailingSlash(next.toString())
+      if (seen.has(normalized)) {
+        return
+      }
+
+      seen.add(normalized)
+      candidates.push(normalized)
+    }
+
+    const v1Pathname = normalizePathWithV1(parsed.pathname)
+    if (v1Pathname !== trimTrailingSlash(parsed.pathname)) {
+      addCandidate(parsed.hostname, v1Pathname)
+    }
+
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    if (hostname === 'localhost' || hostname === '::1') {
+      addCandidate('127.0.0.1', parsed.pathname || '/')
+      addCandidate('127.0.0.1', v1Pathname)
+    }
+
+    return candidates
+  } catch {
+    return []
+  }
+}
+
+export function shouldAttemptLocalToollessRetry(options: {
+  baseUrl: string
+  hasTools: boolean
+}): boolean {
+  if (!options.hasTools) {
+    return false
+  }
+
+  if (!isLocalProviderUrl(options.baseUrl)) {
+    return false
+  }
+
+  return isLikelyOllamaEndpoint(options.baseUrl)
+}
+
 export function isCodexBaseUrl(baseUrl: string | undefined): boolean {
   if (!baseUrl) return false
   try {
@@ -353,23 +477,55 @@ export function resolveProviderRequest(options?: {
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  const isGeminiMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
   const requestedModel =
     options?.model?.trim() ||
     (isMistralMode
       ? process.env.MISTRAL_MODEL?.trim()
       : process.env.OPENAI_MODEL?.trim()) ||
+    (isGeminiMode
+      ? process.env.GEMINI_MODEL?.trim()
+      : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
+
+  const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
+    process.env.MISTRAL_BASE_URL,
+    'MISTRAL_BASE_URL',
+  )
+
+  const normalizedGeminiEnvBaseUrl = asNamedEnvUrl(
+    process.env.GEMINI_BASE_URL,
+    'GEMINI_BASE_URL',
+  )
+
+  const primaryEnvBaseUrl = isMistralMode
+    ? normalizedMistralEnvBaseUrl
+    : isGeminiMode
+    ? normalizedGeminiEnvBaseUrl
+    : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
+
+  // In Mistral mode, a literal "undefined" MISTRAL_BASE_URL is treated as
+  // misconfiguration and falls back to OPENAI_API_BASE, then
+  // DEFAULT_MISTRAL_BASE_URL for a safe default endpoint.
+  const fallbackEnvBaseUrl = isMistralMode
+    ? (primaryEnvBaseUrl === undefined
+      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_MISTRAL_BASE_URL
+      : undefined)
+    : isGeminiMode
+    ? (primaryEnvBaseUrl === undefined
+      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
+      : undefined)
+    : (primaryEnvBaseUrl === undefined
+      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
+      : undefined)
+
   const envBaseUrlRaw =
     explicitBaseUrl ??
-    asEnvUrl(
-      isMistralMode
-        ? (process.env.MISTRAL_BASE_URL ?? DEFAULT_MISTRAL_BASE_URL)
-        : process.env.OPENAI_BASE_URL
-    ) ??
-    asEnvUrl(process.env.OPENAI_API_BASE)
+    primaryEnvBaseUrl ??
+    fallbackEnvBaseUrl
 
   const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
   const envBaseUrl =
