@@ -334,7 +334,7 @@ async function processRemoteEvalPayload(
   // Empty object is truthy — without the length check, `{features: {}}`
   // (transient server bug, truncated response) would pass, clear the maps
   // below, return true, and syncRemoteEvalToDisk would wholesale-write `{}`
-  // to disk: total flag blackout for every process sharing ~/.claude.json.
+  // to disk: total flag blackout for every process sharing ~/.openclaude.json.
   if (!payload?.features || Object.keys(payload.features).length === 0) {
     return false
   }
