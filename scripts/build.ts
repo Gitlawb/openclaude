@@ -672,6 +672,7 @@ const sdkResult = await Bun.build({
               const full = pathMod.join(dir, ent.name)
               if (ent.isDirectory()) { walk(full); continue }
               if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const fileDir = pathMod.dirname(full)
               const rawCode: string = fs.readFileSync(full, 'utf-8')
               // Strip comments
               const code = rawCode
@@ -701,8 +702,14 @@ const sdkResult = await Bun.build({
                   // The re-exported module might itself be stubbed, so we need
                   // to find its exports. Parse the relative path and scan it.
                   const reexportPath = pathMod.resolve(fileDir, specifier)
-                  const reexportFile = reexportPath.replace(/\.js$/, '.ts').replace(/\.js$/, '.tsx')
-                  const candidates = [reexportFile, reexportPath, `${reexportFile}.ts`, `${reexportFile}.tsx`]
+                  const reexportBase = reexportPath.replace(/\.js$/, '')
+                  const candidates = [
+                    `${reexportBase}.ts`,
+                    `${reexportBase}.tsx`,
+                    reexportPath,
+                    `${reexportPath}.ts`,
+                    `${reexportPath}.tsx`,
+                  ]
                   for (const candidate of candidates) {
                     if (fs.existsSync(candidate)) {
                       const reexportCode = fs.readFileSync(candidate, 'utf-8')
