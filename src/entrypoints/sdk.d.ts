@@ -306,6 +306,7 @@ export type QueryOptions = {
 }
 
 export interface Query {
+  readonly sessionId: string
   [Symbol.asyncIterator](): AsyncIterator<SDKMessage>
   setModel(model: string): Promise<void>
   setPermissionMode(mode: QueryPermissionMode): Promise<void>

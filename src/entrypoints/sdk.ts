@@ -630,19 +630,24 @@ export async function forkSession(
   // Filter to main conversation entries only (no sidechains)
   // If upToMessageId is specified, stop at that message
   const mainEntries: JsonlEntry[] = []
+  const metadataEntries: JsonlEntry[] = []
   let hitUpTo = false
   for (const entry of entries) {
     if (entry.isSidechain) continue
-    if (!entry.uuid) continue
 
-    // Only include conversational entries
-    const role = entryToRole(entry)
-    if (role === null) {
-      // Include metadata entries (custom-title, tag, etc.) but don't track them in chain
+    if (!entry.uuid) {
+      // Metadata entries without uuid (custom-title, tag, etc.)
+      metadataEntries.push(entry)
       continue
     }
 
-    // Remap UUID upfront
+    const role = entryToRole(entry)
+    if (role === null) {
+      // Has uuid but no conversational role — still metadata, preserve it
+      metadataEntries.push(entry)
+      continue
+    }
+
     const newUuid = randomUUID() as UUID
     uuidMap.set(entry.uuid, newUuid)
 
@@ -664,10 +669,15 @@ export async function forkSession(
     )
   }
 
-  // Build forked entries with remapped UUIDs
+  // Build forked entries — metadata first, then conversational
   const lines: string[] = []
-  let parentUuid: UUID | null = null
 
+  // Metadata entries: copy with new sessionId, no UUID remapping
+  for (const entry of metadataEntries) {
+    lines.push(JSON.stringify({ ...entry, sessionId: forkSessionId }))
+  }
+
+  // Conversational entries: remap UUIDs and parentUuid chains
   for (const entry of mainEntries) {
     const oldUuid = entry.uuid!
     const newUuid = uuidMap.get(oldUuid)!
@@ -690,7 +700,6 @@ export async function forkSession(
     }
 
     lines.push(JSON.stringify(forkedEntry))
-    parentUuid = newUuid
   }
 
   // Write fork session file
@@ -812,6 +821,8 @@ export type QueryOptions = {
  * It implements AsyncIterable<SDKMessage> so you can use `for await` loops.
  */
 export interface Query {
+  /** The session ID for this query. Available immediately after query() returns. */
+  readonly sessionId: string
   /** Iterate over SDK messages produced by the query. */
   [Symbol.asyncIterator](): AsyncIterator<SDKMessage>
   /** Change the model mid-conversation. */
@@ -1172,7 +1183,7 @@ class QueryImpl implements Query {
   }>()
   private envOverrides: Record<string, string | undefined> | undefined
   private envSnapshot: Record<string, string | undefined> | undefined
-  private sessionId?: string
+  private _sessionId: string
   private shouldFork?: boolean
   private continueSession?: boolean
   private cwd: string
@@ -1201,7 +1212,7 @@ class QueryImpl implements Query {
     this.abortController = abortController
     this.appStateStore = appStateStore
     this.envOverrides = envOverrides
-    this.sessionId = sessionId
+    this._sessionId = sessionId ?? randomUUID()
     this.shouldFork = fork
     this.continueSession = continueSession
     this.cwd = cwd
@@ -1209,6 +1220,11 @@ class QueryImpl implements Query {
     this.userAgents = userAgents
     this.mcpServers = mcpServers
     this.permissionContext = permissionContext
+  }
+
+  /** The session ID for this query. Available immediately after query() returns. */
+  get sessionId(): string {
+    return this._sessionId
   }
 
   /** Late-bind the engine (used by query() which creates QueryImpl before the engine). */
@@ -1317,9 +1333,9 @@ class QueryImpl implements Query {
       }
 
       // Handle continue: if continue=true and no sessionId, find last session for cwd
-      let effectiveSessionId = this.sessionId
+      let effectiveSessionId = this._sessionId
 
-      if (this.continueSession && !this.sessionId) {
+      if (this.continueSession && !this._sessionId) {
         const sessions = await listSessions({ dir: this.cwd, limit: 1 })
         if (sessions.length > 0) {
           effectiveSessionId = sessions[0].session_id
@@ -1329,12 +1345,12 @@ class QueryImpl implements Query {
             effectiveSessionId = undefined
           }
         }
-      } else if (this.shouldFork && this.sessionId) {
+      } else if (this.shouldFork && this._sessionId) {
         // Handle fork: if sessionId and fork=true (or forkSession=true), fork the session first
         // If the session file doesn't exist (e.g., first query didn't persist),
         // just start a new session instead of throwing an error
         try {
-          const forkResult = await forkSession(this.sessionId, { dir: this.cwd })
+          const forkResult = await forkSession(this._sessionId, { dir: this.cwd })
           effectiveSessionId = forkResult.session_id
 
           // Load the forked session's messages and inject them into the engine
@@ -1346,10 +1362,10 @@ class QueryImpl implements Query {
           // Session not found or other fork error - just start fresh
           effectiveSessionId = undefined
         }
-      } else if (this.sessionId) {
+      } else if (this._sessionId) {
         // Simple resume: sessionId set without fork/continue — load messages directly
         // Supports rollback via resumeSessionAt (parentUuid chain walking)
-        const loaded = await loadAndInjectSessionMessages(this.sessionId, this.cwd, this.engine, this.resumeSessionAt)
+        const loaded = await loadAndInjectSessionMessages(this._sessionId, this.cwd, this.engine, this.resumeSessionAt)
         if (!loaded) {
           effectiveSessionId = undefined
         }
