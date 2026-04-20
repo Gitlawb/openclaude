@@ -4,6 +4,7 @@ import { getGlobalConfig } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
+import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
 import { getOpenAIContextWindow, getOpenAIMaxOutputTokens } from './model/openaiContextWindows.js'
 
 // Model context window size (200k tokens for all models right now)
@@ -243,4 +244,49 @@ export function getModelMaxOutputTokens(model: string): {
  */
 export function getMaxThinkingTokensForModel(model: string): number {
   return getModelMaxOutputTokens(model).upperLimit - 1
+}
+
+/**
+ * Token Budget Calculator
+ * 
+ * Pre-computes available tokens after system prompt, tools, and history.
+ * Useful for preventing context overflow before it happens.
+ */
+export interface TokenBudget {
+  total: number
+  systemPrompt: number
+  tools: number  
+  history: number
+  available: number
+}
+
+export function calculateTokenBudget(options: {
+  model: string
+  systemPrompt?: string
+  toolsSchema?: string
+  historyMessages?: number
+}): TokenBudget {
+  const contextWindow = getContextWindowForModel(options.model)
+  
+  const systemPromptTokens = options.systemPrompt
+    ? roughTokenCountEstimation(options.systemPrompt)
+    : 0
+    
+  const toolsTokens = options.toolsSchema
+    ? roughTokenCountEstimation(options.toolsSchema)
+    : 0
+    
+  // Rough estimate: ~4 chars per token * average message
+  const historyTokens = (options.historyMessages ?? 0) * 100
+  
+  const used = systemPromptTokens + toolsTokens + historyTokens
+  const available = Math.max(0, contextWindow - used)
+  
+  return {
+    total: contextWindow,
+    systemPrompt: systemPromptTokens,
+    tools: toolsTokens,
+    history: historyTokens,
+    available,
+  }
 }
