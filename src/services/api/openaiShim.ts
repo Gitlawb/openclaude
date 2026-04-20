@@ -66,7 +66,7 @@ import {
   hasToolFieldMapping,
 } from './toolArgumentNormalization.js'
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
-import { createStreamState, processStreamChunk, flushStreamBuffer, getStreamStats } from '../../utils/streamingOptimizer.js'
+import { createStreamState, processStreamChunk, getStreamStats } from '../../utils/streamingOptimizer.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -1122,17 +1122,6 @@ async function* openaiStreamToAnthropic(
     }
   } finally {
     reader.releaseLock()
-  }
-
-  // flushStreamBuffer is a no-op kept for API compatibility
-  // (returns '' so this block never executes)
-  const remaining = flushStreamBuffer(streamState)
-  if (remaining) {
-    yield {
-      type: 'content_block_delta',
-      index: contentBlockIndex,
-      delta: { type: 'text_delta', text: remaining },
-    }
   }
 
   const stats = getStreamStats(streamState)
