@@ -784,6 +784,8 @@ export type QueryOptions = {
   settingSources?: string[]
   /** When true, yields stream_event messages for token-by-token streaming. */
   includePartialMessages?: boolean
+  /** @internal Timeout in ms for permission request resolution. Default 30000. */
+  _permissionTimeoutMs?: number
   /** Callback for stderr output. */
   stderr?: (data: string) => void
 }
@@ -1783,6 +1785,8 @@ export function query(params: {
     defaultCanUseTool,
     queryImpl,
     options.onPermissionRequest,
+    (msg) => { queryImpl.pushTimeout(msg) },
+    options._permissionTimeoutMs ?? 30000,
   )
 
   // Create QueryEngine config
