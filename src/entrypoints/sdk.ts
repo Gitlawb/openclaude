@@ -1954,6 +1954,7 @@ class SDKSessionImpl implements SDKSession {
   private pendingPermissionPrompts = new Map<string, {
     resolve: (decision: PermissionResolveDecision) => void
   }>()
+  private timeoutQueue: SDKPermissionTimeoutMessage[] = []
 
   constructor(
     engine: QueryEngine | null,
@@ -2035,7 +2036,10 @@ class SDKSessionImpl implements SDKSession {
 
         for await (const engineMsg of self.engine.submitMessage(content)) {
           yield engineMsg
+          yield* self.drainTimeoutQueue()
         }
+        // Final drain for timeout messages that fired on the last engine yield
+        yield* self.drainTimeoutQueue()
       })()
     })
 
@@ -2059,6 +2063,18 @@ class SDKSessionImpl implements SDKSession {
     return new Promise(resolve => {
       this.pendingPermissionPrompts.set(toolUseId, { resolve })
     })
+  }
+
+  /** Push a timeout message into the queue for later draining. */
+  pushTimeout(msg: SDKPermissionTimeoutMessage): void {
+    this.timeoutQueue.push(msg)
+  }
+
+  /** Drain all queued timeout messages. */
+  private *drainTimeoutQueue(): Generator<SDKPermissionTimeoutMessage> {
+    while (this.timeoutQueue.length > 0) {
+      yield this.timeoutQueue.shift()!
+    }
   }
 
   respondToPermission(toolUseId: string, decision: PermissionResult): void {
@@ -2144,6 +2160,7 @@ function createEngineFromOptions(
     defaultCanUseTool,
     permissionTarget,
     options.onPermissionRequest,
+    (msg) => { (permissionTarget as any).pushTimeout?.(msg) },
   )
 
   // Abort controller
