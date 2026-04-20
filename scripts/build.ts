@@ -539,19 +539,29 @@ const sdkResult = await Bun.build({
           }))
         }
         // Stub relative imports to TUI directories
-        build.onResolve({ filter: /^\.\.?\/components\// }, (args) => ({
+        // Use (\.\.?\/)+ to match multiple ../ prefixes like ../../components/
+        build.onResolve({ filter: /^(\.\.?\/)+components\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        build.onResolve({ filter: /^\.\.?\/ink\// }, (args) => ({
+        build.onResolve({ filter: /^(\.\.?\/)+ink\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        build.onResolve({ filter: /^\.\.?\/commands\// }, (args) => ({
+        build.onResolve({ filter: /^(\.\.?\/)+commands\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        build.onResolve({ filter: /^\.\.?\/cli\// }, (args) => ({
+        build.onResolve({ filter: /^(\.\.?\/)+cli\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Also stub relative imports to state/ and context/ directories
+        build.onResolve({ filter: /^(\.\.?\/)+state\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^(\.\.?\/)+context\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
@@ -569,6 +579,35 @@ const sdkResult = await Bun.build({
           namespace: 'sdk-missing-stub',
         }))
         build.onResolve({ filter: /^\.\/cli\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+
+        // Stub src/ alias imports that resolve to TUI directories
+        // These are used by require('src/components/...') style imports
+        build.onResolve({ filter: /^src\/components\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^src\/ink\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^src\/commands\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^src\/cli\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // src/state/ contains AppState.tsx with React hooks
+        // src/context/ contains React context files
+        build.onResolve({ filter: /^src\/state\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^src\/context\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
@@ -603,8 +642,8 @@ const sdkResult = await Bun.build({
           }
           const isStubbedSpecifier = (s: string) =>
             missingModules.includes(s) ||
-            /^\.\/?(components|ink|commands|cli)\//.test(s) ||
-            /^\.\.\/(components|ink|commands|cli)\//.test(s)
+            /^(\.\.?\/)+(components|ink|commands|cli|context|state)\//.test(s) ||
+            /^src\/(components|ink|commands|cli|state|context)\//.test(s)
           function walk(dir: string) {
             for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
               const full = pathMod.join(dir, ent.name)
