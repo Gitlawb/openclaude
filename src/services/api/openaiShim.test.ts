@@ -6,6 +6,7 @@ type FetchType = typeof globalThis.fetch
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
@@ -74,6 +75,7 @@ function makeStreamChunks(chunks: unknown[]): string[] {
 beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
+  delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.GITHUB_TOKEN
@@ -93,6 +95,7 @@ beforeEach(() => {
 afterEach(() => {
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+  restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
   restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
   restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
@@ -3018,4 +3021,155 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
   
   const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
   expect(orphanMessage).toBeUndefined()
+})
+
+test('credential pool: rotates to next key on 429', async () => {
+  delete process.env.OPENAI_API_KEY
+  process.env.OPENAI_API_KEYS = 'sk-one,sk-two'
+
+  const attemptedKeys: string[] = []
+  globalThis.fetch = (async (_input, init) => {
+    const auth = (init?.headers as Record<string, string> | undefined)?.Authorization
+    attemptedKeys.push(auth?.replace(/^Bearer /, '') ?? '')
+
+    // First key rate-limited, second key succeeds.
+    if (attemptedKeys.length === 1) {
+      return new Response('{"error":"rate limited"}', {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-ok',
+        model: 'gpt-4o',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = (await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 8,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(attemptedKeys).toEqual(['sk-one', 'sk-two'])
+  expect(result.content[0]?.text).toBe('ok')
+})
+
+test('credential pool: rotates to next key on 401', async () => {
+  delete process.env.OPENAI_API_KEY
+  process.env.OPENAI_API_KEYS = 'sk-bad,sk-good'
+
+  const attemptedKeys: string[] = []
+  globalThis.fetch = (async (_input, init) => {
+    const auth = (init?.headers as Record<string, string> | undefined)?.Authorization
+    attemptedKeys.push(auth?.replace(/^Bearer /, '') ?? '')
+
+    if (attemptedKeys.length === 1) {
+      return new Response('{"error":"invalid api key"}', {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-ok',
+        model: 'gpt-4o',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = (await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 8,
+    stream: false,
+  })) as { content: Array<Record<string, unknown>> }
+
+  expect(attemptedKeys).toEqual(['sk-bad', 'sk-good'])
+  expect(result.content[0]?.text).toBe('ok')
+})
+
+test('credential pool: comma-separated OPENAI_API_KEY is treated as multi-key', async () => {
+  process.env.OPENAI_API_KEY = 'sk-a, sk-b'
+  delete process.env.OPENAI_API_KEYS
+
+  const attemptedKeys: string[] = []
+  globalThis.fetch = (async (_input, init) => {
+    const auth = (init?.headers as Record<string, string> | undefined)?.Authorization
+    attemptedKeys.push(auth?.replace(/^Bearer /, '') ?? '')
+
+    if (attemptedKeys.length === 1) {
+      return new Response('{"error":"rate limited"}', {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-ok',
+        model: 'gpt-4o',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 8,
+    stream: false,
+  })
+
+  expect(attemptedKeys).toEqual(['sk-a', 'sk-b'])
+})
+
+test('credential pool: single key → no rotation retries on 429', async () => {
+  // Verifies backward compatibility: 1-key pool preserves prior one-shot behavior.
+  process.env.OPENAI_API_KEY = 'sk-only'
+  delete process.env.OPENAI_API_KEYS
+
+  let callCount = 0
+  globalThis.fetch = (async () => {
+    callCount++
+    return new Response('{"error":"rate limited"}', {
+      status: 429,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'gpt-4o',
+      system: 'test',
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 8,
+      stream: false,
+    }),
+  ).rejects.toThrow()
+
+  expect(callCount).toBe(1)
 })
