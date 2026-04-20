@@ -485,7 +485,7 @@ const sdkResult = await Bun.build({
   minify: false,
   naming: 'sdk.mjs',
   define: {
-    'MACRO.VERSION': JSON.stringify('99.0.0'),
+    'MACRO.VERSION': JSON.stringify(version),
     'MACRO.DISPLAY_VERSION': JSON.stringify(version),
     'MACRO.BUILD_TIME': JSON.stringify(new Date().toISOString()),
     'MACRO.ISSUES_EXPLAINER':
