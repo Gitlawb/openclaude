@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
+import { CLI_EXTERNALS, SDK_EXTERNALS } from './externals.js'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const version = pkg.version
@@ -428,37 +429,7 @@ ${exports}
       },
     },
   ],
-  external: [
-    // OpenTelemetry — too many named exports to stub, kept external
-    '@opentelemetry/api',
-    '@opentelemetry/api-logs',
-    '@opentelemetry/core',
-    '@opentelemetry/exporter-trace-otlp-grpc',
-    '@opentelemetry/exporter-trace-otlp-http',
-    '@opentelemetry/exporter-trace-otlp-proto',
-    '@opentelemetry/exporter-logs-otlp-http',
-    '@opentelemetry/exporter-logs-otlp-proto',
-    '@opentelemetry/exporter-logs-otlp-grpc',
-    '@opentelemetry/exporter-metrics-otlp-proto',
-    '@opentelemetry/exporter-metrics-otlp-grpc',
-    '@opentelemetry/exporter-metrics-otlp-http',
-    '@opentelemetry/exporter-prometheus',
-    '@opentelemetry/resources',
-    '@opentelemetry/sdk-trace-base',
-    '@opentelemetry/sdk-trace-node',
-    '@opentelemetry/sdk-logs',
-    '@opentelemetry/sdk-metrics',
-    '@opentelemetry/semantic-conventions',
-    // Native image processing
-    'sharp',
-    // Cloud provider SDKs
-    '@aws-sdk/client-bedrock',
-    '@aws-sdk/client-bedrock-runtime',
-    '@aws-sdk/client-sts',
-    '@aws-sdk/credential-providers',
-    '@azure/identity',
-    'google-auth-library',
-  ],
+  external: CLI_EXTERNALS,
 })
 
 if (!result.success) {
@@ -496,24 +467,7 @@ const sdkResult = await Bun.build({
     'MACRO.NATIVE_PACKAGE_URL': 'undefined',
   },
   // External: everything TUI-related + native modules
-  external: [
-    'react', 'ink', 'react-reconciler',
-    '@anthropic-ai/sdk', '@modelcontextprotocol/sdk',
-    // OpenTelemetry - too many exports, keep external
-    '@opentelemetry/api', '@opentelemetry/api-logs', '@opentelemetry/core',
-    '@opentelemetry/exporter-trace-otlp-grpc', '@opentelemetry/exporter-trace-otlp-http',
-    '@opentelemetry/exporter-trace-otlp-proto',
-    '@opentelemetry/exporter-logs-otlp-http', '@opentelemetry/exporter-logs-otlp-proto',
-    '@opentelemetry/exporter-logs-otlp-grpc',
-    '@opentelemetry/exporter-metrics-otlp-proto', '@opentelemetry/exporter-metrics-otlp-grpc',
-    '@opentelemetry/exporter-metrics-otlp-http', '@opentelemetry/exporter-prometheus',
-    '@opentelemetry/resources',
-    '@opentelemetry/sdk-trace-base', '@opentelemetry/sdk-trace-node',
-    '@opentelemetry/sdk-logs', '@opentelemetry/sdk-metrics', '@opentelemetry/semantic-conventions',
-    'sharp', 'google-auth-library',
-    '@aws-sdk/client-bedrock', '@aws-sdk/client-bedrock-runtime', '@aws-sdk/client-sts',
-    '@aws-sdk/credential-providers', '@azure/identity',
-  ],
+  external: SDK_EXTERNALS,
   plugins: [
     noTelemetryPlugin,
     // Stub missing internal/optional modules (same pattern as CLI build)
