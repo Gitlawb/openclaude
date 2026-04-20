@@ -84,6 +84,33 @@ import { connectToServer, fetchToolsForClient } from '../services/mcp/client.js'
 import type { ThinkingConfig } from '../utils/thinking.js'
 
 /**
+ * One-time check that detects TUI/CLI component stubs leaking into the SDK
+ * runtime. The esbuild sdk-missing-stub plugin marks every stub with
+ * `__stub: true`. If a core SDK dependency resolved to such a stub, it means
+ * a TUI import leaked through — fail loudly instead of silently nooping.
+ */
+function detectStubLeaks(): void {
+  // List of modules that are imported by this file and must NOT be stubs.
+  // We check the imported objects for the __stub marker.
+  const criticalImports: Array<{ name: string; mod: Record<string, unknown> }> = [
+    { name: 'QueryEngine', mod: QueryEngine as unknown as Record<string, unknown> },
+  ]
+
+  for (const { name, mod } of criticalImports) {
+    if ('__stub' in mod && mod.__stub === true) {
+      throw new Error(
+        `SDK init error: "${name}" resolved to a build stub at runtime. ` +
+        `This means a TUI/CLI dependency leaked into the SDK bundle. ` +
+        `Report this at https://github.com/Gitlawb/openclaude/issues`,
+      )
+    }
+  }
+}
+
+// Run leak detection once at module load time.
+detectStubLeaks()
+
+/**
  * Validate sessionId is a proper UUID to prevent path traversal.
  * Throws if invalid.
  */
