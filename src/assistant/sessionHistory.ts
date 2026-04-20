@@ -98,6 +98,7 @@ function serializeToCacheMessage(events: SDKMessage[]): CacheMessage[] {
       typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
     tool_calls: m.tool_calls as CacheMessage['tool_calls'],
     tool_use_id: m.tool_use_id,
+    timestamp: Date.now(),
   }))
 }
 
@@ -153,7 +154,7 @@ export async function cacheSession(
   cache.set(sessionId, messages)
 
   const session = createSession(
-    messages as any,
+    messages as never,
     { model: process.env.OPENAI_MODEL },
   )
   session.id = sessionId

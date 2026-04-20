@@ -142,6 +142,7 @@ export interface Message {
   content: string
   tool_calls?: unknown[]
   tool_use_id?: string
+  timestamp?: number
 }
 
 export type CacheMessage = Message
