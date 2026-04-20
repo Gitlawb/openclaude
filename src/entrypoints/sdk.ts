@@ -1173,6 +1173,7 @@ class QueryImpl implements Query {
   private envOverrides: Record<string, string | undefined> | undefined
   private envSnapshot: Record<string, string | undefined> | undefined
   private _sessionId: string
+  private _sessionIdExplicitlyProvided: boolean
   private shouldFork?: boolean
   private continueSession?: boolean
   private cwd: string
@@ -1201,6 +1202,7 @@ class QueryImpl implements Query {
     this.abortController = abortController
     this.appStateStore = appStateStore
     this.envOverrides = envOverrides
+    this._sessionIdExplicitlyProvided = sessionId !== undefined
     this._sessionId = sessionId ?? randomUUID()
     this.shouldFork = fork
     this.continueSession = continueSession
@@ -1316,7 +1318,7 @@ class QueryImpl implements Query {
             // Handle continue/fork/resume session resolution
             let effectiveSessionId = self._sessionId
 
-            if (self.continueSession && !self._sessionId) {
+            if (self.continueSession && !self._sessionIdExplicitlyProvided) {
               const sessions = await listSessions({ dir: self.cwd, limit: 1 })
               if (sessions.length > 0) {
                 effectiveSessionId = sessions[0].session_id
@@ -1348,8 +1350,13 @@ class QueryImpl implements Query {
               switchSession(effectiveSessionId as SessionId, self.cwd)
             } else {
               regenerateSessionId()
-              switchSession(getSessionId(), self.cwd)
+              effectiveSessionId = getSessionId()
+              switchSession(effectiveSessionId as SessionId, self.cwd)
             }
+
+            // Sync resolved sessionId back to authoritative fields
+            self._sessionId = effectiveSessionId
+            sdkContext.sessionId = effectiveSessionId as SessionId
 
             // Submit to engine
             if (typeof self.prompt === 'string') {
