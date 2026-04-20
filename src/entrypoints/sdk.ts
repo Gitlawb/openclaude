@@ -1478,10 +1478,12 @@ class QueryImpl implements Query {
 
   close(): void {
     this.abortController.abort()
+    this.timeoutQueue.length = 0
   }
 
   interrupt(): void {
     this.engine.interrupt()
+    this.timeoutQueue.length = 0
   }
 
   respondToPermission(toolUseId: string, decision: PermissionResult): void {
@@ -2052,6 +2054,7 @@ class SDKSessionImpl implements SDKSession {
 
   interrupt(): void {
     this.engine.interrupt()
+    this.timeoutQueue.length = 0
   }
 
   /**
@@ -2107,7 +2110,7 @@ class SDKSessionImpl implements SDKSession {
  */
 function createEngineFromOptions(
   options: SDKSessionOptions,
-  permissionTarget: { registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>; pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }> },
+  permissionTarget: { registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>; pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }>; pushTimeout?: (msg: SDKPermissionTimeoutMessage) => void },
   initialMessages?: any[],
 ): { engine: QueryEngine; appStateStore: Store<AppState> } {
   const { cwd, model, abortController, permissionMode } = options
@@ -2160,7 +2163,7 @@ function createEngineFromOptions(
     defaultCanUseTool,
     permissionTarget,
     options.onPermissionRequest,
-    (msg) => { (permissionTarget as any).pushTimeout?.(msg) },
+    (msg) => { permissionTarget.pushTimeout?.(msg) },
   )
 
   // Abort controller
