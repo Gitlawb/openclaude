@@ -81,6 +81,7 @@ import {
   fetchClaudeAIMcpConfigsIfEligible,
 } from './claudeai.js'
 import { registerElicitationHandler } from './elicitationHandler.js'
+import { computeChannelAutoAllowRules, mergeAutoAllowRules } from './channelAutoAllow.js'
 import { getMcpPrefix } from './mcpStringUtils.js'
 import { commandBelongsToServer, excludeStalePluginClients } from './utils.js'
 
@@ -169,7 +170,7 @@ export function useManageMCPConnections(
     null,
   )
   if (
-    (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+    true /* channels enabled */ &&
     channelPermCallbacksRef.current === null
   ) {
     channelPermCallbacksRef.current = createChannelPermissionCallbacks()
@@ -177,7 +178,7 @@ export function useManageMCPConnections(
   // Store callbacks in AppState so interactiveHandler.ts can reach them via
   // ctx.toolUseContext.getAppState(). One-time set — the ref is stable.
   useEffect(() => {
-    if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
+    if (true /* channels enabled */) {
       const callbacks = channelPermCallbacksRef.current
       if (!callbacks) return
       // GrowthBook runtime gate — separate from channels so channels can
@@ -470,7 +471,7 @@ export function useManageMCPConnections(
           // Channel push: notifications/claude/channel → enqueue().
           // Gate decides whether to register the handler; connection stays
           // up either way (allowedMcpServers controls that).
-          if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
+          if (true /* channels enabled */) {
             const gate = gateChannelServer(
               client.name,
               client.capabilities,
@@ -504,6 +505,38 @@ export function useManageMCPConnections(
             switch (gate.action) {
               case 'register':
                 logMCPDebug(client.name, 'Channel notifications registered')
+
+                // Only auto-allow the minimal set of known channel reply tools,
+                // and only for official non-dev plugin channel entries. Avoid
+                // granting a server-level rule, which would implicitly trust
+                // every tool exposed by the registered server.
+                {
+                  const autoRules = computeChannelAutoAllowRules(client.name, entry)
+                  if (autoRules.length > 0) {
+                    store.setState(prev => {
+                      const sessionRules =
+                        prev.toolPermissionContext.alwaysAllowRules.session ?? []
+                      const merged = mergeAutoAllowRules(sessionRules, autoRules)
+                      if (!merged) return prev
+                      return {
+                        ...prev,
+                        toolPermissionContext: {
+                          ...prev.toolPermissionContext,
+                          alwaysAllowRules: {
+                            ...prev.toolPermissionContext.alwaysAllowRules,
+                            session: merged,
+                          },
+                        },
+                      }
+                    })
+                  } else {
+                    logMCPDebug(
+                      client.name,
+                      'Skipping channel tool auto-allow for non-plugin or dev entry',
+                    )
+                  }
+                }
+
                 client.client.setNotificationHandler(
                   ChannelMessageNotificationSchema(),
                   async notification => {
@@ -583,14 +616,15 @@ export function useManageMCPConnections(
                 // we're here with those kinds, the user asked for it.
                 if (
                   gate.kind !== 'capability' &&
-                  gate.kind !== 'session' &&
                   !channelWarnedKindsRef.current.has(gate.kind) &&
                   (gate.kind === 'marketplace' ||
                     gate.kind === 'allowlist' ||
+                    gate.kind === 'session' ||
                     entry !== undefined)
                 ) {
                   channelWarnedKindsRef.current.add(gate.kind)
                   // disabled/auth/policy get custom toast copy (shorter, actionable);
+                  // session explains --channels is needed;
                   // marketplace/allowlist reuse the gate's reason verbatim
                   // since it already names the mismatch.
                   const text =
@@ -600,7 +634,9 @@ export function useManageMCPConnections(
                         ? 'Channels require claude.ai authentication · run /login'
                         : gate.kind === 'policy'
                           ? 'Channels are not enabled for your org · have an administrator set channelsEnabled: true in managed settings'
-                          : gate.reason
+                          : gate.kind === 'session'
+                            ? `Channel server ${client.name} connected but not in --channels list · restart with --channels to enable`
+                            : gate.reason
                   addNotification({
                     key: `channels-blocked-${gate.kind}`,
                     priority: 'high',

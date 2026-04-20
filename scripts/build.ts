@@ -43,6 +43,7 @@ const featureFlags: Record<string, boolean> = {
   BUDDY: true,
   CHICAGO_MCP: false,
   COWORKER_TYPE_TELEMETRY: false,
+  KAIROS_CHANNELS: true,
 }
 
 // ── Pre-process: replace feature() calls with boolean literals ──────

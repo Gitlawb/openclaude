@@ -136,6 +136,51 @@ Advanced and source-build guides:
 - **Images**: URL and base64 image inputs for providers that support vision
 - **Provider profiles**: Guided setup plus saved `.openclaude-profile.json` support
 - **Local and remote model backends**: Cloud APIs, local servers, and Apple Silicon local inference
+- **Channel messaging**: Receive and reply to messages from Telegram, Discord, and other channel plugins
+
+## Channels (Telegram, Discord, etc.)
+
+OpenClaude can receive messages from external messaging platforms and reply through them — all inside your terminal session.
+
+### How it works
+
+Channel plugins are MCP servers that bridge a messaging platform (Telegram, Discord, iMessage) to OpenClaude. When someone sends you a message:
+
+1. The plugin forwards it to OpenClaude as a channel notification
+2. OpenClaude wraps the message in a `<channel>` tag and queues it
+3. The model sees the message, decides how to reply, and calls the plugin's reply tool
+4. The plugin sends the reply back to the messaging platform
+
+### Quick start with Telegram
+
+```bash
+openclaude
+```
+
+Inside OpenClaude:
+
+1. Run `/install-plugin telegram` to install the Telegram channel plugin
+2. Run `/telegram:configure` to set your bot token (create one via [@BotFather](https://t.me/BotFather))
+3. Restart OpenClaude or run `/reload-plugins`
+4. Send a message to your bot on Telegram — Claude will receive and reply
+
+Approved channel plugins (Telegram, Discord, iMessage) are auto-registered when they connect. No `--channels` flag needed.
+
+### Custom / development channels
+
+For custom or unsigned channel servers, use the `--channels` flag:
+
+```bash
+# Plugin from a marketplace
+openclaude --channels plugin:my-channel@my-marketplace
+
+# Local development server
+openclaude --dangerously-load-development-channels --channels server:my-local-server
+```
+
+### Permissions
+
+Channel tools (reply, send, etc.) are auto-allowed for the session when a channel server registers. This means Claude can reply to channel messages without prompting you for permission each time.
 
 ## Provider Notes
 

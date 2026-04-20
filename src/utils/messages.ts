@@ -2234,8 +2234,10 @@ export function normalizeMessagesForAPI(
 
                   // When tool search is NOT enabled, explicitly construct tool_use
                   // block with only standard API fields to avoid sending fields like
-                  // 'caller' that may be stored in sessions from tool search runs
-                    return {
+                  // 'caller' that may be stored in sessions from tool search runs.
+                  // Preserve extra_content when present (carries Gemini
+                  // thought_signature needed for subsequent turns).
+                  return {
                     type: 'tool_use' as const,
                     id: block.id,
                     name: canonicalName,
@@ -4671,7 +4673,7 @@ export function shouldShowUserMessage(
     // should see what arrived. The <channel> tag in UserTextMessage handles
     // the actual rendering.
     if (
-      (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+      true /* channels enabled */ &&
       message.origin?.kind === 'channel'
     )
       return true

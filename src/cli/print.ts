@@ -242,6 +242,7 @@ import {
   ElicitRequestSchema,
   ElicitationCompleteNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { computeChannelAutoAllowRules, mergeAutoAllowRules } from 'src/services/mcp/channelAutoAllow.js'
 import { getMcpPrefix } from 'src/services/mcp/mcpStringUtils.js'
 import {
   commandBelongsToServer,
@@ -1664,7 +1665,7 @@ function runHeadlessStreaming(
       // handler re-runs the full gate); just avoids dead buttons.
       let capabilities: { experimental?: Record<string, unknown> } | undefined
       if (
-        (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+        true /* channels enabled */ &&
         connection.type === 'connected' &&
         connection.capabilities.experimental
       ) {
@@ -1850,9 +1851,18 @@ function runHeadlessStreaming(
       : undefined
 
   // Abort the current operation when a 'now' priority message arrives.
+  // Also wake the run loop when channel messages (priority 'next') arrive
+  // while the model is idle — without this, channel notifications enqueued
+  // between runs would sit in the queue until the next SDK message.
   subscribeToCommandQueue(() => {
     if (abortController && getCommandsByMaxPriority('now').length > 0) {
       abortController.abort('interrupt')
+    }
+    // Channel messages and other 'next' priority items: kick off run() if idle.
+    // run() checks `running` and returns immediately if already active, so this
+    // is safe to call unconditionally.
+    if (!running && hasCommandsInQueue()) {
+      void run()
     }
   })
 
@@ -1992,7 +2002,7 @@ function runHeadlessStreaming(
           // (setNotificationHandler replaces, not stacks) and no-ops for
           // non-allowlisted servers (one feature-flag check).
           for (const client of allMcpClients) {
-            reregisterChannelHandlerAfterReconnect(client)
+            reregisterChannelHandlerAfterReconnect(client, setAppState)
           }
 
           const allTools = buildAllTools(appState)
@@ -3183,7 +3193,7 @@ function runHeadlessStreaming(
             }
             if (result.client.type === 'connected') {
               registerElicitationHandlers([result.client])
-              reregisterChannelHandlerAfterReconnect(result.client)
+              reregisterChannelHandlerAfterReconnect(result.client, setAppState)
               sendControlResponseSuccess(message)
             } else {
               const errorMessage =
@@ -3274,7 +3284,7 @@ function runHeadlessStreaming(
             }))
             if (result.client.type === 'connected') {
               registerElicitationHandlers([result.client])
-              reregisterChannelHandlerAfterReconnect(result.client)
+              reregisterChannelHandlerAfterReconnect(result.client, setAppState)
               sendControlResponseSuccess(message)
             } else {
               const errorMessage =
@@ -3296,6 +3306,7 @@ function runHeadlessStreaming(
               ...dynamicMcpState.clients,
             ],
             output,
+            setAppState,
           )
         } else if (message.request.subtype === 'mcp_authenticate') {
           const { serverName } = message.request
@@ -4654,16 +4665,13 @@ function handleChannelEnable(
   serverName: string,
   connectionPool: readonly MCPServerConnection[],
   output: Stream<StdoutMessage>,
+  setAppState: (f: (prev: AppState) => AppState) => void,
 ): void {
   const respondError = (error: string) =>
     output.enqueue({
       type: 'control_response',
       response: { subtype: 'error', request_id: requestId, error },
     })
-
-  if (!(feature('KAIROS') || feature('KAIROS_CHANNELS'))) {
-    return respondError('channels feature not available in this build')
-  }
 
   // Only a 'connected' client has .capabilities and .client to register the
   // handler on. The pool spread at the call site matches mcp_status.
@@ -4676,29 +4684,41 @@ function handleChannelEnable(
 
   const pluginSource = connection.config.pluginSource
   const parsed = pluginSource ? parsePluginIdentifier(pluginSource) : undefined
-  if (!parsed?.marketplace) {
-    // No pluginSource or @-less source — can never pass the {plugin,
-    // marketplace}-keyed allowlist. Short-circuit with the same reason the
-    // gate would produce.
-    return respondError(
-      `server ${serverName} is not plugin-sourced; channel_enable requires a marketplace plugin`,
-    )
-  }
 
-  const entry: ChannelEntry = {
-    kind: 'plugin',
-    name: parsed.name,
-    marketplace: parsed.marketplace,
-  }
-  // Idempotency: don't double-append on repeat enable.
+  let entry: ChannelEntry
+  let already: boolean
   const prior = getAllowedChannels()
-  const already = prior.some(
-    e =>
-      e.kind === 'plugin' &&
-      e.name === entry.name &&
-      e.marketplace === entry.marketplace,
-  )
-  if (!already) setAllowedChannels([...prior, entry])
+
+  if (parsed?.marketplace) {
+    // Plugin-sourced server → plugin-kind entry
+    entry = {
+      kind: 'plugin',
+      name: parsed.name,
+      marketplace: parsed.marketplace,
+    }
+    already = prior.some(
+      e =>
+        e.kind === 'plugin' &&
+        e.name === entry.name &&
+        e.marketplace === (entry as { marketplace: string }).marketplace,
+    )
+    if (!already) setAllowedChannels([...prior, entry])
+  } else {
+    // Non-plugin server → look for an existing server-kind entry in
+    // --channels (requires --dangerously-load-development-channels for
+    // dev entries). We never auto-create server-kind entries.
+    const existing = prior.find(
+      e => e.kind === 'server' && e.name === serverName,
+    )
+    if (!existing) {
+      return respondError(
+        `server ${serverName} is not plugin-sourced and has no --channels entry; ` +
+          `add it via --channels or --dangerously-load-development-channels`,
+      )
+    }
+    entry = existing
+    already = true // already in the list by definition
+  }
 
   const gate = gateChannelServer(
     serverName,
@@ -4712,9 +4732,40 @@ function handleChannelEnable(
   }
 
   const pluginId =
-    `${entry.name}@${entry.marketplace}` as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+    (entry.kind === 'plugin'
+      ? `${entry.name}@${entry.marketplace}`
+      : entry.name) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
   logMCPDebug(serverName, 'Channel notifications registered')
   logEvent('tengu_mcp_channel_enable', { plugin: pluginId })
+
+  // Only auto-allow the minimal set of known channel reply tools,
+  // and only for official non-dev plugin channel entries.
+  {
+    const autoRules = computeChannelAutoAllowRules(serverName, entry)
+    if (autoRules.length > 0) {
+      setAppState(prev => {
+        const sessionRules =
+          prev.toolPermissionContext.alwaysAllowRules.session ?? []
+        const merged = mergeAutoAllowRules(sessionRules, autoRules)
+        if (!merged) return prev
+        return {
+          ...prev,
+          toolPermissionContext: {
+            ...prev.toolPermissionContext,
+            alwaysAllowRules: {
+              ...prev.toolPermissionContext.alwaysAllowRules,
+              session: merged,
+            },
+          },
+        }
+      })
+    } else {
+      logMCPDebug(
+        serverName,
+        'Skipping channel tool auto-allow for non-plugin or dev entry',
+      )
+    }
+  }
 
   // Identical enqueue shape to the interactive register block in
   // useManageMCPConnections. drainCommandQueue processes it between turns —
@@ -4775,8 +4826,9 @@ function handleChannelEnable(
  */
 function reregisterChannelHandlerAfterReconnect(
   connection: MCPServerConnection,
+  setAppState: (f: (prev: AppState) => AppState) => void,
 ): void {
-  if (!(feature('KAIROS') || feature('KAIROS_CHANNELS'))) return
+  if (false /* channels always enabled */) return
   if (connection.type !== 'connected') return
 
   const gate = gateChannelServer(
@@ -4787,6 +4839,35 @@ function reregisterChannelHandlerAfterReconnect(
   if (gate.action !== 'register') return
 
   const entry = findChannelEntry(connection.name, getAllowedChannels())
+
+  // Only auto-allow the minimal set of known channel reply tools,
+  // and only for official non-dev plugin channel entries.
+  {
+    const autoRules = computeChannelAutoAllowRules(connection.name, entry)
+    if (autoRules.length > 0) {
+      setAppState(prev => {
+        const sessionRules =
+          prev.toolPermissionContext.alwaysAllowRules.session ?? []
+        const merged = mergeAutoAllowRules(sessionRules, autoRules)
+        if (!merged) return prev
+        return {
+          ...prev,
+          toolPermissionContext: {
+            ...prev.toolPermissionContext,
+            alwaysAllowRules: {
+              ...prev.toolPermissionContext.alwaysAllowRules,
+              session: merged,
+            },
+          },
+        }
+      })
+    } else {
+      logMCPDebug(
+        connection.name,
+        'Skipping channel tool auto-allow for non-plugin or dev entry',
+      )
+    }
+  }
   const pluginId =
     entry?.kind === 'plugin'
       ? (`${entry.name}@${entry.marketplace}` as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)
