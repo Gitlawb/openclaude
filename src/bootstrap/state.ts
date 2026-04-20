@@ -428,8 +428,37 @@ function getInitialState(): State {
 // AND ESPECIALLY HERE
 const STATE: State = getInitialState()
 
+/**
+ * Per-query SDK context for AsyncLocalStorage-based isolation.
+ * When set, overrides global STATE reads for the current async context.
+ */
+type SdkContext = {
+  sessionId: SessionId
+  sessionProjectDir: string | null
+  cwd: string
+  originalCwd: string
+}
+
+import { AsyncLocalStorage } from 'async_hooks'
+
+const sdkContextStorage = new AsyncLocalStorage<SdkContext>()
+
+/**
+ * Run a function with an SDK-specific context that overrides global state.
+ * All reads of sessionId, sessionProjectDir, cwd, originalCwd within fn
+ * return context-scoped values instead of global STATE.
+ */
+export function runWithSdkContext<T>(context: SdkContext, fn: () => T): T {
+  return sdkContextStorage.run(context, fn)
+}
+
+function getSdkContext(): SdkContext | undefined {
+  return sdkContextStorage.getStore()
+}
+
 export function getSessionId(): SessionId {
-  return STATE.sessionId
+  const ctx = getSdkContext()
+  return ctx?.sessionId ?? STATE.sessionId
 }
 
 export function regenerateSessionId(
@@ -494,11 +523,13 @@ export const onSessionSwitch = sessionSwitched.subscribe
  * originalCwd). See `switchSession()`.
  */
 export function getSessionProjectDir(): string | null {
-  return STATE.sessionProjectDir
+  const ctx = getSdkContext()
+  return ctx?.sessionProjectDir ?? STATE.sessionProjectDir
 }
 
 export function getOriginalCwd(): string {
-  return STATE.originalCwd
+  const ctx = getSdkContext()
+  return ctx?.originalCwd ?? STATE.originalCwd
 }
 
 /**
@@ -525,7 +556,8 @@ export function setProjectRoot(cwd: string): void {
 }
 
 export function getCwdState(): string {
-  return STATE.cwd
+  const ctx = getSdkContext()
+  return ctx?.cwd ?? STATE.cwd
 }
 
 export function setCwdState(cwd: string): void {

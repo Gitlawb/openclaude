@@ -39,17 +39,15 @@ import {
   validateUuid,
 } from '../utils/sessionStoragePortable.js'
 import { readJSONLFile } from '../utils/json.js'
-import { setCwd } from '../utils/Shell.js'
 import {
-  setOriginalCwd,
-  getCwdState,
   getOriginalCwd,
-  setCwdState,
   switchSession,
   getSessionProjectDir,
   regenerateSessionId,
   getSessionId,
+  runWithSdkContext,
 } from '../bootstrap/state.js'
+import type { SessionId } from '../types/ids.js'
 import { getAgentDefinitionsWithOverrides } from '../tools/AgentTool/loadAgentsDir.js'
 import type {
   RewindFilesResult,
@@ -149,36 +147,6 @@ function releaseEnvMutex(): void {
     if (next) next()
   } else {
     envMutationLocked = false
-  }
-}
-
-// ============================================================================
-// Cwd mutex for parallel session safety
-// ============================================================================
-
-/**
- * Global mutex for global cwd state mutations (STATE.cwd, STATE.originalCwd).
- * Prevents concurrent SDK sessions from overwriting each other's working directory.
- */
-const cwdMutexQueue: Array<() => void> = []
-let cwdMutexLocked = false
-
-function acquireCwdMutex(): Promise<void> {
-  if (!cwdMutexLocked) {
-    cwdMutexLocked = true
-    return Promise.resolve()
-  }
-  return new Promise(resolve => {
-    cwdMutexQueue.push(resolve)
-  })
-}
-
-function releaseCwdMutex(): void {
-  if (cwdMutexQueue.length > 0) {
-    const next = cwdMutexQueue.shift()
-    if (next) next()
-  } else {
-    cwdMutexLocked = false
   }
 }
 
@@ -1265,178 +1233,162 @@ class QueryImpl implements Query {
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
-    // Acquire cwd mutex for the entire query lifetime to prevent concurrent
-    // sessions from corrupting each other's working directory.
-    await acquireCwdMutex()
-    const savedCwd = getCwdState()
-    const savedOriginalCwd = getOriginalCwd()
-    setCwd(this.cwd)
-    setOriginalCwd(this.cwd)
-
     const hasEnvOverrides = this.envOverrides && Object.keys(this.envOverrides).length > 0
 
-    try {
-      // Ensure init() completes before any query runs
-      // init() applies config env vars, so we apply our overrides AFTER
-      await init()
+    const sdkContext = {
+      sessionId: this._sessionId as SessionId,
+      sessionProjectDir: this.cwd,
+      cwd: this.cwd,
+      originalCwd: this.cwd,
+    }
 
-      // Load agent definitions BEFORE creating engine context
-      // QueryEngine uses config.agents for toolUseContext.options.agentDefinitions
-      let agentDefs: { activeAgents: any[]; allAgents: any[] } = { activeAgents: [], allAgents: [] }
-      try {
-        agentDefs = await getAgentDefinitionsWithOverrides(this.cwd)
-      } catch {
-        // Agent loading failed — continue without agents
-      }
+    const self = this
+    const inner = runWithSdkContext(sdkContext, () => {
+      return (async function* (): AsyncIterator<SDKMessage> {
+        try {
+          // Ensure init() completes before any query runs
+          // init() applies config env vars, so we apply our overrides AFTER
+          await init()
 
-      // Update AppState with agents (for UI/SDK methods like supportedAgents())
-      this.appStateStore.setState(prev => ({
-        ...prev,
-        agentDefinitions: agentDefs,
-      }))
-
-      // Inject agents into the engine so AgentTool can use them
-      // QueryEngine's submitMessage reads from config.agents for toolUseContext
-      // Merge user-provided agents (from options.agents) with disk-loaded agents
-      if (this.userAgents && Object.keys(this.userAgents).length > 0) {
-        const userAgents = Object.entries(this.userAgents).map(([name, def]) => ({
-          agentType: name,
-          whenToUse: def.description ?? name,
-          getSystemPrompt: () => def.prompt ?? '',
-          ...(def.tools ? { tools: def.tools } : {}),
-          ...(def.disallowedTools ? { disallowedTools: def.disallowedTools } : {}),
-          ...(def.model ? { model: def.model } : {}),
-          ...(def.maxTurns ? { maxTurns: def.maxTurns } : {}),
-        }))
-        agentDefs.activeAgents.push(...userAgents)
-      }
-      if (agentDefs.activeAgents.length > 0) {
-        this.engine.injectAgents(agentDefs.activeAgents)
-      }
-
-      // Apply env overrides AFTER init() so they override config file env vars
-      // Hold env mutex for FULL query lifetime to prevent parallel queries
-      // from seeing each other's environment variables (SEC-1)
-      if (hasEnvOverrides) {
-        await acquireEnvMutex()
-        // Snapshot existing values for keys we'll override
-        this.envSnapshot = {}
-        for (const key of Object.keys(this.envOverrides!)) {
-          this.envSnapshot[key] = process.env[key]
-        }
-        // Apply overrides - undefined means explicit unset
-        for (const [key, value] of Object.entries(this.envOverrides!)) {
-          if (value === undefined) {
-            delete process.env[key]
-          } else {
-            process.env[key] = value
+          // Load agent definitions BEFORE creating engine context
+          let agentDefs: { activeAgents: any[]; allAgents: any[] } = { activeAgents: [], allAgents: [] }
+          try {
+            agentDefs = await getAgentDefinitionsWithOverrides(self.cwd)
+          } catch {
+            // Agent loading failed — continue without agents
           }
-        }
-      }
 
-      // Connect MCP servers if provided
-      // This must happen before session loading so MCP tools are available
-      if (this.mcpServers && Object.keys(this.mcpServers).length > 0) {
-        const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(this.mcpServers)
-        // Update engine config with MCP clients and merge tools
-        if (mcpClients.length > 0) {
-          this.engine.config.mcpClients = mcpClients
-          // Merge MCP tools with existing tools
-          const allTools = getTools(this.permissionContext)
-          for (const mcpTool of mcpTools) {
-            if (!allTools.some(t => t.name === mcpTool.name)) {
-              allTools.push(mcpTool)
+          // Update AppState with agents
+          self.appStateStore.setState(prev => ({
+            ...prev,
+            agentDefinitions: agentDefs,
+          }))
+
+          // Inject agents into the engine
+          if (self.userAgents && Object.keys(self.userAgents).length > 0) {
+            const userAgents = Object.entries(self.userAgents).map(([name, def]) => ({
+              agentType: name,
+              whenToUse: def.description ?? name,
+              getSystemPrompt: () => def.prompt ?? '',
+              ...(def.tools ? { tools: def.tools } : {}),
+              ...(def.disallowedTools ? { disallowedTools: def.disallowedTools } : {}),
+              ...(def.model ? { model: def.model } : {}),
+              ...(def.maxTurns ? { maxTurns: def.maxTurns } : {}),
+            }))
+            agentDefs.activeAgents.push(...userAgents)
+          }
+          if (agentDefs.activeAgents.length > 0) {
+            self.engine.injectAgents(agentDefs.activeAgents)
+          }
+
+          // Apply env overrides AFTER init() with full-duration mutex (SEC-1)
+          if (hasEnvOverrides) {
+            await acquireEnvMutex()
+            self.envSnapshot = {}
+            for (const key of Object.keys(self.envOverrides!)) {
+              self.envSnapshot[key] = process.env[key]
+            }
+            for (const [key, value] of Object.entries(self.envOverrides!)) {
+              if (value === undefined) {
+                delete process.env[key]
+              } else {
+                process.env[key] = value
+              }
             }
           }
-          this.engine.updateTools(allTools)
-        }
-      }
 
-      // Handle continue: if continue=true and no sessionId, find last session for cwd
-      let effectiveSessionId = this._sessionId
+          try {
+            // Connect MCP servers if provided
+            if (self.mcpServers && Object.keys(self.mcpServers).length > 0) {
+              const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
+              if (mcpClients.length > 0) {
+                self.engine.config.mcpClients = mcpClients
+                const allTools = getTools(self.permissionContext)
+                for (const mcpTool of mcpTools) {
+                  if (!allTools.some(t => t.name === mcpTool.name)) {
+                    allTools.push(mcpTool)
+                  }
+                }
+                self.engine.updateTools(allTools)
+              }
+            }
 
-      if (this.continueSession && !this._sessionId) {
-        const sessions = await listSessions({ dir: this.cwd, limit: 1 })
-        if (sessions.length > 0) {
-          effectiveSessionId = sessions[0].session_id
-          // Load the session's messages into the engine so conversation resumes
-          const loaded = await loadAndInjectSessionMessages(effectiveSessionId, this.cwd, this.engine, this.resumeSessionAt)
-          if (!loaded) {
-            effectiveSessionId = undefined
+            // Handle continue/fork/resume session resolution
+            let effectiveSessionId = self._sessionId
+
+            if (self.continueSession && !self._sessionId) {
+              const sessions = await listSessions({ dir: self.cwd, limit: 1 })
+              if (sessions.length > 0) {
+                effectiveSessionId = sessions[0].session_id
+                const loaded = await loadAndInjectSessionMessages(effectiveSessionId, self.cwd, self.engine, self.resumeSessionAt)
+                if (!loaded) {
+                  effectiveSessionId = undefined
+                }
+              }
+            } else if (self.shouldFork && self._sessionId) {
+              try {
+                const forkResult = await forkSession(self._sessionId, { dir: self.cwd })
+                effectiveSessionId = forkResult.session_id
+                const loaded = await loadAndInjectSessionMessages(effectiveSessionId, self.cwd, self.engine, self.resumeSessionAt)
+                if (!loaded) {
+                  effectiveSessionId = undefined
+                }
+              } catch {
+                effectiveSessionId = undefined
+              }
+            } else if (self._sessionId) {
+              const loaded = await loadAndInjectSessionMessages(self._sessionId, self.cwd, self.engine, self.resumeSessionAt)
+              if (!loaded) {
+                effectiveSessionId = undefined
+              }
+            }
+
+            // Switch session for transcript writes
+            if (effectiveSessionId) {
+              switchSession(effectiveSessionId as SessionId, self.cwd)
+            } else {
+              regenerateSessionId()
+              switchSession(getSessionId(), self.cwd)
+            }
+
+            // Submit to engine
+            if (typeof self.prompt === 'string') {
+              for await (const engineMsg of self.engine.submitMessage(self.prompt)) {
+                yield engineMsg
+              }
+            } else {
+              for await (const userMessage of self.prompt) {
+                if (self.abortController.signal.aborted) break
+                const content = extractPromptFromUserMessage(userMessage)
+                for await (const engineMsg of self.engine.submitMessage(content, { uuid: userMessage.uuid })) {
+                  yield engineMsg
+                }
+              }
+            }
+          } finally {
+            // Restore env + release mutex (SEC-1)
+            if (self.envSnapshot) {
+              for (const key of Object.keys(self.envSnapshot)) {
+                const originalValue = self.envSnapshot[key]
+                if (originalValue === undefined) {
+                  delete process.env[key]
+                } else {
+                  process.env[key] = originalValue
+                }
+              }
+              self.envSnapshot = undefined
+            }
+            if (hasEnvOverrides) {
+              releaseEnvMutex()
+            }
           }
+        } catch (outerError) {
+          throw outerError
         }
-      } else if (this.shouldFork && this._sessionId) {
-        // Handle fork: if sessionId and fork=true (or forkSession=true), fork the session first
-        // If the session file doesn't exist (e.g., first query didn't persist),
-        // just start a new session instead of throwing an error
-        try {
-          const forkResult = await forkSession(this._sessionId, { dir: this.cwd })
-          effectiveSessionId = forkResult.session_id
+      })()
+    })
 
-          // Load the forked session's messages and inject them into the engine
-          const loaded = await loadAndInjectSessionMessages(effectiveSessionId, this.cwd, this.engine, this.resumeSessionAt)
-          if (!loaded) {
-            effectiveSessionId = undefined
-          }
-        } catch {
-          // Session not found or other fork error - just start fresh
-          effectiveSessionId = undefined
-        }
-      } else if (this._sessionId) {
-        // Simple resume: sessionId set without fork/continue — load messages directly
-        // Supports rollback via resumeSessionAt (parentUuid chain walking)
-        const loaded = await loadAndInjectSessionMessages(this._sessionId, this.cwd, this.engine, this.resumeSessionAt)
-        if (!loaded) {
-          effectiveSessionId = undefined
-        }
-      }
-
-      // CRITICAL: Switch global session state before submitting to engine
-      // This ensures messages emit correct session_id and transcript writes to correct file
-      if (effectiveSessionId) {
-        switchSession(effectiveSessionId, this.cwd)
-      } else {
-        // Fresh query — allocate a new session to avoid colliding with
-        // other concurrent queries in the same process
-        regenerateSessionId()
-        switchSession(getSessionId(), this.cwd)
-      }
-
-      if (typeof this.prompt === 'string') {
-        for await (const engineMsg of this.engine.submitMessage(this.prompt)) {
-          yield engineMsg
-        }
-      } else {
-        for await (const userMessage of this.prompt) {
-          if (this.abortController.signal.aborted) break
-          const content = extractPromptFromUserMessage(userMessage)
-          for await (const engineMsg of this.engine.submitMessage(content, { uuid: userMessage.uuid })) {
-            yield engineMsg
-          }
-        }
-      }
-    } finally {
-      // Restore env + release mutex (single acquisition covers set→run→restore)
-      if (this.envSnapshot) {
-        for (const key of Object.keys(this.envSnapshot)) {
-          const originalValue = this.envSnapshot[key]
-          if (originalValue === undefined) {
-            delete process.env[key]
-          } else {
-            process.env[key] = originalValue
-          }
-        }
-        this.envSnapshot = undefined
-      }
-      if (hasEnvOverrides) {
-        releaseEnvMutex()
-      }
-
-      // Restore cwd state and release mutex
-      setCwdState(savedCwd)
-      setOriginalCwd(savedOriginalCwd)
-      releaseCwdMutex()
-    }
+    yield* inner
   }
 
   async setModel(model: string): Promise<void> {
@@ -1968,65 +1920,63 @@ class SDKSessionImpl implements SDKSession {
   }
 
   async *sendMessage(content: string): AsyncIterable<SDKMessage> {
-    // Acquire cwd mutex for the duration of this message to prevent
-    // concurrent sessions from overwriting each other's cwd.
-    await acquireCwdMutex()
-    const savedCwd = getCwdState()
-    const savedOriginalCwd = getOriginalCwd()
-    setCwd(this.options.cwd)
-    setOriginalCwd(this.options.cwd)
-
-    try {
-      await init()
-
-      // Load agent definitions once (not on every sendMessage call)
-      if (!this.agentsLoaded) {
-        try {
-          const agentDefs = await getAgentDefinitionsWithOverrides(this.options.cwd)
-          this.appStateStore.setState(prev => ({
-            ...prev,
-            agentDefinitions: agentDefs,
-          }))
-          if (agentDefs.activeAgents.length > 0) {
-            this.engine.injectAgents(agentDefs.activeAgents)
-          }
-        } catch {
-          // Agent loading failed — continue without agents
-        }
-        this.agentsLoaded = true
-      }
-
-      // Connect MCP servers once (lazy, on first message)
-      if (!this.mcpConnected && this.mcpServers && Object.keys(this.mcpServers).length > 0) {
-        const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(this.mcpServers)
-        if (mcpClients.length > 0) {
-          this.engine.config.mcpClients = mcpClients
-          const permissionContext = (this.appStateStore.getState() as any).toolPermissionContext as ToolPermissionContext
-          const allTools = getTools(permissionContext)
-          for (const mcpTool of mcpTools) {
-            if (!allTools.some(t => t.name === mcpTool.name)) {
-              allTools.push(mcpTool)
-            }
-          }
-          this.engine.updateTools(allTools)
-        }
-        this.mcpConnected = true
-      }
-
-      // CRITICAL: Switch global session state before submitting to engine
-      // This ensures messages emit correct session_id and transcript writes to correct file
-      const projectDir = getSessionProjectDir() || getOriginalCwd()
-      switchSession(this._sessionId, projectDir)
-
-      for await (const engineMsg of this.engine.submitMessage(content)) {
-        yield engineMsg
-      }
-    } finally {
-      // Restore cwd and release mutex
-      setCwdState(savedCwd)
-      setOriginalCwd(savedOriginalCwd)
-      releaseCwdMutex()
+    const sdkContext = {
+      sessionId: this._sessionId as SessionId,
+      sessionProjectDir: getSessionProjectDir() ?? getOriginalCwd(),
+      cwd: this.options.cwd,
+      originalCwd: this.options.cwd,
     }
+
+    const self = this
+    const inner = runWithSdkContext(sdkContext, () => {
+      return (async function* (): AsyncIterator<SDKMessage> {
+        await init()
+
+        // Load agent definitions once (not on every sendMessage call)
+        if (!self.agentsLoaded) {
+          try {
+            const agentDefs = await getAgentDefinitionsWithOverrides(self.options.cwd)
+            self.appStateStore.setState(prev => ({
+              ...prev,
+              agentDefinitions: agentDefs,
+            }))
+            if (agentDefs.activeAgents.length > 0) {
+              self.engine.injectAgents(agentDefs.activeAgents)
+            }
+          } catch {
+            // Agent loading failed — continue without agents
+          }
+          self.agentsLoaded = true
+        }
+
+        // Connect MCP servers once (lazy, on first message)
+        if (!self.mcpConnected && self.mcpServers && Object.keys(self.mcpServers).length > 0) {
+          const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
+          if (mcpClients.length > 0) {
+            self.engine.config.mcpClients = mcpClients
+            const permissionContext = (self.appStateStore.getState() as any).toolPermissionContext as ToolPermissionContext
+            const allTools = getTools(permissionContext)
+            for (const mcpTool of mcpTools) {
+              if (!allTools.some(t => t.name === mcpTool.name)) {
+                allTools.push(mcpTool)
+              }
+            }
+            self.engine.updateTools(allTools)
+          }
+          self.mcpConnected = true
+        }
+
+        // Switch session for transcript writes
+        const projectDir = getSessionProjectDir() ?? getOriginalCwd()
+        switchSession(self._sessionId as SessionId, projectDir)
+
+        for await (const engineMsg of self.engine.submitMessage(content)) {
+          yield engineMsg
+        }
+      })()
+    })
+
+    yield* inner
   }
 
   getMessages(): SDKMessage[] {
