@@ -86,14 +86,16 @@ import type { ThinkingConfig } from '../utils/thinking.js'
 /**
  * One-time check that detects TUI/CLI component stubs leaking into the SDK
  * runtime. The esbuild sdk-missing-stub plugin marks every stub with
- * `__stub: true`. If a core SDK dependency resolved to such a stub, it means
- * a TUI import leaked through — fail loudly instead of silently nooping.
+ * `__stub: true`. We check core SDK modules that should NEVER be stubs.
+ * If any resolved to a stub, it means a TUI dependency leaked through.
  */
 function detectStubLeaks(): void {
-  // List of modules that are imported by this file and must NOT be stubs.
-  // We check the imported objects for the __stub marker.
   const criticalImports: Array<{ name: string; mod: Record<string, unknown> }> = [
+    // QueryEngine is the core SDK engine — must never be a stub
     { name: 'QueryEngine', mod: QueryEngine as unknown as Record<string, unknown> },
+    // These are imported by this file and must be real modules, not stubs
+    { name: 'getTools', mod: getTools as unknown as Record<string, unknown> },
+    { name: 'init', mod: init as unknown as Record<string, unknown> },
   ]
 
   for (const { name, mod } of criticalImports) {
