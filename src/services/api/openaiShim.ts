@@ -1124,6 +1124,8 @@ async function* openaiStreamToAnthropic(
     reader.releaseLock()
   }
 
+  // flushStreamBuffer is a no-op kept for API compatibility
+  // (returns '' so this block never executes)
   const remaining = flushStreamBuffer(streamState)
   if (remaining) {
     yield {
@@ -1600,12 +1602,17 @@ class OpenAIShimMessages {
       if (response.ok) {
         let tokensIn = 0
         let tokensOut = 0
-        try {
-          const clone = response.clone()
-          const data = await clone.json()
-          tokensIn = data.usage?.prompt_tokens ?? 0
-          tokensOut = data.usage?.completion_tokens ?? 0
-        } catch { /* ignore */ }
+        // Skip clone() for streaming responses - it blocks until full body is received,
+        // defeating the purpose of streaming. Usage data is already sent via
+        // stream_options: { include_usage: true } and can be extracted from the stream.
+        if (!params.stream) {
+          try {
+            const clone = response.clone()
+            const data = await clone.json()
+            tokensIn = data.usage?.prompt_tokens ?? 0
+            tokensOut = data.usage?.completion_tokens ?? 0
+          } catch { /* ignore */ }
+        }
         logApiCallEnd(correlationId, startTime, request.resolvedModel, 'success', tokensIn, tokensOut, false)
         return response
       }
