@@ -449,12 +449,63 @@ export function tool<Schema = any>(
   },
 ): SdkMcpToolDefinition<Schema>
 
-export function createSdkMcpServer(options: {
-  name: string
-  version?: string
-  tools?: SdkMcpToolDefinition[]
-}): {
-  name: string
-  version: string | undefined
-  tools: SdkMcpToolDefinition[]
+/**
+ * MCP server transport configuration types.
+ * Matches McpServerConfigForProcessTransport from coreTypes.generated.ts.
+ */
+export type SdkMcpStdioConfig = {
+  type?: "stdio"
+  command: string
+  args?: string[]
+  env?: Record<string, string>
 }
+
+export type SdkMcpSSEConfig = {
+  type: "sse"
+  url: string
+  headers?: Record<string, string>
+}
+
+export type SdkMcpHttpConfig = {
+  type: "http"
+  url: string
+  headers?: Record<string, string>
+}
+
+export type SdkMcpSdkConfig = {
+  type: "sdk"
+  name: string
+}
+
+export type SdkMcpServerConfig = SdkMcpStdioConfig | SdkMcpSSEConfig | SdkMcpHttpConfig | SdkMcpSdkConfig
+
+/**
+ * Scoped MCP server config with session scope.
+ * Returned by createSdkMcpServer() for use with mcpServers option.
+ */
+export type SdkScopedMcpServerConfig = SdkMcpServerConfig & {
+  scope: "session"
+}
+
+/**
+ * Wraps an MCP server configuration for use with the SDK.
+ * Adds the 'session' scope marker so the SDK knows this server
+ * should be connected per-session (not globally).
+ *
+ * @param config - MCP server config (stdio, sse, http, or sdk type)
+ * @returns Scoped config with scope: 'session' added
+ *
+ * @example
+ * ```typescript
+ * const server = createSdkMcpServer({
+ *   type: 'stdio',
+ *   command: 'npx',
+ *   args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+ * })
+ * const session = unstable_v2_createSession({
+ *   cwd: '/my/project',
+ *   mcpServers: { 'fs': server },
+ * })
+ * ```
+ */
+export function createSdkMcpServer(config: SdkMcpServerConfig): SdkScopedMcpServerConfig
