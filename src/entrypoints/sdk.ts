@@ -748,6 +748,10 @@ export type QueryOptions = {
   /**
    * Callback invoked before each tool use. Return `{ behavior: 'allow' }` to
    * permit the call or `{ behavior: 'deny', message?: string }` to reject it.
+   *
+   * **Secure-by-default**: If neither `canUseTool` nor `onPermissionRequest`
+   * is provided, ALL tool uses are denied. You MUST provide at least one of
+   * these callbacks to allow tool execution.
    */
   canUseTool?: (
     name: string,
@@ -1071,9 +1075,14 @@ async function connectSdkMcpServers(
 let warnedDefaultPermissions = false
 
 /**
- * Default canUseTool that allows all tool uses. Permission filtering is
- * already handled at the tool-list level by getTools(permissionContext),
- * and bypass-permissions mode is reflected in the permission context itself.
+ * Default canUseTool that DENIES all tool uses when no explicit
+ * canUseTool or onPermissionRequest callback is provided.
+ *
+ * This is the secure-by-default behavior: SDK consumers must explicitly
+ * provide a permission callback to allow tool execution. Permission modes
+ * like 'bypass-permissions' still work because tool filtering happens at
+ * the tool-list level via getTools(permissionContext) before this function
+ * is ever reached.
  */
 function createDefaultCanUseTool(
   _permissionContext: ToolPermissionContext,
@@ -1082,17 +1091,17 @@ function createDefaultCanUseTool(
     warnedDefaultPermissions = true
     console.warn(
       '[SDK] No canUseTool or onPermissionRequest callback provided. ' +
-      'All tool uses will be automatically allowed. ' +
-      'Provide canUseTool in query options to control tool permissions.',
+      'All tool uses will be DENIED by default. ' +
+      'Provide canUseTool in query options to allow specific tools.',
     )
   }
-  // Return a simple implementation that allows all tool uses.
-  // Permission filtering is already done at the tool-list level by
-  // getTools(permissionContext), and the bypass-permissions mode is
-  // reflected in the permission context itself.
-  return async (_tool, input, _toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {
+  return async (tool, input, _toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {
     if (forceDecision) return forceDecision
-    return { behavior: 'allow' as const, updatedInput: input }
+    return {
+      behavior: 'deny' as const,
+      message: `SDK: Tool "${tool.name}" denied — no canUseTool or onPermissionRequest callback provided. Pass canUseTool in options to control tool permissions.`,
+      decisionReason: { type: 'mode' as const, mode: 'default' },
+    }
   }
 }
 
@@ -1817,6 +1826,10 @@ export type SDKSessionOptions = {
   /**
    * Callback invoked before each tool use. Return `{ behavior: 'allow' }` to
    * permit the call or `{ behavior: 'deny', message?: string }` to reject it.
+   *
+   * **Secure-by-default**: If neither `canUseTool` nor `onPermissionRequest`
+   * is provided, ALL tool uses are denied. You MUST provide at least one of
+   * these callbacks to allow tool execution.
    */
   canUseTool?: (name: string, input: unknown, options?: { toolUseID?: string }) => Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: unknown }>
   /** MCP server configurations for this session. */

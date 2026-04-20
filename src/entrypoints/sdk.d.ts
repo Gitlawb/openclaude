@@ -281,6 +281,14 @@ export type QueryOptions = {
   }
   /** Environment variables to apply during query execution. Overrides process.env. Takes precedence over settings.env. */
   env?: Record<string, string | undefined>
+  /**
+   * Callback invoked before each tool use. Return `{ behavior: 'allow' }` to
+   * permit the call or `{ behavior: 'deny', message?: string }` to reject it.
+   *
+   * **Secure-by-default**: If neither `canUseTool` nor `onPermissionRequest`
+   * is provided, ALL tool uses are denied. You MUST provide at least one of
+   * these callbacks to allow tool execution.
+   */
   canUseTool?: (
     name: string,
     input: unknown,
@@ -334,6 +342,14 @@ export type SDKSessionOptions = {
   model?: string
   permissionMode?: QueryPermissionMode
   abortController?: AbortController
+  /**
+   * Callback invoked before each tool use. Return `{ behavior: 'allow' }` to
+   * permit the call or `{ behavior: 'deny', message?: string }` to reject it.
+   *
+   * **Secure-by-default**: If neither `canUseTool` nor `onPermissionRequest`
+   * is provided, ALL tool uses are denied. You MUST provide at least one of
+   * these callbacks to allow tool execution.
+   */
   canUseTool?: (
     name: string,
     input: unknown,

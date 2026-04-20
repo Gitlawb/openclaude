@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### ⚠️ Breaking Changes
+
+* **SDK: Secure-by-default tool permissions** — When no `canUseTool` or `onPermissionRequest` callback is provided, the SDK now **denies all tool uses** instead of allowing them. Previously, omitting these callbacks would silently allow every tool execution. To restore tool execution, provide a `canUseTool` callback that returns `{ behavior: 'allow' }` for permitted tools, or use `onPermissionRequest` + `respondToPermission()` for async host-side resolution. Permission modes like `'bypass-permissions'` continue to work as before (they filter tools at the list level before the callback is reached).
+
 ## [0.4.0](https://github.com/Gitlawb/openclaude/compare/v0.3.0...v0.4.0) (2026-04-17)
 
 
