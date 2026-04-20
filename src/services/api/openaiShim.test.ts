@@ -2931,6 +2931,204 @@ test('classifies chat-completions endpoint 404 failures with endpoint_not_found 
     }),
   ).rejects.toThrow('openai_category=endpoint_not_found')
 })
+test('self-heals localhost resolution failures by retrying local loopback base URL', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+
+  const requestUrls: string[] = []
+  globalThis.fetch = (async (input, _init) => {
+    const url = typeof input === 'string' ? input : input.url
+    requestUrls.push(url)
+
+    if (url.includes('localhost')) {
+      const error = Object.assign(new TypeError('fetch failed'), {
+        code: 'ENOTFOUND',
+      })
+      throw error
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'hello from loopback',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 4,
+          completion_tokens: 3,
+          total_tokens: 7,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
+  expect(requestUrls[0]).toBe('http://localhost:11434/v1/chat/completions')
+  expect(requestUrls).toContain('http://127.0.0.1:11434/v1/chat/completions')
+})
+
+test('self-heals local endpoint_not_found by retrying with /v1 base URL', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434'
+
+  const requestUrls: string[] = []
+  globalThis.fetch = (async (input, _init) => {
+    const url = typeof input === 'string' ? input : input.url
+    requestUrls.push(url)
+
+    if (url === 'http://localhost:11434/chat/completions') {
+      return new Response('Not Found', {
+        status: 404,
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+      })
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'hello from /v1',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 2,
+          total_tokens: 7,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
+  expect(requestUrls).toEqual([
+    'http://localhost:11434/chat/completions',
+    'http://localhost:11434/v1/chat/completions',
+  ])
+})
+
+test('self-heals tool-call incompatibility by retrying local Ollama requests without tools', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    const requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    requestBodies.push(requestBody)
+
+    if (requestBodies.length === 1) {
+      return new Response('tool_calls are not supported', {
+        status: 400,
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+      })
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'fallback without tools',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 4,
+          total_tokens: 12,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read a file',
+          input_schema: {
+            type: 'object',
+            properties: {
+              filePath: { type: 'string' },
+            },
+            required: ['filePath'],
+          },
+        },
+      ],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
+  expect(requestBodies).toHaveLength(2)
+  expect(Array.isArray(requestBodies[0]?.tools)).toBe(true)
+  expect(requestBodies[0]?.tool_choice).toBeUndefined()
+  expect(
+    requestBodies[1]?.tools === undefined ||
+      (Array.isArray(requestBodies[1]?.tools) && requestBodies[1]?.tools.length === 0),
+  ).toBe(true)
+  expect(requestBodies[1]?.tool_choice).toBeUndefined()
+})
 
 test('preserves valid tool_result and drops orphan tool_result', async () => {
   let requestBody: Record<string, unknown> | undefined
@@ -2999,7 +3197,7 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
           {
             role: 'user',
             content: 'What happened?',
-          }
+          },
         ],
       },
     ],
@@ -3008,14 +3206,14 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
   })
 
   const messages = requestBody?.messages as Array<Record<string, unknown>>
-  
+
   // Should have: system, user, assistant (tool_use), tool (valid_call_1), user
   // Should NOT have: tool (orphan_call_2)
-  
+
   const toolMessages = messages.filter(m => m.role === 'tool')
   expect(toolMessages.length).toBe(1)
   expect(toolMessages[0].tool_call_id).toBe('valid_call_1')
-  
+
   const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
   expect(orphanMessage).toBeUndefined()
 })

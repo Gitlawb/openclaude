@@ -48,10 +48,12 @@ import {
 } from './codexShim.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
+  getLocalProviderRetryBaseUrls,
+  getGithubEndpointType,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
-  getGithubEndpointType,
+  shouldAttemptLocalToollessRetry,
 } from './providerConfig.js'
 import {
   buildOpenAICompatibilityErrorMessage,
@@ -1427,48 +1429,95 @@ class OpenAIShimMessages {
       headers['X-GitHub-Api-Version'] = '2022-11-28'
     }
 
-    // Build the chat completions URL
-    // Azure Cognitive Services / Azure OpenAI require a deployment-specific path
-    // and an api-version query parameter.
-    // Standard format: {base}/openai/deployments/{model}/chat/completions?api-version={version}
-    // Non-Azure: {base}/chat/completions
-    let chatCompletionsUrl: string
-    if (isAzure) {
-      const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
-      const deployment = request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o'
-      // If base URL already contains /deployments/, use it as-is with api-version
-      if (/\/deployments\//i.test(request.baseUrl)) {
-        const base = request.baseUrl.replace(/\/+$/, '')
-        chatCompletionsUrl = `${base}/chat/completions?api-version=${apiVersion}`
-      } else {
-        // Strip trailing /v1 or /openai/v1 if present, then build Azure path
-        const base = request.baseUrl.replace(/\/(openai\/)?v1\/?$/, '').replace(/\/+$/, '')
-        chatCompletionsUrl = `${base}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
+    const buildChatCompletionsUrl = (baseUrl: string): string => {
+      // Azure Cognitive Services / Azure OpenAI require a deployment-specific
+      // path and an api-version query parameter.
+      if (isAzure) {
+        const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
+        const deployment = request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o'
+
+        // If base URL already contains /deployments/, use it as-is with api-version.
+        if (/\/deployments\//i.test(baseUrl)) {
+          const normalizedBase = baseUrl.replace(/\/+$/, '')
+          return `${normalizedBase}/chat/completions?api-version=${apiVersion}`
+        }
+
+        // Strip trailing /v1 or /openai/v1 if present, then build Azure path.
+        const normalizedBase = baseUrl
+          .replace(/\/(openai\/)?v1\/?$/, '')
+          .replace(/\/+$/, '')
+
+        return `${normalizedBase}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`
       }
-    } else {
-      chatCompletionsUrl = `${request.baseUrl}/chat/completions`
+
+      return `${baseUrl}/chat/completions`
     }
 
-    const fetchInit = {
+    const localRetryBaseUrls = isLocal
+      ? getLocalProviderRetryBaseUrls(request.baseUrl)
+      : []
+
+    let activeBaseUrl = request.baseUrl
+    let chatCompletionsUrl = buildChatCompletionsUrl(activeBaseUrl)
+    const attemptedLocalBaseUrls = new Set<string>([activeBaseUrl])
+    let didRetryWithoutTools = false
+
+    const promoteNextLocalBaseUrl = (
+      reason: 'endpoint_not_found' | 'localhost_resolution_failed',
+    ): boolean => {
+      for (const candidateBaseUrl of localRetryBaseUrls) {
+        if (attemptedLocalBaseUrls.has(candidateBaseUrl)) {
+          continue
+        }
+
+        const previousUrl = chatCompletionsUrl
+        attemptedLocalBaseUrls.add(candidateBaseUrl)
+        activeBaseUrl = candidateBaseUrl
+        chatCompletionsUrl = buildChatCompletionsUrl(activeBaseUrl)
+
+        logForDebugging(
+          `[OpenAIShim] self-heal retry reason=${reason} method=POST from=${redactUrlForDiagnostics(previousUrl)} to=${redactUrlForDiagnostics(chatCompletionsUrl)} model=${request.resolvedModel}`,
+          { level: 'warn' },
+        )
+
+        return true
+      }
+
+      return false
+    }
+
+    let serializedBody = JSON.stringify(body)
+
+    const refreshSerializedBody = (): void => {
+      serializedBody = JSON.stringify(body)
+    }
+
+    const buildFetchInit = () => ({
       method: 'POST' as const,
       headers,
-      body: JSON.stringify(body),
+      body: serializedBody,
       signal: options?.signal,
-    }
+    })
 
-    const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
+    const maxSelfHealAttempts = isLocal
+      ? localRetryBaseUrls.length + 1
+      : 0
+    const maxAttempts = (isGithub ? GITHUB_429_MAX_RETRIES : 1) + maxSelfHealAttempts
 
     const throwClassifiedTransportError = (
       error: unknown,
       requestUrl: string,
+      preclassifiedFailure?: ReturnType<typeof classifyOpenAINetworkFailure>,
     ): never => {
       if (options?.signal?.aborted) {
         throw error
       }
 
-      const failure = classifyOpenAINetworkFailure(error, {
-        url: requestUrl,
-      })
+      const failure =
+        preclassifiedFailure ??
+        classifyOpenAINetworkFailure(error, {
+          url: requestUrl,
+        })
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
       const safeMessage =
         redactSecretValueForDisplay(
@@ -1499,11 +1548,14 @@ class OpenAIShimMessages {
       responseHeaders: Headers,
       requestUrl: string,
       rateHint = '',
+      preclassifiedFailure?: ReturnType<typeof classifyOpenAIHttpFailure>,
     ): never => {
-      const failure = classifyOpenAIHttpFailure({
-        status,
-        body: errorBody,
-      })
+      const failure =
+        preclassifiedFailure ??
+        classifyOpenAIHttpFailure({
+          status,
+          body: errorBody,
+        })
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
 
       logForDebugging(
@@ -1525,10 +1577,13 @@ class OpenAIShimMessages {
     let response: Response | undefined
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        response = await fetchWithProxyRetry(chatCompletionsUrl, fetchInit)
+        response = await fetchWithProxyRetry(
+          chatCompletionsUrl,
+          buildFetchInit(),
+        )
       } catch (error) {
         const isAbortError =
-          fetchInit.signal?.aborted === true ||
+          options?.signal?.aborted === true ||
           (typeof DOMException !== 'undefined' &&
             error instanceof DOMException &&
             error.name === 'AbortError') ||
@@ -1541,7 +1596,19 @@ class OpenAIShimMessages {
           throw error
         }
 
-        throwClassifiedTransportError(error, chatCompletionsUrl)
+        const failure = classifyOpenAINetworkFailure(error, {
+          url: chatCompletionsUrl,
+        })
+
+        if (
+          isLocal &&
+          failure.category === 'localhost_resolution_failed' &&
+          promoteNextLocalBaseUrl('localhost_resolution_failed')
+        ) {
+          continue
+        }
+
+        throwClassifiedTransportError(error, chatCompletionsUrl, failure)
       }
 
       if (response.ok) {
@@ -1633,6 +1700,10 @@ class OpenAIShimMessages {
             return responsesResponse
           }
           const responsesErrorBody = await responsesResponse.text().catch(() => 'unknown error')
+          const responsesFailure = classifyOpenAIHttpFailure({
+            status: responsesResponse.status,
+            body: responsesErrorBody,
+          })
           let responsesErrorResponse: object | undefined
           try { responsesErrorResponse = JSON.parse(responsesErrorBody) } catch { /* raw text */ }
           throwClassifiedHttpError(
@@ -1641,8 +1712,47 @@ class OpenAIShimMessages {
             responsesErrorResponse,
             responsesResponse.headers,
             responsesUrl,
+            '',
+            responsesFailure,
           )
         }
+      }
+
+      const failure = classifyOpenAIHttpFailure({
+        status: response.status,
+        body: errorBody,
+      })
+
+      if (
+        isLocal &&
+        failure.category === 'endpoint_not_found' &&
+        promoteNextLocalBaseUrl('endpoint_not_found')
+      ) {
+        continue
+      }
+
+      const hasToolsPayload =
+        Array.isArray(body.tools) &&
+        body.tools.length > 0
+
+      if (
+        !didRetryWithoutTools &&
+        failure.category === 'tool_call_incompatible' &&
+        shouldAttemptLocalToollessRetry({
+          baseUrl: activeBaseUrl,
+          hasTools: hasToolsPayload,
+        })
+      ) {
+        didRetryWithoutTools = true
+        delete body.tools
+        delete body.tool_choice
+        refreshSerializedBody()
+
+        logForDebugging(
+          `[OpenAIShim] self-heal retry reason=tool_call_incompatible mode=toolless method=POST url=${redactUrlForDiagnostics(chatCompletionsUrl)} model=${request.resolvedModel}`,
+          { level: 'warn' },
+        )
+        continue
       }
 
       let errorResponse: object | undefined
@@ -1654,6 +1764,7 @@ class OpenAIShimMessages {
         response.headers as unknown as Headers,
         chatCompletionsUrl,
         rateHint,
+        failure,
       )
     }
 

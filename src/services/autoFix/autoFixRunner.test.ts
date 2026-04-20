@@ -70,7 +70,7 @@ describe('runAutoFixCheck', () => {
 
   test('handles timeout gracefully', async () => {
     const result = await runAutoFixCheck({
-      lint: 'sleep 10',
+      lint: 'node -e "setTimeout(() => {}, 10000)"',
       timeout: 100,
 
       cwd: '/tmp',
