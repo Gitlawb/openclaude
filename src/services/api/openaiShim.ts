@@ -609,7 +609,10 @@ function convertTools(
         function: {
           name: t.name,
           description: t.description ?? '',
-          parameters: normalizeSchemaForOpenAI(schema, !isGemini),
+          parameters: normalizeSchemaForOpenAI(
+            schema,
+            !isGemini && !isEnvTruthy(process.env.OPENCLAUDE_DISABLE_STRICT_TOOLS),
+          ),
         },
       }
     })
@@ -1724,6 +1727,7 @@ class OpenAIShimMessages {
           } catch (error) {
             throwClassifiedTransportError(error, responsesUrl)
           }
+
           if (responsesResponse.ok) {
             return responsesResponse
           }

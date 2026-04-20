@@ -65,10 +65,11 @@ export async function processBashCommand(inputString: string, precedingInputBloc
       });
     };
 
-    // User-initiated `!` commands run outside sandbox. Both shell tools honor
-    // dangerouslyDisableSandbox (checked against areUnsandboxedCommandsAllowed()
-    // in shouldUseSandbox.ts). PS sandbox is Linux/macOS/WSL2 only — on Windows
-    // native, shouldUseSandbox() returns false regardless (unsupported platform).
+    // User-initiated `!` commands run outside sandbox when policy allows it.
+    // Bash requires an internal approval marker so model-controlled tool input
+    // cannot disable sandboxing by setting dangerouslyDisableSandbox directly.
+    // PS sandbox is Linux/macOS/WSL2 only — on Windows native, shouldUseSandbox()
+    // returns false regardless (unsupported platform).
     // Lazy-require PowerShellTool so its ~300KB chunk only loads when the
     // user has actually selected the powershell default shell.
     type PSMod = typeof import('src/tools/PowerShellTool/PowerShellTool.js');
@@ -81,10 +82,12 @@ export async function processBashCommand(inputString: string, precedingInputBloc
     const shellTool = PowerShellTool ?? BashTool;
     const response = PowerShellTool ? await PowerShellTool.call({
       command: inputString,
-      dangerouslyDisableSandbox: true
+      dangerouslyDisableSandbox: true,
+      _dangerouslyDisableSandboxApproved: true
     }, bashModeContext, undefined, undefined, onProgress) : await BashTool.call({
       command: inputString,
-      dangerouslyDisableSandbox: true
+      dangerouslyDisableSandbox: true,
+      _dangerouslyDisableSandboxApproved: true
     }, bashModeContext, undefined, undefined, onProgress);
     const data = response.data;
     if (!data) {

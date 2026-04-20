@@ -1162,6 +1162,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             focus={true}
             showCursor={true}
             placeholder={`${currentStep.placeholder}${figures.ellipsis}`}
+            mask={currentStepKey === 'apiKey' ? '*' : undefined}
             columns={80}
             cursorOffset={cursorOffset}
             onChangeCursorOffset={setCursorOffset}

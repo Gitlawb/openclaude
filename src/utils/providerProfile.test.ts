@@ -621,8 +621,8 @@ test('buildStartupEnvFromProfile treats explicit falsey provider flags as user i
 })
 
 test('maskSecretForDisplay preserves only a short prefix and suffix', () => {
-  assert.equal(maskSecretForDisplay('sk-secret-12345678'), 'sk-...5678')
-  assert.equal(maskSecretForDisplay('AIzaSecret12345678'), 'AIza...5678')
+  assert.equal(maskSecretForDisplay('sk-secret-12345678'), 'sk-...678')
+  assert.equal(maskSecretForDisplay('AIzaSecret12345678'), 'AIz...678')
 })
 
 test('redactSecretValueForDisplay masks poisoned display fields that equal configured secrets', () => {
@@ -630,7 +630,7 @@ test('redactSecretValueForDisplay masks poisoned display fields that equal confi
 
   assert.equal(
     redactSecretValueForDisplay(apiKey, { OPENAI_API_KEY: apiKey }),
-    'sk-...5678',
+    'sk-...678',
   )
   assert.equal(
     redactSecretValueForDisplay('gpt-4o', { OPENAI_API_KEY: apiKey }),

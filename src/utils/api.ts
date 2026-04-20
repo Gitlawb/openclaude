@@ -662,10 +662,6 @@ export function normalizeToolInput<T extends Tool>(
         ...(timeout !== undefined && { timeout }),
         ...(description !== undefined && { description }),
         ...(run_in_background !== undefined && { run_in_background }),
-        ...('dangerouslyDisableSandbox' in parsed &&
-          parsed.dangerouslyDisableSandbox !== undefined && {
-            dangerouslyDisableSandbox: parsed.dangerouslyDisableSandbox,
-          }),
       } as z.infer<T['inputSchema']>
     }
     case FileEditTool.name: {
