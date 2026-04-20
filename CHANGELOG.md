@@ -1,23 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
-### Breaking Changes
-
-* **sdk:** `Query` interface now requires `readonly sessionId: string`. Implementors must add this property.
-* **sdk:** `ExitReason` type changed from `type ExitReason = {}` to a string union. Consumers using `ExitReason` as a general object type will need to update.
-
-### Bug Fixes
-
-* **sdk:** hold env mutex for full query lifetime when env overrides present, preventing parallel queries from seeing each other's environment variables (SEC-1)
-* **sdk:** replace CWD global mutex with AsyncLocalStorage context, enabling true concurrent query execution without serialization (CON-1)
-* **sdk:** preserve metadata entries (title, tag) in forkSession — previously skipped (COR-2)
-* **sdk:** remove unsafe `null as any` engine wiring, replace with typed nullable + getter guard that throws on premature access (COR-1)
-* **sdk:** fix `export *` re-export scanner path resolution — `fileDir` was undefined (BLD-1)
-* **sdk:** add `Query.sessionId` accessor for deterministic session identity (API-1)
-* **sdk:** log one-time warning when no permission callback is provided (SEC-2)
-* **sdk:** log warning when permission request times out and is auto-denied
-
 ## [0.4.0](https://github.com/Gitlawb/openclaude/compare/v0.3.0...v0.4.0) (2026-04-17)
 
 
