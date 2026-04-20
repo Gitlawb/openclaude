@@ -556,11 +556,23 @@ const sdkResult = await Bun.build({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        // Also stub relative imports to state/ and context/ directories
-        build.onResolve({ filter: /^(\.\.?\/)+state\// }, (args) => ({
-          path: args.path,
-          namespace: 'sdk-missing-stub',
-        }))
+        // Stub relative imports to state/ directory EXCEPT for store.js and AppStateStore.js
+        // which are React-free utilities needed by the SDK for state management.
+        build.onResolve({ filter: /^(\.\.?\/)+state\// }, (args) => {
+          // Exclude React-free state utilities from stubbing
+          const isReactFreeStateModule =
+            args.path.endsWith('store.js') ||
+            args.path.endsWith('AppStateStore.js') ||
+            args.path.endsWith('store.ts') ||
+            args.path.endsWith('AppStateStore.ts')
+          if (isReactFreeStateModule) {
+            return null // Let Bun resolve normally
+          }
+          return {
+            path: args.path,
+            namespace: 'sdk-missing-stub',
+          }
+        })
         build.onResolve({ filter: /^(\.\.?\/)+context\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
@@ -601,12 +613,23 @@ const sdkResult = await Bun.build({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        // src/state/ contains AppState.tsx with React hooks
-        // src/context/ contains React context files
-        build.onResolve({ filter: /^src\/state\// }, (args) => ({
-          path: args.path,
-          namespace: 'sdk-missing-stub',
-        }))
+        // src/state/ contains AppState.tsx with React hooks, but store.ts and AppStateStore.ts
+        // are React-free utilities needed by the SDK - exclude them from stubbing.
+        build.onResolve({ filter: /^src\/state\// }, (args) => {
+          // Exclude React-free state utilities from stubbing
+          const isReactFreeStateModule =
+            args.path.endsWith('store.js') ||
+            args.path.endsWith('AppStateStore.js') ||
+            args.path.endsWith('store.ts') ||
+            args.path.endsWith('AppStateStore.ts')
+          if (isReactFreeStateModule) {
+            return null // Let Bun resolve normally
+          }
+          return {
+            path: args.path,
+            namespace: 'sdk-missing-stub',
+          }
+        })
         build.onResolve({ filter: /^src\/context\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
@@ -666,6 +689,35 @@ const sdkResult = await Bun.build({
                 const specifier = m[2]
                 if (isStubbedSpecifier(specifier)) {
                   register(specifier, m[1])
+                }
+              }
+              // Collect star re-exports: export * from '...'
+              // These re-export all named exports from the source module.
+              // For stubbed modules, we need to scan the re-exported module
+              // to find its exports and register them under the stubbed specifier.
+              for (const m of code.matchAll(/export\s+\*\s+from\s+['"](.*?)['"]/g)) {
+                const specifier = m[1]
+                if (isStubbedSpecifier(specifier)) {
+                  // The re-exported module might itself be stubbed, so we need
+                  // to find its exports. Parse the relative path and scan it.
+                  const reexportPath = pathMod.resolve(fileDir, specifier)
+                  const reexportFile = reexportPath.replace(/\.js$/, '.ts').replace(/\.js$/, '.tsx')
+                  const candidates = [reexportFile, reexportPath, `${reexportFile}.ts`, `${reexportFile}.tsx`]
+                  for (const candidate of candidates) {
+                    if (fs.existsSync(candidate)) {
+                      const reexportCode = fs.readFileSync(candidate, 'utf-8')
+                        .replace(/\/\*[\s\S]*?\*\//g, '')
+                        .replace(/\/\/.*$/gm, '')
+                      // Collect exports from the re-exported module
+                      for (const exp of reexportCode.matchAll(/export\s+(?:const|let|var|function|class|type|interface)\s+(\w+)/g)) {
+                        register(specifier, exp[1])
+                      }
+                      for (const exp of reexportCode.matchAll(/export\s+\{([^}]*)\}/g)) {
+                        register(specifier, exp[1])
+                      }
+                      break
+                    }
+                  }
                 }
               }
             }
