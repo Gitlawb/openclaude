@@ -1214,6 +1214,7 @@ class QueryImpl implements Query {
   private userAgents?: QueryOptions['agents']
   private mcpServers?: Record<string, unknown>
   private permissionContext: ToolPermissionContext
+  private timeoutQueue: SDKPermissionTimeoutMessage[] = []
 
   constructor(
     engine: QueryEngine | null,
@@ -1265,6 +1266,18 @@ class QueryImpl implements Query {
     return new Promise(resolve => {
       this.pendingPermissionPrompts.set(toolUseId, { resolve })
     })
+  }
+
+  /** Push a timeout message into the queue for later draining. */
+  pushTimeout(msg: SDKPermissionTimeoutMessage): void {
+    this.timeoutQueue.push(msg)
+  }
+
+  /** Drain all queued timeout messages. */
+  private *drainTimeoutQueue(): Generator<SDKPermissionTimeoutMessage> {
+    while (this.timeoutQueue.length > 0) {
+      yield this.timeoutQueue.shift()!
+    }
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
@@ -1395,6 +1408,7 @@ class QueryImpl implements Query {
             if (typeof self.prompt === 'string') {
               for await (const engineMsg of self.engine.submitMessage(self.prompt)) {
                 yield engineMsg
+                yield* self.drainTimeoutQueue()
               }
             } else {
               for await (const userMessage of self.prompt) {
@@ -1402,9 +1416,12 @@ class QueryImpl implements Query {
                 const content = extractPromptFromUserMessage(userMessage)
                 for await (const engineMsg of self.engine.submitMessage(content, { uuid: userMessage.uuid })) {
                   yield engineMsg
+                  yield* self.drainTimeoutQueue()
                 }
               }
             }
+            // Final drain for timeout messages that fired on the last engine yield
+            yield* self.drainTimeoutQueue()
           } finally {
             // Restore env + release mutex (SEC-1)
             if (self.envSnapshot) {
