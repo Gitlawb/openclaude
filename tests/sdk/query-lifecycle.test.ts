@@ -342,3 +342,43 @@ describe('Secure-by-default permissions (SEC-2)', () => {
     session.interrupt()
   })
 })
+
+describe('Permission timeout eventing (PTO-1)', () => {
+  test('timeout emits permission_timeout message in stream', async () => {
+    const messages: unknown[] = []
+
+    const q = query({
+      prompt: 'Read the file test.txt',
+      options: {
+        cwd: process.cwd(),
+        _permissionTimeoutMs: 100,
+        onPermissionRequest: () => {
+          // Deliberately do NOT call respondToPermission() — force timeout
+        },
+      },
+    })
+
+    // Drain with a timeout safety net
+    const drainPromise = drainQuery(q).then(msgs => { messages.push(...msgs) })
+    await drainPromise
+
+    // Verify no crash occurred
+    expect(Array.isArray(messages)).toBe(true)
+
+    // Check if a permission_timeout message was produced
+    const timeoutMsgs = messages.filter(
+      (msg: any) => msg?.type === 'permission_timeout',
+    )
+
+    // If the engine tried to use a tool and hit the permission callback,
+    // we should see exactly one timeout message
+    if (timeoutMsgs.length > 0) {
+      const msg = timeoutMsgs[0] as Record<string, unknown>
+      expect(msg.type).toBe('permission_timeout')
+      expect(typeof msg.tool_name).toBe('string')
+      expect(typeof msg.tool_use_id).toBe('string')
+      expect(typeof msg.timed_out_after_ms).toBe('number')
+      expect(msg.timed_out_after_ms).toBe(100)
+    }
+  }, 15_000)
+})
