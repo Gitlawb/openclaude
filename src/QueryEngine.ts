@@ -1,3 +1,4 @@
+import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { randomUUID } from 'crypto'
 import last from 'lodash-es/last.js'
@@ -82,12 +83,7 @@ import {
   shouldEnableThinkingByDefault,
   type ThinkingConfig,
 } from './utils/thinking.js'
-
-// Lazy: MessageSelector.tsx pulls React/ink; only needed for message filtering at query time
-/* eslint-disable @typescript-eslint/no-require-imports */
-const messageSelector =
-  (): typeof import('src/components/MessageSelector.js') =>
-    require('src/components/MessageSelector.js')
+import { selectableUserMessagesFilter } from './utils/messageFilters.js'
 
 import {
   localCommandOutputToSDKAssistantMessage,
@@ -113,17 +109,17 @@ import {
 const getCoordinatorUserContext: (
   mcpClients: ReadonlyArray<{ name: string }>,
   scratchpadDir?: string,
-) => { [k: string]: string } = true
+) => { [k: string]: string } = feature('COORDINATOR_MODE')
   ? require('./coordinator/coordinatorMode.js').getCoordinatorUserContext
   : () => ({})
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 // Dead code elimination: conditional import for snip compaction
 /* eslint-disable @typescript-eslint/no-require-imports */
-const snipModule = false
+const snipModule = feature('HISTORY_SNIP')
   ? (require('./services/compact/snipCompact.js') as typeof import('./services/compact/snipCompact.js'))
   : null
-const snipProjection = false
+const snipProjection = feature('HISTORY_SNIP')
   ? (require('./services/compact/snipProjection.js') as typeof import('./services/compact/snipProjection.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -469,7 +465,7 @@ export class QueryEngine {
         (msg.type === 'user' &&
           !msg.isMeta && // Skip synthetic caveat messages
           !msg.toolUseResult && // Skip tool results (they'll be acked from query)
-          messageSelector().selectableUserMessagesFilter(msg)) || // Skip non-user-authored messages (task notifications, etc.)
+          selectableUserMessagesFilter(msg)) || // Skip non-user-authored messages (task notifications, etc.)
         (msg.type === 'system' && msg.subtype === 'compact_boundary'), // Always ack compact boundaries
     )
     const messagesToAck = replayUserMessages ? replayableMessages : []
@@ -641,7 +637,7 @@ export class QueryEngine {
 
     if (fileHistoryEnabled() && persistSession) {
       messagesFromUserInput
-        .filter(messageSelector().selectableUserMessagesFilter)
+        .filter(selectableUserMessagesFilter)
         .forEach(message => {
           void fileHistoryMakeSnapshot(
             (updater: (prev: FileHistoryState) => FileHistoryState) => {
@@ -1377,7 +1373,7 @@ export async function* ask({
     setSDKStatus,
     abortController,
     orphanedPermission,
-    ...(false
+    ...(feature('HISTORY_SNIP')
       ? {
           snipReplay: (yielded: Message, store: Message[]) => {
             if (!snipProjection!.isSnipBoundaryMessage(yielded))
