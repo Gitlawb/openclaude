@@ -1,5 +1,5 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
+import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
@@ -258,4 +258,49 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
     i--
   }
   return roughTokenCountEstimationForMessages(messages)
+}
+
+/**
+ * Streaming Token Counter for real-time token counting during generation.
+ * Tracks tokens as they arrive from stream without waiting for full response.
+ */
+export class StreamingTokenCounter {
+  private inputTokens = 0
+  private outputTokens = 0
+  private startTime = 0
+
+  start(initialInputTokens?: number): void {
+    this.reset()
+    this.startTime = Date.now()
+    this.inputTokens = initialInputTokens ?? 0
+  }
+
+  addChunk(deltaContent?: string): void {
+    if (deltaContent) {
+      this.outputTokens += roughTokenCountEstimation(deltaContent)
+    }
+  }
+
+  get total(): number {
+    return this.inputTokens + this.outputTokens
+  }
+
+  get output(): number {
+    return this.outputTokens
+  }
+
+  get elapsedMs(): number {
+    return this.startTime > 0 ? Date.now() - this.startTime : 0
+  }
+
+  get tokensPerSecond(): number {
+    if (this.elapsedMs === 0) return 0
+    return (this.outputTokens / this.elapsedMs) * 1000
+  }
+
+  reset(): void {
+    this.inputTokens = 0
+    this.outputTokens = 0
+    this.startTime = 0
+  }
 }
