@@ -361,7 +361,7 @@ export class QueryEngine {
         isNonInteractiveSession: true,
         customSystemPrompt,
         appendSystemPrompt,
-        agentDefinitions: { activeAgents: agents, allAgents: [] },
+        agentDefinitions: { activeAgents: agents, allAgents: agents },
         theme: resolveThemeSetting(getGlobalConfig().theme),
         maxBudgetUsd,
       },
@@ -510,7 +510,7 @@ export class QueryEngine {
         customSystemPrompt,
         appendSystemPrompt,
         theme: resolveThemeSetting(getGlobalConfig().theme),
-        agentDefinitions: { activeAgents: agents, allAgents: [] },
+        agentDefinitions: { activeAgents: agents, allAgents: agents },
         maxBudgetUsd,
       },
       getAppState,
@@ -1204,11 +1204,17 @@ export class QueryEngine {
   /**
    * Inject agent definitions into the engine's config.
    * Used by SDK to load agents after engine creation (async loading).
+   * Validates that agents have the internal format fields
+   * (agentType, whenToUse, getSystemPrompt) since SDK agents
+   * are converted to this format before injection.
    */
   injectAgents(agents: AgentDefinition[]): void {
     const validated = validateArrayOf(agents, (agent, _i) => {
-      if (typeof agent !== 'object' || agent === null) {
-        throw new TypeError('expected object')
+      const a = agent as Record<string, unknown>
+      assertNonEmptyString(a.agentType, 'agentType')
+      assertNonEmptyString(a.whenToUse, 'whenToUse')
+      if (typeof a.getSystemPrompt !== 'function') {
+        throw new TypeError("missing or invalid 'getSystemPrompt' (expected function)")
       }
       return agent
     }, 'injectAgents')
