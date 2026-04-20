@@ -346,11 +346,32 @@ function isGeminiMode(): boolean {
 }
 
 function convertMessages(
-  messages: Array<{ role: string; message?: { role?: string; content?: unknown }; content?: unknown }>,
+  messages: Array<{
+    role: string
+    message?: { role?: string; content?: unknown }
+    content?: unknown
+  }>,
   system: unknown,
 ): OpenAIMessage[] {
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
+
+  // Pre-scan for all tool results in the history to identify valid tool calls
+  const toolResultIds = new Set<string>()
+  for (const msg of messages) {
+    const inner = msg.message ?? msg
+    const content = (inner as { content?: unknown }).content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (
+          (block as { type?: string }).type === 'tool_result' &&
+          (block as { tool_use_id?: string }).tool_use_id
+        ) {
+          toolResultIds.add((block as { tool_use_id: string }).tool_use_id)
+        }
+      }
+    }
+  }
 
   // System message first
   const sysText = convertSystemPrompt(system)
@@ -358,7 +379,10 @@ function convertMessages(
     result.push({ role: 'system', content: sysText })
   }
 
-  for (const msg of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    const isLastInHistory = i === messages.length - 1
+
     // Claude Code wraps messages in { role, message: { role, content } }
     const inner = msg.message ?? msg
     const role = (inner as { role?: string }).role ?? msg.role
@@ -367,8 +391,12 @@ function convertMessages(
     if (role === 'user') {
       // Check for tool_result blocks in user messages
       if (Array.isArray(content)) {
-        const toolResults = content.filter((b: { type?: string }) => b.type === 'tool_result')
-        const otherContent = content.filter((b: { type?: string }) => b.type !== 'tool_result')
+        const toolResults = content.filter(
+          (b: { type?: string }) => b.type === 'tool_result',
+        )
+        const otherContent = content.filter(
+          (b: { type?: string }) => b.type !== 'tool_result',
+        )
 
         // Emit tool results as tool messages, but ONLY if we have a matching tool_use ID.
         // Mistral/OpenAI strictly require tool messages to follow an assistant message with tool_calls.
@@ -383,7 +411,9 @@ function convertMessages(
               content: convertToolResultContent(tr.content, tr.is_error),
             })
           } else {
-            logForDebugging(`Dropping orphan tool_result for ID: ${id} to prevent API error`)
+            logForDebugging(
+              `Dropping orphan tool_result for ID: ${id} to prevent API error`,
+            )
           }
         }
 
@@ -403,8 +433,12 @@ function convertMessages(
     } else if (role === 'assistant') {
       // Check for tool_use blocks
       if (Array.isArray(content)) {
-        const toolUses = content.filter((b: { type?: string }) => b.type === 'tool_use')
-        const thinkingBlock = content.find((b: { type?: string }) => b.type === 'thinking')
+        const toolUses = content.filter(
+          (b: { type?: string }) => b.type === 'tool_use',
+        )
+        const thinkingBlock = content.find(
+          (b: { type?: string }) => b.type === 'thinking',
+        )
         const textContent = content.filter(
           (b: { type?: string }) => b.type !== 'tool_use' && b.type !== 'thinking',
         )
@@ -413,70 +447,108 @@ function convertMessages(
           role: 'assistant',
           content: (() => {
             const c = convertContentBlocks(textContent)
-            return typeof c === 'string' ? c : Array.isArray(c) ? c.map((p: { text?: string }) => p.text ?? '').join('') : ''
+            return typeof c === 'string'
+              ? c
+              : Array.isArray(c)
+                ? c.map((p: { text?: string }) => p.text ?? '').join('')
+                : ''
           })(),
         }
 
         if (toolUses.length > 0) {
-          assistantMsg.tool_calls = toolUses.map(
-            (tu: {
-              id?: string
-              name?: string
-              input?: unknown
-              extra_content?: Record<string, unknown>
-              signature?: string
-            }) => {
-              const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
-              knownToolCallIds.add(id)
-              const toolCall: NonNullable<OpenAIMessage['tool_calls']>[number] = {
-                id,
-                type: 'function' as const,
-                function: {
-                  name: tu.name ?? 'unknown',
-                  arguments:
-                    typeof tu.input === 'string'
-                      ? tu.input
-                      : JSON.stringify(tu.input ?? {}),
-                },
-              }
+          const mappedToolCalls = toolUses
+            .map(
+              (tu: {
+                id?: string
+                name?: string
+                input?: unknown
+                extra_content?: Record<string, unknown>
+                signature?: string
+              }) => {
+                const id = tu.id ?? `call_${crypto.randomUUID().replace(/-/g, '')}`
 
-              // Preserve existing extra_content if present
-              if (tu.extra_content) {
-                toolCall.extra_content = { ...tu.extra_content }
-              }
+                // Only keep tool calls that have a corresponding result in the history,
+                // or if it's the last message (prefill scenario).
+                // Orphaned tool calls (e.g. from user interruption) cause 400 errors.
+                if (!toolResultIds.has(id) && !isLastInHistory) {
+                  return null
+                }
 
-              // Handle Gemini thought_signature
-              if (isGeminiMode()) {
-                // If the model provided a signature in the tool_use block itself (e.g. from a previous Turn/Step)
-                // Use thinkingBlock.signature for ALL tool calls in the same assistant turn if available.
-                // The API requires the same signature on every replayed function call part in a parallel set.
-                const signature = tu.signature ?? (thinkingBlock as any)?.signature
+                knownToolCallIds.add(id)
+                const toolCall: NonNullable<
+                  OpenAIMessage['tool_calls']
+                >[number] = {
+                  id,
+                  type: 'function' as const,
+                  function: {
+                    name: tu.name ?? 'unknown',
+                    arguments:
+                      typeof tu.input === 'string'
+                        ? tu.input
+                        : JSON.stringify(tu.input ?? {}),
+                  },
+                }
 
-                // Merge into existing google-specific metadata if present
-                const existingGoogle = (toolCall.extra_content?.google as Record<string, unknown>) ?? {}
-                toolCall.extra_content = {
-                  ...toolCall.extra_content,
-                  google: {
-                    ...existingGoogle,
-                    thought_signature: signature ?? "skip_thought_signature_validator"
+                // Preserve existing extra_content if present
+                if (tu.extra_content) {
+                  toolCall.extra_content = { ...tu.extra_content }
+                }
+
+                // Handle Gemini thought_signature
+                if (isGeminiMode()) {
+                  // If the model provided a signature in the tool_use block itself (e.g. from a previous Turn/Step)
+                  // Use thinkingBlock.signature for ALL tool calls in the same assistant turn if available.
+                  // The API requires the same signature on every replayed function call part in a parallel set.
+                  const signature =
+                    tu.signature ?? (thinkingBlock as any)?.signature
+
+                  // Merge into existing google-specific metadata if present
+                  const existingGoogle =
+                    (toolCall.extra_content?.google as Record<
+                      string,
+                      unknown
+                    >) ?? {}
+                  toolCall.extra_content = {
+                    ...toolCall.extra_content,
+                    google: {
+                      ...existingGoogle,
+                      thought_signature:
+                        signature ?? 'skip_thought_signature_validator',
+                    },
                   }
                 }
-              }
 
-              return toolCall
-            },
-          )
+                return toolCall
+              },
+            )
+            .filter((tc): tc is NonNullable<typeof tc> => tc !== null)
+
+          if (mappedToolCalls.length > 0) {
+            assistantMsg.tool_calls = mappedToolCalls
+          }
         }
 
-        result.push(assistantMsg)
+        // Only push assistant message if it has content or tool calls.
+        // Stripped thinking-only blocks from user interruptions are empty and cause 400s.
+        if (assistantMsg.content || assistantMsg.tool_calls?.length) {
+          result.push(assistantMsg)
+        }
       } else {
-        result.push({
+        const assistantMsg: OpenAIMessage = {
           role: 'assistant',
           content: (() => {
             const c = convertContentBlocks(content)
-            return typeof c === 'string' ? c : Array.isArray(c) ? c.map((p: { text?: string }) => p.text ?? '').join('') : ''
+            return typeof c === 'string'
+              ? c
+              : Array.isArray(c)
+                ? c.map((p: { text?: string }) => p.text ?? '').join('')
+                : ''
           })(),
-        })
+        }
+
+        if (assistantMsg.content) {
+          result.push(assistantMsg)
+        }
       }
     }
   }
@@ -490,25 +562,56 @@ function convertMessages(
   for (const msg of result) {
     const prev = coalesced[coalesced.length - 1]
 
-    if (prev && prev.role === msg.role && msg.role !== 'tool' && msg.role !== 'system') {
-      const prevContent = prev.content
+    // Mistral/Devstral: 'tool' message must be followed by an 'assistant' message.
+    // If a 'tool' result is followed by a 'user' message, we must inject a semantic
+    // assistant response to satisfy the strict role sequence:
+    // ... -> assistant (calls) -> tool (results) -> assistant (semantic) -> user (next)
+    if (prev && prev.role === 'tool' && msg.role === 'user') {
+      coalesced.push({
+        role: 'assistant',
+        content: '[Tool execution interrupted by user]',
+      })
+    }
+
+    const lastAfterPossibleInjection = coalesced[coalesced.length - 1]
+    if (
+      lastAfterPossibleInjection &&
+      lastAfterPossibleInjection.role === msg.role &&
+      msg.role !== 'tool' &&
+      msg.role !== 'system'
+    ) {
+      const prevContent = lastAfterPossibleInjection.content
       const curContent = msg.content
 
       if (typeof prevContent === 'string' && typeof curContent === 'string') {
-        prev.content = prevContent + (prevContent && curContent ? '\n' : '') + curContent
+        lastAfterPossibleInjection.content =
+          prevContent + (prevContent && curContent ? '\n' : '') + curContent
       } else {
         const toArray = (
-          c: string | Array<{ type: string; text?: string; image_url?: { url: string } }> | undefined,
-        ): Array<{ type: string; text?: string; image_url?: { url: string } }> => {
+          c:
+            | string
+            | Array<{ type: string; text?: string; image_url?: { url: string } }>
+            | undefined,
+        ): Array<{
+          type: string
+          text?: string
+          image_url?: { url: string }
+        }> => {
           if (!c) return []
           if (typeof c === 'string') return c ? [{ type: 'text', text: c }] : []
           return c
         }
-        prev.content = [...toArray(prevContent), ...toArray(curContent)]
+        lastAfterPossibleInjection.content = [
+          ...toArray(prevContent),
+          ...toArray(curContent),
+        ]
       }
 
       if (msg.tool_calls?.length) {
-        prev.tool_calls = [...(prev.tool_calls ?? []), ...msg.tool_calls]
+        lastAfterPossibleInjection.tool_calls = [
+          ...(lastAfterPossibleInjection.tool_calls ?? []),
+          ...msg.tool_calls,
+        ]
       }
     } else {
       coalesced.push(msg)

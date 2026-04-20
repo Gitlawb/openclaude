@@ -3216,4 +3216,95 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
 
   const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
   expect(orphanMessage).toBeUndefined()
+  
+  // Actually, the semantic message IS injected here because the user block with orphan 
+  // tool result is converted to:
+  // 1. Tool result (valid_call_1) -> role 'tool'
+  // 2. User content ("What happened?") -> role 'user'
+  // This triggers the tool -> assistant injection.
+  const assistantMessages = messages.filter(m => m.role === 'assistant')
+  expect(assistantMessages.some(m => m.content === '[Tool execution interrupted by user]')).toBe(true)
+})
+
+test('drops empty assistant message when only thinking block was present and stripped', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-1',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'mistral-large-latest',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      { role: 'user', content: 'Initial' },
+      { role: 'assistant', content: [{ type: 'thinking', thinking: 'I am thinking...', signature: 'sig' }] },
+      { role: 'user', content: 'Interrupting query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  // The assistant msg is dropped because thinking is stripped.
+  // The two user messages are coalesced.
+  expect(messages.length).toBe(1)
+  expect(messages[0].role).toBe('user')
+  expect(String(messages[0].content)).toContain('Initial')
+  expect(String(messages[0].content)).toContain('Interrupting query')
+})
+
+test('injects semantic assistant message when tool result is followed by user message', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-2',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'mistral-large-latest',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      { 
+        role: 'assistant', 
+        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }] 
+      },
+      { 
+        role: 'user', 
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'Result' }
+        ] 
+      },
+      { role: 'user', content: 'Next user query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  // Roles should be: assistant (tool_calls) -> tool -> assistant (semantic) -> user
+  const roles = messages.map(m => m.role)
+  expect(roles).toEqual(['assistant', 'tool', 'assistant', 'user'])
+  
+  const semanticMsg = messages[2]
+  expect(semanticMsg.role).toBe('assistant')
+  expect(semanticMsg.content).toBe('[Tool execution interrupted by user]')
 })
