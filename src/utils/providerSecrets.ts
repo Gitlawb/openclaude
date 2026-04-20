@@ -61,15 +61,7 @@ export function maskSecretForDisplay(
     return 'configured'
   }
 
-  if (sanitized.startsWith('sk-')) {
-    return `${sanitized.slice(0, 3)}...${sanitized.slice(-4)}`
-  }
-
-  if (sanitized.startsWith('AIza')) {
-    return `${sanitized.slice(0, 4)}...${sanitized.slice(-4)}`
-  }
-
-  return `${sanitized.slice(0, 2)}...${sanitized.slice(-4)}`
+  return `${sanitized.slice(0, 3)}...${sanitized.slice(-3)}`
 }
 
 export function redactSecretValueForDisplay(

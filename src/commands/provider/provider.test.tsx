@@ -487,8 +487,8 @@ test('buildCurrentProviderSummary redacts poisoned model and endpoint values', (
   })
 
   expect(summary.providerLabel).toBe('OpenAI-compatible')
-  expect(summary.modelLabel).toBe('sk-...5678')
-  expect(summary.endpointLabel).toBe('sk-...5678')
+  expect(summary.modelLabel).toBe('sk-...678')
+  expect(summary.endpointLabel).toBe('sk-...678')
 })
 
 test('buildCurrentProviderSummary labels generic local openai-compatible providers', () => {
