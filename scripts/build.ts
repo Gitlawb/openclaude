@@ -555,152 +555,119 @@ const sdkResult = await Bun.build({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        build.onLoad({ filter: /.*/, namespace: 'sdk-missing-stub' }, () => ({
-          contents: `
-const noop = () => null;
-const noopClass = class {};
-const noopArr = [];
-const noopObj = {};
-const noopStr = '';
-const noopBool = false;
-const handler = {
-  get(_, prop) {
-    if (prop === '__esModule') return true;
-    if (prop === 'default') return new Proxy({}, handler);
-    return noop;
-  }
-};
-const stub = new Proxy(noop, handler);
-export default stub;
-export const __stub = true;
-// Ink/utility exports
-export const stringWidth = (s) => s?.length || 0;
-export const wrapAnsi = (s) => s;
-export const instances = new Map();
-export const ctrlOToExpand = noop;
-// Sandbox exports
-export const SandboxManager = class { static isSupportedPlatform = () => false; static create = noop; static Version = ''; };
-export const SandboxRuntimeConfigSchema = { parse: noop };
-export const SandboxViolationStore = null;
-export const BaseSandboxManager = class { static isSupportedPlatform = () => false; };
-// All ink.ts re-exports (SDK shouldn't import ink but init -> gracefulShutdown -> ink chain)
-export const color = noopStr;
-export const ThemeProvider = noopClass;
-export const usePreviewTheme = noop;
-export const useTheme = noop;
-export const useThemeSetting = noop;
-export const createRoot = noop;
-export const inkCreateRoot = noop;
-export const render = noop;
-export const Box = noopClass;
-export const Text = noopClass;
-export const Ansi = noopClass;
-export const NoSelect = noopClass;
-export const RawAnsi = noopClass;
-export const Spacer = noopClass;
-export const Button = noopClass;
-export const Link = noopClass;
-export const Newline = noopClass;
-export const BaseBox = noopClass;
-export const BaseText = noopClass;
-export const ClickEvent = noopClass;
-export const EventEmitter = noopClass;
-export const Event = noopClass;
-export const InputEvent = noopClass;
-export const TerminalFocusEvent = noopClass;
-export const FocusManager = noopClass;
-export const useAnimationFrame = noop;
-export const useApp = noop;
-export const useInput = noop;
-export const useAnimationTimer = noop;
-export const useInterval = noop;
-export const useSelection = noop;
-export const useStdin = noop;
-// MessageSelector — used by QueryEngine for message filtering in SDK path
-export const selectableUserMessagesFilter = () => true;
-export const messagesAfterAreOnlySynthetic = () => false;
-export const MessageSelector = noopClass;
-export const useTabStatus = noop;
-export const useTerminalFocus = noop;
-export const useTerminalTitle = noop;
-export const useTerminalViewport = noop;
-export const measureElement = noop;
-export const supportsTabStatus = noopBool;
-export const supportsHyperlinks = noopBool;
-export const wrapText = noopStr;
-// Tool UI exports (SDK shouldn't bundle these but tools import them)
-export const FallbackToolUseErrorMessage = noopClass;
-export const FilePathLink = noopClass;
-export const MessageResponse = noopClass;
-export const OutputLine = noopClass;
-export const ShellTimeDisplay = noopClass;
-export const ShellStatusIndicator = noopClass;
-export const ProgressBar = noopClass;
-export const linkifyUrlsInText = (s) => s;
-// Chrome MCP exports (stub)
-export const createClaudeForChromeMcpServer = noop;
-// All component exports from src/tools UI.tsx imports
-export const Markdown = noopClass;
-export const Message = noopClass;
-export const MessageComponent = noopClass;
-export const ToolUseLoader = noopClass;
-export const AgentPromptDisplay = noopClass;
-export const AgentResponseDisplay = noopClass;
-export const KeyboardShortcutHint = noopClass;
-export const Byline = noopClass;
-export const AgentProgressLine = noopClass;
-export const FallbackToolUseRejectedMessage = noopClass;
-export const ConfigurableShortcutHint = noopClass;
-export const SubAgentProvider = noopClass;
-export const RejectedPlanMessage = noopClass;
-export const FileEditToolUseRejectedMessage = noopClass;
-export const FileEditToolUpdatedMessage = noopClass;
-export const HighlightedCode = noopClass;
-export const NotebookEditToolUseRejectedMessage = noopClass;
-export const ShellProgressMessage = noopClass;
-export const FullWidthRow = noopClass;
-export const CtrlOToExpand = noopClass;
-export const TeleportError = noopClass;
-export const getTeleportErrors = noopArr;
-export const TeleportLocalErrorType = noopStr;
-export const TerminalSizeContext = noopObj;
-// Ink termio exports (from gracefulShutdown imports)
-export const CLEAR_TAB_STATUS = noopStr;
-export const CLEAR_TERMINAL_TITLE = noopStr;
-export const CLEAR_ITERM2_PROGRESS = noopStr;
-export const wrapForMultiplexer = noop;
-export const DISABLE_KITTY_KEYBOARD = noopStr;
-export const DISABLE_MODIFY_OTHER_KEYS = noopStr;
-export const DBP = noopStr;
-export const DFE = noopStr;
-export const DISABLE_MOUSE_TRACKING = noopStr;
-export const EXIT_ALT_SCREEN = noopStr;
-export const SHOW_CURSOR = noopStr;
-// More component exports
-export const Select = noopClass;
-export const Pane = noopClass;
-export const Spinner = noopClass;
-// Command validation exports
-export const addDirHelpMessage = noopStr;
-export const validateDirectoryForWorkspace = noopBool;
-// More command exports
-export const resetLimitsNonInteractive = noop;
-export const extraUsage = noop;
-export const extraUsageNonInteractive = noop;
-export const contextNonInteractive = noop;
-export const ultrareview = noop;
-export const resetLimits = noop;
-export const context = noop;
-export const BashModeProgress = noopClass;
-export const extractDangerousSettings = noopArr;
-export const hasDangerousSettings = noopBool;
-export const hasDangerousSettingsChanged = noopBool;
-export const ManagedSettingsSecurityDialog = noopClass;
-// Catch-all for any other imports - return noop/noopClass
-export const catchAll = new Proxy({}, { get: (_, prop) => prop.endsWith('Dialog') || prop.endsWith('Component') || prop.endsWith('Message') ? noopClass : noop });
-`,
-          loader: 'js',
+        // Also stub ./ paths used by re-exports in src/ink.ts, src/components/, etc.
+        build.onResolve({ filter: /^\.\/components\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
         }))
+        build.onResolve({ filter: /^\.\/ink\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^\.\/commands\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^\.\/cli\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+
+        // Pre-scan: find all named imports for each stubbed module so we can
+        // generate matching exports dynamically (avoids the whack-a-mole of
+        // static export lists that break whenever a new import is added).
+        const fs = require('fs')
+        const pathMod = require('path')
+        const srcDir = pathMod.resolve(__dirname, '..', 'src')
+        const sdkStubExports = new Map<string, Set<string>>() // module path → set of imported names
+
+        function scanSdkStubImports() {
+          function register(specifier: string, namedPart: string) {
+            const rawNames = namedPart.split(',')
+              .map((s: string) => s.trim().replace(/^type\s+/, ''))
+              .filter((s: string) => s && !s.startsWith('type '))
+            if (rawNames.length === 0) return
+            if (!sdkStubExports.has(specifier)) sdkStubExports.set(specifier, new Set())
+            const names = sdkStubExports.get(specifier)!
+            for (const s of rawNames) {
+              // Handle "originalName as localName" — export BOTH names
+              // because Bun validates the original export name exists
+              const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/)
+              if (asMatch) {
+                names.add(asMatch[1]) // original name
+                names.add(asMatch[2]) // aliased name
+              } else {
+                names.add(s)
+              }
+            }
+          }
+          const isStubbedSpecifier = (s: string) =>
+            missingModules.includes(s) ||
+            /^\.\/?(components|ink|commands|cli)\//.test(s) ||
+            /^\.\.\/(components|ink|commands|cli)\//.test(s)
+          function walk(dir: string) {
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = pathMod.join(dir, ent.name)
+              if (ent.isDirectory()) { walk(full); continue }
+              if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const rawCode: string = fs.readFileSync(full, 'utf-8')
+              // Strip comments
+              const code = rawCode
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/\/\/.*$/gm, '')
+              // Collect static imports: import { X } from '...'
+              for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
+                const specifier = m[4]
+                if (isStubbedSpecifier(specifier)) {
+                  register(specifier, m[1] || m[3] || '')
+                }
+              }
+              // Collect re-exports: export { X, Y } from '...'
+              for (const m of code.matchAll(/export\s+\{([^}]*)\}\s*from\s+['"](.*?)['"]/g)) {
+                const specifier = m[2]
+                if (isStubbedSpecifier(specifier)) {
+                  register(specifier, m[1])
+                }
+              }
+            }
+          }
+          walk(srcDir)
+        }
+        scanSdkStubImports()
+
+        // Special default exports for known modules
+        const defaultExportOverrides: Record<string, string> = {
+          'stringWidth': '(s) => s?.length || 0',
+          'wrapAnsi': '(s) => s',
+          'instances': 'new Map()',
+          'selectableUserMessagesFilter': '() => true',
+          'messagesAfterAreOnlySynthetic': '() => false',
+          'SandboxManager': 'class { static isSupportedPlatform = () => false; static create = noop; static Version = \'\'; }',
+          'SandboxRuntimeConfigSchema': '{ parse: noop }',
+          'SandboxViolationStore': 'null',
+          'BaseSandboxManager': 'class { static isSupportedPlatform = () => false; }',
+          'ExportResultCode': '{ SUCCESS: 0, FAILED: 1 }',
+          'linkifyUrlsInText': '(s) => s',
+        }
+
+        build.onLoad({ filter: /.*/, namespace: 'sdk-missing-stub' }, (args) => {
+          const names = sdkStubExports.get(args.path) ?? new Set()
+          const parts: string[] = []
+          for (const n of names) {
+            if (n === 'default') continue // handled by `export default noop` below
+            const val = defaultExportOverrides[n] ?? 'noop'
+            parts.push(`export const ${n} = ${val};`)
+          }
+          return {
+            contents: `
+const noop = () => null;
+export default noop;
+export const __stub = true;
+${parts.join('\n')}
+`,
+            loader: 'js',
+          }
+        })
       },
     },
   ],
