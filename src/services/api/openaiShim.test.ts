@@ -2513,7 +2513,7 @@ test('non-streaming: real content takes precedence over reasoning_content', asyn
   ])
 })
 
-test('non-streaming: strips leaked reasoning preamble from assistant content', async () => {
+test('non-streaming: strips <think> tag block from assistant content', async () => {
   globalThis.fetch = (async () => {
     return new Response(
       JSON.stringify({
@@ -2524,7 +2524,7 @@ test('non-streaming: strips leaked reasoning preamble from assistant content', a
             message: {
               role: 'assistant',
               content:
-                'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+                '<think>user wants a greeting, respond briefly</think>Hey! How can I help you today?',
             },
             finish_reason: 'stop',
           },
@@ -2645,7 +2645,7 @@ test('streaming: thinking block closed before tool call', async () => {
   expect(thinkingStart?.content_block?.type).toBe('thinking')
 })
 
-test('streaming: strips leaked reasoning preamble from assistant content deltas', async () => {
+test('streaming: strips <think> tag block from assistant content deltas', async () => {
   globalThis.fetch = (async () => {
     const chunks = makeStreamChunks([
       {
@@ -2658,7 +2658,7 @@ test('streaming: strips leaked reasoning preamble from assistant content deltas'
             delta: {
               role: 'assistant',
               content:
-                'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+                '<think>user wants a greeting, respond briefly</think>Hey! How can I help you today?',
             },
             finish_reason: null,
           },
@@ -2700,10 +2700,10 @@ test('streaming: strips leaked reasoning preamble from assistant content deltas'
     }
   }
 
-  expect(textDeltas).toEqual(['Hey! How can I help you today?'])
+  expect(textDeltas.join('')).toBe('Hey! How can I help you today?')
 })
 
-test('streaming: strips leaked reasoning preamble when split across multiple content chunks', async () => {
+test('streaming: strips <think> tag split across multiple content chunks', async () => {
   globalThis.fetch = (async () => {
     const chunks = makeStreamChunks([
       {
@@ -2715,7 +2715,7 @@ test('streaming: strips leaked reasoning preamble when split across multiple con
             index: 0,
             delta: {
               role: 'assistant',
-              content: 'The user said "hey" - this is a simple greeting. ',
+              content: '<think>user wants a greeting,',
             },
             finish_reason: null,
           },
@@ -2729,8 +2729,21 @@ test('streaming: strips leaked reasoning preamble when split across multiple con
           {
             index: 0,
             delta: {
-              content:
-                'I should respond in a friendly, concise way.\n\nHey! How can I help you today?',
+              content: ' respond briefly</th',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: 'ink>Hey! How can I help you today?',
             },
             finish_reason: null,
           },
@@ -2773,7 +2786,69 @@ test('streaming: strips leaked reasoning preamble when split across multiple con
     }
   }
 
-  expect(textDeltas).toEqual(['Hey! How can I help you today?'])
+  expect(textDeltas.join('')).toBe('Hey! How can I help you today?')
+})
+
+test('streaming: preserves prose without tags (no phrase-based false positive)', async () => {
+  // Regression: older phrase-based sanitizer would strip "I should..." prose.
+  // The tag-based approach leaves legitimate assistant output alone.
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content:
+                'I should note that the user role requires a briefly concise friendly response format.',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'gpt-5-mini',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hey' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const delta = (event as { delta?: { type?: string; text?: string } }).delta
+    if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      textDeltas.push(delta.text)
+    }
+  }
+
+  expect(textDeltas.join('')).toBe(
+    'I should note that the user role requires a briefly concise friendly response format.',
+  )
 })
 
 test('classifies localhost transport failures with actionable category marker', async () => {
