@@ -1298,9 +1298,23 @@ class QueryImpl implements Query {
           // started, skip init entirely — avoids auth/network side-effects.
           if (self.abortController.signal.aborted) return
 
+          // Track whether engine was replaced by setEngine() (e.g. mock in tests).
+          // If so, init() failures are non-fatal — the mock engine is self-contained.
+          const engineWasOverridden = self._engine !== null
+
           // Ensure init() completes before any query runs
           // init() applies config env vars, so we apply our overrides AFTER
-          await init()
+          try {
+            await init()
+          } catch (initError) {
+            // If a custom engine was injected (test mock, SDK host override),
+            // init() failures are non-fatal — the engine handles everything.
+            if (engineWasOverridden) {
+              // Swallow — mock/overridden engine doesn't need real init
+            } else {
+              throw initError
+            }
+          }
 
           // Load agent definitions BEFORE creating engine context
           let agentDefs: { activeAgents: any[]; allAgents: any[] } = { activeAgents: [], allAgents: [] }
