@@ -97,6 +97,46 @@ async function waitForCondition(
   throw new Error('Timed out waiting for ProviderManager test condition')
 }
 
+// Provider list is sorted alphabetically by label in the preset picker, so
+// reaching a given provider takes more keypresses than it used to. Keep the
+// target-by-label indirection here so these tests survive future list edits
+// without further churn.
+//
+// Order matches ProviderManager.renderPresetSelection() when
+// canUseCodexOAuth === true (default in mocked tests).
+const PRESET_ORDER = [
+  'Alibaba Coding Plan',
+  'Alibaba Coding Plan (China)',
+  'Anthropic',
+  'Azure OpenAI',
+  'Codex OAuth',
+  'DeepSeek',
+  'Google Gemini',
+  'Groq',
+  'LM Studio',
+  'MiniMax',
+  'Mistral',
+  'Moonshot AI',
+  'NVIDIA NIM',
+  'Ollama',
+  'OpenAI',
+  'OpenRouter',
+  'Together AI',
+  'Custom',
+] as const
+
+async function navigateToPreset(
+  stdin: { write: (data: string) => void },
+  label: (typeof PRESET_ORDER)[number],
+): Promise<void> {
+  const index = PRESET_ORDER.indexOf(label)
+  if (index < 0) throw new Error(`Unknown preset label: ${label}`)
+  for (let i = 0; i < index; i++) {
+    stdin.write('j')
+    await Bun.sleep(25)
+  }
+}
+
 function createDeferred<T>(): {
   promise: Promise<T>
   resolve: (value: T) => void
@@ -491,11 +531,10 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
 
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Set up provider') && frame.includes('Ollama'),
+    frame => frame.includes('Set up provider'),
   )
 
-  mounted.stdin.write('j')
-  await Bun.sleep(50)
+  await navigateToPreset(mounted.stdin, 'Ollama')
   mounted.stdin.write('\r')
 
   const modelFrame = await waitForFrameOutput(
@@ -590,12 +629,7 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
     frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
   )
 
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
   mounted.stdin.write('\r')
 
   await waitForCondition(() => onDone.mock.calls.length > 0)
@@ -687,12 +721,7 @@ test('ProviderManager first-run Codex OAuth reports next-startup fallback when s
     frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
   )
 
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
   mounted.stdin.write('\r')
 
   await waitForCondition(() => onDone.mock.calls.length > 0)
@@ -786,12 +815,7 @@ test('ProviderManager does not hijack a manual Codex profile when OAuth credenti
     frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
   )
 
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
   mounted.stdin.write('\r')
 
   await waitForCondition(() => onDone.mock.calls.length > 0)

@@ -1094,21 +1094,30 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function renderPresetSelection(): React.ReactNode {
     const canUseCodexOAuth = !isBareMode()
+    // Providers sorted alphabetically by label. `Custom` is pinned to the end
+    // because it's the catch-all / escape hatch — users scanning the list
+    // should always find known providers first. `Skip for now` (first-run
+    // only) comes last, after Custom.
     const options = [
+      {
+        value: 'dashscope-intl',
+        label: 'Alibaba Coding Plan',
+        description: 'Alibaba DashScope International endpoint',
+      },
+      {
+        value: 'dashscope-cn',
+        label: 'Alibaba Coding Plan (China)',
+        description: 'Alibaba DashScope China endpoint',
+      },
       {
         value: 'anthropic',
         label: 'Anthropic',
         description: 'Native Claude API (x-api-key auth)',
       },
       {
-        value: 'ollama',
-        label: 'Ollama',
-        description: 'Local or remote Ollama endpoint',
-      },
-      {
-        value: 'openai',
-        label: 'OpenAI',
-        description: 'OpenAI API with API key',
+        value: 'azure-openai',
+        label: 'Azure OpenAI',
+        description: 'Azure OpenAI endpoint (model=deployment name)',
       },
       ...(canUseCodexOAuth
         ? [
@@ -1121,11 +1130,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           ]
         : []),
       {
-        value: 'moonshotai',
-        label: 'Moonshot AI',
-        description: 'Kimi OpenAI-compatible endpoint',
-      },
-      {
         value: 'deepseek',
         label: 'DeepSeek',
         description: 'DeepSeek OpenAI-compatible endpoint',
@@ -1136,29 +1140,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'Gemini OpenAI-compatible endpoint',
       },
       {
-        value: 'together',
-        label: 'Together AI',
-        description: 'Together chat/completions endpoint',
-      },
-      {
         value: 'groq',
         label: 'Groq',
         description: 'Groq OpenAI-compatible endpoint',
-      },
-      {
-        value: 'mistral',
-        label: 'Mistral',
-        description: 'Mistral OpenAI-compatible endpoint',
-      },
-      {
-        value: 'azure-openai',
-        label: 'Azure OpenAI',
-        description: 'Azure OpenAI endpoint (model=deployment name)',
-      },
-      {
-        value: 'openrouter',
-        label: 'OpenRouter',
-        description: 'OpenRouter OpenAI-compatible endpoint',
       },
       {
         value: 'lmstudio',
@@ -1166,19 +1150,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'Local LM Studio endpoint',
       },
       {
-        value: 'dashscope-cn',
-        label: 'Alibaba Coding Plan (China)',
-        description: 'Alibaba DashScope China endpoint',
+        value: 'minimax',
+        label: 'MiniMax',
+        description: 'MiniMax API endpoint',
       },
       {
-        value: 'dashscope-intl',
-        label: 'Alibaba Coding Plan',
-        description: 'Alibaba DashScope International endpoint',
+        value: 'mistral',
+        label: 'Mistral',
+        description: 'Mistral OpenAI-compatible endpoint',
       },
       {
-        value: 'custom',
-        label: 'Custom',
-        description: 'Any OpenAI-compatible provider',
+        value: 'moonshotai',
+        label: 'Moonshot AI',
+        description: 'Kimi OpenAI-compatible endpoint',
       },
       {
         value: 'nvidia-nim',
@@ -1186,9 +1170,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'NVIDIA NIM endpoint',
       },
       {
-        value: 'minimax',
-        label: 'MiniMax',
-        description: 'MiniMax API endpoint',
+        value: 'ollama',
+        label: 'Ollama',
+        description: 'Local or remote Ollama endpoint',
+      },
+      {
+        value: 'openai',
+        label: 'OpenAI',
+        description: 'OpenAI API with API key',
+      },
+      {
+        value: 'openrouter',
+        label: 'OpenRouter',
+        description: 'OpenRouter OpenAI-compatible endpoint',
+      },
+      {
+        value: 'together',
+        label: 'Together AI',
+        description: 'Together chat/completions endpoint',
+      },
+      {
+        value: 'custom',
+        label: 'Custom',
+        description: 'Any OpenAI-compatible provider',
       },
       ...(mode === 'first-run'
         ? [
