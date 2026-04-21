@@ -291,6 +291,15 @@ function convertToolResultContent(
     const text = parts[0].text ?? ''
     return isError ? `Error: ${text}` : text
   }
+
+  // Collapse arrays of only text blocks into a single string for DeepSeek
+  // compatibility (issue #774). DeepSeek rejects arrays in role: "tool" messages.
+  const allText = parts.every(p => p.type === 'text')
+  if (allText) {
+    const text = parts.map(p => p.text ?? '').join('\n\n')
+    return isError ? `Error: ${text}` : text
+  }
+
   if (isError && parts[0]?.type === 'text') {
     parts[0] = { ...parts[0], text: `Error: ${parts[0].text ?? ''}` }
   } else if (isError) {
@@ -349,6 +358,14 @@ function convertContentBlocks(
 
   if (parts.length === 0) return ''
   if (parts.length === 1 && parts[0].type === 'text') return parts[0].text ?? ''
+
+  // Collapse arrays of only text blocks into a single string for DeepSeek
+  // compatibility (issue #774).
+  const allText = parts.every(p => p.type === 'text')
+  if (allText) {
+    return parts.map(p => p.text ?? '').join('\n\n')
+  }
+
   return parts
 }
 

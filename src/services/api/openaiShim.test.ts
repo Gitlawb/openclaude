@@ -3374,3 +3374,225 @@ test('Moonshot: cn host is also detected', async () => {
 
   expect(requestBody?.store).toBeUndefined()
 })
+
+
+test('collapses multiple text blocks in tool_result to string for DeepSeek compatibility (issue #774)', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'deepseek-reasoner',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Run ls' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: [
+              { type: 'text', text: 'line one' },
+              { type: 'text', text: 'line two' },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const toolMessages = messages.filter(m => m.role === 'tool')
+  expect(toolMessages.length).toBe(1)
+  expect(toolMessages[0].tool_call_id).toBe('call_1')
+  expect(typeof toolMessages[0].content).toBe('string')
+  expect(toolMessages[0].content).toBe('line one\n\nline two')
+})
+
+test('collapses multiple text blocks into a single string for DeepSeek compatibility (issue #774)', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'deepseek-reasoner',
+    system: 'test system',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Hello!' },
+          { type: 'text', text: 'How are you?' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.length).toBe(2) // system + user
+  expect(messages[1].role).toBe('user')
+  expect(typeof messages[1].content).toBe('string')
+  expect(messages[1].content).toBe('Hello!\n\nHow are you?')
+})
+
+test('preserves mixed text and image tool results as multipart content', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Show me' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'cat image.png' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: [
+              { type: 'text', text: 'Here is the image:' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'iVBORw0KGgo=',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const toolMessages = messages.filter(m => m.role === 'tool')
+  expect(toolMessages.length).toBe(1)
+  expect(Array.isArray(toolMessages[0].content)).toBe(true)
+  const content = toolMessages[0].content as Array<Record<string, unknown>>
+  expect(content.length).toBe(2)
+  expect(content[0].type).toBe('text')
+  expect(content[1].type).toBe('image_url')
+})
