@@ -823,6 +823,11 @@ function getFunctionResultClearingSection(model: string): string | null {
     return null
   }
   const config = getCachedMCConfigForFRC()
+  if (!config) {
+    // External/stub builds return null from getCachedMCConfig — abort the
+    // section rather than trying to read .supportedModels off null.
+    return null
+  }
   const isModelSupported = config.supportedModels?.some(pattern =>
     model.includes(pattern),
   )
