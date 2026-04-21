@@ -1294,6 +1294,10 @@ class QueryImpl implements Query {
     const inner = runWithSdkContext(sdkContext, () => {
       return (async function* (): AsyncIterator<SDKMessage> {
         try {
+          // Fast exit: if interrupt()/close() was called before iteration
+          // started, skip init entirely — avoids auth/network side-effects.
+          if (self.abortController.signal.aborted) return
+
           // Ensure init() completes before any query runs
           // init() applies config env vars, so we apply our overrides AFTER
           await init()

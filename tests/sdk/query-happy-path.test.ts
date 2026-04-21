@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'bun:test'
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { MockQueryEngine } from './helpers/mock-engine.js'
 import { query } from '../../src/entrypoints/sdk.js'
 
@@ -6,6 +6,26 @@ import { query } from '../../src/entrypoints/sdk.js'
 // No mock.module() — avoids module-cache leakage across test files.
 // Instead, we replace the engine via setEngine() after query() returns.
 // ---------------------------------------------------------------------------
+
+// These tests iterate fully (no interrupt), so init() runs and may check for
+// auth credentials. Provide a stub key so init() succeeds without network.
+const AUTH_KEY = 'ANTHROPIC_API_KEY'
+let savedApiKey: string | undefined
+
+beforeAll(() => {
+  savedApiKey = process.env[AUTH_KEY]
+  if (!savedApiKey) {
+    process.env[AUTH_KEY] = 'sk-test-happy-path-stub'
+  }
+})
+
+afterAll(() => {
+  if (savedApiKey === undefined) {
+    delete process.env[AUTH_KEY]
+  } else {
+    process.env[AUTH_KEY] = savedApiKey
+  }
+})
 
 /**
  * Create a Query with a MockQueryEngine wired in.
