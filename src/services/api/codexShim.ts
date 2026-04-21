@@ -1,6 +1,7 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
+import { stableStringify } from '../../utils/stableStringify.js'
 import type {
   ResolvedCodexCredentials,
   ResolvedProviderRequest,
@@ -567,7 +568,9 @@ export async function performCodexRequest(options: {
     {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      // WHY: byte-identity required for implicit prefix caching on
+      // OpenAI Responses API. See src/utils/stableStringify.ts.
+      body: stableStringify(body),
       signal: options.signal,
     },
   )

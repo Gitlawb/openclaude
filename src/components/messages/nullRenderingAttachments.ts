@@ -46,6 +46,10 @@ const NULL_RENDERING_TYPES = [
   'current_session_memory',
   'compaction_reminder',
   'date_change',
+  'claude_md_delta',
+  'git_status_delta',
+  'memory_delta',
+  'todo_reminder_delta',
 ] as const satisfies readonly Attachment['type'][]
 
 export type NullRenderingAttachmentType = (typeof NULL_RENDERING_TYPES)[number]

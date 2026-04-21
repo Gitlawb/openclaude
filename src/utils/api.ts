@@ -487,11 +487,16 @@ export function appendSystemContext(
   systemPrompt: SystemPrompt,
   context: { [k: string]: string },
 ): string[] {
+  // WHY: byte-identity required for implicit prefix caching in
+  // OpenAI/Kimi/DeepSeek and for Anthropic cache_control breakpoints.
+  // Emit keys in a deterministic (sorted) order so spurious insertion-
+  // order differences across rebuilds don't bust the cache prefix.
+  const filtered = filterStaticDedupKeys(context)
+  const sortedKeys = Object.keys(filtered).sort()
+  if (sortedKeys.length === 0) return [...systemPrompt].filter(Boolean)
   return [
     ...systemPrompt,
-    Object.entries(context)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join('\n'),
+    sortedKeys.map(key => `${key}: ${filtered[key]}`).join('\n'),
   ].filter(Boolean)
 }
 
@@ -503,16 +508,20 @@ export function prependUserContext(
     return messages
   }
 
-  if (Object.entries(context).length === 0) {
+  // WHY: byte-identity required for implicit prefix caching in
+  // OpenAI/Kimi/DeepSeek. Static-dedup (claudeMd) is emitted via the
+  // claude_md_delta attachment pipeline; suppress it here so the two
+  // paths don't double-announce.
+  const filtered = filterStaticDedupKeys(context)
+  const sortedKeys = Object.keys(filtered).sort()
+  if (sortedKeys.length === 0) {
     return messages
   }
 
   return [
     createUserMessage({
-      content: `<system-reminder>\nAs you answer the user's questions, you can use the following context:\n${Object.entries(
-        context,
-      )
-        .map(([key, value]) => `# ${key}\n${value}`)
+      content: `<system-reminder>\nAs you answer the user's questions, you can use the following context:\n${sortedKeys
+        .map(key => `# ${key}\n${filtered[key]}`)
         .join('\n')}
 
       IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n`,
@@ -520,6 +529,25 @@ export function prependUserContext(
     }),
     ...messages,
   ]
+}
+
+/**
+ * When OPENCLAUDE_STATIC_DEDUP is on, strip the keys that are now
+ * emitted via the delta attachment pipeline so we don't double-announce
+ * the same content. See src/utils/claudeMdDelta.ts and
+ * src/utils/gitStatusDelta.ts for the alternative injection path.
+ */
+function filterStaticDedupKeys(context: {
+  [k: string]: string
+}): { [k: string]: string } {
+  if (!isEnvTruthy(process.env.OPENCLAUDE_STATIC_DEDUP)) return context
+  const stripped = ['claudeMd', 'gitStatus']
+  const out: { [k: string]: string } = {}
+  for (const key of Object.keys(context)) {
+    if (stripped.includes(key)) continue
+    out[key] = context[key]!
+  }
+  return out
 }
 
 /**
