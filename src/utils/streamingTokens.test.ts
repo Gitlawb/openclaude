@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { StreamingTokenCounter } from './tokens.js'
+import { StreamingTokenCounter } from './streamingTokenCounter.js'
 
 describe('StreamingTokenCounter', () => {
   it('tracks output tokens from chunks', () => {
