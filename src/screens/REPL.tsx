@@ -3024,7 +3024,9 @@ export function REPL({
         // Cache stats line — controlled by `/config showCacheStats`. Shows
         // per-query read/hit stats using the provider-normalized metrics
         // from cacheStatsTracker. 'off' skips, 'compact' gives a one-liner,
-        // 'full' gives a breakdown. Skipped if user aborted.
+        // 'full' gives a breakdown. Display is skipped when the user
+        // aborted or proactive mode is active — but the counter reset
+        // below still runs in those cases.
         if (!abortController.signal.aborted && !proactiveActive) {
           const mode = getGlobalConfig().showCacheStats;
           if (mode && mode !== 'off') {
@@ -3036,10 +3038,13 @@ export function REPL({
               setMessages(prev => [...prev, createSystemMessage(line, 'info')]);
             }
           }
-          // Reset turn counters regardless of display mode so the next
-          // turn's stats don't accumulate on top of this one.
-          resetCurrentTurn();
         }
+        // Reset turn counters UNCONDITIONALLY — users routinely interrupt
+        // (Ctrl+C) mid-turn, and if we kept the reset gated on
+        // !aborted, the in-flight turn's metrics would leak into the
+        // next turn's aggregate. Proactive turns also need the reset so
+        // their metrics don't pile onto the following user turn.
+        resetCurrentTurn();
         // Clear the controller so CancelRequestHandler's canCancelRunningTask
         // reads false at the idle prompt. Without this, the stale non-aborted
         // controller makes ctrl+c fire onCancel() (aborting nothing) instead of

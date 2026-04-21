@@ -139,3 +139,19 @@ describe('/cache-stats — model label rendering', () => {
     expect(value).not.toContain(longLabel)
   })
 })
+
+describe('/cache-stats — timestamp rendering', () => {
+  test('renders each row with full date and time (YYYY-MM-DD HH:MM:SS)', async () => {
+    recordRequest(supported({ read: 5, total: 10, hitRate: 0.5 }), 'claude-x')
+    const value = await runCommand()
+    // Match the full ISO-ish date + time the row uses. We assert the shape,
+    // not a specific timestamp — real clock is used, so a regex on the
+    // format is the right assertion.
+    expect(value).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+    // Bare time-of-day alone (no date) should NOT appear in isolation — it
+    // must always be preceded by the date. Guards against regression if
+    // someone shortens the formatter again.
+    const timeOnlyInRow = /\n\s*#\s*\d+\s+\d{2}:\d{2}:\d{2}\s/.test(value)
+    expect(timeOnlyInRow).toBe(false)
+  })
+})

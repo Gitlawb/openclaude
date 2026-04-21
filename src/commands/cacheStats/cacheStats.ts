@@ -17,7 +17,11 @@ import type { LocalCommandCall } from '../../types/command.js'
 const MAX_RECENT_ROWS = 20
 
 function formatRow(entry: CacheStatsEntry, idx: number): string {
-  const ts = new Date(entry.timestamp).toISOString().slice(11, 19)
+  // `YYYY-MM-DD HH:MM:SS` — long-running sessions can span midnight and a
+  // bare time-of-day makes the wrong row look "most recent" when two
+  // entries on different days share the same HH:MM:SS.
+  const iso = new Date(entry.timestamp).toISOString()
+  const ts = `${iso.slice(0, 10)} ${iso.slice(11, 19)}`
   const line = formatCacheMetricsCompact(entry.metrics)
   return `  #${String(idx + 1).padStart(3)}  ${ts}  ${entry.label.padEnd(28).slice(0, 28)}  ${line}`
 }
