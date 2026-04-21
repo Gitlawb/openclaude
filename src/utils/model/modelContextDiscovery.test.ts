@@ -178,6 +178,32 @@ describe('discoverContextWindow — /v1/models/{id}', () => {
     const result = await discoverContextWindow('https://example/v1', 'm')
     expect(result?.contextWindow).toBe(64_000)
   })
+
+  test('does NOT treat max_tokens as the context window (it is output cap)', async () => {
+    // Regression: max_tokens in the OpenAI schema is the output-completion
+    // cap, not the context window. Caching 4096 here for a 128k-context
+    // model would trigger aggressive premature auto-compaction. The
+    // discoverer must ignore max_tokens entirely.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ id: 'm', max_tokens: 4096 }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch
+
+    const result = await discoverContextWindow('https://example/v1', 'm')
+    expect(result).toBeUndefined()
+  })
+
+  test('prefers context_length when both max_tokens and context_length present', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({ id: 'm', max_tokens: 4096, context_length: 128_000 }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch
+
+    const result = await discoverContextWindow('https://example/v1', 'm')
+    expect(result?.contextWindow).toBe(128_000)
+  })
 })
 
 describe('discoverContextWindow — fallback strategies', () => {

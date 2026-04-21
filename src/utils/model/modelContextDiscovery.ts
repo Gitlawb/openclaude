@@ -148,18 +148,26 @@ function extractContextFromModelEntry(
   entry: Record<string, unknown> | null | undefined,
 ): number | undefined {
   if (!entry || typeof entry !== 'object') return undefined
-  // Known field names across providers:
-  //   context_length — OpenRouter, Together
-  //   context_window — Anthropic-style, some Groq models
-  //   max_model_len  — vLLM / some OSS servers
-  //   max_input_tokens — Cohere, some others
+  // Known context-window field names across providers. Each one unambiguously
+  // refers to the *input* / total-window size.
+  //   context_length     — OpenRouter, Together, Fireworks
+  //   context_window     — Anthropic-style, some Groq models
+  //   max_model_len      — vLLM / some OSS servers
+  //   max_input_tokens   — Cohere, some others
+  //   max_context_length — less common fallback seen on a few providers
+  //
+  // NOTE: `max_tokens` is DELIBERATELY omitted. In the OpenAI API schema
+  // (and vLLM's OpenAI-compatible endpoint) `max_tokens` is the output
+  // completion cap, not the context window. A 128k-context model with a
+  // 4096 output cap would be cached as a 4096-window — triggering aggressive
+  // premature auto-compaction on every turn. Only use fields whose semantics
+  // are unambiguous.
   const candidates = [
     'context_length',
     'context_window',
     'max_model_len',
     'max_input_tokens',
     'max_context_length',
-    'max_tokens',
   ]
   for (const key of candidates) {
     const value = (entry as Record<string, unknown>)[key]
