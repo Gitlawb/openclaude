@@ -244,6 +244,7 @@ export type GlobalConfig = {
   bypassPermissionsModeAccepted?: boolean
   hasUsedBackslashReturn?: boolean
   autoCompactEnabled: boolean // Controls whether auto-compact is enabled
+  toolHistoryCompressionEnabled: boolean // Compress old tool_result content for small-context providers
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
   /**
    * @deprecated Use settings.env instead.
@@ -622,6 +623,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     verbose: false,
     editorMode: 'normal',
     autoCompactEnabled: true,
+    toolHistoryCompressionEnabled: true,
     showTurnDuration: true,
     hasSeenTasksHint: false,
     hasUsedStash: false,
@@ -668,6 +670,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'editorMode',
   'hasUsedBackslashReturn',
   'autoCompactEnabled',
+  'toolHistoryCompressionEnabled',
   'showTurnDuration',
   'diffTool',
   'env',
