@@ -527,6 +527,18 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('http://localhost:11434/v1')
     expect(defaults.model).toBe('llama3.1:8b')
   })
+
+  test('atomic-chat preset defaults to a local Atomic Chat endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    delete process.env.OPENAI_MODEL
+
+    const defaults = getProviderPresetDefaults('atomic-chat')
+
+    expect(defaults.provider).toBe('openai')
+    expect(defaults.name).toBe('Atomic Chat')
+    expect(defaults.baseUrl).toBe('http://127.0.0.1:1337/v1')
+    expect(defaults.requiresApiKey).toBe(false)
+  })
 })
 
 describe('setActiveProviderProfile', () => {

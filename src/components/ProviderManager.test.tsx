@@ -108,6 +108,7 @@ const PRESET_ORDER = [
   'Alibaba Coding Plan',
   'Alibaba Coding Plan (China)',
   'Anthropic',
+  'Atomic Chat',
   'Azure OpenAI',
   'Codex OAuth',
   'DeepSeek',

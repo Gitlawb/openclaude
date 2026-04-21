@@ -299,3 +299,65 @@ test('ollama generation readiness reports ready when chat probe succeeds', async
     probeModel: 'llama3.1:8b',
   })
 })
+
+test('atomic chat readiness reports unreachable when /v1/models is down', async () => {
+  const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
+
+  const calledUrls: string[] = []
+  globalThis.fetch = mock(input => {
+    const url = typeof input === 'string' ? input : input.url
+    calledUrls.push(url)
+    return Promise.resolve(new Response('unavailable', { status: 503 }))
+  }) as typeof globalThis.fetch
+
+  await expect(
+    probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),
+  ).resolves.toEqual({ state: 'unreachable' })
+
+  expect(calledUrls[0]).toBe('http://127.0.0.1:1337/v1/models')
+})
+
+test('atomic chat readiness reports no_models when server is reachable but empty', async () => {
+  const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
+
+  globalThis.fetch = mock(() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ),
+  ) as typeof globalThis.fetch
+
+  await expect(
+    probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),
+  ).resolves.toEqual({ state: 'no_models' })
+})
+
+test('atomic chat readiness returns loaded model ids when ready', async () => {
+  const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
+
+  globalThis.fetch = mock(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          data: [
+            { id: 'Qwen3_5-4B_Q4_K_M' },
+            { id: 'llama-3.1-8b-instruct' },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    ),
+  ) as typeof globalThis.fetch
+
+  await expect(
+    probeAtomicChatReadiness({ baseUrl: 'http://127.0.0.1:1337' }),
+  ).resolves.toEqual({
+    state: 'ready',
+    models: ['Qwen3_5-4B_Q4_K_M', 'llama-3.1-8b-instruct'],
+  })
+})
