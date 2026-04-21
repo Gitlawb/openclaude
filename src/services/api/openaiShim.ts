@@ -82,6 +82,10 @@ const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
+const MOONSHOT_API_HOSTS = new Set([
+  'api.moonshot.ai',
+  'api.moonshot.cn',
+])
 
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
@@ -142,6 +146,15 @@ function hasGeminiApiHost(baseUrl: string | undefined): boolean {
 
   try {
     return new URL(baseUrl).hostname.toLowerCase() === GEMINI_API_HOST
+  } catch {
+    return false
+  }
+}
+
+function isMoonshotBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    return MOONSHOT_API_HOSTS.has(new URL(baseUrl).hostname.toLowerCase())
   } catch {
     return false
   }
@@ -1447,14 +1460,19 @@ class OpenAIShimMessages {
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
-    if ((isGithub || isMistral || isLocal) && body.max_completion_tokens !== undefined) {
+    const isMoonshot = isMoonshotBaseUrl(request.baseUrl)
+
+    if ((isGithub || isMistral || isLocal || isMoonshot) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
 
     // mistral and gemini don't recognize body.store — Gemini returns 400
     // "Invalid JSON payload received. Unknown name 'store': Cannot find field."
-    if (isMistral || isGeminiMode()) {
+    // Moonshot (api.moonshot.ai/.cn) has not published support for the
+    // parameter either; strip it preemptively to avoid the same class of
+    // error on strict-parse providers.
+    if (isMistral || isGeminiMode() || isMoonshot) {
       delete body.store
     }
 

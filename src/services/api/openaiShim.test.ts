@@ -3308,3 +3308,69 @@ test('injects semantic assistant message when tool result is followed by user me
   expect(semanticMsg.role).toBe('assistant')
   expect(semanticMsg.content).toBe('[Tool execution interrupted by user]')
 })
+
+test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  process.env.OPENAI_API_KEY = 'sk-moonshot-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-k2.6',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-k2.6',
+    system: 'you are kimi',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.max_tokens).toBe(256)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Moonshot: cn host is also detected', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.cn/v1'
+  process.env.OPENAI_API_KEY = 'sk-moonshot-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-k2.6',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-k2.6',
+    system: 'you are kimi',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.store).toBeUndefined()
+})
