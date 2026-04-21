@@ -1,11 +1,9 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
 import {
   getTokenCountFromUsage,
-  getCacheTokens,
-  getNewTokensOnly,
-  getTokenBreakdown,
-  IncrementalTokenCounter,
 } from './tokens.js'
+import { IncrementalTokenCounter } from './incrementalTokenCounter.js'
+import { getCacheTokens, getNewTokensOnly, getTokenBreakdown } from './tokenCache.js'
 
 interface FakeUsage {
   input_tokens: number
@@ -43,7 +41,7 @@ describe('tokens', () => {
         cache_read_input_tokens: 200,
         cache_creation_input_tokens: 100,
       }
-      expect(getCacheTokens(usage as any)).toEqual({ cacheRead: 200, cacheCreation: 100 })
+      expect(getCacheTokens(usage as any)).toEqual({ cacheRead: 200, cacheCreation: 100, total: 300 })
     })
 
     it('handles missing cache tokens', () => {
@@ -51,7 +49,7 @@ describe('tokens', () => {
         input_tokens: 1000,
         output_tokens: 500,
       }
-      expect(getCacheTokens(usage as any)).toEqual({ cacheRead: 0, cacheCreation: 0 })
+      expect(getCacheTokens(usage as any)).toEqual({ cacheRead: 0, cacheCreation: 0, total: 0 })
     })
   })
 
@@ -82,7 +80,7 @@ describe('tokens', () => {
       expect(result.cacheRead).toBe(300)
       expect(result.cacheCreation).toBe(100)
       expect(result.total).toBe(1900)
-      expect(result.cacheEfficiency).toBe(16) // 300/1900 * 100 ≈ 15.79 → 16
+      expect(result.cacheEfficiency).toBe(15.8) // 300/1900 * 100 ≈ 15.79 → 15.8 (1 decimal)
     })
 
     it('handles zero total gracefully', () => {
@@ -128,6 +126,6 @@ describe('IncrementalTokenCounter', () => {
     counter.reset()
     
     expect(counter.cachedCount).toBe(0)
-    expect(counter.cachedMessageCount).toBe(0)
+    expect(counter.messageCount).toBe(0)
   })
 })
