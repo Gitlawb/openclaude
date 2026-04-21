@@ -47,6 +47,9 @@ export type SafetyVerdict = {
 // ---------------------------------------------------------------------------
 
 // Tools whose every invocation is inherently read-only regardless of args.
+// NOTE: env and printenv are intentionally NOT in this set — they dump all
+// environment variables, which may contain API keys / tokens. They fall to
+// 'unknown' so the existing permission rule system can decide.
 const ALWAYS_SAFE_COMMANDS = new Set([
   'pwd',
   'whoami',
@@ -55,8 +58,6 @@ const ALWAYS_SAFE_COMMANDS = new Set([
   'date',
   'id',
   'groups',
-  'env',
-  'printenv',
   'tty',
   'uptime',
   'arch',
@@ -69,24 +70,54 @@ const ALWAYS_SAFE_COMMANDS = new Set([
   'false',
 ])
 
+// Sensitive file paths that must never be auto-approved even via read-only
+// commands (cat, head, tail, less, more, file, stat, wc). Matched against
+// each argument; a single match degrades the whole invocation to 'unknown'.
+const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
+  /^\/etc\/(shadow|gshadow|master\.passwd|sudoers(\/|$))/,
+  /(^|\/)\.ssh\/(?!.*\.pub$)/, // .ssh/ contents except .pub keys
+  /(^|\/)\.aws\/credentials$/,
+  /(^|\/)\.aws\/config$/,
+  /(^|\/)\.config\/gcloud\//,
+  /(^|\/)\.kube\/config$/,
+  /(^|\/)\.netrc$/,
+  /(^|\/)\.npmrc$/,
+  /(^|\/)\.pypirc$/,
+  /(^|\/)\.docker\/config\.json$/,
+  /^\/proc\/[^/]+\/(environ|mem|maps|kcore)$/,
+  /^\/proc\/kcore$/,
+  /^\/dev\/(sd[a-z]|nvme\d|disk\d|mmcblk|mapper\/)/,
+  /^\/dev\/(mem|kmem|port|tty\d+)$/,
+  /(^|\/)\.git-credentials$/,
+  // Generic private-key patterns anywhere on disk
+  /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/,
+  /\.pem$/,
+  /\.key$/,
+]
+
+function hasSensitivePath(args: readonly string[]): boolean {
+  return args.some(arg => SENSITIVE_PATH_PATTERNS.some(re => re.test(arg)))
+}
+
 // Tools that are safe for specific argument shapes. Each predicate takes the
 // argument list (tokens after the command name) and returns true when the
 // invocation is safe.
 const ARG_GATED_SAFE: Record<string, (args: string[]) => boolean> = {
   // Read-only file reads — but NOT tee (writes), NOT `cat > FILE` (redirect
-  // is handled separately at the compound level).
-  cat: args => args.length >= 1 && !args.some(isMutatingFlag),
-  head: args => args.length >= 1 && !args.some(isMutatingFlag),
-  tail: args => args.length >= 1 && !args.some(isMutatingFlag),
-  less: args => args.length >= 1 && !args.some(isMutatingFlag),
-  more: args => args.length >= 1 && !args.some(isMutatingFlag),
-  file: args => args.length >= 1,
-  wc: args => args.length >= 1,
-  stat: args => args.length >= 1,
+  // is handled separately at the compound level), and NOT when any argument
+  // points to a known-sensitive path (credentials, private keys, /dev, etc.).
+  cat: args => args.length >= 1 && !args.some(isMutatingFlag) && !hasSensitivePath(args),
+  head: args => args.length >= 1 && !args.some(isMutatingFlag) && !hasSensitivePath(args),
+  tail: args => args.length >= 1 && !args.some(isMutatingFlag) && !hasSensitivePath(args),
+  less: args => args.length >= 1 && !args.some(isMutatingFlag) && !hasSensitivePath(args),
+  more: args => args.length >= 1 && !args.some(isMutatingFlag) && !hasSensitivePath(args),
+  file: args => args.length >= 1 && !hasSensitivePath(args),
+  wc: args => args.length >= 1 && !hasSensitivePath(args),
+  stat: args => args.length >= 1 && !hasSensitivePath(args),
   basename: args => args.length >= 1,
   dirname: args => args.length >= 1,
-  realpath: args => args.length >= 1,
-  readlink: args => args.length >= 1,
+  realpath: args => args.length >= 1 && !hasSensitivePath(args),
+  readlink: args => args.length >= 1 && !hasSensitivePath(args),
 
   // Listing / inspection
   ls: args => !args.some(a => a === '-d' && args.includes('/')),
@@ -122,7 +153,12 @@ const ARG_GATED_SAFE: Record<string, (args: string[]) => boolean> = {
   mvn: args => isSimpleQueryFlag(args),
   gradle: args => isSimpleQueryFlag(args),
 
-  // Git — only read subcommands
+  // Git — read-only subcommands with careful handling of known-mutating
+  // variants. Removed from this list (defer to 'unknown'):
+  //   - config  → plain `git config key value` is a set, writes .git/config
+  //   - stash   → bare `git stash` = stash push, mutates worktree/index
+  //   - gc      → repacks + deletes loose objects
+  //   - bisect  → start/good/bad mutate HEAD
   git: args => {
     if (args.length === 0) return true // `git` alone shows usage
     const sub = args[0]
@@ -134,7 +170,6 @@ const ARG_GATED_SAFE: Record<string, (args: string[]) => boolean> = {
       'branch',
       'tag',
       'remote',
-      'config',
       'rev-parse',
       'rev-list',
       'ls-files',
@@ -144,26 +179,28 @@ const ARG_GATED_SAFE: Record<string, (args: string[]) => boolean> = {
       'shortlog',
       'describe',
       'reflog',
-      'stash',
       'worktree',
       'fetch',
       'help',
       '--version',
       '--help',
       'whatchanged',
-      'bisect',
       'cat-file',
       'show-ref',
       'symbolic-ref',
       'name-rev',
       'count-objects',
       'fsck',
-      'gc',
       'grep',
     ])
+    // stash is safe only for read subcommands (list, show). Bare `git stash`
+    // is equivalent to `git stash push` — mutates the working tree.
+    if (sub === 'stash') {
+      const rest = args.slice(1)
+      return rest[0] === 'list' || rest[0] === 'show'
+    }
     if (!READ_ONLY_SUBCOMMANDS.has(sub)) return false
-    // `git branch -D`, `git branch --delete`, `git stash drop`, etc. mutate.
-    // Keep the heuristic simple: if any token starts with -D or --delete etc, reject.
+    // `git branch -D`, `git branch --delete`, `git tag -d`, etc. mutate.
     return !args.some(
       a =>
         a === '-D' ||
@@ -172,6 +209,7 @@ const ARG_GATED_SAFE: Record<string, (args: string[]) => boolean> = {
         a === 'drop' ||
         a === 'clear' ||
         a === '-d' && sub === 'branch' ||
+        a === '-d' && sub === 'tag' ||
         a === '-m' && sub === 'stash',
     )
   },
@@ -455,7 +493,47 @@ const ARG_GATED_UNSAFE: Record<string, (args: string[]) => boolean> = {
       }
     }
     if (sub === 'config') {
-      if (rest.some(a => a === '--unset' || a === '--replace-all' || a === '--add')) {
+      // Unsafe flags — explicit mutations.
+      if (rest.some(a => a === '--unset' || a === '--replace-all' || a === '--add' || a === '--unset-all')) {
+        return true
+      }
+      // `git config key value` (2+ positional args without a read flag)
+      // writes to .git/config. Only the single-arg read form (`git config
+      // user.email`) and explicit read flags (--get / --list / -l) are not
+      // mutations — everything else is a set.
+      const positional = rest.filter(a => !a.startsWith('-'))
+      const isReadFlag = rest.some(a => a === '--get' || a === '--get-all' || a === '--list' || a === '-l')
+      if (!isReadFlag && positional.length >= 2) {
+        return true
+      }
+    }
+    if (sub === 'stash') {
+      // Bare `git stash` = `git stash push` → mutates.
+      if (rest.length === 0) return true
+      // Any push/save/create/store subcommand mutates.
+      if (rest[0] === 'push' || rest[0] === 'save' || rest[0] === 'create' || rest[0] === 'store') {
+        return true
+      }
+    }
+    if (sub === 'gc' || sub === 'prune' || sub === 'repack') {
+      return true
+    }
+    if (sub === 'bisect') {
+      // start, good, bad, reset, run, skip all mutate bisect state / HEAD.
+      // Allow only `git bisect log` and `git bisect visualize` through the
+      // read-only path — but since bisect isn't in READ_ONLY_SUBCOMMANDS
+      // anymore, everything falls to unknown by default; we mark the
+      // common mutating subcommands unsafe for explicit-deny clarity.
+      if (
+        rest[0] === 'start' ||
+        rest[0] === 'good' ||
+        rest[0] === 'bad' ||
+        rest[0] === 'reset' ||
+        rest[0] === 'skip' ||
+        rest[0] === 'run' ||
+        rest[0] === 'terms' ||
+        rest[0] === 'replay'
+      ) {
         return true
       }
     }
@@ -468,11 +546,26 @@ const ARG_GATED_UNSAFE: Record<string, (args: string[]) => boolean> = {
 // Parser — best-effort tokenization + compound splitting
 // ---------------------------------------------------------------------------
 
-// Splits a command line into compound parts at &&, ||, ;, | (keeping the
-// semantics: each part is a sub-command that will run). Respects basic
-// quoting (single + double) to avoid splitting inside strings. Does NOT
-// fully evaluate shell grammar — intentionally conservative; anything too
-// complex falls back to 'unknown'.
+// Returns true when the character at position `i` is preceded by an odd
+// number of backslashes — i.e., it is bash-escaped. `\"` has one backslash
+// (odd → escaped), `\\"` has two (even → backslash escapes backslash, the
+// quote stands). The prior `input[i-1] !== '\\'` check got this wrong and
+// let `echo "test\\" && rm -rf /` slip through as one quoted token.
+function isCharEscaped(input: string, i: number): boolean {
+  let count = 0
+  let j = i - 1
+  while (j >= 0 && input[j] === '\\') {
+    count++
+    j--
+  }
+  return count % 2 === 1
+}
+
+// Splits a command line into compound parts at &&, ||, ;, |, and newlines
+// (newline is equivalent to ; in bash). Respects basic single/double quoting
+// to avoid splitting inside strings, with correct escape-counting for close
+// quotes. Does NOT fully evaluate shell grammar — intentionally conservative;
+// anything too complex falls back to 'unknown'.
 function splitCompound(input: string): string[] {
   const parts: string[] = []
   let current = ''
@@ -515,7 +608,8 @@ function splitCompound(input: string): string[] {
           i += 2
           continue
         }
-        if (c === ';' || c === '|' || c === '&') {
+        // Newline is a statement separator in bash, equivalent to ';'.
+        if (c === ';' || c === '|' || c === '&' || c === '\n') {
           parts.push(current)
           current = ''
           i++
@@ -523,8 +617,11 @@ function splitCompound(input: string): string[] {
         }
       }
     } else {
-      if (inDouble && c === '"' && input[i - 1] !== '\\') inDouble = false
-      if (inSingle && c === "'") inSingle = false
+      // Single quotes in bash do not respect any escape sequence — a single
+      // quote always closes. Double quotes honor backslash escapes; we
+      // detect a true (unescaped) close quote with isCharEscaped().
+      if (inDouble && c === '"' && !isCharEscaped(input, i)) inDouble = false
+      else if (inSingle && c === "'") inSingle = false
     }
     current += c
     i++
@@ -534,12 +631,21 @@ function splitCompound(input: string): string[] {
 }
 
 // Shell-like tokenizer. Respects ' and " quoting. Does NOT expand variables
-// or handle $(...) substitution — if those are present, return null to
-// signal the caller to treat the command as 'unknown'.
+// or handle $(...) / `...` / <(...) / >(...) substitution — if any of those
+// are present, return null so the caller treats the command as 'unknown'.
+// Process substitution (<( >() spawns a subprocess whose command we can't
+// classify from this layer, so auto-approving is unsafe.
 function tokenize(input: string): string[] | null {
   const trimmed = input.trim()
   if (!trimmed) return []
-  if (trimmed.includes('$(') || trimmed.includes('`')) return null // command substitution
+  if (
+    trimmed.includes('$(') ||
+    trimmed.includes('`') ||
+    trimmed.includes('<(') ||
+    trimmed.includes('>(')
+  ) {
+    return null // command / process substitution
+  }
 
   const tokens: string[] = []
   let current = ''
@@ -568,11 +674,15 @@ function tokenize(input: string): string[] | null {
         continue
       }
     } else {
-      if (inDouble && c === '"') {
+      // Double quotes honor backslash escapes in bash — a `\"` is a literal
+      // quote, and the string keeps going. Use isCharEscaped() to count
+      // consecutive backslashes so `\\"` (even) correctly closes the quote.
+      if (inDouble && c === '"' && !isCharEscaped(trimmed, i)) {
         inDouble = false
         i++
         continue
       }
+      // Single quotes are literal — no escape handling in bash.
       if (inSingle && c === "'") {
         inSingle = false
         i++
