@@ -219,6 +219,17 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'kimi-k2.5':                262_144,
   'glm-5':                    202_752,
   'glm-4.7':                  202_752,
+
+  // Moonshot AI direct API (api.moonshot.ai/v1). Values from Moonshot's
+  // published model card — all K2 tier share 256K context. Prefix matching
+  // in lookupByKey catches variants like "kimi-k2.6-preview".
+  'kimi-k2.6':                262_144,
+  'kimi-k2':                  131_072,
+  'kimi-k2-instruct':         131_072,
+  'kimi-k2-thinking':         262_144,
+  'moonshot-v1-8k':             8_192,
+  'moonshot-v1-32k':           32_768,
+  'moonshot-v1-128k':         131_072,
 }
 
 /**
@@ -391,6 +402,15 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'kimi-k2.5':                 32_768,
   'glm-5':                     16_384,
   'glm-4.7':                   16_384,
+
+  // Moonshot AI direct API
+  'kimi-k2.6':                 32_768,
+  'kimi-k2':                   32_768,
+  'kimi-k2-instruct':          32_768,
+  'kimi-k2-thinking':          32_768,
+  'moonshot-v1-8k':             4_096,
+  'moonshot-v1-32k':           16_384,
+  'moonshot-v1-128k':          32_768,
 }
 
 function lookupByModel<T>(table: Record<string, T>, model: string): T | undefined {

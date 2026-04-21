@@ -81,6 +81,15 @@ test('detects common local openai-compatible providers by hostname', async () =>
   ).toBe('vLLM')
 })
 
+test('detects Moonshot (Kimi) from api.moonshot.ai hostname', async () => {
+  const { getLocalOpenAICompatibleProviderLabel } =
+    await loadProviderDiscoveryModule()
+
+  expect(
+    getLocalOpenAICompatibleProviderLabel('https://api.moonshot.ai/v1'),
+  ).toBe('Moonshot (Kimi)')
+})
+
 test('falls back to a generic local openai-compatible label', async () => {
   const { getLocalOpenAICompatibleProviderLabel } =
     await loadProviderDiscoveryModule()
