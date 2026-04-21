@@ -49,7 +49,7 @@ export function AutoUpdater({
     if (isUpdatingRef.current) {
       return;
     }
-    if ("production" === 'test' || "production" === 'development') {
+    if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
       logForDebugging('AutoUpdater: Skipping update check in test/dev environment');
       return;
     }
@@ -93,9 +93,16 @@ export function AutoUpdater({
       const installationType = await getCurrentInstallationType();
       logForDebugging(`AutoUpdater: Detected installation type: ${installationType}`);
 
-      // Skip update for development builds
+      // Source/dev builds should surface an update notice, not try to use the
+      // inherited Claude native updater flow.
       if (installationType === 'development') {
         logForDebugging('AutoUpdater: Cannot auto-update development build');
+        onAutoUpdaterResult({
+          version: latestVersion,
+          currentVersion,
+          status: 'update_available',
+          actionLabel: 'git pull && bun install && bun run build'
+        });
         onChangeIsUpdating(false);
         return;
       }
@@ -187,6 +194,9 @@ export function AutoUpdater({
         </> : autoUpdaterResult?.status === 'success' && showSuccessMessage && updateSemver && <Text color="success" wrap="truncate">
             ✓ Update installed · Restart to apply
           </Text>}
+      {autoUpdaterResult?.status === 'update_available' && autoUpdaterResult.version && autoUpdaterResult.currentVersion && <Text color="warning" wrap="truncate">
+          Update available: {autoUpdaterResult.currentVersion} → {autoUpdaterResult.version} &middot; Run <Text bold>{autoUpdaterResult.actionLabel ?? `npm install -g ${MACRO.PACKAGE_URL}@latest`}</Text>
+        </Text>}
       {(autoUpdaterResult?.status === 'install_failed' || autoUpdaterResult?.status === 'no_permissions') && <Text color="error" wrap="truncate">
           ✗ Auto-update failed &middot; Try <Text bold>openclaude doctor</Text> or{' '}
           <Text bold>

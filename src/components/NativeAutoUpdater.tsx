@@ -110,7 +110,14 @@ export function NativeAutoUpdater({
         current: currentVersion,
         latest: result.latestVersion
       });
-      if (result.wasUpdated) {
+      if (result.latestVersion && result.latestVersion !== currentVersion && !result.wasUpdated) {
+        onAutoUpdaterResult({
+          version: result.latestVersion,
+          currentVersion,
+          status: 'update_available',
+          actionLabel: 'openclaude update'
+        });
+      } else if (result.wasUpdated) {
         logEvent('tengu_native_auto_updater_success', {
           latency_ms: latencyMs
         });
@@ -160,7 +167,7 @@ export function NativeAutoUpdater({
 
   // Check every 30 minutes
   useInterval(checkForUpdates, 30 * 60 * 1000);
-  const hasUpdateResult = !!autoUpdaterResult?.version;
+  const hasUpdateResult = !!autoUpdaterResult?.version || autoUpdaterResult?.status === 'update_available';
   const hasVersionInfo = !!versions.current && !!versions.latest;
   // Show the component when:
   // - warning banner needed (above max version), or
@@ -181,12 +188,15 @@ export function NativeAutoUpdater({
         </Box> : autoUpdaterResult?.status === 'success' && showSuccessMessage && updateSemver && <Text color="success" wrap="truncate">
             ✓ Update installed · Restart to update
           </Text>}
+      {autoUpdaterResult?.status === 'update_available' && autoUpdaterResult.version && autoUpdaterResult.currentVersion && <Text color="warning" wrap="truncate">
+          Update available: {autoUpdaterResult.currentVersion} → {autoUpdaterResult.version} &middot; Run <Text bold>{autoUpdaterResult.actionLabel ?? 'openclaude update'}</Text>
+        </Text>}
       {autoUpdaterResult?.status === 'install_failed' && <Text color="error" wrap="truncate">
-          ✗ Auto-update failed &middot; Try <Text bold>/status</Text>
+          ✗ Auto-update failed &middot; Try <Text bold>openclaude doctor</Text>
         </Text>}
       {maxVersionIssue && "external" === 'ant' && <Text color="warning">
           ⚠ Known issue: {maxVersionIssue} &middot; Run{' '}
-          <Text bold>claude rollback --safe</Text> to downgrade
+          <Text bold>openclaude rollback --safe</Text> to downgrade
         </Text>}
     </Box>;
 }

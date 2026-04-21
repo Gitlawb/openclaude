@@ -76,13 +76,9 @@ export async function update() {
     writeToStdout('\n')
     for (const warning of diagnostic.warnings) {
       logForDebugging(`update: Warning detected: ${warning.issue}`)
-
-      // Don't skip PATH warnings - they're always relevant
-      // The user needs to know that 'which claude' points elsewhere
       logForDebugging(`update: Showing warning: ${warning.issue}`)
 
       writeToStdout(chalk.yellow(`Warning: ${warning.issue}\n`))
-
       writeToStdout(chalk.bold(`Fix: ${warning.fix}\n`))
     }
   }
@@ -97,7 +93,6 @@ export async function update() {
     writeToStdout('Updating configuration to track installation method...\n')
     let detectedMethod: 'local' | 'native' | 'global' | 'unknown' = 'unknown'
 
-    // Map diagnostic installation type to config install method
     switch (diagnostic.installationType) {
       case 'npm-local':
         detectedMethod = 'local'
@@ -119,67 +114,58 @@ export async function update() {
     writeToStdout(`Installation method set to: ${detectedMethod}\n`)
   }
 
-  // Check if running from development build
   if (diagnostic.installationType === 'development') {
     writeToStdout('\n')
     writeToStdout(
       chalk.yellow('Warning: Cannot update development build') + '\n',
     )
+    writeToStdout('Pull the latest source and rebuild instead:\n')
+    writeToStdout(chalk.bold('  git pull && bun install && bun run build') + '\n')
     await gracefulShutdown(1)
   }
 
-  // Check if running from a package manager
   if (diagnostic.installationType === 'package-manager') {
     const packageManager = await getPackageManager()
     writeToStdout('\n')
 
+    const latest = await getLatestVersion(channel)
+    const hasUpdate = latest && !gte(MACRO.VERSION, latest)
+
     if (packageManager === 'homebrew') {
-      writeToStdout('Claude is managed by Homebrew.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(chalk.bold('  brew upgrade claude-code') + '\n')
+      writeToStdout('OpenClaude is managed by Homebrew.\n')
+      if (hasUpdate) {
+        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n\n`)
+        writeToStdout('To update, run the Homebrew command for your OpenClaude formula/cask.\n')
       } else {
-        writeToStdout('Claude is up to date!\n')
+        writeToStdout('OpenClaude is up to date!\n')
       }
     } else if (packageManager === 'winget') {
-      writeToStdout('Claude is managed by winget.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(
-          chalk.bold('  winget upgrade Anthropic.ClaudeCode') + '\n',
-        )
+      writeToStdout('OpenClaude is managed by winget.\n')
+      if (hasUpdate) {
+        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n\n`)
+        writeToStdout('To update, run the winget command for your OpenClaude package.\n')
       } else {
-        writeToStdout('Claude is up to date!\n')
+        writeToStdout('OpenClaude is up to date!\n')
       }
     } else if (packageManager === 'apk') {
-      writeToStdout('Claude is managed by apk.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(chalk.bold('  apk upgrade claude-code') + '\n')
+      writeToStdout('OpenClaude is managed by apk.\n')
+      if (hasUpdate) {
+        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n\n`)
+        writeToStdout('To update, run the apk command for your OpenClaude package.\n')
       } else {
-        writeToStdout('Claude is up to date!\n')
+        writeToStdout('OpenClaude is up to date!\n')
       }
     } else {
-      // pacman, deb, and rpm don't get specific commands because they each have
-      // multiple frontends (pacman: yay/paru/makepkg, deb: apt/apt-get/aptitude/nala,
-      // rpm: dnf/yum/zypper)
-      writeToStdout('Claude is managed by a package manager.\n')
+      writeToStdout('OpenClaude is managed by a package manager.\n')
+      if (hasUpdate) {
+        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
+      }
       writeToStdout('Please use your package manager to update.\n')
     }
 
     await gracefulShutdown(0)
   }
 
-  // Check for config/reality mismatch (skip for package-manager installs)
   if (
     config.installMethod &&
     diagnostic.configInstallMethod !== 'not set' &&
@@ -188,7 +174,6 @@ export async function update() {
     const runningType = diagnostic.installationType
     const configExpects = diagnostic.configInstallMethod
 
-    // Map installation types for comparison
     const typeMapping: Record<string, string> = {
       'npm-local': 'local',
       'npm-global': 'global',
@@ -213,7 +198,6 @@ export async function update() {
         ) + '\n',
       )
 
-      // Update config to match reality
       saveGlobalConfig(current => ({
         ...current,
         installMethod: normalizedRunningType as InstallMethod,
@@ -224,7 +208,6 @@ export async function update() {
     }
   }
 
-  // Handle native installation updates first
   if (diagnostic.installationType === 'native') {
     logForDebugging(
       'update: Detected native installation, using native updater',
@@ -232,14 +215,13 @@ export async function update() {
     try {
       const result = await installLatestNative(channel, true)
 
-      // Handle lock contention gracefully
       if (result.lockFailed) {
         const pidInfo = result.lockHolderPid
           ? ` (PID ${result.lockHolderPid})`
           : ''
         writeToStdout(
           chalk.yellow(
-            `Another Claude process${pidInfo} is currently running. Please try again in a moment.`,
+            `Another OpenClaude process${pidInfo} is currently running. Please try again in a moment.`,
           ) + '\n',
         )
         await gracefulShutdown(0)
@@ -252,7 +234,7 @@ export async function update() {
 
       if (result.latestVersion === MACRO.VERSION) {
         writeToStdout(
-          chalk.green(`Claude Code is up to date (${MACRO.VERSION})`) + '\n',
+          chalk.green(`OpenClaude is up to date (${MACRO.VERSION})`) + '\n',
         )
       } else {
         writeToStdout(
@@ -266,14 +248,11 @@ export async function update() {
     } catch (error) {
       process.stderr.write('Error: Failed to install native update\n')
       process.stderr.write(String(error) + '\n')
-      process.stderr.write('Try running "claude doctor" for diagnostics\n')
+      process.stderr.write('Try running "openclaude doctor" for diagnostics\n')
       await gracefulShutdown(1)
     }
   }
 
-  // Fallback to existing JS/npm-based update logic
-  // Remove native installer symlink since we're not using native installation
-  // But only if user hasn't migrated to native installation
   if (config.installMethod !== 'native') {
     await removeInstalledSymlink()
   }
@@ -289,7 +268,7 @@ export async function update() {
   )
 
   if (!latestVersion) {
-    logForDebugging('update: Failed to get latest version from npm registry')
+    logForDebugging('update: Failed to check for updates from npm registry')
     process.stderr.write(chalk.red('Failed to check for updates') + '\n')
     process.stderr.write('Unable to fetch latest version from npm registry\n')
     process.stderr.write('\n')
@@ -297,32 +276,17 @@ export async function update() {
     process.stderr.write('  • Network connectivity issues\n')
     process.stderr.write('  • npm registry is unreachable\n')
     process.stderr.write('  • Corporate proxy/firewall blocking npm\n')
-    if (MACRO.PACKAGE_URL && !MACRO.PACKAGE_URL.startsWith('@anthropic')) {
-      process.stderr.write(
-        '  • Internal/development build not published to npm\n',
-      )
-    }
     process.stderr.write('\n')
     process.stderr.write('Try:\n')
     process.stderr.write('  • Check your internet connection\n')
     process.stderr.write('  • Run with --debug flag for more details\n')
-    const packageName =
-      MACRO.PACKAGE_URL ||
-      (process.env.USER_TYPE === 'ant'
-        ? '@anthropic-ai/claude-cli'
-        : '@anthropic-ai/claude-code')
-    process.stderr.write(
-      `  • Manually check: npm view ${packageName} version\n`,
-    )
-
-    process.stderr.write('  • Check if you need to login: npm whoami\n')
+    process.stderr.write(`  • Manually check: npm view ${MACRO.PACKAGE_URL} version\n`)
     await gracefulShutdown(1)
   }
 
-  // Check if versions match exactly, including any build metadata (like SHA)
   if (latestVersion === MACRO.VERSION) {
     writeToStdout(
-      chalk.green(`Claude Code is up to date (${MACRO.VERSION})`) + '\n',
+      chalk.green(`OpenClaude is up to date (${MACRO.VERSION})`) + '\n',
     )
     await gracefulShutdown(0)
   }
@@ -332,7 +296,6 @@ export async function update() {
   )
   writeToStdout('Installing update...\n')
 
-  // Determine update method based on what's actually running
   let useLocalUpdate = false
   let updateMethodName = ''
 
@@ -346,7 +309,6 @@ export async function update() {
       updateMethodName = 'global'
       break
     case 'unknown': {
-      // Fallback to detection if we can't determine installation type
       const isLocal = await localInstallationExists()
       useLocalUpdate = isLocal
       updateMethodName = isLocal ? 'local' : 'global'
