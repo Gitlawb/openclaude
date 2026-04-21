@@ -282,6 +282,24 @@ export function Config({
       });
     }
   }, {
+    id: 'toolHistoryCompressionEnabled',
+    label: 'Tool history compression',
+    value: globalConfig.toolHistoryCompressionEnabled,
+    type: 'boolean' as const,
+    onChange(toolHistoryCompressionEnabled: boolean) {
+      saveGlobalConfig(current => ({
+        ...current,
+        toolHistoryCompressionEnabled
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        toolHistoryCompressionEnabled
+      });
+      logEvent('tengu_tool_history_compression_setting_changed', {
+        enabled: toolHistoryCompressionEnabled
+      });
+    }
+  }, {
     id: 'spinnerTipsEnabled',
     label: 'Show tips',
     value: settingsData?.spinnerTipsEnabled ?? true,
@@ -1157,6 +1175,9 @@ export function Config({
     }
     if (globalConfig.autoCompactEnabled !== initialConfig.current.autoCompactEnabled) {
       formattedChanges.push(`${globalConfig.autoCompactEnabled ? 'Enabled' : 'Disabled'} auto-compact`);
+    }
+    if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
+      formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);
     }
     if (globalConfig.respectGitignore !== initialConfig.current.respectGitignore) {
       formattedChanges.push(`${globalConfig.respectGitignore ? 'Enabled' : 'Disabled'} respect .gitignore in file picker`);

@@ -46,6 +46,7 @@ import {
   type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
+import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
   getLocalProviderRetryBaseUrls,
@@ -1299,14 +1300,15 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
-    const openaiMessages = convertMessages(
+    const compressedMessages = compressToolHistory(
       params.messages as Array<{
         role: string
         message?: { role?: string; content?: unknown }
         content?: unknown
       }>,
-      params.system,
+      request.resolvedModel,
     )
+    const openaiMessages = convertMessages(compressedMessages, params.system)
 
     const body: Record<string, unknown> = {
       model: request.resolvedModel,

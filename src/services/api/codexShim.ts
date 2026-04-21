@@ -1,4 +1,5 @@
 import { APIError } from '@anthropic-ai/sdk'
+import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import type {
   ResolvedCodexCredentials,
@@ -484,13 +485,15 @@ export async function performCodexRequest(options: {
   defaultHeaders: Record<string, string>
   signal?: AbortSignal
 }): Promise<Response> {
-  const input = convertAnthropicMessagesToResponsesInput(
+  const compressedMessages = compressToolHistory(
     options.params.messages as Array<{
       role?: string
       message?: { role?: string; content?: unknown }
       content?: unknown
     }>,
+    options.request.resolvedModel,
   )
+  const input = convertAnthropicMessagesToResponsesInput(compressedMessages)
   const body: Record<string, unknown> = {
     model: options.request.resolvedModel,
     input: input.length > 0

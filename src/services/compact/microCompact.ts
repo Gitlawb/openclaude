@@ -38,7 +38,7 @@ export const TIME_BASED_MC_CLEARED_MESSAGE = '[Old tool result content cleared]'
 const IMAGE_MAX_TOKEN_SIZE = 2000
 
 // Only compact these built-in tools (MCP tools are also compactable via prefix match)
-const COMPACTABLE_TOOLS = new Set<string>([
+export const COMPACTABLE_TOOLS = new Set<string>([
   FILE_READ_TOOL_NAME,
   ...SHELL_TOOL_NAMES,
   GREP_TOOL_NAME,
@@ -51,7 +51,7 @@ const COMPACTABLE_TOOLS = new Set<string>([
 
 const MCP_TOOL_PREFIX = 'mcp__'
 
-function isCompactableTool(name: string): boolean {
+export function isCompactableTool(name: string): boolean {
   return COMPACTABLE_TOOLS.has(name) || name.startsWith(MCP_TOOL_PREFIX)
 }
 
