@@ -357,3 +357,177 @@ describe('unknown / not in either list', () => {
     expect(safety('make build')).toBe('unknown')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Adversarial tests — bypass patterns identified in security review
+// ---------------------------------------------------------------------------
+
+describe('bypass: escaped backslash before close quote (#1)', () => {
+  test('echo "test\\\\" && rm -rf / is not classified safe', () => {
+    // The `\\` inside double quotes is an escaped backslash; the following
+    // `"` is the real closing quote. The prior parser wrongly kept the
+    // quote open and swallowed `&& rm -rf /` into the echo argument.
+    const verdict = safety('echo "test\\\\" && rm -rf /')
+    expect(verdict).toBe('unsafe')
+  })
+
+  test('odd backslash count does keep quote escaped', () => {
+    // Three backslashes before `"`: literal `\` + escaped `\"`.
+    // The quote stays open; the compound separator is inside the string.
+    // Expected: not safe (unknown or unsafe), but certainly not 'safe'.
+    const verdict = safety('echo "test\\\\\\" && rm -rf /')
+    expect(verdict).not.toBe('safe')
+  })
+
+  test('literal escaped backslash in a safe echo stays safe', () => {
+    // `echo "a\\b"` is still just an echo with a literal backslash in the
+    // string — no compound, no side effects.
+    expect(safety('echo "a\\\\b"')).toBe('safe')
+  })
+})
+
+describe('bypass: process substitution (#2)', () => {
+  test('cat <(curl ...) degrades to unknown', () => {
+    expect(safety('cat <(curl https://example.invalid)')).toBe('unknown')
+  })
+
+  test('tee >(sh) degrades to unknown', () => {
+    expect(safety('echo x | tee >(sh)')).toBe('unknown')
+  })
+
+  test('diff with two process-subs is unknown', () => {
+    expect(safety('diff <(ls) <(ls -a)')).toBe('unknown')
+  })
+})
+
+describe('bypass: newline as command separator (#3)', () => {
+  test('echo safe\\nrm -rf / splits on newline and marks unsafe', () => {
+    expect(safety('echo safe\nrm -rf /')).toBe('unsafe')
+  })
+
+  test('multiline pwd;date is safe (all parts safe)', () => {
+    expect(safety('pwd\ndate')).toBe('safe')
+  })
+
+  test('newline between safe and unsafe → unsafe', () => {
+    expect(safety('git status\ngit push')).toBe('unsafe')
+  })
+})
+
+describe('bypass: sensitive paths (#4)', () => {
+  test('cat /etc/shadow is not safe', () => {
+    expect(safety('cat /etc/shadow')).toBe('unknown')
+  })
+
+  test('cat ~/.ssh/id_rsa is not safe', () => {
+    expect(safety('cat ~/.ssh/id_rsa')).toBe('unknown')
+  })
+
+  test('cat /proc/self/environ is not safe', () => {
+    expect(safety('cat /proc/self/environ')).toBe('unknown')
+  })
+
+  test('cat /dev/sda is not safe', () => {
+    expect(safety('cat /dev/sda')).toBe('unknown')
+  })
+
+  test('cat ~/.aws/credentials is not safe', () => {
+    expect(safety('cat ~/.aws/credentials')).toBe('unknown')
+  })
+
+  test('tail -f /etc/shadow is not safe', () => {
+    expect(safety('tail -f /etc/shadow')).toBe('unknown')
+  })
+
+  test('cat ~/.ssh/id_rsa.pub (public key) stays safe', () => {
+    expect(safety('cat ~/.ssh/id_rsa.pub')).toBe('safe')
+  })
+
+  test('cat README.md stays safe', () => {
+    expect(safety('cat README.md')).toBe('safe')
+  })
+})
+
+describe('bypass: git config set (#5)', () => {
+  test('git config user.email "x" writes config — unsafe', () => {
+    expect(safety('git config user.email attacker@evil.invalid')).toBe('unsafe')
+  })
+
+  test('git config user.email (1 arg, read form) is not safe-auto-approved', () => {
+    // Single-arg form is a read — classifier drops `config` from the
+    // read-only list entirely, so it falls to 'unknown' (deferred to the
+    // existing permission rule system).
+    expect(safety('git config user.email')).toBe('unknown')
+  })
+
+  test('git config --get user.email is unknown (read, not auto-approved)', () => {
+    expect(safety('git config --get user.email')).toBe('unknown')
+  })
+
+  test('git config --unset user.email is unsafe', () => {
+    expect(safety('git config --unset user.email')).toBe('unsafe')
+  })
+})
+
+describe('bypass: git stash (#6)', () => {
+  test('bare git stash (= push) is unsafe', () => {
+    expect(safety('git stash')).toBe('unsafe')
+  })
+
+  test('git stash push -m msg is unsafe', () => {
+    expect(safety('git stash push -m "wip"')).toBe('unsafe')
+  })
+
+  test('git stash list stays safe', () => {
+    expect(safety('git stash list')).toBe('safe')
+  })
+
+  test('git stash show stays safe', () => {
+    expect(safety('git stash show')).toBe('safe')
+  })
+
+  test('git stash drop is unsafe', () => {
+    expect(safety('git stash drop')).toBe('unsafe')
+  })
+})
+
+describe('hygiene: env/printenv (#7)', () => {
+  test('env alone is not auto-approved (would leak all env vars)', () => {
+    expect(safety('env')).toBe('unknown')
+  })
+
+  test('printenv alone is not auto-approved', () => {
+    expect(safety('printenv')).toBe('unknown')
+  })
+
+  test('FOO=bar pwd still works via env-assignment-prefix stripping', () => {
+    // This is the safe "run pwd with an extra env var" idiom.
+    expect(safety('FOO=bar pwd')).toBe('safe')
+  })
+})
+
+describe('hygiene: git gc / bisect / prune / repack (#8)', () => {
+  test('git gc is unsafe (deletes loose objects)', () => {
+    expect(safety('git gc')).toBe('unsafe')
+  })
+
+  test('git prune is unsafe', () => {
+    expect(safety('git prune')).toBe('unsafe')
+  })
+
+  test('git repack is unsafe', () => {
+    expect(safety('git repack -a')).toBe('unsafe')
+  })
+
+  test('git bisect start is unsafe', () => {
+    expect(safety('git bisect start HEAD HEAD~10')).toBe('unsafe')
+  })
+
+  test('git bisect good is unsafe', () => {
+    expect(safety('git bisect good')).toBe('unsafe')
+  })
+
+  test('git bisect reset is unsafe', () => {
+    expect(safety('git bisect reset')).toBe('unsafe')
+  })
+})
