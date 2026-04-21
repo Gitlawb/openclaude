@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
-import { CrossSessionTokenCache } from './tokens.js'
+import { CrossSessionTokenCache } from './crossSessionTokenCache.js'
 
 describe('CrossSessionTokenCache', () => {
   let cache: CrossSessionTokenCache
