@@ -15,7 +15,7 @@ import { tokenCountWithEstimation } from '../../utils/tokens.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { getMaxOutputTokensForModel } from '../api/claude.js'
 import { notifyCompaction } from '../api/promptCacheBreakDetection.js'
-import { setLastSummarizedMessageId } from '../SessionMemory/sessionMemoryUtils.js'
+import { setLastSummarizedMessageId } from '../sessionMemory/sessionMemoryUtils.js'
 import {
   type CompactionResult,
   compactConversation,

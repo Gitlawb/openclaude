@@ -7,7 +7,7 @@ import {
   CUSTOM_AGENT_DISALLOWED_TOOLS,
   IN_PROCESS_TEAMMATE_ALLOWED_TOOLS,
 } from '../../constants/tools.js'
-import { startAgentSummarization } from '../../services/AgentSummary/agentSummary.js'
+import { startAgentSummarization } from '../../services/agentSummary/agentSummary.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -140,11 +140,11 @@ export function resolveAgentTools(
   const filteredAvailableTools = isMainThread
     ? availableTools
     : filterToolsForAgent({
-        tools: availableTools,
-        isBuiltIn: source === 'built-in',
-        isAsync,
-        permissionMode,
-      })
+      tools: availableTools,
+      isBuiltIn: source === 'built-in',
+      isAsync,
+      permissionMode,
+    })
 
   // Create a set of disallowed tool names for quick lookup
   const disallowedToolSet = new Set(
@@ -542,14 +542,14 @@ export async function runAsyncAgentLifecycle({
     )
     const onCacheSafeParams = enableSummarization
       ? (params: CacheSafeParams) => {
-          const { stop } = startAgentSummarization(
-            taskId,
-            asAgentId(taskId),
-            params,
-            rootSetAppState,
-          )
-          stopSummarization = stop
-        }
+        const { stop } = startAgentSummarization(
+          taskId,
+          asAgentId(taskId),
+          params,
+          rootSetAppState,
+        )
+        stopSummarization = stop
+      }
       : undefined
     for await (const message of makeStream(onCacheSafeParams)) {
       agentMessages.push(message)

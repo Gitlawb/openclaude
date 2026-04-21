@@ -22,7 +22,7 @@ import { resetPromptCacheBreakDetection } from '../../services/api/promptCacheBr
 import { clearAllSessions } from '../../services/api/sessionIngress.js'
 import { runPostCompactCleanup } from '../../services/compact/postCompactCleanup.js'
 import { resetAllLSPDiagnosticState } from '../../services/lsp/LSPDiagnosticRegistry.js'
-import { clearTrackedMagicDocs } from '../../services/MagicDocs/magicDocs.js'
+import { clearTrackedMagicDocs } from '../../services/magicDocs/magicDocs.js'
 import { clearDynamicSkills } from '../../skills/loadSkillsDir.js'
 import { resetSentSkillNames } from '../../utils/attachments.js'
 import { clearCommandPrefixCaches } from '../../utils/bash/commands.js'

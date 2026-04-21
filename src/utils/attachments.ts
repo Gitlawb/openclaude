@@ -1,91 +1,83 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
+import type {
+  Base64ImageSource,
+  ContentBlockParam,
+  ImageBlockParam,
+} from '@anthropic-ai/sdk/resources/messages.mjs'
+import type { ReadResourceResult } from '@modelcontextprotocol/sdk/types.js'
+import { randomUUID, type UUID } from 'crypto'
+import { readdir, stat } from 'fs/promises'
+import uniqBy from 'lodash-es/uniqBy.js'
+import { dirname, parse, relative, resolve } from 'path'
 import {
   logEvent,
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
 } from 'src/services/analytics/index.js'
-import {
-  toolMatchesName,
-  type Tools,
-  type ToolUseContext,
-  type ToolPermissionContext,
-} from '../Tool.js'
-import {
-  FileReadTool,
-  MaxFileReadTokenExceededError,
-  type Output as FileReadToolOutput,
-  readImageWithTokenBudget,
-} from '../tools/FileReadTool/FileReadTool.js'
-import { FileTooLargeError, readFileInRange } from './readFileInRange.js'
-import { expandPath } from './path.js'
-import { countCharInString } from './stringUtils.js'
-import { count, uniq } from './array.js'
-import { getFsImplementation } from './fsOperations.js'
-import { readdir, stat } from 'fs/promises'
-import type { IDESelection } from '../hooks/useIdeSelection.js'
-import { TODO_WRITE_TOOL_NAME } from '../tools/TodoWriteTool/constants.js'
-import { TASK_CREATE_TOOL_NAME } from '../tools/TaskCreateTool/constants.js'
-import { TASK_UPDATE_TOOL_NAME } from '../tools/TaskUpdateTool/constants.js'
-import { BASH_TOOL_NAME } from '../tools/BashTool/toolName.js'
-import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
-import type { TodoList } from './todo/types.js'
-import {
-  type Task,
-  listTasks,
-  getTaskListId,
-  isTodoV2Enabled,
-} from './tasks.js'
-import { getPlanFilePath, getPlan } from './plans.js'
-import { getConnectedIdeName } from './ide.js'
-import {
-  filterInjectedMemoryFiles,
-  getManagedAndUserConditionalRules,
-  getMemoryFiles,
-  getMemoryFilesForNestedDirectory,
-  getConditionalRulesForCwdLevelDirectory,
-  type MemoryFileInfo,
-} from './claudemd.js'
-import { dirname, parse, relative, resolve } from 'path'
-import { getCwd } from 'src/utils/cwd.js'
-import { getViewedTeammateTask } from '../state/selectors.js'
-import { logError } from './log.js'
-import { logAntError } from './debug.js'
-import { isENOENT, toError } from './errors.js'
-import type { DiagnosticFile } from '../services/diagnosticTracking.js'
-import { diagnosticTracker } from '../services/diagnosticTracking.js'
+import { getSnippetForTwoFileDiff } from 'src/tools/FileEditTool/utils.js'
 import type {
   AttachmentMessage,
   Message,
   MessageOrigin,
 } from 'src/types/message.js'
 import {
-  type QueuedCommand,
   getImagePasteIds,
   isValidImagePaste,
+  type QueuedCommand,
 } from 'src/types/textInputTypes.js'
-import { randomUUID, type UUID } from 'crypto'
-import { getSettings_DEPRECATED } from './settings/settings.js'
-import { getSnippetForTwoFileDiff } from 'src/tools/FileEditTool/utils.js'
-import type {
-  ContentBlockParam,
-  ImageBlockParam,
-  Base64ImageSource,
-} from '@anthropic-ai/sdk/resources/messages.mjs'
-import { maybeResizeAndDownsampleImageBlock } from './imageResizer.js'
-import type { PastedContent } from './config.js'
-import { getGlobalConfig } from './config.js'
+import { getCwd } from 'src/utils/cwd.js'
 import {
-  getDefaultSonnetModel,
-  getDefaultHaikuModel,
-  getDefaultOpusModel,
-} from './model/model.js'
-import type { ReadResourceResult } from '@modelcontextprotocol/sdk/types.js'
-import { getSkillToolCommands, getMcpSkillCommands } from '../commands.js'
-import type { Command } from '../types/command.js'
-import uniqBy from 'lodash-es/uniqBy.js'
+  toolMatchesName,
+  type ToolPermissionContext,
+  type Tools,
+  type ToolUseContext,
+} from '../Tool.js'
 import { getProjectRoot } from '../bootstrap/state.js'
-import { formatCommandsWithinBudget } from '../tools/SkillTool/prompt.js'
-import { getContextWindowForModel } from './context.js'
+import { getMcpSkillCommands, getSkillToolCommands } from '../commands.js'
+import type { IDESelection } from '../hooks/useIdeSelection.js'
+import type { DiagnosticFile } from '../services/diagnosticTracking.js'
+import { diagnosticTracker } from '../services/diagnosticTracking.js'
 import type { DiscoverySignal } from '../services/skillSearch/signals.js'
+import { getViewedTeammateTask } from '../state/selectors.js'
+import { BASH_TOOL_NAME } from '../tools/BashTool/toolName.js'
+import {
+  FileReadTool,
+  MaxFileReadTokenExceededError,
+  readImageWithTokenBudget,
+  type Output as FileReadToolOutput,
+} from '../tools/FileReadTool/FileReadTool.js'
+import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
+import { formatCommandsWithinBudget } from '../tools/SkillTool/prompt.js'
+import { TASK_CREATE_TOOL_NAME } from '../tools/TaskCreateTool/constants.js'
+import { TASK_UPDATE_TOOL_NAME } from '../tools/TaskUpdateTool/constants.js'
+import { TODO_WRITE_TOOL_NAME } from '../tools/TodoWriteTool/constants.js'
+import type { Command } from '../types/command.js'
+import { uniq } from './array.js'
+import {
+  getConditionalRulesForCwdLevelDirectory,
+  getManagedAndUserConditionalRules,
+  getMemoryFilesForNestedDirectory,
+  type MemoryFileInfo
+} from './claudemd.js'
+import type { PastedContent } from './config.js'
+import { getContextWindowForModel } from './context.js'
+import { logAntError } from './debug.js'
+import { isENOENT, toError } from './errors.js'
+import { getFsImplementation } from './fsOperations.js'
+import { getConnectedIdeName } from './ide.js'
+import { maybeResizeAndDownsampleImageBlock } from './imageResizer.js'
+import { logError } from './log.js'
+import { expandPath } from './path.js'
+import { getPlan, getPlanFilePath } from './plans.js'
+import { FileTooLargeError, readFileInRange } from './readFileInRange.js'
+import { getSettings_DEPRECATED } from './settings/settings.js'
+import { countCharInString } from './stringUtils.js'
+import {
+  getTaskListId,
+  isTodoV2Enabled,
+  listTasks,
+  type Task,
+} from './tasks.js'
+import type { TodoList } from './todo/types.js'
 // Conditional require for DCE. All skill-search string literals that would
 // otherwise leak into external builds live inside these modules. The only
 // surfaces in THIS file are: the maybe() call (gated via spread below) and
@@ -94,71 +86,100 @@ import type { DiscoverySignal } from '../services/skillSearch/signals.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const skillSearchModules = feature('EXPERIMENTAL_SKILL_SEARCH')
   ? {
-      featureCheck:
-        require('../services/skillSearch/featureCheck.js') as typeof import('../services/skillSearch/featureCheck.js'),
-      prefetch:
-        require('../services/skillSearch/prefetch.js') as typeof import('../services/skillSearch/prefetch.js'),
-    }
+    featureCheck:
+      require('../services/skillSearch/featureCheck.js') as typeof import('../services/skillSearch/featureCheck.js'),
+    prefetch:
+      require('../services/skillSearch/prefetch.js') as typeof import('../services/skillSearch/prefetch.js'),
+  }
   : null
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
   ? (require('./permissions/autoModeState.js') as typeof import('./permissions/autoModeState.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
-import {
-  MAX_LINES_TO_READ,
-  FILE_READ_TOOL_NAME,
-} from 'src/tools/FileReadTool/prompt.js'
+import { feature } from 'bun:bundle'
+import type {
+  HookEvent,
+  SyncHookJSONOutput,
+} from 'src/entrypoints/agentSdkTypes.js'
 import { getDefaultFileReadingLimits } from 'src/tools/FileReadTool/limits.js'
-import { cacheKeys, type FileStateCache } from './fileStateCache.js'
+import {
+  FILE_READ_TOOL_NAME,
+  MAX_LINES_TO_READ,
+} from 'src/tools/FileReadTool/prompt.js'
+import type { TaskStatus, TaskType } from '../Task.js'
+import {
+  getCurrentTurnTokenBudget,
+  getKairosActive,
+  getLastEmittedDate,
+  getOriginalCwd,
+  getSdkBetas,
+  getSessionId,
+  getTotalCostUSD,
+  getTotalOutputTokens,
+  getTurnOutputTokens,
+  hasExitedPlanModeInSession,
+  needsAutoModeExitAttachment,
+  needsPlanModeExitAttachment,
+  setHasExitedPlanMode,
+  setLastEmittedDate,
+  setNeedsAutoModeExitAttachment,
+  setNeedsPlanModeExitAttachment,
+} from '../bootstrap/state.js'
+import type { QuerySource } from '../constants/querySource.js'
+import {
+  checkForLSPDiagnostics,
+  clearAllLSPDiagnostics,
+} from '../services/lsp/LSPDiagnosticRegistry.js'
+import { mcpInfoFromString } from '../services/mcp/mcpStringUtils.js'
+import type { MCPServerConnection } from '../services/mcp/types.js'
+import { drainPendingMessages } from '../tasks/LocalAgentTask/LocalAgentTask.js'
+import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js'
+import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
+import { filterAgentsByMcpRequirements } from '../tools/AgentTool/loadAgentsDir.js'
+import {
+  formatAgentLine,
+  shouldInjectAgentListInMessages,
+} from '../tools/AgentTool/prompt.js'
 import {
   createAbortController,
   createChildAbortController,
 } from './abortController.js'
+import { getSubscriptionType } from './auth.js'
+import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from './claudeInChrome/common.js'
+import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from './claudeInChrome/prompt.js'
+import { logForDebugging } from './debug.js'
+import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { isAbortError } from './errors.js'
 import {
   getFileModificationTimeAsync,
   isFileWithinReadSizeLimit,
 } from './file.js'
-import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
-import { filterAgentsByMcpRequirements } from '../tools/AgentTool/loadAgentsDir.js'
-import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js'
+import { cacheKeys, type FileStateCache } from './fileStateCache.js'
 import {
-  formatAgentLine,
-  shouldInjectAgentListInMessages,
-} from '../tools/AgentTool/prompt.js'
-import { filterDeniedAgents } from './permissions/permissions.js'
-import { getSubscriptionType } from './auth.js'
-import { mcpInfoFromString } from '../services/mcp/mcpStringUtils.js'
+  checkForAsyncHookResponses,
+  removeDeliveredAsyncHooks,
+} from './hooks/AsyncHookRegistry.js'
+import {
+  getMcpInstructionsDelta,
+  isMcpInstructionsDeltaEnabled,
+  type ClientSideInstruction,
+} from './mcpInstructionsDelta.js'
+import { isHumanTurn } from './messagePredicates.js'
+import {
+  extractTextContent,
+  getUserMessageText,
+  isThinkingMessage,
+} from './messages.js'
 import {
   matchingRuleForInput,
   pathInAllowedWorkingPath,
 } from './permissions/filesystem.js'
-import {
-  generateTaskAttachments,
-  applyTaskOffsetsAndEvictions,
-} from './task/framework.js'
+import { filterDeniedAgents } from './permissions/permissions.js'
 import { getTaskOutputPath } from './task/diskOutput.js'
-import { drainPendingMessages } from '../tasks/LocalAgentTask/LocalAgentTask.js'
-import type { TaskType, TaskStatus } from '../Task.js'
 import {
-  getOriginalCwd,
-  getSessionId,
-  getSdkBetas,
-  getTotalCostUSD,
-  getTotalOutputTokens,
-  getCurrentTurnTokenBudget,
-  getTurnOutputTokens,
-  hasExitedPlanModeInSession,
-  setHasExitedPlanMode,
-  needsPlanModeExitAttachment,
-  setNeedsPlanModeExitAttachment,
-  needsAutoModeExitAttachment,
-  setNeedsAutoModeExitAttachment,
-  getLastEmittedDate,
-  setLastEmittedDate,
-  getKairosActive,
-} from '../bootstrap/state.js'
-import type { QuerySource } from '../constants/querySource.js'
+  applyTaskOffsetsAndEvictions,
+  generateTaskAttachments,
+} from './task/framework.js'
 import {
   getDeferredToolsDelta,
   isDeferredToolsDeltaEnabled,
@@ -167,90 +188,61 @@ import {
   modelSupportsToolReference,
   type DeferredToolsDeltaScanContext,
 } from './toolSearch.js'
-import {
-  getMcpInstructionsDelta,
-  isMcpInstructionsDeltaEnabled,
-  type ClientSideInstruction,
-} from './mcpInstructionsDelta.js'
-import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from './claudeInChrome/common.js'
-import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from './claudeInChrome/prompt.js'
-import type { MCPServerConnection } from '../services/mcp/types.js'
-import type {
-  HookEvent,
-  SyncHookJSONOutput,
-} from 'src/entrypoints/agentSdkTypes.js'
-import {
-  checkForAsyncHookResponses,
-  removeDeliveredAsyncHooks,
-} from './hooks/AsyncHookRegistry.js'
-import {
-  checkForLSPDiagnostics,
-  clearAllLSPDiagnostics,
-} from '../services/lsp/LSPDiagnosticRegistry.js'
-import { logForDebugging } from './debug.js'
-import {
-  extractTextContent,
-  getUserMessageText,
-  isThinkingMessage,
-} from './messages.js'
-import { isHumanTurn } from './messagePredicates.js'
-import { isEnvTruthy, getClaudeConfigHomeDir } from './envUtils.js'
-import { feature } from 'bun:bundle'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const BRIEF_TOOL_NAME: string | null =
   feature('KAIROS') || feature('KAIROS_BRIEF')
     ? (
-        require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')
-      ).BRIEF_TOOL_NAME
+      require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')
+    ).BRIEF_TOOL_NAME
     : null
 const sessionTranscriptModule = feature('KAIROS')
   ? (require('../services/sessionTranscript/sessionTranscript.js') as typeof import('../services/sessionTranscript/sessionTranscript.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
+import { isBuddyEnabled } from '../buddy/feature.js'
+import { getCompanionIntroAttachment } from '../buddy/prompt.js'
+import { PDF_AT_MENTION_INLINE_THRESHOLD } from '../constants/apiLimits.js'
+import { getLocalISODate } from '../constants/common.js'
+import { findRelevantMemories } from '../memdir/findRelevantMemories.js'
+import { memoryAge, memoryFreshnessText } from '../memdir/memoryAge.js'
+import { getAutoMemPath, isAutoMemoryEnabled } from '../memdir/paths.js'
+import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
+import {
+  getEffectiveContextWindowSize,
+  isAutoCompactEnabled,
+} from '../services/compact/autoCompact.js'
+import { getAgentMemoryDir } from '../tools/AgentTool/agentMemory.js'
+import { isAgentSwarmsEnabled } from './agentSwarmsEnabled.js'
+import {
+  executeInstructionsLoadedHooks,
+  hasInstructionsLoadedHook,
+  type HookBlockingError,
+  type InstructionsMemoryType,
+} from './hooks.js'
+import { getPDFPageCount } from './pdf.js'
+import { isPDFExtension } from './pdfUtils.js'
+import { jsonStringify } from './slowOperations.js'
+import { removeTeammateFromTeamFile } from './swarm/teamHelpers.js'
+import { unassignTeammateTasks } from './tasks.js'
+import {
+  getAgentId,
+  getAgentName,
+  getTeamName,
+  isTeamLead,
+} from './teammate.js'
+import { isInProcessTeammate } from './teammateContext.js'
+import {
+  isIdleNotification,
+  isShutdownApproved,
+  isStructuredProtocolMessage,
+  markMessagesAsReadByPredicate,
+  readUnreadMessages,
+} from './teammateMailbox.js'
 import { hasUltrathinkKeyword, isUltrathinkEnabled } from './thinking.js'
 import {
   tokenCountFromLastAPIResponse,
   tokenCountWithEstimation,
 } from './tokens.js'
-import {
-  getEffectiveContextWindowSize,
-  isAutoCompactEnabled,
-} from '../services/compact/autoCompact.js'
-import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
-import {
-  hasInstructionsLoadedHook,
-  executeInstructionsLoadedHooks,
-  type HookBlockingError,
-  type InstructionsMemoryType,
-} from './hooks.js'
-import { jsonStringify } from './slowOperations.js'
-import { isPDFExtension } from './pdfUtils.js'
-import { getLocalISODate } from '../constants/common.js'
-import { getPDFPageCount } from './pdf.js'
-import { PDF_AT_MENTION_INLINE_THRESHOLD } from '../constants/apiLimits.js'
-import { isAgentSwarmsEnabled } from './agentSwarmsEnabled.js'
-import { findRelevantMemories } from '../memdir/findRelevantMemories.js'
-import { memoryAge, memoryFreshnessText } from '../memdir/memoryAge.js'
-import { getAutoMemPath, isAutoMemoryEnabled } from '../memdir/paths.js'
-import { getAgentMemoryDir } from '../tools/AgentTool/agentMemory.js'
-import {
-  readUnreadMessages,
-  markMessagesAsReadByPredicate,
-  isShutdownApproved,
-  isStructuredProtocolMessage,
-  isIdleNotification,
-} from './teammateMailbox.js'
-import {
-  getAgentName,
-  getAgentId,
-  getTeamName,
-  isTeamLead,
-} from './teammate.js'
-import { isInProcessTeammate } from './teammateContext.js'
-import { removeTeammateFromTeamFile } from './swarm/teamHelpers.js'
-import { unassignTeammateTasks } from './tasks.js'
-import { getCompanionIntroAttachment } from '../buddy/prompt.js'
-import { isBuddyEnabled } from '../buddy/feature.js'
 
 export const TODO_REMINDER_CONFIG = {
   TURNS_SINCE_WRITE: 10,
@@ -353,29 +345,29 @@ export type AsyncHookResponseAttachment = {
 export type HookAttachment =
   | HookCancelledAttachment
   | {
-      type: 'hook_blocking_error'
-      blockingError: HookBlockingError
-      hookName: string
-      toolUseID: string
-      hookEvent: HookEvent
-    }
+    type: 'hook_blocking_error'
+    blockingError: HookBlockingError
+    hookName: string
+    toolUseID: string
+    hookEvent: HookEvent
+  }
   | HookNonBlockingErrorAttachment
   | HookErrorDuringExecutionAttachment
   | {
-      type: 'hook_stopped_continuation'
-      message: string
-      hookName: string
-      toolUseID: string
-      hookEvent: HookEvent
-    }
+    type: 'hook_stopped_continuation'
+    message: string
+    hookName: string
+    toolUseID: string
+    hookEvent: HookEvent
+  }
   | HookSuccessAttachment
   | {
-      type: 'hook_additional_context'
-      content: string[]
-      hookName: string
-      toolUseID: string
-      hookEvent: HookEvent
-    }
+    type: 'hook_additional_context'
+    content: string[]
+    hookName: string
+    toolUseID: string
+    hookEvent: HookEvent
+  }
   | HookSystemMessageAttachment
   | HookPermissionDecisionAttachment
 
@@ -450,272 +442,272 @@ export type Attachment =
    * An at-mentioned file was edited
    */
   | {
-      type: 'edited_text_file'
-      filename: string
-      snippet: string
-    }
+    type: 'edited_text_file'
+    filename: string
+    snippet: string
+  }
   | {
-      type: 'edited_image_file'
-      filename: string
-      content: FileReadToolOutput
-    }
+    type: 'edited_image_file'
+    filename: string
+    content: FileReadToolOutput
+  }
   | {
-      type: 'directory'
+    type: 'directory'
+    path: string
+    content: string
+    /** Path relative to CWD at creation time, for stable display */
+    displayPath: string
+  }
+  | {
+    type: 'selected_lines_in_ide'
+    ideName: string
+    lineStart: number
+    lineEnd: number
+    filename: string
+    content: string
+    /** Path relative to CWD at creation time, for stable display */
+    displayPath: string
+  }
+  | {
+    type: 'opened_file_in_ide'
+    filename: string
+  }
+  | {
+    type: 'todo_reminder'
+    content: TodoList
+    itemCount: number
+  }
+  | {
+    type: 'task_reminder'
+    content: Task[]
+    itemCount: number
+  }
+  | {
+    type: 'nested_memory'
+    path: string
+    content: MemoryFileInfo
+    /** Path relative to CWD at creation time, for stable display */
+    displayPath: string
+  }
+  | {
+    type: 'relevant_memories'
+    memories: {
       path: string
       content: string
-      /** Path relative to CWD at creation time, for stable display */
-      displayPath: string
-    }
+      mtimeMs: number
+      /**
+       * Pre-computed header string (age + path prefix).  Computed once
+       * at attachment-creation time so the rendered bytes are stable
+       * across turns — recomputing memoryAge(mtimeMs) at render time
+       * calls Date.now(), so "saved 3 days ago" becomes "saved 4 days
+       * ago" across turns → different bytes → prompt cache bust.
+       * Optional for backward compat with resumed sessions; render
+       * path falls back to recomputing if missing.
+       */
+      header?: string
+      /**
+       * lineCount when the file was truncated by readMemoriesForSurfacing,
+       * else undefined. Threaded to the readFileState write so
+       * getChangedFiles skips truncated memories (partial content would
+       * yield a misleading diff).
+       */
+      limit?: number
+    }[]
+  }
   | {
-      type: 'selected_lines_in_ide'
-      ideName: string
-      lineStart: number
-      lineEnd: number
-      filename: string
-      content: string
-      /** Path relative to CWD at creation time, for stable display */
-      displayPath: string
-    }
+    type: 'dynamic_skill'
+    skillDir: string
+    skillNames: string[]
+    /** Path relative to CWD at creation time, for stable display */
+    displayPath: string
+  }
   | {
-      type: 'opened_file_in_ide'
-      filename: string
-    }
+    type: 'skill_listing'
+    content: string
+    skillCount: number
+    isInitial: boolean
+  }
   | {
-      type: 'todo_reminder'
-      content: TodoList
-      itemCount: number
-    }
+    type: 'skill_discovery'
+    skills: { name: string; description: string; shortId?: string }[]
+    signal: DiscoverySignal
+    source: 'native' | 'aki' | 'both'
+  }
   | {
-      type: 'task_reminder'
-      content: Task[]
-      itemCount: number
-    }
+    type: 'queued_command'
+    prompt: string | Array<ContentBlockParam>
+    source_uuid?: UUID
+    imagePasteIds?: number[]
+    /** Original queue mode — 'prompt' for user messages, 'task-notification' for system events */
+    commandMode?: string
+    /** Provenance carried from QueuedCommand so mid-turn drains preserve it */
+    origin?: MessageOrigin
+    /** Carried from QueuedCommand.isMeta — distinguishes human-typed from system-injected */
+    isMeta?: boolean
+  }
   | {
-      type: 'nested_memory'
-      path: string
-      content: MemoryFileInfo
-      /** Path relative to CWD at creation time, for stable display */
-      displayPath: string
-    }
+    type: 'output_style'
+    style: string
+  }
   | {
-      type: 'relevant_memories'
-      memories: {
-        path: string
-        content: string
-        mtimeMs: number
-        /**
-         * Pre-computed header string (age + path prefix).  Computed once
-         * at attachment-creation time so the rendered bytes are stable
-         * across turns — recomputing memoryAge(mtimeMs) at render time
-         * calls Date.now(), so "saved 3 days ago" becomes "saved 4 days
-         * ago" across turns → different bytes → prompt cache bust.
-         * Optional for backward compat with resumed sessions; render
-         * path falls back to recomputing if missing.
-         */
-        header?: string
-        /**
-         * lineCount when the file was truncated by readMemoriesForSurfacing,
-         * else undefined. Threaded to the readFileState write so
-         * getChangedFiles skips truncated memories (partial content would
-         * yield a misleading diff).
-         */
-        limit?: number
-      }[]
-    }
+    type: 'diagnostics'
+    files: DiagnosticFile[]
+    isNew: boolean
+  }
   | {
-      type: 'dynamic_skill'
-      skillDir: string
-      skillNames: string[]
-      /** Path relative to CWD at creation time, for stable display */
-      displayPath: string
-    }
+    type: 'plan_mode'
+    reminderType: 'full' | 'sparse'
+    isSubAgent?: boolean
+    planFilePath: string
+    planExists: boolean
+  }
   | {
-      type: 'skill_listing'
-      content: string
-      skillCount: number
-      isInitial: boolean
-    }
+    type: 'plan_mode_reentry'
+    planFilePath: string
+  }
   | {
-      type: 'skill_discovery'
-      skills: { name: string; description: string; shortId?: string }[]
-      signal: DiscoverySignal
-      source: 'native' | 'aki' | 'both'
-    }
+    type: 'plan_mode_exit'
+    planFilePath: string
+    planExists: boolean
+  }
   | {
-      type: 'queued_command'
-      prompt: string | Array<ContentBlockParam>
-      source_uuid?: UUID
-      imagePasteIds?: number[]
-      /** Original queue mode — 'prompt' for user messages, 'task-notification' for system events */
-      commandMode?: string
-      /** Provenance carried from QueuedCommand so mid-turn drains preserve it */
-      origin?: MessageOrigin
-      /** Carried from QueuedCommand.isMeta — distinguishes human-typed from system-injected */
-      isMeta?: boolean
-    }
+    type: 'auto_mode'
+    reminderType: 'full' | 'sparse'
+  }
   | {
-      type: 'output_style'
-      style: string
-    }
+    type: 'auto_mode_exit'
+  }
   | {
-      type: 'diagnostics'
-      files: DiagnosticFile[]
-      isNew: boolean
-    }
+    type: 'critical_system_reminder'
+    content: string
+  }
   | {
-      type: 'plan_mode'
-      reminderType: 'full' | 'sparse'
-      isSubAgent?: boolean
-      planFilePath: string
-      planExists: boolean
-    }
+    type: 'plan_file_reference'
+    planFilePath: string
+    planContent: string
+  }
   | {
-      type: 'plan_mode_reentry'
-      planFilePath: string
-    }
+    type: 'mcp_resource'
+    server: string
+    uri: string
+    name: string
+    description?: string
+    content: ReadResourceResult
+  }
   | {
-      type: 'plan_mode_exit'
-      planFilePath: string
-      planExists: boolean
-    }
-  | {
-      type: 'auto_mode'
-      reminderType: 'full' | 'sparse'
-    }
-  | {
-      type: 'auto_mode_exit'
-    }
-  | {
-      type: 'critical_system_reminder'
-      content: string
-    }
-  | {
-      type: 'plan_file_reference'
-      planFilePath: string
-      planContent: string
-    }
-  | {
-      type: 'mcp_resource'
-      server: string
-      uri: string
-      name: string
-      description?: string
-      content: ReadResourceResult
-    }
-  | {
-      type: 'command_permissions'
-      allowedTools: string[]
-      model?: string
-    }
+    type: 'command_permissions'
+    allowedTools: string[]
+    model?: string
+  }
   | AgentMentionAttachment
   | {
-      type: 'task_status'
-      taskId: string
-      taskType: TaskType
-      status: TaskStatus
-      description: string
-      deltaSummary: string | null
-      outputFilePath?: string
-    }
+    type: 'task_status'
+    taskId: string
+    taskType: TaskType
+    status: TaskStatus
+    description: string
+    deltaSummary: string | null
+    outputFilePath?: string
+  }
   | AsyncHookResponseAttachment
   | {
-      type: 'token_usage'
-      used: number
-      total: number
-      remaining: number
-    }
+    type: 'token_usage'
+    used: number
+    total: number
+    remaining: number
+  }
   | {
-      type: 'budget_usd'
-      used: number
-      total: number
-      remaining: number
-    }
+    type: 'budget_usd'
+    used: number
+    total: number
+    remaining: number
+  }
   | {
-      type: 'output_token_usage'
-      turn: number
-      session: number
-      budget: number | null
-    }
+    type: 'output_token_usage'
+    turn: number
+    session: number
+    budget: number | null
+  }
   | {
-      type: 'structured_output'
-      data: unknown
-    }
+    type: 'structured_output'
+    data: unknown
+  }
   | TeammateMailboxAttachment
   | TeamContextAttachment
   | HookAttachment
   | {
-      type: 'invoked_skills'
-      skills: Array<{
-        name: string
-        path: string
-        content: string
-      }>
-    }
-  | {
-      type: 'verify_plan_reminder'
-    }
-  | {
-      type: 'max_turns_reached'
-      maxTurns: number
-      turnCount: number
-    }
-  | {
-      type: 'current_session_memory'
-      content: string
-      path: string
-      tokenCount: number
-    }
-  | {
-      type: 'teammate_shutdown_batch'
-      count: number
-    }
-  | {
-      type: 'compaction_reminder'
-    }
-  | {
-      type: 'context_efficiency'
-    }
-  | {
-      type: 'date_change'
-      newDate: string
-    }
-  | {
-      type: 'ultrathink_effort'
-      level: 'high'
-    }
-  | {
-      type: 'deferred_tools_delta'
-      addedNames: string[]
-      addedLines: string[]
-      removedNames: string[]
-    }
-  | {
-      type: 'agent_listing_delta'
-      addedTypes: string[]
-      addedLines: string[]
-      removedTypes: string[]
-      /** True when this is the first announcement in the conversation */
-      isInitial: boolean
-      /** Whether to include the "launch multiple agents concurrently" note (non-pro subscriptions) */
-      showConcurrencyNote: boolean
-    }
-  | {
-      type: 'mcp_instructions_delta'
-      addedNames: string[]
-      addedBlocks: string[]
-      removedNames: string[]
-    }
-  | {
-      type: 'companion_intro'
+    type: 'invoked_skills'
+    skills: Array<{
       name: string
-      species: string
-    }
+      path: string
+      content: string
+    }>
+  }
   | {
-      type: 'bagel_console'
-      errorCount: number
-      warningCount: number
-      sample: string
-    }
+    type: 'verify_plan_reminder'
+  }
+  | {
+    type: 'max_turns_reached'
+    maxTurns: number
+    turnCount: number
+  }
+  | {
+    type: 'current_session_memory'
+    content: string
+    path: string
+    tokenCount: number
+  }
+  | {
+    type: 'teammate_shutdown_batch'
+    count: number
+  }
+  | {
+    type: 'compaction_reminder'
+  }
+  | {
+    type: 'context_efficiency'
+  }
+  | {
+    type: 'date_change'
+    newDate: string
+  }
+  | {
+    type: 'ultrathink_effort'
+    level: 'high'
+  }
+  | {
+    type: 'deferred_tools_delta'
+    addedNames: string[]
+    addedLines: string[]
+    removedNames: string[]
+  }
+  | {
+    type: 'agent_listing_delta'
+    addedTypes: string[]
+    addedLines: string[]
+    removedTypes: string[]
+    /** True when this is the first announcement in the conversation */
+    isInitial: boolean
+    /** Whether to include the "launch multiple agents concurrently" note (non-pro subscriptions) */
+    showConcurrencyNote: boolean
+  }
+  | {
+    type: 'mcp_instructions_delta'
+    addedNames: string[]
+    addedBlocks: string[]
+    removedNames: string[]
+  }
+  | {
+    type: 'companion_intro'
+    name: string
+    species: string
+  }
+  | {
+    type: 'bagel_console'
+    errorCount: number
+    warningCount: number
+    sample: string
+  }
 
 export type TeammateMailboxAttachment = {
   type: 'teammate_mailbox'
@@ -773,46 +765,46 @@ export async function getAttachments(
   // Attachments which are added in response to on user input
   const userInputAttachments = input
     ? [
-        maybe('at_mentioned_files', () =>
-          processAtMentionedFiles(input, context),
-        ),
-        maybe('mcp_resources', () =>
-          processMcpResourceAttachments(input, context),
-        ),
-        maybe('agent_mentions', () =>
-          Promise.resolve(
-            processAgentMentions(
-              input,
-              toolUseContext.options.agentDefinitions.activeAgents,
-            ),
+      maybe('at_mentioned_files', () =>
+        processAtMentionedFiles(input, context),
+      ),
+      maybe('mcp_resources', () =>
+        processMcpResourceAttachments(input, context),
+      ),
+      maybe('agent_mentions', () =>
+        Promise.resolve(
+          processAgentMentions(
+            input,
+            toolUseContext.options.agentDefinitions.activeAgents,
           ),
         ),
-        // Skill discovery on turn 0 (user input as signal). Inter-turn
-        // discovery runs via startSkillDiscoveryPrefetch in query.ts,
-        // gated on write-pivot detection — see skillSearch/prefetch.ts.
-        // feature() here lets DCE drop the 'skill_discovery' string (and the
-        // function it calls) from external builds.
-        //
-        // skipSkillDiscovery gates out the SKILL.md-expansion path
-        // (getMessagesForPromptSlashCommand). When a skill is invoked, its
-        // SKILL.md content is passed as `input` here to extract @-mentions —
-        // but that content is NOT user intent and must not trigger discovery.
-        // Without this gate, a 110KB SKILL.md fires ~3.3s of chunked AKI
-        // queries on every skill invocation (session 13a9afae).
-        ...(feature('EXPERIMENTAL_SKILL_SEARCH') &&
+      ),
+      // Skill discovery on turn 0 (user input as signal). Inter-turn
+      // discovery runs via startSkillDiscoveryPrefetch in query.ts,
+      // gated on write-pivot detection — see skillSearch/prefetch.ts.
+      // feature() here lets DCE drop the 'skill_discovery' string (and the
+      // function it calls) from external builds.
+      //
+      // skipSkillDiscovery gates out the SKILL.md-expansion path
+      // (getMessagesForPromptSlashCommand). When a skill is invoked, its
+      // SKILL.md content is passed as `input` here to extract @-mentions —
+      // but that content is NOT user intent and must not trigger discovery.
+      // Without this gate, a 110KB SKILL.md fires ~3.3s of chunked AKI
+      // queries on every skill invocation (session 13a9afae).
+      ...(feature('EXPERIMENTAL_SKILL_SEARCH') &&
         skillSearchModules &&
         !options?.skipSkillDiscovery
-          ? [
-              maybe('skill_discovery', () =>
-                skillSearchModules.prefetch.getTurnZeroSkillDiscovery(
-                  input,
-                  messages ?? [],
-                  context,
-                ),
-              ),
-            ]
-          : []),
-      ]
+        ? [
+          maybe('skill_discovery', () =>
+            skillSearchModules.prefetch.getTurnZeroSkillDiscovery(
+              input,
+              messages ?? [],
+              context,
+            ),
+          ),
+        ]
+        : []),
+    ]
     : []
 
   // Process user input attachments first (includes @mentioned files)
@@ -863,11 +855,11 @@ export async function getAttachments(
       ),
     ),
     ...(isBuddyEnabled()
-        ? [
-            maybe('companion_intro', () =>
-              Promise.resolve(getCompanionIntroAttachment(messages)),
-          ),
-        ]
+      ? [
+        maybe('companion_intro', () =>
+          Promise.resolve(getCompanionIntroAttachment(messages)),
+        ),
+      ]
       : []),
     maybe('changed_files', () => getChangedFiles(context)),
     maybe('nested_memory', () => getNestedMemoryAttachments(context)),
@@ -883,13 +875,13 @@ export async function getAttachments(
     maybe('plan_mode_exit', () => getPlanModeExitAttachment(toolUseContext)),
     ...(feature('TRANSCRIPT_CLASSIFIER')
       ? [
-          maybe('auto_mode', () =>
-            getAutoModeAttachments(messages, toolUseContext),
-          ),
-          maybe('auto_mode_exit', () =>
-            getAutoModeExitAttachment(toolUseContext),
-          ),
-        ]
+        maybe('auto_mode', () =>
+          getAutoModeAttachments(messages, toolUseContext),
+        ),
+        maybe('auto_mode_exit', () =>
+          getAutoModeExitAttachment(toolUseContext),
+        ),
+      ]
       : []),
     maybe('todo_reminders', () =>
       isTodoV2Enabled()
@@ -898,21 +890,21 @@ export async function getAttachments(
     ),
     ...(isAgentSwarmsEnabled()
       ? [
-          // Skip teammate mailbox for the session_memory forked agent.
-          // It shares AppState.teamContext with the leader, so isTeamLead resolves
-          // true and it reads+marks-as-read the leader's DMs as ephemeral attachments,
-          // silently stealing messages that should be delivered as permanent turns.
-          ...(querySource === 'session_memory'
-            ? []
-            : [
-                maybe('teammate_mailbox', async () =>
-                  getTeammateMailboxAttachments(toolUseContext),
-                ),
-              ]),
-          maybe('team_context', async () =>
-            getTeamContextAttachment(messages ?? []),
-          ),
-        ]
+        // Skip teammate mailbox for the session_memory forked agent.
+        // It shares AppState.teamContext with the leader, so isTeamLead resolves
+        // true and it reads+marks-as-read the leader's DMs as ephemeral attachments,
+        // silently stealing messages that should be delivered as permanent turns.
+        ...(querySource === 'session_memory'
+          ? []
+          : [
+            maybe('teammate_mailbox', async () =>
+              getTeammateMailboxAttachments(toolUseContext),
+            ),
+          ]),
+        maybe('team_context', async () =>
+          getTeamContextAttachment(messages ?? []),
+        ),
+      ]
       : []),
     maybe('agent_pending_messages', async () =>
       getAgentPendingMessageAttachments(toolUseContext),
@@ -922,69 +914,69 @@ export async function getAttachments(
     ),
     ...(feature('COMPACTION_REMINDERS')
       ? [
-          maybe('compaction_reminder', () =>
-            Promise.resolve(
-              getCompactionReminderAttachment(
-                messages ?? [],
-                toolUseContext.options.mainLoopModel,
-              ),
+        maybe('compaction_reminder', () =>
+          Promise.resolve(
+            getCompactionReminderAttachment(
+              messages ?? [],
+              toolUseContext.options.mainLoopModel,
             ),
           ),
-        ]
+        ),
+      ]
       : []),
     ...(feature('HISTORY_SNIP')
       ? [
-          maybe('context_efficiency', () =>
-            Promise.resolve(getContextEfficiencyAttachment(messages ?? [])),
-          ),
-        ]
+        maybe('context_efficiency', () =>
+          Promise.resolve(getContextEfficiencyAttachment(messages ?? [])),
+        ),
+      ]
       : []),
   ]
 
   // Attachments which are semantically only for the main conversation or don't have concurrency-safe implementations
   const mainThreadAttachments = isMainThread
     ? [
-        maybe('ide_selection', async () =>
-          getSelectedLinesFromIDE(ideSelection, toolUseContext),
-        ),
-        maybe('ide_opened_file', async () =>
-          getOpenedFileFromIDE(ideSelection, toolUseContext),
-        ),
-        maybe('output_style', async () =>
-          Promise.resolve(getOutputStyleAttachment()),
-        ),
-        maybe('diagnostics', async () =>
-          getDiagnosticAttachments(toolUseContext),
-        ),
-        maybe('lsp_diagnostics', async () =>
-          getLSPDiagnosticAttachments(toolUseContext),
-        ),
-        maybe('unified_tasks', async () =>
-          getUnifiedTaskAttachments(toolUseContext),
-        ),
-        maybe('async_hook_responses', async () =>
-          getAsyncHookResponseAttachments(),
-        ),
-        maybe('token_usage', async () =>
-          Promise.resolve(
-            getTokenUsageAttachment(
-              messages ?? [],
-              toolUseContext.options.mainLoopModel,
-            ),
+      maybe('ide_selection', async () =>
+        getSelectedLinesFromIDE(ideSelection, toolUseContext),
+      ),
+      maybe('ide_opened_file', async () =>
+        getOpenedFileFromIDE(ideSelection, toolUseContext),
+      ),
+      maybe('output_style', async () =>
+        Promise.resolve(getOutputStyleAttachment()),
+      ),
+      maybe('diagnostics', async () =>
+        getDiagnosticAttachments(toolUseContext),
+      ),
+      maybe('lsp_diagnostics', async () =>
+        getLSPDiagnosticAttachments(toolUseContext),
+      ),
+      maybe('unified_tasks', async () =>
+        getUnifiedTaskAttachments(toolUseContext),
+      ),
+      maybe('async_hook_responses', async () =>
+        getAsyncHookResponseAttachments(),
+      ),
+      maybe('token_usage', async () =>
+        Promise.resolve(
+          getTokenUsageAttachment(
+            messages ?? [],
+            toolUseContext.options.mainLoopModel,
           ),
         ),
-        maybe('budget_usd', async () =>
-          Promise.resolve(
-            getMaxBudgetUsdAttachment(toolUseContext.options.maxBudgetUsd),
-          ),
+      ),
+      maybe('budget_usd', async () =>
+        Promise.resolve(
+          getMaxBudgetUsdAttachment(toolUseContext.options.maxBudgetUsd),
         ),
-        maybe('output_token_usage', async () =>
-          Promise.resolve(getOutputTokenUsageAttachment()),
-        ),
-        maybe('verify_plan_reminder', async () =>
-          getVerifyPlanReminderAttachment(messages, toolUseContext),
-        ),
-      ]
+      ),
+      maybe('output_token_usage', async () =>
+        Promise.resolve(getOutputTokenUsageAttachment()),
+      ),
+      maybe('verify_plan_reminder', async () =>
+        getVerifyPlanReminderAttachment(messages, toolUseContext),
+      ),
+    ]
     : []
 
   // Process thread and main thread attachments in parallel (no dependencies between them)
@@ -1226,7 +1218,7 @@ async function getPlanModeAttachments(
   const reminderType: 'full' | 'sparse' =
     attachmentCount %
       PLAN_MODE_ATTACHMENT_CONFIG.FULL_REMINDER_EVERY_N_ATTACHMENTS ===
-    1
+      1
       ? 'full'
       : 'sparse'
 
@@ -1367,7 +1359,7 @@ async function getAutoModeAttachments(
   const reminderType: 'full' | 'sparse' =
     attachmentCount %
       AUTO_MODE_ATTACHMENT_CONFIG.FULL_REMINDER_EVERY_N_ATTACHMENTS ===
-    1
+      1
       ? 'full'
       : 'sparse'
 
@@ -2304,7 +2296,7 @@ export async function readMemoriesForSurfacing(
           result.totalLines > MAX_MEMORY_LINES || result.truncatedByBytes
         const content = truncated
           ? result.content +
-            `\n\n> This memory file was truncated (${result.truncatedByBytes ? `${MAX_MEMORY_BYTES} byte limit` : `first ${MAX_MEMORY_LINES} lines`}). Use the ${FILE_READ_TOOL_NAME} tool to view the complete file at: ${filePath}`
+          `\n\n> This memory file was truncated (${result.truncatedByBytes ? `${MAX_MEMORY_BYTES} byte limit` : `first ${MAX_MEMORY_LINES} lines`}). Use the ${FILE_READ_TOOL_NAME} tool to view the complete file at: ${filePath}`
           : result.content
         return {
           path: filePath,
@@ -3730,8 +3722,8 @@ async function getTeammateMailboxAttachments(
         // Find the teammate ID by name
         const teammateId = appState.teamContext?.teammates
           ? Object.entries(appState.teamContext.teammates).find(
-              ([, t]) => t.name === teammateToRemove,
-            )?.[0]
+            ([, t]) => t.name === teammateToRemove,
+          )?.[0]
           : undefined
 
         if (teammateId) {

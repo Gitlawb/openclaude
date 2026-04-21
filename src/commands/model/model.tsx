@@ -1,26 +1,23 @@
-import { c as _c } from "react-compiler-runtime";
 import chalk from 'chalk';
 import * as React from 'react';
+import { c as _c } from "react-compiler-runtime";
 import type { CommandResultDisplay } from '../../commands.js';
 import { ModelPicker } from '../../components/ModelPicker.js';
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js';
-import { fetchBootstrapData } from '../../services/api/bootstrap.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
+import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js';
 import { useAppState, useSetAppState } from '../../state/AppState.js';
 import type { LocalJSXCommandCall } from '../../types/command.js';
-import type { EffortLevel } from '../../utils/effort.js';
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import { clearFastModeCooldown, isFastModeAvailable, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { MODEL_ALIASES } from '../../utils/model/aliases.js';
 import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1mAccess.js';
-import type { ModelOption } from '../../utils/model/modelOptions.js';
-import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js';
-import { getAPIProvider } from '../../utils/model/providers.js';
-import { getActiveOpenAIModelOptionsCache, setActiveOpenAIModelOptionsCache } from '../../utils/providerProfiles.js';
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
+import type { ModelOption } from '../../utils/model/modelOptions.js';
+import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js';
 import { validateModel } from '../../utils/model/validateModel.js';
-import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js';
+import { getActiveOpenAIModelOptionsCache, setActiveOpenAIModelOptionsCache } from '../../utils/providerProfiles.js';
 function ModelPickerWrapper(t0) {
   const $ = _c(17);
   const {

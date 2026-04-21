@@ -1,8 +1,8 @@
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
-} from 'src/services/analytics/index.js'
-import { sanitizeToolNameForAnalytics } from 'src/services/analytics/metadata.js'
+} from '../analytics/index.js'
+import { sanitizeToolNameForAnalytics } from '../analytics/metadata.js'
 import type z from 'zod/v4'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { AnyObject, Tool, ToolUseContext } from '../../Tool.js'
@@ -30,14 +30,14 @@ import {
 import { checkRuleBasedPermissions } from '../../utils/permissions/permissions.js'
 import { formatError } from '../../utils/toolErrors.js'
 import { getAutoFixConfig } from '../autoFix/autoFixConfig.js'
-import { shouldRunAutoFix, buildAutoFixContext } from '../autoFix/autoFixHook.js'
+import { buildAutoFixContext, shouldRunAutoFix } from '../autoFix/autoFixHook.js'
 import { runAutoFixCheck } from '../autoFix/autoFixRunner.js'
+import { isMcpTool } from '../mcp/utils.js'
+import type { McpServerType, MessageUpdateLazy } from './toolExecution.js'
 
 // Track auto-fix retry count per query chain to enforce maxRetries cap.
 // Key: queryChainId (or 'default'), Value: number of auto-fix attempts used.
 const autoFixRetryCount = new Map<string, number>()
-import { isMcpTool } from '../mcp/utils.js'
-import type { McpServerType, MessageUpdateLazy } from './toolExecution.js'
 
 export type PostToolUseHooksResult<Output> =
   | MessageUpdateLazy<AttachmentMessage | ProgressMessage<HookProgress>>
@@ -170,15 +170,15 @@ export async function* runPostToolUseHooks<Input extends AnyObject, Output>(
           queryDepth: toolUseContext.queryTracking?.depth,
           ...(mcpServerType
             ? {
-                mcpServerType:
-                  mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-              }
+              mcpServerType:
+                mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+            }
             : {}),
           ...(requestId
             ? {
-                requestId:
-                  requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-              }
+              requestId:
+                requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+            }
             : {}),
         })
         yield {
@@ -357,15 +357,15 @@ export async function* runPostToolUseFailureHooks<Input extends AnyObject>(
           queryDepth: toolUseContext.queryTracking?.depth,
           ...(mcpServerType
             ? {
-                mcpServerType:
-                  mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-              }
+              mcpServerType:
+                mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+            }
             : {}),
           ...(requestId
             ? {
-                requestId:
-                  requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-              }
+              requestId:
+                requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+            }
             : {}),
         })
         yield {
@@ -482,7 +482,7 @@ export async function resolveHookPermissionDecision(
     hookPermissionResult?.behavior === 'ask' ? hookPermissionResult : undefined
   const askInput =
     hookPermissionResult?.behavior === 'ask' &&
-    hookPermissionResult.updatedInput
+      hookPermissionResult.updatedInput
       ? hookPermissionResult.updatedInput
       : input
   return {
@@ -509,19 +509,19 @@ export async function* runPreToolUseHooks(
   mcpServerBaseUrl: string | undefined,
 ): AsyncGenerator<
   | {
-      type: 'message'
-      message: MessageUpdateLazy<
-        AttachmentMessage | ProgressMessage<HookProgress>
-      >
-    }
+    type: 'message'
+    message: MessageUpdateLazy<
+      AttachmentMessage | ProgressMessage<HookProgress>
+    >
+  }
   | { type: 'hookPermissionResult'; hookPermissionResult: PermissionResult }
   | { type: 'hookUpdatedInput'; updatedInput: Record<string, unknown> }
   | { type: 'preventContinuation'; shouldPreventContinuation: boolean }
   | { type: 'stopReason'; stopReason: string }
   | {
-      type: 'additionalContext'
-      message: MessageUpdateLazy<AttachmentMessage>
-    }
+    type: 'additionalContext'
+    message: MessageUpdateLazy<AttachmentMessage>
+  }
   // stop execution
   | { type: 'stop' }
 > {
@@ -682,15 +682,15 @@ export async function* runPreToolUseHooks(
           queryDepth: toolUseContext.queryTracking?.depth,
           ...(mcpServerType
             ? {
-                mcpServerType:
-                  mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-              }
+              mcpServerType:
+                mcpServerType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+            }
             : {}),
           ...(requestId
             ? {
-                requestId:
-                  requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-              }
+              requestId:
+                requestId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+            }
             : {}),
         })
         yield {

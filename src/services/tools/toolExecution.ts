@@ -115,7 +115,7 @@ import {
 import {
   McpAuthError,
   McpToolCallError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-} from '../mcp/client.js'
+} from '../mcp/errors/index.js'
 import { mcpInfoFromString } from '../mcp/mcpStringUtils.js'
 import { normalizeNameForMCP } from '../mcp/normalization.js'
 import type { MCPServerConnection } from '../mcp/types.js'
@@ -815,8 +815,8 @@ async function checkPermissionsAndCallTool(
   let callInput = processedInput
   const backfilledClone =
     tool.backfillObservableInput &&
-    typeof processedInput === 'object' &&
-    processedInput !== null
+      typeof processedInput === 'object' &&
+      processedInput !== null
       ? ({ ...processedInput } as typeof processedInput)
       : null
   if (backfilledClone) {
@@ -972,7 +972,7 @@ async function checkPermissionsAndCallTool(
   ) {
     logForDebugging(
       `Slow permission decision: ${permissionDurationMs}ms for ${tool.name} ` +
-        `(mode=${permissionMode}, behavior=${permissionDecision.behavior})`,
+      `(mode=${permissionMode}, behavior=${permissionDecision.behavior})`,
       { level: 'info' },
     )
   }
@@ -1226,7 +1226,7 @@ async function checkPermissionsAndCallTool(
     'file_path' in processedInput &&
     'file_path' in (callInput as Record<string, unknown>) &&
     (processedInput as Record<string, unknown>).file_path ===
-      (backfilledClone as Record<string, unknown>).file_path
+    (backfilledClone as Record<string, unknown>).file_path
   ) {
     callInput = {
       ...processedInput,
@@ -1440,10 +1440,10 @@ async function checkPermissionsAndCallTool(
       // don't modify the output), otherwise map from scratch.
       const toolResultBlock = preMappedBlock
         ? await processPreMappedToolResultBlock(
-            preMappedBlock,
-            tool.name,
-            tool.maxResultSizeChars,
-          )
+          preMappedBlock,
+          tool.name,
+          tool.maxResultSizeChars,
+        )
         : await processToolResultBlock(tool, toolUseResult, toolUseID)
 
       // Build content blocks - tool result first, then optional feedback
@@ -1498,9 +1498,9 @@ async function checkPermissionsAndCallTool(
         }),
         contextModifier: toolContextModifier
           ? {
-              toolUseID: toolUseID,
-              modifyContext: toolContextModifier,
-            }
+            toolUseID: toolUseID,
+            modifyContext: toolContextModifier,
+          }
           : undefined,
       })
     }
@@ -1759,7 +1759,7 @@ async function checkPermissionsAndCallTool(
           mcpMeta: toolUseContext.agentId
             ? undefined
             : error instanceof
-                McpToolCallError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+              McpToolCallError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
               ? error.mcpMeta
               : undefined,
           sourceToolAssistantUUID: assistantMessage.uuid,

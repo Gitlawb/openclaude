@@ -28,6 +28,7 @@ import { SelectEventMode } from './SelectEventMode.js';
 import { SelectHookMode } from './SelectHookMode.js';
 import { SelectMatcherMode } from './SelectMatcherMode.js';
 import { ViewHookMode } from './ViewHookMode.js';
+
 type Props = {
   toolNames: string[];
   onExit: (result?: string, options?: {
@@ -48,7 +49,7 @@ type ModeState = {
   event: HookEvent;
   hook: IndividualHookConfig;
 };
-export function HooksConfigMenu(t0) {
+export function HooksConfigMenu(t0: Props) {
   const $ = _c(100);
   const {
     toolNames,
@@ -63,7 +64,7 @@ export function HooksConfigMenu(t0) {
   } else {
     t1 = $[0];
   }
-  const [modeState, setModeState] = useState(t1);
+  const [modeState, setModeState] = useState<ModeState>(t1);
   const [disabledByPolicy, setDisabledByPolicy] = useState(_temp);
   const [restrictedByPolicy, setRestrictedByPolicy] = useState(_temp2);
   let t2;

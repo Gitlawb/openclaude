@@ -29,7 +29,7 @@ import {
 } from './bootstrap/state.js'
 import type { ModelUsage } from './entrypoints/agentSdkTypes.js'
 import {
-  type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+  type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS as AnalyticsMetadata,
   logEvent,
 } from './services/analytics/index.js'
 import { getAdvisorUsage } from './utils/advisor.js'
@@ -240,7 +240,7 @@ export function formatTotalCost(): string {
 
   return chalk.dim(
     `Total cost:            ${costDisplay}\n` +
-      `Total duration (API):  ${formatDuration(getTotalAPIDuration())}
+    `Total duration (API):  ${formatDuration(getTotalAPIDuration())}
 Total duration (wall): ${formatDuration(getTotalDuration())}
 Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed
 ${modelUsageDisplay}`,
