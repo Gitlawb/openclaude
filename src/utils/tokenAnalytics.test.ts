@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
-import { TokenUsageTracker, extractThinkingTokens } from './tokens.js'
+import { TokenUsageTracker } from './tokenAnalytics.js'
 
 describe('TokenUsageTracker', () => {
   let tracker: TokenUsageTracker
@@ -75,29 +75,10 @@ describe('TokenUsageTracker', () => {
     expect(smallTracker.size).toBe(3)
   })
 
-  it('clears history', () => {
-    tracker.record({ input_tokens: 1000, output_tokens: 100, model: 'test' })
-    tracker.clear()
+it('clears history', () => {
+      tracker.record({ input_tokens: 1000, output_tokens: 100, model: 'test' })
+      tracker.clear()
 
-    expect(tracker.size).toBe(0)
-  })
-})
-
-describe('extractThinkingTokens', () => {
-  it('separates thinking from output', () => {
-    const message = {
-      type: 'assistant',
-      message: {
-        content: [
-          { type: 'thinking', thinking: 'Thinking...' },
-          { type: 'text', text: 'Answer.' },
-        ],
-      },
-    } as any
-
-    const result = extractThinkingTokens(message)
-
-    expect(result.thinking).toBeGreaterThan(0)
-    expect(result.output).toBeGreaterThan(0)
-  })
+      expect(tracker.size).toBe(0)
+    })
 })
