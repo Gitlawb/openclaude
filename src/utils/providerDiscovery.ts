@@ -302,6 +302,24 @@ export async function listAtomicChatModels(
   }
 }
 
+export type AtomicChatReadiness =
+  | { state: 'unreachable' }
+  | { state: 'no_models' }
+  | { state: 'ready'; models: string[] }
+
+export async function probeAtomicChatReadiness(options?: {
+  baseUrl?: string
+}): Promise<AtomicChatReadiness> {
+  if (!(await hasLocalAtomicChat(options?.baseUrl))) {
+    return { state: 'unreachable' }
+  }
+  const models = await listAtomicChatModels(options?.baseUrl)
+  if (models.length === 0) {
+    return { state: 'no_models' }
+  }
+  return { state: 'ready', models }
+}
+
 export async function benchmarkOllamaModel(
   modelName: string,
   baseUrl?: string,

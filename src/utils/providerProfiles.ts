@@ -33,6 +33,7 @@ export type ProviderPreset =
   | 'custom'
   | 'nvidia-nim'
   | 'minimax'
+  | 'atomic-chat'
 
 export type ProviderProfileInput = {
   provider?: ProviderProfile['provider']
@@ -284,6 +285,15 @@ export function getProviderPresetDefaults(
         model: 'MiniMax-M2.5',
         apiKey: process.env.MINIMAX_API_KEY ?? '',
         requiresApiKey: true,
+      }
+    case 'atomic-chat':
+      return {
+        provider: 'openai',
+        name: 'Atomic Chat',
+        baseUrl: 'http://127.0.0.1:1337/v1',
+        model: process.env.OPENAI_MODEL ?? 'local-model',
+        apiKey: '',
+        requiresApiKey: false,
       }
     case 'ollama':
     default:

@@ -125,7 +125,7 @@ Advanced and source-build guides:
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
 | Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
 | Ollama | `/provider`, env vars, or `ollama launch` | Local inference with no API key |
-| Atomic Chat | advanced setup | Local Apple Silicon backend |
+| Atomic Chat | `/provider`, env vars, or `bun run dev:atomic-chat` | Local Model Provider; auto-detects loaded models |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
 
 ## What Works
