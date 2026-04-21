@@ -256,6 +256,83 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
   })
 
+  test('applies active profile when a bare CLAUDE_CODE_USE_OPENAI flag is stale (no BASE_URL/MODEL)', async () => {
+    // Regression: a leftover `CLAUDE_CODE_USE_OPENAI=1` in the shell with no
+    // paired OPENAI_BASE_URL / OPENAI_MODEL is not a real explicit selection
+    // — it's a stale export. The previous guard treated it as intent and
+    // skipped the saved profile, causing the startup banner to show hardcoded
+    // defaults (gpt-4o @ api.openai.com) instead of the user's active
+    // profile.
+    const { applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_MODEL
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_moonshot',
+          baseUrl: 'https://api.moonshot.ai/v1',
+          model: 'kimi-k2.6',
+        }),
+      ],
+      activeProviderProfileId: 'saved_moonshot',
+    } as any)
+
+    expect(applied?.id).toBe('saved_moonshot')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.moonshot.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('kimi-k2.6')
+  })
+
+  test('still respects complete shell selection with USE flag + BASE_URL', async () => {
+    // Counter-example: when the user really did set both the flag AND a
+    // concrete BASE_URL, that IS explicit intent and wins over the saved
+    // profile. This preserves the original "explicit startup wins" semantic.
+    const { applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://192.168.1.1:8080/v1'
+    delete process.env.OPENAI_MODEL
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_moonshot',
+          baseUrl: 'https://api.moonshot.ai/v1',
+          model: 'kimi-k2.6',
+        }),
+      ],
+      activeProviderProfileId: 'saved_moonshot',
+    } as any)
+
+    expect(applied).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('http://192.168.1.1:8080/v1')
+  })
+
+  test('still respects complete shell selection with USE flag + MODEL', async () => {
+    const { applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_MODEL = 'gpt-4o-mini'
+    delete process.env.OPENAI_BASE_URL
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [
+        buildProfile({
+          id: 'saved_moonshot',
+          baseUrl: 'https://api.moonshot.ai/v1',
+          model: 'kimi-k2.6',
+        }),
+      ],
+      activeProviderProfileId: 'saved_moonshot',
+    } as any)
+
+    expect(applied).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o-mini')
+  })
+
   test('does not override explicit startup selection when profile marker is stale', async () => {
     const { applyActiveProviderProfileFromConfig } =
       await importFreshProviderProfileModules()

@@ -841,35 +841,27 @@ export async function buildStartupEnvFromProfile(options?: {
   const processEnv = options?.processEnv ?? process.env
   const persisted = options?.persisted ?? loadProfileFile()
 
-  // Saved /provider profiles should still win over provider-manager env that was
-  // auto-applied during startup. Only an explicit shell/flag provider selection
-  // should bypass the persisted startup profile.
-  //
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
 
-  // If the user explicitly selected a provider via env, allow it to bypass
-  // the persisted profile only when we can prove it was managed by the
-  // persisted profile env itself.
+  // The legacy single-profile file (~/.openclaude-profile.json) is a
+  // first-run / fallback mechanism. The newer plural provider-profile
+  // system (`/provider` presets + activeProviderProfileId in config) is
+  // applied earlier in the bootstrap via applyActiveProviderProfileFromConfig
+  // and signals completion with CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED=1.
   //
-  // Practically: on initial startup, provider routing env vars can already
-  // be present due to earlier auto-application steps. We should still apply
-  // the persisted profile rather than returning early.
+  // If the plural system has already set env, trust it — do NOT overlay the
+  // legacy file. addProviderProfile() does not sync the legacy file, so a
+  // stale legacy file (e.g. OpenAI defaults from an earlier manual setup)
+  // would otherwise overwrite the correct plural env and surface as the
+  // "banner shows gpt-4o / api.openai.com even though my saved profile is
+  // Moonshot" bug.
+  if (profileManagedEnv) {
+    return processEnv
+  }
 
   if (!persisted) {
     return processEnv
   }
-
-  const launchProcessEnv = profileManagedEnv
-    ? (() => {
-        const cleanedEnv = { ...processEnv }
-        for (const key of PROFILE_ENV_KEYS) {
-          delete cleanedEnv[key]
-        }
-        delete cleanedEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
-        delete cleanedEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
-        return cleanedEnv
-      })()
-    : processEnv
 
   return buildLaunchEnv({
     profile: persisted.profile,
@@ -877,7 +869,7 @@ export async function buildStartupEnvFromProfile(options?: {
     goal:
       options?.goal ??
       normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
-    processEnv: launchProcessEnv,
+    processEnv,
     getOllamaChatBaseUrl:
       options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
     resolveOllamaDefaultModel: options?.resolveOllamaDefaultModel,
