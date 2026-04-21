@@ -15,6 +15,7 @@ import {
 } from '../../utils/mcpOutputStorage.js'
 import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
+import { ssrfGuardedLookup } from '../../utils/hooks/ssrfGuard.js'
 import { isPreapprovedHost } from './preapproved.js'
 import { makeSecondaryModelPrompt } from './prompt.js'
 
@@ -281,6 +282,7 @@ export async function getWithPermittedRedirects(
       maxRedirects: 0,
       responseType: 'arraybuffer',
       maxContentLength: MAX_HTTP_CONTENT_LENGTH,
+      lookup: ssrfGuardedLookup,
       headers: {
         Accept: 'text/markdown, text/html, */*',
         'User-Agent': getWebFetchUserAgent(),

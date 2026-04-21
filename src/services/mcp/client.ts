@@ -2524,7 +2524,7 @@ export async function transformResultContent(
       return [
         {
           type: 'text',
-          text: resultContent.text,
+          text: recursivelySanitizeUnicode(resultContent.text) as string,
         },
       ]
     case 'audio': {
@@ -2569,7 +2569,9 @@ export async function transformResultContent(
         return [
           {
             type: 'text',
-            text: `${prefix}${resource.text}`,
+            text: recursivelySanitizeUnicode(
+              `${prefix}${resource.text}`,
+            ) as string,
           },
         ]
       } else if ('blob' in resource) {

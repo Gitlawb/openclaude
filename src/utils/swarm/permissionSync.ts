@@ -207,6 +207,10 @@ export function createPermissionRequest(params: {
 }
 
 /**
+ * @deprecated Use sendPermissionRequestViaMailbox() instead. This file-based
+ * approach writes to an unauthenticated directory where any local process can
+ * forge requests. Retained for backward compatibility but no longer called.
+ *
  * Write a permission request to the pending directory with file locking
  * Called by worker agents when they need permission approval from the leader
  *
@@ -250,6 +254,10 @@ export async function writePermissionRequest(
 }
 
 /**
+ * @deprecated No longer called — permission requests are sent via mailbox.
+ * The pending directory is an unauthenticated channel. Retained for backward
+ * compatibility.
+ *
  * Read all pending permission requests for a team
  * Called by the team leader to see what requests need attention
  */
@@ -312,6 +320,11 @@ export async function readPendingPermissions(
 }
 
 /**
+ * @deprecated No longer called — permission responses are delivered via mailbox
+ * (processMailboxPermissionResponse). The resolved directory is an unauthenticated
+ * channel where any local process can forge approvals. Retained for backward
+ * compatibility.
+ *
  * Read a resolved permission request by ID
  * Called by workers to check if their request has been resolved
  *
@@ -352,6 +365,10 @@ export async function readResolvedPermission(
 }
 
 /**
+ * @deprecated Use sendPermissionResponseViaMailbox() instead. This file-based
+ * approach writes to an unauthenticated directory where any local process can
+ * forge approvals. Retained for backward compatibility but no longer called.
+ *
  * Resolve a permission request
  * Called by the team leader (or worker in self-resolution cases)
  *
@@ -536,6 +553,10 @@ export type PermissionResponse = {
 }
 
 /**
+ * @deprecated Use processMailboxPermissionResponse() via useInboxPoller instead.
+ * File-based polling reads from an unauthenticated directory where any local
+ * process can forge approval files. Retained for backward compatibility.
+ *
  * Poll for a permission response (worker-side convenience function)
  * Converts the resolved request into a simpler response format
  *
@@ -564,6 +585,9 @@ export async function pollForResponse(
 }
 
 /**
+ * @deprecated File-based response cleanup is no longer needed — responses are
+ * delivered via mailbox. Retained for backward compatibility.
+ *
  * Remove a worker's response after processing
  * This is an alias for deleteResolvedPermission for backward compatibility
  */
@@ -601,6 +625,9 @@ export function isSwarmWorker(): boolean {
 }
 
 /**
+ * @deprecated File-based resolved permissions are no longer written. Responses
+ * are delivered via mailbox. Retained for backward compatibility.
+ *
  * Delete a resolved permission file
  * Called after a worker has processed the resolution
  */
@@ -635,8 +662,8 @@ export async function deleteResolvedPermission(
 }
 
 /**
- * Submit a permission request (alias for writePermissionRequest)
- * Provided for backward compatibility with worker integration code
+ * @deprecated Alias for writePermissionRequest, which is itself deprecated.
+ * Use sendPermissionRequestViaMailbox() instead.
  */
 export const submitPermissionRequest = writePermissionRequest
 
