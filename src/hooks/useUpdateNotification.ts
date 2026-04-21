@@ -15,7 +15,7 @@ export function shouldShowUpdateNotification(
 
 export function useUpdateNotification(
   updatedVersion: string | null | undefined,
-  initialVersion: string = MACRO.VERSION,
+  initialVersion: string = typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0',
 ): string | null {
   const [lastNotifiedSemver, setLastNotifiedSemver] = useState<string | null>(
     () => getSemverPart(initialVersion),

@@ -33,7 +33,7 @@ export async function update() {
   // from the first-party distribution bucket, which would silently replace the
   // OpenClaude build (with the OpenAI shim) with the upstream Claude Code
   // binary (without it).
-  if (getAPIProvider() !== 'firstParty') {
+  if (getAPIProvider() !== 'firstParty' && MACRO.PACKAGE_URL !== '@gitlawb/openclaude') {
     writeToStdout(
       chalk.yellow('Auto-update is not available for third-party provider builds.\n') +
       'To update, pull the latest source from the repository and rebuild:\n' +
@@ -43,7 +43,8 @@ export async function update() {
   }
 
   logEvent('tengu_update_check', {})
-  writeToStdout(`Current version: ${MACRO.VERSION}\n`)
+  const currentVersion = typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0';
+  writeToStdout(`Current version: ${currentVersion}\n`)
 
   const channel = getInitialSettings()?.autoUpdatesChannel ?? 'latest'
   writeToStdout(`Checking for updates to ${channel} version...\n`)
@@ -136,8 +137,8 @@ export async function update() {
     if (packageManager === 'homebrew') {
       writeToStdout('Claude is managed by Homebrew.\n')
       const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
+      if (latest && !gte(currentVersion, latest)) {
+        writeToStdout(`Update available: ${currentVersion} → ${latest}\n`)
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(chalk.bold('  brew upgrade claude-code') + '\n')
@@ -147,8 +148,8 @@ export async function update() {
     } else if (packageManager === 'winget') {
       writeToStdout('Claude is managed by winget.\n')
       const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
+      if (latest && !gte(currentVersion, latest)) {
+        writeToStdout(`Update available: ${currentVersion} → ${latest}\n`)
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(
@@ -160,8 +161,8 @@ export async function update() {
     } else if (packageManager === 'apk') {
       writeToStdout('Claude is managed by apk.\n')
       const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
+      if (latest && !gte(currentVersion, latest)) {
+        writeToStdout(`Update available: ${currentVersion} → ${latest}\n`)
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(chalk.bold('  apk upgrade claude-code') + '\n')
@@ -250,14 +251,14 @@ export async function update() {
         await gracefulShutdown(1)
       }
 
-      if (result.latestVersion === MACRO.VERSION) {
+      if (result.latestVersion === currentVersion) {
         writeToStdout(
-          chalk.green(`Claude Code is up to date (${MACRO.VERSION})`) + '\n',
+          chalk.green(`Claude Code is up to date (${currentVersion})`) + '\n',
         )
       } else {
         writeToStdout(
           chalk.green(
-            `Successfully updated from ${MACRO.VERSION} to version ${result.latestVersion}`,
+            `Successfully updated from ${currentVersion} to version ${result.latestVersion}`,
           ) + '\n',
         )
         await regenerateCompletionCache()
@@ -320,15 +321,15 @@ export async function update() {
   }
 
   // Check if versions match exactly, including any build metadata (like SHA)
-  if (latestVersion === MACRO.VERSION) {
+  if (latestVersion === currentVersion) {
     writeToStdout(
-      chalk.green(`Claude Code is up to date (${MACRO.VERSION})`) + '\n',
+      chalk.green(`Claude Code is up to date (${currentVersion})`) + '\n',
     )
     await gracefulShutdown(0)
   }
 
   writeToStdout(
-    `New version available: ${latestVersion} (current: ${MACRO.VERSION})\n`,
+    `New version available: ${latestVersion} (current: ${currentVersion})\n`,
   )
   writeToStdout('Installing update...\n')
 
@@ -388,7 +389,7 @@ export async function update() {
     case 'success':
       writeToStdout(
         chalk.green(
-          `Successfully updated from ${MACRO.VERSION} to version ${latestVersion}`,
+          `Successfully updated from ${currentVersion} to version ${latestVersion}`,
         ) + '\n',
       )
       await regenerateCompletionCache()

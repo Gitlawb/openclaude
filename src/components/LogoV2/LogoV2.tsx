@@ -94,7 +94,7 @@ export function LogoV2() {
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = () => {
       const currentConfig = getGlobalConfig();
-      if (currentConfig.lastReleaseNotesSeen === MACRO.VERSION) {
+      if (currentConfig.lastReleaseNotesSeen === (typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0')) {
         return;
       }
       saveGlobalConfig(_temp3);
@@ -528,12 +528,12 @@ export function LogoV2() {
   return t41;
 }
 function _temp3(current) {
-  if (current.lastReleaseNotesSeen === MACRO.VERSION) {
+  if (current.lastReleaseNotesSeen === (typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0')) {
     return current;
   }
   return {
     ...current,
-    lastReleaseNotesSeen: MACRO.VERSION
+    lastReleaseNotesSeen: (typeof MACRO !== 'undefined' ? (MACRO.DISPLAY_VERSION ?? MACRO.VERSION) : '0.0.0')
   };
 }
 function _temp2(s_0) {
