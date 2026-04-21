@@ -48,6 +48,10 @@
     "doctor:report": "bun run scripts/system-check.ts --out reports/doctor-runtime.json",
     "hardening:check": "bun run smoke && bun run doctor:runtime",
     "hardening:strict": "bun run typecheck && bun run hardening:check",
+    "deploy:pack": "bash scripts/deploy-from-source.sh pack",
+    "deploy:link": "bash scripts/deploy-from-source.sh link",
+    "deploy:install-global": "bash scripts/deploy-from-source.sh global",
+    "deploy:registry": "bash scripts/deploy-from-source.sh registry",
     "prepack": "npm run build"
   },
   "dependencies": {

@@ -11,3 +11,5 @@ CLAUDE.md
 package-lock.json
 /.claude
 coverage/
+# npm pack output from deploy:pack / scripts/deploy-from-source.sh pack
+gitlawb-openclaude-*.tgz

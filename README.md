@@ -256,6 +256,7 @@ Helpful commands:
 - `bun run doctor:runtime`
 - `bun run verify:privacy`
 - focused `bun test ...` runs for the areas you touch
+- AI-assisted edits: [AGENTS.md](AGENTS.md) and [docs/agent-workflow.md](docs/agent-workflow.md)
 
 ## Testing And Coverage
 

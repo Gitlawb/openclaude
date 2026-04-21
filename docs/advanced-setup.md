@@ -4,6 +4,8 @@ This guide is for users who want source builds, Bun workflows, provider profiles
 
 ## Install Options
 
+See **[deploy.md](./deploy.md)** for a single index of registry install, `npm pack`, `npm link`, global install from a checkout, upstream CI publish, and fork-scoped npm.
+
 ### Option A: npm
 
 ```bash

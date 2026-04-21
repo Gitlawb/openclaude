@@ -1,0 +1,74 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "OpenClaude: smoke",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/cursor-dev-path.sh bun run smoke",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenClaude: unit tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/cursor-dev-path.sh bun test --max-concurrency=1",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenClaude: provider tests",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/cursor-dev-path.sh bun run test:provider",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenClaude: runtime doctor",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/cursor-dev-path.sh bun run doctor:runtime",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenClaude: deploy pack",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/cursor-dev-path.sh bash scripts/deploy-from-source.sh pack",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenClaude: deploy link",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/cursor-dev-path.sh bash scripts/deploy-from-source.sh link",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

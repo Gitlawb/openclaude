@@ -11,6 +11,7 @@ OpenClaude is a fast-moving open-source coding-agent CLI with support for multip
 - Use discussions for setup help, ideas, and general community conversation.
 - For larger changes, open an issue first so the scope is clear before implementation.
 - For security reports, follow [SECURITY.md](SECURITY.md).
+- If you use **AI-assisted editing** (IDE agents, autonomous tools), read [AGENTS.md](AGENTS.md) for a concise verification checklist and [docs/agent-workflow.md](docs/agent-workflow.md) for longer operational notes. Those supplement this document; they do not replace it.
 
 ## Local Setup
 
