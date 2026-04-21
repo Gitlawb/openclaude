@@ -1,6 +1,7 @@
 import { expect, test, describe } from 'bun:test'
 import {
   extractCacheMetrics,
+  extractCacheReadFromRawUsage,
   resolveCacheProvider,
   formatCacheMetricsCompact,
   formatCacheMetricsFull,
@@ -39,69 +40,147 @@ describe('extractCacheMetrics — Anthropic (firstParty/bedrock/vertex/foundry)'
   })
 })
 
-describe('extractCacheMetrics — OpenAI / Codex', () => {
-  test('reads cached_tokens from prompt_tokens_details and uses prompt_tokens as total', () => {
-    const usage = {
-      prompt_tokens: 2_000,
-      completion_tokens: 300,
-      prompt_tokens_details: { cached_tokens: 1_200 },
+// NOTE: OpenAI/Codex/Kimi/DeepSeek/Gemini raw shapes are now tested through
+// extractCacheReadFromRawUsage (below). extractCacheMetrics sees the
+// post-shim Anthropic shape for every provider, so the tests here verify
+// that the shape lookup works uniformly against the shimmed fields.
+
+describe('extractCacheMetrics — post-shim Anthropic shape (applies to all providers)', () => {
+  test('OpenAI post-shim (openai bucket) — reads Anthropic fields injected by convertChunkUsage', () => {
+    // This is what cost-tracker actually sees for OpenAI upstreams: the
+    // shim has already subtracted cached from prompt_tokens and moved it
+    // to cache_read_input_tokens.
+    const shimmed = {
+      input_tokens: 800, // fresh = 2000 - 1200
+      output_tokens: 300,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 1_200,
     }
-    const m = extractCacheMetrics(usage, 'openai')
+    const m = extractCacheMetrics(shimmed, 'openai')
     expect(m.supported).toBe(true)
     expect(m.read).toBe(1_200)
     expect(m.created).toBe(0)
-    expect(m.total).toBe(2_000)
+    expect(m.total).toBe(2_000) // 800 fresh + 1200 read
     expect(m.hitRate).toBe(0.6)
   })
 
-  test('codex variant: reads input_tokens_details.cached_tokens when present', () => {
-    const usage = {
-      input_tokens: 1_500,
-      input_tokens_details: { cached_tokens: 600 },
+  test('Codex post-shim — same Anthropic shape as OpenAI', () => {
+    const shimmed = {
+      input_tokens: 900, // 1500 - 600
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 600,
     }
-    const m = extractCacheMetrics(usage, 'codex')
+    const m = extractCacheMetrics(shimmed, 'codex')
     expect(m.read).toBe(600)
     expect(m.total).toBe(1_500)
     expect(m.hitRate).toBe(0.4)
   })
-})
 
-describe('extractCacheMetrics — Kimi / Moonshot', () => {
-  test('reads top-level cached_tokens', () => {
-    const usage = {
-      prompt_tokens: 1_000,
-      cached_tokens: 400,
+  test('Kimi post-shim — shim moved top-level cached_tokens into Anthropic field', () => {
+    const shimmed = {
+      input_tokens: 600, // 1000 - 400
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 400,
     }
-    const m = extractCacheMetrics(usage, 'kimi')
+    const m = extractCacheMetrics(shimmed, 'kimi')
     expect(m.read).toBe(400)
     expect(m.total).toBe(1_000)
     expect(m.hitRate).toBe(0.4)
   })
-})
 
-describe('extractCacheMetrics — DeepSeek', () => {
-  test('derives total from hit + miss (no separate input_tokens trusted)', () => {
-    const usage = {
-      prompt_cache_hit_tokens: 700,
-      prompt_cache_miss_tokens: 300,
+  test('DeepSeek post-shim — hit moved to cache_read_input_tokens, miss to input_tokens', () => {
+    const shimmed = {
+      input_tokens: 300, // miss
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 700, // hit
     }
-    const m = extractCacheMetrics(usage, 'deepseek')
+    const m = extractCacheMetrics(shimmed, 'deepseek')
     expect(m.read).toBe(700)
     expect(m.total).toBe(1_000)
     expect(m.hitRate).toBe(0.7)
   })
-})
 
-describe('extractCacheMetrics — Gemini', () => {
-  test('reads cached_content_token_count with prompt_token_count as total', () => {
-    const usage = {
-      prompt_token_count: 4_000,
-      cached_content_token_count: 3_200,
+  test('Gemini post-shim — cached_content_token_count moved to cache_read_input_tokens', () => {
+    const shimmed = {
+      input_tokens: 800, // 4000 - 3200
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 3_200,
     }
-    const m = extractCacheMetrics(usage, 'gemini')
+    const m = extractCacheMetrics(shimmed, 'gemini')
     expect(m.read).toBe(3_200)
     expect(m.total).toBe(4_000)
     expect(m.hitRate).toBe(0.8)
+  })
+})
+
+describe('extractCacheReadFromRawUsage — single source of truth for shim layer', () => {
+  test('Anthropic-native passthrough: cache_read_input_tokens', () => {
+    expect(
+      extractCacheReadFromRawUsage({ cache_read_input_tokens: 1_500 }),
+    ).toBe(1_500)
+  })
+
+  test('OpenAI Chat Completions: prompt_tokens_details.cached_tokens', () => {
+    expect(
+      extractCacheReadFromRawUsage({
+        prompt_tokens: 2_000,
+        prompt_tokens_details: { cached_tokens: 1_200 },
+      }),
+    ).toBe(1_200)
+  })
+
+  test('Codex Responses API: input_tokens_details.cached_tokens', () => {
+    expect(
+      extractCacheReadFromRawUsage({
+        input_tokens: 1_500,
+        input_tokens_details: { cached_tokens: 600 },
+      }),
+    ).toBe(600)
+  })
+
+  test('Kimi / Moonshot: top-level cached_tokens', () => {
+    expect(
+      extractCacheReadFromRawUsage({ prompt_tokens: 1_000, cached_tokens: 400 }),
+    ).toBe(400)
+  })
+
+  test('DeepSeek: prompt_cache_hit_tokens', () => {
+    expect(
+      extractCacheReadFromRawUsage({
+        prompt_cache_hit_tokens: 700,
+        prompt_cache_miss_tokens: 300,
+      }),
+    ).toBe(700)
+  })
+
+  test('Gemini: cached_content_token_count', () => {
+    expect(
+      extractCacheReadFromRawUsage({
+        prompt_token_count: 4_000,
+        cached_content_token_count: 3_200,
+      }),
+    ).toBe(3_200)
+  })
+
+  test('no cache fields at all → 0 (Copilot/Ollama/unknown shape)', () => {
+    expect(extractCacheReadFromRawUsage({ prompt_tokens: 500 })).toBe(0)
+  })
+
+  test('Anthropic field wins over OpenAI field when both present', () => {
+    // Shouldn't happen in practice, but if usage was double-annotated we
+    // trust the Anthropic-native number (it's the more authoritative one).
+    expect(
+      extractCacheReadFromRawUsage({
+        cache_read_input_tokens: 999,
+        prompt_tokens_details: { cached_tokens: 111 },
+      }),
+    ).toBe(999)
+  })
+
+  test('null/undefined/non-object → 0', () => {
+    expect(extractCacheReadFromRawUsage(null)).toBe(0)
+    expect(extractCacheReadFromRawUsage(undefined)).toBe(0)
+    expect(extractCacheReadFromRawUsage('nope' as unknown as never)).toBe(0)
   })
 })
 

@@ -1,14 +1,21 @@
 /**
  * Cross-provider cache usage normalizer for Phase 1 observability.
  *
- * Each provider reports cache hits in a different shape and different unit
- * conventions. The rest of the codebase (cost-tracker, logging, REPL display)
- * should never have to care about that — this module is the single place
- * that knows how to read a raw `usage` object per provider and distill it
- * into a common `CacheMetrics` value.
+ * Two layers of extraction, because the shim layer (openaiShim/codexShim)
+ * already converts raw provider usage to Anthropic-shape on the way in:
+ *
+ *   1. `extractCacheReadFromRawUsage` — consumes RAW provider usage, used
+ *      from inside the shims where each provider's native field names are
+ *      still visible. Single source of truth for "where is the cached-
+ *      tokens count on provider X".
+ *   2. `extractCacheMetrics` — consumes POST-shim Anthropic-shape usage,
+ *      which is what every downstream caller (cost-tracker, REPL display,
+ *      /cache-stats) actually sees. Uses the `provider` argument only to
+ *      decide whether the metric is `supported` (Copilot vanilla, Ollama
+ *      get N/A rather than a fabricated 0%).
  *
  * Design rationale:
- *   - Pure function, no globals: callers pass the provider explicitly so
+ *   - Pure functions, no globals: callers pass the provider explicitly so
  *     that tests, background agents and teammates get consistent results
  *     even when the process-level provider flag differs.
  *   - Honest N/A: Copilot (non-Claude) and Ollama do not expose cache data
@@ -18,17 +25,19 @@
  *     (0 read + 0 created). A 0% hit rate would suggest "cold" when in
  *     reality the turn had no cacheable content to begin with.
  *   - After normalization, `read + created ≤ total`, with any remainder
- *     being fresh (non-cacheable) input tokens. This invariant is
- *     intentionally asymmetric — we never fabricate totals from partial
- *     data because only Anthropic gives all three numbers directly.
+ *     being fresh (non-cacheable) input tokens. The shim enforces this
+ *     invariant by subtracting cached from raw prompt_tokens so that
+ *     post-shim `input_tokens` is always "fresh only" per Anthropic
+ *     convention.
  *
- * Sources (as of 2026-04):
+ * Raw provider shapes (as of 2026-04):
  *   - Anthropic:        usage.cache_read_input_tokens,
  *                       usage.cache_creation_input_tokens,
  *                       usage.input_tokens (fresh only)
- *   - OpenAI / Codex:   usage.prompt_tokens_details.cached_tokens,
+ *   - OpenAI / Codex:   usage.input_tokens_details?.cached_tokens
+ *                       usage.prompt_tokens_details?.cached_tokens,
  *                       usage.prompt_tokens (includes cached)
- *   - Kimi / Moonshot:  usage.cached_tokens, usage.prompt_tokens
+ *   - Kimi / Moonshot:  usage.cached_tokens (top level), usage.prompt_tokens
  *   - DeepSeek:         usage.prompt_cache_hit_tokens,
  *                       usage.prompt_cache_miss_tokens
  *   - Gemini:           usage.cached_content_token_count,
@@ -139,111 +148,76 @@ export function resolveCacheProvider(
 }
 
 /**
- * Extract a unified CacheMetrics from a raw provider usage object.
+ * Read the cached-tokens count from a RAW provider usage object, handling
+ * every shape we know about. Callers are the shim layer (openaiShim,
+ * codexShim) — the only place where the native provider fields still
+ * exist before conversion to Anthropic shape.
  *
- * Accepts either a CacheAwareProvider (pre-resolved) or the raw APIProvider,
- * whichever the caller already has. Pre-resolved is preferred for tests that
- * need to exercise a specific bucket without caring about env state.
+ * Order of fallbacks is deliberate: the first non-zero match wins, so
+ * adding a provider that combines shapes is safe as long as we list the
+ * most authoritative field first.
+ */
+export function extractCacheReadFromRawUsage(usage: RawUsage): number {
+  if (!usage || typeof usage !== 'object') return 0
+  const u = usage as Record<string, unknown>
+  // 1. Anthropic-native shape — already normalized upstream.
+  const anthropicRead = asNumber(u.cache_read_input_tokens)
+  if (anthropicRead > 0) return anthropicRead
+  // 2. OpenAI / Codex — cached_tokens nested under input/prompt details.
+  //    Responses API uses `input_tokens_details`, Chat Completions uses
+  //    `prompt_tokens_details`; some models report both with the same value.
+  const openaiNested =
+    asNumber(pickPath(usage, ['input_tokens_details', 'cached_tokens'])) ||
+    asNumber(pickPath(usage, ['prompt_tokens_details', 'cached_tokens']))
+  if (openaiNested > 0) return openaiNested
+  // 3. Kimi / Moonshot — top-level cached_tokens (not nested).
+  const kimi = asNumber(u.cached_tokens)
+  if (kimi > 0) return kimi
+  // 4. DeepSeek — hit/miss split at top level.
+  const deepseek = asNumber(u.prompt_cache_hit_tokens)
+  if (deepseek > 0) return deepseek
+  // 5. Gemini — cached_content_token_count.
+  const gemini = asNumber(u.cached_content_token_count)
+  if (gemini > 0) return gemini
+  return 0
+}
+
+/**
+ * Extract a unified CacheMetrics from POST-SHIM (Anthropic-shape) usage.
+ *
+ * By the time this runs, openaiShim/codexShim have already converted
+ * raw provider fields into `cache_read_input_tokens` (via
+ * `extractCacheReadFromRawUsage`) and adjusted `input_tokens` to be
+ * "fresh only" per Anthropic convention. This function is therefore
+ * deliberately provider-independent for the numeric extraction — the
+ * `provider` argument is used only to surface `supported: false` for
+ * providers that expose no cache data at all.
  */
 export function extractCacheMetrics(
   usage: RawUsage,
   provider: CacheAwareProvider,
 ): CacheMetrics {
   if (!usage || typeof usage !== 'object') return UNSUPPORTED
+  // Copilot vanilla (no Claude) and Ollama don't expose cache fields at
+  // all. Returning supported:false lets the REPL print "N/A" instead of
+  // lying with 0%. Every other provider has been normalized to the
+  // Anthropic shape by the shim, so we read uniformly below.
+  if (provider === 'copilot' || provider === 'ollama') return UNSUPPORTED
 
-  switch (provider) {
-    case 'anthropic': {
-      // Anthropic convention: input_tokens excludes cache reads/writes, so
-      // total = fresh + created + read. This lets us compute hit-rate
-      // relative to the full effective input, not just the uncached portion.
-      const read = asNumber((usage as Record<string, unknown>).cache_read_input_tokens)
-      const created = asNumber((usage as Record<string, unknown>).cache_creation_input_tokens)
-      const fresh = asNumber((usage as Record<string, unknown>).input_tokens)
-      const total = read + created + fresh
-      return {
-        read,
-        created,
-        total,
-        hitRate: total > 0 ? read / total : null,
-        supported: true,
-      }
-    }
-    case 'openai':
-    case 'codex': {
-      // OpenAI convention: prompt_tokens is the FULL input (cached + fresh)
-      // and cached_tokens is a subset of it. No server-side creation count
-      // is exposed for implicit caching.
-      const cached = asNumber(pickPath(usage, ['prompt_tokens_details', 'cached_tokens']))
-        || asNumber(pickPath(usage, ['input_tokens_details', 'cached_tokens']))
-      const total = asNumber((usage as Record<string, unknown>).prompt_tokens)
-        || asNumber((usage as Record<string, unknown>).input_tokens)
-      return {
-        read: cached,
-        created: 0,
-        total,
-        hitRate: total > 0 ? cached / total : null,
-        supported: true,
-      }
-    }
-    case 'kimi': {
-      // Moonshot exposes cached_tokens at the top level (not inside
-      // prompt_tokens_details). Same cached-is-subset-of-prompt convention.
-      const cached = asNumber((usage as Record<string, unknown>).cached_tokens)
-        || asNumber(pickPath(usage, ['prompt_tokens_details', 'cached_tokens']))
-      const total = asNumber((usage as Record<string, unknown>).prompt_tokens)
-      return {
-        read: cached,
-        created: 0,
-        total,
-        hitRate: total > 0 ? cached / total : null,
-        supported: true,
-      }
-    }
-    case 'deepseek': {
-      // DeepSeek exposes the split directly: hit + miss sum to the full
-      // input. We derive total from that sum rather than trusting a
-      // separately-named field, which has been inconsistent across versions.
-      const hit = asNumber((usage as Record<string, unknown>).prompt_cache_hit_tokens)
-      const miss = asNumber((usage as Record<string, unknown>).prompt_cache_miss_tokens)
-      const total = hit + miss
-      return {
-        read: hit,
-        created: 0,
-        total,
-        hitRate: total > 0 ? hit / total : null,
-        supported: true,
-      }
-    }
-    case 'gemini': {
-      const cached = asNumber((usage as Record<string, unknown>).cached_content_token_count)
-      const total = asNumber((usage as Record<string, unknown>).prompt_token_count)
-      return {
-        read: cached,
-        created: 0,
-        total,
-        hitRate: total > 0 ? cached / total : null,
-        supported: true,
-      }
-    }
-    case 'copilot-claude': {
-      // Copilot serving Claude via native Anthropic format — same fields
-      // as direct Anthropic. Separate branch so callers can label the row
-      // distinctly in `/cache-stats` if desired.
-      const read = asNumber((usage as Record<string, unknown>).cache_read_input_tokens)
-      const created = asNumber((usage as Record<string, unknown>).cache_creation_input_tokens)
-      const fresh = asNumber((usage as Record<string, unknown>).input_tokens)
-      const total = read + created + fresh
-      return {
-        read,
-        created,
-        total,
-        hitRate: total > 0 ? read / total : null,
-        supported: true,
-      }
-    }
-    case 'copilot':
-    case 'ollama':
-      return UNSUPPORTED
+  const u = usage as Record<string, unknown>
+  const read = asNumber(u.cache_read_input_tokens)
+  const created = asNumber(u.cache_creation_input_tokens)
+  const fresh = asNumber(u.input_tokens)
+  // total = fresh + read + created — shim already stripped `read` out of
+  // `fresh` so the three components don't double-count. This matches the
+  // Anthropic convention even when the upstream was OpenAI/Kimi/DeepSeek.
+  const total = read + created + fresh
+  return {
+    read,
+    created,
+    total,
+    hitRate: total > 0 ? read / total : null,
+    supported: true,
   }
 }
 

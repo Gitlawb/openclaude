@@ -1,4 +1,5 @@
 import { APIError } from '@anthropic-ai/sdk'
+import { extractCacheReadFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import type {
@@ -81,17 +82,33 @@ type CodexSseEvent = {
 function makeUsage(usage?: {
   input_tokens?: number
   output_tokens?: number
+  prompt_tokens?: number
   input_tokens_details?: { cached_tokens?: number }
   prompt_tokens_details?: { cached_tokens?: number }
+  cached_tokens?: number
+  prompt_cache_hit_tokens?: number
+  prompt_cache_miss_tokens?: number
+  cached_content_token_count?: number
 }): AnthropicUsage {
+  // Read cached-tokens across every known provider shape. The helper is
+  // the single source of truth so OpenAI / Codex / Kimi / DeepSeek /
+  // Gemini (and any future provider that joins the openai-compat family)
+  // all land in cache_read_input_tokens uniformly.
+  const cacheRead = extractCacheReadFromRawUsage(
+    usage as Record<string, unknown> | undefined,
+  )
+  // Align with Anthropic convention: input_tokens should be FRESH only,
+  // excluding cache_read. Raw OpenAI-style usage includes cached inside
+  // prompt_tokens/input_tokens, so subtracting here avoids double-charging
+  // downstream (modelCost.calculateUSDCost adds input_tokens * rate and
+  // cache_read * rate separately).
+  const rawInput = usage?.input_tokens ?? usage?.prompt_tokens ?? 0
+  const fresh = rawInput >= cacheRead ? rawInput - cacheRead : rawInput
   return {
-    input_tokens: usage?.input_tokens ?? 0,
+    input_tokens: fresh,
     output_tokens: usage?.output_tokens ?? 0,
     cache_creation_input_tokens: 0,
-    cache_read_input_tokens:
-      usage?.input_tokens_details?.cached_tokens ??
-      usage?.prompt_tokens_details?.cached_tokens ??
-      0,
+    cache_read_input_tokens: cacheRead,
   }
 }
 

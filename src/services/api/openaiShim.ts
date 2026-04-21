@@ -46,6 +46,7 @@ import {
   type AnthropicUsage,
   type ShimCreateParams,
 } from './codexShim.js'
+import { extractCacheReadFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
@@ -821,11 +822,18 @@ function convertChunkUsage(
 ): Partial<AnthropicUsage> | undefined {
   if (!usage) return undefined
 
-  const cached = usage.prompt_tokens_details?.cached_tokens ?? 0
+  // Single source of truth for raw provider cache shapes (OpenAI nested,
+  // Kimi top-level, DeepSeek split, Gemini, Anthropic passthrough).
+  const cached = extractCacheReadFromRawUsage(
+    usage as unknown as Record<string, unknown>,
+  )
+  const rawPrompt = usage.prompt_tokens ?? 0
   return {
-    // Subtract cached tokens: OpenAI includes them in prompt_tokens,
-    // but Anthropic convention treats input_tokens as non-cached only.
-    input_tokens: (usage.prompt_tokens ?? 0) - cached,
+    // Subtract cached tokens: OpenAI-compat APIs include them in
+    // prompt_tokens, but Anthropic convention treats input_tokens as
+    // non-cached only. Without this adjustment, modelCost double-charges
+    // (input_tokens * rate + cache_read * rate touch the same tokens).
+    input_tokens: rawPrompt >= cached ? rawPrompt - cached : rawPrompt,
     output_tokens: usage.completion_tokens ?? 0,
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: cached,
@@ -2095,12 +2103,20 @@ class OpenAIShimMessages {
       model: data.model ?? model,
       stop_reason: stopReason,
       stop_sequence: null,
-      usage: {
-        input_tokens: data.usage?.prompt_tokens ?? 0,
-        output_tokens: data.usage?.completion_tokens ?? 0,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0,
-      },
+      usage: (() => {
+        const rawUsage = data.usage as unknown as Record<string, unknown> | undefined
+        const cached = extractCacheReadFromRawUsage(rawUsage)
+        const rawPrompt = data.usage?.prompt_tokens ?? 0
+        return {
+          // Same fresh-only convention as convertChunkUsage above — subtract
+          // cached from prompt_tokens so input_tokens matches the Anthropic
+          // shape and modelCost doesn't double-bill.
+          input_tokens: rawPrompt >= cached ? rawPrompt - cached : rawPrompt,
+          output_tokens: data.usage?.completion_tokens ?? 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: cached,
+        }
+      })(),
     }
   }
 }
