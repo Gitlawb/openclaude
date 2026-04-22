@@ -318,7 +318,7 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
   // (defensive check against initialization timing issues)
   allowedTools = allowedTools.filter(Boolean)
 
-  const isEnabled = allowedTools.map(_ => _.isEnabled())
+  const isEnabled = allowedTools.map(_ => typeof _.isEnabled === 'function' ? _.isEnabled() : true)
   return allowedTools.filter((_, i) => isEnabled[i])
 }
 
