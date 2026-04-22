@@ -32,6 +32,7 @@ type Step = 'menu' | 'device-busy' | 'error'
 const PROVIDER_SPECIFIC_KEYS = new Set([
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
@@ -45,6 +46,9 @@ const PROVIDER_SPECIFIC_KEYS = new Set([
   'GEMINI_MODEL',
   'GEMINI_ACCESS_TOKEN',
   'GEMINI_AUTH_MODE',
+  'MISTRAL_API_KEY',
+  'MISTRAL_BASE_URL',
+  'MISTRAL_MODEL',
 ])
 
 export function shouldForceGithubRelogin(args?: string): boolean {
@@ -95,6 +99,7 @@ export function buildGithubOnboardingSettingsEnv(
     OPENAI_API_BASE: undefined,
     CLAUDE_CODE_USE_OPENAI: undefined,
     CLAUDE_CODE_USE_GEMINI: undefined,
+    CLAUDE_CODE_USE_MISTRAL: undefined,
     CLAUDE_CODE_USE_BEDROCK: undefined,
     CLAUDE_CODE_USE_VERTEX: undefined,
     CLAUDE_CODE_USE_FOUNDRY: undefined,
@@ -117,6 +122,10 @@ export function applyGithubOnboardingProcessEnv(
 
   delete env.CLAUDE_CODE_USE_OPENAI
   delete env.CLAUDE_CODE_USE_GEMINI
+  delete env.CLAUDE_CODE_USE_MISTRAL
+  delete env.MISTRAL_API_KEY
+  delete env.MISTRAL_BASE_URL
+  delete env.MISTRAL_MODEL
   delete env.CLAUDE_CODE_USE_BEDROCK
   delete env.CLAUDE_CODE_USE_VERTEX
   delete env.CLAUDE_CODE_USE_FOUNDRY

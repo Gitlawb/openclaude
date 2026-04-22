@@ -675,6 +675,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       env: {
         CLAUDE_CODE_USE_OPENAI: undefined as any,
         CLAUDE_CODE_USE_GEMINI: undefined as any,
+        CLAUDE_CODE_USE_MISTRAL: undefined as any,
         CLAUDE_CODE_USE_GITHUB: undefined as any,
         CLAUDE_CODE_USE_BEDROCK: undefined as any,
         CLAUDE_CODE_USE_VERTEX: undefined as any,
@@ -863,6 +864,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         OPENAI_API_BASE: undefined as any,
         CLAUDE_CODE_USE_OPENAI: undefined as any,
         CLAUDE_CODE_USE_GEMINI: undefined as any,
+        CLAUDE_CODE_USE_MISTRAL: undefined as any,
         CLAUDE_CODE_USE_BEDROCK: undefined as any,
         CLAUDE_CODE_USE_VERTEX: undefined as any,
         CLAUDE_CODE_USE_FOUNDRY: undefined as any,
@@ -882,6 +884,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     delete process.env.OPENAI_API_BASE
     delete process.env.CLAUDE_CODE_USE_OPENAI
     delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_USE_MISTRAL
     delete process.env.CLAUDE_CODE_USE_BEDROCK
     delete process.env.CLAUDE_CODE_USE_VERTEX
     delete process.env.CLAUDE_CODE_USE_FOUNDRY

@@ -14,6 +14,7 @@ const SYNC_END = '\x1B[?2026l'
 const ORIGINAL_ENV = {
   CLAUDE_CODE_SIMPLE: process.env.CLAUDE_CODE_SIMPLE,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
 }
@@ -209,6 +210,7 @@ function mockProviderManagerDependencies(
     codexAsyncRead?: () => Promise<unknown>
     updateProviderProfile?: (...args: unknown[]) => unknown
     setActiveProviderProfile?: (...args: unknown[]) => unknown
+    updateSettingsForSource?: (...args: unknown[]) => unknown
     useCodexOAuthFlow?: (options: {
       onAuthenticated: (tokens: {
         accessToken: string
@@ -293,7 +295,8 @@ function mockProviderManagerDependencies(
   }))
 
   mock.module('../utils/settings/settings.js', () => ({
-    updateSettingsForSource: () => ({ error: null }),
+    updateSettingsForSource:
+      options?.updateSettingsForSource ?? (() => ({ error: null })),
   }))
 
   mock.module('./useCodexOAuthFlow.js', () => ({
@@ -903,6 +906,127 @@ test('ProviderManager keeps Codex OAuth as next-startup only when activating the
   expect(applySavedProfileToCurrentSession).toHaveBeenCalled()
   expect(setActiveProviderProfile).toHaveBeenCalledWith('provider_codex_oauth')
 
+  await mounted.dispose()
+})
+
+test('ProviderManager clears stale Mistral startup override when activating a saved profile', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const profile = {
+    id: 'provider_openai',
+    provider: 'openai',
+    name: 'OpenAI Work',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4o',
+    apiKey: '',
+  }
+  const setActiveProviderProfile = mock(() => profile)
+  const updateSettingsForSource = mock(() => ({ error: null }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [profile],
+      setActiveProviderProfile,
+      updateSettingsForSource,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Provider manager') && frame.includes('OpenAI Work'),
+  )
+
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set active provider') && frame.includes('OpenAI Work'),
+  )
+
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => setActiveProviderProfile.mock.calls.length > 0)
+
+  const clearedMistralOverride = updateSettingsForSource.mock.calls.some(
+    call => {
+      const args = call as any[]
+      return (
+        args[0] === 'userSettings' &&
+        args[1]?.env?.CLAUDE_CODE_USE_MISTRAL === undefined &&
+        args[1]?.env?.CLAUDE_CODE_USE_OPENAI === undefined &&
+        args[1]?.env?.CLAUDE_CODE_USE_GITHUB === undefined
+      )
+    },
+  )
+
+  expect(clearedMistralOverride).toBe(true)
+  await mounted.dispose()
+})
+
+test('ProviderManager GitHub activation clears stale Mistral startup override', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const updateSettingsForSource = mock(() => ({ error: null }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => 'stored-github-token',
+    {
+      getProviderProfiles: () => [],
+      updateSettingsForSource,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Provider manager') && frame.includes('GitHub Models'),
+  )
+
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set active provider') && frame.includes('GitHub Models'),
+  )
+
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => updateSettingsForSource.mock.calls.length > 0)
+
+  const githubActivationClearedMistral = updateSettingsForSource.mock.calls.some(
+    call => {
+      const args = call as any[]
+      return (
+        args[0] === 'userSettings' &&
+        args[1]?.env?.CLAUDE_CODE_USE_GITHUB === '1' &&
+        args[1]?.env?.CLAUDE_CODE_USE_MISTRAL === undefined
+      )
+    },
+  )
+
+  expect(githubActivationClearedMistral).toBe(true)
   await mounted.dispose()
 })
 
