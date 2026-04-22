@@ -480,11 +480,11 @@ class QueryImpl implements Query {
 
             // Switch session for transcript writes
             if (effectiveSessionId) {
-              switchSession(effectiveSessionId as SessionId, self.cwd)
+              switchSession(effectiveSessionId as SessionId, getSessionProjectDir())
             } else {
               regenerateSessionId()
               effectiveSessionId = getSessionId()
-              switchSession(effectiveSessionId as SessionId, self.cwd)
+              switchSession(effectiveSessionId as SessionId, getSessionProjectDir())
             }
 
             // Sync resolved sessionId back to authoritative fields
@@ -682,7 +682,7 @@ class QueryImpl implements Query {
   supportedAgents(): string[] {
     const state = this.appStateStore.getState()
     const agents = (state as any).agentDefinitions?.activeAgents
-    return agents?.map((a: any) => a.name).filter(Boolean) ?? []
+    return agents?.map((a: any) => a.agentType).filter(Boolean) ?? []
   }
 
   mcpServerStatus(): McpServerStatus[] {
