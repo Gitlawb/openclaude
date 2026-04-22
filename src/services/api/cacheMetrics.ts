@@ -200,8 +200,16 @@ function isLocalOrPrivateUrl(url: string): boolean {
   }
   // IPv6 common local/private ranges — narrow by design.
   if (h === '::1' || h === '::') return true
-  // fe80::/10 link-local and fc00::/7 unique-local (ULA).
-  if (h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) {
+  // fe80::/10 link-local and fc00::/7 unique-local (ULA). A colon is
+  // required in the match so `fc` / `fd` don't over-match real
+  // hostnames like `fc-api.example.com` or `fd-hosted.com`. URL.hostname
+  // strips brackets, so an IPv6 literal like `fc00::1` shows up here as
+  // `fc00::1` — still contains the colon.
+  if (
+    h.startsWith('fe80:') ||
+    /^fc[0-9a-f]{0,2}:/.test(h) ||
+    /^fd[0-9a-f]{0,2}:/.test(h)
+  ) {
     return true
   }
   return false

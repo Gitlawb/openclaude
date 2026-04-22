@@ -315,6 +315,33 @@ describe('resolveCacheProvider', () => {
     expect(
       resolveCacheProvider('openai', { openAiBaseUrl: 'http://[fd12:3456::7]:8080/v1' }),
     ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://[fc00::1]:8080/v1' }),
+    ).toBe('self-hosted')
+  })
+
+  test('IPv6 ULA prefix (fc/fd) does NOT over-match public hostnames', () => {
+    // Regression guard: an early version of isLocalOrPrivateUrl checked
+    // `h.startsWith('fc')` / `startsWith('fd')` without a colon guard,
+    // which misclassified legitimate public hosts whose names happen to
+    // begin with those letters. The fix requires a colon in the match
+    // so only real IPv6 literals hit the branch.
+    expect(
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'https://fc-api.example.com/v1',
+      }),
+    ).toBe('openai')
+    expect(
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'https://fd-hosted.example.com/v1',
+      }),
+    ).toBe('openai')
+    // Same goes for names that look like hex prefixes but aren't IPv6.
+    expect(
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'https://fcbench.net/v1',
+      }),
+    ).toBe('openai')
   })
 
   test('openai with :11434 on a public host → ollama (default-port heuristic)', () => {
