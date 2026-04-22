@@ -209,4 +209,8 @@ export const MeshTool = buildTool({
         }
     }
   },
+
+  mapToolResultToToolResultBlockParam(data: z.infer<OutputSchema>, toolUseID: string) {
+    return { tool_use_id: toolUseID, type: 'tool_result' as const, content: [{ type: 'text' as const, text: JSON.stringify(data) }] }
+  },
 } satisfies ToolDef<InputSchema, Output>)

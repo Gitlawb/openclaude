@@ -103,4 +103,8 @@ export const DecreeTool = buildTool({
         return { data: { success: false, action, error: `Unknown action: ${action}` } }
     }
   },
+
+  mapToolResultToToolResultBlockParam(data: any, toolUseID: string) {
+    return { tool_use_id: toolUseID, type: 'tool_result' as const, content: [{ type: 'text' as const, text: JSON.stringify(data) }] }
+  },
 } satisfies ToolDef<InputSchema, { data: any }>)

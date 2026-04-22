@@ -54,4 +54,8 @@ export const OrchestrateTool = buildTool({
         return { data: { success: false, error: `Unknown action: ${action}` } }
     }
   },
+
+  mapToolResultToToolResultBlockParam(data: { data: { success: boolean; complexity?: number; category?: string; model?: string; reason?: string; plan?: string[]; council?: boolean; councilReasons?: string[]; checkpoint?: boolean; error?: string } }, toolUseID: string) {
+    return { tool_use_id: toolUseID, type: 'tool_result' as const, content: [{ type: 'text' as const, text: JSON.stringify(data) }] }
+  },
 } satisfies ToolDef<InputSchema, Output>)
