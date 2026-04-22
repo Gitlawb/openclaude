@@ -11,6 +11,7 @@ import { WEB_FETCH_TOOL_NAME } from '../../tools/WebFetchTool/prompt.js'
 import { WEB_SEARCH_TOOL_NAME } from '../../tools/WebSearchTool/prompt.js'
 import type { Message } from '../../types/message.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { getContextWindowForModel } from '../../utils/context.js'
 import { getMainLoopModel } from '../../utils/model/model.js'
 import { SHELL_TOOL_NAMES } from '../../utils/shell/shellToolUtils.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
@@ -275,6 +276,14 @@ export async function microcompactMessages(
     return timeBasedResult
   }
 
+  // Semantic compression check for tight contexts
+  if (feature('SEMANTIC_COMPRESSION')) {
+    const semanticResult = await maybeSemanticCompression(messages)
+    if (semanticResult) {
+      return semanticResult
+    }
+  }
+
   // Only run cached MC for the main thread to prevent forked agents
   // (session_memory, prompt_suggestion, etc.) from registering their
   // tool_results in the global cachedMCState, which would cause the main
@@ -447,6 +456,48 @@ export function evaluateTimeBasedTrigger(
     return null
   }
   return { gapMinutes, config }
+}
+
+/**
+ * Semantic compression check for tight contexts.
+ */
+async function maybeSemanticCompression(messages: Message[]): Promise<MicrocompactResult | null> {
+  const totalTokens = messages.reduce((sum, m) => {
+    const content = typeof m.message?.content === 'string'
+      ? m.message.content
+      : Array.isArray(m.message?.content)
+        ? JSON.stringify(m.message.content)
+        : ''
+    return sum + roughTokenCountEstimation(content)
+  }, 0)
+
+  const contextWindow = getContextWindowForModel(getMainLoopModel())
+  if (totalTokens <= contextWindow * 0.8) {
+    return null
+  }
+
+  const { semanticCompress } = await import('../../utils/semanticCompression.js')
+  const compressedMessages: Message[] = []
+
+  for (const msg of messages) {
+    const content = typeof msg.message?.content === 'string'
+      ? msg.message.content
+      : Array.isArray(msg.message?.content)
+        ? JSON.stringify(msg.message.content)
+        : ''
+
+    const result = semanticCompress(content, { targetRatio: 0.7, preserveMeaning: true })
+
+    compressedMessages.push({
+      ...msg,
+      message: {
+        ...msg.message,
+        content: result.compressed,
+      },
+    })
+  }
+
+  return { messages: compressedMessages }
 }
 
 function maybeTimeBasedMicrocompact(
