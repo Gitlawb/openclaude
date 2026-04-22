@@ -227,6 +227,8 @@ Spawn multi-agent crews that work in parallel on complex tasks. DuckHive integra
 
 **Governance pipeline**: Council debates → Senate passes decree → Teams execute per decree.
 
+> **Integrated Council daemon** — On first `duckhive` run, the AI Council daemon starts automatically on port 3007 and stays alive between invocations. No separate install needed.
+
 ---
 
 ### MCP Server Management

@@ -7,16 +7,63 @@
  * Auto-configures MiniMax when MINIMAX_API_KEY is available,
  * otherwise falls through to OpenAI compatibility layer.
  * Loads meta-agent config from ~/.duckhive/config.json.
+ *
+ * Integrated services (auto-started on first run):
+ *   - Council daemon (AI Council deliberation, port 3007)
+ *     Starts once, stays alive, skipped if already running.
  */
 
 import { existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
+import { fork } from 'child_process'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
 
-// Load DuckHive meta-agent config first
+// ─── Auto-start Council daemon ────────────────────────────────────────────────
+// Starts council-api-server.cjs on port 3007 once; subsequent calls skip.
+// The daemon stays alive between DuckHive invocations.
+async function ensureCouncilDaemon() {
+  const COUNCIL_PORT = process.env.COUNCIL_PORT || '3007'
+  const MAX_WAIT = 5000 // ms to wait for council to be ready
+
+  // Check if council is already reachable
+  try {
+    const controller = new AbortController()
+    const id = setTimeout(() => controller.abort(), 1000)
+    const res = await fetch(`http://localhost:${COUNCIL_PORT}/api/health`, {
+      signal: controller.signal,
+    })
+    clearTimeout(id)
+    if (res.ok) return // Already running
+  } catch {}
+
+  // Not reachable — start the daemon
+  const councilPath = join(__dirname, '..', 'src', 'services', 'council-server', 'council-api-server.cjs')
+  if (!existsSync(councilPath)) return // Skip if not bundled
+
+  const child = fork(councilPath, [], {
+    env: { ...process.env, PORT: COUNCIL_PORT, NODE_ENV: 'production' },
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+
+  // Wait for it to become ready
+  const deadline = Date.now() + MAX_WAIT
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 200))
+    try {
+      const res = await fetch(`http://localhost:${COUNCIL_PORT}/api/health`)
+      if (res.ok) return
+    } catch {}
+  }
+  // Warn but don't block — DuckHive tools that need council will handle the error
+  console.error('duckhive: warning — council daemon took too long to start')
+}
+
+// ─── Load DuckHive meta-agent config first ─────────────────────────────────────
 let configApply = null
 try {
   const loaderPath = join(__dirname, 'duckhive-config-loader.js')
@@ -31,7 +78,7 @@ try {
   console.error(`duckhive: warning — could not load config: ${err.message}`)
 }
 
-// Auto-configure MiniMax when MINIMAX_API_KEY is in the environment
+// ─── Auto-configure MiniMax ────────────────────────────────────────────────────
 if (process.env.MINIMAX_API_KEY && !process.env.CLAUDE_CODE_USE_OPENAI) {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_API_KEY = process.env.MINIMAX_API_KEY
@@ -40,12 +87,11 @@ if (process.env.MINIMAX_API_KEY && !process.env.CLAUDE_CODE_USE_OPENAI) {
 }
 
 // Fast model for internal Haiku queries (applyPromptToMarkdown, web search, etc.)
-// MiniMax supports gpt-4o-mini via OpenAI-compatible endpoint
 if (!process.env.ANTHROPIC_SMALL_FAST_MODEL) {
   process.env.ANTHROPIC_SMALL_FAST_MODEL = 'gpt-4o-mini'
 }
 
-// Apply any provider overrides from DuckHive config
+// Provider overrides from DuckHive config
 if (configApply?.providers?.default === 'kimi' && process.env.MINIMAX_API_KEY) {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.cn/v1'
   process.env.OPENAI_MODEL = process.env.OPENAI_MODEL || 'moonshot-v1-128k'
@@ -54,7 +100,9 @@ if (configApply?.providers?.default === 'kimi' && process.env.MINIMAX_API_KEY) {
   process.env.OPENAI_MODEL = process.env.OPENAI_MODEL || 'minimax/minimax-m2.5:free'
 }
 
+// ─── Launch ────────────────────────────────────────────────────────────────────────
 if (existsSync(distPath)) {
+  await ensureCouncilDaemon()
   await import(pathToFileURL(distPath).href)
 } else {
   console.error(`
