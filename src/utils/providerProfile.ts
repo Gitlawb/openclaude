@@ -219,7 +219,7 @@ export function buildMiniMaxProfileEnv(options: {
   }
 
   const defaultBaseUrl = 'https://api.minimax.io/v1'
-  const defaultModel = 'MiniMax-M2.5'
+  const defaultModel = 'MiniMax-M2.7'
   const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
 
   return {
