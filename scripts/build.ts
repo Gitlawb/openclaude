@@ -450,7 +450,7 @@ if (!result.success) {
 console.log('Building SDK bundle...')
 
 sdkResult = await Bun.build({
-  entrypoints: ['./src/entrypoints/sdk.ts'],
+  entrypoints: ['./src/entrypoints/sdk/index.ts'],
   outdir: './dist',
   target: 'node',
   format: 'esm',

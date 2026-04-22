@@ -3,7 +3,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { getProjectDir } from '../../../src/utils/sessionStoragePortable.js'
-import type { Query } from '../../../src/entrypoints/sdk.js'
+import type { Query } from '../../../src/entrypoints/sdk/index.js'
 
 /**
  * Creates a temp directory and returns its path.

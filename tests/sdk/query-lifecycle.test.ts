@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
-import { query, forkSession, getSessionMessages, unstable_v2_createSession } from '../../src/entrypoints/sdk.js'
+import { query, forkSession, getSessionMessages, unstable_v2_createSession } from '../../src/entrypoints/sdk/index.js'
 import { randomUUID } from 'crypto'
 import { rmSync } from 'fs'
 import {
@@ -84,7 +84,7 @@ describe('Engine lazy-init guard (COR-1)', () => {
   })
 
   test('SDKSession getMessages() works after construction', async () => {
-    const { unstable_v2_createSession } = await import('../../src/entrypoints/sdk.js')
+    const { unstable_v2_createSession } = await import('../../src/entrypoints/sdk/index.js')
     const session = unstable_v2_createSession({
       cwd: process.cwd(),
     })

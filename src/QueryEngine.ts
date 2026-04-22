@@ -1019,10 +1019,11 @@ export class QueryEngine {
           SYNTHETIC_OUTPUT_TOOL_NAME,
         )
         const callsThisQuery = currentCalls - initialStructuredOutputCalls
-        const maxRetries = parseInt(
+        const parsed = parseInt(
           process.env.MAX_STRUCTURED_OUTPUT_RETRIES || '5',
           10,
-        ) ?? 5
+        )
+        const maxRetries = Number.isNaN(parsed) ? 5 : parsed
         if (callsThisQuery >= maxRetries) {
           if (persistSession) {
             if (

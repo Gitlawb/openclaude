@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach, beforeAll, afterAll } from 'bun:test'
 import {
   unstable_v2_createSession,
-} from '../../src/entrypoints/sdk.js'
+} from '../../src/entrypoints/sdk/index.js'
 
 // sendMessage drains trigger init(), which checks auth. Stub it for CI.
 const AUTH_KEY = 'ANTHROPIC_API_KEY'

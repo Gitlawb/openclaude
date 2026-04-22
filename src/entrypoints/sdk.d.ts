@@ -1,5 +1,5 @@
 // Type declarations for @gitlawb/openclaude SDK
-// Generated from src/entrypoints/sdk.ts
+// Generated from src/entrypoints/sdk/index.ts
 
 // ============================================================================
 // Error

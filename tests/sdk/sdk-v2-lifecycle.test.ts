@@ -4,7 +4,7 @@ import { rmSync } from 'fs'
 import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
-} from '../../src/entrypoints/sdk.js'
+} from '../../src/entrypoints/sdk/index.js'
 import {
   drainQuery,
   withTempDir,

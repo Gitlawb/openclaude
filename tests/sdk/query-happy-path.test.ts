@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { MockQueryEngine } from './helpers/mock-engine.js'
-import { query } from '../../src/entrypoints/sdk.js'
+import { query } from '../../src/entrypoints/sdk/index.js'
 
 // ---------------------------------------------------------------------------
 // No mock.module() — avoids module-cache leakage across test files.

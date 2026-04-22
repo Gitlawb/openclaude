@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { query } from '../../src/entrypoints/sdk.js'
+import { query } from '../../src/entrypoints/sdk/index.js'
 import { getSessionId, getSessionProjectDir, runWithSdkContext } from '../../src/bootstrap/state.js'
 import { randomUUID } from 'crypto'
 import type { SessionId } from '../../src/types/ids.js'

@@ -9,7 +9,7 @@ import {
   getSessionMessages,
   renameSession,
   forkSession,
-} from '../../src/entrypoints/sdk.js'
+} from '../../src/entrypoints/sdk/index.js'
 import { readJSONLFile } from '../../src/utils/json.js'
 import { getProjectDir } from '../../src/utils/sessionStoragePortable.js'
 

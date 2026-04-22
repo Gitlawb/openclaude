@@ -6,7 +6,7 @@
  *   1. assistant text response
  *   2. result (success)
  */
-import type { SDKMessage } from '../../../src/entrypoints/sdk.js'
+import type { SDKMessage } from '../../../src/entrypoints/sdk/index.js'
 
 export class MockQueryEngine {
   config = {
