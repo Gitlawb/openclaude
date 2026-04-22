@@ -173,6 +173,45 @@ desktop_control set_resource_broker vision_endpoint="http://localhost:1234" visi
 
 ---
 
+### BrowserOS MCP — Full Desktop Browser Automation
+
+DuckHive integrates [BrowserOS](https://github.com/browseros-ai/BrowserOS) for full desktop browser automation via Chrome DevTools Protocol. BrowserOS MCP is pre-configured in `config/mcporter.json` and available to DuckHive's MCP tools.
+
+**Requirements:** BrowserOS.app must be running. Start it with:
+```bash
+open -a BrowserOS
+```
+
+**Via DuckHive MCP tools (`/mcp`):**
+```
+/mcp list           — list available MCP servers and tools
+/mcp call browseros.new_page url="https://github.com"
+/mcp call browseros.take_snapshot
+/mcp call browseros.get_page_content
+```
+
+**Via mcporter CLI (standalone):**
+```bash
+mcporter list                          — list servers
+mcporter list browseros --schema       — show BrowserOS tool docs
+mcporter call browseros.new_page url="https://example.com"
+mcporter call browseros.screenshot     — capture current page
+mcporter call browseros.take_snapshot   — interactive element tree
+mcporter call browseros.click element=42
+```
+
+**Available BrowserOS tools (66 total):**
+- Navigation: `new_page`, `navigate`, `get_url`, `get_page_content`
+- Interaction: `click`, `type`, `key`, `hover`, `select`, `evaluate`
+- Screenshot: `screenshot`, `take_snapshot`, `take_full_page_screenshot`
+- Tabs: `new_tab`, `close_tab`, `list_tabs`, `switch_tab`
+- Downloads: `download_start`, `download_list`, `download_cancel`
+- Clipboard: `copy`, `paste`
+
+**Configured at:** `~/.mcporter/mcporter.json` and `config/mcporter.json`
+
+---
+
 ### Agent Teams
 
 Spawn multi-agent crews that work in parallel on complex tasks. DuckHive integrates Agent Teams for structured delegation.

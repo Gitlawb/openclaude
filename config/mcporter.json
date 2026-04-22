@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "browseros": {
+      "name": "BrowserOS",
+      "description": "Native macOS browser automation - full Chrome DevTools Protocol, screenshot, JavaScript evaluation, file upload/download",
+      "url": "http://127.0.0.1:9003/mcp",
+      "http": {
+        "endpoint": "http://127.0.0.1:9003/mcp"
+      }
+    }
+  }
+}
