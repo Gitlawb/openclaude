@@ -12,7 +12,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun run scripts/build.ts",
+    "build": "bun run scripts/build.ts && node scripts/postbuild-patch.mjs",
     "dev": "bun run build && node dist/cli.mjs",
     "dev:profile": "bun run scripts/provider-launch.ts",
     "dev:profile:fast": "bun run scripts/provider-launch.ts auto --fast --bare",

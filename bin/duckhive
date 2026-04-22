@@ -1,3 +1,10 @@
 #!/bin/bash
-# DuckHive launcher — one program, all systems, infinite capability
+# DuckHive launcher with MiniMax support
+MINIMAX_KEY=$(python3 -c "import os; print(os.environ.get('MINIMAX_API_KEY',''))" 2>/dev/null)
+if [ -n "$MINIMAX_KEY" ]; then
+    export CLAUDE_CODE_USE_OPENAI=1
+    export OPENAI_API_KEY="$MINIMAX_KEY"
+    export OPENAI_BASE_URL="https://api.minimax.io/v1"
+    export OPENAI_MODEL="MiniMax-M2.5"
+fi
 exec node "$HOME/.openclaw/workspace/openclaude-integration/dist/cli.mjs" "$@"
