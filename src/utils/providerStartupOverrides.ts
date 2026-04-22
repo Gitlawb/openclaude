@@ -43,6 +43,12 @@ type GlobalConfigWithEnv = {
   env?: Record<string, string>
 }
 
+type SettingsEnvPatch = Partial<
+  Record<(typeof STARTUP_PROVIDER_OVERRIDE_ENV_KEYS)[number], string>
+>
+
+const DELETE_SETTINGS_ENV_VALUE = undefined as unknown as string
+
 export function clearStartupProviderOverrides(options?: {
   updateUserSettings?: typeof updateSettingsForSource
   saveConfig?: typeof saveGlobalConfig
@@ -50,8 +56,11 @@ export function clearStartupProviderOverrides(options?: {
   const updateUserSettings = options?.updateUserSettings ?? updateSettingsForSource
   const saveConfig = options?.saveConfig ?? saveGlobalConfig
   const envPatch = Object.fromEntries(
-    STARTUP_PROVIDER_OVERRIDE_ENV_KEYS.map(key => [key, undefined]),
-  ) as Record<(typeof STARTUP_PROVIDER_OVERRIDE_ENV_KEYS)[number], undefined>
+    STARTUP_PROVIDER_OVERRIDE_ENV_KEYS.map(key => [
+      key,
+      DELETE_SETTINGS_ENV_VALUE,
+    ]),
+  ) as SettingsEnvPatch
 
   const { error } = updateUserSettings('userSettings', { env: envPatch })
 
