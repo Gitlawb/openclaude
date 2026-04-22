@@ -92,23 +92,45 @@ function extractSessionId(baseUrl: string): string {
 }
 
 function serializeToCacheMessage(events: SDKMessage[]): CacheMessage[] {
-  return events.map((m): CacheMessage => ({
-    role: m.role,
-    content:
-      typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-    tool_calls: m.tool_calls as CacheMessage['tool_calls'],
-    tool_use_id: m.tool_use_id,
-    timestamp: Date.now(),
-  }))
+  return events.map((m): CacheMessage => {
+    const cacheMsg: CacheMessage = {
+      role: m.role,
+      content:
+        typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      tool_calls: m.tool_calls as CacheMessage['tool_calls'],
+      tool_use_id: m.tool_use_id,
+      timestamp: Date.now(),
+    }
+    if ('id' in m && m.id) cacheMsg.id = m.id
+    if ('type' in m && m.type) cacheMsg.type = m.type
+    if ('model' in m && m.model) cacheMsg.model = m.model
+    if ('created_at' in m && m.created_at) cacheMsg.created_at = m.created_at
+    if ('stop_reason' in m && m.stop_reason) cacheMsg.stop_reason = m.stop_reason
+    if ('usage' in m && m.usage) cacheMsg.usage = m.usage as CacheMessage['usage']
+    if ('is_development' in m) cacheMsg.is_development = m.is_development
+    if ('index' in m && typeof m.index === 'number') cacheMsg.index = m.index
+    return cacheMsg
+  })
 }
 
 function deserializeFromCacheMessage(messages: CacheMessage[]): SDKMessage[] {
-  return messages.map((m): SDKMessage => ({
-    role: m.role,
-    content: m.content,
-    tool_calls: m.tool_calls as SDKMessage['tool_calls'],
-    tool_use_id: m.tool_use_id,
-  }))
+  return messages.map((m): SDKMessage => {
+    const msg: SDKMessage = {
+      role: m.role,
+      content: m.content,
+      tool_calls: m.tool_calls as SDKMessage['tool_calls'],
+      tool_use_id: m.tool_use_id,
+    }
+    if (m.id) msg.id = m.id
+    if (m.type) msg.type = m.type
+    if (m.model) msg.model = m.model
+    if (m.created_at) msg.created_at = m.created_at
+    if (m.stop_reason) msg.stop_reason = m.stop_reason
+    if (m.usage) msg.usage = m.usage as SDKMessage['usage']
+    if (typeof m.is_development === 'boolean') msg.is_development = m.is_development
+    if (typeof m.index === 'number') msg.index = m.index
+    return msg
+  })
 }
 
 export async function fetchLatestEvents(
