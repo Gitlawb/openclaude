@@ -13,6 +13,7 @@ export type APIProvider =
   | 'codex'
   | 'nvidia-nim'
   | 'minimax'
+  | 'spark'
   | 'mistral'
 
 export function getAPIProvider(): APIProvider {
@@ -21,6 +22,9 @@ export function getAPIProvider(): APIProvider {
   }
   if (isEnvTruthy(process.env.MINIMAX_API_KEY)) {
     return 'minimax'
+  }
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_SPARK)) {
+    return 'spark'
   }
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     ? 'gemini'

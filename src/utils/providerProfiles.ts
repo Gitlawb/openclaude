@@ -33,6 +33,7 @@ export type ProviderPreset =
   | 'custom'
   | 'nvidia-nim'
   | 'minimax'
+  | 'spark'
   | 'atomic-chat'
 
 export type ProviderProfileInput = {
@@ -76,7 +77,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
         ? 'mistral'
         : profile.provider === 'gemini'
           ? 'gemini'
-          : 'openai'
+          : profile.provider === 'spark'
+            ? 'spark'
+            : 'openai'
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
 
@@ -286,6 +289,15 @@ export function getProviderPresetDefaults(
         apiKey: process.env.MINIMAX_API_KEY ?? '',
         requiresApiKey: true,
       }
+    case 'spark':
+      return {
+        provider: 'spark',
+        name: 'iFlytek Spark',
+        baseUrl: 'https://spark-api-open.xf-yun.com/v1/chat/completions',
+        model: 'generalv4.0',
+        apiKey: process.env.SPARK_API_KEY ?? '',
+        requiresApiKey: true,
+      }
     case 'atomic-chat':
       return {
         provider: 'openai',
@@ -328,7 +340,8 @@ function hasProviderSelectionFlags(
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined ||
+    processEnv.CLAUDE_CODE_USE_SPARK !== undefined
   )
 }
 
@@ -398,7 +411,8 @@ function hasConflictingProviderFlagsForProfile(
     processEnv.CLAUDE_CODE_USE_GITHUB !== undefined ||
     processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined ||
     processEnv.CLAUDE_CODE_USE_VERTEX !== undefined ||
-    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
+    processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined ||
+    processEnv.CLAUDE_CODE_USE_SPARK !== undefined
   )
 }
 
@@ -468,6 +482,23 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
+  if (profile.provider === 'spark') {
+    return (
+      processEnv.CLAUDE_CODE_USE_SPARK !== undefined &&
+      processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
+      processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
+      processEnv.CLAUDE_CODE_USE_MISTRAL === undefined &&
+      processEnv.CLAUDE_CODE_USE_GITHUB === undefined &&
+      processEnv.CLAUDE_CODE_USE_BEDROCK === undefined &&
+      processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
+      processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
+      sameOptionalEnvValue(processEnv.SPARK_BASE_URL, profile.baseUrl) &&
+      sameOptionalEnvValue(processEnv.SPARK_MODEL, profile.model) &&
+      (!includeApiKey ||
+        sameOptionalEnvValue(processEnv.SPARK_API_KEY, profile.apiKey))
+    )
+  }
+
   return (
     processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
     processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
@@ -505,6 +536,7 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.CLAUDE_CODE_USE_BEDROCK
   delete processEnv.CLAUDE_CODE_USE_VERTEX
   delete processEnv.CLAUDE_CODE_USE_FOUNDRY
+  delete processEnv.CLAUDE_CODE_USE_SPARK
 
   delete processEnv.OPENAI_BASE_URL
   delete processEnv.OPENAI_API_BASE
@@ -532,6 +564,9 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.MINIMAX_API_KEY
   delete processEnv.NVIDIA_API_KEY
   delete processEnv.NVIDIA_NIM
+  delete processEnv.SPARK_API_KEY
+  delete processEnv.SPARK_MODEL
+  delete processEnv.SPARK_BASE_URL
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -582,6 +617,23 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       process.env.GEMINI_API_KEY = profile.apiKey
     } else {
       delete process.env.GEMINI_API_KEY
+    }
+
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_MODEL
+    return
+  }
+
+  if (profile.provider === 'spark') {
+    process.env.CLAUDE_CODE_USE_SPARK = '1'
+    process.env.SPARK_BASE_URL = profile.baseUrl
+    process.env.SPARK_MODEL = profile.model
+
+    if (profile.apiKey) {
+      process.env.SPARK_API_KEY = profile.apiKey
+    } else {
+      delete process.env.SPARK_API_KEY
     }
 
     delete process.env.OPENAI_BASE_URL
@@ -870,6 +922,12 @@ export function setActiveProviderProfile(
 
   const profileEnv = (() => {
     switch (activeProfile.provider) {
+      case 'spark':
+        // Spark uses 3 credentials (app_id, api_key, api_secret) which
+        // don't fit the single-apiKey profile model. The env was already
+        // applied above via applyProviderProfileToProcessEnv(); skip the
+        // legacy profile file path for Spark.
+        return null
       case 'gemini':
         return (
           buildGeminiProfileEnv({

@@ -47,6 +47,7 @@ const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_USE_SPARK',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'OPENAI_API_KEY',
@@ -69,6 +70,9 @@ const PROFILE_ENV_KEYS = [
   'MISTRAL_BASE_URL',
   'MISTRAL_API_KEY',
   'MISTRAL_MODEL',
+  'SPARK_API_KEY',
+  'SPARK_MODEL',
+  'SPARK_BASE_URL',
 ] as const
 
 const SECRET_ENV_KEYS = [
@@ -79,9 +83,10 @@ const SECRET_ENV_KEYS = [
   'NVIDIA_API_KEY',
   'MINIMAX_API_KEY',
   'MISTRAL_API_KEY',
+  'SPARK_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral'
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'spark'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
@@ -104,6 +109,9 @@ export type ProfileEnv = {
   MISTRAL_BASE_URL?: string
   MISTRAL_API_KEY?: string
   MISTRAL_MODEL?: string
+  SPARK_API_KEY?: string
+  SPARK_MODEL?: string
+  SPARK_BASE_URL?: string
 }
 
 export type ProfileFile = {
@@ -147,7 +155,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'atomic-chat' ||
     value === 'nvidia-nim' ||
     value === 'minimax' ||
-    value === 'mistral'
+    value === 'mistral' ||
+    value === 'spark'
   )
 }
 
@@ -507,7 +516,8 @@ export function hasExplicitProviderSelection(
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
-    isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_SPARK)
   )
 }
 
@@ -795,6 +805,56 @@ export async function buildLaunchEnv(options: {
       delete env.CHATGPT_ACCOUNT_ID
     }
     delete env.CODEX_ACCOUNT_ID
+
+    return env
+  }
+
+  if (options.profile === 'spark') {
+    const env: NodeJS.ProcessEnv = {
+      ...processEnv,
+      CLAUDE_CODE_USE_SPARK: '1',
+    }
+
+    delete env.CLAUDE_CODE_USE_OPENAI
+    delete env.CLAUDE_CODE_USE_GEMINI
+    delete env.CLAUDE_CODE_USE_MISTRAL
+    delete env.CLAUDE_CODE_USE_GITHUB
+    delete env.CLAUDE_CODE_USE_BEDROCK
+    delete env.CLAUDE_CODE_USE_VERTEX
+    delete env.CLAUDE_CODE_USE_FOUNDRY
+
+    const shellSparkModel = sanitizeProviderConfigValue(processEnv.SPARK_MODEL)
+    const persistedSparkModel = sanitizeProviderConfigValue(persistedEnv.SPARK_MODEL)
+    const shellSparkBaseUrl = sanitizeProviderConfigValue(processEnv.SPARK_BASE_URL)
+    const persistedSparkBaseUrl = sanitizeProviderConfigValue(persistedEnv.SPARK_BASE_URL)
+
+    env.SPARK_MODEL = shellSparkModel || persistedSparkModel || 'generalv4.0'
+
+    const shellSparkKey = sanitizeApiKey(processEnv.SPARK_API_KEY)
+    const persistedSparkKey = sanitizeApiKey(persistedEnv.SPARK_API_KEY)
+    if (shellSparkKey || persistedSparkKey) {
+      env.SPARK_API_KEY = shellSparkKey || persistedSparkKey
+    }
+
+    if (shellSparkBaseUrl || persistedSparkBaseUrl) {
+      env.SPARK_BASE_URL = shellSparkBaseUrl || persistedSparkBaseUrl
+    }
+
+    delete env.OPENAI_BASE_URL
+    delete env.OPENAI_MODEL
+    delete env.OPENAI_API_KEY
+    delete env.CODEX_API_KEY
+    delete env.CHATGPT_ACCOUNT_ID
+    delete env.CODEX_ACCOUNT_ID
+    delete env.GEMINI_API_KEY
+    delete env.GEMINI_AUTH_MODE
+    delete env.GEMINI_ACCESS_TOKEN
+    delete env.GEMINI_MODEL
+    delete env.GEMINI_BASE_URL
+    delete env.GOOGLE_API_KEY
+    delete env.MISTRAL_API_KEY
+    delete env.MISTRAL_BASE_URL
+    delete env.MISTRAL_MODEL
 
     return env
   }

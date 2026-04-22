@@ -83,6 +83,24 @@ export async function validateModel(
     }
   }
 
+  // For Spark provider, validate against cached model list
+  const { isSparkProvider, getCachedSparkModelOptions } = await import('./sparkModels.js')
+  if (isSparkProvider()) {
+    const sparkModels = getCachedSparkModelOptions()
+    const found = sparkModels.some(m => m.value === normalizedModel)
+    if (found) {
+      validModelCache.set(normalizedModel, true)
+      return { valid: true }
+    }
+    if (sparkModels.length > 0) {
+      const MAX_SHOWN = 5
+      const names = sparkModels.map(m => m.value)
+      const shown = names.slice(0, MAX_SHOWN).join(', ')
+      const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
+      return { valid: false, error: `Model '${normalizedModel}' not found in Spark catalog. Available: ${shown}${suffix}` }
+    }
+  }
+
   // Check against availableModels allowlist before any API call
   if (!isModelAllowed(normalizedModel)) {
     return {

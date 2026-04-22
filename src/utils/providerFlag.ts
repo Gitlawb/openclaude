@@ -23,6 +23,7 @@ export const VALID_PROVIDERS = [
   'ollama',
   'nvidia-nim',
   'minimax',
+  'spark',
 ] as const
 
 export type ProviderFlagName = (typeof VALID_PROVIDERS)[number]
@@ -147,6 +148,12 @@ export function applyProviderFlag(
       process.env.OPENAI_BASE_URL ??= 'https://api.minimax.io/v1'
       process.env.OPENAI_MODEL ??= 'MiniMax-M2.5'
       if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'spark':
+      process.env.CLAUDE_CODE_USE_SPARK = '1'
+      process.env.SPARK_MODEL ??= 'generalv4.0'
+      if (model) process.env.SPARK_MODEL = model
       break
   }
 
