@@ -12,10 +12,31 @@ const DDG_ANOMALY_HINT =
   'JINA_API_KEY, BING_API_KEY, MOJEEK_API_KEY, LINKUP_API_KEY — ' +
   'or use an Anthropic / Vertex / Foundry provider for native web search.'
 
+const MAX_RETRIES = 3
+const INITIAL_BACKOFF_MS = 1000
+
 function isAnomalyError(message: string): boolean {
   return /anomaly in the request|likely making requests too quickly/i.test(
     message,
   )
+}
+
+function isRetryableDDGError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  return (
+    msg.includes('anomaly') ||
+    msg.includes('too quickly') ||
+    msg.includes('rate limit') ||
+    msg.includes('timeout') ||
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('econnaborted')
+  )
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms))
 }
 
 export const duckduckgoProvider: SearchProvider = {
@@ -36,31 +57,44 @@ export const duckduckgoProvider: SearchProvider = {
       throw new Error('duck-duck-scrape package not installed. Run: npm install duck-duck-scrape')
     }
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    // TODO: duck-duck-scrape doesn't accept AbortSignal — can't cancel in-flight searches
-    let response: Awaited<ReturnType<typeof search>>
-    try {
-      response = await search(input.query, { safeSearch: SafeSearchType.STRICT })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (isAnomalyError(msg)) {
-        throw new Error(DDG_ANOMALY_HINT)
+
+    let lastErr: unknown
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+      try {
+        // TODO: duck-duck-scrape doesn't accept AbortSignal — can't cancel in-flight searches
+        const response = await search(input.query, { safeSearch: SafeSearchType.STRICT })
+
+        const hits = applyDomainFilters(
+          response.results.map(r => ({
+            title: r.title || r.url,
+            url: r.url,
+            description: r.description ?? undefined,
+          })),
+          input,
+        )
+
+        return {
+          hits,
+          providerName: 'duckduckgo',
+          durationSeconds: (performance.now() - start) / 1000,
+        }
+      } catch (err) {
+        lastErr = err
+        const msg = err instanceof Error ? err.message : String(err)
+        if (isAnomalyError(msg)) {
+          throw new Error(DDG_ANOMALY_HINT)
+        }
+        if (!isRetryableDDGError(err) || attempt === MAX_RETRIES - 1) {
+          throw err
+        }
+        // Exponential backoff with jitter: 1s, 2s, 4s +/- 20%
+        const baseDelay = INITIAL_BACKOFF_MS * Math.pow(2, attempt)
+        const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1)
+        await sleep(baseDelay + jitter)
       }
-      throw err
     }
 
-    const hits = applyDomainFilters(
-      response.results.map(r => ({
-        title: r.title || r.url,
-        url: r.url,
-        description: r.description ?? undefined,
-      })),
-      input,
-    )
-
-    return {
-      hits,
-      providerName: 'duckduckgo',
-      durationSeconds: (performance.now() - start) / 1000,
-    }
+    throw lastErr
   },
 }

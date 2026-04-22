@@ -1,7 +1,13 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 
 import { saveGlobalConfig } from '../config.js'
-import { getUserSpecifiedModelSetting } from './model.js'
+import {
+  getDefaultHaikuModel,
+  getDefaultOpusModel,
+  getDefaultSonnetModel,
+  getSmallFastModel,
+  getUserSpecifiedModelSetting,
+} from './model.js'
 
 const SAVED_ENV = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -28,6 +34,11 @@ function restoreEnv(key: keyof typeof SAVED_ENV): void {
 }
 
 beforeEach(() => {
+  // Other test files (notably modelOptions.github.test.ts) install a
+  // persistent mock.module for './providers.js' that overrides getAPIProvider
+  // globally. Without mock.restore() here, those overrides bleed into this
+  // suite and the provider-kind branches we're testing become unreachable.
+  mock.restore()
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -111,5 +122,78 @@ test('github provider still reads OPENAI_MODEL (regression guard)', () => {
 
   const model = getUserSpecifiedModelSetting()
   expect(model).toBe('github:copilot')
+})
+
+// ---------------------------------------------------------------------------
+// Default model helpers — must not fall through to claude-haiku-4-5 etc. for
+// OpenAI-shim providers whose endpoints don't speak Anthropic model names.
+// Hitting that fallthrough caused WebFetch to hang for 60s on MiniMax/Codex
+// because queryHaiku() shipped an unknown model id to the shim endpoint.
+// ---------------------------------------------------------------------------
+
+test('getSmallFastModel returns OPENAI_MODEL for MiniMax (regression: WebFetch hang)', () => {
+  process.env.MINIMAX_API_KEY = 'minimax-test'
+  process.env.OPENAI_MODEL = 'MiniMax-M2.5-highspeed'
+
+  expect(getSmallFastModel()).toBe('MiniMax-M2.5-highspeed')
+})
+
+test('getSmallFastModel returns OPENAI_MODEL for Codex (regression)', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+  process.env.OPENAI_MODEL = 'codexspark'
+  process.env.CODEX_API_KEY = 'codex-test'
+  process.env.CHATGPT_ACCOUNT_ID = 'acct_test'
+
+  expect(getSmallFastModel()).toBe('codexspark')
+})
+
+test('getSmallFastModel returns OPENAI_MODEL for NVIDIA NIM (regression)', () => {
+  process.env.NVIDIA_NIM = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct'
+
+  expect(getSmallFastModel()).toBe('nvidia/llama-3.1-nemotron-70b-instruct')
+})
+
+test('getDefaultOpusModel returns OPENAI_MODEL for MiniMax', () => {
+  process.env.MINIMAX_API_KEY = 'minimax-test'
+  process.env.OPENAI_MODEL = 'MiniMax-M2.7'
+
+  expect(getDefaultOpusModel()).toBe('MiniMax-M2.7')
+})
+
+test('getDefaultSonnetModel returns OPENAI_MODEL for NVIDIA NIM', () => {
+  process.env.NVIDIA_NIM = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct'
+
+  expect(getDefaultSonnetModel()).toBe('nvidia/llama-3.1-nemotron-70b-instruct')
+})
+
+test('getDefaultHaikuModel returns OPENAI_MODEL for MiniMax', () => {
+  process.env.MINIMAX_API_KEY = 'minimax-test'
+  process.env.OPENAI_MODEL = 'MiniMax-M2.5-highspeed'
+
+  expect(getDefaultHaikuModel()).toBe('MiniMax-M2.5-highspeed')
+})
+
+test('default helpers do not leak claude-* names to shim providers', () => {
+  // Umbrella guard: for each OpenAI-shim provider, none of the default-model
+  // helpers may return an Anthropic-branded model name. That was the source
+  // of the WebFetch 60s hang — MiniMax received "claude-haiku-4-5" and sat
+  // on the connection.
+  process.env.MINIMAX_API_KEY = 'minimax-test'
+  process.env.OPENAI_MODEL = 'MiniMax-M2.7'
+
+  for (const fn of [
+    getSmallFastModel,
+    getDefaultOpusModel,
+    getDefaultSonnetModel,
+    getDefaultHaikuModel,
+  ]) {
+    const model = fn()
+    expect(model.toLowerCase()).not.toContain('claude')
+  }
 })
 

@@ -169,6 +169,14 @@ describe('Web search result count improvements', () => {
 
     expect(content).toMatch(/max_uses:\s*15/)
   })
+
+  test('codex web search path guarantees a non-empty result body', async () => {
+    const content = await file(
+      'tools/WebSearchTool/WebSearchTool.ts',
+    ).text()
+
+    expect(content).toContain("results.push('No results found.')")
+  })
 })
 
 // ---------------------------------------------------------------------------
