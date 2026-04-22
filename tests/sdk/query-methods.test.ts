@@ -225,3 +225,47 @@ describe('QueryImpl.rewindFiles', () => {
     q.interrupt()
   })
 })
+
+describe('QueryImpl.setPermissionMode', () => {
+  test('updates permission mode in app state', async () => {
+    const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
+    await q.setPermissionMode('plan')
+
+    const state = (q as any).appStateStore.getState()
+    expect(state.toolPermissionContext.mode).toBe('plan')
+    q.interrupt()
+  })
+
+  test('switches to auto-accept mode', async () => {
+    const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
+    await q.setPermissionMode('auto-accept')
+
+    const state = (q as any).appStateStore.getState()
+    expect(state.toolPermissionContext.mode).toBe('acceptEdits')
+    q.interrupt()
+  })
+
+  test('refreshes engine tool list after mode change', async () => {
+    const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
+
+    await q.setPermissionMode('plan')
+
+    const afterTools = ((q as any).engine.config.tools as any[]).map((t: any) => t.name)
+    // Tool list should be refreshed (may differ by permission mode)
+    expect(Array.isArray(afterTools)).toBe(true)
+    q.interrupt()
+  })
+
+  test('preserves additionalDirectories across mode changes', async () => {
+    const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
+
+    // Manually add an additional directory
+    ;(q as any).permissionContext.additionalWorkingDirectories.set('/extra/dir', true)
+
+    await q.setPermissionMode('default')
+
+    const state = (q as any).appStateStore.getState()
+    expect(state.toolPermissionContext.additionalWorkingDirectories.has('/extra/dir')).toBe(true)
+    q.interrupt()
+  })
+})

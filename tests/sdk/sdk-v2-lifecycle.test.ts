@@ -4,6 +4,7 @@ import { rmSync } from 'fs'
 import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
+  unstable_v2_prompt,
 } from '../../src/entrypoints/sdk/index.js'
 import { getSessionProjectDir } from '../../src/bootstrap/state.js'
 import {
@@ -191,5 +192,26 @@ describe('V2: permission handling', () => {
       },
     })
     expect(session.sessionId).toBeDefined()
+  })
+})
+
+describe('V2: unstable_v2_prompt', () => {
+  test('throws when query completes without a result message (aborted)', async () => {
+    const ac = new AbortController()
+    // Abort immediately so the query never produces a result
+    ac.abort()
+
+    await expect(
+      unstable_v2_prompt('test', {
+        cwd: process.cwd(),
+        abortController: ac,
+      }),
+    ).rejects.toThrow()
+  })
+
+  test('throws when cwd is missing', () => {
+    expect(() =>
+      unstable_v2_prompt('test', {} as any),
+    ).toThrow()
   })
 })
