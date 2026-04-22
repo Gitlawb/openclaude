@@ -592,6 +592,61 @@ sdkResult = await Bun.build({
           namespace: 'sdk-missing-stub',
         }))
 
+        // Resolve .md and .txt file imports (used by yolo-classifier etc.) to empty string stubs
+        build.onResolve({ filter: /\.(md|txt)$/, namespace: 'file' }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-text-stub',
+        }))
+        build.onLoad(
+          { filter: /.*/, namespace: 'sdk-text-stub' },
+          () => ({
+            contents: `export default '';`,
+            loader: 'js',
+          }),
+        )
+
+        // Stub require() calls to modules that don't exist on disk.
+        // These are feature-gated lazy imports (e.g. cachedMCConfig, VerifyPlanExecutionTool,
+        // mcpSkills) that only resolve when the feature flag is enabled at build time.
+        // Pre-scan source files for require('...') to non-existent .js paths.
+        const sdkRequireScanDir = require('path').resolve(__dirname, '..', 'src')
+        const sdkMissingRequires = new Set<string>()
+        const sdkPathMod = require('path')
+        const sdkFs = require('fs')
+        function scanSdkRequireImports() {
+          function walkRequireScan(dir: string) {
+            for (const ent of sdkFs.readdirSync(dir, { withFileTypes: true })) {
+              const full = sdkPathMod.join(dir, ent.name)
+              if (ent.isDirectory()) { walkRequireScan(full); continue }
+              if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const fileDir = sdkPathMod.dirname(full)
+              const rawCode: string = sdkFs.readFileSync(full, 'utf-8')
+              // Strip comments
+              const code = rawCode
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/\/\/.*$/gm, '')
+              // Collect require('...') calls for relative .js paths
+              for (const m of code.matchAll(/require\(\s*['"](\.\.?\/[^'"]+\.js)['"]\s*\)/g)) {
+                const specifier = m[1]
+                const resolved = sdkPathMod.resolve(fileDir, specifier)
+                const tsVariant = resolved.replace(/\.js$/, '.ts')
+                if (!sdkFs.existsSync(resolved) && !sdkFs.existsSync(tsVariant)) {
+                  sdkMissingRequires.add(specifier)
+                }
+              }
+            }
+          }
+          walkRequireScan(sdkRequireScanDir)
+        }
+        scanSdkRequireImports()
+        for (const mod of sdkMissingRequires) {
+          const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({
+            path: mod,
+            namespace: 'sdk-missing-stub',
+          }))
+        }
+
         // Pre-scan: find all named imports for each stubbed module so we can
         // generate matching exports dynamically (avoids the whack-a-mole of
         // static export lists that break whenever a new import is added).
