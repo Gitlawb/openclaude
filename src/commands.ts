@@ -149,6 +149,7 @@ import shellMode from './commands/shell-mode/index.js'
 import checkpoint from './commands/checkpoint/index.js'
 import trustedFolders from './commands/trusted-folders/index.js'
 import mcpManage from './commands/mcp-manage/index.js'
+import mmx from './commands/mmx/index.js'
 import autoFix from './commands/auto-fix.js'
 import plugin from './commands/plugin/index.js'
 import reloadPlugins from './commands/reload-plugins/index.js'
@@ -310,6 +311,7 @@ const COMMANDS = memoize((): Command[] => [
   hiveTeam,
   checkpoint,
   mcpManage,
+  mmx,
   shellMode,
   trustedFolders,
 

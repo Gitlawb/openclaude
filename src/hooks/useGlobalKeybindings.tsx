@@ -220,6 +220,37 @@ export function GlobalKeybindingHandlers({
     context: 'Global'
   });
 
+  // Toggle shell mode (Ctrl+X) — drop into raw shell, exit to return to DuckHive
+  const handleToggleShell = useCallback(() => {
+    const inkInstance = instances.get(process.stdout);
+    if (!inkInstance) return;
+
+    // Pause Ink and suspend stdin so the shell owns the terminal
+    inkInstance.pause();
+    inkInstance.suspendStdin();
+
+    // Get user's preferred shell, falling back to zsh
+    const shell = process.env.SHELL ?? '/bin/zsh';
+
+    // Spawn interactive shell — inherits stdin/stdout/stderr
+    const child = spawn(shell, ['-i'], {
+      stdio: 'inherit',
+      env: { ...process.env },
+    });
+
+    child.on('exit', (code) => {
+      // Shell exited — restore Ink
+      inkInstance.resumeStdin();
+      inkInstance.resume();
+      if (code !== 0) {
+        inkInstance.forceRedraw();
+      }
+    });
+  }, []);
+  useKeybinding('app:toggleShell', handleToggleShell, {
+    context: 'Global',
+  });
+
   // Clear screen and force full redraw (ctrl+l). Recovery path when the
   // terminal was cleared externally (macOS Cmd+K) and Ink's diff engine
   // thinks unchanged cells don't need repainting.

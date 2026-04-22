@@ -142,6 +142,7 @@ import { validateUuid } from './utils/uuid.js';
 import { registerMcpAddCommand } from 'src/commands/mcp/addCommand.js';
 import { registerMcpDoctorCommand } from 'src/commands/mcp/doctorCommand.js';
 import { registerDuckhiveMcpCommand } from 'src/commands/mcp/duckhiveMcpCommand.js';
+import { registerDuckhiveMmxCommand } from 'src/commands/mmx/duckhiveMmxCommand.js';
 import { registerMcpXaaIdpCommand } from 'src/commands/mcp/xaaIdpCommand.js';
 import { fetchClaudeAIMcpConfigsIfEligible } from 'src/services/mcp/claudeai.js';
 import { clearServerCache } from 'src/services/mcp/client.js';
@@ -3880,6 +3881,7 @@ async function run(): Promise<CommanderCommand> {
     // Skip the OpenClaude mcp subcommands and use DuckHive's instead.
     // (The DuckHive dmcp command registers 'mcp' as its command name.)
     registerDuckhiveMcpCommand(program);
+    registerDuckhiveMmxCommand(program);
   } else {
     // claude mcp
     const mcp = program.command('mcp').description('Configure and manage MCP servers').configureHelp(createSortedHelpConfig()).enablePositionalOptions();
