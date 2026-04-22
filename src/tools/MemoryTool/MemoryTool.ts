@@ -5,7 +5,7 @@ import { lazySchema } from '../../utils/lazySchema.js'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { resolve } from 'path'
 
-const MEMORY_DIR = resolve(process.env.HOME ?? '~', '.config/openclaude/memory')
+const MEMORY_DIR = resolve(process.env.HOME ?? '~', '.duckhive/memory')
 
 function ensureDir() {
   mkdirSync(MEMORY_DIR, { recursive: true })
