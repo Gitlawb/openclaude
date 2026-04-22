@@ -113,11 +113,11 @@ test('lists AI/ML API chat completion model options with metadata', async () => 
       apiKey: 'aiml-key',
     }),
   ).resolves.toEqual([
-    {
-      value: 'gpt-4o',
-      label: 'GPT 4o',
-      description: 'OpenAI · 128000 context',
-    },
+      {
+        value: 'gpt-4o',
+        label: 'GPT 4o',
+        description: 'OpenAI - 128000 context',
+      },
     {
       value: 'deepseek-chat',
       label: 'DeepSeek Chat',

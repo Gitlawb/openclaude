@@ -15,6 +15,10 @@ import {
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
 import { normalizeRecommendationGoal } from './providerRecommendation.js'
+import {
+  getAimlapiPresetDefaults,
+  isAimlapiBaseUrl,
+} from '../providers/aimlapi/index.js'
 
 export type ProviderPreset =
   | 'aimlapi'
@@ -142,14 +146,7 @@ export function getProviderPresetDefaults(
 ): ProviderPresetDefaults {
   switch (preset) {
     case 'aimlapi':
-      return {
-        provider: 'openai',
-        name: 'AI/ML API',
-        baseUrl: 'https://api.aimlapi.com/v1',
-        model: 'gpt-4o',
-        apiKey: process.env.AIMLAPI_API_KEY ?? process.env.OPENAI_API_KEY ?? '',
-        requiresApiKey: true,
-      }
+      return getAimlapiPresetDefaults()
     case 'anthropic':
       return {
         provider: 'anthropic',
@@ -617,7 +614,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
       process.env.NVIDIA_API_KEY = profile.apiKey
     }
-    if (baseUrl.includes('api.aimlapi.com')) {
+    if (isAimlapiBaseUrl(profile.baseUrl)) {
       process.env.AIMLAPI_API_KEY = profile.apiKey
     }
   } else {

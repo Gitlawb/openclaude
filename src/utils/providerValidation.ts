@@ -1,11 +1,16 @@
 import { resolve } from 'node:path'
 import {
   getGithubEndpointType,
-  isAimlapiBaseUrl,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
+import {
+  AIMLAPI_API_KEY_ENV,
+  AIMLAPI_LABEL,
+  hasAimlapiApiKey,
+  isAimlapiBaseUrl,
+} from '../providers/aimlapi/index.js'
 import { getGlobalClaudeFile } from './env.js'
 import { isBareMode } from './envUtils.js'
 import {
@@ -158,7 +163,7 @@ export async function getProviderValidationError(
     return null
   }
 
-  const hasAimlapiKey = isAimlapiBaseUrl(request.baseUrl) && !!env.AIMLAPI_API_KEY?.trim()
+  const hasAimlapiKey = hasAimlapiApiKey(request.baseUrl, env)
   if (!env.OPENAI_API_KEY && !hasAimlapiKey && !isLocalProviderUrl(request.baseUrl)) {
     const hasGithubToken = !!(env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim())
     if (useGithub && hasGithubToken) {
@@ -167,8 +172,8 @@ export async function getProviderValidationError(
     return getOpenAIMissingKeyMessage(
       isAimlapiBaseUrl(request.baseUrl)
         ? {
-            providerLabel: 'AI/ML API',
-            acceptedKeys: 'AIMLAPI_API_KEY or OPENAI_API_KEY',
+            providerLabel: AIMLAPI_LABEL,
+            acceptedKeys: `${AIMLAPI_API_KEY_ENV} or OPENAI_API_KEY`,
           }
         : undefined,
     )

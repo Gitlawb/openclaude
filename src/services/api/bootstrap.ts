@@ -24,6 +24,7 @@ import {
   getAdditionalModelOptionsCacheScope,
   resolveProviderRequest,
 } from './providerConfig.js'
+import { getAimlapiApiKey } from '../../providers/aimlapi/index.js'
 
 const bootstrapResponseSchema = lazySchema(() =>
   z.object({
@@ -144,7 +145,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
   const { baseUrl } = resolveProviderRequest()
   const models = await listOpenAICompatibleModelOptions({
     baseUrl,
-    apiKey: process.env.OPENAI_API_KEY ?? process.env.AIMLAPI_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY ?? getAimlapiApiKey(),
   })
 
   if (models === null) {

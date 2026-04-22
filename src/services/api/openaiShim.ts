@@ -51,12 +51,16 @@ import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
-  isAimlapiBaseUrl,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
 } from './providerConfig.js'
+import {
+  getAimlapiAttributionHeaders,
+  getAimlapiOpenAICompatibleApiKey,
+  syncAimlapiOpenAIEnv,
+} from '../../providers/aimlapi/index.js'
 import {
   buildOpenAICompatibilityErrorMessage,
   classifyOpenAIHttpFailure,
@@ -90,11 +94,6 @@ const MOONSHOT_API_HOSTS = new Set([
   'api.moonshot.ai',
   'api.moonshot.cn',
 ])
-
-const AIMLAPI_HEADERS: Record<string, string> = {
-  'HTTP-Referer': 'OpenClaude',
-  'X-Title': 'OpenClaude',
-}
 
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
@@ -1558,11 +1557,10 @@ class OpenAIShimMessages {
 
     const isGemini = isGeminiMode()
     const isMiniMax = !!process.env.MINIMAX_API_KEY
-    const isAimlapi = isAimlapiBaseUrl(request.baseUrl)
     const apiKey =
       this.providerOverride?.apiKey ??
       process.env.OPENAI_API_KEY ??
-      (isAimlapi ? process.env.AIMLAPI_API_KEY : undefined) ??
+      getAimlapiOpenAICompatibleApiKey(request.baseUrl) ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
@@ -1590,9 +1588,7 @@ class OpenAIShimMessages {
       }
     }
 
-    if (isAimlapi) {
-      Object.assign(headers, AIMLAPI_HEADERS)
-    }
+    Object.assign(headers, getAimlapiAttributionHeaders(request.baseUrl))
 
     if (isGithubCopilot) {
       Object.assign(headers, COPILOT_HEADERS)
@@ -2133,10 +2129,8 @@ export function createOpenAIShimClient(options: {
     process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE
     process.env.OPENAI_API_KEY ??=
       process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
-  } else if (isAimlapiBaseUrl(process.env.OPENAI_BASE_URL)) {
-    if (!process.env.OPENAI_API_KEY && process.env.AIMLAPI_API_KEY) {
-      process.env.OPENAI_API_KEY = process.env.AIMLAPI_API_KEY
-    }
+  } else {
+    syncAimlapiOpenAIEnv(process.env)
   }
 
   const beta = new OpenAIShimBeta({

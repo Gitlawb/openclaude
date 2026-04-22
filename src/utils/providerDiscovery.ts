@@ -1,8 +1,12 @@
 import type { OllamaModelDescriptor } from './providerRecommendation.ts'
+import { DEFAULT_OPENAI_BASE_URL } from '../services/api/providerConfig.js'
 import {
-  DEFAULT_OPENAI_BASE_URL,
+  AIMLAPI_LABEL,
+  getAimlapiAttributionHeaders,
   isAimlapiBaseUrl,
-} from '../services/api/providerConfig.js'
+  mapAimlapiModelCatalog,
+  type AimlapiModelCatalogPayload,
+} from '../providers/aimlapi/index.js'
 
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434'
 export const DEFAULT_ATOMIC_CHAT_BASE_URL = 'http://127.0.0.1:1337'
@@ -155,8 +159,8 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     const path = parsed.pathname.toLowerCase()
     const haystack = `${hostname} ${path}`
 
-    if (hostname === 'api.aimlapi.com') {
-      return 'AI/ML API'
+    if (isAimlapiBaseUrl(baseUrl)) {
+      return AIMLAPI_LABEL
     }
     if (
       host.endsWith(':1234') ||
@@ -234,7 +238,7 @@ export async function listOpenAICompatibleModels(options?: {
   return modelOptions?.map(model => model.value) ?? null
 }
 
-type OpenAICompatibleModelsPayload = {
+type OpenAICompatibleModelsPayload = AimlapiModelCatalogPayload & {
   data?: Array<{
     id?: string
     type?: string
@@ -252,11 +256,6 @@ export type OpenAICompatibleModelOption = {
   description: string
 }
 
-const AIMLAPI_HEADERS: Record<string, string> = {
-  'HTTP-Referer': 'OpenClaude',
-  'X-Title': 'OpenClaude',
-}
-
 export async function listOpenAICompatibleModelOptions(options?: {
   baseUrl?: string
   apiKey?: string
@@ -265,7 +264,7 @@ export async function listOpenAICompatibleModelOptions(options?: {
   const baseUrl = getOpenAICompatibleModelsBaseUrl(options?.baseUrl)
   const aimlapi = isAimlapiBaseUrl(baseUrl)
   const headers: Record<string, string> = {
-    ...(aimlapi ? AIMLAPI_HEADERS : {}),
+    ...getAimlapiAttributionHeaders(baseUrl),
     ...(options?.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {}),
   }
   try {
@@ -282,6 +281,10 @@ export async function listOpenAICompatibleModelOptions(options?: {
     }
 
     const data = (await response.json()) as OpenAICompatibleModelsPayload
+    if (aimlapi) {
+      return mapAimlapiModelCatalog(data)
+    }
+
     const seen = new Set<string>()
     const models: OpenAICompatibleModelOption[] = []
 
@@ -289,10 +292,6 @@ export async function listOpenAICompatibleModelOptions(options?: {
       if (!model.id || seen.has(model.id)) {
         continue
       }
-      if (aimlapi && model.type !== 'openai/chat-completions') {
-        continue
-      }
-
       seen.add(model.id)
       const details = [
         model.info?.developer,

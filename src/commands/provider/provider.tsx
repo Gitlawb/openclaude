@@ -19,11 +19,14 @@ import {
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
-  isAimlapiBaseUrl,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
+import {
+  AIMLAPI_LABEL,
+  isAimlapiBaseUrl,
+} from '../../providers/aimlapi/index.js'
 import {
   applySavedProfileToCurrentSession as applySharedProfileToCurrentSession,
   buildCodexOAuthProfileEnv as buildSharedCodexOAuthProfileEnv,
@@ -289,7 +292,7 @@ export function buildCurrentProviderSummary(options?: {
     if (request.transport === 'codex_responses') {
       providerLabel = 'Codex'
     } else if (isAimlapiBaseUrl(request.baseUrl)) {
-      providerLabel = 'AI/ML API'
+      providerLabel = AIMLAPI_LABEL
     } else if (isLocalProviderUrl(request.baseUrl)) {
       providerLabel = getLocalOpenAICompatibleProviderLabel(request.baseUrl)
     }
