@@ -11,3 +11,4 @@ CLAUDE.md
 package-lock.json
 /.claude
 coverage/
+agent.log
