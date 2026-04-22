@@ -1,5 +1,5 @@
 /**
- * OpenClaude startup screen — filled-block text logo with sunset gradient.
+ * DuckHive startup screen — filled-block text logo with gold/amber gradient.
  * Called once at CLI startup before the Ink UI renders.
  *
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
@@ -48,19 +48,24 @@ function paintLine(text: string, stops: RGB[], lineT: number): string {
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
 
-const SUNSET_GRAD: RGB[] = [
-  [255, 180, 100],
-  [240, 140, 80],
-  [217, 119, 87],
-  [193, 95, 60],
-  [160, 75, 55],
-  [130, 60, 50],
+// DuckHive brand palette — gold/amber on dark navy
+const DUCK_GRAD: RGB[] = [
+  [255, 215, 0],    // Gold #FFD700
+  [255, 185, 50],   // Light gold
+  [255, 165, 0],    // Amber #FFA500
+  [255, 140, 0],    // Dark amber
+  [218, 165, 32],   // Goldenrod
+  [184, 134, 11],   // Dark goldenrod
 ]
 
-const ACCENT: RGB = [240, 148, 100]
-const CREAM: RGB = [220, 195, 170]
-const DIMCOL: RGB = [120, 100, 82]
-const BORDER: RGB = [100, 80, 65]
+// Accent matches brand gold
+const ACCENT: RGB = [255, 215, 0]     // Gold #FFD700
+// Cream text on dark background
+const CREAM: RGB = [224, 224, 224]    // Light text #e0e0e0
+// Subtle dim color
+const DIMCOL: RGB = [107, 114, 128]   // Muted gray #6b7280
+// Border color
+const BORDER: RGB = [80, 80, 80]       // Dark gray
 
 // ─── Filled Block Text Logo ───────────────────────────────────────────────────
 
@@ -188,7 +193,7 @@ export function printStartupScreen(): void {
     if (allLogo[i] === '') {
       out.push('')
     } else {
-      out.push(paintLine(allLogo[i], SUNSET_GRAD, t))
+      out.push(paintLine(allLogo[i], DUCK_GRAD, t))
     }
   }
 
