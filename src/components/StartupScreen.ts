@@ -64,21 +64,21 @@ const BORDER: RGB = [100, 80, 40]
 // ─── Filled Block Text Logo ───────────────────────────────────────────────────
 
 const LOGO_DUCK = [
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557  \u2588\u2588\u2557`,
-  `  \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d \u2588\u2588\u2588\u2557 \u2588\u2588\u2551`,
-  `  \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2557   \u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551`,
-  `  \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d \u2588\u2588\u2554\u2550\u2550\u2550\u255d   \u2588\u2588\u2554\u2588\u2588\u2588\u2588\u2551`,
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2551       \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2551`,
-  `  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d       \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u2550\u255d`,
+  `  ████████╗ ████████╗ ████████╗ ██╗  ██╗`,
+  `  ██╔═══██║ ██╔═══██║ ██╔═════╝ ███╗ ██║`,
+  `  ██║   ██║ ████████║ ██████╗   ████╗██║`,
+  `  ██║   ██║ ██╔═════╝ ██╔═══╝   ██╔████║`,
+  `  ████████║ ██║       ████████╗ ██║ ╚███║`,
+  `  ╚═══════╝ ╚═╝       ╚═══════╝ ╚═╝  ╚══╝`,
 ]
 
 const LOGO_HIVE = [
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557      \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557`,
-  `  \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d \u2588\u2588\u2551      \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u2550\u255d`,
-  `  \u2588\u2588\u2551       \u2588\u2588\u2551      \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2557  `,
-  `  \u2588\u2588\u2551       \u2588\u2588\u2551      \u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551 \u2588\u2588\u2554\u2550\u2550\u2550\u255d  `,
-  `  \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551 \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557`,
-  `  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d   \u255a\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d`,
+  `  ████████╗ ██╗      ████████╗ ██╗   ██╗ ████████╗ ████████╗`,
+  `  ██╔═════╝ ██║      ██╔═══██║ ██║   ██║ ██╔═══██║ ██╔═════╝`,
+  `  ██║       ██║      ████████║ ██║   ██║ ██║   ██║ ██████╗  `,
+  `  ██║       ██║      ██╔═══██║ ██║   ██║ ██║   ██║ ██╔═══╝  `,
+  `  ████████╗ ████████╗██║   ██║ ╚██████╔╝ ████████║ ████████╗`,
+  `  ╚═══════╝ ╚═══════╝╚═╝   ╚═╝  ╚═════╝  ╚═══════╝ ╚═══════╝`,
 ]
 
 // ─── Provider detection ───────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ export function printStartupScreen(): void {
   out.push('')
 
   // Provider info box
-  out.push(`${rgb(...BORDER)}\u2554${'\u2550'.repeat(W - 2)}\u2557${RESET}`)
+  out.push(`${rgb(...BORDER)}╔${'═'.repeat(W - 2)}╗${RESET}`)
 
   const lbl = (k: string, v: string, c: RGB = CREAM): [string, number] => {
     const padK = k.padEnd(9)
@@ -211,7 +211,29 @@ export function printStartupScreen(): void {
   ;[r, l] = lbl('Model', p.model)
   out.push(boxRow(r, W, l))
 
-  out.push(`${rgb(...BORDER)}\u2560${'\u2550'.repeat(W - 2)}\u2563${RESET}`)
+  // ─── Meta-agent config ─────────────────────────────────────────────────────
+  const metaEnabled = process.env.DUCKHIVE_META_ENABLED !== 'false'
+  const complexityThresh = parseInt(process.env.DUCKHIVE_META_COMPLEXITY_THRESHOLD || '4', 10)
+  const metaModel = process.env.DUCKHIVE_MODEL_ORCHESTRATOR || 'auto'
+  const councilOn = process.env.DUCKHIVE_COUNCIL_ENABLED !== 'false'
+  const fallbackOn = process.env.DUCKHIVE_FALLBACK_ENABLED !== 'false'
+  const healOn = process.env.DUCKHIVE_SELF_HEALING !== 'false'
+  const maxConcurrent = process.env.DUCKHIVE_MAX_CONCURRENT || '3'
+
+  const dot = (on: boolean) => on ? `${rgb(...GOLD)}●${RESET}` : `${rgb(...DIMCOL)}○${RESET}`
+
+  out.push(`${rgb(...BORDER)}╠${'═'.repeat(W - 2)}╣${RESET}`)
+  ;[r, l] = lbl('Meta-Agent', metaEnabled ? `${rgb(...GOLD)}ON${RESET}` : `${DIM}${rgb(...DIMCOL)}OFF${RESET}`, metaEnabled ? GOLD : DIMCOL)
+  out.push(boxRow(r, W, l))
+  ;[r, l] = lbl('Threshold', `${complexityThresh}/10`, CREAM)
+  out.push(boxRow(r, W, l))
+  ;[r, l] = lbl('Orchestrator', metaModel === 'auto' ? `${DIM}auto${RESET}` : `${rgb(...AMBER)}${metaModel}${RESET}`, CREAM)
+  out.push(boxRow(r, W, l))
+  const featStr = `council ${dot(councilOn)}  fallback ${dot(fallbackOn)}  heal ${dot(healOn)}`
+  ;[r, l] = lbl('Features', featStr, CREAM)
+  out.push(boxRow(r, W, l))
+  ;[r, l] = lbl('Max Agents', maxConcurrent, CREAM)
+  out.push(boxRow(r, W, l))
 
   const sC: RGB = p.isLocal ? [130, 175, 130] : GOLD
   const sL = p.isLocal ? 'local' : 'cloud'
@@ -219,13 +241,16 @@ export function printStartupScreen(): void {
   const sLen = ` \u25cf ${sL}    Ready \u2014 type /help to begin`.length
   out.push(boxRow(sRow, W, sLen))
 
-  out.push(`${rgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
+  out.push(`${rgb(...BORDER)}╚${'═'.repeat(W - 2)}╝${RESET}`)
 
   // Powered by badge
   out.push(`  ${DIM}${rgb(...DIMCOL)}\u25cf${RESET} ${rgb(...AMBER)}DuckHive${RESET} ${DIM}${rgb(...DIMCOL)}\u00b7${RESET} ${rgb(...ORANGE)}Powered by MiniMax M2.7${RESET}`)
 
   // Version + model info
   out.push(`  ${DIM}${rgb(...DIMCOL)}\u25cf${RESET} ${rgb(...ORANGE)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET} ${DIM}${rgb(...DIMCOL)}\u00b7${RESET} DuckHive   ${DIM}${rgb(...DIMCOL)}\u00b7${RESET} ${p.model}`)
+
+  // Config hint
+  out.push(`  ${DIM}Configure: ${RESET}${rgb(...GOLD)}.duckhive/config.json${RESET} ${DIM}or run ${RESET}${rgb(...GOLD)}duckhive config init${RESET}`)
 
   out.push('')
 

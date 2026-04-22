@@ -6,6 +6,7 @@
  *
  * Auto-configures MiniMax when MINIMAX_API_KEY is available,
  * otherwise falls through to OpenAI compatibility layer.
+ * Loads meta-agent config from ~/.duckhive/config.json.
  */
 
 import { existsSync } from 'fs'
@@ -15,12 +16,36 @@ import { fileURLToPath, pathToFileURL } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
 
+// Load DuckHive meta-agent config first
+let configApply = null
+try {
+  const loaderPath = join(__dirname, 'duckhive-config-loader.js')
+  if (existsSync(loaderPath)) {
+    const { loadDuckhiveConfig, applyConfigToEnv } = await import(pathToFileURL(loaderPath).href)
+    const config = loadDuckhiveConfig()
+    applyConfigToEnv(config)
+    configApply = config
+  }
+} catch (err) {
+  // Non-fatal — continue without config
+  console.error(`duckhive: warning — could not load config: ${err.message}`)
+}
+
 // Auto-configure MiniMax when MINIMAX_API_KEY is in the environment
 if (process.env.MINIMAX_API_KEY && !process.env.CLAUDE_CODE_USE_OPENAI) {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_API_KEY = process.env.MINIMAX_API_KEY
   process.env.OPENAI_BASE_URL = 'https://api.minimax.io/v1'
   process.env.OPENAI_MODEL = process.env.OPENAI_MODEL || 'MiniMax-M2.7'
+}
+
+// Apply any provider overrides from DuckHive config
+if (configApply?.providers?.default === 'kimi' && process.env.MINIMAX_API_KEY) {
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.cn/v1'
+  process.env.OPENAI_MODEL = process.env.OPENAI_MODEL || 'moonshot-v1-128k'
+} else if (configApply?.providers?.default === 'openrouter') {
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = process.env.OPENAI_MODEL || 'minimax/minimax-m2.5:free'
 }
 
 if (existsSync(distPath)) {
