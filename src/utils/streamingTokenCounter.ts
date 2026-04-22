@@ -92,6 +92,18 @@ export class StreamingTokenCounter {
     return Math.round((this.cachedOutputTokens / this.tokensPerSecond) * 1000)
   }
 
+  /** Estimate remaining tokens until target output size */
+  estimateRemainingTokens(targetOutputTokens: number): number {
+    return Math.max(0, targetOutputTokens - this.cachedOutputTokens)
+  }
+
+  /** Estimate remaining time based on target output tokens */
+  estimateRemainingTimeMs(targetOutputTokens: number): number {
+    if (this.tokensPerSecond === 0) return 0
+    const remaining = this.estimateRemainingTokens(targetOutputTokens)
+    return Math.round((remaining / this.tokensPerSecond) * 1000)
+  }
+
   /** Get character count for raw content */
   get characterCount(): number {
     return this.accumulatedContent.length

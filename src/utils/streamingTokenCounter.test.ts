@@ -47,10 +47,30 @@ describe('StreamingTokenCounter', () => {
     })
   })
 
-  describe('tokensPerSecond', () => {
-    it('returns 0 when no time elapsed', () => {
+  describe('estimateRemainingTokens', () => {
+    it('returns positive when under target', () => {
       const counter = new StreamingTokenCounter()
-      expect(counter.tokensPerSecond).toBe(0)
+      counter.start(500)
+      counter.addChunk('Hello ')
+      counter.finalize()
+      expect(counter.estimateRemainingTokens(1000)).toBeGreaterThan(0)
+    })
+
+    it('returns 0 when at or over target', () => {
+      const counter = new StreamingTokenCounter()
+      counter.start(500)
+      counter.addChunk('Hello ')
+      counter.finalize()
+      expect(counter.estimateRemainingTokens(1)).toBe(0)
+    })
+  })
+
+  describe('estimateRemainingTimeMs', () => {
+    it('returns estimate based on rate', () => {
+      const counter = new StreamingTokenCounter()
+      counter.start()
+      counter.addChunk('Hello world ')
+      expect(counter.estimateRemainingTimeMs(100)).toBeGreaterThanOrEqual(0)
     })
   })
 
