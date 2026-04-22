@@ -242,14 +242,91 @@ describe('resolveCacheProvider', () => {
       resolveCacheProvider('github', { githubNativeAnthropic: true }),
     ).toBe('copilot-claude')
   })
-  test('openai with local base URL → ollama', () => {
+  test('openai with localhost / loopback → self-hosted', () => {
+    // These used to return 'ollama'; the bucket is now 'self-hosted'
+    // because not every local OpenAI-compatible server is Ollama
+    // (could be vLLM, LM Studio, LocalAI, text-generation-webui).
+    // Both buckets collapse to supported=false downstream.
     expect(
-      resolveCacheProvider('openai', { openAiBaseUrl: 'http://localhost:11434/v1' }),
-    ).toBe('ollama')
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://localhost:8080/v1' }),
+    ).toBe('self-hosted')
     expect(
       resolveCacheProvider('openai', { openAiBaseUrl: 'http://127.0.0.1:1234/v1' }),
+    ).toBe('self-hosted')
+    // Localhost:11434 hits the self-hosted branch first — 'ollama' only
+    // kicks in when the :11434 port appears on a public-looking URL
+    // (which would be unusual but still deserves honest classification).
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://localhost:11434/v1' }),
+    ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://[::1]:5000/v1' }),
+    ).toBe('self-hosted')
+  })
+
+  test('openai on RFC1918 private IP → self-hosted (pre-fix: misclassified as openai)', () => {
+    // These are the exact cases the reviewer flagged. Before this fix,
+    // a vLLM / LocalAI server on a LAN address fell through to the
+    // 'openai' branch and /cache-stats showed '[Cache: cold]' — which
+    // users read as "my cache is broken" when the provider simply
+    // didn't report cache fields. Now they land in 'self-hosted' and
+    // /cache-stats shows '[Cache: N/A]'.
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://192.168.1.50:8000/v1' }),
+    ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://10.0.0.7:8080/v1' }),
+    ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://172.20.0.3:5000/v1' }),
+    ).toBe('self-hosted')
+  })
+
+  test('openai on link-local / CGNAT → self-hosted', () => {
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://169.254.169.254/v1' }),
+    ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://100.64.1.5:8000/v1' }),
+    ).toBe('self-hosted')
+  })
+
+  test('openai on reserved TLD (.local / .internal / .lan / .home.arpa) → self-hosted', () => {
+    // Per RFC 6761 (.local/mDNS), RFC 8375 (.home.arpa), and widely
+    // used .internal / .lan conventions. These never resolve publicly.
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://llm.internal:5000/v1' }),
+    ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://llm.local:8080/v1' }),
+    ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://vllm.home.arpa/v1' }),
+    ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://box.lan:1234/v1' }),
+    ).toBe('self-hosted')
+  })
+
+  test('openai on IPv6 local / link-local → self-hosted', () => {
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://[fe80::1]:8000/v1' }),
+    ).toBe('self-hosted')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'http://[fd12:3456::7]:8080/v1' }),
+    ).toBe('self-hosted')
+  })
+
+  test('openai with :11434 on a public host → ollama (default-port heuristic)', () => {
+    // Contrived but the heuristic should still fire — someone running
+    // Ollama behind a reverse proxy with port preserved.
+    expect(
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'https://ollama.example.com:11434/v1',
+      }),
     ).toBe('ollama')
   })
+
   test('openai with moonshot URL → kimi', () => {
     expect(
       resolveCacheProvider('openai', { openAiBaseUrl: 'https://api.moonshot.ai/v1' }),
@@ -260,9 +337,40 @@ describe('resolveCacheProvider', () => {
       resolveCacheProvider('openai', { openAiBaseUrl: 'https://api.deepseek.com/v1' }),
     ).toBe('deepseek')
   })
+  test('private IP beats hosted-keyword matching (self-hosted takes priority)', () => {
+    // A pathological URL: a private-IP host whose path string contains
+    // "deepseek". Self-hosted detection must run FIRST so the URL
+    // classifies honestly — the path alone doesn't prove the upstream
+    // is the real DeepSeek API.
+    expect(
+      resolveCacheProvider('openai', {
+        openAiBaseUrl: 'http://10.0.0.5:8000/v1/deepseek-proxy',
+      }),
+    ).toBe('self-hosted')
+  })
   test('plain openai remains openai', () => {
     expect(
       resolveCacheProvider('openai', { openAiBaseUrl: 'https://api.openai.com/v1' }),
+    ).toBe('openai')
+  })
+  test('unparseable base URL falls back to substring heuristic', () => {
+    // Bare host:port without a scheme is common in misconfigured env.
+    // We can't URL-parse it, but we still honor the "localhost" hint so
+    // a broken config doesn't silently masquerade as cache-capable.
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: 'localhost:8000' }),
+    ).toBe('self-hosted')
+    // An unparseable and opaque string falls through to plain 'openai'
+    // (best-effort — nothing we can infer from "foo-bar-baz").
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: '???' }),
+    ).toBe('openai')
+  })
+  test('empty base URL → plain openai', () => {
+    // No hint at all: assume the canonical api.openai.com.
+    expect(resolveCacheProvider('openai')).toBe('openai')
+    expect(
+      resolveCacheProvider('openai', { openAiBaseUrl: '' }),
     ).toBe('openai')
   })
   test('codex → codex', () => {
@@ -270,6 +378,32 @@ describe('resolveCacheProvider', () => {
   })
   test('gemini → gemini', () => {
     expect(resolveCacheProvider('gemini')).toBe('gemini')
+  })
+})
+
+describe('extractCacheMetrics — self-hosted bucket', () => {
+  test('self-hosted provider is honestly unsupported (pre-fix: would show "[Cache: cold]")', () => {
+    // Same contract as ollama / copilot-vanilla: supported=false so the
+    // display surfaces '[Cache: N/A]' instead of fabricating a hit rate.
+    const metrics = extractCacheMetrics(
+      { input_tokens: 1_000, output_tokens: 200 },
+      'self-hosted',
+    )
+    expect(metrics.supported).toBe(false)
+    expect(metrics.hitRate).toBeNull()
+    expect(metrics.read).toBe(0)
+    expect(metrics.created).toBe(0)
+  })
+})
+
+describe('formatCacheMetricsCompact — self-hosted renders as N/A', () => {
+  test('same surface as other unsupported providers', () => {
+    const metrics = extractCacheMetrics(
+      { input_tokens: 500 },
+      'self-hosted',
+    )
+    expect(formatCacheMetricsCompact(metrics)).toBe('[Cache: N/A]')
+    expect(formatCacheMetricsFull(metrics)).toBe('[Cache: N/A]')
   })
 })
 

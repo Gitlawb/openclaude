@@ -24,6 +24,9 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildAnthropicUsageFromRawUsage,
   extractCacheMetrics,
+  formatCacheMetricsCompact,
+  formatCacheMetricsFull,
+  resolveCacheProvider,
   type CacheAwareProvider,
 } from './cacheMetrics.js'
 
@@ -174,6 +177,85 @@ describe('no-cache providers — pipeline honestly reports unsupported', () => {
       'ollama',
     )
     expect(metrics.supported).toBe(false)
+  })
+})
+
+describe('display path end-to-end — private-IP, custom-port, self-hosted endpoints', () => {
+  // These tests exercise the FULL pipeline that runs when a user
+  // configures OpenClaude against a self-hosted OpenAI-compatible
+  // server (vLLM, LM Studio, LocalAI, text-generation-webui, etc.):
+  //
+  //   OPENAI_BASE_URL → resolveCacheProvider → real provider usage →
+  //   buildAnthropicUsageFromRawUsage → extractCacheMetrics →
+  //   formatCacheMetricsCompact / Full (= what user sees in REPL and
+  //   via /cache-stats)
+  //
+  // Pre-fix behavior: substring check missed these URLs, they fell
+  // into the 'openai' bucket, and the display showed '[Cache: cold]' —
+  // i.e. implied a cache miss when the provider simply doesn't report
+  // cache fields. Post-fix: '[Cache: N/A]' every time.
+
+  const privateEndpoints: Array<{ name: string; baseUrl: string }> = [
+    { name: 'vLLM on RFC1918 LAN IP', baseUrl: 'http://192.168.1.50:8000/v1' },
+    { name: 'LocalAI on 10.x.x.x corporate network', baseUrl: 'http://10.0.0.7:8080/v1' },
+    { name: 'self-hosted on 172.16.x.x', baseUrl: 'http://172.20.0.3:5000/v1' },
+    { name: 'reverse-proxied on .internal DNS', baseUrl: 'http://llm.internal:5000/v1' },
+    { name: 'mDNS .local hostname', baseUrl: 'http://box.local:8080/v1' },
+    { name: 'RFC 8375 .home.arpa', baseUrl: 'http://vllm.home.arpa/v1' },
+    { name: 'CGNAT / Tailscale 100.64.x.x', baseUrl: 'http://100.64.1.5:8000/v1' },
+    { name: 'IPv6 loopback literal', baseUrl: 'http://[::1]:5000/v1' },
+    { name: 'IPv6 link-local', baseUrl: 'http://[fe80::1]:8000/v1' },
+    { name: 'IPv6 ULA fc00::/7', baseUrl: 'http://[fd12:3456::7]:8080/v1' },
+    { name: 'link-local cloud-metadata IP', baseUrl: 'http://169.254.169.254/v1' },
+  ]
+
+  for (const { name, baseUrl } of privateEndpoints) {
+    test(`${name} (${baseUrl}) — renders [Cache: N/A], not [Cache: cold]`, () => {
+      // 1. URL resolves to self-hosted bucket.
+      const bucket = resolveCacheProvider('openai', { openAiBaseUrl: baseUrl })
+      expect(bucket).toBe('self-hosted')
+
+      // 2. Typical self-hosted server returns OpenAI-shape usage with no
+      //    cache fields — the shim normalizes it cleanly.
+      const shimmed = buildAnthropicUsageFromRawUsage({
+        prompt_tokens: 1_200,
+        completion_tokens: 250,
+      })
+      expect(shimmed.cache_read_input_tokens).toBe(0)
+
+      // 3. The display path marks the bucket unsupported.
+      const metrics = extractCacheMetrics(
+        shimmed as unknown as Record<string, unknown>,
+        bucket,
+      )
+      expect(metrics.supported).toBe(false)
+      expect(metrics.hitRate).toBeNull()
+
+      // 4. User-visible output — both formats honor the unsupported flag.
+      expect(formatCacheMetricsCompact(metrics)).toBe('[Cache: N/A]')
+      expect(formatCacheMetricsFull(metrics)).toBe('[Cache: N/A]')
+    })
+  }
+
+  test('public-looking URL with non-standard port stays in openai bucket (no false positive)', () => {
+    // A real hosted API that happens to run on a custom port must NOT
+    // be misclassified as self-hosted. This guards the fix against
+    // over-matching.
+    const bucket = resolveCacheProvider('openai', {
+      openAiBaseUrl: 'https://api.openai.com:8443/v1',
+    })
+    expect(bucket).toBe('openai')
+  })
+
+  test('private IP + hosted-provider keyword in path → self-hosted wins', () => {
+    // A URL like 'http://10.0.0.5:8000/v1/deepseek-proxy' has "deepseek"
+    // in the path but the upstream is a LAN box, not the real DeepSeek.
+    // Priority ordering in resolveCacheProvider must put self-hosted
+    // detection first.
+    const bucket = resolveCacheProvider('openai', {
+      openAiBaseUrl: 'http://10.0.0.5:8000/v1/deepseek-proxy',
+    })
+    expect(bucket).toBe('self-hosted')
   })
 })
 

@@ -55,6 +55,13 @@ export type CacheAwareProvider =
   | 'deepseek'
   | 'gemini'
   | 'ollama'
+  // Generic local / self-hosted OpenAI-compatible endpoints (vLLM,
+  // LM Studio, LocalAI, text-generation-webui, custom internal servers
+  // on RFC1918 addresses, reserved TLDs like .local / .internal, etc.).
+  // Distinct from `ollama` because Ollama might someday add cache
+  // reporting; keeping the buckets separate means that change stays
+  // local to one branch.
+  | 'self-hosted'
   | 'copilot'
   | 'copilot-claude'
 
@@ -111,11 +118,112 @@ function pickPath(usage: RawUsage, path: string[]): unknown {
 }
 
 /**
+ * Returns true when the URL points at a private, loopback, link-local,
+ * CGNAT, or reserved-TLD host — anywhere a self-hosted OpenAI-compatible
+ * server is likely running (vLLM, LM Studio, LocalAI, Ollama on a
+ * non-default port, text-generation-webui, corporate internal proxies).
+ *
+ * WHY a dedicated helper (vs the old substring match):
+ *   The previous check only looked for `localhost` / `127.0.0.1` /
+ *   `:11434` / `:1234` as substrings. That misclassified real setups:
+ *   a vLLM server at `http://192.168.1.50:8000/v1` or an internal
+ *   endpoint at `http://llm.internal:5000/v1` fell through the `openai`
+ *   branch, got marked as cache-capable, and `/cache-stats` reported
+ *   `[Cache: cold]` — making users think their cache was broken when
+ *   in reality the provider simply doesn't report cache fields.
+ *
+ * Intentionally narrower than WebSearchTool's `isPrivateHostname`
+ * (which defends against SSRF bypass vectors like IPv4-mapped IPv6
+ * and octal-encoded IPs). We only need to classify a reporting bucket,
+ * not enforce a security boundary — a false negative here at worst
+ * shows `[Cache: cold]` instead of `[Cache: N/A]`.
+ *
+ * See cacheMetrics.test.ts for the cases this function is contracted to
+ * return true/false for.
+ */
+function isLocalOrPrivateUrl(url: string): boolean {
+  if (!url) return false
+  let hostname = ''
+  try {
+    hostname = new URL(url).hostname.toLowerCase()
+  } catch {
+    // Fall through to the substring fallback below.
+  }
+  // WHATWG URL accepts `localhost:8000` (treats `localhost:` as scheme,
+  // leaving hostname empty). Treat empty-hostname parses the same as a
+  // parse failure so we still catch the obvious cases with substring.
+  if (!hostname) {
+    const lower = url.toLowerCase()
+    return (
+      lower.includes('localhost') ||
+      lower.includes('127.0.0.1') ||
+      lower.includes('::1')
+    )
+  }
+  // Unwrap IPv6 literal brackets that URL.hostname leaves attached.
+  const h = hostname.startsWith('[') && hostname.endsWith(']')
+    ? hostname.slice(1, -1)
+    : hostname
+  // Literal localhost alias.
+  if (h === 'localhost') return true
+  // Reserved TLDs per RFC 6761, RFC 6762 (mDNS), RFC 8375 (home network).
+  // These are guaranteed never to resolve to public infrastructure.
+  if (
+    h === 'local' ||
+    h.endsWith('.local') ||
+    h.endsWith('.lan') ||
+    h.endsWith('.internal') ||
+    h.endsWith('.intranet') ||
+    h.endsWith('.home.arpa')
+  ) {
+    return true
+  }
+  // IPv4 private and reserved ranges. URL.hostname normalizes short /
+  // hex / octal IPv4 representations to dotted-quad, so a simple regex
+  // works for the display-classification use case.
+  const ipv4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (ipv4) {
+    const a = Number(ipv4[1])
+    const b = Number(ipv4[2])
+    // 10.0.0.0/8 (RFC 1918)
+    if (a === 10) return true
+    // 172.16.0.0/12 (RFC 1918)
+    if (a === 172 && b >= 16 && b <= 31) return true
+    // 192.168.0.0/16 (RFC 1918)
+    if (a === 192 && b === 168) return true
+    // 127.0.0.0/8 loopback
+    if (a === 127) return true
+    // 169.254.0.0/16 link-local (AWS/GCP metadata, stateless autoconf)
+    if (a === 169 && b === 254) return true
+    // 100.64.0.0/10 CGNAT (Tailscale, carrier-grade NAT)
+    if (a === 100 && b >= 64 && b <= 127) return true
+  }
+  // IPv6 common local/private ranges — narrow by design.
+  if (h === '::1' || h === '::') return true
+  // fe80::/10 link-local and fc00::/7 unique-local (ULA).
+  if (h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) {
+    return true
+  }
+  return false
+}
+
+/**
  * Map the canonical APIProvider enum (+ environment hints) into a
  * cache-capability bucket. We separate `copilot` (no cache) from
  * `copilot-claude` (Anthropic shim via Copilot with explicit cache)
  * because the two behave very differently even under the same provider
  * flag — see `isGithubNativeAnthropicMode` in utils/model/providers.ts.
+ *
+ * Order of OpenAI-compatible checks matters:
+ *   1. Private / self-hosted URL — no cache fields regardless of vendor.
+ *   2. Vendor-specific hosted providers (Kimi, DeepSeek) — known cache
+ *      shapes that deserve their own normalization branch.
+ *   3. Plain OpenAI — default bucket.
+ * Doing hosted-vendor matching before self-hosted detection would let a
+ * private-IP endpoint with "deepseek" in the URL fall into the wrong
+ * branch; doing self-hosted last would let a `.internal` URL with
+ * "openai" in its path be misclassified. The current order is correct
+ * for both pathological cases.
  */
 export function resolveCacheProvider(
   provider: APIProvider,
@@ -130,14 +238,18 @@ export function resolveCacheProvider(
   if (provider === 'gemini') return 'gemini'
   if (provider === 'codex') return 'codex'
   if (provider === 'openai') {
-    const url = (hints?.openAiBaseUrl ?? '').toLowerCase()
-    // Local Ollama / LM Studio servers never return cache fields. Heuristic
-    // check keeps the normalizer honest without requiring a separate env var.
-    if (url.includes('localhost') || url.includes('127.0.0.1') || url.includes('11434') || url.includes('1234')) {
-      return 'ollama'
-    }
-    if (url.includes('moonshot') || url.includes('kimi')) return 'kimi'
-    if (url.includes('deepseek')) return 'deepseek'
+    const url = hints?.openAiBaseUrl ?? ''
+    // Self-hosted / private-network endpoint — detect first so a vLLM
+    // server on 192.168.x.x or a .internal DNS entry is honestly
+    // classified as no-cache, not misreported as plain OpenAI.
+    if (isLocalOrPrivateUrl(url)) return 'self-hosted'
+    const lower = url.toLowerCase()
+    // The :11434 port still signals Ollama specifically (default port).
+    // If someone runs Ollama on a private IP:11434 we picked it up above
+    // as 'self-hosted'; only a public-looking URL with :11434 lands here.
+    if (lower.includes(':11434')) return 'ollama'
+    if (lower.includes('moonshot') || lower.includes('kimi')) return 'kimi'
+    if (lower.includes('deepseek')) return 'deepseek'
     return 'openai'
   }
   // nvidia-nim, minimax, mistral share the OpenAI Chat Completions convention
@@ -255,7 +367,13 @@ export function extractCacheMetrics(
   // all. Returning supported:false lets the REPL print "N/A" instead of
   // lying with 0%. Every other provider has been normalized to the
   // Anthropic shape by the shim, so we read uniformly below.
-  if (provider === 'copilot' || provider === 'ollama') return UNSUPPORTED
+  if (
+    provider === 'copilot' ||
+    provider === 'ollama' ||
+    provider === 'self-hosted'
+  ) {
+    return UNSUPPORTED
+  }
 
   const u = usage as Record<string, unknown>
   const read = asNumber(u.cache_read_input_tokens)
