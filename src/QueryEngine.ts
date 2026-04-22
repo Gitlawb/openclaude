@@ -1022,7 +1022,7 @@ export class QueryEngine {
         const maxRetries = parseInt(
           process.env.MAX_STRUCTURED_OUTPUT_RETRIES || '5',
           10,
-        ) || 5
+        ) ?? 5
         if (callsThisQuery >= maxRetries) {
           if (persistSession) {
             if (
