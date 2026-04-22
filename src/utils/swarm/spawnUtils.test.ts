@@ -32,11 +32,11 @@ test('buildInheritedEnvVars forwards PATH for source-built teammate tool lookups
   expect(envVars).toContain('/custom/bin\\:/usr/bin')
 })
 
-test('buildInheritedEnvVars forwards optional OPENAI_CUSTOM_HEADERS when set', () => {
-  process.env.OPENAI_CUSTOM_HEADERS = 'api-key: provider-api-key'
+test('buildInheritedEnvVars forwards optional OPENAI_CUSTOM_HEADERS with shell-safe quoting', () => {
+  process.env.OPENAI_CUSTOM_HEADERS = 'api-key: one;X-Org: team-a'
 
   const envVars = buildInheritedEnvVars()
 
   expect(envVars).toContain('OPENAI_CUSTOM_HEADERS=')
-  expect(envVars).toContain('api-key\\: provider-api-key')
+  expect(envVars).toContain("OPENAI_CUSTOM_HEADERS='api-key: one;X-Org: team-a'")
 })
