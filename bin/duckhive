@@ -39,6 +39,12 @@ if (process.env.MINIMAX_API_KEY && !process.env.CLAUDE_CODE_USE_OPENAI) {
   process.env.OPENAI_MODEL = process.env.OPENAI_MODEL || 'MiniMax-M2.7'
 }
 
+// Fast model for internal Haiku queries (applyPromptToMarkdown, web search, etc.)
+// MiniMax supports gpt-4o-mini via OpenAI-compatible endpoint
+if (!process.env.ANTHROPIC_SMALL_FAST_MODEL) {
+  process.env.ANTHROPIC_SMALL_FAST_MODEL = 'gpt-4o-mini'
+}
+
 // Apply any provider overrides from DuckHive config
 if (configApply?.providers?.default === 'kimi' && process.env.MINIMAX_API_KEY) {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.cn/v1'

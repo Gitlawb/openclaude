@@ -508,18 +508,27 @@ export async function applyPromptToMarkdown(
     prompt,
     isPreapprovedDomain,
   )
-  const assistantMessage = await queryHaiku({
-    systemPrompt: asSystemPrompt([]),
-    userPrompt: modelPrompt,
-    signal,
-    options: {
-      querySource: 'web_fetch_apply',
-      agents: [],
-      isNonInteractiveSession,
-      hasAppendSystemPrompt: false,
-      mcpTools: [],
-    },
-  })
+  let assistantMessage
+  try {
+    assistantMessage = await queryHaiku({
+      systemPrompt: asSystemPrompt([]),
+      userPrompt: modelPrompt,
+      signal,
+      options: {
+        querySource: 'web_fetch_apply',
+        agents: [],
+        isNonInteractiveSession,
+        hasAppendSystemPrompt: false,
+        mcpTools: [],
+      },
+    })
+  } catch (haikuErr) {
+    // Haiku query failed (e.g., MiniMax doesn't support this request format).
+    // Fall back to returning the raw markdown content — the main model will
+    // handle applying the prompt when it processes the conversation.
+    logError(new Error(`Haiku query failed in applyPromptToMarkdown: ${haikuErr instanceof Error ? haikuErr.message : String(haikuErr)}`))
+    return markdownContent
+  }
 
   // We need to bubble this up, so that the tool call throws, causing us to return
   // an is_error tool_use block to the server, and render a red dot in the UI.
