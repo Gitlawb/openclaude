@@ -42,6 +42,7 @@ export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
@@ -529,12 +530,6 @@ export async function buildLaunchEnv(options: {
   readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options.processEnv ?? process.env
-  // GitHub provider selection is stored in settings.env, not in the legacy
-  // profile file, so a stale file must not convert it back to OpenAI mode.
-  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
-    return processEnv
-  }
-
   const persistedEnv =
     options.persisted?.profile === options.profile
       ? options.persisted.env ?? {}
@@ -829,7 +824,12 @@ export async function buildLaunchEnv(options: {
     (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
     (usePersistedOpenAIConfig ? persistedOpenAIModel : undefined) ||
     defaultOpenAIModel
-  env.OPENAI_API_KEY = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
+  const openAIKey = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
+  if (openAIKey) {
+    env.OPENAI_API_KEY = openAIKey
+  } else {
+    delete env.OPENAI_API_KEY
+  }
   delete env.CODEX_API_KEY
   delete env.CHATGPT_ACCOUNT_ID
   delete env.CODEX_ACCOUNT_ID
