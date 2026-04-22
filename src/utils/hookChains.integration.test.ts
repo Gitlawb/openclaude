@@ -75,6 +75,13 @@ async function importHookChainsHarness(
     getAgentName: () => senderName,
     getTeamName: () => teamName,
     getTeammateColor: () => 'blue',
+    // Keep parity with the real module's surface so later tests that
+    // run after this file (mock.module is process-global and mock.restore
+    // does not undo module mocks in Bun) do not see undefined members.
+    isTeammate: () => false,
+    isPlanModeRequired: () => false,
+    getAgentId: () => undefined,
+    getParentSessionId: () => undefined,
   }))
 
   mock.module('../bridge/replBridgeHandle.js', () => ({
