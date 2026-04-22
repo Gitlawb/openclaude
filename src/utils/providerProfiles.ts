@@ -860,6 +860,8 @@ function buildOpenAICompatibleStartupEnv(
   }
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey
+  } else {
+    delete env.OPENAI_API_KEY
   }
   return env
 }
