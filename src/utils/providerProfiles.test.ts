@@ -22,6 +22,7 @@ const RESTORED_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_MODEL',
   'OPENAI_API_KEY',
+  'AIMLAPI_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
@@ -518,6 +519,21 @@ describe('persistActiveProviderProfileModel', () => {
 })
 
 describe('getProviderPresetDefaults', () => {
+  test('aimlapi preset defaults to AI/ML API with AIMLAPI_API_KEY fallback', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.AIMLAPI_API_KEY = 'aiml-test-key'
+    delete process.env.OPENAI_API_KEY
+
+    const defaults = getProviderPresetDefaults('aimlapi')
+
+    expect(defaults.provider).toBe('openai')
+    expect(defaults.name).toBe('AI/ML API')
+    expect(defaults.baseUrl).toBe('https://api.aimlapi.com/v1')
+    expect(defaults.model).toBe('gpt-4o')
+    expect(defaults.apiKey).toBe('aiml-test-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('ollama preset defaults to a local Ollama model', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     delete process.env.OPENAI_MODEL

@@ -51,6 +51,7 @@ import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
+  isAimlapiBaseUrl,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
@@ -72,6 +73,7 @@ import { createStreamState, processStreamChunk, getStreamStats } from '../../uti
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
+  AIMLAPI_API_KEY: string
   CODEX_API_KEY: string
   GEMINI_API_KEY: string
   GOOGLE_API_KEY: string
@@ -88,6 +90,11 @@ const MOONSHOT_API_HOSTS = new Set([
   'api.moonshot.ai',
   'api.moonshot.cn',
 ])
+
+const AIMLAPI_HEADERS: Record<string, string> = {
+  'HTTP-Referer': 'OpenClaude',
+  'X-Title': 'OpenClaude',
+}
 
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
@@ -1551,9 +1558,11 @@ class OpenAIShimMessages {
 
     const isGemini = isGeminiMode()
     const isMiniMax = !!process.env.MINIMAX_API_KEY
+    const isAimlapi = isAimlapiBaseUrl(request.baseUrl)
     const apiKey =
       this.providerOverride?.apiKey ??
       process.env.OPENAI_API_KEY ??
+      (isAimlapi ? process.env.AIMLAPI_API_KEY : undefined) ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
@@ -1579,6 +1588,10 @@ class OpenAIShimMessages {
           headers['x-goog-user-project'] = geminiCredential.projectId
         }
       }
+    }
+
+    if (isAimlapi) {
+      Object.assign(headers, AIMLAPI_HEADERS)
     }
 
     if (isGithubCopilot) {
@@ -2120,6 +2133,10 @@ export function createOpenAIShimClient(options: {
     process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE
     process.env.OPENAI_API_KEY ??=
       process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
+  } else if (isAimlapiBaseUrl(process.env.OPENAI_BASE_URL)) {
+    if (!process.env.OPENAI_API_KEY && process.env.AIMLAPI_API_KEY) {
+      process.env.OPENAI_API_KEY = process.env.AIMLAPI_API_KEY
+    }
   }
 
   const beta = new OpenAIShimBeta({

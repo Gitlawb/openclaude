@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import {
   getGithubEndpointType,
+  isAimlapiBaseUrl,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
@@ -12,7 +13,10 @@ import {
   resolveGeminiCredential,
 } from './geminiAuth.js'
 import { PROFILE_FILE_NAME } from './providerProfile.js'
-import { redactSecretValueForDisplay } from './providerSecrets.js'
+import {
+  type SecretValueSource,
+  redactSecretValueForDisplay,
+} from './providerSecrets.js'
 
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
@@ -65,12 +69,17 @@ function checkGithubTokenStatus(
   return 'valid'
 }
 
-function getOpenAIMissingKeyMessage(): string {
+function getOpenAIMissingKeyMessage(options?: {
+  providerLabel?: string
+  acceptedKeys?: string
+}): string {
   const globalConfigPath = getGlobalClaudeFile()
   const profilePath = resolve(process.cwd(), PROFILE_FILE_NAME)
+  const providerLabel = options?.providerLabel ?? 'OpenAI-compatible provider'
+  const acceptedKeys = options?.acceptedKeys ?? 'OPENAI_API_KEY'
 
   return [
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    `${acceptedKeys} is required for ${providerLabel} when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.`,
     `To recover, run /provider and switch provider, or set CLAUDE_CODE_USE_OPENAI=0 in your shell environment.`,
     `Saved startup settings can come from ${globalConfigPath} or ${profilePath}.`,
   ].join('\n')
@@ -84,7 +93,7 @@ export async function getProviderValidationError(
     ) => Promise<GeminiResolvedCredential>
   },
 ): Promise<string | null> {
-  const secretSource = env
+  const secretSource = env as SecretValueSource
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
   const useGithub = isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)
 
@@ -149,12 +158,20 @@ export async function getProviderValidationError(
     return null
   }
 
-  if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {
+  const hasAimlapiKey = isAimlapiBaseUrl(request.baseUrl) && !!env.AIMLAPI_API_KEY?.trim()
+  if (!env.OPENAI_API_KEY && !hasAimlapiKey && !isLocalProviderUrl(request.baseUrl)) {
     const hasGithubToken = !!(env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim())
     if (useGithub && hasGithubToken) {
       return null
     }
-    return getOpenAIMissingKeyMessage()
+    return getOpenAIMissingKeyMessage(
+      isAimlapiBaseUrl(request.baseUrl)
+        ? {
+            providerLabel: 'AI/ML API',
+            acceptedKeys: 'AIMLAPI_API_KEY or OPENAI_API_KEY',
+          }
+        : undefined,
+    )
   }
 
   return null

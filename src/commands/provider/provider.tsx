@@ -19,6 +19,7 @@ import {
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
+  isAimlapiBaseUrl,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
@@ -207,10 +208,10 @@ export function getProviderWizardDefaults(
     sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource) ||
     DEFAULT_GEMINI_MODEL
   const safeMistralModel =
-    sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, processEnv) ||
+    sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, secretSource) ||
     DEFAULT_MISTRAL_MODEL
   const safeMistralBaseUrl =
-    sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL, processEnv) ||
+    sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL, secretSource) ||
     DEFAULT_MISTRAL_BASE_URL
 
   return {
@@ -287,6 +288,8 @@ export function buildCurrentProviderSummary(options?: {
     let providerLabel = 'OpenAI-compatible'
     if (request.transport === 'codex_responses') {
       providerLabel = 'Codex'
+    } else if (isAimlapiBaseUrl(request.baseUrl)) {
+      providerLabel = 'AI/ML API'
     } else if (isLocalProviderUrl(request.baseUrl)) {
       providerLabel = getLocalOpenAICompatibleProviderLabel(request.baseUrl)
     }

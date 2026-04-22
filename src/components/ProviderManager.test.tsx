@@ -105,6 +105,7 @@ async function waitForCondition(
 // Order matches ProviderManager.renderPresetSelection() when
 // canUseCodexOAuth === true (default in mocked tests).
 const PRESET_ORDER = [
+  'AI/ML API',
   'Alibaba Coding Plan',
   'Alibaba Coding Plan (China)',
   'Anthropic',
@@ -435,6 +436,23 @@ test('ProviderManager resolves GitHub virtual provider from async storage withou
 
   expect(syncRead).not.toHaveBeenCalled()
   expect(asyncRead).toHaveBeenCalled()
+})
+
+test('ProviderManager preset picker includes AI/ML API', async () => {
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const output = await renderProviderManagerFrame(ProviderManager, {
+    mode: 'first-run',
+    waitForOutput: frame =>
+      frame.includes('Set up provider') && frame.includes('AI/ML API'),
+  })
+
+  expect(output).toContain('AI/ML API')
 })
 
 test('ProviderManager avoids first-frame false negative while stored-token lookup is pending', async () => {

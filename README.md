@@ -70,6 +70,34 @@ $env:OPENAI_MODEL="gpt-4o"
 openclaude
 ```
 
+### Fastest AI/ML API setup
+
+AI/ML API provides 400+ models behind an OpenAI-compatible API. OpenClaude uses chat/tool-capable models through `https://api.aimlapi.com/v1/chat/completions`.
+
+macOS / Linux:
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export AIMLAPI_API_KEY=your-aimlapi-key-here
+export OPENAI_BASE_URL=https://api.aimlapi.com/v1
+export OPENAI_MODEL=gpt-4o
+
+openclaude
+```
+
+Windows PowerShell:
+
+```powershell
+$env:CLAUDE_CODE_USE_OPENAI="1"
+$env:AIMLAPI_API_KEY="your-aimlapi-key-here"
+$env:OPENAI_BASE_URL="https://api.aimlapi.com/v1"
+$env:OPENAI_MODEL="gpt-4o"
+
+openclaude
+```
+
+You can also run `/provider`, choose `AI/ML API`, and paste your AI/ML API key. Browse available models at [aimlapi.com/models](https://aimlapi.com/models) and provider docs at [docs.aimlapi.com](https://docs.aimlapi.com/).
+
 ### Fastest local Ollama setup
 
 macOS / Linux:
@@ -112,6 +140,7 @@ Beginner-friendly guides:
 
 Advanced and source-build guides:
 
+- [AI/ML API Setup](docs/aimlapi-setup.md)
 - [Advanced Setup](docs/advanced-setup.md)
 - [Android Install](ANDROID_INSTALL.md)
 
@@ -119,6 +148,7 @@ Advanced and source-build guides:
 
 | Provider | Setup Path | Notes |
 | --- | --- | --- |
+| AI/ML API | `/provider` or env vars | First-class OpenAI-compatible setup for AI/ML API's 400+ model catalog; OpenClaude uses chat/tool-capable models |
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
 | Gemini | `/provider` or env vars | Supports API key, access token, or local ADC workflow on current `main` |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |

@@ -14,8 +14,10 @@ import {
   buildOpenAIProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
+import { normalizeRecommendationGoal } from './providerRecommendation.js'
 
 export type ProviderPreset =
+  | 'aimlapi'
   | 'anthropic'
   | 'ollama'
   | 'openai'
@@ -139,6 +141,15 @@ export function getProviderPresetDefaults(
   preset: ProviderPreset,
 ): ProviderPresetDefaults {
   switch (preset) {
+    case 'aimlapi':
+      return {
+        provider: 'openai',
+        name: 'AI/ML API',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: process.env.AIMLAPI_API_KEY ?? process.env.OPENAI_API_KEY ?? '',
+        requiresApiKey: true,
+      }
     case 'anthropic':
       return {
         provider: 'anthropic',
@@ -529,6 +540,7 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.MISTRAL_API_KEY
 
   // Clear provider-specific API keys
+  delete processEnv.AIMLAPI_API_KEY
   delete processEnv.MINIMAX_API_KEY
   delete processEnv.NVIDIA_API_KEY
   delete processEnv.NVIDIA_NIM
@@ -553,6 +565,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     delete process.env.OPENAI_API_BASE
     delete process.env.OPENAI_MODEL
     delete process.env.OPENAI_API_KEY
+    delete process.env.AIMLAPI_API_KEY
     return
   }
 
@@ -603,6 +616,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     }
     if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
       process.env.NVIDIA_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('api.aimlapi.com')) {
+      process.env.AIMLAPI_API_KEY = profile.apiKey
     }
   } else {
     delete process.env.OPENAI_API_KEY
@@ -893,6 +909,7 @@ export function setActiveProviderProfile(
         // anthropic and all openai-compatible providers
         return (
           buildOpenAIProfileEnv({
+            goal: normalizeRecommendationGoal(process.env.OPENCLAUDE_PROFILE_GOAL),
             model: activeProfile.model,
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,

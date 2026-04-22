@@ -1255,6 +1255,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // only) comes last, after Custom.
     const options = [
       {
+        value: 'aimlapi',
+        label: 'AI/ML API',
+        description: 'AI/ML API OpenAI-compatible endpoint',
+      },
+      {
         value: 'dashscope-intl',
         label: 'Alibaba Coding Plan',
         description: 'Alibaba DashScope International endpoint',

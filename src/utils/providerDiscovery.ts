@@ -1,5 +1,8 @@
 import type { OllamaModelDescriptor } from './providerRecommendation.ts'
-import { DEFAULT_OPENAI_BASE_URL } from '../services/api/providerConfig.js'
+import {
+  DEFAULT_OPENAI_BASE_URL,
+  isAimlapiBaseUrl,
+} from '../services/api/providerConfig.js'
 
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434'
 export const DEFAULT_ATOMIC_CHAT_BASE_URL = 'http://127.0.0.1:1337'
@@ -152,6 +155,9 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     const path = parsed.pathname.toLowerCase()
     const haystack = `${hostname} ${path}`
 
+    if (hostname === 'api.aimlapi.com') {
+      return 'AI/ML API'
+    }
     if (
       host.endsWith(':1234') ||
       haystack.includes('lmstudio') ||
@@ -224,17 +230,50 @@ export async function listOpenAICompatibleModels(options?: {
   baseUrl?: string
   apiKey?: string
 }): Promise<string[] | null> {
+  const modelOptions = await listOpenAICompatibleModelOptions(options)
+  return modelOptions?.map(model => model.value) ?? null
+}
+
+type OpenAICompatibleModelsPayload = {
+  data?: Array<{
+    id?: string
+    type?: string
+    info?: {
+      name?: string
+      developer?: string
+      contextLength?: number
+    }
+  }>
+}
+
+export type OpenAICompatibleModelOption = {
+  value: string
+  label: string
+  description: string
+}
+
+const AIMLAPI_HEADERS: Record<string, string> = {
+  'HTTP-Referer': 'OpenClaude',
+  'X-Title': 'OpenClaude',
+}
+
+export async function listOpenAICompatibleModelOptions(options?: {
+  baseUrl?: string
+  apiKey?: string
+}): Promise<OpenAICompatibleModelOption[] | null> {
   const { signal, clear } = withTimeoutSignal(5000)
+  const baseUrl = getOpenAICompatibleModelsBaseUrl(options?.baseUrl)
+  const aimlapi = isAimlapiBaseUrl(baseUrl)
+  const headers: Record<string, string> = {
+    ...(aimlapi ? AIMLAPI_HEADERS : {}),
+    ...(options?.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {}),
+  }
   try {
     const response = await fetch(
-      `${getOpenAICompatibleModelsBaseUrl(options?.baseUrl)}/models`,
+      `${baseUrl}/models`,
       {
         method: 'GET',
-        headers: options?.apiKey
-          ? {
-              Authorization: `Bearer ${options.apiKey}`,
-            }
-          : undefined,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         signal,
       },
     )
@@ -242,17 +281,36 @@ export async function listOpenAICompatibleModels(options?: {
       return null
     }
 
-    const data = (await response.json()) as {
-      data?: Array<{ id?: string }>
+    const data = (await response.json()) as OpenAICompatibleModelsPayload
+    const seen = new Set<string>()
+    const models: OpenAICompatibleModelOption[] = []
+
+    for (const model of data.data ?? []) {
+      if (!model.id || seen.has(model.id)) {
+        continue
+      }
+      if (aimlapi && model.type !== 'openai/chat-completions') {
+        continue
+      }
+
+      seen.add(model.id)
+      const details = [
+        model.info?.developer,
+        typeof model.info?.contextLength === 'number'
+          ? `${model.info.contextLength} context`
+          : undefined,
+      ].filter((part): part is string => Boolean(part))
+      models.push({
+        value: model.id,
+        label: model.info?.name || model.id,
+        description:
+          details.length > 0
+            ? details.join(' · ')
+            : `Detected from ${getLocalOpenAICompatibleProviderLabel(baseUrl)}`,
+      })
     }
 
-    return Array.from(
-      new Set(
-        (data.data ?? [])
-          .filter(model => Boolean(model.id))
-          .map(model => model.id!),
-      ),
-    )
+    return models
   } catch {
     return null
   } finally {

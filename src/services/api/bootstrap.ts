@@ -17,7 +17,7 @@ import { isEssentialTrafficOnly } from '../../utils/privacyLevel.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
 import {
   getLocalOpenAICompatibleProviderLabel,
-  listOpenAICompatibleModels,
+  listOpenAICompatibleModelOptions,
 } from '../../utils/providerDiscovery.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
 import {
@@ -142,9 +142,9 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
   }
 
   const { baseUrl } = resolveProviderRequest()
-  const models = await listOpenAICompatibleModels({
+  const models = await listOpenAICompatibleModelOptions({
     baseUrl,
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY ?? process.env.AIMLAPI_API_KEY,
   })
 
   if (models === null) {
@@ -158,9 +158,10 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     clientData: getGlobalConfig().clientDataCache ?? null,
     additionalModelOptionsScope: scope,
     additionalModelOptions: models.map(model => ({
-      value: model,
-      label: model,
-      description: `Detected from ${providerLabel}`,
+      value: model.value,
+      label: model.label,
+      description:
+        model.description || `Detected from ${providerLabel}`,
     })),
   }
 }
