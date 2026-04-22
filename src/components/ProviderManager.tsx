@@ -956,11 +956,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function startCreateFromPreset(preset: ProviderPreset): void {
     const defaults = getProviderPresetDefaults(preset)
-    const nextDraft = {
+    const nextDraft: ProviderDraft = {
       name: defaults.name,
       baseUrl: defaults.baseUrl,
       model: defaults.model,
       apiKey: defaults.apiKey ?? '',
+      headers: '',
     }
     setEditingProfileId(null)
     setDraftProvider(defaults.provider ?? 'openai')

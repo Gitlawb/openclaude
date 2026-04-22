@@ -570,6 +570,55 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
   await mounted.dispose()
 })
 
+test('ProviderManager custom preset reaches the optional custom headers step without crashing', async () => {
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set up provider'),
+  )
+
+  await navigateToPreset(mounted.stdin, 'Custom')
+  mounted.stdin.write('\r')
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Create provider profile') &&
+      frame.includes('Step 1 of 5: Provider name'),
+  )
+
+  for (let i = 0; i < 4; i++) {
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+  }
+
+  const headersStepFrame = await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Create provider profile') &&
+      frame.includes('Step 5 of 5: Custom headers'),
+  )
+
+  expect(headersStepFrame).toContain('Step 5 of 5: Custom headers')
+  expect(headersStepFrame).toContain('providers that require extra headers')
+
+  await mounted.dispose()
+})
+
 test('ProviderManager first-run Codex OAuth switches the current session after login completes', async () => {
   delete process.env.CLAUDE_CODE_SIMPLE
   delete process.env.CLAUDE_CODE_USE_GITHUB
