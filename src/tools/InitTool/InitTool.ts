@@ -136,6 +136,15 @@ function buildAgentsMd(analysis: Awaited<ReturnType<typeof analyzeWorkspace>>, d
   const testCmd = scripts['test'] ?? (buildSystem === 'npm' ? 'npm test' : buildSystem === 'cargo' ? 'cargo test' : '# no test command detected')
   const devCmd = scripts['dev'] ?? scripts['start'] ?? '# no dev command detected'
 
+
+  // Guard: ensure deepAnalysis is always a string before using string methods
+  const analysisText: string = (typeof deepAnalysis === 'string')
+    ? deepAnalysis
+    : (deepAnalysis && typeof deepAnalysis === 'object' ? JSON.stringify(deepAnalysis) : '')
+  const analysisLines = analysisText.split('\\n')
+  const techStack = analysisLines.filter((l: string) => l.includes('## Tech Stack') || l.includes('**')).slice(0, 20).join('\\n') || 'Not detected from analysis'
+  const conventions = analysisText.includes('## Conventions') ? analysisText.split('## Conventions')[1]?.split('##')[0]?.trim() : 'Standard project conventions apply.'
+  const aiFiles = analysisText.includes('## AI Assistant') ? analysisText.split('## AI Assistant')[1]?.split('##')[0]?.trim() : 'No existing AI instruction files detected.'
   return `# AGENTS.md — Project Reference
 
 ## Project Overview
@@ -168,13 +177,13 @@ ${testCmd}
 \`\`\`
 
 ## Tech Stack
-${deepAnalysis.split('\n').filter((l: string) => l.includes('## Tech Stack') || l.includes('**')).slice(0, 20).join('\n') || 'Not detected from analysis'}
+${techStack}
 
 ## Conventions
-${deepAnalysis.includes('## Conventions') ? deepAnalysis.split('## Conventions')[1]?.split('##')[0]?.trim() : 'Standard project conventions apply.'}
+${conventions}
 
 ## AI Assistant Files
-${deepAnalysis.includes('## AI Assistant') ? deepAnalysis.split('## AI Assistant')[1]?.split('##')[0]?.trim() : 'No existing AI instruction files detected.'}
+${aiFiles}
 `
 }
 
