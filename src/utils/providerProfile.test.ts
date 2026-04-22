@@ -572,6 +572,29 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
   assert.equal(env.OPENAI_API_KEY, undefined)
 })
 
+test('buildStartupEnvFromProfile preserves explicit GitHub provider settings when the legacy file is stale', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_GITHUB: '1',
+    OPENAI_MODEL: 'github:copilot',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-stale',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_GITHUB, '1')
+  assert.equal(env.OPENAI_MODEL, 'github:copilot')
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.OPENAI_BASE_URL, undefined)
+})
+
 test('buildStartupEnvFromProfile preserves plural-profile env when the legacy file is stale', async () => {
   // Regression: a user saves a provider via /provider (plural system).
   // addProviderProfile does NOT sync the legacy .openclaude-profile.json,

@@ -529,6 +529,12 @@ export async function buildLaunchEnv(options: {
   readGeminiAccessToken?: () => string | undefined
 }): Promise<NodeJS.ProcessEnv> {
   const processEnv = options.processEnv ?? process.env
+  // GitHub provider selection is stored in settings.env, not in the legacy
+  // profile file, so a stale file must not convert it back to OpenAI mode.
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+    return processEnv
+  }
+
   const persistedEnv =
     options.persisted?.profile === options.profile
       ? options.persisted.env ?? {}
@@ -856,6 +862,10 @@ export async function buildStartupEnvFromProfile(options?: {
   // "banner shows gpt-4o / api.openai.com even though my saved profile is
   // Moonshot" bug.
   if (profileManagedEnv) {
+    return processEnv
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return processEnv
   }
 
