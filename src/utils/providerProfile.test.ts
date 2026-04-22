@@ -372,6 +372,21 @@ test('gemini profiles accept google api key fallback', () => {
   })
 })
 
+test('gemini profiles use the first model from a semicolon-separated list', () => {
+  const env = buildGeminiProfileEnv({
+    authMode: 'api-key',
+    apiKey: 'gem-live',
+    model: 'gemini-2.5-pro; gemini-2.5-flash',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'api-key',
+    GEMINI_MODEL: 'gemini-2.5-pro',
+    GEMINI_API_KEY: 'gem-live',
+  })
+})
+
 test('gemini profiles support access-token auth mode without persisting a key', () => {
   const env = buildGeminiProfileEnv({
     authMode: 'access-token',
@@ -702,6 +717,21 @@ test('openai profiles ignore codex shell transport hints', () => {
   })
 })
 
+test('openai profiles use the first model from a semicolon-separated list', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    apiKey: 'sk-live',
+    model: 'gpt-5.4; gpt-5.4-mini',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    OPENAI_MODEL: 'gpt-5.4',
+    OPENAI_API_KEY: 'sk-live',
+  })
+})
+
 test('openai profiles ignore poisoned shell model and base url values', () => {
   const env = buildOpenAIProfileEnv({
     goal: 'balanced',
@@ -733,6 +763,22 @@ test('startup env ignores poisoned persisted openai model and base url', async (
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+})
+
+test('startup env normalizes a semicolon-separated persisted openai model list', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-live',
+      OPENAI_MODEL: 'gpt-5.4; gpt-5.4-mini',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_API_KEY, 'sk-live')
+  assert.equal(env.OPENAI_MODEL, 'gpt-5.4')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
 })
 

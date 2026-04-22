@@ -215,6 +215,23 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
   })
 
+  test('openai profile with semicolon-separated multi-model string sets only first model in OPENAI_MODEL', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'glm-4.7; glm-4.7-flash; glm-4.7-plus',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('glm-4.7')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+  })
+
   test('anthropic profile with multi-model string sets only first model in ANTHROPIC_MODEL', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -229,6 +246,34 @@ describe('applyProviderProfileToProcessEnv', () => {
 
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
     expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com')
+  })
+
+  test('gemini profile with semicolon-separated multi-model string sets only first model in GEMINI_MODEL', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildGeminiProfile({
+        model: 'gemini-3-flash-preview; gemini-3-pro-preview',
+      }),
+    )
+
+    expect(process.env.GEMINI_MODEL).toBe('gemini-3-flash-preview')
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBe('1')
+  })
+
+  test('mistral profile with semicolon-separated multi-model string sets only first model in MISTRAL_MODEL', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildMistralProfile({
+        model: 'devstral-latest; mistral-medium-latest',
+      }),
+    )
+
+    expect(process.env.MISTRAL_MODEL).toBe('devstral-latest')
+    expect(process.env.CLAUDE_CODE_USE_MISTRAL).toBe('1')
   })
 })
 
@@ -782,6 +827,24 @@ describe('getProfileModelOptions', () => {
       buildProfile({
         name: 'Test Provider',
         model: 'glm-4.7, glm-4.7-flash, glm-4.7-plus',
+      }),
+    )
+
+    expect(options).toEqual([
+      { value: 'glm-4.7', label: 'glm-4.7', description: 'Provider: Test Provider' },
+      { value: 'glm-4.7-flash', label: 'glm-4.7-flash', description: 'Provider: Test Provider' },
+      { value: 'glm-4.7-plus', label: 'glm-4.7-plus', description: 'Provider: Test Provider' },
+    ])
+  })
+
+  test('generates options for semicolon-separated multi-model profile', async () => {
+    const { getProfileModelOptions } =
+      await importFreshProviderProfileModules()
+
+    const options = getProfileModelOptions(
+      buildProfile({
+        name: 'Test Provider',
+        model: 'glm-4.7; glm-4.7-flash; glm-4.7-plus',
       }),
     )
 

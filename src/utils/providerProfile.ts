@@ -22,6 +22,7 @@ import {
   sanitizeApiKey,
   sanitizeProviderConfigValue,
 } from './providerSecrets.js'
+import { getPrimaryModel } from './providerModels.js'
 
 export {
   maskSecretForDisplay,
@@ -138,6 +139,18 @@ function resolveProfileFilePath(options?: ProfileFileLocation): string {
   return resolve(options?.cwd ?? process.cwd(), PROFILE_FILE_NAME)
 }
 
+function normalizeProfileModel(
+  value: string | undefined | null,
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  const primary = getPrimaryModel(trimmed)
+  return primary.length > 0 ? primary : undefined
+}
+
 export function isProviderProfile(value: unknown): value is ProviderProfile {
   return (
     value === 'openai' ||
@@ -198,8 +211,12 @@ export function buildNvidiaNimProfileEnv(options: {
       sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
       defaultBaseUrl,
     OPENAI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
       'nvidia/llama-3.1-nemotron-70b-instruct',
     OPENAI_API_KEY: key,
     NVIDIA_NIM: '1',
@@ -228,8 +245,12 @@ export function buildMiniMaxProfileEnv(options: {
       sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
       defaultBaseUrl,
     OPENAI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
       defaultModel,
     OPENAI_API_KEY: key,
     MINIMAX_API_KEY: key,
@@ -261,8 +282,12 @@ export function buildGeminiProfileEnv(options: {
   const env: ProfileEnv = {
     GEMINI_AUTH_MODE: authMode,
     GEMINI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource),
+      ) ||
       DEFAULT_GEMINI_MODEL,
   }
 
@@ -295,9 +320,11 @@ export function buildOpenAIProfileEnv(options: {
 
   const defaultModel = getGoalDefaultOpenAIModel(options.goal)
   const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
-  const shellOpenAIModel = sanitizeProviderConfigValue(
-    processEnv.OPENAI_MODEL,
-    secretSource,
+  const shellOpenAIModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      processEnv.OPENAI_MODEL,
+      secretSource,
+    ),
   )
   const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
     processEnv.OPENAI_BASE_URL,
@@ -316,7 +343,9 @@ export function buildOpenAIProfileEnv(options: {
       (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
       DEFAULT_OPENAI_BASE_URL,
     OPENAI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
       (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
       defaultModel,
     OPENAI_API_KEY: key,
@@ -373,10 +402,14 @@ export function buildMistralProfileEnv(options: {
   const env: ProfileEnv = {
     MISTRAL_API_KEY: key,
     MISTRAL_MODEL:
-      sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }) ||
-      sanitizeProviderConfigValue(
-        processEnv.MISTRAL_MODEL,
-        { MISTRAL_API_KEY: key },
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(
+          processEnv.MISTRAL_MODEL,
+          { MISTRAL_API_KEY: key },
+        ),
       ) ||
       DEFAULT_MISTRAL_MODEL,
   }
@@ -533,33 +566,41 @@ export async function buildLaunchEnv(options: {
     options.persisted?.profile === options.profile
       ? options.persisted.env ?? {}
       : {}
-  const persistedOpenAIModel = sanitizeProviderConfigValue(
-    persistedEnv.OPENAI_MODEL,
-    persistedEnv,
+  const persistedOpenAIModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      persistedEnv.OPENAI_MODEL,
+      persistedEnv,
+    ),
   )
   const persistedOpenAIBaseUrl = sanitizeProviderConfigValue(
     persistedEnv.OPENAI_BASE_URL,
     persistedEnv,
   )
-  const shellOpenAIModel = sanitizeProviderConfigValue(
-    processEnv.OPENAI_MODEL,
-    processEnv as SecretValueSource,
+  const shellOpenAIModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      processEnv.OPENAI_MODEL,
+      processEnv as SecretValueSource,
+    ),
   )
   const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
     processEnv.OPENAI_BASE_URL,
     processEnv as SecretValueSource,
   )
-  const persistedGeminiModel = sanitizeProviderConfigValue(
-    persistedEnv.GEMINI_MODEL,
-    persistedEnv,
+  const persistedGeminiModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      persistedEnv.GEMINI_MODEL,
+      persistedEnv,
+    ),
   )
   const persistedGeminiBaseUrl = sanitizeProviderConfigValue(
     persistedEnv.GEMINI_BASE_URL,
     persistedEnv,
   )
-  const shellGeminiModel = sanitizeProviderConfigValue(
-    processEnv.GEMINI_MODEL,
-    processEnv as SecretValueSource,
+  const shellGeminiModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      processEnv.GEMINI_MODEL,
+      processEnv as SecretValueSource,
+    ),
   )
   const shellGeminiBaseUrl = sanitizeProviderConfigValue(
     processEnv.GEMINI_BASE_URL,
@@ -657,11 +698,15 @@ export async function buildLaunchEnv(options: {
     delete env.CLAUDE_CODE_USE_VERTEX
     delete env.CLAUDE_CODE_USE_FOUNDRY
 
-    const shellMistralModel = sanitizeProviderConfigValue(
-      processEnv.MISTRAL_MODEL,
+    const shellMistralModel = normalizeProfileModel(
+      sanitizeProviderConfigValue(
+        processEnv.MISTRAL_MODEL,
+      ),
     )
-    const persistedMistralModel = sanitizeProviderConfigValue(
-      persistedEnv.MISTRAL_MODEL,
+    const persistedMistralModel = normalizeProfileModel(
+      sanitizeProviderConfigValue(
+        persistedEnv.MISTRAL_MODEL,
+      ),
     )
     const shellMistralBaseUrl = sanitizeProviderConfigValue(
       processEnv.MISTRAL_BASE_URL,

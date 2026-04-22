@@ -446,7 +446,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.MISTRAL_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, profile.model) &&
+      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.MISTRAL_API_KEY, profile.apiKey))
     )
@@ -462,7 +462,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.GEMINI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.GEMINI_MODEL, profile.model) &&
+      sameOptionalEnvValue(processEnv.GEMINI_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.GEMINI_API_KEY, profile.apiKey))
     )
@@ -559,7 +559,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   if (profile.provider === 'mistral') {
     process.env.CLAUDE_CODE_USE_MISTRAL = '1'
     process.env.MISTRAL_BASE_URL = profile.baseUrl
-    process.env.MISTRAL_MODEL = profile.model
+    process.env.MISTRAL_MODEL = getPrimaryModel(profile.model)
 
     if (profile.apiKey) {
       process.env.MISTRAL_API_KEY = profile.apiKey
@@ -576,7 +576,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   if (profile.provider === 'gemini') {
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     process.env.GEMINI_BASE_URL = profile.baseUrl
-    process.env.GEMINI_MODEL = profile.model
+    process.env.GEMINI_MODEL = getPrimaryModel(profile.model)
 
     if (profile.apiKey) {
       process.env.GEMINI_API_KEY = profile.apiKey
@@ -873,7 +873,7 @@ export function setActiveProviderProfile(
       case 'gemini':
         return (
           buildGeminiProfileEnv({
-            model: activeProfile.model,
+            model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
             authMode: 'api-key',
@@ -883,7 +883,7 @@ export function setActiveProviderProfile(
       case 'mistral':
         return (
           buildMistralProfileEnv({
-            model: activeProfile.model,
+            model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
             processEnv: process.env,
@@ -893,7 +893,7 @@ export function setActiveProviderProfile(
         // anthropic and all openai-compatible providers
         return (
           buildOpenAIProfileEnv({
-            model: activeProfile.model,
+            model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
             processEnv: process.env,
@@ -909,7 +909,7 @@ export function setActiveProviderProfile(
             profile: 'openai' as ProviderProfileStartup,
             env: {
               OPENAI_BASE_URL: activeProfile.baseUrl,
-              OPENAI_MODEL: activeProfile.model,
+              OPENAI_MODEL: getPrimaryModel(activeProfile.model),
               OPENAI_API_KEY: activeProfile.apiKey,
             },
           } as const)
