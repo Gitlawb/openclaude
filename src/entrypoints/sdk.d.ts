@@ -13,15 +13,19 @@ export class ClaudeError extends Error {
   constructor(message: string)
 }
 
-export class SDKAuthenticationError extends ClaudeError {
+export class SDKError extends ClaudeError {
+  constructor(message: string)
+}
+
+export class SDKAuthenticationError extends SDKError {
   constructor(message?: string)
 }
 
-export class SDKBillingError extends ClaudeError {
+export class SDKBillingError extends SDKError {
   constructor(message?: string)
 }
 
-export class SDKRateLimitError extends ClaudeError {
+export class SDKRateLimitError extends SDKError {
   constructor(
     message?: string,
     readonly resetsAt?: number,
@@ -29,15 +33,15 @@ export class SDKRateLimitError extends ClaudeError {
   )
 }
 
-export class SDKInvalidRequestError extends ClaudeError {
+export class SDKInvalidRequestError extends SDKError {
   constructor(message?: string)
 }
 
-export class SDKServerError extends ClaudeError {
+export class SDKServerError extends SDKError {
   constructor(message?: string)
 }
 
-export class SDKMaxOutputTokensError extends ClaudeError {
+export class SDKMaxOutputTokensError extends SDKError {
   constructor(message?: string)
 }
 
@@ -53,7 +57,7 @@ export type SDKAssistantMessageError =
 export function sdkErrorFromType(
   errorType: SDKAssistantMessageError,
   message?: string,
-): ClaudeError
+): SDKError | ClaudeError
 
 // ============================================================================
 // Types

@@ -205,21 +205,33 @@ export type AxiosErrorKind =
 // SDK-specific error classes
 // ============================================================================
 
-export class SDKAuthenticationError extends ClaudeError {
+/**
+ * Base class for all SDK errors. Extends ClaudeError so that existing
+ * `catch (e) { if (e instanceof ClaudeError) … }` checks still work,
+ * while giving SDK consumers a more specific base to match against.
+ */
+export class SDKError extends ClaudeError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SDKError'
+  }
+}
+
+export class SDKAuthenticationError extends SDKError {
   constructor(message?: string) {
     super(message ?? 'Authentication failed')
     this.name = 'SDKAuthenticationError'
   }
 }
 
-export class SDKBillingError extends ClaudeError {
+export class SDKBillingError extends SDKError {
   constructor(message?: string) {
     super(message ?? 'Billing error - check subscription')
     this.name = 'SDKBillingError'
   }
 }
 
-export class SDKRateLimitError extends ClaudeError {
+export class SDKRateLimitError extends SDKError {
   constructor(
     message?: string,
     public readonly resetsAt?: number,
@@ -230,21 +242,21 @@ export class SDKRateLimitError extends ClaudeError {
   }
 }
 
-export class SDKInvalidRequestError extends ClaudeError {
+export class SDKInvalidRequestError extends SDKError {
   constructor(message?: string) {
     super(message ?? 'Invalid request')
     this.name = 'SDKInvalidRequestError'
   }
 }
 
-export class SDKServerError extends ClaudeError {
+export class SDKServerError extends SDKError {
   constructor(message?: string) {
     super(message ?? 'Server error')
     this.name = 'SDKServerError'
   }
 }
 
-export class SDKMaxOutputTokensError extends ClaudeError {
+export class SDKMaxOutputTokensError extends SDKError {
   constructor(message?: string) {
     super(message ?? 'Max output tokens reached')
     this.name = 'SDKMaxOutputTokensError'
@@ -266,7 +278,7 @@ export type SDKAssistantMessageError =
 export function sdkErrorFromType(
   errorType: SDKAssistantMessageError,
   message?: string,
-): ClaudeError {
+): SDKError | ClaudeError {
   switch (errorType) {
     case 'authentication_failed': return new SDKAuthenticationError(message)
     case 'billing_error': return new SDKBillingError(message)
