@@ -59,10 +59,11 @@ test('parseCustomHeadersEnv preserves Unicode header names and values', () => {
 
 test('parseOpenAICompatibleCustomHeadersEnv supports semicolon and newline separators', () => {
   expect(
-    parseOpenAICompatibleCustomHeadersEnv('api-key: one; X-Org: team-a\nX-App: cli'),
+    parseOpenAICompatibleCustomHeadersEnv('api-key: one;X-Org: team-a; Foo: bar\nX-App: cli'),
   ).toEqual({
     'api-key': 'one',
     'X-Org': 'team-a',
+    Foo: 'bar',
     'X-App': 'cli',
   })
 })
@@ -75,11 +76,52 @@ test('parseOpenAICompatibleCustomHeadersEnv preserves semicolons inside unquoted
   })
 })
 
+test('parseOpenAICompatibleCustomHeadersEnv does not split header-like substrings inside values', () => {
+  expect(
+    parseOpenAICompatibleCustomHeadersEnv('X-Test: abc;foo:bar'),
+  ).toEqual({
+    'X-Test': 'abc;foo:bar',
+  })
+  expect(
+    parseOpenAICompatibleCustomHeadersEnv('X-Test: abc; foo:bar'),
+  ).toEqual({
+    'X-Test': 'abc; foo:bar',
+  })
+  expect(
+    parseOpenAICompatibleCustomHeadersEnv('X-Test: abc;def:ghi'),
+  ).toEqual({
+    'X-Test': 'abc;def:ghi',
+  })
+  expect(
+    parseOpenAICompatibleCustomHeadersEnv('X-Test: abc; Foo:bar'),
+  ).toEqual({
+    'X-Test': 'abc; Foo:bar',
+  })
+})
+
+test('parseOpenAICompatibleCustomHeadersEnv splits generic name value pairs with or without space after semicolon', () => {
+  expect(
+    parseOpenAICompatibleCustomHeadersEnv('api-key: one;Org: team-a; Foo: bar'),
+  ).toEqual({
+    'api-key': 'one',
+    Org: 'team-a',
+    Foo: 'bar',
+  })
+})
+
 test('parseOpenAICompatibleCustomHeadersEnv unquotes special values from env formatting', () => {
   expect(
     parseOpenAICompatibleCustomHeadersEnv('X-Session-ID: "abc;def;ghi"'),
   ).toEqual({
     'X-Session-ID': 'abc;def;ghi',
+  })
+})
+
+test('parseCustomHeadersEnv preserves literal quoted values', () => {
+  expect(
+    parseCustomHeadersEnv('X-Test: "quoted"'),
+  ).toEqual({
+    'X-Test': '"quoted"',
   })
 })
 

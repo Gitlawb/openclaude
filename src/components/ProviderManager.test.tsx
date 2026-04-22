@@ -615,7 +615,10 @@ test('ProviderManager custom preset reaches the optional custom headers step wit
 
   expect(headersStepFrame).toContain('Step 5 of 5: Custom headers')
   expect(headersStepFrame).toContain('providers that require extra headers')
-  expect(headersStepFrame).toContain('stored in plaintext in settings.json')
+  expect(headersStepFrame).toContain('Both ";Name:')
+  expect(headersStepFrame).toContain('value" and "; Name: value" are accepted')
+  expect(headersStepFrame).toContain('stored in plaintext in')
+  expect(headersStepFrame).toContain('settings.json')
   expect(headersStepFrame).toContain('Blocked names like Host and Content-Type are not')
 
   await mounted.dispose()

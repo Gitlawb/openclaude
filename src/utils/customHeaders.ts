@@ -19,7 +19,8 @@ const EMITTED_CUSTOM_HEADER_WARNINGS = new Set<string>()
 
 type ParseCustomHeadersOptions = {
   allowSemicolonDelimiter?: boolean
-  semicolonDelimiterMode?: 'always' | 'smart'
+  semicolonDelimiterMode?: 'always' | 'name_value_pair'
+  allowQuotedValues?: boolean
 }
 
 type ParseCustomHeadersEnvOptions = ParseCustomHeadersOptions & {
@@ -96,7 +97,10 @@ function splitCustomHeaderEntries(
       !inQuotes &&
       (
         options.semicolonDelimiterMode === 'always' ||
-        isLikelySemicolonHeaderDelimiter(value, index)
+        (
+          options.semicolonDelimiterMode === 'name_value_pair' &&
+          isLikelySemicolonHeaderDelimiter(value, index, options)
+        )
       )
     ) {
       if (current.trim()) {
@@ -121,6 +125,7 @@ function splitCustomHeaderEntries(
 function isLikelySemicolonHeaderDelimiter(
   value: string,
   semicolonIndex: number,
+  _options: ParseCustomHeadersOptions,
 ): boolean {
   let cursor = semicolonIndex + 1
   while (cursor < value.length && (value[cursor] === ' ' || value[cursor] === '\t')) {
@@ -135,7 +140,12 @@ function isLikelySemicolonHeaderDelimiter(
   while (cursor < value.length) {
     const char = value[cursor]!
     if (char === ':') {
-      return headerName.length > 0 && HEADER_NAME_TOKEN.test(headerName)
+      if (!(headerName.length > 0 && HEADER_NAME_TOKEN.test(headerName))) {
+        return false
+      }
+
+      const nextChar = value[cursor + 1]
+      return nextChar === ' ' || nextChar === '\t'
     }
     if (
       char === ';' ||
@@ -157,12 +167,13 @@ function isLikelySemicolonHeaderDelimiter(
 
 function parseCustomHeaderValue(
   rawHeaderValue: string,
+  options: ParseCustomHeadersOptions,
 ): { value?: string; error?: 'required' | 'invalid_quoted' } {
   if (!rawHeaderValue) {
     return { error: 'required' }
   }
 
-  if (!rawHeaderValue.startsWith('"')) {
+  if (!options.allowQuotedValues || !rawHeaderValue.startsWith('"')) {
     return { value: rawHeaderValue }
   }
 
@@ -271,7 +282,7 @@ export function parseCustomHeadersEnv(
       )
       continue
     }
-    const parsedHeaderValue = parseCustomHeaderValue(rawHeaderValue)
+    const parsedHeaderValue = parseCustomHeaderValue(rawHeaderValue, options)
     if (parsedHeaderValue.error === 'required') {
       emitCustomHeaderWarning(
         options,
@@ -308,6 +319,8 @@ export function parseOpenAICompatibleCustomHeadersEnv(
   return parseCustomHeadersEnv(value, {
     ...options,
     allowSemicolonDelimiter: true,
+    semicolonDelimiterMode: 'name_value_pair',
+    allowQuotedValues: true,
   })
 }
 
@@ -345,7 +358,9 @@ export function parseCustomHeadersInput(
       errors.push(`Malformed header entry "${trimmed}". Header name is required.`)
       continue
     }
-    const parsedHeaderValue = parseCustomHeaderValue(rawHeaderValue)
+    const parsedHeaderValue = parseCustomHeaderValue(rawHeaderValue, {
+      allowQuotedValues: true,
+    })
     if (parsedHeaderValue.error === 'required') {
       errors.push(`Malformed header entry "${trimmed}". Header value is required.`)
       continue

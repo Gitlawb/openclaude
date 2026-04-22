@@ -141,9 +141,9 @@ const FORM_STEPS: Array<{
   {
     key: 'headers',
     label: 'Custom headers',
-    placeholder: 'e.g. api-key: your-api-key; X-Org: team-a',
+    placeholder: 'e.g. api-key: your-api-key;X-Org: team-a',
     helpText:
-      'Optional. Enter "Name: value" pairs separated by semicolons for providers that require extra headers. Header values may contain secrets and are stored in plaintext in settings.json. Blocked names like Host and Content-Type are not allowed.',
+      'Optional. Enter "Name: value" pairs separated by semicolons for providers that require extra headers. Both ";Name: value" and "; Name: value" are accepted. Header values may contain secrets and are stored in plaintext in settings.json. Blocked names like Host and Content-Type are not allowed.',
     optional: true,
   },
 ]
