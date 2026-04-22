@@ -1,0 +1,103 @@
+import { describe, expect, it } from 'bun:test'
+import {
+  pruneByRelevance,
+  getTopRelevantMessages,
+  getRelevanceStats,
+  hasToolCalls,
+  hasErrors,
+} from './relevancePruning.js'
+
+function createMessage(role: string, content: string, createdAt: number = Date.now()): any {
+  return {
+    message: { role, content, id: 'test', type: 'message', created_at: createdAt },
+    sender: role,
+  }
+}
+
+describe('relevancePruning', () => {
+  describe('pruneByRelevance', () => {
+    it('prunes to target token count', () => {
+      const messages = [
+        createMessage('user', 'Hello world how are you', 1000),
+        createMessage('assistant', 'I am doing great', 2000),
+        createMessage('user', 'Can you help with python', 3000),
+      ]
+
+      const result = pruneByRelevance(messages, { targetTokens: 50 })
+
+      expect(result.length).toBeLessThanOrEqual(messages.length)
+    })
+
+    it('preserves recent messages', () => {
+      const messages = [
+        createMessage('user', 'Old message', 1000),
+        createMessage('user', 'Recent message', Date.now()),
+      ]
+
+      const result = pruneByRelevance(messages, { targetTokens: 100, preserveRecent: 1 })
+
+      expect(result.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('hasToolCalls', () => {
+    it('detects tool calls', () => {
+      const msg = createMessage('assistant', 'Using tool_use to check file')
+      expect(hasToolCalls(msg)).toBe(true)
+    })
+
+    it('returns false for regular content', () => {
+      const msg = createMessage('user', 'Hello there')
+      expect(hasToolCalls(msg)).toBe(false)
+    })
+  })
+
+  describe('hasErrors', () => {
+    it('detects errors', () => {
+      const msg = createMessage('assistant', 'Found an error in code')
+      expect(hasErrors(msg)).toBe(true)
+    })
+
+    it('returns false for normal content', () => {
+      const msg = createMessage('user', 'Hello there')
+      expect(hasErrors(msg)).toBe(false)
+    })
+  })
+
+  describe('getTopRelevantMessages', () => {
+    it('returns top N messages', () => {
+      const messages = [
+        createMessage('user', 'Python programming', 1000),
+        createMessage('assistant', 'Python is great', 2000),
+        createMessage('user', 'JavaScript here', 3000),
+      ]
+
+      const result = getTopRelevantMessages(
+        messages,
+        { targetTokens: 100, taskContext: 'python' },
+        2
+      )
+
+      expect(result.length).toBeLessThanOrEqual(2)
+    })
+  })
+
+  describe('getRelevanceStats', () => {
+    it('calculates statistics', () => {
+      const messages = [
+        createMessage('user', 'Important about errors', 1000),
+        createMessage('assistant', 'Using tool_use', 2000),
+        createMessage('user', 'Regular message', 3000),
+      ]
+
+      const stats = getRelevanceStats(messages, {
+        targetTokens: 100,
+        preserveTools: true,
+        preserveErrors: true,
+      })
+
+      expect(stats.averageScore).toBeGreaterThan(0)
+      expect(stats.toolCallCount).toBeGreaterThanOrEqual(0)
+    })
+  })
+})
