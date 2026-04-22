@@ -481,6 +481,13 @@ export async function unstable_v2_resumeSession(
   )
   session.setEngine(engine)
   session.setAppStateStore(appStateStore)
+
+  // Establish session project context so transcript writes go to the
+  // correct directory (matching CLI behavior with dirname(fullPath)).
+  if (resolved?.projectPath) {
+    switchSession(sessionId as SessionId, resolved.projectPath)
+  }
+
   return session
 }
 

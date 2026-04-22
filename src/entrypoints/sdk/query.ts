@@ -46,7 +46,6 @@ import {
   fileHistoryRewind,
 } from '../../utils/fileHistory.js'
 import type { MCPServerConnection } from '../../services/mcp/types.js'
-import { filterToolsByServer } from '../../services/mcp/utils.js'
 import {
   acquireEnvMutex,
   releaseEnvMutex,
@@ -686,9 +685,8 @@ class QueryImpl implements Query {
   }
 
   mcpServerStatus(): McpServerStatus[] {
-    const state = this.appStateStore.getState()
-    const clients: MCPServerConnection[] = state.mcp?.clients ?? []
-    const allTools = state.mcp?.tools ?? []
+    // SDK stores MCP clients in engine.config (not appStateStore like CLI).
+    const clients: MCPServerConnection[] = this.engine.config.mcpClients ?? []
     return clients.map((client): McpServerStatus => {
       const base: McpServerStatus = {
         name: client.name,
@@ -696,14 +694,6 @@ class QueryImpl implements Query {
       }
       if (client.type === 'connected') {
         base.serverInfo = client.serverInfo
-        // Tools are stored in state.mcp.tools (flat array), not on individual clients.
-        // Use filterToolsByServer to get tools belonging to this server.
-        const serverTools = filterToolsByServer(allTools, client.name)
-        base.tools = serverTools.map(t => ({
-          name: t.name,
-          description: t.description,
-          annotations: t.annotations,
-        }))
       }
       if (client.type === 'failed') {
         base.error = (client as any).error
