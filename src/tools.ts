@@ -12,6 +12,7 @@ import { ShellModeTool } from './tools/ShellModeTool/ShellModeTool.js'
 import { MCPManageTool } from './tools/MCPManageTool/MCPManageTool.js'
 import { DeskDevTool } from './tools/DeskDevTool/DeskDevTool.js'
 import { OrchestrateTool } from './tools/OrchestrateTool/OrchestrateTool.js'
+import { DecreeTool } from './tools/DecreeTool/DecreeTool.js'
 import { BashTool } from './tools/BashTool/BashTool.js'
 import { FileEditTool } from './tools/FileEditTool/FileEditTool.js'
 import { FileReadTool } from './tools/FileReadTool/FileReadTool.js'
@@ -216,6 +217,7 @@ export function getAllBaseTools(): Tools {
     MCPManageTool,
     DeskDevTool,
     OrchestrateTool,
+    DecreeTool,
     TaskStopTool,
     AskUserQuestionTool,
     SkillTool,

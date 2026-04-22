@@ -1,0 +1,1 @@
+export const DESCRIPTION = 'Binding decree enforcement — issue THE LAW, check if tools/commands are permitted, revoke decrees. Part of Hive Nation Senate governance. Use before executing critical operations.'
