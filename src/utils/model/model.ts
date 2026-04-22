@@ -91,11 +91,24 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     const setting = normalizeModelSetting(settings.model)
     // Read the model env var that matches the active provider to prevent
     // cross-provider leaks (e.g. ANTHROPIC_MODEL sent to the OpenAI API).
+    //
+    // All OpenAI-shim providers (openai, codex, github, nvidia-nim, minimax)
+    // set CLAUDE_CODE_USE_OPENAI=1 + OPENAI_MODEL via
+    // applyProviderProfileToProcessEnv. Earlier this check only included
+    // openai/github — codex/nvidia-nim/minimax fell through to the stale
+    // settings.model, so switching from (say) Moonshot to Codex kept firing
+    // `kimi-k2.6` at the Codex endpoint and getting 400s.
     const provider = getAPIProvider()
+    const isOpenAIShimProvider =
+      provider === 'openai' ||
+      provider === 'codex' ||
+      provider === 'github' ||
+      provider === 'nvidia-nim' ||
+      provider === 'minimax'
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
-      (provider === 'openai' || provider === 'gemini' || provider === 'mistral' || provider === 'github' ? process.env.OPENAI_MODEL : undefined) ||
+      (isOpenAIShimProvider ? process.env.OPENAI_MODEL : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
       setting ||
       undefined
