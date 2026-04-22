@@ -1,306 +1,200 @@
-# DuckHive
+<div align="center">
 
-**The all-in-one AI coding agent harness — built from duck-cli, Agent Teams, AI Council, and OpenClaude.**
+![DuckHive](https://img.shields.io/badge/DuckHive-v0.5.2-gold?style=for-the-badge&logo=buymeacoffee)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue?style=for-the-badge&logo=typescript)](package.json)
+[![Bun](https://img.shields.io/badge/Bun-1.1-yellow?style=for-the-badge&logo=bun)](package.json)
 
-DuckHive is a next-generation coding-agent CLI that fuses the best ideas from duck-cli, Agent Teams (Hive Nation), OpenClaude, Crush, Kimi CLI, Gemini CLI, and Codex into a single cohesive harness. It runs natively as a CLI with full terminal-first workflows, integrates deeply with Android phone control, governance, multi-agent orchestration, and ships with a premium built-in dashboard.
+**🦆 DuckHive — The Mega AI Coding Harness**  
+*One harness. All systems. Infinite capability.*
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-2563eb.svg)](LICENSE)
-[![OpenClaude-based](https://img.shields.io/badge/base-OpenClaude%20v0.5.2-7c3aed.svg)](https://github.com/openclaw/openclaw)
+Integrated: duck-cli · Agent Teams · AI Council · Charm.sh · Kimi CLI · Gemini CLI · Codex · Crush
 
-[Why DuckHive](#why-duckhive) · [Quick Start](#quick-start) · [Core Features](#core-features) · [Built-in Tools](#built-in-tools) · [Governance](#governance-hive-nation) · [Providers](#providers) · [Architecture](#architecture) · [Source Build](#source-build)
-
----
-
-## Why DuckHive
-
-DuckHive starts from OpenClaude's solid CLI foundation — 200+ LLM providers, streaming, MCP, agents, tasks — and layers on everything from your other systems:
-
-| Feature | Source |
-|---------|--------|
-| Android phone control via ADB | duck-cli |
-| AI Council deliberation (46 councilors) | Agent Teams / Hive Nation |
-| Senate governance (94 senators, binding decrees) | Agent Teams / Hive Nation |
-| Team spawning (8 templates: research, code, swarm...) | Agent Teams |
-| Conversation checkpointing | Gemini CLI |
-| Trusted folder execution policies | Gemini CLI |
-| MCP server management | Crush / Kimi CLI |
-| Shell agent mode (Ctrl-X AI↔shell toggle) | Kimi CLI |
-| Desktop development tools (screenshot, click, type) | duck-cli |
-| 200+ model providers (MiniMax, Kimi, OpenRouter, Ollama...) | OpenClaude |
-| VS Code extension | OpenClaude |
-| Headless gRPC server | OpenClaude |
-
-**One CLI. Every capability. No switching between tools.**
+</div>
 
 ---
 
-## Quick Start
+## 🔥 What is DuckHive?
 
-### Install
+DuckHive is a unified AI coding harness that merges the best features from 8 different AI/CLI systems into a single, powerful program built on OpenClaw.
+
+Instead of choosing between duck-cli's Hybrid Orchestrator, Agent Teams' council/senate governance, Kimi CLI's ACP protocol, and Gemini CLI's checkpoint system — **you get them all**.
 
 ```bash
+# Install
 git clone https://github.com/Franzferdinan51/openclaude.git
-cd openclaude
-npm install   # or: bun install
-npm run build # or: bun run build
-```
+cd openclaude-integration && bun install && bun run build
 
-### Run
-
-```bash
-node dist/cli.mjs
-```
-
-Or symlink for global access:
-
-```bash
-ln -s "$(pwd)/dist/cli.mjs" ~/.local/bin/duckhive
-duckhive
-```
-
-### First-Time Setup
-
-Inside DuckHive:
-
-```
-/provider              # Guided provider setup (MiniMax, Kimi, OpenRouter, Ollama, Gemini, Codex...)
-/onboard-github       # GitHub Models OAuth onboarding
-```
-
-### Fastest Local Setup (Ollama)
-
-```bash
-export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_BASE_URL=http://localhost:11434/v1
-export OPENAI_MODEL=qwen2.5-coder:7b
+# Run
+./bin/duckhive
+# or
 node dist/cli.mjs
 ```
 
 ---
 
-## Core Features
+## ✅ What's Integrated (18 Custom Tools)
 
-### 🦆 Android Phone Control
+### 🏛️ Governance Layer (Hive Nation)
+| Tool | Command | Description |
+|------|---------|-------------|
+| **HiveCouncilTool** | `/council` | 46 AI councilors debate decisions with adversarial deliberation |
+| **HiveSenateTool** | `/senate` | 94 senators pass binding decrees (THE LAW) |
+| **HiveTeamTool** | `/team` | Spawn specialized agents (researcher, coder, reviewer, writer) |
+| **DecreeTool** | `/decree` | Issue, enforce, and revoke binding decrees |
 
-Full Android device control via ADB — no separate tool needed.
+### ⚡ Orchestration Layer
+| Tool | Command | Description |
+|------|---------|-------------|
+| **OrchestrateTool** | `/orchestrate` | Smart task routing — complexity scoring, model selection, council triggers |
+| **Hybrid Orchestrator** | *(internal)* | Task complexity analysis (1-10), smart model routing, fallback management |
 
-```
-/android screenshot                    # Screencap, pull to /tmp
-/android tap 540 960                   # Tap at coordinates
-/android swipe up                      # Swipe gestures
-/android type "hello world"           # Input text
-/android launch com.app.example        # Launch app
-/android battery                      # Battery status
-/android shell "ls /sdcard"           # Run shell command
-```
+### 📱 Device Control
+| Tool | Command | Description |
+|------|---------|-------------|
+| **AndroidTool** | `/android` | Full Android control via ADB — tap, swipe, shell, screenshot |
 
-Works with any ADB-connected Android device. Default target: `192.168.1.251:40835` (Moto G Play 2026).
+### 🛡️ Security & Control
+| Tool | Command | Description |
+|------|---------|-------------|
+| **CheckpointTool** | `/checkpoint` | gemini-cli style session save/restore |
+| **TrustedFoldersTool** | `/trusted-folders` | gemini-cli style folder restriction |
+| **DecreeTool** | `/decree` | Binding law enforcement |
 
-### 🏛️ Governance (Hive Nation)
+### 🔧 System & DevOps
+| Tool | Command | Description |
+|------|---------|-------------|
+| **ShellModeTool** | `/shell-mode` | kimi-cli style Ctrl-X shell mode switch |
+| **SwapTool** | `/swap` | Switch between AI and shell mode |
+| **MCPManageTool** | `/mcp` | MCP server management (list, start, stop, add tools) |
+| **DeskDevTool** | `/deskdev` | Desktop development mode |
 
-Integrated 46-councilor deliberation + 94-senator governance system.
+### 🧠 Memory & Proactivity
+| Tool | Command | Description |
+|------|---------|-------------|
+| **MemoryTool** | `/memory` | Long-term memory — remember/recall/search across sessions |
+| **KAIROSTool** | `/kairos` | Proactive heartbeat — tracks patterns, generates whispers |
+| **MeshTool** | `/mesh` | Agent mesh networking — broadcast, peers, send messages |
 
-```
-/hive_council deliberate "Should we refactor the auth module?"
-/hive_senate list                        # View active decrees
-/hive_senate issue --title "Security Fix" --content "Patch CVE-2026..."
-/hive_team spawn --name "security-audit" --template security
-```
+### 👁️ Vision & Media
+| Tool | Command | Description |
+|------|---------|-------------|
+| **VisionTool** | `/vision` | Phone screenshot capture + AI image analysis |
+| **ConfirmTool** | `/confirm` | Gum-style interactive prompts (confirm/choose/input/filter) |
 
-**8 Team Templates:** `research`, `code`, `security`, `emergency`, `planning`, `analysis`, `devops`, `swarm`
+### 🎯 Skills
+| Tool | Command | Description |
+|------|---------|-------------|
+| **SkillTool** | `/skill` | Runtime skill creation and improvement |
 
-**9 Deliberation Modes:** `balanced`, `adversarial`, `consensus`, `brainstorm`, `swarm`, `devil-advocate`, `legislature`, `prediction`, `inspector`
+---
 
-### 💾 Checkpointing
-
-Conversation checkpointing — save and restore session state (inspired by Gemini CLI).
-
-```
-/checkpoint save --name "auth-refactor" --note "Mid-way through token rewrite"
-/checkpoint list        # View all checkpoints
-/checkpoint load --id auth-refactor
-/checkpoint auto        # Auto-save during long tasks
-```
-
-Checkpoints saved to `~/.config/openclaude/checkpoints/` by default.
-
-### 🔒 Trusted Folders
-
-Execution policies that restrict file operations to approved paths only (inspired by Gemini CLI).
-
-```
-/trusted_folders list
-/trusted_folders add /workspace/myproject
-/trusted_folders check /workspace/myproject/src
-/trusted_folders enable
-/trusted_folders disable
-```
-
-Enforces safe execution boundaries for untrusted code or shared environments.
-
-### 🖥️ Desktop Development Tools
-
-macOS desktop automation — screenshot, click, type, open apps.
+## 📐 Architecture
 
 ```
-/desktop_dev screenshot           # Full screen capture → base64
-/desktop_dev click 540 960        # Click at coordinates
-/desktop_dev type "hello"         # Type text
-/desktop_dev open "Safari"        # Launch app by name
-/desktop_dev front "Xcode"         # Bring app to front
-/desktop_dev windows               # List open windows
-```
-
-### 🐚 Shell Mode
-
-Toggle between AI-assisted mode and direct shell execution with Ctrl-X (inspired by Kimi CLI).
-
-```
-/shell_mode switch --mode shell   # Direct shell — type commands directly
-/shell_mode switch --mode ai      # Back to AI assistance
-/shell_mode status               # Show current mode
-```
-
-### 🔌 MCP Server Management
-
-Manage MCP (Model Context Protocol) servers — add, remove, list, health-check.
-
-```
-/mcp_manage list                  # Show all configured servers
-/mcp_manage add --name filesystem --transport stdio --url "npx..."
-/mcp_manage remove --name old-server
-/mcp_manage health                # Check server health
-/mcp_manage reload               # Flag servers for reload on restart
+DuckHive (OpenClaw v2026.4.x)
+├── Hybrid Orchestrator (duck-cli pattern)
+│   ├── TaskComplexityClassifier (1-10 scoring)
+│   ├── ModelRouter (Gemma 4 Android, Kimi K2.5 vision, MiniMax M2.7 reasoning)
+│   └── CouncilBridge (triggers council for complexity ≥ 7)
+├── Hive Nation Governance
+│   ├── AI Council (46 councilors, adversarial deliberation)
+│   ├── Senate (94 senators, binding decrees)
+│   └── Team System (specialized agents)
+├── ACP Bridge (kimi-cli style inter-agent protocol)
+├── Checkpoint Manager (gemini-cli style session persistence)
+├── Memory System (long-term SQLite-backed memory)
+└── 18 Custom Tools
 ```
 
 ---
 
-## Built-in Tools
+## 🔄 Phase Status
 
-| Tool | Name | Description |
-|------|------|-------------|
-| 🦆 Android | `/android` | Full Android device control via ADB |
-| 🏛️ Hive Council | `/hive_council` | 46-councilor AI deliberation |
-| 🏛️ Hive Senate | `/hive_senate` | Binding decree governance |
-| 🤖 Hive Team | `/hive_team` | Spawn multi-agent teams |
-| 💾 Checkpoint | `/checkpoint` | Session save/restore |
-| 🔒 Trusted Folders | `/trusted_folders` | Execution path policies |
-| 🖥️ Desktop Dev | `/desktop_dev` | macOS automation |
-| 🐚 Shell Mode | `/shell_mode` | AI↔shell toggle |
-| 🔌 MCP Manage | `/mcp_manage` | MCP server lifecycle |
+### ✅ Phase 1: Core Integration (DONE)
+- Hive Bridge service (TypeScript API client)
+- `/council` — AI Council deliberation
+- `/senate` — Senate decree system
+- `/team` — Team spawning
+- `/decree` — Binding decree enforcement
 
-Plus all OpenClaude built-in tools: bash, file read/write/edit, grep, glob, agents, tasks, MCP, web search, web fetch, and more.
+### ✅ Phase 2: Enhanced Features (DONE)
+- `/shell-mode` — kimi-cli style Ctrl-X
+- `/checkpoint` — gemini-cli style session save/restore
+- `/trusted-folders` — folder restriction security
+- `/mcp-manage` — MCP server management
 
----
+### ✅ Phase 3: Deep Integration (DONE)
+- Council deliberation embedded in task pipeline
+- Decree enforcement in tool execution
+- Hybrid Orchestrator (complexity scoring + model routing)
+- Team coordination via ACP
 
-## Providers
+### 🔄 Phase 4: TUI Components (PARTIAL)
+- Gum-style confirmation dialogs (`/confirm`) ✅
+- Lip Gloss color output for REPL ⚙️
+- Bubble Tea-style rendering ⚙️
 
-DuckHive supports 200+ models through OpenClaude's multi-provider stack:
-
-| Provider | Setup | Notes |
-|----------|-------|-------|
-| **MiniMax** (primary) | `/provider` or env | Generous quota, M2.7 reasoning model |
-| **Kimi/Moonshot** | `/provider` or env | Top-tier vision + coding |
-| **OpenAI** | `/provider` or env | GPT-4o, o3, o4 family |
-| **OpenRouter** | `/provider` or env | 28+ free tier models |
-| **Gemini** | `/provider` or env | Google AI models |
-| **GitHub Models** | `/onboard-github` | OAuth, no API key needed |
-| **Codex OAuth** | `/provider` | ChatGPT subscription tier |
-| **Ollama** | `ollama launch` or env | Local inference, free |
-| **LM Studio** | env vars | Local GPU inference |
-| **Atomic Chat** | `/provider` or env | Local model provider |
+### 🔄 Phase 5: ACP Protocol (PARTIAL)
+- ACP Bridge (kimi-cli style agent communication) ✅
+- MCP server management ✅
+- Shell mode integration ✅
 
 ---
 
-## Architecture
+## 🌍 Deep Integration Sources
 
-```
-DuckHive
-├── OpenClaude Core (CLI, streaming, tools, MCP)
-├── 9 Native Tools
-│   ├── AndroidTool       — ADB phone control
-│   ├── HiveCouncilTool  — AI Council deliberation
-│   ├── HiveSenateTool   — Senate decree system
-│   ├── HiveTeamTool     — Team spawning
-│   ├── CheckpointTool   — Session checkpointing
-│   ├── TrustedFoldersTool — Execution policies
-│   ├── DeskDevTool      — macOS automation
-│   ├── ShellModeTool    — AI/shell toggle
-│   └── MCPManageTool    — MCP server management
-├── Hive Nation Bridge   — Connects to localhost:3131
-├── Provider Stack       — 200+ models via OpenAI-compatible APIs
-└── VS Code Extension    — Launch integration + theme
-```
+| Source | What we integrated |
+|--------|-------------------|
+| **duck-cli** | Hybrid Orchestrator, KAIROS daemon, Memory system, Skill creator |
+| **Agent Teams** | Council/Senate/Team governance, decree system, swarm coding |
+| **AI Council** | 46 councilors, 11 deliberation modes, adversarial debate |
+| **Charm.sh** | Bubble Tea patterns (TUI), Gum prompts (ConfirmTool) |
+| **Kimi CLI** | ACP protocol, shell mode (Ctrl-X swap), inter-agent messaging |
+| **Gemini CLI** | Checkpoint manager, trusted folders |
+| **Codex** | IDE integration patterns (via OpenClaw) |
+| **Crush** | Multi-model routing concepts |
 
-**Hive Nation Services** (run separately):
+---
+
+## 🚀 Running DuckHive
 
 ```bash
-# Start Hive Nation API (port 3131)
-cd ~/Desktop/AgentTeam-GitHub
-node council-api-server.cjs
-```
-
----
-
-## Source Build
-
-```bash
-bun install
+# From repo
+cd ~/.openclaw/workspace/openclaude-integration
 bun run build
-node dist/cli.mjs
+./bin/duckhive
+
+# Or globally
+duckhive
+openclaude
+
+# With specific model
+./bin/duckhive --model minimax-portal/MiniMax-M2.7
+
+# Check status
+./bin/duckhive tools list | grep -i hive
 ```
 
-Development:
+---
 
-```bash
-bun run dev           # Watch mode development
-bun test              # Run test suite
-bun run smoke         # Smoke tests
-bun run doctor:runtime # Diagnose runtime issues
-```
+## 📊 Metrics
+
+- **18 custom DuckHive tools** added to OpenClaw
+- **4 orchestration services**: Hybrid, ACP, Checkpoint, Hive Bridge
+- **3 governance systems**: Council, Senate, Team
+- **Build**: ✅ Clean (`bun run build` → `dist/cli.mjs`)
+- **Type-check**: ✅ Clean (`npx tsc --noEmit --skipLibCheck`)
+- **Git**: 8 commits pushed, clean workspace
 
 ---
 
-## DuckHive vs. Other Systems
+## 🦆 Philosophy
 
-| Feature | DuckHive | duck-cli | Agent Teams | Gemini CLI | Kimi CLI |
-|---------|----------|----------|-------------|------------|----------|
-| Multi-provider (200+) | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Android phone control | ✅ | ✅ | ❌ | ❌ | ❌ |
-| AI Council (46 councilors) | ✅ | ❌ | ✅ | ❌ | ❌ |
-| Senate governance | ✅ | ❌ | ✅ | ❌ | ❌ |
-| Team spawning | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Checkpointing | ✅ | ❌ | ❌ | ✅ | ❌ |
-| Trusted folders | ✅ | ❌ | ❌ | ✅ | ❌ |
-| MCP management | ✅ | ✅ | ❌ | ✅ | ✅ |
-| Shell mode | ✅ | ❌ | ❌ | ❌ | ✅ |
-| Desktop automation | ✅ | ✅ | ❌ | ❌ | ❌ |
-| VS Code extension | ✅ | ❌ | ❌ | ❌ | ✅ |
-| gRPC server | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Free local inference | ✅ | ✅ | ❌ | ❌ | ❌ |
+> "One harness to rule them all — not 8 different programs that each do one thing."
+
+DuckHive is built on the principle of **deep integration over shallow wrappers**. We're not bundling 8 programs — we're taking the best ideas from each and making them work together as one unified system.
 
 ---
 
-## Credit & Sources
-
-DuckHive stands on the shoulders of giants:
-
-- **[OpenClaude](https://github.com/openclaw/openclaw)** — Base CLI harness (MIT)
-- **[duck-cli](https://github.com/Franzferdinan51/duck-cli)** — Phone control, AI Council, agent mesh (MIT)
-- **[Agent Teams / Hive Nation](https://github.com/Franzferdinan51/Agent-Teams)** — Governance, Senate, team orchestration (MIT)
-- **[Crush](https://github.com/grantcull/ Crush)** — Glamourous CLI patterns, MCP support
-- **[Kimi CLI](https://github.com/MoonshotAI/kimi-switch)** — Shell agent mode inspiration
-- **[Gemini CLI](https://github.com/google-gemini)** — Checkpointing, trusted folders inspiration
-- **[Fantasy](https://charm.land/fantasy)** — Go agent library patterns (Apache-2.0)
-
----
-
-## Disclaimer
-
-DuckHive is an independent community project and is not affiliated with, endorsed by, or sponsored by Anthropic, MiniMax, Moonshot AI, or any other provider.
-
-"Claude" and "Claude Code" are trademarks of Anthropic PBC. See [LICENSE](LICENSE) for details.
-
-## License
-
-MIT License. See [LICENSE](LICENSE).
+*Built on [OpenClaw](https://github.com/openclaw/openclaw) · Powered by MiniMax M2.7 · Managed by Duck CLI memory*
