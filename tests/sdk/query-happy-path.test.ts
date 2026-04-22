@@ -122,3 +122,72 @@ describe('Query happy-path — full lifecycle', () => {
     expect(textContent?.text).toContain(prompt)
   })
 })
+
+describe('mcpServerStatus() reads from engine.config.mcpClients', () => {
+  test('returns empty array when no MCP clients configured', () => {
+    const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
+    const status = q.mcpServerStatus()
+    expect(status).toEqual([])
+    q.interrupt()
+  })
+
+  test('maps connected client with serverInfo', () => {
+    const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
+
+    // Simulate what connectSdkMcpServers does: write to engine.config.mcpClients
+    ;(q as any).engine.config.mcpClients = [
+      {
+        name: 'test-server',
+        type: 'connected',
+        serverInfo: { name: 'TestServer', version: '1.0' },
+        config: { scope: 'project' },
+      },
+    ]
+
+    const status = q.mcpServerStatus()
+    expect(status).toHaveLength(1)
+    expect(status[0].name).toBe('test-server')
+    expect(status[0].status).toBe('connected')
+    expect(status[0].serverInfo).toEqual({ name: 'TestServer', version: '1.0' })
+    expect(status[0].scope).toBe('project')
+    q.interrupt()
+  })
+
+  test('maps failed client with error', () => {
+    const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
+
+    ;(q as any).engine.config.mcpClients = [
+      {
+        name: 'broken-server',
+        type: 'failed',
+        error: 'connection refused',
+        config: { scope: 'user' },
+      },
+    ]
+
+    const status = q.mcpServerStatus()
+    expect(status).toHaveLength(1)
+    expect(status[0].name).toBe('broken-server')
+    expect(status[0].status).toBe('failed')
+    expect(status[0].error).toBe('connection refused')
+    expect(status[0].scope).toBe('user')
+    q.interrupt()
+  })
+
+  test('maps multiple clients of different types', () => {
+    const q = query({ prompt: 'test', options: { cwd: process.cwd() } })
+
+    ;(q as any).engine.config.mcpClients = [
+      { name: 'srv-connected', type: 'connected' },
+      { name: 'srv-failed', type: 'failed', error: 'timeout' },
+      { name: 'srv-pending', type: 'pending' },
+    ]
+
+    const status = q.mcpServerStatus()
+    expect(status).toHaveLength(3)
+    expect(status[0]).toEqual({ name: 'srv-connected', status: 'connected' })
+    expect(status[1]).toEqual({ name: 'srv-failed', status: 'failed', error: 'timeout' })
+    expect(status[2]).toEqual({ name: 'srv-pending', status: 'pending' })
+    q.interrupt()
+  })
+})

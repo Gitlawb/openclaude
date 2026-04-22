@@ -5,6 +5,7 @@ import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
 } from '../../src/entrypoints/sdk/index.js'
+import { getSessionProjectDir } from '../../src/bootstrap/state.js'
 import {
   drainQuery,
   withTempDir,
@@ -140,6 +141,21 @@ describe('V2: session resume', () => {
       const messages = session.getMessages()
 
       expect(messages.length).toBeGreaterThanOrEqual(6)
+    })
+  })
+
+  test('resumeSession() sets sessionProjectDir via switchSession', async () => {
+    await withTempDir(async (dir) => {
+      tempDirs.push(dir)
+      const sid = randomUUID()
+      createSessionJsonl(dir, sid, createMinimalConversation(sid))
+
+      await unstable_v2_resumeSession(sid, { cwd: dir })
+
+      // Fix verification: resumeSession must call switchSession with the
+      // resolved projectPath so that transcript writes go to the correct dir.
+      const projectDir = getSessionProjectDir()
+      expect(projectDir).not.toBeNull()
     })
   })
 })
