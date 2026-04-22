@@ -62,11 +62,11 @@ export function UserPromptMessage({
 
   // Truncate before the early return so the hook order is stable.
   const displayText = useMemo(() => {
-    if (text.length <= MAX_DISPLAY_CHARS) return text;
+    if (text.length <= MAX_DISPLAY_CHARS) return `▌ ${text}`;
     const head = text.slice(0, TRUNCATE_HEAD_CHARS);
     const tail = text.slice(-TRUNCATE_TAIL_CHARS);
     const hiddenLines = countCharInString(text, '\n', TRUNCATE_HEAD_CHARS) - countCharInString(tail, '\n');
-    return `${head}\n… +${hiddenLines} lines …\n${tail}`;
+    return `▌ ${head}\n… +${hiddenLines} lines …\n${tail}`;
   }, [text]);
   const isSelected = useContext(MessageActionsSelectedContext);
   if (!text) {

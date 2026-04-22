@@ -140,7 +140,7 @@ export function PromptInputHelpMenu(props) {
   const t21 = fixedWidth ? 24 : undefined;
   let t22;
   if ($[23] !== dimColor) {
-    t22 = <Box><Text dimColor={dimColor}>! for bash mode</Text></Box>;
+    t22 = <Box><Text dimColor={dimColor}>Ctrl+x to toggle shell</Text></Box>;
     $[23] = dimColor;
     $[24] = t22;
   } else {

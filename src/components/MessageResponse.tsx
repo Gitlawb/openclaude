@@ -19,7 +19,7 @@ export function MessageResponse(t0) {
   }
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = <NoSelect fromLeftEdge={true} flexShrink={0}><Text dimColor={true}>{"  "}⎿  </Text></NoSelect>;
+    t1 = <NoSelect fromLeftEdge={true} flexShrink={0}><Text dimColor={true}>{"  "}🦆⎿  </Text></NoSelect>;
     $[0] = t1;
   } else {
     t1 = $[0];

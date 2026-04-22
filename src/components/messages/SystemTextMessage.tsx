@@ -5,7 +5,7 @@ import { feature } from 'bun:bundle';
 import * as React from 'react';
 import { useState } from 'react';
 import sample from 'lodash-es/sample.js';
-import { BLACK_CIRCLE, REFERENCE_MARK, TEARDROP_ASTERISK } from '../../constants/figures.js';
+import { BLACK_CIRCLE, DUCK_CIRCLE, REFERENCE_MARK, TEARDROP_ASTERISK } from '../../constants/figures.js';
 import figures from 'figures';
 import { basename } from 'path';
 import { MessageResponse } from '../MessageResponse.js';
@@ -100,7 +100,7 @@ export function SystemTextMessage(t0) {
     let t2;
     let t3;
     if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-      t2 = <Box minWidth={2}><Text color="error">{BLACK_CIRCLE}</Text></Box>;
+      t2 = <Box minWidth={2}><Text color="error">{DUCK_CIRCLE}</Text></Box>;
       t3 = <Text dimColor={true}>All background agents stopped</Text>;
       $[13] = t2;
       $[14] = t3;
@@ -327,7 +327,7 @@ function StopHookSummaryMessage(t0) {
   const t3 = addMargin ? 1 : 0;
   let t4;
   if ($[16] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = <Box minWidth={2}><Text>{BLACK_CIRCLE}</Text></Box>;
+    t4 = <Box minWidth={2}><Text>{DUCK_CIRCLE}</Text></Box>;
     $[16] = t4;
   } else {
     t4 = $[16];
@@ -442,7 +442,7 @@ function SystemTextMessageInner(t0) {
   const t1 = addMargin ? 1 : 0;
   let t2;
   if ($[0] !== color || $[1] !== dimColor || $[2] !== dot) {
-    t2 = dot && <Box minWidth={2}><Text color={color} dimColor={dimColor}>{BLACK_CIRCLE}</Text></Box>;
+    t2 = dot && <Box minWidth={2}><Text color={color} dimColor={dimColor}>{DUCK_CIRCLE}</Text></Box>;
     $[0] = color;
     $[1] = dimColor;
     $[2] = dot;
@@ -626,7 +626,7 @@ function MemorySavedMessage(t0) {
   const t5 = addMargin ? 1 : 0;
   let t6;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = <Box minWidth={2}><Text dimColor={true}>{BLACK_CIRCLE}</Text></Box>;
+    t6 = <Box minWidth={2}><Text dimColor={true}>{DUCK_CIRCLE}</Text></Box>;
     $[5] = t6;
   } else {
     t6 = $[5];

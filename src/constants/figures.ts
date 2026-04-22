@@ -2,6 +2,7 @@ import { env } from '../utils/env.js'
 
 // The former is better vertically aligned, but isn't usually supported on Windows/Linux
 export const BLACK_CIRCLE = env.platform === 'darwin' ? '⏺' : '●'
+export const DUCK_CIRCLE = '🦆'
 export const BULLET_OPERATOR = '∙'
 export const TEARDROP_ASTERISK = '✻'
 export const UP_ARROW = '\u2191' // ↑ - used for opus 1m merge notice

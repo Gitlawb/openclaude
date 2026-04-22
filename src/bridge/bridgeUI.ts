@@ -51,7 +51,7 @@ export function createBridgeLogger(options: {
 
   // Status state machine
   let currentState: StatusState = 'idle'
-  let currentStateText = 'Ready'
+  let currentStateText = '🦆 Ready'
   let repoName = ''
   let branch = ''
   let debugLogPath = ''
@@ -377,7 +377,7 @@ export function createBridgeLogger(options: {
       stopConnecting()
 
       currentState = 'idle'
-      currentStateText = 'Ready'
+      currentStateText = '🦆 Ready'
       lastToolSummary = null
       lastToolTime = 0
       activeSessionUrl = null
