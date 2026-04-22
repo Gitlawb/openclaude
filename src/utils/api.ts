@@ -43,6 +43,11 @@ import {
 import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
+import {
+  CLAUDE_MD_CONTEXT_KEY,
+  isStaticDedupEnabled,
+} from './claudeMdDelta.js'
+import { GIT_STATUS_CONTEXT_KEY } from './gitStatusDelta.js'
 import { createUserMessage } from './messages.js'
 import {
   getAPIProvider,
@@ -532,19 +537,28 @@ export function prependUserContext(
 }
 
 /**
- * When OPENCLAUDE_STATIC_DEDUP is on, strip the keys that are now
- * emitted via the delta attachment pipeline so we don't double-announce
- * the same content. See src/utils/claudeMdDelta.ts and
- * src/utils/gitStatusDelta.ts for the alternative injection path.
+ * When static-dedup is on, strip the context keys that are now emitted
+ * via the delta attachment pipeline so we don't double-announce the
+ * same content. Each participating delta module exports its own
+ * `*_CONTEXT_KEY` — adding a new dedup delta is a single-file change
+ * there, no edits required here.
+ *
+ * Uses `isStaticDedupEnabled()` (single source of truth) rather than
+ * re-reading the env directly so any future gate logic (e.g. a
+ * GrowthBook rollout) stays centralized.
  */
+const STATIC_DEDUP_CONTEXT_KEYS = [
+  CLAUDE_MD_CONTEXT_KEY,
+  GIT_STATUS_CONTEXT_KEY,
+] as const
+
 function filterStaticDedupKeys(context: {
   [k: string]: string
 }): { [k: string]: string } {
-  if (!isEnvTruthy(process.env.OPENCLAUDE_STATIC_DEDUP)) return context
-  const stripped = ['claudeMd', 'gitStatus']
+  if (!isStaticDedupEnabled()) return context
   const out: { [k: string]: string } = {}
   for (const key of Object.keys(context)) {
-    if (stripped.includes(key)) continue
+    if ((STATIC_DEDUP_CONTEXT_KEYS as readonly string[]).includes(key)) continue
     out[key] = context[key]!
   }
   return out

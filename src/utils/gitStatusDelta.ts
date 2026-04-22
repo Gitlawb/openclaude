@@ -24,6 +24,14 @@
 
 import { logEvent } from '../services/analytics/index.js'
 
+/**
+ * Key inside the system-context object (see `getSystemContext` in
+ * src/context.ts) that this delta replaces when dedup is active.
+ * `api.ts::filterStaticDedupKeys` reads this to know which key to strip
+ * from `appendSystemContext`, avoiding double-announce.
+ */
+export const GIT_STATUS_CONTEXT_KEY = 'gitStatus' as const
+
 export type GitStatusDelta = {
   /** Full status snapshot — emitted once per session (turn 1). */
   content: string

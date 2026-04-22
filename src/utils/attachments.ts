@@ -1704,13 +1704,28 @@ async function getGitStatusDeltaAttachment(
  * against prior memory_delta attachments. Emits only added/changed
  * content and retraction names. See src/utils/memoryDelta.ts.
  *
- * Callers: the nested_memory attachments produced by
- * getNestedMemoryAttachments() are flowing through in parallel; for
- * the dedup path we let the raw nested_memory fire once (turn 1) and
- * the memory_delta covers subsequent turns. In practice the swap-in
- * to suppress raw nested_memory is gated in a later sub-phase; today
- * this attachment complements the existing one for the caller who
- * wants to read from the delta-only stream.
+ * ⚠️ INTENTIONAL ASYMMETRY vs the three sibling Phase-2 deltas
+ * (`claudeMdDelta`, `gitStatusDelta`, `todoReminderDelta`). Those three
+ * REPLACE their raw counterpart when `isStaticDedupEnabled()` is true:
+ * `filterStaticDedupKeys` (in src/utils/api.ts) strips `claudeMd` /
+ * `gitStatus` from the system/user context so they only flow through
+ * the delta. memory_delta, by contrast, COEXISTS with raw
+ * `nested_memory` on turn 1 and emits its delta on turn 2+ — which
+ * means turn 2 carries the same memory content TWICE (raw + delta)
+ * before stabilizing from turn 3+.
+ *
+ * WHY kept this way: `nested_memory` is consumed by code paths outside
+ * the dedup pipeline that don't understand the delta shape yet — the
+ * prompt-cache scoping logic in `claude.ts::getSystemBlocksWithScope`
+ * and memory injection in `getUserContext` both read `nested_memory`
+ * directly. Suppressing raw `nested_memory` when dedup=on would
+ * silently break those consumers until each is migrated.
+ *
+ * TODO(follow-up, separate PR): teach those consumers to read from
+ * `memory_delta`, then gate raw `nested_memory` behind
+ * `!isStaticDedupEnabled()` to match the other three. Expected
+ * additional savings: ~9KB per turn 2 of redundant memory content on
+ * 3P providers without cache.
  */
 function getMemoryDeltaAttachment(
   messages: Message[] | undefined,

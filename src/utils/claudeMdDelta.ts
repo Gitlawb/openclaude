@@ -32,6 +32,14 @@ import { logEvent } from '../services/analytics/index.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
 import { djb2Hash } from './hash.js'
 
+/**
+ * Key inside the system/user-context object (see `getUserContext` in
+ * src/context.ts) that this delta replaces when dedup is active.
+ * `api.ts::filterStaticDedupKeys` reads this to know which key to strip
+ * from `prependUserContext`, avoiding double-announce.
+ */
+export const CLAUDE_MD_CONTEXT_KEY = 'claudeMd' as const
+
 export type ClaudeMdDelta = {
   /**
    * The new or changed CLAUDE.md payload. Empty string means the file
