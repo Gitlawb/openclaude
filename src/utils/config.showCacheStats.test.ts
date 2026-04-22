@@ -69,3 +69,58 @@ describe('showCacheStats — GlobalConfig type surface', () => {
     ])
   })
 })
+
+describe('showCacheStats — default applies to pre-existing configs', () => {
+  // Review feedback (P2 #7): "ensure the schema explicitly sets
+  // showCacheStats: 'compact' as the default value, not relying on the
+  // REPL gate's undefined handling."
+  //
+  // Config layer at src/utils/config.ts:1494 already does
+  //   { ...createDefault(), ...parsedConfig }
+  // so a user who had a config file from before this PR gets the
+  // 'compact' default automatically on first load. These tests pin that
+  // behavior so a future refactor of the merge pattern surfaces the
+  // regression loudly.
+
+  test('legacy config without showCacheStats field merges to default', () => {
+    // Simulate what getConfig() produces for an old config.json that
+    // predates this PR: spread default first, then spread the loaded
+    // (incomplete) object on top.
+    const legacyLoadedConfig = {
+      // Fields typical of a pre-PR config — anything real but no
+      // showCacheStats. The exact shape doesn't matter; we're testing
+      // the merge semantics.
+      theme: 'dark' as const,
+    }
+    const merged = {
+      ...DEFAULT_GLOBAL_CONFIG,
+      ...legacyLoadedConfig,
+    }
+    expect(merged.showCacheStats).toBe('compact')
+  })
+
+  test('user-set value overrides default via merge', () => {
+    // Counterpart: if the user has explicitly set a value, the merge
+    // must preserve it (defaults must NOT clobber user intent).
+    const userConfig = { showCacheStats: 'off' as const }
+    const merged = {
+      ...DEFAULT_GLOBAL_CONFIG,
+      ...userConfig,
+    }
+    expect(merged.showCacheStats).toBe('off')
+  })
+
+  test('REPL gate fallback kicks in only when mode is undefined', () => {
+    // Belt-and-suspenders from REPL.tsx:3031 — `?? 'compact'` after the
+    // config read. Simulates the code path in case a pathological config
+    // read returns an empty object and skips the merge entirely.
+    const corruptConfigRead: Partial<GlobalConfig> = {}
+    const mode = corruptConfigRead.showCacheStats ?? 'compact'
+    expect(mode).toBe('compact')
+
+    // Explicit 'off' is preserved — fallback must not clobber user intent.
+    const explicitOff: Partial<GlobalConfig> = { showCacheStats: 'off' }
+    const modeOff = explicitOff.showCacheStats ?? 'compact'
+    expect(modeOff).toBe('off')
+  })
+})

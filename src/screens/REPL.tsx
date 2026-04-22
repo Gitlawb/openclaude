@@ -2923,6 +2923,13 @@ export function REPL({
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
       resetTimingRefs();
+      // Start-of-turn cache tracker reset. The end-of-turn path at the
+      // bottom of this function already resets, but mirror the call here
+      // so a turn that never reaches end-of-turn (crash, unhandled
+      // rejection, process exit) still starts clean on the next one.
+      // Idempotent with respect to the end-of-turn reset — double-reset
+      // is a no-op.
+      resetCurrentTurn();
       setMessages(oldMessages => [...oldMessages, ...newMessages]);
       responseLengthRef.current = 0;
       if (feature('TOKEN_BUDGET')) {
@@ -3028,8 +3035,16 @@ export function REPL({
         // aborted or proactive mode is active — but the counter reset
         // below still runs in those cases.
         if (!abortController.signal.aborted && !proactiveActive) {
-          const mode = getGlobalConfig().showCacheStats;
-          if (mode && mode !== 'off') {
+          // Defensive default: config layer already merges 'compact' from
+          // DEFAULT_GLOBAL_CONFIG (see config.ts:1494) for configs that
+          // predate this feature, so `mode` should always be defined.
+          // The `?? 'compact'` fallback covers pathological cases — a
+          // corrupt config read that returned an empty object, or a
+          // race between writer and reader — where the merge didn't
+          // land. Rendering the line is the safer failure mode than
+          // silently hiding it.
+          const mode = getGlobalConfig().showCacheStats ?? 'compact';
+          if (mode !== 'off') {
             const turnMetrics = getCurrentTurnCacheMetrics();
             // Skip rendering if the turn recorded no API activity at all —
             // avoids a spurious "[Cache: cold]" on local-only commands.
