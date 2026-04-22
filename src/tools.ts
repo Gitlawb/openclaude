@@ -2,6 +2,9 @@
 import { toolMatchesName, type Tool, type Tools } from './Tool.js'
 import { AgentTool } from './tools/AgentTool/AgentTool.js'
 import { SkillTool } from './tools/SkillTool/SkillTool.js'
+import { KAIROSTool } from './tools/KAIROSTool/KAIROSTool.js'
+import { MeshTool } from './tools/MeshTool/MeshTool.js'
+import { SwapTool } from './tools/SwapTool/SwapTool.js'
 import { AndroidTool } from './tools/AndroidTool/AndroidTool.js'
 import { HiveCouncilTool } from './tools/HiveCouncilTool/HiveCouncilTool.js'
 import { HiveSenateTool } from './tools/HiveSenateTool/HiveSenateTool.js'
@@ -13,6 +16,7 @@ import { MCPManageTool } from './tools/MCPManageTool/MCPManageTool.js'
 import { DeskDevTool } from './tools/DeskDevTool/DeskDevTool.js'
 import { OrchestrateTool } from './tools/OrchestrateTool/OrchestrateTool.js'
 import { DecreeTool } from './tools/DecreeTool/DecreeTool.js'
+import { ConfirmTool } from './tools/ConfirmTool/ConfirmTool.js'
 import { BashTool } from './tools/BashTool/BashTool.js'
 import { FileEditTool } from './tools/FileEditTool/FileEditTool.js'
 import { FileReadTool } from './tools/FileReadTool/FileReadTool.js'
@@ -218,9 +222,13 @@ export function getAllBaseTools(): Tools {
     DeskDevTool,
     OrchestrateTool,
     DecreeTool,
+    ConfirmTool,
     TaskStopTool,
     AskUserQuestionTool,
     SkillTool,
+    KAIROSTool,
+    MeshTool,
+    SwapTool,
     EnterPlanModeTool,
     ...(SuggestBackgroundPRTool ? [SuggestBackgroundPRTool] : []),
     ...(WebBrowserTool ? [WebBrowserTool] : []),
