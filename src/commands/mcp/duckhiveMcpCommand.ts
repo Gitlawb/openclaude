@@ -83,9 +83,9 @@ export function registerDuckhiveMcpCommand(program: Command): void {
     .description(
       'Add an MCP server (default: stdio)\n\n' +
         'Examples:\n' +
-        '  duckhive dmcp add rsc npx -y @modelcontextprotocol/server-filesystem ~/projects\n' +
-        '  duckhive dmcp add github npx -y @modelcontextprotocol/server-github\n' +
-        '  duckhive dmcp add brave-search npx -y @modelcontextprotocol/server-brave-search',
+        '  duckhive mcp add rsc npx -y @modelcontextprotocol/server-filesystem ~/projects\n' +
+        '  duckhive mcp add github npx -y @modelcontextprotocol/server-github\n' +
+        '  duckhive mcp add brave-search npx -y @modelcontextprotocol/server-brave-search',
     )
     .allowUnknownOption()
     .option(
