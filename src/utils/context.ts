@@ -4,8 +4,9 @@ import { getGlobalConfig } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
-import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
+import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import { getOpenAIContextWindow, getOpenAIMaxOutputTokens } from './model/openaiContextWindows.js'
+import type { Message } from '../types/message.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
@@ -257,6 +258,7 @@ export interface TokenBudget {
   systemPrompt: number
   tools: number  
   history: number
+  reserved: number
   available: number
 }
 
@@ -264,7 +266,8 @@ export function calculateTokenBudget(options: {
   model: string
   systemPrompt?: string
   toolsSchema?: string
-  historyMessages?: number
+  historyMessages?: readonly Message[] | number
+  outputBuffer?: number
 }): TokenBudget {
   const contextWindow = getContextWindowForModel(options.model)
   
@@ -276,17 +279,26 @@ export function calculateTokenBudget(options: {
     ? roughTokenCountEstimation(options.toolsSchema)
     : 0
     
-  // Rough estimate: ~4 chars per token * average message
-  const historyTokens = (options.historyMessages ?? 0) * 100
+  let historyTokens: number
+  if (typeof options.historyMessages === 'number') {
+    historyTokens = options.historyMessages * 100
+  } else if (Array.isArray(options.historyMessages)) {
+    historyTokens = roughTokenCountEstimationForMessages(options.historyMessages)
+  } else {
+    historyTokens = 0
+  }
   
+  // Reserve buffer for expected response (handles high-output models)
+  const outputBuffer = options.outputBuffer ?? Math.round(contextWindow * 0.2)
   const used = systemPromptTokens + toolsTokens + historyTokens
-  const available = Math.max(0, contextWindow - used)
+  const available = Math.max(0, contextWindow - used - outputBuffer)
   
   return {
     total: contextWindow,
     systemPrompt: systemPromptTokens,
     tools: toolsTokens,
     history: historyTokens,
+    reserved: outputBuffer,
     available,
   }
 }
