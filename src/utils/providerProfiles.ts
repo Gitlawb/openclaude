@@ -837,23 +837,26 @@ export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] 
 function buildOpenAICompatibleStartupEnv(
   activeProfile: ProviderProfile,
 ): ProfileEnv | null {
-  const strictEnv = buildOpenAIProfileEnv({
-    model: activeProfile.model,
-    baseUrl: activeProfile.baseUrl,
-    apiKey: activeProfile.apiKey,
-    processEnv: process.env,
-  })
-  if (strictEnv) {
-    return strictEnv
-  }
-
   if (isCodexBaseUrl(activeProfile.baseUrl)) {
     return null
   }
 
+  if (activeProfile.apiKey) {
+    const strictEnv = buildOpenAIProfileEnv({
+      goal: 'balanced',
+      model: activeProfile.model,
+      baseUrl: activeProfile.baseUrl,
+      apiKey: activeProfile.apiKey,
+      processEnv: {},
+    })
+    if (strictEnv) {
+      return strictEnv
+    }
+  }
+
   const env: ProfileEnv = {
     OPENAI_BASE_URL: activeProfile.baseUrl,
-    OPENAI_MODEL: activeProfile.model,
+    OPENAI_MODEL: getPrimaryModel(activeProfile.model),
   }
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey
@@ -922,6 +925,7 @@ export function setActiveProviderProfile(
         return activeProfile.provider === 'anthropic'
           ? (
               buildOpenAIProfileEnv({
+                goal: 'balanced',
                 model: activeProfile.model,
                 baseUrl: activeProfile.baseUrl,
                 apiKey: activeProfile.apiKey,

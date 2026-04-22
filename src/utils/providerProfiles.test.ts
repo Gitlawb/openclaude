@@ -81,7 +81,6 @@ afterEach(() => {
   mock.restore()
   mockConfigState = createMockConfigState()
   process.chdir(originalCwd)
-  rmSync(join(originalCwd, '.openclaude-profile.json'), { force: true })
 })
 
 async function importFreshProviderProfileModules() {
@@ -579,37 +578,40 @@ describe('setActiveProviderProfile', () => {
   test('persists no-key openai-compatible profiles for restart fallback', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     process.chdir(tempDir)
+    process.env.OPENAI_API_KEY = 'sk-shell-should-not-persist'
 
-    const { setActiveProviderProfile } =
-      await importFreshProviderProfileModules()
-    const ollamaProfile = buildProfile({
-      id: 'ollama_prof',
-      name: 'Ollama',
-      provider: 'openai',
-      baseUrl: 'http://localhost:11434/v1',
-      model: 'llama3.1:8b',
-      apiKey: '',
-    })
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const ollamaProfile = buildProfile({
+        id: 'ollama_prof',
+        name: 'Ollama',
+        provider: 'openai',
+        baseUrl: 'http://localhost:11434/v1',
+        model: 'llama3.1:8b, qwen2.5:7b',
+        apiKey: '',
+      })
 
-    saveMockGlobalConfig(current => ({
-      ...current,
-      providerProfiles: [ollamaProfile],
-    }))
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [ollamaProfile],
+      }))
 
-    const result = setActiveProviderProfile('ollama_prof')
-    const persisted = JSON.parse(
-      readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
-    )
+      const result = setActiveProviderProfile('ollama_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+      )
 
-    expect(result?.id).toBe('ollama_prof')
-    expect(persisted.profile).toBe('openai')
-    expect(persisted.env).toEqual({
-      OPENAI_BASE_URL: 'http://localhost:11434/v1',
-      OPENAI_MODEL: 'llama3.1:8b',
-    })
-
-    process.chdir(originalCwd)
-    rmSync(tempDir, { recursive: true, force: true })
+      expect(result?.id).toBe('ollama_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'http://localhost:11434/v1',
+        OPENAI_MODEL: 'llama3.1:8b',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
   })
 
   test('sets ANTHROPIC_MODEL env var when switching to an anthropic-type provider', async () => {
