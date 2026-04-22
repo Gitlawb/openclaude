@@ -52,9 +52,24 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   }
+  // Codex provider — OPENAI_MODEL is always set for Codex profiles; only fall
+  // back to a codex-spark alias when an override env strips it.
+  if (getAPIProvider() === 'codex') {
+    return process.env.OPENAI_MODEL || 'codexspark'
+  }
   // For GitHub Copilot provider
   if (getAPIProvider() === 'github') {
     return process.env.OPENAI_MODEL || 'github:copilot'
+  }
+  // NVIDIA NIM — OPENAI_MODEL carries the user's active NIM model; use a
+  // small Meta Llama variant as the conservative fallback.
+  if (getAPIProvider() === 'nvidia-nim') {
+    return process.env.OPENAI_MODEL || 'meta/llama-3.1-8b-instruct'
+  }
+  // MiniMax — OPENAI_MODEL carries the active MiniMax model; fall back to
+  // the fastest tier (M2.5-highspeed) when missing.
+  if (getAPIProvider() === 'minimax') {
+    return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
   }
   return getDefaultHaikuModel()
 }
@@ -171,6 +186,14 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'github') {
     return process.env.OPENAI_MODEL || 'github:copilot'
   }
+  // NVIDIA NIM
+  if (getAPIProvider() === 'nvidia-nim') {
+    return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
+  }
+  // MiniMax — flagship tier for "opus"-equivalent.
+  if (getAPIProvider() === 'minimax') {
+    return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
+  }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // even when values match, since 3P availability lags firstParty and
   // these will diverge again at the next model launch.
@@ -205,6 +228,14 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'github') {
     return process.env.OPENAI_MODEL || 'github:copilot'
   }
+  // NVIDIA NIM
+  if (getAPIProvider() === 'nvidia-nim') {
+    return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
+  }
+  // MiniMax — mid tier for "sonnet"-equivalent.
+  if (getAPIProvider() === 'minimax') {
+    return process.env.OPENAI_MODEL || 'MiniMax-M2.5'
+  }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (getAPIProvider() !== 'firstParty') {
     return getModelStrings().sonnet45
@@ -236,6 +267,14 @@ export function getDefaultHaikuModel(): ModelName {
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
+  }
+  // NVIDIA NIM
+  if (getAPIProvider() === 'nvidia-nim') {
+    return process.env.OPENAI_MODEL || 'meta/llama-3.1-8b-instruct'
+  }
+  // MiniMax — fastest tier for "haiku"-equivalent.
+  if (getAPIProvider() === 'minimax') {
+    return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
