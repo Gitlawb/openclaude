@@ -24,6 +24,7 @@
  * breaks the dedup path.
  */
 import { describe, expect, test } from 'bun:test'
+import { estimateWithBounds } from '../services/tokenEstimation.js'
 import { getClaudeMdDelta } from './claudeMdDelta.js'
 import { getGitStatusDelta } from './gitStatusDelta.js'
 import { getMemoryDelta, type MemoryFileInput } from './memoryDelta.js'
@@ -73,6 +74,21 @@ type AttachmentMessage = {
  */
 function serialize(attachments: Array<Record<string, unknown>>): number {
   return stableStringify(attachments).length
+}
+
+/**
+ * Estimated token count of a serialized attachment list, using the
+ * project's `estimateWithBounds` helper with `type='json'` — the
+ * attachment payload is always JSON on the wire, so this ratio
+ * (1.5-2.5 chars/token) matches what a tokenizer would produce.
+ *
+ * Byte length (from `serialize`) is what the provider bills for
+ * payload-cost providers (Copilot); token estimate is what the plan's
+ * claim ("-30 to -40% body JSON") targets semantically. Asserting on
+ * both closes the gap between the two units.
+ */
+function estimateTokens(attachments: Array<Record<string, unknown>>): number {
+  return estimateWithBounds(stableStringify(attachments), 'json').estimate
 }
 
 function repeat(n: number): string {
@@ -180,11 +196,18 @@ describe('static-dedup integration: per-scanner byte savings', () => {
     expect(getClaudeMdDelta(content, messages)).toBeNull()
     expect(getClaudeMdDelta(content, messages)).toBeNull()
 
-    // Byte accounting for turn 2 specifically
+    // Byte + token accounting for turn 2 specifically. Tokens are the
+    // unit the Fase 2 plan targets (-30 to -40% body JSON); bytes are
+    // what Copilot bills. Both must move.
     const baselineTurn2 = serialize([baselineClaudeMd(content)])
     const dedupTurn2 = serialize([]) // null → no attachment emitted
-    const savings = (baselineTurn2 - dedupTurn2) / baselineTurn2
-    expect(savings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+    const byteSavings = (baselineTurn2 - dedupTurn2) / baselineTurn2
+    expect(byteSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+
+    const baselineTokens = estimateTokens([baselineClaudeMd(content)])
+    const dedupTokens = estimateTokens([])
+    const tokenSavings = (baselineTokens - dedupTokens) / baselineTokens
+    expect(tokenSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
   })
 
   test('gitStatus: turn 2+ emits zero bytes (snapshot is immutable)', () => {
@@ -335,9 +358,25 @@ describe('static-dedup integration: combined 3-turn session', () => {
     if (td3) turn3Additions.push({ type: 'todo_reminder_delta', ...td3 })
 
     const dedupTurns23 = serialize(turn2Additions) + serialize(turn3Additions)
-    const savings = (baselineTurns23 - dedupTurns23) / baselineTurns23
+    const byteSavings = (baselineTurns23 - dedupTurns23) / baselineTurns23
+    expect(byteSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
 
-    expect(savings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+    // Token-level savings — matches the unit the Fase 2 plan targets.
+    // estimateWithBounds uses the project's `json` compression ratio
+    // (~2 chars/token), so the number reflects what a tokenizer would
+    // produce on the wire, not a hardcoded char-per-token guess.
+    const baselineTokens =
+      estimateTokens([
+        baselineClaudeMd(claudeMd),
+        baselineGitStatus(gitStatus),
+        ...baselineMemoryAttachments(memFiles),
+        baselineTodoReminder(todos),
+      ]) * 2
+    const dedupTokens =
+      estimateTokens(turn2Additions) + estimateTokens(turn3Additions)
+    const tokenSavings = (baselineTokens - dedupTokens) / baselineTokens
+    expect(tokenSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+
     // Stability: turn 3 must not regress vs turn 2 (scanners idempotent
     // once state is announced).
     expect(turn3Additions.length).toBe(turn2Additions.length)
