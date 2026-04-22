@@ -8,6 +8,8 @@ import {
   getSessionInfo,
   getSessionMessages,
   renameSession,
+  tagSession,
+  deleteSession,
   forkSession,
 } from '../../src/entrypoints/sdk/index.js'
 import { readJSONLFile } from '../../src/utils/json.js'
@@ -117,5 +119,179 @@ describe('forkSession metadata preservation (COR-2)', () => {
     expect(tagEntry).toBeDefined()
     expect(tagEntry.tag).toBe('important')
     expect(tagEntry.sessionId).toBe(result.session_id)
+  })
+})
+
+describe('renameSession', () => {
+  const testProjectDir = join(tmpdir(), 'rename-test-' + process.pid)
+  let sessionDir: string
+
+  beforeEach(() => {
+    sessionDir = getProjectDir(testProjectDir)
+    mkdirSync(sessionDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(sessionDir, { recursive: true, force: true })
+  })
+
+  test('appends custom-title entry to existing session', async () => {
+    const sid = randomUUID()
+    const filePath = join(sessionDir, `${sid}.jsonl`)
+    writeFileSync(filePath, JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'hello' },
+      uuid: randomUUID(),
+      parentUuid: null,
+      sessionId: sid,
+      isSidechain: false,
+    }) + '\n', { encoding: 'utf8' })
+
+    await renameSession(sid, 'My Renamed Session', { dir: testProjectDir })
+
+    const entries = await readJSONLFile<any>(filePath)
+    const titleEntry = entries.find(e => e.type === 'custom-title')
+    expect(titleEntry).toBeDefined()
+    expect(titleEntry.customTitle).toBe('My Renamed Session')
+    expect(titleEntry.sessionId).toBe(sid)
+  })
+
+  test('throws for non-existent session', async () => {
+    await expect(
+      renameSession('00000000-0000-0000-0000-000000000000', 'test', { dir: testProjectDir }),
+    ).rejects.toThrow('Session not found')
+  })
+
+  test('throws for invalid session ID', async () => {
+    await expect(
+      renameSession('not-a-uuid', 'test'),
+    ).rejects.toThrow('Invalid session ID')
+  })
+})
+
+describe('tagSession', () => {
+  const testProjectDir = join(tmpdir(), 'tag-test-' + process.pid)
+  let sessionDir: string
+
+  beforeEach(() => {
+    sessionDir = getProjectDir(testProjectDir)
+    mkdirSync(sessionDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(sessionDir, { recursive: true, force: true })
+  })
+
+  test('appends tag entry to existing session', async () => {
+    const sid = randomUUID()
+    const filePath = join(sessionDir, `${sid}.jsonl`)
+    writeFileSync(filePath, JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'hello' },
+      uuid: randomUUID(),
+      parentUuid: null,
+      sessionId: sid,
+      isSidechain: false,
+    }) + '\n', { encoding: 'utf8' })
+
+    await tagSession(sid, 'important', { dir: testProjectDir })
+
+    const entries = await readJSONLFile<any>(filePath)
+    const tagEntry = entries.find(e => e.type === 'tag')
+    expect(tagEntry).toBeDefined()
+    expect(tagEntry.tag).toBe('important')
+    expect(tagEntry.sessionId).toBe(sid)
+  })
+
+  test('clears tag when null is passed', async () => {
+    const sid = randomUUID()
+    const filePath = join(sessionDir, `${sid}.jsonl`)
+    writeFileSync(filePath, JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'hello' },
+      uuid: randomUUID(),
+      parentUuid: null,
+      sessionId: sid,
+      isSidechain: false,
+    }) + '\n', { encoding: 'utf8' })
+
+    await tagSession(sid, null, { dir: testProjectDir })
+
+    const entries = await readJSONLFile<any>(filePath)
+    const tagEntry = entries.find(e => e.type === 'tag')
+    expect(tagEntry).toBeDefined()
+    expect(tagEntry.tag).toBe('')
+  })
+
+  test('throws for invalid session ID', async () => {
+    await expect(
+      tagSession('not-a-uuid', 'tag'),
+    ).rejects.toThrow('Invalid session ID')
+  })
+})
+
+describe('deleteSession', () => {
+  const testProjectDir = join(tmpdir(), 'delete-test-' + process.pid)
+  let sessionDir: string
+
+  beforeEach(() => {
+    sessionDir = getProjectDir(testProjectDir)
+    mkdirSync(sessionDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(sessionDir, { recursive: true, force: true })
+  })
+
+  test('deletes existing session file', async () => {
+    const sid = randomUUID()
+    const filePath = join(sessionDir, `${sid}.jsonl`)
+    writeFileSync(filePath, JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'hello' },
+      uuid: randomUUID(),
+      parentUuid: null,
+      sessionId: sid,
+      isSidechain: false,
+    }) + '\n', { encoding: 'utf8' })
+
+    // Verify file exists before deletion
+    const { statSync } = await import('fs')
+    expect(() => statSync(filePath)).not.toThrow()
+
+    await deleteSession(sid, { dir: testProjectDir })
+
+    // File should no longer exist
+    expect(() => statSync(filePath)).toThrow()
+  })
+
+  test('deleted session is no longer found by getSessionInfo', async () => {
+    const sid = randomUUID()
+    const filePath = join(sessionDir, `${sid}.jsonl`)
+    writeFileSync(filePath, JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'hello' },
+      uuid: randomUUID(),
+      parentUuid: null,
+      sessionId: sid,
+      isSidechain: false,
+    }) + '\n', { encoding: 'utf8' })
+
+    await deleteSession(sid, { dir: testProjectDir })
+
+    const info = await getSessionInfo(sid, { dir: testProjectDir })
+    expect(info).toBeUndefined()
+  })
+
+  test('throws for non-existent session', async () => {
+    await expect(
+      deleteSession('00000000-0000-0000-0000-000000000000', { dir: testProjectDir }),
+    ).rejects.toThrow('Session not found')
+  })
+
+  test('throws for invalid session ID', async () => {
+    await expect(
+      deleteSession('not-a-uuid'),
+    ).rejects.toThrow('Invalid session ID')
   })
 })
