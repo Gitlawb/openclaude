@@ -109,18 +109,22 @@ export function estimateCost(
 ): CostEstimate {
   const breakdown = getTokenBreakdown(usage)
   
+  // Use higher precision for small costs to avoid rounding to $0
   const inputCost = (breakdown.input / 1_000_000) * pricing.inputPer1M
   const outputCost = (breakdown.output / 1_000_000) * pricing.outputPer1M
   const cacheReadCost = (breakdown.cacheRead / 1_000_000) * pricing.cacheReadPer1M
   const cacheCreationCost = (breakdown.cacheCreation / 1_000_000) * pricing.cacheCreationPer1M
   
+  const totalCost = inputCost + outputCost + cacheReadCost + cacheCreationCost
+  
   return {
-    input: Math.round(inputCost * 1000) / 1000,
-    output: Math.round(outputCost * 1000) / 1000,
-    cache: Math.round((cacheReadCost + cacheCreationCost) * 1000) / 1000,
-    total: Math.round((inputCost + outputCost + cacheReadCost + cacheCreationCost) * 1000) / 1000,
+    input: Math.round(inputCost * 10000) / 10000,
+    output: Math.round(outputCost * 10000) / 10000,
+    cache: Math.round((cacheReadCost + cacheCreationCost) * 10000) / 10000,
+    total: Math.round(totalCost * 10000) / 10000,
     currency: pricing.currency,
-  }
+    _raw: totalCost, // Keep high-precision for budget comparisons
+  } as CostEstimate & { _raw: number }
 }
 
 /**
@@ -246,7 +250,9 @@ export function exceedsBudget(
   
   const overTokens = budget.maxTokens !== undefined && total > budget.maxTokens
   const costEstimate = estimateCost(usage)
-  const overCost = budget.maxCost !== undefined && costEstimate.total > budget.maxCost
+  // Use raw high-precision cost for budget comparison
+  const rawCost = (costEstimate as CostEstimate & { _raw?: number })._raw ?? costEstimate.total
+  const overCost = budget.maxCost !== undefined && rawCost > budget.maxCost
   
   let details: string | undefined
   if (overTokens && overCost) {

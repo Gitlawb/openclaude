@@ -1,10 +1,8 @@
 /**
- * Incremental Token Counter - Production Grade
- * 
- * High-performance token counting with smart caching.
- * Optimized for real-time usage in tight loops.
+ * High-performance token counter with cache invalidation on content change.
  */
 
+import { createHash } from 'crypto'
 import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import type { Message } from '../types/message.js'
 
@@ -26,11 +24,26 @@ export interface CounterStats {
 }
 
 /**
- * High-performance incremental token counter with stats tracking.
+ * Get a quick hash of message content for cache validation.
+ */
+function getMessageHash(messages: readonly Message[]): string {
+  if (messages.length === 0) return 'empty'
+  const lastMsg = messages[messages.length - 1]
+  const content = typeof lastMsg.message?.content === 'string'
+    ? lastMsg.message.content
+    : Array.isArray(lastMsg.message?.content)
+      ? JSON.stringify(lastMsg.message.content.slice(0, 5))
+      : ''
+  return createHash('sha256').update(content).digest('hex').slice(0, 12)
+}
+
+/**
+ * High-performance incremental token counter with content-aware invalidation.
  */
 export class IncrementalTokenCounter {
   private lastMessageCount = 0
   private lastTokenCount = 0
+  private lastHash = ''
   private config: Required<IncrementalCounterConfig>
   private stats = {
     hits: 0,
@@ -56,8 +69,10 @@ export class IncrementalTokenCounter {
       return 0
     }
 
-    // Cache hit
-    if (messages.length === this.lastMessageCount) {
+    const hash = getMessageHash(messages)
+
+    // Cache hit only if both count AND content match
+    if (messages.length === this.lastMessageCount && hash === this.lastHash) {
       this.stats.hits++
       this.stats.totalTokens += this.lastTokenCount
       return this.lastTokenCount
@@ -79,6 +94,7 @@ export class IncrementalTokenCounter {
     }
 
     this.lastMessageCount = messages.length
+    this.lastHash = hash
     this.stats.totalTokens += this.lastTokenCount
     
     return this.lastTokenCount
@@ -90,6 +106,7 @@ export class IncrementalTokenCounter {
    */
   invalidate(messages: readonly Message[]): number {
     this.lastMessageCount = messages.length
+    this.lastHash = getMessageHash(messages)
     
     if (messages.length === 0) {
       this.lastTokenCount = 0
