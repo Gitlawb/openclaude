@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.6.0](https://github.com/Gitlawb/openclaude/compare/v0.5.2...v0.6.0) (2026-04-22)
+
+
+### Features
+
+* add model caching and benchmarking utilities ([#671](https://github.com/Gitlawb/openclaude/issues/671)) ([2b15e16](https://github.com/Gitlawb/openclaude/commit/2b15e16421f793f954a92c53933a07094544b29d))
+* add thinking token extraction ([#798](https://github.com/Gitlawb/openclaude/issues/798)) ([268c039](https://github.com/Gitlawb/openclaude/commit/268c0398e4bf1ab898069c61500a2b3c226a0322))
+* **api:** compress old tool_result content for small-context providers ([#801](https://github.com/Gitlawb/openclaude/issues/801)) ([a6a3de5](https://github.com/Gitlawb/openclaude/commit/a6a3de5ac155fe9d00befbfcab98d439314effd8))
+* **api:** improve local provider reliability with readiness and self-healing ([#738](https://github.com/Gitlawb/openclaude/issues/738)) ([4cb963e](https://github.com/Gitlawb/openclaude/commit/4cb963e660dbd6ee438c04042700db05a9d32c59))
+* **api:** smart model routing primitive (cheap-for-simple, strong-for-hard) ([#785](https://github.com/Gitlawb/openclaude/issues/785)) ([e908864](https://github.com/Gitlawb/openclaude/commit/e908864da7e7c987a98053ac5d18d702e192db2b))
+* enable 15 additional feature flags in open build ([#667](https://github.com/Gitlawb/openclaude/issues/667)) ([6a62e3f](https://github.com/Gitlawb/openclaude/commit/6a62e3ff76ba9ba446b8e20cf2bb139ee76a9387))
+* native Anthropic API mode for Claude models on GitHub Copilot ([#579](https://github.com/Gitlawb/openclaude/issues/579)) ([fdef4a1](https://github.com/Gitlawb/openclaude/commit/fdef4a1b4ce218ded4937ca83b30acce7c726472))
+* **provider:** expose Atomic Chat in /provider picker with autodetect ([#810](https://github.com/Gitlawb/openclaude/issues/810)) ([ee19159](https://github.com/Gitlawb/openclaude/commit/ee19159c17b3de3b4a8b4a4541a6569f4261d54e))
+* **provider:** zero-config autodetection primitive ([#784](https://github.com/Gitlawb/openclaude/issues/784)) ([a5bfcbb](https://github.com/Gitlawb/openclaude/commit/a5bfcbbadf8e9a1fd42f3e103d295524b8da64b0))
+
+
+### Bug Fixes
+
+* **api:** ensure strict role sequence and filter empty assistant messages after interruption ([#745](https://github.com/Gitlawb/openclaude/issues/745) regression) ([#794](https://github.com/Gitlawb/openclaude/issues/794)) ([06e7684](https://github.com/Gitlawb/openclaude/commit/06e7684eb56df8e694ac784575e163641931c44c))
+* Collapse all-text arrays to string for DeepSeek compatibility ([#806](https://github.com/Gitlawb/openclaude/issues/806)) ([761924d](https://github.com/Gitlawb/openclaude/commit/761924daa7e225fe8acf41651408c7cae639a511))
+* **model:** codex/nvidia-nim/minimax now read OPENAI_MODEL env ([#815](https://github.com/Gitlawb/openclaude/issues/815)) ([4581208](https://github.com/Gitlawb/openclaude/commit/458120889f6ce54cc9f0b287461d5e38eae48a20))
+* **provider:** saved profile ignored when stale CLAUDE_CODE_USE_* in shell ([#807](https://github.com/Gitlawb/openclaude/issues/807)) ([13de4e8](https://github.com/Gitlawb/openclaude/commit/13de4e85df7f5fadc8cd15a76076374dc112360b))
+* rename .claude.json to .openclaude.json with legacy fallback ([#582](https://github.com/Gitlawb/openclaude/issues/582)) ([4d4fb28](https://github.com/Gitlawb/openclaude/commit/4d4fb2880e4d0e3a62d8715e1ec13d932e736279))
+* replace discontinued gemini-2.5-pro-preview-03-25 with stable gemini-2.5-pro ([#802](https://github.com/Gitlawb/openclaude/issues/802)) ([64582c1](https://github.com/Gitlawb/openclaude/commit/64582c119d5d0278195271379da4a68d59a89c1f)), closes [#398](https://github.com/Gitlawb/openclaude/issues/398)
+* **security:** harden project settings trust boundary + MCP sanitization ([#789](https://github.com/Gitlawb/openclaude/issues/789)) ([ae3b723](https://github.com/Gitlawb/openclaude/commit/ae3b723f3b297b49925cada4728f3174aee8bf12))
+* **test:** autoCompact floor assertion is flag-sensitive ([#816](https://github.com/Gitlawb/openclaude/issues/816)) ([c13842e](https://github.com/Gitlawb/openclaude/commit/c13842e91c7227246520955de6ae0636b30def9a))
+* **ui:** prevent provider manager lag by deferring sync I/O ([#803](https://github.com/Gitlawb/openclaude/issues/803)) ([85eab27](https://github.com/Gitlawb/openclaude/commit/85eab2751e7d351bb0ed6a3fe0e15461d241c9cb))
+
 ## [0.5.2](https://github.com/Gitlawb/openclaude/compare/v0.5.1...v0.5.2) (2026-04-20)
 
 
