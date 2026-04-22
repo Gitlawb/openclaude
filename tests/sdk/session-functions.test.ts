@@ -295,3 +295,91 @@ describe('deleteSession', () => {
     ).rejects.toThrow('Invalid session ID')
   })
 })
+
+describe('E2E: session lifecycle — create → read → mutate → fork → delete', () => {
+  const testProjectDir = join(tmpdir(), 'e2e-lifecycle-' + process.pid)
+  let sessionDir: string
+
+  beforeEach(() => {
+    sessionDir = getProjectDir(testProjectDir)
+    mkdirSync(sessionDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(sessionDir, { recursive: true, force: true })
+  })
+
+  test('full lifecycle preserves data at every step', async () => {
+    const sid = randomUUID()
+    const filePath = join(sessionDir, `${sid}.jsonl`)
+
+    // Step 1: Create session with conversation
+    const userUuid = randomUUID()
+    const assistantUuid = randomUUID()
+    writeFileSync(filePath, [
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'hello from e2e' },
+        uuid: userUuid,
+        parentUuid: null,
+        sessionId: sid,
+        isSidechain: false,
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'hi from assistant' }] },
+        uuid: assistantUuid,
+        parentUuid: userUuid,
+        sessionId: sid,
+        isSidechain: false,
+      }),
+    ].join('\n') + '\n', { encoding: 'utf8' })
+
+    // Step 2: Read messages — should find 2
+    const messages = await getSessionMessages(sid, { dir: testProjectDir })
+    expect(messages.length).toBeGreaterThanOrEqual(2)
+
+    // Step 3: Rename — should append title entry
+    await renameSession(sid, 'E2E Test Session', { dir: testProjectDir })
+    const entriesAfterRename = await readJSONLFile<any>(filePath)
+    const titleEntry = entriesAfterRename.find(e => e.type === 'custom-title')
+    expect(titleEntry.customTitle).toBe('E2E Test Session')
+
+    // Step 4: Tag — should append tag entry
+    await tagSession(sid, 'e2e-tag', { dir: testProjectDir })
+    const entriesAfterTag = await readJSONLFile<any>(filePath)
+    const tagEntry = entriesAfterTag.find(e => e.type === 'tag')
+    expect(tagEntry.tag).toBe('e2e-tag')
+
+    // Step 5: Fork — should create new session with remapped UUIDs
+    const forked = await forkSession(sid, { dir: testProjectDir, title: 'Forked Copy' })
+    expect(forked.session_id).not.toBe(sid)
+    const forkedPath = join(sessionDir, `${forked.session_id}.jsonl`)
+    const forkedEntries = await readJSONLFile<any>(forkedPath)
+
+    // Forked session should have remapped UUIDs (different from originals)
+    const forkedUser = forkedEntries.find(e => e.type === 'user')
+    expect(forkedUser.uuid).not.toBe(userUuid)
+    // But same content
+    expect(forkedUser.message.content).toBe('hello from e2e')
+    // Forked from reference should exist
+    expect(forkedUser.forkedFrom).toBeDefined()
+    expect(forkedUser.forkedFrom.sessionId).toBe(sid)
+
+    // Forked title should be set (appended after metadata copy, so last custom-title wins)
+    const forkedTitles = forkedEntries.filter(e => e.type === 'custom-title')
+    expect(forkedTitles.length).toBeGreaterThanOrEqual(1)
+    // The last custom-title entry should be the one set by fork options
+    const forkedTitle = forkedTitles[forkedTitles.length - 1]
+    expect(forkedTitle.customTitle).toBe('Forked Copy')
+
+    // Step 6: Delete original — forked should still exist
+    await deleteSession(sid, { dir: testProjectDir })
+    const deletedInfo = await getSessionInfo(sid, { dir: testProjectDir })
+    expect(deletedInfo).toBeUndefined()
+
+    // Forked session should still be readable
+    const forkedMessages = await getSessionMessages(forked.session_id, { dir: testProjectDir })
+    expect(forkedMessages.length).toBeGreaterThanOrEqual(2)
+  })
+})

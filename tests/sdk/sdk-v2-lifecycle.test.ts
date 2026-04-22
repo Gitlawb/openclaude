@@ -215,3 +215,36 @@ describe('V2: unstable_v2_prompt', () => {
     ).toThrow()
   })
 })
+
+describe('E2E: transcript placement — resume sets project dir and resolve still finds file', () => {
+  test('resumeSession sets projectDir so resolveSessionFilePath finds the file', async () => {
+    await withTempDir(async (dir) => {
+      tempDirs.push(dir)
+      const sid = randomUUID()
+      createSessionJsonl(dir, sid, createMinimalConversation(sid))
+
+      // Before resume: file exists on disk
+      const { resolveSessionFilePath } = await import('../../src/utils/sessionStoragePortable.js')
+      const before = await resolveSessionFilePath(sid, dir)
+      expect(before).toBeDefined()
+      expect(before!.filePath).toContain(sid)
+
+      // Resume the session — this should call switchSession internally
+      const session = await unstable_v2_resumeSession(sid, { cwd: dir })
+
+      // Verify session is usable
+      expect(session.sessionId).toBe(sid)
+      const messages = session.getMessages()
+      expect(messages.length).toBeGreaterThanOrEqual(2)
+
+      // Verify project dir was set by switchSession
+      const projectDir = getSessionProjectDir()
+      expect(projectDir).not.toBeNull()
+
+      // Verify resolveSessionFilePath still finds the file at the same path
+      const after = await resolveSessionFilePath(sid, dir)
+      expect(after).toBeDefined()
+      expect(after!.filePath).toBe(before!.filePath)
+    })
+  })
+})
