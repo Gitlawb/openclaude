@@ -26,7 +26,7 @@ DuckHive is an AI coding CLI agent harness built on [OpenClaw](https://github.co
 | No MiniMax modalities | **Full mmx** — image, speech, music, video |
 | No shell toggle | **Ctrl-X shell toggle** |
 | No hierarchical context | **DUCK.md** context loading (gemini-cli style) |
-| No project init | **/init** — auto-generates AGENTS.md + workspace setup |
+| No project init | **init_tool** — auto-generates AGENTS.md + workspace setup |
 | No session export | **/export** — zip sessions for sharing |
 | No built-in council daemon | **Integrated Council daemon** — auto-starts on first run |
 | Basic MCP | **dmcp** — enhanced MCP server management |
@@ -53,8 +53,8 @@ cd DuckHive && bun install && bun run build
 
 **After setup:**
 ```bash
-# First-run: /init auto-analyzes your project and creates AGENTS.md
-/init setup
+# First-run: init_tool auto-analyzes your project and creates AGENTS.md
+/init_tool action=setup
 
 # Then just code
 duckhive "Implement a REST API"
@@ -76,17 +76,19 @@ The TypeScript agent core (`dist/cli.mjs`) is built via `bun run build` and runs
 
 ### /init — Project Setup
 
-Analyze any codebase and auto-generate `AGENTS.md`, `SOUL.md`, and DuckHive config. Uses a sub-agent for deep codebase analysis.
+> **For non-interactive use (scripts, CI, --print mode): use `init_tool` below.**
+> The built-in `/init` REPL command requires an interactive terminal.
 
+**Interactive REPL mode:**
 ```bash
-# Auto-analyze and create all workspace files
-/init setup
+/init   # Launches the interactive setup wizard
+```
 
-# See what would be created (no changes)
-/init detect
-
-# Configure providers and model preferences
-/init config --provider minmax --model MiniMax-M2.7
+**Non-interactive (scripts / CI / --print mode):**
+```bash
+/init_tool action=setup    # Auto-analyze + create AGENTS.md, SOUL.md, TOOLS.md
+/init_tool action=detect   # Preview what would be created
+/init_tool action=config   # Configure ~/.duckhive/config.json
 ```
 
 ### /export — Session Packaging
