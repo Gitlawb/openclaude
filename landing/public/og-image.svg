@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">OpenClaude</title>
+  <desc id="desc">Open-source coding-agent CLI for cloud and local models.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f0e0d" />
+      <stop offset="60%" stop-color="#120f0c" />
+      <stop offset="100%" stop-color="#0a0908" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffb14a" />
+      <stop offset="100%" stop-color="#ff7a00" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <rect x="60" y="60" width="1080" height="510" rx="24" fill="none" stroke="#2a1f18" stroke-width="2" />
+  <rect x="84" y="84" width="1032" height="96" rx="14" fill="#15110e" stroke="#2a1f18" />
+  <circle cx="128" cy="132" r="8" fill="#ff7a00" />
+  <circle cx="156" cy="132" r="8" fill="#ff9f36" />
+  <circle cx="184" cy="132" r="8" fill="#ffd19c" />
+
+  <text x="220" y="142" fill="#c6ab96" font-size="28" font-family="'JetBrains Mono', monospace">openclaude --status</text>
+  <text x="120" y="280" fill="#f9efe6" font-size="72" font-weight="700" font-family="'Oxanium', sans-serif">OpenClaude</text>
+  <text x="120" y="338" fill="#ff8c00" font-size="30" font-family="'JetBrains Mono', monospace">Open-source coding-agent CLI</text>
+  <text x="120" y="388" fill="#c6ab96" font-size="28" font-family="'JetBrains Mono', monospace">One workflow across cloud and local models.</text>
+
+  <rect x="120" y="442" width="430" height="70" rx="12" fill="#ff8c00" />
+  <text x="145" y="486" fill="#120f0c" font-size="32" font-weight="700" font-family="'Oxanium', sans-serif">github.com/Gitlawb/openclaude</text>
+</svg>

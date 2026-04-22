@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gitlawb.github.io/openclaude/sitemap.xml

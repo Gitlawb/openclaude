@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>OpenClaude</title>
+  <defs>
+    <linearGradient id="amber" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffb14a" />
+      <stop offset="100%" stop-color="#ff7a00" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0f0e0d" />
+  <path d="M14 22h8v20h-8zm14-6h8v32h-8zm14 10h8v16h-8z" fill="url(#amber)" />
+</svg>

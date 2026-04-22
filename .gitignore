@@ -6,8 +6,8 @@ dist/
 !.env.example
 .openclaude-profile.json
 reports/
-landing/package-lock.json
 GEMINI.md
 package-lock.json
+!landing/package-lock.json
 /.claude
 coverage/

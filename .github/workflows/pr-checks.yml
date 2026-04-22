@@ -24,6 +24,14 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install landing dependencies
+        working-directory: landing
+        run: npm ci
+
+      - name: Build landing page
+        working-directory: landing
+        run: npm run build
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
         with:

@@ -12,6 +12,8 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/oxanium": "^5.2.8",
     "lucide-react": "^0.541.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
