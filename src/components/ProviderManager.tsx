@@ -878,6 +878,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         OPENAI_ORGANIZATION: undefined as any,
         OPENAI_BASE_URL: undefined as any,
         OPENAI_API_BASE: undefined as any,
+        OPENAI_CUSTOM_HEADERS: undefined as any,
         CLAUDE_CODE_USE_OPENAI: undefined as any,
         CLAUDE_CODE_USE_GEMINI: undefined as any,
         CLAUDE_CODE_USE_BEDROCK: undefined as any,
@@ -897,6 +898,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     delete process.env.OPENAI_ORGANIZATION
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_CUSTOM_HEADERS
     delete process.env.CLAUDE_CODE_USE_OPENAI
     delete process.env.CLAUDE_CODE_USE_GEMINI
     delete process.env.CLAUDE_CODE_USE_BEDROCK
@@ -923,6 +925,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         OPENAI_MODEL: undefined as any,
         OPENAI_BASE_URL: undefined as any,
         OPENAI_API_BASE: undefined as any,
+        OPENAI_CUSTOM_HEADERS: undefined as any,
       },
     })
     if (error) {
@@ -947,6 +950,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     delete process.env.OPENAI_ORGANIZATION
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_CUSTOM_HEADERS
 
     // Restore active provider profile immediately when one exists.
     applyActiveProviderProfileFromConfig()

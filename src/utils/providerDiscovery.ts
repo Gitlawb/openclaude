@@ -236,7 +236,7 @@ export async function listOpenAICompatibleModels(options?: {
       ...parseCustomHeadersEnv(process.env.OPENAI_CUSTOM_HEADERS),
       ...(sanitizeCustomHeaders(options?.headers) ?? {}),
     }
-    if (options?.apiKey && !hasCustomAuthHeader(headers, options.apiKey)) {
+    if (options?.apiKey && !hasCustomAuthHeader(headers)) {
       headers.Authorization = `Bearer ${options.apiKey}`
     }
 

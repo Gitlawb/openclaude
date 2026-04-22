@@ -82,19 +82,13 @@ export function formatCustomHeadersInput(
 
 export function hasCustomAuthHeader(
   headers: Record<string, unknown> | null | undefined,
-  apiKey?: string | null,
 ): boolean {
   const sanitized = sanitizeCustomHeaders(headers)
   if (!sanitized) {
     return false
   }
 
-  const normalizedApiKey = apiKey?.trim()
-
-  return Object.entries(sanitized).some(([name, value]) =>
+  return Object.entries(sanitized).some(([name]) =>
     CUSTOM_AUTH_HEADER_NAMES.has(name.trim().toLowerCase()),
-  ) || (
-    Boolean(normalizedApiKey) &&
-    Object.values(sanitized).some(value => value.trim() === normalizedApiKey)
   )
 }

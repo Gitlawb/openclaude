@@ -321,7 +321,7 @@ test('keeps Authorization when OPENAI_CUSTOM_HEADERS only adds non-auth headers'
   expect(capturedHeaders?.get('authorization')).toBe('Bearer openai-test-key')
 })
 
-test('treats custom headers carrying the API key as explicit auth headers', async () => {
+test('keeps Authorization when custom header values match the API key but header names are non-auth', async () => {
   let capturedHeaders: Headers | undefined
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -374,7 +374,62 @@ test('treats custom headers carrying the API key as explicit auth headers', asyn
   })
 
   expect(capturedHeaders?.get('x-custom-secret')).toBe('openai-test-key')
-  expect(capturedHeaders?.get('authorization')).toBeNull()
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer openai-test-key')
+})
+
+test('github mode ignores OPENAI_CUSTOM_HEADERS', async () => {
+  let capturedHeaders: Headers | undefined
+
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot'
+  process.env.GITHUB_TOKEN = 'github-test-token'
+  process.env.OPENAI_CUSTOM_HEADERS = 'api-key: provider-api-key; X-Provider-Org: demo-team'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-github',
+        model: 'github:copilot',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'github:copilot',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'github:copilot',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('api-key')).toBeNull()
+  expect(capturedHeaders?.get('x-provider-org')).toBeNull()
 })
 
 test('strips Anthropic-specific custom headers on providerOverride shim requests too', async () => {

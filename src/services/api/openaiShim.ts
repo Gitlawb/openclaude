@@ -1557,10 +1557,7 @@ class OpenAIShimMessages {
       this.providerOverride?.apiKey ??
       process.env.OPENAI_API_KEY ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
-    const hasExplicitCustomAuthHeader = hasCustomAuthHeader(
-      this.customHeaders,
-      apiKey,
-    )
+    const hasExplicitCustomAuthHeader = hasCustomAuthHeader(this.customHeaders)
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false

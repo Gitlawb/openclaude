@@ -284,9 +284,7 @@ export function buildGeminiProfileEnv(options: {
     env.GEMINI_BASE_URL = baseUrl
   }
 
-  const customHeaders =
-    formatCustomHeadersEnv(options.headers) ??
-    formatCustomHeadersEnv(parseCustomHeadersEnv(processEnv.OPENAI_CUSTOM_HEADERS))
+  const customHeaders = formatCustomHeadersEnv(options.headers)
   if (customHeaders) {
     env.OPENAI_CUSTOM_HEADERS = customHeaders
   }
@@ -318,9 +316,6 @@ export function buildOpenAIProfileEnv(options: {
     processEnv.OPENAI_BASE_URL,
     secretSource,
   )
-  const shellOpenAICustomHeaders = formatCustomHeadersEnv(
-    parseCustomHeadersEnv(processEnv.OPENAI_CUSTOM_HEADERS),
-  )
   const shellOpenAIRequest = resolveProviderRequest({
     model: shellOpenAIModel,
     baseUrl: shellOpenAIBaseUrl,
@@ -340,9 +335,7 @@ export function buildOpenAIProfileEnv(options: {
     OPENAI_API_KEY: key,
   }
 
-  const customHeaders =
-    formatCustomHeadersEnv(options.headers) ||
-    (useShellOpenAIConfig ? shellOpenAICustomHeaders : undefined)
+  const customHeaders = formatCustomHeadersEnv(options.headers)
   if (customHeaders) {
     env.OPENAI_CUSTOM_HEADERS = customHeaders
   }
@@ -419,9 +412,7 @@ export function buildMistralProfileEnv(options: {
     env.MISTRAL_BASE_URL = baseUrl
   }
 
-  const customHeaders =
-    formatCustomHeadersEnv(options.headers) ??
-    formatCustomHeadersEnv(parseCustomHeadersEnv(processEnv.OPENAI_CUSTOM_HEADERS))
+  const customHeaders = formatCustomHeadersEnv(options.headers)
   if (customHeaders) {
     env.OPENAI_CUSTOM_HEADERS = customHeaders
   }

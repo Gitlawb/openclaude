@@ -121,6 +121,36 @@ test('keeps Authorization for model discovery when custom headers are not auth h
   ).resolves.toEqual(['qwen2.5-coder-7b-instruct'])
 })
 
+test('keeps Authorization for model discovery when custom header values match the API key', async () => {
+  const { listOpenAICompatibleModels } = await loadProviderDiscoveryModule()
+  process.env.OPENAI_CUSTOM_HEADERS = 'X-Custom-Secret: local-key'
+
+  globalThis.fetch = mock((input, init) => {
+    const url = typeof input === 'string' ? input : input.url
+    expect(url).toBe('http://localhost:1234/v1/models')
+    expect(init?.headers).toEqual({
+      'X-Custom-Secret': 'local-key',
+      Authorization: 'Bearer local-key',
+    })
+
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          data: [{ id: 'qwen2.5-coder-7b-instruct' }],
+        }),
+        { status: 200 },
+      ),
+    )
+  }) as typeof globalThis.fetch
+
+  await expect(
+    listOpenAICompatibleModels({
+      baseUrl: 'http://localhost:1234/v1',
+      apiKey: 'local-key',
+    }),
+  ).resolves.toEqual(['qwen2.5-coder-7b-instruct'])
+})
+
 test('detects LM Studio from the default localhost port', async () => {
   const { getLocalOpenAICompatibleProviderLabel } =
     await loadProviderDiscoveryModule()

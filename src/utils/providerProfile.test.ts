@@ -11,6 +11,7 @@ import {
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
   buildLaunchEnv,
+  buildMistralProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   clearPersistedCodexOAuthProfile,
@@ -192,6 +193,20 @@ test('buildOpenAIProfileEnv stores custom headers', () => {
   })
 
   assert.equal(env?.OPENAI_CUSTOM_HEADERS, 'api-key: sk-live')
+})
+
+test('buildOpenAIProfileEnv does not inherit shell custom headers when none are provided', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    apiKey: 'sk-live',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-5',
+    processEnv: {
+      OPENAI_CUSTOM_HEADERS: 'api-key: sticky-header',
+    },
+  })
+
+  assert.equal(env?.OPENAI_CUSTOM_HEADERS, undefined)
 })
 
 test('matching persisted gemini env is reused for gemini launch', async () => {
@@ -416,6 +431,35 @@ test('gemini profiles accept google api key fallback', () => {
     GEMINI_AUTH_MODE: 'api-key',
     GEMINI_MODEL: 'gemini-2.0-flash',
     GEMINI_API_KEY: 'gem-live',
+  })
+})
+
+test('gemini profiles do not inherit shell custom headers when none are provided', () => {
+  const env = buildGeminiProfileEnv({
+    processEnv: {
+      GOOGLE_API_KEY: 'gem-live',
+      OPENAI_CUSTOM_HEADERS: 'api-key: sticky-header',
+    },
+  })
+
+  assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'api-key',
+    GEMINI_MODEL: 'gemini-2.0-flash',
+    GEMINI_API_KEY: 'gem-live',
+  })
+})
+
+test('mistral profiles do not inherit shell custom headers when none are provided', () => {
+  const env = buildMistralProfileEnv({
+    processEnv: {
+      MISTRAL_API_KEY: 'mistral-live',
+      OPENAI_CUSTOM_HEADERS: 'api-key: sticky-header',
+    },
+  })
+
+  assert.deepEqual(env, {
+    MISTRAL_API_KEY: 'mistral-live',
+    MISTRAL_MODEL: 'devstral-latest',
   })
 })
 

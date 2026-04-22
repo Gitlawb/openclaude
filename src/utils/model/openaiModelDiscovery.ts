@@ -45,7 +45,7 @@ function getOpenAIAuthHeaders(baseUrl: string): Record<string, string> {
     ...parseCustomHeadersEnv(process.env.OPENAI_CUSTOM_HEADERS),
   }
   const apiKey = process.env.OPENAI_API_KEY?.trim()
-  if (!apiKey || hasCustomAuthHeader(headers, apiKey)) {
+  if (!apiKey || hasCustomAuthHeader(headers)) {
     return headers
   }
 
