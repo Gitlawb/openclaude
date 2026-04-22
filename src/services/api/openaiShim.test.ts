@@ -3343,6 +3343,139 @@ test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', a
   expect(requestBody?.store).toBeUndefined()
 })
 
+test('Moonshot: echoes reasoning_content on assistant tool-call messages', async () => {
+  // Regression for: "API Error: 400 {"error":{"message":"thinking is enabled
+  // but reasoning_content is missing in assistant tool call message at index
+  // N"}}" when the agent sends a prior-turn assistant response back to Kimi.
+  // The thinking block captured from the inbound response must round-trip
+  // as reasoning_content on the outgoing echoed assistant message.
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  process.env.OPENAI_API_KEY = 'sk-moonshot-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-k2.6',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-k2.6',
+    system: 'you are kimi',
+    messages: [
+      { role: 'user', content: 'check the logs' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Need to inspect logs via Bash; running a cat.',
+          },
+          { type: 'text', text: "I'll inspect the logs." },
+          {
+            type: 'tool_use',
+            id: 'call_bash_1',
+            name: 'Bash',
+            input: { command: 'cat /tmp/app.log' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_bash_1',
+            content: 'log line 1\nlog line 2',
+          },
+        ],
+      },
+    ],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to inspect logs via Bash; running a cat.',
+  )
+})
+
+test('non-Moonshot providers do NOT receive reasoning_content on assistant messages', async () => {
+  // Guard: only Moonshot opts in. DeepSeek/OpenRouter/etc. receive the
+  // outgoing assistant message without reasoning_content to avoid
+  // unknown-field rejections from strict servers.
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-chat',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-chat',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'thought' },
+          { type: 'text', text: 'hello' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBeUndefined()
+})
+
 test('Moonshot: cn host is also detected', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.cn/v1'
   process.env.OPENAI_API_KEY = 'sk-moonshot-test'

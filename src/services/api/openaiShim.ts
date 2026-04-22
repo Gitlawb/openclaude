@@ -218,6 +218,14 @@ interface OpenAIMessage {
   }>
   tool_call_id?: string
   name?: string
+  /**
+   * Per-assistant-message chain-of-thought, attached when echoing an
+   * assistant message back to providers that require it (notably Moonshot:
+   * "thinking is enabled but reasoning_content is missing in assistant
+   * tool call message at index N" 400). Derived from the Anthropic thinking
+   * block captured when the original response was translated.
+   */
+  reasoning_content?: string
 }
 
 interface OpenAITool {
@@ -385,7 +393,9 @@ function convertMessages(
     content?: unknown
   }>,
   system: unknown,
+  options?: { preserveReasoningContent?: boolean },
 ): OpenAIMessage[] {
+  const preserveReasoningContent = options?.preserveReasoningContent === true
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
 
@@ -486,6 +496,21 @@ function convertMessages(
                 ? c.map((p: { text?: string }) => p.text ?? '').join('')
                 : ''
           })(),
+        }
+
+        // Providers that validate reasoning continuity (Moonshot: "thinking
+        // is enabled but reasoning_content is missing in assistant tool call
+        // message at index N" 400) need the original chain-of-thought echoed
+        // back on each assistant message that carries a tool_call. We kept
+        // the thinking block on the Anthropic side; re-attach it here as the
+        // `reasoning_content` field on the outgoing OpenAI-shaped message.
+        // Gated per-provider because other endpoints either ignore the field
+        // (harmless) or strict-reject unknown fields (harmful).
+        if (preserveReasoningContent) {
+          const thinkingText = (thinkingBlock as { thinking?: string } | undefined)?.thinking
+          if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
+            assistantMsg.reasoning_content = thinkingText
+          }
         }
 
         if (toolUses.length > 0) {
@@ -1460,7 +1485,12 @@ class OpenAIShimMessages {
       }>,
       request.resolvedModel,
     )
-    const openaiMessages = convertMessages(compressedMessages, params.system)
+    const openaiMessages = convertMessages(compressedMessages, params.system, {
+      // Moonshot requires every assistant tool-call message to carry
+      // reasoning_content when its thinking feature is active. Echo it back
+      // from the thinking block we captured on the inbound response.
+      preserveReasoningContent: isMoonshotBaseUrl(request.baseUrl),
+    })
 
     const body: Record<string, unknown> = {
       model: request.resolvedModel,
