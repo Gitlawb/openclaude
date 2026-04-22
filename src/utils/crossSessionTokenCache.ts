@@ -5,6 +5,7 @@
  * to avoid re-processing common content.
  */
 
+import { createHash } from 'crypto'
 import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
 
 export interface CrossSessionCacheEntry {
@@ -151,12 +152,6 @@ export class CrossSessionTokenCache {
   }
 
   private hashContent(content: string): string {
-    let hash = 0
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash
-    }
-    return hash.toString(16)
+    return createHash('sha256').update(content.slice(0, 1024)).digest('hex').slice(0, 16)
   }
 }

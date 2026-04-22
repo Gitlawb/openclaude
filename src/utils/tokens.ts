@@ -1,8 +1,27 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { estimateWithBounds, roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
+import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
+import { CrossSessionTokenCache } from './crossSessionTokenCache.js'
+
+let _crossSessionTokenCache: CrossSessionTokenCache | undefined
+
+export function getCrossSessionTokenCache(): CrossSessionTokenCache {
+  if (!_crossSessionTokenCache) {
+    _crossSessionTokenCache = new CrossSessionTokenCache(200, 48 * 60 * 60 * 1000)
+  }
+  return _crossSessionTokenCache
+}
+
+export const crossSessionTokenCache = { get cache() { return getCrossSessionTokenCache() } }
+
+function cachedTokenCount(content: string): number {
+  if (content.length < 20) {
+    return roughTokenCountEstimation(content)
+  }
+  return getCrossSessionTokenCache().getTokenCount(content)
+}
 
 export function getTokenUsage(message: Message): Usage | undefined {
   if (
