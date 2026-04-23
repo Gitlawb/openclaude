@@ -22,9 +22,9 @@ import {
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
 import {
   getAdditionalModelOptionsCacheScope,
+  isAimlapiBaseUrl,
   resolveProviderRequest,
 } from './providerConfig.js'
-import { getAimlapiApiKey } from '../../providers/aimlapi/index.js'
 
 const bootstrapResponseSchema = lazySchema(() =>
   z.object({
@@ -143,13 +143,19 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
   }
 
   const { baseUrl } = resolveProviderRequest()
+  const isAimlapi = isAimlapiBaseUrl(baseUrl)
+  const discoveryApiKey =
+    process.env.OPENAI_API_KEY ??
+    (isAimlapi ? process.env.AIMLAPI_API_KEY : undefined)
   const models = await listOpenAICompatibleModelOptions({
     baseUrl,
-    apiKey: process.env.OPENAI_API_KEY ?? getAimlapiApiKey(),
+    apiKey: discoveryApiKey,
   })
 
   if (models === null) {
-    logForDebugging('[Bootstrap] Local OpenAI model discovery failed')
+    logForDebugging(
+      `[Bootstrap] OpenAI-compatible model discovery failed for ${baseUrl}`,
+    )
     return null
   }
 

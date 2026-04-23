@@ -19,6 +19,7 @@ import {
   AIMLAPI_DEFAULT_BASE_URL,
   isAimlapiBaseUrl,
 } from '../../providers/aimlapi/index.js'
+export { isAimlapiBaseUrl } from '../../providers/aimlapi/index.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
