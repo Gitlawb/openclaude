@@ -161,7 +161,7 @@ export function getProviderPresetDefaults(
     case 'kimi-code':
       return {
         provider: 'openai',
-        name: 'Moonshot Ai - Kimi Code',
+        name: 'Moonshot AI - Kimi Code',
         baseUrl: 'https://api.kimi.com/coding/v1',
         model: 'kimi-for-coding',
         apiKey: '',

@@ -118,7 +118,7 @@ const PRESET_ORDER = [
   'MiniMax',
   'Mistral',
   'Moonshot AI - API',
-  'Moonshot Ai - Kimi Code',
+  'Moonshot AI - Kimi Code',
   'NVIDIA NIM',
   'Ollama',
   'OpenAI',

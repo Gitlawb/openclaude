@@ -546,7 +546,7 @@ describe('getProviderPresetDefaults', () => {
     const defaults = getProviderPresetDefaults('kimi-code')
 
     expect(defaults.provider).toBe('openai')
-    expect(defaults.name).toBe('Moonshot Ai - Kimi Code')
+    expect(defaults.name).toBe('Moonshot AI - Kimi Code')
     expect(defaults.baseUrl).toBe('https://api.kimi.com/coding/v1')
     expect(defaults.model).toBe('kimi-for-coding')
     expect(defaults.requiresApiKey).toBe(true)

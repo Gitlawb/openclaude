@@ -199,7 +199,7 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     }
     // Kimi Code subscription API
     if (hostname === 'api.kimi.com' && path.includes('/coding')) {
-      return 'Moonshot Ai - Kimi Code'
+      return 'Moonshot AI - Kimi Code'
     }
     // Moonshot AI direct API
     if (host.includes('moonshot') || haystack.includes('moonshot')) {

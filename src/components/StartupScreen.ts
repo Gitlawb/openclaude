@@ -127,7 +127,7 @@ function detectProvider(): { name: string; model: string; baseUrl: string; isLoc
       /api\.kimi\.com/i.test(baseUrl) ||
       /\bkimi-for-coding\b/i.test(rawModel)
     )
-      name = 'Moonshot Ai - Kimi Code'
+      name = 'Moonshot AI - Kimi Code'
     else if (/moonshot/i.test(baseUrl) || /\bkimi-k/i.test(rawModel))
       name = 'Moonshot AI - API'
     else if (/deepseek/i.test(baseUrl) || /deepseek/i.test(rawModel))
