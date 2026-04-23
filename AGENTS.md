@@ -38,6 +38,7 @@ Pick the **narrowest** check that covers your change. When in doubt, at least `b
 | Provider recommendation tests | `bun run test:provider-recommendation` |
 | Stricter gate (typecheck + smoke + runtime doctor) | `bun run hardening:strict` |
 | Runtime / profile diagnostics | `bun run doctor:runtime` |
+| Deploy from checkout (pack / link / global / registry) | `docs/deploy.md`; `bun run deploy:*` |
 
 CI runs **PR Checks** on GitHub; align with those workflows when you touch packaging, entrypoints, or core paths.
 
@@ -46,6 +47,7 @@ CI runs **PR Checks** on GitHub; align with those workflows when you touch packa
 - Use **Bun** for scripts and tests (`bun install`, then commands above).
 - After pulling `main`, run **`bun run build`** or **`bun run smoke`** if `dist/` might be stale.
 - Some environments use a minimal `PATH` and may not see `bun`; fix the shell or prepend the directory that contains the `bun` binary before reporting “command not found”.
+- **VS Code / Cursor tasks** use **`scripts/cursor-dev-path.sh`** to prepend common Bun paths before running smoke, tests, or deploy helpers (see `.vscode/tasks.json`).
 
 ## Editor-specific configuration
 
@@ -54,4 +56,5 @@ This repository **does not** ship editor-only trees (for example `.cursor/` or t
 ## Further reading
 
 - [docs/agent-workflow.md](docs/agent-workflow.md) — repository map, local OpenAI-compatible servers, browser CORS, fork sync.
+- [docs/deploy.md](docs/deploy.md) — install from npm, tarball, `npm link`, global from checkout, upstream release, fork-scoped npm.
 - [Hermes agent `AGENTS.md`](https://github.com/NousResearch/hermes-agent/blob/main/AGENTS.md) — example of a deeper, project-wide agent guide (structure reference only).
