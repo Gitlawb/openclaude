@@ -347,7 +347,7 @@ const COMMANDS = memoize((): Command[] => [
   hooks,
   exportCommand,
   sandboxToggle,
-  ...(!isUsing3PServices() ? [logout, login()] : []),
+  ...(!isUsing3PServices() ? [logout, login()].filter(Boolean) : []),
   passes,
   ...(peersCmd ? [peersCmd] : []),
   tasks,
@@ -427,8 +427,8 @@ const getWorkflowCommands = feature('WORKFLOW_SCRIPTS')
  * Not memoized — auth state can change mid-session (e.g. after /login),
  * so this must be re-evaluated on every getCommands() call.
  */
-export function meetsAvailabilityRequirement(cmd: Command): boolean {
-  if (!cmd.availability) return true
+export function meetsAvailabilityRequirement(cmd: Command | null | undefined): boolean {
+  if (!cmd || !cmd.availability || !Array.isArray(cmd.availability)) return true
   for (const a of cmd.availability) {
     switch (a) {
       case 'claude-ai':
@@ -740,23 +740,23 @@ export function getCommand(commandName: string, commands: Command[]): Command {
  */
 export function formatDescriptionWithSource(cmd: Command): string {
   if (cmd.type !== 'prompt') {
-    return cmd.description ?? ''
+    return cmd.description
   }
 
   if (cmd.kind === 'workflow') {
-    return `${cmd.description ?? ''} (workflow)`
+    return `${cmd.description} (workflow)`
   }
 
   if (cmd.source === 'plugin') {
     const pluginName = cmd.pluginInfo?.pluginManifest.name
     if (pluginName) {
-      return `(${pluginName}) ${cmd.description ?? ''}`
+      return `(${pluginName}) ${cmd.description}`
     }
-    return `${cmd.description ?? ''} (plugin)`
+    return `${cmd.description} (plugin)`
   }
 
   if (cmd.source === 'builtin' || cmd.source === 'mcp') {
-    return cmd.description ?? ''
+    return cmd.description
   }
 
   if (cmd.source === 'bundled') {
