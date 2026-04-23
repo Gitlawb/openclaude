@@ -86,7 +86,6 @@ describe('conversationArc', () => {
   })
 
   describe('resetArc', () => {
-
     it('returns existing arc or creates new', () => {
       const arc1 = getArc()
       const arc2 = getArc()

@@ -1523,7 +1523,10 @@ async function* queryLoop(
     queryCheckpoint('query_tool_execution_end')
 
     // Track multi-turn context after tool execution
-    if (feature('MULTI_TURN_CONTEXT')) {
+    if (
+      feature('MULTI_TURN_CONTEXT') &&
+      getGlobalConfig().knowledgeGraphEnabled
+    ) {
       const { addMessageToTurn, addToolCallToTurn } = await import(
         './utils/multiTurnContext.js'
       )
@@ -1539,7 +1542,10 @@ async function* queryLoop(
     }
 
     // Update conversation arc phase
-    if (feature('CONVERSATION_ARC')) {
+    if (
+      feature('CONVERSATION_ARC') &&
+      getGlobalConfig().knowledgeGraphEnabled
+    ) {
       const { updateArcPhase } = await import('./utils/conversationArc.js')
       updateArcPhase([assistantMessage])
     }

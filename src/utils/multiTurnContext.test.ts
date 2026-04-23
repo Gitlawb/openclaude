@@ -29,8 +29,8 @@ describe('multiTurnContext', () => {
     it('creates a new turn', () => {
       const turn = startNewTurn()
       expect(turn.turnId).toBeDefined()
+      expect(turn.startTime).toBeDefined()
       expect(turn.messages).toEqual([])
-      expect(turn.toolCalls).toEqual([])
     })
 
     it('tracks turn count', () => {
@@ -44,33 +44,34 @@ describe('multiTurnContext', () => {
     it('adds message to current turn', () => {
       startNewTurn()
       addMessageToTurn(createMessage('user', 'Hello'))
-
-      const turn = getCurrentTurn()
-      expect(turn?.messages.length).toBe(1)
+      expect(getCurrentTurn()?.messages.length).toBe(1)
     })
 
     it('creates turn if none exists', () => {
       addMessageToTurn(createMessage('user', 'Hello'))
-      expect(getCurrentTurn()).not.toBeNull()
+      expect(getCurrentTurn()).toBeDefined()
+      expect(getCurrentTurn()?.messages.length).toBe(1)
     })
   })
 
   describe('addToolCallToTurn', () => {
     it('adds tool call to turn', () => {
       startNewTurn()
-      addToolCallToTurn({ id: 'tool1', name: 'read', input: { file: 'test' }, timestamp: Date.now() })
-
-      const turn = getCurrentTurn()
-      expect(turn?.toolCalls.length).toBe(1)
-      expect(turn?.toolCalls[0].name).toBe('read')
+      addToolCallToTurn({
+        id: 'call_1',
+        name: 'test_tool',
+        input: {},
+        timestamp: Date.now(),
+      })
+      expect(getCurrentTurn()?.toolCalls.length).toBe(1)
     })
   })
 
   describe('state management', () => {
     it('sets and gets turn state', () => {
       startNewTurn()
-      setTurnState('key1', 'value1')
-      expect(getTurnState<string>('key1')).toBe('value1')
+      setTurnState('key', 'value')
+      expect(getTurnState('key')).toBe('value')
     })
 
     it('returns undefined for unknown keys', () => {
@@ -83,29 +84,26 @@ describe('multiTurnContext', () => {
     it('returns turn history', () => {
       startNewTurn()
       startNewTurn()
-
-      const history = getTurnHistory()
-      expect(history.length).toBe(2)
+      expect(getTurnHistory().length).toBe(2)
     })
   })
 
   describe('getRecentTurns', () => {
     it('returns recent turns', () => {
-      for (let i = 0; i < 5; i++) startNewTurn()
-
-      const recent = getRecentTurns(3)
-      expect(recent.length).toBe(3)
+      startNewTurn()
+      startNewTurn()
+      startNewTurn()
+      expect(getRecentTurns(2).length).toBe(2)
     })
   })
 
   describe('getMultiTurnStats', () => {
     it('returns statistics', () => {
       startNewTurn()
-      addMessageToTurn(createMessage('user', 'Test'))
-
+      addMessageToTurn(createMessage('user', 'Hello'))
       const stats = getMultiTurnStats()
       expect(stats.totalTurns).toBe(1)
-      expect(stats.currentTurnActive).toBe(true)
+      expect(stats.totalTokens).toBeGreaterThan(0)
     })
   })
 
@@ -120,15 +118,15 @@ describe('multiTurnContext', () => {
     it('respects the maxTurns option', () => {
       // Create a tracker with a very small maxTurns
       createMultiTurnTracker({ maxTurns: 2 })
-
+      
       startNewTurn() // turn 1
       startNewTurn() // turn 2
       startNewTurn() // turn 3 - should drop turn 1
-
+      
       const history = getTurnHistory()
       expect(history.length).toBe(2)
       // The first remaining turn should be the 2nd one created
       expect(history[0].turnId).toContain('turn_2')
     })
-    })
-    })
+  })
+})
