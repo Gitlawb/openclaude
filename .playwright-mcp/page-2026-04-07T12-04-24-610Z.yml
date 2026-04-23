@@ -1,0 +1,392 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - heading "❅ Power Planner" [level=1] [ref=e4]:
+        - generic [ref=e5]: ❅
+        - text: Power Planner
+      - paragraph [ref=e6]: Planejamento de Negocio
+    - generic [ref=e7]:
+      - generic [ref=e8]: Visao Geral
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: ●
+        - text: Dashboard
+        - generic [ref=e11]: "1"
+    - generic [ref=e12]:
+      - generic [ref=e13]: Financeiro
+      - generic [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: $
+        - text: DRE
+        - generic [ref=e16]: 12M
+        - generic [ref=e17]: "2"
+      - generic [ref=e18] [cursor=pointer]:
+        - generic [ref=e19]: ⇄
+        - text: Fluxo de Caixa
+        - generic [ref=e20]: "3"
+    - generic [ref=e21]:
+      - generic [ref=e22]: Operacional
+      - generic [ref=e23] [cursor=pointer]:
+        - generic [ref=e24]: ★
+        - text: Estoque
+        - generic [ref=e25]: "14"
+        - generic [ref=e26]: "4"
+      - generic [ref=e27] [cursor=pointer]:
+        - generic [ref=e28]: ⚙
+        - text: Premissas
+        - generic [ref=e29]: "5"
+    - generic [ref=e30]:
+      - generic [ref=e31]: Estrategico
+      - generic [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: ♦
+        - text: Cenarios
+        - generic [ref=e34]: "0"
+        - generic [ref=e35]: "6"
+      - generic [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ☰
+        - text: Plano e KPIs
+        - generic [ref=e38]: "7"
+    - generic [ref=e39]:
+      - button "⬇ Exportar Backup" [ref=e40] [cursor=pointer]
+      - generic [ref=e41] [cursor=pointer]: ⬆ Importar Backup
+      - button "🗑 Limpar Dados" [ref=e42] [cursor=pointer]
+      - generic [ref=e43]: Ctrl+1-7 trocar aba · Ctrl+S salvar
+  - generic [ref=e145]:
+    - generic [ref=e146]:
+      - generic [ref=e147]:
+        - heading "Estoque — Produtos Prontos" [level=2] [ref=e148]
+        - generic [ref=e149]: Controle de estoque e validade
+      - generic [ref=e150]:
+        - button "+ Novo" [ref=e151] [cursor=pointer]
+        - button "Entrada Lote" [ref=e152] [cursor=pointer]
+    - generic [ref=e153]:
+      - table [ref=e154]:
+        - rowgroup [ref=e155]:
+          - row "Produto Qtd Min. Vlr Unit. Vlr Total Validade Acoes" [ref=e156]:
+            - columnheader "Produto" [ref=e157]
+            - columnheader "Qtd" [ref=e158]
+            - columnheader "Min." [ref=e159]
+            - columnheader "Vlr Unit." [ref=e160]
+            - columnheader "Vlr Total" [ref=e161]
+            - columnheader "Validade" [ref=e162]
+            - columnheader "Acoes" [ref=e163]
+        - rowgroup [ref=e164]:
+          - row "POTE 1L Choc.Trufado 6 5 R$ 8,00 R$ 48,00 - + − ×" [ref=e165]:
+            - cell "POTE 1L Choc.Trufado" [ref=e166]
+            - cell "6" [ref=e167]
+            - cell "5" [ref=e168]
+            - cell "R$ 8,00" [ref=e169]
+            - cell "R$ 48,00" [ref=e170]:
+              - strong [ref=e171]: R$ 48,00
+            - cell "-" [ref=e172]
+            - cell "+ − ×" [ref=e173]:
+              - button "+" [ref=e174] [cursor=pointer]
+              - button "−" [ref=e175] [cursor=pointer]
+              - button "×" [ref=e176] [cursor=pointer]
+          - row "POTE 1L Morango Trufado 5 5 R$ 8,00 R$ 40,00 - + − ×" [ref=e177]:
+            - cell "POTE 1L Morango Trufado" [ref=e178]
+            - cell "5" [ref=e179]
+            - cell "5" [ref=e180]
+            - cell "R$ 8,00" [ref=e181]
+            - cell "R$ 40,00" [ref=e182]:
+              - strong [ref=e183]: R$ 40,00
+            - cell "-" [ref=e184]
+            - cell "+ − ×" [ref=e185]:
+              - button "+" [ref=e186] [cursor=pointer]
+              - button "−" [ref=e187] [cursor=pointer]
+              - button "×" [ref=e188] [cursor=pointer]
+          - row "POTE 1,5L Chocolate 3 5 R$ 14,00 R$ 42,00 - + − ×" [ref=e189]:
+            - cell "POTE 1,5L Chocolate" [ref=e190]
+            - cell "3" [ref=e191]
+            - cell "5" [ref=e192]
+            - cell "R$ 14,00" [ref=e193]
+            - cell "R$ 42,00" [ref=e194]:
+              - strong [ref=e195]: R$ 42,00
+            - cell "-" [ref=e196]
+            - cell "+ − ×" [ref=e197]:
+              - button "+" [ref=e198] [cursor=pointer]
+              - button "−" [ref=e199] [cursor=pointer]
+              - button "×" [ref=e200] [cursor=pointer]
+          - row "POTE 1,5L Pistache 2 5 R$ 16,00 R$ 32,00 - + − ×" [ref=e201]:
+            - cell "POTE 1,5L Pistache" [ref=e202]
+            - cell "2" [ref=e203]
+            - cell "5" [ref=e204]
+            - cell "R$ 16,00" [ref=e205]
+            - cell "R$ 32,00" [ref=e206]:
+              - strong [ref=e207]: R$ 32,00
+            - cell "-" [ref=e208]
+            - cell "+ − ×" [ref=e209]:
+              - button "+" [ref=e210] [cursor=pointer]
+              - button "−" [ref=e211] [cursor=pointer]
+              - button "×" [ref=e212] [cursor=pointer]
+          - row "POTE 1L Leite Ninho 4 5 R$ 7,00 R$ 28,00 - + − ×" [ref=e213]:
+            - cell "POTE 1L Leite Ninho" [ref=e214]
+            - cell "4" [ref=e215]
+            - cell "5" [ref=e216]
+            - cell "R$ 7,00" [ref=e217]
+            - cell "R$ 28,00" [ref=e218]:
+              - strong [ref=e219]: R$ 28,00
+            - cell "-" [ref=e220]
+            - cell "+ − ×" [ref=e221]:
+              - button "+" [ref=e222] [cursor=pointer]
+              - button "−" [ref=e223] [cursor=pointer]
+              - button "×" [ref=e224] [cursor=pointer]
+          - row "POTE 1,5L Snickers 3 5 R$ 15,00 R$ 45,00 - + − ×" [ref=e225]:
+            - cell "POTE 1,5L Snickers" [ref=e226]
+            - cell "3" [ref=e227]
+            - cell "5" [ref=e228]
+            - cell "R$ 15,00" [ref=e229]
+            - cell "R$ 45,00" [ref=e230]:
+              - strong [ref=e231]: R$ 45,00
+            - cell "-" [ref=e232]
+            - cell "+ − ×" [ref=e233]:
+              - button "+" [ref=e234] [cursor=pointer]
+              - button "−" [ref=e235] [cursor=pointer]
+              - button "×" [ref=e236] [cursor=pointer]
+          - row "PICOLE LEITE Chocolate cx40 5 5 R$ 38,00 R$ 190,00 - + − ×" [ref=e237]:
+            - cell "PICOLE LEITE Chocolate cx40" [ref=e238]
+            - cell "5" [ref=e239]
+            - cell "5" [ref=e240]
+            - cell "R$ 38,00" [ref=e241]
+            - cell "R$ 190,00" [ref=e242]:
+              - strong [ref=e243]: R$ 190,00
+            - cell "-" [ref=e244]
+            - cell "+ − ×" [ref=e245]:
+              - button "+" [ref=e246] [cursor=pointer]
+              - button "−" [ref=e247] [cursor=pointer]
+              - button "×" [ref=e248] [cursor=pointer]
+          - row "PICOLE LEITE Morango cx40 4 5 R$ 35,00 R$ 140,00 - + − ×" [ref=e249]:
+            - cell "PICOLE LEITE Morango cx40" [ref=e250]
+            - cell "4" [ref=e251]
+            - cell "5" [ref=e252]
+            - cell "R$ 35,00" [ref=e253]
+            - cell "R$ 140,00" [ref=e254]:
+              - strong [ref=e255]: R$ 140,00
+            - cell "-" [ref=e256]
+            - cell "+ − ×" [ref=e257]:
+              - button "+" [ref=e258] [cursor=pointer]
+              - button "−" [ref=e259] [cursor=pointer]
+              - button "×" [ref=e260] [cursor=pointer]
+          - row "MORENINHA un 40 5 R$ 2,50 R$ 100,00 - + − ×" [ref=e261]:
+            - cell "MORENINHA un" [ref=e262]
+            - cell "40" [ref=e263]
+            - cell "5" [ref=e264]
+            - cell "R$ 2,50" [ref=e265]
+            - cell "R$ 100,00" [ref=e266]:
+              - strong [ref=e267]: R$ 100,00
+            - cell "-" [ref=e268]
+            - cell "+ − ×" [ref=e269]:
+              - button "+" [ref=e270] [cursor=pointer]
+              - button "−" [ref=e271] [cursor=pointer]
+              - button "×" [ref=e272] [cursor=pointer]
+          - row "SORVETE 300ml Choc.Trufado 5 5 R$ 7,00 R$ 35,00 - + − ×" [ref=e273]:
+            - cell "SORVETE 300ml Choc.Trufado" [ref=e274]
+            - cell "5" [ref=e275]
+            - cell "5" [ref=e276]
+            - cell "R$ 7,00" [ref=e277]
+            - cell "R$ 35,00" [ref=e278]:
+              - strong [ref=e279]: R$ 35,00
+            - cell "-" [ref=e280]
+            - cell "+ − ×" [ref=e281]:
+              - button "+" [ref=e282] [cursor=pointer]
+              - button "−" [ref=e283] [cursor=pointer]
+              - button "×" [ref=e284] [cursor=pointer]
+          - row "SORVETE 300ml Morango 4 5 R$ 7,00 R$ 28,00 - + − ×" [ref=e285]:
+            - cell "SORVETE 300ml Morango" [ref=e286]
+            - cell "4" [ref=e287]
+            - cell "5" [ref=e288]
+            - cell "R$ 7,00" [ref=e289]
+            - cell "R$ 28,00" [ref=e290]:
+              - strong [ref=e291]: R$ 28,00
+            - cell "-" [ref=e292]
+            - cell "+ − ×" [ref=e293]:
+              - button "+" [ref=e294] [cursor=pointer]
+              - button "−" [ref=e295] [cursor=pointer]
+              - button "×" [ref=e296] [cursor=pointer]
+          - row "SUNDAE Chocolate 10 5 R$ 3,50 R$ 35,00 - + − ×" [ref=e297]:
+            - cell "SUNDAE Chocolate" [ref=e298]
+            - cell "10" [ref=e299]
+            - cell "5" [ref=e300]
+            - cell "R$ 3,50" [ref=e301]
+            - cell "R$ 35,00" [ref=e302]:
+              - strong [ref=e303]: R$ 35,00
+            - cell "-" [ref=e304]
+            - cell "+ − ×" [ref=e305]:
+              - button "+" [ref=e306] [cursor=pointer]
+              - button "−" [ref=e307] [cursor=pointer]
+              - button "×" [ref=e308] [cursor=pointer]
+          - row "SUNDAE Morango 10 5 R$ 3,50 R$ 35,00 - + − ×" [ref=e309]:
+            - cell "SUNDAE Morango" [ref=e310]
+            - cell "10" [ref=e311]
+            - cell "5" [ref=e312]
+            - cell "R$ 3,50" [ref=e313]
+            - cell "R$ 35,00" [ref=e314]:
+              - strong [ref=e315]: R$ 35,00
+            - cell "-" [ref=e316]
+            - cell "+ − ×" [ref=e317]:
+              - button "+" [ref=e318] [cursor=pointer]
+              - button "−" [ref=e319] [cursor=pointer]
+              - button "×" [ref=e320] [cursor=pointer]
+          - row "ALASKINHO un 40 5 R$ 2,50 R$ 100,00 - + − ×" [ref=e321]:
+            - cell "ALASKINHO un" [ref=e322]
+            - cell "40" [ref=e323]
+            - cell "5" [ref=e324]
+            - cell "R$ 2,50" [ref=e325]
+            - cell "R$ 100,00" [ref=e326]:
+              - strong [ref=e327]: R$ 100,00
+            - cell "-" [ref=e328]
+            - cell "+ − ×" [ref=e329]:
+              - button "+" [ref=e330] [cursor=pointer]
+              - button "−" [ref=e331] [cursor=pointer]
+              - button "×" [ref=e332] [cursor=pointer]
+          - row "ACAI 1L Natural 5 5 R$ 6,00 R$ 30,00 - + − ×" [ref=e333]:
+            - cell "ACAI 1L Natural" [ref=e334]
+            - cell "5" [ref=e335]
+            - cell "5" [ref=e336]
+            - cell "R$ 6,00" [ref=e337]
+            - cell "R$ 30,00" [ref=e338]:
+              - strong [ref=e339]: R$ 30,00
+            - cell "-" [ref=e340]
+            - cell "+ − ×" [ref=e341]:
+              - button "+" [ref=e342] [cursor=pointer]
+              - button "−" [ref=e343] [cursor=pointer]
+              - button "×" [ref=e344] [cursor=pointer]
+          - row "ACAI 300ml Natural 8 5 R$ 3,50 R$ 28,00 - + − ×" [ref=e345]:
+            - cell "ACAI 300ml Natural" [ref=e346]
+            - cell "8" [ref=e347]
+            - cell "5" [ref=e348]
+            - cell "R$ 3,50" [ref=e349]
+            - cell "R$ 28,00" [ref=e350]:
+              - strong [ref=e351]: R$ 28,00
+            - cell "-" [ref=e352]
+            - cell "+ − ×" [ref=e353]:
+              - button "+" [ref=e354] [cursor=pointer]
+              - button "−" [ref=e355] [cursor=pointer]
+              - button "×" [ref=e356] [cursor=pointer]
+          - row "ACAI 300ml c/Nutella 6 5 R$ 5,00 R$ 30,00 - + − ×" [ref=e357]:
+            - cell "ACAI 300ml c/Nutella" [ref=e358]
+            - cell "6" [ref=e359]
+            - cell "5" [ref=e360]
+            - cell "R$ 5,00" [ref=e361]
+            - cell "R$ 30,00" [ref=e362]:
+              - strong [ref=e363]: R$ 30,00
+            - cell "-" [ref=e364]
+            - cell "+ − ×" [ref=e365]:
+              - button "+" [ref=e366] [cursor=pointer]
+              - button "−" [ref=e367] [cursor=pointer]
+              - button "×" [ref=e368] [cursor=pointer]
+          - row "ACAI Quente 300ml 8 5 R$ 3,50 R$ 28,00 - + − ×" [ref=e369]:
+            - cell "ACAI Quente 300ml" [ref=e370]
+            - cell "8" [ref=e371]
+            - cell "5" [ref=e372]
+            - cell "R$ 3,50" [ref=e373]
+            - cell "R$ 28,00" [ref=e374]:
+              - strong [ref=e375]: R$ 28,00
+            - cell "-" [ref=e376]
+            - cell "+ − ×" [ref=e377]:
+              - button "+" [ref=e378] [cursor=pointer]
+              - button "−" [ref=e379] [cursor=pointer]
+              - button "×" [ref=e380] [cursor=pointer]
+          - row "ACAI Quente 500ml 4 5 R$ 5,50 R$ 22,00 - + − ×" [ref=e381]:
+            - cell "ACAI Quente 500ml" [ref=e382]
+            - cell "4" [ref=e383]
+            - cell "5" [ref=e384]
+            - cell "R$ 5,50" [ref=e385]
+            - cell "R$ 22,00" [ref=e386]:
+              - strong [ref=e387]: R$ 22,00
+            - cell "-" [ref=e388]
+            - cell "+ − ×" [ref=e389]:
+              - button "+" [ref=e390] [cursor=pointer]
+              - button "−" [ref=e391] [cursor=pointer]
+              - button "×" [ref=e392] [cursor=pointer]
+          - row "Chocolate Quente 300ml 6 5 R$ 2,50 R$ 15,00 - + − ×" [ref=e393]:
+            - cell "Chocolate Quente 300ml" [ref=e394]
+            - cell "6" [ref=e395]
+            - cell "5" [ref=e396]
+            - cell "R$ 2,50" [ref=e397]
+            - cell "R$ 15,00" [ref=e398]:
+              - strong [ref=e399]: R$ 15,00
+            - cell "-" [ref=e400]
+            - cell "+ − ×" [ref=e401]:
+              - button "+" [ref=e402] [cursor=pointer]
+              - button "−" [ref=e403] [cursor=pointer]
+              - button "×" [ref=e404] [cursor=pointer]
+          - row "Chocolate Quente Especial 2 5 R$ 5,00 R$ 10,00 - + − ×" [ref=e405]:
+            - cell "Chocolate Quente Especial" [ref=e406]
+            - cell "2" [ref=e407]
+            - cell "5" [ref=e408]
+            - cell "R$ 5,00" [ref=e409]
+            - cell "R$ 10,00" [ref=e410]:
+              - strong [ref=e411]: R$ 10,00
+            - cell "-" [ref=e412]
+            - cell "+ − ×" [ref=e413]:
+              - button "+" [ref=e414] [cursor=pointer]
+              - button "−" [ref=e415] [cursor=pointer]
+              - button "×" [ref=e416] [cursor=pointer]
+          - row "Fondue Individual 1 5 R$ 8,00 R$ 8,00 - + − ×" [ref=e417]:
+            - cell "Fondue Individual" [ref=e418]
+            - cell "1" [ref=e419]
+            - cell "5" [ref=e420]
+            - cell "R$ 8,00" [ref=e421]
+            - cell "R$ 8,00" [ref=e422]:
+              - strong [ref=e423]: R$ 8,00
+            - cell "-" [ref=e424]
+            - cell "+ − ×" [ref=e425]:
+              - button "+" [ref=e426] [cursor=pointer]
+              - button "−" [ref=e427] [cursor=pointer]
+              - button "×" [ref=e428] [cursor=pointer]
+          - row "Vinho Quente 2 5 R$ 4,00 R$ 8,00 - + − ×" [ref=e429]:
+            - cell "Vinho Quente" [ref=e430]
+            - cell "2" [ref=e431]
+            - cell "5" [ref=e432]
+            - cell "R$ 4,00" [ref=e433]
+            - cell "R$ 8,00" [ref=e434]:
+              - strong [ref=e435]: R$ 8,00
+            - cell "-" [ref=e436]
+            - cell "+ − ×" [ref=e437]:
+              - button "+" [ref=e438] [cursor=pointer]
+              - button "−" [ref=e439] [cursor=pointer]
+              - button "×" [ref=e440] [cursor=pointer]
+      - generic [ref=e441]: "Valor Total: R$ 1.077,00"
+    - generic [ref=e442]:
+      - generic [ref=e445]:
+        - text: "Estoque baixo:"
+        - strong [ref=e446]: POTE 1L Morango Trufado
+      - generic [ref=e449]:
+        - text: "Estoque baixo:"
+        - strong [ref=e450]: POTE 1,5L Chocolate
+      - generic [ref=e453]:
+        - text: "Estoque baixo:"
+        - strong [ref=e454]: POTE 1,5L Pistache
+      - generic [ref=e457]:
+        - text: "Estoque baixo:"
+        - strong [ref=e458]: POTE 1L Leite Ninho
+      - generic [ref=e461]:
+        - text: "Estoque baixo:"
+        - strong [ref=e462]: POTE 1,5L Snickers
+      - generic [ref=e465]:
+        - text: "Estoque baixo:"
+        - strong [ref=e466]: PICOLE LEITE Chocolate cx40
+      - generic [ref=e469]:
+        - text: "Estoque baixo:"
+        - strong [ref=e470]: PICOLE LEITE Morango cx40
+      - generic [ref=e473]:
+        - text: "Estoque baixo:"
+        - strong [ref=e474]: SORVETE 300ml Choc.Trufado
+      - generic [ref=e477]:
+        - text: "Estoque baixo:"
+        - strong [ref=e478]: SORVETE 300ml Morango
+      - generic [ref=e481]:
+        - text: "Estoque baixo:"
+        - strong [ref=e482]: ACAI 1L Natural
+      - generic [ref=e485]:
+        - text: "Estoque baixo:"
+        - strong [ref=e486]: ACAI Quente 500ml
+      - generic [ref=e489]:
+        - text: "Estoque baixo:"
+        - strong [ref=e490]: Chocolate Quente Especial
+      - generic [ref=e493]:
+        - text: "Estoque baixo:"
+        - strong [ref=e494]: Fondue Individual
+      - generic [ref=e497]:
+        - text: "Estoque baixo:"
+        - strong [ref=e498]: Vinho Quente
+  - generic [ref=e144]: Salvo

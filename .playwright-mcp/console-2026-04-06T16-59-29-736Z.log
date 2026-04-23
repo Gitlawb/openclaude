@@ -1,0 +1,54 @@
+[  281215ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)
+[  290958ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)
+[  291965ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)
+[  292254ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)
+[  292494ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)
+[  292734ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)
+[  293246ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)
+[  293494ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)
+[  299614ms] TypeError: v.toFixed is not a function
+    at fm (http://localhost:8765/ferramenta_interativa.html:137:24)
+    at http://localhost:8765/ferramenta_interativa.html:436:33
+    at Array.forEach (<anonymous>)
+    at calcFC (http://localhost:8765/ferramenta_interativa.html:432:8)
+    at HTMLButtonElement.onclick (http://localhost:8765/ferramenta_interativa.html:1:1)

@@ -1,0 +1,238 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Sorveteria" [level=1] [ref=e5]
+      - text: Plano Interativo & Simulador
+    - generic [ref=e6]:
+      - generic [ref=e7]: Plano de Negócio
+      - button "📊 Dashboard" [ref=e8] [cursor=pointer]:
+        - generic [ref=e9]: 📊
+        - text: Dashboard
+      - button "🎯 Visão Geral" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: 🎯
+        - text: Visão Geral
+      - button "🍦 Catálogo" [ref=e12] [cursor=pointer]:
+        - generic [ref=e13]: 🍦
+        - text: Catálogo
+      - button "📈 Mercado" [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: 📈
+        - text: Mercado
+      - button "📢 Marketing" [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: 📢
+        - text: Marketing
+    - generic [ref=e18]:
+      - generic [ref=e19]: Simulador
+      - button "⚙️ Cenários" [ref=e20] [cursor=pointer]:
+        - generic [ref=e21]: ⚙️
+        - text: Cenários
+      - button "📋 DRE" [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: 📋
+        - text: DRE
+      - button "💰 Fluxo Caixa" [ref=e24] [cursor=pointer]:
+        - generic [ref=e25]: 💰
+        - text: Fluxo Caixa
+      - button "🛒 Vendas" [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: 🛒
+        - text: Vendas
+      - button "📦 Estoque" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]: 📦
+        - text: Estoque
+    - generic [ref=e30]:
+      - generic [ref=e31]: Gestão
+      - button "🏭 Fornecedores" [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: 🏭
+        - text: Fornecedores
+      - button "👥 Equipe" [ref=e34] [cursor=pointer]:
+        - generic [ref=e35]: 👥
+        - text: Equipe
+      - button "⚠️ Riscos" [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ⚠️
+        - text: Riscos
+      - button "🎯 Metas/KPIs" [ref=e38] [cursor=pointer]:
+        - generic [ref=e39]: 🎯
+        - text: Metas/KPIs
+      - button "🚀 Crescimento" [ref=e40] [cursor=pointer]:
+        - generic [ref=e41]: 🚀
+        - text: Crescimento
+      - button "📜 Histórico" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: 📜
+        - text: Histórico
+  - main [ref=e44]:
+    - generic [ref=e147]:
+      - heading "🛒 Registro de Vendas" [level=2] [ref=e148]
+      - generic [ref=e149]:
+        - heading "Nova Venda" [level=3] [ref=e150]
+        - generic [ref=e151]:
+          - generic [ref=e152]:
+            - generic [ref=e153]: Data
+            - textbox [ref=e154]: 2026-04-06
+          - generic [ref=e155]:
+            - generic [ref=e156]: Cliente
+            - textbox "Nome" [ref=e157]
+          - generic [ref=e158]:
+            - generic [ref=e159]: Tipo
+            - combobox [ref=e160]:
+              - option "B2B" [selected]
+              - option "Autônomo"
+              - option "Avulso"
+        - heading "Itens" [level=3] [ref=e161]
+        - generic [ref=e163]:
+          - generic [ref=e164]:
+            - generic [ref=e165]: Produto
+            - combobox [ref=e166]:
+              - option "PALETA" [selected]
+              - option "SKIMO"
+              - option "PICOLÉ Água"
+              - option "PICOLÉ Leite"
+              - option "PICOLÉ Gourmet"
+              - option "MORENINHA"
+              - option "SUNDAE"
+              - option "ALASKINHO"
+              - option "SORVETE 200ml"
+              - option "SORVETE 300ml"
+              - option "POTE 1L"
+              - option "POTE 1,3L c/rech"
+              - option "POTE 1,5L Esp"
+              - option "POTE 1,8L c/rech"
+              - option "POTE 1,8L s/rech"
+              - option "AÇAÍ 1L"
+              - option "AÇAÍ 1,5L"
+              - option "AÇAÍ 300ml"
+              - option "CAIXA 5L"
+              - option "CAIXA 10L"
+          - generic [ref=e167]:
+            - generic [ref=e168]: Qtd (cx)
+            - spinbutton [ref=e169]: "1"
+          - generic [ref=e170]:
+            - generic [ref=e171]: Valor (R$)
+            - spinbutton [ref=e172]: "120"
+          - button "✕" [ref=e174] [cursor=pointer]
+        - button "+ Item" [ref=e175] [cursor=pointer]
+        - generic [ref=e177]:
+          - generic [ref=e178]: Pagamento
+          - combobox [ref=e179]:
+            - option "PIX" [selected]
+            - option "Dinheiro"
+            - option "Boleto"
+            - option "Cartão"
+        - button "💾 Salvar" [active] [ref=e180] [cursor=pointer]
+        - generic [ref=e181]: "Total: R$ 240,00"
+      - generic [ref=e182]:
+        - heading "Vendas Registradas (10)" [level=3] [ref=e183]
+        - generic [ref=e184]:
+          - button "📥 Exportar JSON" [ref=e185] [cursor=pointer]
+          - button "🗑️ Limpar" [ref=e186] [cursor=pointer]
+        - table [ref=e188]:
+          - rowgroup [ref=e189]:
+            - row "Data Cliente Tipo Itens Total Pgto" [ref=e190]:
+              - columnheader "Data" [ref=e191]
+              - columnheader "Cliente" [ref=e192]
+              - columnheader "Tipo" [ref=e193]
+              - columnheader "Itens" [ref=e194]
+              - columnheader "Total" [ref=e195]
+              - columnheader "Pgto" [ref=e196]
+              - columnheader [ref=e197]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e198]:
+              - cell "06/04/2026" [ref=e199]
+              - cell "Avulso" [ref=e200]
+              - cell "B2B" [ref=e201]:
+                - generic [ref=e202]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e203]
+              - cell "R$ 240,00" [ref=e204]
+              - cell "PIX" [ref=e205]
+              - cell "✕" [ref=e206]:
+                - button "✕" [ref=e207] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e208]:
+              - cell "06/04/2026" [ref=e209]
+              - cell "Avulso" [ref=e210]
+              - cell "B2B" [ref=e211]:
+                - generic [ref=e212]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e213]
+              - cell "R$ 240,00" [ref=e214]
+              - cell "PIX" [ref=e215]
+              - cell "✕" [ref=e216]:
+                - button "✕" [ref=e217] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e218]:
+              - cell "06/04/2026" [ref=e219]
+              - cell "Avulso" [ref=e220]
+              - cell "B2B" [ref=e221]:
+                - generic [ref=e222]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e223]
+              - cell "R$ 240,00" [ref=e224]
+              - cell "PIX" [ref=e225]
+              - cell "✕" [ref=e226]:
+                - button "✕" [ref=e227] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e228]:
+              - cell "06/04/2026" [ref=e229]
+              - cell "Avulso" [ref=e230]
+              - cell "B2B" [ref=e231]:
+                - generic [ref=e232]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e233]
+              - cell "R$ 240,00" [ref=e234]
+              - cell "PIX" [ref=e235]
+              - cell "✕" [ref=e236]:
+                - button "✕" [ref=e237] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e238]:
+              - cell "06/04/2026" [ref=e239]
+              - cell "Avulso" [ref=e240]
+              - cell "B2B" [ref=e241]:
+                - generic [ref=e242]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e243]
+              - cell "R$ 240,00" [ref=e244]
+              - cell "PIX" [ref=e245]
+              - cell "✕" [ref=e246]:
+                - button "✕" [ref=e247] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e248]:
+              - cell "06/04/2026" [ref=e249]
+              - cell "Avulso" [ref=e250]
+              - cell "B2B" [ref=e251]:
+                - generic [ref=e252]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e253]
+              - cell "R$ 240,00" [ref=e254]
+              - cell "PIX" [ref=e255]
+              - cell "✕" [ref=e256]:
+                - button "✕" [ref=e257] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e258]:
+              - cell "06/04/2026" [ref=e259]
+              - cell "Avulso" [ref=e260]
+              - cell "B2B" [ref=e261]:
+                - generic [ref=e262]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e263]
+              - cell "R$ 240,00" [ref=e264]
+              - cell "PIX" [ref=e265]
+              - cell "✕" [ref=e266]:
+                - button "✕" [ref=e267] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e268]:
+              - cell "06/04/2026" [ref=e269]
+              - cell "Avulso" [ref=e270]
+              - cell "B2B" [ref=e271]:
+                - generic [ref=e272]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e273]
+              - cell "R$ 240,00" [ref=e274]
+              - cell "PIX" [ref=e275]
+              - cell "✕" [ref=e276]:
+                - button "✕" [ref=e277] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B PALETA (1cx), PALETA (1cx) R$ 240,00 PIX ✕" [ref=e278]:
+              - cell "06/04/2026" [ref=e279]
+              - cell "Avulso" [ref=e280]
+              - cell "B2B" [ref=e281]:
+                - generic [ref=e282]: B2B
+              - cell "PALETA (1cx), PALETA (1cx)" [ref=e283]
+              - cell "R$ 240,00" [ref=e284]
+              - cell "PIX" [ref=e285]
+              - cell "✕" [ref=e286]:
+                - button "✕" [ref=e287] [cursor=pointer]
+            - row "06/04/2026 Avulso B2B (1cx) R$ 0,00 PIX ✕" [ref=e288]:
+              - cell "06/04/2026" [ref=e289]
+              - cell "Avulso" [ref=e290]
+              - cell "B2B" [ref=e291]:
+                - generic [ref=e292]: B2B
+              - cell "(1cx)" [ref=e293]
+              - cell "R$ 0,00" [ref=e294]
+              - cell "PIX" [ref=e295]
+              - cell "✕" [ref=e296]:
+                - button "✕" [ref=e297] [cursor=pointer]
+        - generic [ref=e298]:
+          - generic [ref=e299]: 10 vendas — Total
+          - generic [ref=e300]: R$ 2.160,00
+          - generic [ref=e301]: "Média: R$ 216,00/venda"

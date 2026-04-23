@@ -1,0 +1,72 @@
+- generic [ref=e2]:
+  - heading "Planejador de Negocio - Sorveteria" [level=1] [ref=e3]
+  - generic [ref=e4]:
+    - button "Dashboard" [ref=e5] [cursor=pointer]
+    - button "DRE" [active] [ref=e6] [cursor=pointer]
+    - button "Fluxo de Caixa" [ref=e7] [cursor=pointer]
+    - button "Estoque" [ref=e8] [cursor=pointer]
+    - button "Cenarios" [ref=e9] [cursor=pointer]
+    - button "Plano e KPIs" [ref=e10] [cursor=pointer]
+  - generic [ref=e309]:
+    - generic [ref=e310]:
+      - heading "DRE - Demonstrativo de Resultado" [level=2] [ref=e311]
+      - generic [ref=e312]:
+        - generic [ref=e313]:
+          - text: "Imposto:"
+          - 'spinbutton "Imposto: %" [ref=e314]': "4.0"
+          - text: "%"
+        - button "Exportar Anual" [ref=e315] [cursor=pointer]
+    - generic [ref=e317]:
+      - text: "Mes:"
+      - combobox "Mes:" [ref=e318]:
+        - option "Abr/26 (x0.70)" [selected]
+        - option "Mai/26 (x0.85)"
+        - option "Jun/26 (x0.95)"
+        - option "Jul/26 (x1.00)"
+        - option "Ago/26 (x1.05)"
+        - option "Set/26 (x1.10)"
+        - option "Out/26 (x1.15)"
+        - option "Nov/26 (x1.10)"
+        - option "Dez/26 (x1.00)"
+        - option "Jan/27 (x0.65)"
+        - option "Fev/27 (x0.55)"
+        - option "Mar/27 (x0.60)"
+    - generic [ref=e319]:
+      - table [ref=e320]:
+        - rowgroup [ref=e321]:
+          - row "(+) Receita Bruta R$ 12.869,50" [ref=e322]:
+            - cell "(+) Receita Bruta" [ref=e323]
+            - cell "R$ 12.869,50" [ref=e324]
+          - row "(-) Impostos (4.0%) -R$ 514,78" [ref=e325]:
+            - cell "(-) Impostos (4.0%)" [ref=e326]
+            - cell "-R$ 514,78" [ref=e327]
+          - row "(=) Receita Liquida R$ 12.354,72" [ref=e328]:
+            - cell "(=) Receita Liquida" [ref=e329]
+            - cell "R$ 12.354,72" [ref=e330]
+          - row "(-) CMV -R$ 4.466,00" [ref=e331]:
+            - cell "(-) CMV" [ref=e332]
+            - cell "-R$ 4.466,00" [ref=e333]
+          - row "(=) Lucro Bruto (65.3%) R$ 8.403,50" [ref=e334]:
+            - cell "(=) Lucro Bruto (65.3%)" [ref=e335]
+            - cell "R$ 8.403,50" [ref=e336]
+          - row "(-) Custos Fixos -R$ 0,00" [ref=e337]:
+            - cell "(-) Custos Fixos" [ref=e338]
+            - cell "-R$ 0,00" [ref=e339]
+          - row "(+/-) Receitas/Despesas N.Op. R$ 0,00" [ref=e340]:
+            - cell "(+/-) Receitas/Despesas N.Op." [ref=e341]
+            - cell "R$ 0,00" [ref=e342]
+          - row "(=) Resultado Operacional R$ 8.403,50" [ref=e343]:
+            - cell "(=) Resultado Operacional" [ref=e344]
+            - cell "R$ 8.403,50" [ref=e345]
+          - row "(-) Impostos a recolher -R$ 514,78" [ref=e346]:
+            - cell "(-) Impostos a recolher" [ref=e347]
+            - cell "-R$ 514,78" [ref=e348]
+          - row "(=) Lucro Liquido (61.3%) R$ 7.888,72" [ref=e349]:
+            - cell "(=) Lucro Liquido (61.3%)" [ref=e350]
+            - cell "R$ 7.888,72" [ref=e351]
+      - button "Detalhe CMV v" [ref=e352] [cursor=pointer]
+      - generic [ref=e353]: "Valor em Estoque: R$ 6.380,00 | Sazonal: x0.70"
+  - generic [ref=e304]:
+    - button "Exportar Backup" [ref=e305] [cursor=pointer]
+    - generic [ref=e306] [cursor=pointer]: Importar Backup
+    - button "Limpar Dados" [ref=e307] [cursor=pointer]

@@ -1,0 +1,448 @@
+<h2>Detalhes de UX &mdash; 3 interfaces cr&iacute;ticas</h2>
+<p class="subtitle">Hub Ctrl+K, Diff Preview e Hist&oacute;rico de Backup. Clique pra ver cada uma em foco.</p>
+
+<style>
+  .ux-tabs { display: flex; gap: 6px; margin-bottom: 20px; }
+  .ux-tab {
+    background: #21262d; color: #aaa;
+    padding: 6px 14px; border-radius: 6px;
+    font-size: 12px; cursor: pointer;
+    border: 1px solid #30363d;
+  }
+  .ux-tab.active { background: #1f6feb; color: white; border-color: #1f6feb; }
+
+  .ux-demo {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 24px;
+    min-height: 420px;
+    position: relative;
+  }
+
+  /* Obsidian-like backdrop */
+  .obs-bg {
+    background: #1e1e1e;
+    border-radius: 8px;
+    padding: 16px;
+    color: #888;
+    font-size: 11px;
+    position: relative;
+    min-height: 380px;
+  }
+  .obs-note-sim {
+    color: #ccc;
+    font-family: -apple-system;
+  }
+  .obs-note-sim h1 { font-size: 15px; margin: 0 0 8px 0; color: white; }
+  .obs-note-sim p { margin: 4px 0; font-size: 12px; line-height: 1.6; }
+  .obs-note-sim .wl { color: #58a6ff; }
+
+  /* Ctrl+K hub */
+  .hub {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 520px;
+    background: #1a1d23;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.7);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .hub-input {
+    padding: 14px 18px;
+    border-bottom: 1px solid #30363d;
+    background: #161b22;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #ccc;
+    font-size: 14px;
+  }
+  .hub-input .icon { color: #58a6ff; }
+  .hub-input .cursor { color: #ccc; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .hub-input .shortcut {
+    margin-left: auto;
+    background: #21262d;
+    color: #666;
+    font-size: 10px;
+    padding: 3px 7px;
+    border-radius: 3px;
+    border: 1px solid #30363d;
+    font-family: "SF Mono", Monaco, monospace;
+  }
+  .hub-section {
+    padding: 8px 0;
+    border-bottom: 1px solid #21262d;
+  }
+  .hub-section:last-child { border-bottom: none; }
+  .hub-section .title {
+    padding: 6px 18px;
+    font-size: 10px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .hub-item {
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #ccc;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .hub-item:hover, .hub-item.sel { background: #1f6feb; color: white; }
+  .hub-item.sel .hint { color: rgba(255,255,255,0.7); }
+  .hub-item .emoji { font-size: 14px; width: 20px; }
+  .hub-item .hint { margin-left: auto; font-size: 11px; color: #666; font-family: "SF Mono", monospace; }
+
+  /* Diff preview */
+  .diff-modal {
+    background: #1a1d23;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.7);
+    overflow: hidden;
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  .diff-header {
+    background: #161b22;
+    padding: 14px 20px;
+    border-bottom: 1px solid #30363d;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .diff-header h4 { margin: 0; color: white; font-size: 14px; }
+  .diff-header .reason { color: #8b949e; font-size: 11px; margin-top: 2px; }
+  .diff-header .close { color: #666; padding: 4px 8px; cursor: pointer; font-size: 14px; }
+  .diff-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: #30363d;
+  }
+  .diff-col {
+    background: #0d1117;
+    padding: 14px 18px;
+    font-family: "SF Mono", Monaco, monospace;
+    font-size: 11px;
+    line-height: 1.8;
+    color: #c9d1d9;
+    min-height: 180px;
+  }
+  .diff-col .label-col {
+    font-family: -apple-system;
+    font-size: 10px;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+    font-weight: 600;
+  }
+  .diff-col .line { display: block; padding: 1px 6px; border-radius: 2px; }
+  .diff-col .line.add { background: rgba(46, 160, 67, 0.2); color: #7ee787; }
+  .diff-col .line.add::before { content: "+ "; color: #2ea043; }
+  .diff-col .line.del { background: rgba(248, 81, 73, 0.15); color: #ffa198; }
+  .diff-col .line.del::before { content: "- "; color: #f85149; }
+  .diff-col .line.ctx { color: #c9d1d9; padding-left: 14px; }
+  .diff-footer {
+    background: #161b22;
+    padding: 12px 20px;
+    border-top: 1px solid #30363d;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .diff-footer .hunks {
+    font-size: 11px;
+    color: #8b949e;
+    margin-right: auto;
+  }
+  .diff-footer .btn {
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .diff-footer .btn.reject { background: #21262d; color: #f85149; border: 1px solid #30363d; }
+  .diff-footer .btn.partial { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+  .diff-footer .btn.apply { background: #238636; color: white; }
+
+  /* Backup history */
+  .backup-panel {
+    background: #1a1d23;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    overflow: hidden;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+  .backup-panel .bp-head {
+    padding: 14px 20px;
+    border-bottom: 1px solid #30363d;
+    background: #161b22;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .bp-head .count {
+    background: #21262d; color: #8b949e;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px;
+  }
+  .bp-group {
+    padding: 10px 0;
+    border-bottom: 1px solid #21262d;
+  }
+  .bp-group-title {
+    padding: 4px 20px;
+    font-size: 10px;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+  .bp-item {
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #c9d1d9;
+    font-size: 12px;
+  }
+  .bp-item:hover { background: #161b22; }
+  .bp-item .time { color: #8b949e; width: 50px; font-size: 11px; }
+  .bp-item .file { flex: 1; color: #58a6ff; font-weight: 500; }
+  .bp-item .reason { color: #8b949e; font-size: 11px; font-style: italic; }
+  .bp-item .actions { display: flex; gap: 6px; }
+  .bp-item .action {
+    background: #21262d; color: #c9d1d9;
+    padding: 4px 10px; border-radius: 4px;
+    font-size: 10px; cursor: pointer;
+    border: 1px solid #30363d;
+  }
+  .bp-item .action.restore { color: #7ee787; }
+  .bp-footer {
+    padding: 10px 20px;
+    background: #161b22;
+    font-size: 11px;
+    color: #8b949e;
+    display: flex;
+    justify-content: space-between;
+  }
+  .bp-footer button { background: transparent; color: #8b949e; border: 1px solid #30363d; padding: 4px 10px; border-radius: 4px; font-size: 10px; }
+</style>
+
+<!-- CTRL+K HUB -->
+<div class="section">
+  <h3 style="margin-top: 0;">1. Hub Ctrl+K (invocado de qualquer lugar)</h3>
+  <div class="ux-demo">
+    <div class="obs-bg">
+      <div class="obs-note-sim">
+        <h1>FinPower</h1>
+        <p>Sistema de gest&atilde;o financeira para cooperativas. Integra&ccedil;&atilde;o com <span class="wl">[[PowerSQT]]</span>.</p>
+        <p style="opacity: 0.4;">(nota aberta em background enquanto o hub est&aacute; ativo)</p>
+      </div>
+
+      <div class="hub">
+        <div class="hub-input">
+          <span class="icon">&#9679;</span>
+          <span>expand</span>
+          <span class="cursor">|</span>
+          <span class="shortcut">Esc</span>
+        </div>
+
+        <div class="hub-section">
+          <div class="title">Sugest&otilde;es &mdash; contexto: FinPower.md</div>
+          <div class="hub-item sel">
+            <span class="emoji">&#9889;</span>
+            <span>Expandir sele&ccedil;&atilde;o em Zettels</span>
+            <span class="hint">Ctrl+Shift+Z</span>
+          </div>
+          <div class="hub-item">
+            <span class="emoji">&#9889;</span>
+            <span>Expandir nota ativa em se&ccedil;&otilde;es detalhadas</span>
+            <span class="hint">&#8629;</span>
+          </div>
+          <div class="hub-item">
+            <span class="emoji">&#9889;</span>
+            <span>Gerar MOC a partir desta nota</span>
+          </div>
+        </div>
+
+        <div class="hub-section">
+          <div class="title">Comandos Customizados (do vault)</div>
+          <div class="hub-item">
+            <span class="emoji">&#128221;</span>
+            <span>/zettel-energinova</span>
+            <span class="hint">&#8629;</span>
+          </div>
+          <div class="hub-item">
+            <span class="emoji">&#128202;</span>
+            <span>/dre</span>
+          </div>
+        </div>
+
+        <div class="hub-section">
+          <div class="title">Hist&oacute;rico Recente</div>
+          <div class="hub-item">
+            <span class="emoji">&#128336;</span>
+            <span>Dashboard da semana</span>
+            <span class="hint">14:32</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DIFF PREVIEW -->
+<div class="section">
+  <h3>2. Diff Preview (P3) &mdash; agente pede permiss&atilde;o antes de escrever</h3>
+  <div class="ux-demo">
+    <div class="diff-modal">
+      <div class="diff-header">
+        <div>
+          <h4>&#128221; MOC-Projetos.md</h4>
+          <div class="reason">Motivo: adicionar FinPower &agrave; lista de projetos ativos</div>
+        </div>
+        <div class="close">&#10005;</div>
+      </div>
+
+      <div class="diff-body">
+        <div class="diff-col">
+          <div class="label-col">Antes</div>
+          <span class="line ctx">## Projetos ativos</span>
+          <span class="line ctx">- [[PowerSQT]]</span>
+          <span class="line ctx">- [[SigBlock]]</span>
+          <span class="line ctx">- [[NeuroGrid]]</span>
+          <span class="line ctx"></span>
+          <span class="line ctx">## Em pausa</span>
+          <span class="line ctx">- [[EnergiField]]</span>
+        </div>
+
+        <div class="diff-col">
+          <div class="label-col">Depois</div>
+          <span class="line ctx">## Projetos ativos</span>
+          <span class="line ctx">- [[PowerSQT]]</span>
+          <span class="line ctx">- [[SigBlock]]</span>
+          <span class="line ctx">- [[NeuroGrid]]</span>
+          <span class="line add">- [[FinPower]]</span>
+          <span class="line ctx"></span>
+          <span class="line ctx">## Em pausa</span>
+          <span class="line ctx">- [[EnergiField]]</span>
+        </div>
+      </div>
+
+      <div class="diff-footer">
+        <span class="hunks">1 hunk &bull; shadow backup criado &#10003;</span>
+        <button class="btn reject">&#10005; Descartar</button>
+        <button class="btn partial">&#9881; Aplicar parcial</button>
+        <button class="btn apply">&#10003; Aplicar (Enter)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- BACKUP HISTORY -->
+<div class="section">
+  <h3>3. Hist&oacute;rico de Backup &mdash; rollback em 1 clique</h3>
+  <div class="ux-demo">
+    <div class="backup-panel">
+      <div class="bp-head">
+        <span>Hist&oacute;rico do agente</span>
+        <span class="count">48 edi&ccedil;&otilde;es &bull; 30 dias</span>
+      </div>
+
+      <div class="bp-group">
+        <div class="bp-group-title">Hoje &mdash; 23/04</div>
+        <div class="bp-item">
+          <span class="time">14:32</span>
+          <span class="file">MOC-Projetos.md</span>
+          <span class="reason">adicionar FinPower</span>
+          <div class="actions">
+            <button class="action">Ver</button>
+            <button class="action restore">&#8630; Restaurar</button>
+          </div>
+        </div>
+        <div class="bp-item">
+          <span class="time">11:08</span>
+          <span class="file">FinPower.md</span>
+          <span class="reason">expandir se&ccedil;&atilde;o Arquitetura</span>
+          <div class="actions">
+            <button class="action">Ver</button>
+            <button class="action restore">&#8630; Restaurar</button>
+          </div>
+        </div>
+        <div class="bp-item">
+          <span class="time">09:44</span>
+          <span class="file">02-Zettelkasten/zkn-2026-04-23-a.md</span>
+          <span class="reason">nova nota (Zettel)</span>
+          <div class="actions">
+            <button class="action">Ver</button>
+            <button class="action restore">&#8630; Restaurar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bp-group">
+        <div class="bp-group-title">Ontem &mdash; 22/04</div>
+        <div class="bp-item">
+          <span class="time">17:20</span>
+          <span class="file">Daily/2026-04-22.md</span>
+          <span class="reason">append de resumo di&aacute;rio</span>
+          <div class="actions">
+            <button class="action">Ver</button>
+            <button class="action restore">&#8630; Restaurar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bp-footer">
+        <span>Reten&ccedil;&atilde;o: 30 dias (1.2 MB)</span>
+        <button>&#128465; Limpar expirados</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options" style="margin-top: 32px;">
+  <div class="option" data-choice="all-ok" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Todas as 3 telas est&atilde;o boas</h3>
+      <p>Aprovo Ctrl+K, Diff Preview e Backup History como mostrado. Podemos seguir pra pr&oacute;xima se&ccedil;&atilde;o do design.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="adjust-hub" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Quero ajustar o Hub Ctrl+K</h3>
+      <p>Se&ccedil;&otilde;es diferentes, ordem diferente, mais/menos informa&ccedil;&atilde;o. Me diga no terminal.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="adjust-diff" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Quero ajustar o Diff Preview</h3>
+      <p>Layout, bot&otilde;es, compara&ccedil;&atilde;o inline vs side-by-side. Me diga no terminal.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="adjust-backup" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Quero ajustar o Backup History</h3>
+      <p>Agrupamento, filtros, colunas, forma de restaurar. Me diga no terminal.</p>
+    </div>
+  </div>
+</div>

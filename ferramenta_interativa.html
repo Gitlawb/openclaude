@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador Sorveteria</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#f5f5f5;color:#333;line-height:1.5}
+.container{max-width:960px;margin:0 auto;padding:12px}
+h1{font-size:1.3em;margin-bottom:8px;color:#333;text-align:center}
+h2{font-size:1.1em;margin:8px 0;color:#555}
+h3{font-size:0.95em;margin:6px 0;color:#666}
+.card{background:#fff;border:1px solid #ddd;border-radius:6px;padding:10px;margin-bottom:10px}
+table{width:100%;border-collapse:collapse;font-size:0.82em}
+th,td{padding:3px 6px;border-bottom:1px solid #eee;text-align:left;vertical-align:middle}
+th{background:#f8f8f8;font-weight:600;white-space:nowrap}
+td.right{text-align:right}
+input[type="number"],input[type="text"]{width:80px;padding:2px 4px;border:1px solid #ccc;border-radius:3px;font-size:0.85em}
+input[type="range"]{width:100%}
+label{font-size:0.85em}
+.btn{display:inline-block;padding:5px 12px;background:#4a90d9;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.82em;margin:2px}
+.btn:hover{background:#357abd}
+.btn-success{background:#5cb85c}
+.btn-success:hover{background:#449d44}
+.btn-warning{background:#f0ad4e;color:#333}
+.btn-warning:hover{background:#ec971f}
+.btn-danger{background:#d9534f}
+.btn-danger:hover{background:#c9302c}
+.btn-sm{padding:3px 8px;font-size:0.78em}
+.summary{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0}
+.summary-item{flex:1;min-width:120px;background:#f0f7ff;border-radius:6px;padding:8px;text-align:center}
+.summary-item.positive{background:#e8f5e9}
+.summary-item.negative{background:#ffebee}
+.summary-item .label{font-size:0.75em;color:#666}
+.summary-item .value{font-size:1.2em;font-weight:700}
+.seasonal{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+select{padding:2px 4px;border:1px solid #ccc;border-radius:3px;font-size:0.85em}
+input[type="number"]:focus{border-color:#4a90d9;outline:none}
+.dre-positive{color:#1b5e20}
+.dre-negative{color:#c62828}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Simulador de Receita - Sorveteria + Inverno</h1>
+
+<div class="card" id="seasonal-card">
+  <h2>Sazonalidade</h2>
+  <div class="seasonal">
+    <label>Fator sazonal: <strong id="sz-display">1.00</strong></label>
+    <input type="range" id="sim_sz" min="0.55" max="1.2" step="0.05" value="1" oninput="onSeasonChange()">
+    <select id="winter-on" onchange="onSeasonChange()">
+      <option value="0">Verão Normal</option>
+      <option value="0.7">Outono</option>
+      <option value="0.6">Início Inverno</option>
+      <option value="0.55">Inverno Forte</option>
+      <option value="1.2">Verão Alto</option>
+    </select>
+    <button class="btn btn-sm" onclick="document.getElementById('sim_sz').value=1;onSeasonChange()">Reset</button>
+  </div>
+</div>
+
+<div class="summary" id="sim-summary"></div>
+
+<div class="card" id="sim-card">
+  <table id="sim-table"><thead><tr><th>Produto</th><th>Custo</th><th>Qtd</th><th>Preço</th><th>Receita</th><th>CMV</th></tr></thead><tbody id="sim-tbody"></tbody></table>
+</div>
+
+<div class="card" id="winter-card" style="display:none">
+  <h3>☕ Produtos de Inverno (5x5m²)</h3>
+  <table id="winter-table"><thead><tr><th>Produto</th><th>Custo</th><th>Qtd</th><th>Preço</th><th>Receita</th><th>CMV</th></tr></thead><tbody id="winter-tbody"></tbody></table>
+</div>
+
+<div class="card" id="dre-card">
+  <h2>DRE Simulado</h2>
+  <table id="dre-table"></table>
+</div>
+
+<div class="card" id="fc-card">
+  <h2>Custos Fixos</h2>
+  <table id="fc-table"><thead><tr><th>Item</th><th>Valor (R$)</th></tr></thead><tbody id="fc-tbody"></tbody></table>
+  <div id="fc-total" style="text-align:right;font-weight:700;font-size:0.9em;margin-top:6px"></div>
+</div>
+
+<div class="card" id="scenario-card">
+  <h2>Cenários</h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    <input type="text" id="scenario-name" placeholder="Nome do cenário" style="flex:1;min-width:150px">
+    <button class="btn btn-success" onclick="saveScenario()">Salvar Cenário</button>
+    <select id="scenario-select" style="min-width:150px"></select>
+    <button class="btn" onclick="loadScenario()">Carregar</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteScenario()">Excluir</button>
+  </div>
+  <div id="compare-result"></div>
+  <button class="btn btn-warning btn-sm" onclick="compareScenarios()">Comparar Cenários</button>
+</div>
+</div>
+
+<script>
+var LS={
+  g:function(k){try{var v=localStorage.getItem('sv_'+k);return v?JSON.parse(v):null}catch(e){return null}},
+  s:function(k,v){try{localStorage.setItem('sv_'+k,JSON.stringify(v))}catch(e){}}
+};
+
+var P=[
+  {id:'acai15',n:'AÇAÍ 1,5L',c:4.8,u:1,p:12,q:12},
+  {id:'acai1',n:'AÇAÍ 1,0L',c:3.2,u:1,p:6,q:5},
+  {id:'pote18',n:'Pote 1,8L c/ recheio',c:10,u:1,p:25,q:8},
+  {id:'paleta',n:'PALETA CX',c:0.8,u:1,p:5,q:5},
+  {id:'skimo',n:'SKIMO CX',c:0.8,u:1,p:5,q:5},
+  {id:'picleite',n:'PICOLÉ LEITE CX',c:2.5,u:1,p:8,q:5},
+  {id:'picgourmet',n:'PICOLÉ GOURMET',c:3,u:1,p:7,q:3},
+  {id:'sorv200',n:'Sorvete 200ml',c:3,u:1,p:10,q:2},
+  {id:'torrada',n:'Torrada',c:0.5,u:1,p:3,q:5}
+];
+
+var WINTER_P=[
+  {id:'aq3',n:'AÇAÍ Quente 300ml',c:3.5,u:1,p:12,q:12,isWinter:true},
+  {id:'aq5',n:'AÇAÍ Quente 500ml',c:5.8,u:1,p:18,q:5,isWinter:true},
+  {id:'aq7',n:'AÇAÍ Quente 700ml',c:8.1,u:1,p:25,q:3,isWinter:true},
+  {id:'chq3',n:'Chocolate Quente 300ml',c:2.5,u:1,p:10,q:8,isWinter:true},
+  {id:'chq4',n:'Chocolate Quente 400ml',c:3.5,u:1,p:14,q:3,isWinter:true},
+  {id:'chqesp',n:'Chocolate Quente Especial',c:5,u:1,p:18,q:2,isWinter:true},
+  {id:'fondue',n:'Fondue Individual',c:8,u:1,p:25,q:1,isWinter:true},
+  {id:'bolofatia',n:'Bolo (fatia)',c:2.5,u:1,p:8,q:3,isWinter:true},
+  {id:'torradabis',n:'Torrada/Biscoito',c:1,u:1,p:4,q:5,isWinter:true}
+];
+
+var baseQ={acai15:12,acai1:5,pote18:8,paleta:5,skimo:5,picleite:5,picgourmet:3,sorv200:2,torrada:5,aq3:12,aq5:5,aq7:3,chq3:8,chq4:3,chqesp:2,fondue:1,bolofatia:3,torradabis:5};
+
+var FC=[
+  {id:'alug',n:'Aluguel',v:0},
+  {id:'ener',n:'Energia',v:0},
+  {id:'agua',n:'Água',v:0},
+  {id:'net',n:'Internet/Telefone',v:0},
+  {id:'cont',n:'Contador',v:0},
+  {id:'comb',n:'Combustível',v:0},
+  {id:'prol',n:'Pró-labore',v:0},
+  {id:'imp',n:'Impostos',v:0}
+];
+
+var stateWinter=false;
+
+function taxR(){return 0.04}
+function tR(){return simResult?simResult.revenue:0}
+function tC(){return simResult?simResult.cmv:0}
+function tP(){return tR()-tC()}
+
+var fcVal=0;
+function fixVal(){return fcVal}
+
+function getSz(){return parseFloat(document.getElementById('sim_sz').value)||1}
+
+function onSeasonChange(){
+  var sz=getSz();
+  document.getElementById('sz-display').textContent=sz.toFixed(2);
+  var sel=document.getElementById('winter-on');
+  if(Math.abs(parseFloat(sel.value)-sz)>0.01){
+    var found=false;
+    for(var i=0;i<sel.options.length;i++){
+      if(Math.abs(parseFloat(sel.options[i].value)-sz)<0.01){sel.selectedIndex=i;found=true;break}
+    }
+  }
+  stateWinter=(sz<=0.7);
+  recalcSim();
+}
+
+function activeSim(){
+  var sz=getSz();
+  var hasElements=false;
+  var result={revenue:0,cmv:0};
+  P.forEach(function(pr){
+    var qel=document.querySelector('[data-iq="'+pr.id+'"]');
+    var pel=document.querySelector('[data-ip="'+pr.id+'"]');
+    if(qel||pel)hasElements=true;
+    var q=qel?parseFloat(qel.value)||0:0;
+    var p=pel?parseFloat(pel.value)||0:pr.p;
+    var winterFactor=Math.max(0.5,1.5-sz);
+    if(sz<1)q=Math.round(q*winterFactor*10)/10;
+    var rev=q*p;
+    var cmv=q*pr.c;
+    result.revenue+=rev;
+    result.cmv+=cmv;
+  });
+  WINTER_P.forEach(function(pr){
+    var qel=document.querySelector('[data-iq="'+pr.id+'"]');
+    var pel=document.querySelector('[data-ip="'+pr.id+'"]');
+    if(qel||pel)hasElements=true;
+    var q=qel?parseFloat(qel.value)||0:0;
+    var p=pel?parseFloat(pel.value)||pr.p:0;
+    var rev=q*p;
+    var cmv=q*pr.c;
+    result.revenue+=rev;
+    result.cmv+=cmv;
+  });
+  fcVal=0;
+  FC.forEach(function(item){
+    var el=document.getElementById('d_'+item.id);
+    if(el){var v=parseFloat(el.value)||0;item.v=v;fcVal+=v}
+  });
+  return hasElements?result:null;
+}
+
+var simResult=null;
+
+function renderSim(){
+  var sz=getSz();
+  var tbody=document.getElementById('sim-tbody');
+  var html='';
+  P.forEach(function(pr){
+    var q=Math.round(((baseQ[pr.id]||1)*sz)*10)/10;
+    var rev=Math.round(q*pr.p*100)/100;
+    var cmv=Math.round(q*pr.c*100)/100;
+    html+='<tr>';
+    html+='<td>'+pr.n+'</td>';
+    html+='<td class="right">R$ '+pr.c.toFixed(2)+'</td>';
+    html+='<td><input type="number" data-iq="'+pr.id+'" value="'+q+'" step="0.1" min="0" oninput="quickRecalc()"></td>';
+    html+='<td><input type="number" data-ip="'+pr.id+'" value="'+pr.p+'" step="0.5" min="0" oninput="quickRecalc()"></td>';
+    html+='<td class="right">R$ '+rev.toFixed(2)+'</td>';
+    html+='<td class="right">R$ '+cmv.toFixed(2)+'</td>';
+    html+='</tr>';
+  });
+  tbody.innerHTML=html;
+  var winterCard=document.getElementById('winter-card');
+  var winterTbody=document.getElementById('winter-tbody');
+  if(stateWinter){
+    winterCard.style.display='block';
+    var html2='';
+    WINTER_P.forEach(function(pr){
+      var winterFactor=Math.max(0.5,1.5-sz);
+      var q=Math.round(((baseQ[pr.id]||1)*winterFactor)*10)/10;
+      var rev=Math.round(q*pr.p*100)/100;
+      var cmv=Math.round(q*pr.c*100)/100;
+      html2+='<tr>';
+      html2+='<td>'+pr.n+'</td>';
+      html2+='<td class="right">R$ '+pr.c.toFixed(2)+'</td>';
+      html2+='<td><input type="number" data-iq="'+pr.id+'" value="'+q+'" step="0.1" min="0" oninput="quickRecalc()"></td>';
+      html2+='<td><input type="number" data-ip="'+pr.id+'" value="'+pr.p+'" step="0.5" min="0" oninput="quickRecalc()"></td>';
+      html2+='<td class="right">R$ '+rev.toFixed(2)+'</td>';
+      html2+='<td class="right">R$ '+cmv.toFixed(2)+'</td>';
+      html2+='</tr>';
+    });
+    winterTbody.innerHTML=html2;
+  }else{
+    winterCard.style.display='none';
+    winterTbody.innerHTML='';
+  }
+  quickRecalc();
+}
+
+function renderFC(){
+  var tbody=document.getElementById('fc-tbody');
+  var html='';
+  FC.forEach(function(item){
+    html+='<tr><td>'+item.n+'</td><td class="right"><input type="number" id="d_'+item.id+'" value="'+item.v+'" step="10" min="0" oninput="quickRecalc()"></td></tr>';
+  });
+  tbody.innerHTML=html;
+  document.getElementById('fc-total').textContent='Total Fixos: R$ '+fcVal.toFixed(2);
+}
+
+function renderDRE(){
+  var table=document.getElementById('dre-table');
+  if(!simResult){table.innerHTML='<tr><td>Ajuste as quantidades para ver o DRE</td></tr>';return}
+  var rev=simResult.revenue;
+  var cmv=simResult.cmv;
+  var gross=rev-cmv;
+  var taxRate=taxR();
+  var tax=rev*taxRate;
+  var netRev=rev-tax;
+  var netOper=gross-fcVal;
+  var netLiq=netOper-tax;
+  var marginBruta=rev>0?((gross/rev)*100).toFixed(1):0;
+  var marginLiq=rev>0?((netLiq/rev)*100).toFixed(1):0;
+  var cls=function(v){return v>=0?'dre-positive':'dre-negative'};
+  var html='';
+  html+='<tr><td>(+) Receita Bruta</td><td class="right">R$ '+rev.toFixed(2)+'</td></tr>';
+  html+='<tr><td>(-) Impostos ('+(taxRate*100).toFixed(0)+'%)</td><td class="right '+cls(-tax)+'">-R$ '+tax.toFixed(2)+'</td></tr>';
+  html+='<tr><td>(=) Receita Líquida</td><td class="right">R$ '+netRev.toFixed(2)+'</td></tr>';
+  html+='<tr><td>(-) CMV</td><td class="right '+cls(-cmv)+'">-R$ '+cmv.toFixed(2)+'</td></tr>';
+  html+='<tr><td>(=) Lucro Bruto ('+marginBruta+'%)</td><td class="right '+cls(gross)+'">R$ '+gross.toFixed(2)+'</td></tr>';
+  html+='<tr><td>(-) Custos Fixos</td><td class="right '+cls(-fcVal)+'">-R$ '+fcVal.toFixed(2)+'</td></tr>';
+  html+='<tr><td>(=) Resultado Operacional</td><td class="right '+cls(netOper)+'">R$ '+netOper.toFixed(2)+'</td></tr>';
+  html+='<tr><td>(-) Impostos (recolher)</td><td class="right '+cls(-tax)+'">-R$ '+tax.toFixed(2)+'</td></tr>';
+  html+='<tr style="font-weight:700;font-size:1.05em"><td>'+(netLiq>=0?'(=) Lucro Líquido':'(=) Prejuízo')+' ('+marginLiq+'%)</td><td class="right '+cls(netLiq)+'">R$ '+netLiq.toFixed(2)+'</td></tr>';
+  table.innerHTML=html;
+  var summaryEl=document.getElementById('sim-summary');
+  var summaryHTML='';
+  summaryHTML+='<div class="summary-item"><div class="label">Receita Bruta</div><div class="value">R$ '+rev.toFixed(2)+'</div></div>';
+  summaryHTML+='<div class="summary-item"><div class="label">Custos</div><div class="value">R$ '+(cmv+fcVal).toFixed(2)+'</div></div>';
+  summaryHTML+='<div class="summary-item '+(netLiq>=0?'positive':'negative')+'"><div class="label">'+(netLiq>=0?'Lucro':'Prejuízo')+'</div><div class="value">R$ '+netLiq.toFixed(2)+'</div></div>';
+  summaryEL.innerHTML=summaryHTML;
+}
+
+function quickRecalc(){
+  simResult=activeSim();
+  document.getElementById('fc-total').textContent='Total Fixos: R$ '+fcVal.toFixed(2);
+  renderDRE();
+}
+
+function recalcSim(){
+  renderSim();
+}
+
+function saveScenario(){
+  var name=document.getElementById('scenario-name').value.trim();
+  if(!name){alert('Digite um nome para o cenário');return}
+  if(!simResult){alert('Ajuste as quantidades primeiro');return}
+  var scenarios=LS.g('scenarios')||{};
+  var sz=getSz();
+  var products=[];
+  P.forEach(function(pr){
+    var qel=document.querySelector('[data-iq="'+pr.id+'"]');
+    var pel=document.querySelector('[data-ip="'+pr.id+'"]');
+    products.push({id:pr.id,n:pr.n,q:qel?parseFloat(qel.value)||0:0,p:pel?parseFloat(pel.value)||pr.p:pr.p});
+  });
+  WINTER_P.forEach(function(pr){
+    var qel=document.querySelector('[data-iq="'+pr.id+'"]');
+    var pel=document.querySelector('[data-ip="'+pr.id+'"]');
+    var q=qel?parseFloat(qel.value)||0:0;
+    var p=pel?parseFloat(pel.value)||pr.p:0;
+    if(q>0||p>0){
+      products.push({id:pr.id,n:pr.n,q:q,p:p});
+    }
+  });
+  var fixItems={};
+  FC.forEach(function(item){
+    var el=document.getElementById('d_'+item.id);
+    fixItems[item.id]=el?parseFloat(el.value)||0:0;
+  });
+  var rev=simResult.revenue;
+  var cmv=simResult.cmv;
+  var gross=rev-cmv;
+  var taxRate=taxR();
+  var tax=rev*taxRate;
+  var netRev=rev-tax;
+  var netOper=gross-fcVal;
+  var netLiq=netOper-tax;
+  var marginBruta=rev>0?((gross/rev)*100).toFixed(1):0;
+  var marginLiq=rev>0?((netLiq/rev)*100).toFixed(1):0;
+  var dre={
+    receitaBruta:rev,
+    impostos:tax,
+    receitaLiquida:netRev,
+    cmv:cmv,
+    lucroBruto:gross,
+    margemBruta:marginBruta,
+    custosFixos:fixItems,
+    totalFixos:fcVal,
+    resultadoOper:netOper,
+    resultadoLiquido:netLiq,
+    margemLiq:marginLiq
+  };
+  var sc={products:products,seasonal:sz,winter:stateWinter,fc:fixItems,dre:dre,date:new Date().toLocaleString('pt-BR')};
+  scenarios[name]=sc;
+  LS.s('scenarios',scenarios);
+  refreshScenarioSelect();
+  alert('Cenário "'+name+'" salvo com projeção DRE!\n\n'+
+    'Receita Bruta: R$ '+rev.toFixed(2)+'\n'+
+    'Lucro Líquido: R$ '+netLiq.toFixed(2)+' ('+marginLiq+'%)\n'+
+    'Sazonalidade: '+sz.toFixed(2)+(stateWinter?' (Inverno)':''));
+}
+
+function loadScenario(){
+  var name=document.getElementById('scenario-select').value;
+  if(!name){alert('Selecione um cenário');return}
+  var scenarios=LS.g('scenarios')||{};
+  var sc=scenarios[name];
+  if(!sc){alert('Cenário não encontrado');return}
+  if(sc.products){
+    setTimeout(function(){
+      sc.products.forEach(function(pr){
+        var qel=document.querySelector('[data-iq="'+pr.id+'"]');
+        var pel=document.querySelector('[data-ip="'+pr.id+'"]');
+        if(qel)qel.value=pr.q;
+        if(pel)pel.value=pr.p;
+      });
+      if(sc.seasonal){document.getElementById('sim_sz').value=sc.seasonal}
+      if('winter' in sc){stateWinter=sc.winter}
+      quickRecalc();
+    },100);
+  }
+}
+
+function deleteScenario(){
+  var name=document.getElementById('scenario-select').value;
+  if(!name){alert('Selecione um cenário');return}
+  if(!confirm('Excluir cenário "'+name+'"?'))return;
+  var scenarios=LS.g('scenarios')||{};
+  delete scenarios[name];
+  LS.s('scenarios',scenarios);
+  refreshScenarioSelect();
+}
+
+function compareScenarios(){
+  var scenarios=LS.g('scenarios')||{};
+  var names=Object.keys(scenarios);
+  if(names.length<2){alert('Salve pelo menos 2 cenários');return}
+  var div=document.getElementById('compare-result');
+  var html='<h3 style="margin-top:8px">Comparação de Cenários</h3>';
+  html+='<table><tr><th>Métrica</th>';
+  names.forEach(function(n){html+='<th>'+n+'</th>'});
+  html+='</tr>';
+  var metrics=[
+    {label:'Receita Bruta',k:'dre.receitaBruta',f:'money'},
+    {label:'CMV',k:'dre.cmv',f:'money'},
+    {label:'Lucro Bruto',k:'dre.lucroBruto',f:'money'},
+    {label:'Margem Bruta',k:'dre.margemBruta',f:'pct'},
+    {label:'Custos Fixos',k:'dre.totalFixos',f:'money'},
+    {label:'Resultado Oper.',k:'dre.resultadoOper',f:'money'},
+    {label:'Resultado Líq.',k:'dre.resultadoLiquido',f:'money'},
+    {label:'Margem Líq.',k:'dre.margemLiq',f:'pct'}
+  ];
+  metrics.forEach(function(m){
+    html+='<tr><td>'+m.label+'</td>';
+    names.forEach(function(n){
+      var v=scenarios[n];
+      var parts=m.k.split('.');
+      var val=v[parts[0]]?v[parts[0]][parts[1]]:undefined;
+      var cls=val!==undefined&&val<0?'dre-negative':'';
+      if(val!==undefined){
+        if(m.f==='money')html+='<td class="right '+cls+'">R$ '+(typeof val==='number'?val.toFixed(2):val)+'</td>';
+        else html+='<td class="right">'+val+'%</td>';
+      }else{
+        html+='<td class="right">-</td>';
+      }
+    });
+    html+='</tr>';
+  });
+  html+='<tr><td>Sazonalidade</td>';
+  names.forEach(function(n){html+='<td class="right">'+(scenarios[n].seasonal||1).toFixed(2)+'</td>'});
+  html+='</tr>';
+  html+='<tr><td>Inverno</td>';
+  names.forEach(function(n){html+='<td class="right">'+(scenarios[n].winter?'Sim':'Não')+'</td>'});
+  html+='</tr>';
+  html+='</table>';
+  div.innerHTML=html;
+}
+
+function refreshScenarioSelect(){
+  var scenarios=LS.g('scenarios')||{};
+  var sel=document.getElementById('scenario-select');
+  var html='<option value="">-- selecionar --</option>';
+  Object.keys(scenarios).forEach(function(name){
+    var sc=scenarios[name];
+    var dreInfo=sc.dre?' (Líq: R$ '+(sc.dre.resultadoLiquido||0).toFixed(0)+')':'';
+    html+='<option value="'+name+'">'+name+dreInfo+'</option>';
+  });
+  sel.innerHTML=html;
+}
+
+window.onload=function(){
+  onSeasonChange();
+  renderFC();
+  refreshScenarioSelect();
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Sorveteria" [level=1] [ref=e5]
+      - text: Plano Interativo & Simulador
+    - generic [ref=e6]:
+      - generic [ref=e7]: Plano de Negócio
+      - button "📊 Dashboard" [ref=e8] [cursor=pointer]:
+        - generic [ref=e9]: 📊
+        - text: Dashboard
+      - button "🎯 Visão Geral" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: 🎯
+        - text: Visão Geral
+      - button "🍦 Catálogo" [ref=e12] [cursor=pointer]:
+        - generic [ref=e13]: 🍦
+        - text: Catálogo
+      - button "📈 Mercado" [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: 📈
+        - text: Mercado
+      - button "📢 Marketing" [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: 📢
+        - text: Marketing
+    - generic [ref=e18]:
+      - generic [ref=e19]: Simulador
+      - button "⚙️ Cenários" [ref=e20] [cursor=pointer]:
+        - generic [ref=e21]: ⚙️
+        - text: Cenários
+      - button "📋 DRE" [active] [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: 📋
+        - text: DRE
+      - button "💰 Fluxo Caixa" [ref=e24] [cursor=pointer]:
+        - generic [ref=e25]: 💰
+        - text: Fluxo Caixa
+      - button "🛒 Vendas" [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: 🛒
+        - text: Vendas
+      - button "📦 Estoque" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]: 📦
+        - text: Estoque
+    - generic [ref=e30]:
+      - generic [ref=e31]: Gestão
+      - button "🏭 Fornecedores" [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: 🏭
+        - text: Fornecedores
+      - button "👥 Equipe" [ref=e34] [cursor=pointer]:
+        - generic [ref=e35]: 👥
+        - text: Equipe
+      - button "⚠️ Riscos" [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ⚠️
+        - text: Riscos
+      - button "🎯 Metas/KPIs" [ref=e38] [cursor=pointer]:
+        - generic [ref=e39]: 🎯
+        - text: Metas/KPIs
+      - button "🚀 Crescimento" [ref=e40] [cursor=pointer]:
+        - generic [ref=e41]: 🚀
+        - text: Crescimento
+      - button "📜 Histórico" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: 📜
+        - text: Histórico
+  - main [ref=e44]:
+    - generic [ref=e483]:
+      - heading "📋 Projeção DRE" [level=2] [ref=e484]
+      - generic [ref=e485]:
+        - heading "Custos Fixos (edite na aba DRE e recalcule)" [level=3] [ref=e486]
+        - generic [ref=e487]:
+          - generic [ref=e488]:
+            - generic [ref=e489]: Aluguel
+            - spinbutton [ref=e490]: "0"
+          - generic [ref=e491]:
+            - generic [ref=e492]: Energia Elétrica
+            - spinbutton [ref=e493]: "0"
+          - generic [ref=e494]:
+            - generic [ref=e495]: Água
+            - spinbutton [ref=e496]: "0"
+          - generic [ref=e497]:
+            - generic [ref=e498]: Internet/Celular
+            - spinbutton [ref=e499]: "0"
+          - generic [ref=e500]:
+            - generic [ref=e501]: Contador
+            - spinbutton [ref=e502]: "0"
+          - generic [ref=e503]:
+            - generic [ref=e504]: Combustível
+            - spinbutton [ref=e505]: "0"
+          - generic [ref=e506]:
+            - generic [ref=e507]: Pro-labore
+            - spinbutton [ref=e508]: "0"
+          - generic [ref=e509]:
+            - generic [ref=e510]: Impostos (Simples %)
+            - spinbutton [ref=e511]: "4.0"
+      - generic [ref=e512]:
+        - heading "Demonstração de Resultado" [level=3] [ref=e513]
+        - table [ref=e514]:
+          - rowgroup [ref=e515]:
+            - row "Linha Valor" [ref=e516]
+            - row "(+) Receita Bruta R$ 16.541,00" [ref=e519]
+            - row "(-) Impostos (4.0%) - R$ 661,64" [ref=e523]
+            - row "(=) Receita Líquida R$ 15.879,36" [ref=e526]
+            - row "(-) CMV - R$ 7.757,00" [ref=e529]
+            - row "(=) Lucro Bruto R$ 8.122,36" [ref=e532]
+            - row "Margem Bruta 49.1%" [ref=e535]
+            - row "(=) RESULTADO OPERACIONAL R$ 8.122,36" [ref=e538]
+        - generic [ref=e541]:
+          - strong [ref=e542]: Negócio Lucrativo ✓
+          - text: "Lucro líquido: R$ 8.122,36/mês (49.1% margem). Continue investindo em produtos de alta margem."
+        - button "← Voltar ao Simulador" [ref=e544] [cursor=pointer]

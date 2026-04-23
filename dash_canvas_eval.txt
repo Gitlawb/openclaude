@@ -1,0 +1,13 @@
+{
+  "id": "dash-chart",
+  "attrW": null,
+  "attrH": "200",
+  "styleW": "",
+  "styleH": "",
+  "offsetW": 300,
+  "offsetH": 200,
+  "clientW": 300,
+  "clientH": 200,
+  "dataUrlLen": 9426,
+  "hasContent": true
+}

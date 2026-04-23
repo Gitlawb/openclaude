@@ -1,0 +1,8 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]
+    - generic [ref=e6]
+    - generic [ref=e18]
+    - generic [ref=e30]
+  - main [ref=e44]:
+    - generic [ref=e828]

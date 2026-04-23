@@ -1,0 +1,109 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - heading "❅ Power Planner" [level=1] [ref=e4]:
+        - generic [ref=e5]: ❅
+        - text: Power Planner
+      - paragraph [ref=e6]: Planejamento de Negocio
+    - generic [ref=e7]:
+      - generic [ref=e8]: Visao Geral
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: ●
+        - text: Dashboard
+        - generic [ref=e11]: "1"
+    - generic [ref=e12]:
+      - generic [ref=e13]: Financeiro
+      - generic [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: $
+        - text: DRE
+        - generic [ref=e16]: 12M
+        - generic [ref=e17]: "2"
+      - generic [ref=e18] [cursor=pointer]:
+        - generic [ref=e19]: ⇄
+        - text: Fluxo de Caixa
+        - generic [ref=e20]: "3"
+    - generic [ref=e21]:
+      - generic [ref=e22]: Operacional
+      - generic [ref=e23] [cursor=pointer]:
+        - generic [ref=e24]: ★
+        - text: Estoque
+        - generic [ref=e25]: "14"
+        - generic [ref=e26]: "4"
+      - generic [ref=e27] [cursor=pointer]:
+        - generic [ref=e28]: ⚙
+        - text: Premissas
+        - generic [ref=e29]: "5"
+    - generic [ref=e30]:
+      - generic [ref=e31]: Estrategico
+      - generic [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: ♦
+        - text: Cenarios
+        - generic [ref=e34]: "0"
+        - generic [ref=e35]: "6"
+      - generic [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ☰
+        - text: Plano e KPIs
+        - generic [ref=e38]: "7"
+    - generic [ref=e39]:
+      - button "⬇ Exportar Backup" [ref=e40] [cursor=pointer]
+      - generic [ref=e41] [cursor=pointer]: ⬆ Importar Backup
+      - button "🗑 Limpar Dados" [ref=e42] [cursor=pointer]
+      - generic [ref=e43]: Ctrl+1-7 trocar aba · Ctrl+S salvar
+  - generic [ref=e247]:
+    - generic [ref=e248]:
+      - generic [ref=e249]:
+        - heading "DRE — Demonstrativo de Resultado" [level=2] [ref=e250]
+        - generic [ref=e251]: Projecao mensual
+      - generic [ref=e252]:
+        - generic [ref=e253]:
+          - text: "Imposto:"
+          - 'spinbutton "Imposto: %" [ref=e254]': "4.0"
+          - text: "%"
+        - combobox [ref=e255]:
+          - option "Abr/26 (x0.42)" [selected]
+          - option "Mai/26 (x0.51)"
+          - option "Jun/26 (x0.57)"
+          - option "Jul/26 (x0.60)"
+          - option "Ago/26 (x0.63)"
+          - option "Set/26 (x0.66)"
+          - option "Out/26 (x0.69)"
+          - option "Nov/26 (x0.66)"
+          - option "Dez/26 (x0.60)"
+          - option "Jan/27 (x0.39)"
+          - option "Fev/27 (x0.33)"
+          - option "Mar/27 (x0.36)"
+        - button "Exportar" [ref=e256] [cursor=pointer]
+    - generic [ref=e257]:
+      - table [ref=e258]:
+        - rowgroup [ref=e259]:
+          - row "(+) Receita Bruta R$ 1.342,32" [ref=e260]:
+            - cell "(+) Receita Bruta" [ref=e261]
+            - cell "R$ 1.342,32" [ref=e262]
+          - row "(-) Impostos (4.0%) -R$ 53,69" [ref=e263]:
+            - cell "(-) Impostos (4.0%)" [ref=e264]
+            - cell "-R$ 53,69" [ref=e265]
+          - row "(=) Receita Liquida R$ 1.288,63" [ref=e266]:
+            - cell "(=) Receita Liquida" [ref=e267]
+            - cell "R$ 1.288,63" [ref=e268]
+          - row "(-) CMV -R$ 452,34" [ref=e269]:
+            - cell "(-) CMV" [ref=e270]
+            - cell "-R$ 452,34" [ref=e271]
+          - row "(=) Lucro Bruto (66.3%) R$ 889,98" [ref=e272]:
+            - cell "(=) Lucro Bruto (66.3%)" [ref=e273]
+            - cell "R$ 889,98" [ref=e274]
+          - row "(-) Custos Fixos -R$ 13.980,00" [ref=e275]:
+            - cell "(-) Custos Fixos" [ref=e276]
+            - cell "-R$ 13.980,00" [ref=e277]
+          - row "(+/-) Receitas/Desp. N.Op. 0.00" [ref=e278]:
+            - cell "(+/-) Receitas/Desp. N.Op." [ref=e279]
+            - cell "0.00" [ref=e280]:
+              - spinbutton [ref=e281]: "0.00"
+          - row "(=) Resultado Operacional R$ -13.090,02" [ref=e282]:
+            - cell "(=) Resultado Operacional" [ref=e283]
+            - cell "R$ -13.090,02" [ref=e284]
+          - row "(=) Lucro/Prejuizo Liquido (-979.2%) R$ -13.143,71" [ref=e285]:
+            - cell "(=) Lucro/Prejuizo Liquido (-979.2%)" [ref=e286]
+            - cell "R$ -13.143,71" [ref=e287]
+      - generic [ref=e288]: "Estoque: R$ 1.077,00 | Sazonal: x0.42"
+    - heading "Comparativo Mensal" [level=3] [ref=e290]
+  - generic [ref=e144]: Salvo

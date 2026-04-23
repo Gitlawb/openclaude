@@ -1,0 +1,94 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - heading "❅ Power Planner" [level=1] [ref=e4]:
+        - generic [ref=e5]: ❅
+        - text: Power Planner
+      - paragraph [ref=e6]: Planejamento de Negocio
+    - generic [ref=e7]:
+      - generic [ref=e8]: Visao Geral
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: ●
+        - text: Dashboard
+        - generic [ref=e11]: "1"
+    - generic [ref=e12]:
+      - generic [ref=e13]: Financeiro
+      - generic [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: $
+        - text: DRE
+        - generic [ref=e16]: 12M
+        - generic [ref=e17]: "2"
+      - generic [ref=e18] [cursor=pointer]:
+        - generic [ref=e19]: ⇄
+        - text: Fluxo de Caixa
+        - generic [ref=e20]: "3"
+    - generic [ref=e21]:
+      - generic [ref=e22]: Operacional
+      - generic [ref=e23] [cursor=pointer]:
+        - generic [ref=e24]: ★
+        - text: Estoque
+        - generic [ref=e25]: "14"
+        - generic [ref=e26]: "4"
+      - generic [ref=e27] [cursor=pointer]:
+        - generic [ref=e28]: ⚙
+        - text: Premissas
+        - generic [ref=e29]: "5"
+    - generic [ref=e30]:
+      - generic [ref=e31]: Estrategico
+      - generic [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: ♦
+        - text: Cenarios
+        - generic [ref=e34]: "0"
+        - generic [ref=e35]: "6"
+      - generic [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ☰
+        - text: Plano e KPIs
+        - generic [ref=e38]: "7"
+    - generic [ref=e39]:
+      - button "⬇ Exportar Backup" [ref=e40] [cursor=pointer]
+      - generic [ref=e41] [cursor=pointer]: ⬆ Importar Backup
+      - button "🗑 Limpar Dados" [ref=e42] [cursor=pointer]
+      - generic [ref=e43]: Ctrl+1-7 trocar aba · Ctrl+S salvar
+  - generic [ref=e411]:
+    - generic [ref=e413]:
+      - heading "Cenarios" [level=2] [ref=e414]
+      - generic [ref=e415]: Simulacoes, comparacoes e templates
+    - generic [ref=e416]:
+      - heading "Simulacao Rapida" [level=3] [ref=e417]
+      - generic [ref=e418]:
+        - generic [ref=e419]:
+          - text: "Fator sazonal:"
+          - strong [ref=e420]: "1.00"
+        - slider [ref=e421]: "1"
+        - combobox [ref=e422]:
+          - option "Verao Normal" [selected]
+          - option "Primavera"
+          - option "Outono"
+          - option "Inicio Inverno"
+          - option "Inverno Forte"
+          - option "Verao Alto"
+    - generic [ref=e425]:
+      - heading "Cenarios Salvos" [level=3] [ref=e426]
+      - button "+ Templates" [ref=e427] [cursor=pointer]
+    - generic [ref=e429]: Nenhum cenario salvo. Use a simulacao rapida ou crie templates.
+    - generic [ref=e430]:
+      - heading "Salvar Novo Cenario" [level=3] [ref=e431]
+      - generic [ref=e432]:
+        - textbox "Nome do cenario" [ref=e433]
+        - combobox [ref=e434]:
+          - option "Realista" [selected]
+          - option "Otimista"
+          - option "Pessimista"
+          - option "Custom"
+        - button "Salvar" [ref=e435] [cursor=pointer]
+    - generic [ref=e436]:
+      - heading "Comparacao de Cenarios (ate 3)" [level=3] [ref=e437]
+      - generic [ref=e438]:
+        - combobox [ref=e439]:
+          - option "selecione" [selected]
+        - combobox [ref=e440]:
+          - option "selecione" [selected]
+        - combobox [ref=e441]:
+          - option "selecione" [selected]
+        - button "Comparar" [ref=e442] [cursor=pointer]
+  - generic [ref=e144]: Salvo

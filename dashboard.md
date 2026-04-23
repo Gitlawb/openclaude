@@ -1,0 +1,60 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Sorveteria" [level=1] [ref=e5]
+      - text: Plano Interativo & Simulador
+    - generic [ref=e6]:
+      - generic [ref=e7]: Plano de Negócio
+      - button "📊 Dashboard" [ref=e8] [cursor=pointer]:
+        - generic [ref=e9]: 📊
+        - text: Dashboard
+      - button "🎯 Visão Geral" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: 🎯
+        - text: Visão Geral
+      - button "🍦 Catálogo" [ref=e12] [cursor=pointer]:
+        - generic [ref=e13]: 🍦
+        - text: Catálogo
+      - button "📈 Mercado" [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: 📈
+        - text: Mercado
+      - button "📢 Marketing" [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: 📢
+        - text: Marketing
+    - generic [ref=e18]:
+      - generic [ref=e19]: Simulador
+      - button "⚙️ Cenários" [ref=e20] [cursor=pointer]:
+        - generic [ref=e21]: ⚙️
+        - text: Cenários
+      - button "📋 DRE" [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: 📋
+        - text: DRE
+      - button "💰 Fluxo Caixa" [ref=e24] [cursor=pointer]:
+        - generic [ref=e25]: 💰
+        - text: Fluxo Caixa
+      - button "🛒 Vendas" [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: 🛒
+        - text: Vendas
+      - button "📦 Estoque" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]: 📦
+        - text: Estoque
+    - generic [ref=e30]:
+      - generic [ref=e31]: Gestão
+      - button "🏭 Fornecedores" [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: 🏭
+        - text: Fornecedores
+      - button "👥 Equipe" [ref=e34] [cursor=pointer]:
+        - generic [ref=e35]: 👥
+        - text: Equipe
+      - button "⚠️ Riscos" [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ⚠️
+        - text: Riscos
+      - button "🎯 Metas/KPIs" [ref=e38] [cursor=pointer]:
+        - generic [ref=e39]: 🎯
+        - text: Metas/KPIs
+      - button "🚀 Crescimento" [active] [ref=e40] [cursor=pointer]:
+        - generic [ref=e41]: 🚀
+        - text: Crescimento
+      - button "📜 Histórico" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: 📜
+        - text: Histórico
+  - main [ref=e44]

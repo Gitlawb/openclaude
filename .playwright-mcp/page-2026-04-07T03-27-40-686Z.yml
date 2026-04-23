@@ -1,0 +1,18 @@
+- generic [ref=e2]:
+  - heading "Planejador de Negocio - Sorveteria" [level=1] [ref=e3]
+  - generic [ref=e4]:
+    - button "Dashboard" [ref=e5] [cursor=pointer]
+    - button "DRE" [ref=e6] [cursor=pointer]
+    - button "Fluxo de Caixa" [ref=e7] [cursor=pointer]
+    - button "Estoque" [ref=e8] [cursor=pointer]
+    - button "Cenarios" [ref=e9] [cursor=pointer]
+    - button "Plano e KPIs" [ref=e10] [cursor=pointer]
+  - generic [ref=e11]:
+    - heading "Receita vs Custo (6 meses)" [level=2] [ref=e13]
+    - generic [ref=e16]:
+      - heading "Alertas de Estoque" [level=2] [ref=e18]
+      - heading "Resumo KPIs" [level=2] [ref=e20]
+  - generic [ref=e21]:
+    - button "Exportar Backup" [ref=e22] [cursor=pointer]
+    - generic [ref=e23] [cursor=pointer]: Importar Backup
+    - button "Limpar Dados" [ref=e24] [cursor=pointer]

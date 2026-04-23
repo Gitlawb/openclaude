@@ -1,0 +1,182 @@
+- generic [active] [ref=e1]:
+  - heading "Directory listing for /" [level=1] [ref=e2]
+  - separator [ref=e3]
+  - list [ref=e4]:
+    - listitem [ref=e5]:
+      - link ".cashflow_tab.md" [ref=e6] [cursor=pointer]:
+        - /url: .cashflow_tab.md
+    - listitem [ref=e7]:
+      - link ".claude/" [ref=e8] [cursor=pointer]:
+        - /url: .claude/
+    - listitem [ref=e9]:
+      - link ".dre_tab.md" [ref=e10] [cursor=pointer]:
+        - /url: .dre_tab.md
+    - listitem [ref=e11]:
+      - link ".env" [ref=e12] [cursor=pointer]:
+        - /url: .env
+    - listitem [ref=e13]:
+      - link ".env.example" [ref=e14] [cursor=pointer]:
+        - /url: .env.example
+    - listitem [ref=e15]:
+      - link ".env.openrouter" [ref=e16] [cursor=pointer]:
+        - /url: .env.openrouter
+    - listitem [ref=e17]:
+      - link ".errors.log" [ref=e18] [cursor=pointer]:
+        - /url: .errors.log
+    - listitem [ref=e19]:
+      - link ".git/" [ref=e20] [cursor=pointer]:
+        - /url: .git/
+    - listitem [ref=e21]:
+      - link ".github/" [ref=e22] [cursor=pointer]:
+        - /url: .github/
+    - listitem [ref=e23]:
+      - link ".gitignore" [ref=e24] [cursor=pointer]:
+        - /url: .gitignore
+    - listitem [ref=e25]:
+      - link ".openclaude-profile.json" [ref=e26] [cursor=pointer]:
+        - /url: .openclaude-profile.json
+    - listitem [ref=e27]:
+      - link ".panel_full.md" [ref=e28] [cursor=pointer]:
+        - /url: .panel_full.md
+    - listitem [ref=e29]:
+      - link ".playwright-mcp/" [ref=e30] [cursor=pointer]:
+        - /url: .playwright-mcp/
+    - listitem [ref=e31]:
+      - link ".products_tab.md" [ref=e32] [cursor=pointer]:
+        - /url: .products_tab.md
+    - listitem [ref=e33]:
+      - link ".products_tab2.md" [ref=e34] [cursor=pointer]:
+        - /url: .products_tab2.md
+    - listitem [ref=e35]:
+      - link ".scenarios_tab.md" [ref=e36] [cursor=pointer]:
+        - /url: .scenarios_tab.md
+    - listitem [ref=e37]:
+      - link ".stock_tab.md" [ref=e38] [cursor=pointer]:
+        - /url: .stock_tab.md
+    - listitem [ref=e39]:
+      - link "ANDROID_INSTALL.md" [ref=e40] [cursor=pointer]:
+        - /url: ANDROID_INSTALL.md
+    - listitem [ref=e41]:
+      - link "bin/" [ref=e42] [cursor=pointer]:
+        - /url: bin/
+    - listitem [ref=e43]:
+      - link "bun.lock" [ref=e44] [cursor=pointer]:
+        - /url: bun.lock
+    - listitem [ref=e45]:
+      - link "check_calc.js" [ref=e46] [cursor=pointer]:
+        - /url: check_calc.js
+    - listitem [ref=e47]:
+      - link "check_dre_q.js" [ref=e48] [cursor=pointer]:
+        - /url: check_dre_q.js
+    - listitem [ref=e49]:
+      - link "check_dre_state.js" [ref=e50] [cursor=pointer]:
+        - /url: check_dre_state.js
+    - listitem [ref=e51]:
+      - link "check_input.js" [ref=e52] [cursor=pointer]:
+        - /url: check_input.js
+    - listitem [ref=e53]:
+      - link "check_update.js" [ref=e54] [cursor=pointer]:
+        - /url: check_update.js
+    - listitem [ref=e55]:
+      - link "click_dre.js" [ref=e56] [cursor=pointer]:
+        - /url: click_dre.js
+    - listitem [ref=e57]:
+      - link "CODE_OF_CONDUCT.md" [ref=e58] [cursor=pointer]:
+        - /url: CODE_OF_CONDUCT.md
+    - listitem [ref=e59]:
+      - link "CONTRIBUTING.md" [ref=e60] [cursor=pointer]:
+        - /url: CONTRIBUTING.md
+    - listitem [ref=e61]:
+      - link "dashboard.md" [ref=e62] [cursor=pointer]:
+        - /url: dashboard.md
+    - listitem [ref=e63]:
+      - link "dist/" [ref=e64] [cursor=pointer]:
+        - /url: dist/
+    - listitem [ref=e65]:
+      - link "docs/" [ref=e66] [cursor=pointer]:
+        - /url: docs/
+    - listitem [ref=e67]:
+      - link "dre_full.png" [ref=e68] [cursor=pointer]:
+        - /url: dre_full.png
+    - listitem [ref=e69]:
+      - link "dre_tab.png" [ref=e70] [cursor=pointer]:
+        - /url: dre_tab.png
+    - listitem [ref=e71]:
+      - link "errors.log" [ref=e72] [cursor=pointer]:
+        - /url: errors.log
+    - listitem [ref=e73]:
+      - link "ferramenta_interativa.html" [ref=e74] [cursor=pointer]:
+        - /url: ferramenta_interativa.html
+    - listitem [ref=e75]:
+      - link "GUIA_USO.md" [ref=e76] [cursor=pointer]:
+        - /url: GUIA_USO.md
+    - listitem [ref=e77]:
+      - link "LICENSE" [ref=e78] [cursor=pointer]:
+        - /url: LICENSE
+    - listitem [ref=e79]:
+      - link "node_modules/" [ref=e80] [cursor=pointer]:
+        - /url: node_modules/
+    - listitem [ref=e81]:
+      - link "organizar_drive.ps1" [ref=e82] [cursor=pointer]:
+        - /url: organizar_drive.ps1
+    - listitem [ref=e83]:
+      - link "overview_current.png" [ref=e84] [cursor=pointer]:
+        - /url: overview_current.png
+    - listitem [ref=e85]:
+      - link "package.json" [ref=e86] [cursor=pointer]:
+        - /url: package.json
+    - listitem [ref=e87]:
+      - link "painel_negocio.html" [ref=e88] [cursor=pointer]:
+        - /url: painel_negocio.html
+    - listitem [ref=e89]:
+      - link "PLAYBOOK.md" [ref=e90] [cursor=pointer]:
+        - /url: PLAYBOOK.md
+    - listitem [ref=e91]:
+      - link "python/" [ref=e92] [cursor=pointer]:
+        - /url: python/
+    - listitem [ref=e93]:
+      - link "README.md" [ref=e94] [cursor=pointer]:
+        - /url: README.md
+    - listitem [ref=e95]:
+      - link "reload_test.js" [ref=e96] [cursor=pointer]:
+        - /url: reload_test.js
+    - listitem [ref=e97]:
+      - link "s.md" [ref=e98] [cursor=pointer]:
+        - /url: s.md
+    - listitem [ref=e99]:
+      - link "scripts/" [ref=e100] [cursor=pointer]:
+        - /url: scripts/
+    - listitem [ref=e101]:
+      - link "SECURITY.md" [ref=e102] [cursor=pointer]:
+        - /url: SECURITY.md
+    - listitem [ref=e103]:
+      - link "sim_full_v2.md" [ref=e104] [cursor=pointer]:
+        - /url: sim_full_v2.md
+    - listitem [ref=e105]:
+      - link "sim_scroll.png" [ref=e106] [cursor=pointer]:
+        - /url: sim_scroll.png
+    - listitem [ref=e107]:
+      - link "src/" [ref=e108] [cursor=pointer]:
+        - /url: src/
+    - listitem [ref=e109]:
+      - link "start-ollama.ps1" [ref=e110] [cursor=pointer]:
+        - /url: start-ollama.ps1
+    - listitem [ref=e111]:
+      - link "start-ollama.sh" [ref=e112] [cursor=pointer]:
+        - /url: start-ollama.sh
+    - listitem [ref=e113]:
+      - link "tab_check.js" [ref=e114] [cursor=pointer]:
+        - /url: tab_check.js
+    - listitem [ref=e115]:
+      - link "tab_overview.md" [ref=e116] [cursor=pointer]:
+        - /url: tab_overview.md
+    - listitem [ref=e117]:
+      - link "test_q_edit.js" [ref=e118] [cursor=pointer]:
+        - /url: test_q_edit.js
+    - listitem [ref=e119]:
+      - link "tsconfig.json" [ref=e120] [cursor=pointer]:
+        - /url: tsconfig.json
+    - listitem [ref=e121]:
+      - link "vscode-extension/" [ref=e122] [cursor=pointer]:
+        - /url: vscode-extension/
+  - separator [ref=e123]

@@ -1,0 +1,4 @@
+Total messages: 2 (Errors: 2, Warnings: 0)
+
+[ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8765/favicon.ico:0
+Unexpected token ':'

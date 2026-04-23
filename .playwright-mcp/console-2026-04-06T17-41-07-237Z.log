@@ -1,0 +1,3 @@
+[    1570ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://notebooklm-web-importer.com/relay-l0D1/static/dead-clicks-autocapture.js?v=1.258.2:0
+[    1635ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://notebooklm-web-importer.com/relay-l0D1/static/web-vitals.js?v=1.258.2:0
+[    1652ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://notebooklm-web-importer.com/relay-l0D1/static/surveys.js?v=1.258.2:0

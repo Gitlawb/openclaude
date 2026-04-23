@@ -1,0 +1,692 @@
+- generic [ref=e2]:
+  - heading "Planejador de Negocio - Sorveteria" [level=1] [ref=e3]
+  - generic [ref=e4]:
+    - button "Dashboard" [ref=e5] [cursor=pointer]
+    - button "DRE" [ref=e6] [cursor=pointer]
+    - button "Fluxo de Caixa" [ref=e7] [cursor=pointer]
+    - button "Estoque" [active] [ref=e8] [cursor=pointer]
+    - button "Cenarios" [ref=e9] [cursor=pointer]
+    - button "Plano e KPIs" [ref=e10] [cursor=pointer]
+  - generic [ref=e251]:
+    - generic [ref=e252]:
+      - heading "Estoque - Produtos Prontos" [level=2] [ref=e253]
+      - generic [ref=e254]:
+        - button "+ Novo Produto" [ref=e255] [cursor=pointer]
+        - button "Entrada em Lote" [ref=e256] [cursor=pointer]
+    - table [ref=e257]:
+      - rowgroup [ref=e258]:
+        - row "Produto Qtd Atual Min. Vlr Unitario Vlr Total Validade Acoes" [ref=e259]:
+          - columnheader "Produto" [ref=e260]
+          - columnheader "Qtd Atual" [ref=e261]
+          - columnheader "Min." [ref=e262]
+          - columnheader "Vlr Unitario" [ref=e263]
+          - columnheader "Vlr Total" [ref=e264]
+          - columnheader "Validade" [ref=e265]
+          - columnheader "Acoes" [ref=e266]
+      - rowgroup [ref=e267]:
+        - row "ACAI 1L 5 5 R$ 4,50 R$ 22,50 + - x" [ref=e268]:
+          - cell "ACAI 1L" [ref=e269]:
+            - textbox [ref=e270]: ACAI 1L
+          - cell "5" [ref=e271]:
+            - spinbutton [ref=e272]: "5"
+          - cell "5" [ref=e273]:
+            - spinbutton [ref=e274]: "5"
+          - cell "R$ 4,50" [ref=e275]
+          - cell "R$ 22,50" [ref=e276]:
+            - strong [ref=e277]: R$ 22,50
+          - cell [ref=e278]:
+            - textbox [ref=e279]
+          - cell "+ - x" [ref=e280]:
+            - button "+" [ref=e281] [cursor=pointer]
+            - button "-" [ref=e282] [cursor=pointer]
+            - button "x" [ref=e283] [cursor=pointer]
+        - row "ACAI 1,5L 12 5 R$ 5,20 R$ 62,40 + - x" [ref=e284]:
+          - cell "ACAI 1,5L" [ref=e285]:
+            - textbox [ref=e286]: ACAI 1,5L
+          - cell "12" [ref=e287]:
+            - spinbutton [ref=e288]: "12"
+          - cell "5" [ref=e289]:
+            - spinbutton [ref=e290]: "5"
+          - cell "R$ 5,20" [ref=e291]
+          - cell "R$ 62,40" [ref=e292]:
+            - strong [ref=e293]: R$ 62,40
+          - cell [ref=e294]:
+            - textbox [ref=e295]
+          - cell "+ - x" [ref=e296]:
+            - button "+" [ref=e297] [cursor=pointer]
+            - button "-" [ref=e298] [cursor=pointer]
+            - button "x" [ref=e299] [cursor=pointer]
+        - row "ACAI 300ml 8 5 R$ 2,80 R$ 22,40 + - x" [ref=e300]:
+          - cell "ACAI 300ml" [ref=e301]:
+            - textbox [ref=e302]: ACAI 300ml
+          - cell "8" [ref=e303]:
+            - spinbutton [ref=e304]: "8"
+          - cell "5" [ref=e305]:
+            - spinbutton [ref=e306]: "5"
+          - cell "R$ 2,80" [ref=e307]
+          - cell "R$ 22,40" [ref=e308]:
+            - strong [ref=e309]: R$ 22,40
+          - cell [ref=e310]:
+            - textbox [ref=e311]
+          - cell "+ - x" [ref=e312]:
+            - button "+" [ref=e313] [cursor=pointer]
+            - button "-" [ref=e314] [cursor=pointer]
+            - button "x" [ref=e315] [cursor=pointer]
+        - row "PALETA CX (24un) 5 5 R$ 18,00 R$ 90,00 + - x" [ref=e316]:
+          - cell "PALETA CX (24un)" [ref=e317]:
+            - textbox [ref=e318]: PALETA CX (24un)
+          - cell "5" [ref=e319]:
+            - spinbutton [ref=e320]: "5"
+          - cell "5" [ref=e321]:
+            - spinbutton [ref=e322]: "5"
+          - cell "R$ 18,00" [ref=e323]
+          - cell "R$ 90,00" [ref=e324]:
+            - strong [ref=e325]: R$ 90,00
+          - cell [ref=e326]:
+            - textbox [ref=e327]
+          - cell "+ - x" [ref=e328]:
+            - button "+" [ref=e329] [cursor=pointer]
+            - button "-" [ref=e330] [cursor=pointer]
+            - button "x" [ref=e331] [cursor=pointer]
+        - row "SKIMO CX (32un) 5 5 R$ 22,00 R$ 110,00 + - x" [ref=e332]:
+          - cell "SKIMO CX (32un)" [ref=e333]:
+            - textbox [ref=e334]: SKIMO CX (32un)
+          - cell "5" [ref=e335]:
+            - spinbutton [ref=e336]: "5"
+          - cell "5" [ref=e337]:
+            - spinbutton [ref=e338]: "5"
+          - cell "R$ 22,00" [ref=e339]
+          - cell "R$ 110,00" [ref=e340]:
+            - strong [ref=e341]: R$ 110,00
+          - cell [ref=e342]:
+            - textbox [ref=e343]
+          - cell "+ - x" [ref=e344]:
+            - button "+" [ref=e345] [cursor=pointer]
+            - button "-" [ref=e346] [cursor=pointer]
+            - button "x" [ref=e347] [cursor=pointer]
+        - row "PICOLE AGUA CX (40un) 5 5 R$ 25,00 R$ 125,00 + - x" [ref=e348]:
+          - cell "PICOLE AGUA CX (40un)" [ref=e349]:
+            - textbox [ref=e350]: PICOLE AGUA CX (40un)
+          - cell "5" [ref=e351]:
+            - spinbutton [ref=e352]: "5"
+          - cell "5" [ref=e353]:
+            - spinbutton [ref=e354]: "5"
+          - cell "R$ 25,00" [ref=e355]
+          - cell "R$ 125,00" [ref=e356]:
+            - strong [ref=e357]: R$ 125,00
+          - cell [ref=e358]:
+            - textbox [ref=e359]
+          - cell "+ - x" [ref=e360]:
+            - button "+" [ref=e361] [cursor=pointer]
+            - button "-" [ref=e362] [cursor=pointer]
+            - button "x" [ref=e363] [cursor=pointer]
+        - row "PICOLE LEITE CX (40un) 5 5 R$ 38,00 R$ 190,00 + - x" [ref=e364]:
+          - cell "PICOLE LEITE CX (40un)" [ref=e365]:
+            - textbox [ref=e366]: PICOLE LEITE CX (40un)
+          - cell "5" [ref=e367]:
+            - spinbutton [ref=e368]: "5"
+          - cell "5" [ref=e369]:
+            - spinbutton [ref=e370]: "5"
+          - cell "R$ 38,00" [ref=e371]
+          - cell "R$ 190,00" [ref=e372]:
+            - strong [ref=e373]: R$ 190,00
+          - cell [ref=e374]:
+            - textbox [ref=e375]
+          - cell "+ - x" [ref=e376]:
+            - button "+" [ref=e377] [cursor=pointer]
+            - button "-" [ref=e378] [cursor=pointer]
+            - button "x" [ref=e379] [cursor=pointer]
+        - row "SORVETE 300ml 5 5 R$ 5,00 R$ 25,00 + - x" [ref=e380]:
+          - cell "SORVETE 300ml" [ref=e381]:
+            - textbox [ref=e382]: SORVETE 300ml
+          - cell "5" [ref=e383]:
+            - spinbutton [ref=e384]: "5"
+          - cell "5" [ref=e385]:
+            - spinbutton [ref=e386]: "5"
+          - cell "R$ 5,00" [ref=e387]
+          - cell "R$ 25,00" [ref=e388]:
+            - strong [ref=e389]: R$ 25,00
+          - cell [ref=e390]:
+            - textbox [ref=e391]
+          - cell "+ - x" [ref=e392]:
+            - button "+" [ref=e393] [cursor=pointer]
+            - button "-" [ref=e394] [cursor=pointer]
+            - button "x" [ref=e395] [cursor=pointer]
+        - row "SORVETE 200ml 5 5 R$ 3,50 R$ 17,50 + - x" [ref=e396]:
+          - cell "SORVETE 200ml" [ref=e397]:
+            - textbox [ref=e398]: SORVETE 200ml
+          - cell "5" [ref=e399]:
+            - spinbutton [ref=e400]: "5"
+          - cell "5" [ref=e401]:
+            - spinbutton [ref=e402]: "5"
+          - cell "R$ 3,50" [ref=e403]
+          - cell "R$ 17,50" [ref=e404]:
+            - strong [ref=e405]: R$ 17,50
+          - cell [ref=e406]:
+            - textbox [ref=e407]
+          - cell "+ - x" [ref=e408]:
+            - button "+" [ref=e409] [cursor=pointer]
+            - button "-" [ref=e410] [cursor=pointer]
+            - button "x" [ref=e411] [cursor=pointer]
+        - row "POTE 1L 8 5 R$ 6,00 R$ 48,00 + - x" [ref=e412]:
+          - cell "POTE 1L" [ref=e413]:
+            - textbox [ref=e414]: POTE 1L
+          - cell "8" [ref=e415]:
+            - spinbutton [ref=e416]: "8"
+          - cell "5" [ref=e417]:
+            - spinbutton [ref=e418]: "5"
+          - cell "R$ 6,00" [ref=e419]
+          - cell "R$ 48,00" [ref=e420]:
+            - strong [ref=e421]: R$ 48,00
+          - cell [ref=e422]:
+            - textbox [ref=e423]
+          - cell "+ - x" [ref=e424]:
+            - button "+" [ref=e425] [cursor=pointer]
+            - button "-" [ref=e426] [cursor=pointer]
+            - button "x" [ref=e427] [cursor=pointer]
+        - row "POTE 1,3L (s/recheio) 5 5 R$ 7,50 R$ 37,50 + - x" [ref=e428]:
+          - cell "POTE 1,3L (s/recheio)" [ref=e429]:
+            - textbox [ref=e430]: POTE 1,3L (s/recheio)
+          - cell "5" [ref=e431]:
+            - spinbutton [ref=e432]: "5"
+          - cell "5" [ref=e433]:
+            - spinbutton [ref=e434]: "5"
+          - cell "R$ 7,50" [ref=e435]
+          - cell "R$ 37,50" [ref=e436]:
+            - strong [ref=e437]: R$ 37,50
+          - cell [ref=e438]:
+            - textbox [ref=e439]
+          - cell "+ - x" [ref=e440]:
+            - button "+" [ref=e441] [cursor=pointer]
+            - button "-" [ref=e442] [cursor=pointer]
+            - button "x" [ref=e443] [cursor=pointer]
+        - row "POTE 1,3L (c/recheio) 4 5 R$ 9,00 R$ 36,00 + - x" [ref=e444]:
+          - cell "POTE 1,3L (c/recheio)" [ref=e445]:
+            - textbox [ref=e446]: POTE 1,3L (c/recheio)
+          - cell "4" [ref=e447]:
+            - spinbutton [ref=e448]: "4"
+          - cell "5" [ref=e449]:
+            - spinbutton [ref=e450]: "5"
+          - cell "R$ 9,00" [ref=e451]
+          - cell "R$ 36,00" [ref=e452]:
+            - strong [ref=e453]: R$ 36,00
+          - cell [ref=e454]:
+            - textbox [ref=e455]
+          - cell "+ - x" [ref=e456]:
+            - button "+" [ref=e457] [cursor=pointer]
+            - button "-" [ref=e458] [cursor=pointer]
+            - button "x" [ref=e459] [cursor=pointer]
+        - row "POTE 1,5L ESPECIAL 3 5 R$ 11,00 R$ 33,00 + - x" [ref=e460]:
+          - cell "POTE 1,5L ESPECIAL" [ref=e461]:
+            - textbox [ref=e462]: POTE 1,5L ESPECIAL
+          - cell "3" [ref=e463]:
+            - spinbutton [ref=e464]: "3"
+          - cell "5" [ref=e465]:
+            - spinbutton [ref=e466]: "5"
+          - cell "R$ 11,00" [ref=e467]
+          - cell "R$ 33,00" [ref=e468]:
+            - strong [ref=e469]: R$ 33,00
+          - cell [ref=e470]:
+            - textbox [ref=e471]
+          - cell "+ - x" [ref=e472]:
+            - button "+" [ref=e473] [cursor=pointer]
+            - button "-" [ref=e474] [cursor=pointer]
+            - button "x" [ref=e475] [cursor=pointer]
+        - row "POTE 1,8L (s/recheio) 5 5 R$ 8,50 R$ 42,50 + - x" [ref=e476]:
+          - cell "POTE 1,8L (s/recheio)" [ref=e477]:
+            - textbox [ref=e478]: POTE 1,8L (s/recheio)
+          - cell "5" [ref=e479]:
+            - spinbutton [ref=e480]: "5"
+          - cell "5" [ref=e481]:
+            - spinbutton [ref=e482]: "5"
+          - cell "R$ 8,50" [ref=e483]
+          - cell "R$ 42,50" [ref=e484]:
+            - strong [ref=e485]: R$ 42,50
+          - cell [ref=e486]:
+            - textbox [ref=e487]
+          - cell "+ - x" [ref=e488]:
+            - button "+" [ref=e489] [cursor=pointer]
+            - button "-" [ref=e490] [cursor=pointer]
+            - button "x" [ref=e491] [cursor=pointer]
+        - row "POTE 1,8L (c/recheio) 8 5 R$ 11,00 R$ 88,00 + - x" [ref=e492]:
+          - cell "POTE 1,8L (c/recheio)" [ref=e493]:
+            - textbox [ref=e494]: POTE 1,8L (c/recheio)
+          - cell "8" [ref=e495]:
+            - spinbutton [ref=e496]: "8"
+          - cell "5" [ref=e497]:
+            - spinbutton [ref=e498]: "5"
+          - cell "R$ 11,00" [ref=e499]
+          - cell "R$ 88,00" [ref=e500]:
+            - strong [ref=e501]: R$ 88,00
+          - cell [ref=e502]:
+            - textbox [ref=e503]
+          - cell "+ - x" [ref=e504]:
+            - button "+" [ref=e505] [cursor=pointer]
+            - button "-" [ref=e506] [cursor=pointer]
+            - button "x" [ref=e507] [cursor=pointer]
+        - row "MORENINHA CX 3 5 R$ 15,00 R$ 45,00 + - x" [ref=e508]:
+          - cell "MORENINHA CX" [ref=e509]:
+            - textbox [ref=e510]: MORENINHA CX
+          - cell "3" [ref=e511]:
+            - spinbutton [ref=e512]: "3"
+          - cell "5" [ref=e513]:
+            - spinbutton [ref=e514]: "5"
+          - cell "R$ 15,00" [ref=e515]
+          - cell "R$ 45,00" [ref=e516]:
+            - strong [ref=e517]: R$ 45,00
+          - cell [ref=e518]:
+            - textbox [ref=e519]
+          - cell "+ - x" [ref=e520]:
+            - button "+" [ref=e521] [cursor=pointer]
+            - button "-" [ref=e522] [cursor=pointer]
+            - button "x" [ref=e523] [cursor=pointer]
+        - row "SUNDAE 8 5 R$ 2,50 R$ 20,00 + - x" [ref=e524]:
+          - cell "SUNDAE" [ref=e525]:
+            - textbox [ref=e526]: SUNDAE
+          - cell "8" [ref=e527]:
+            - spinbutton [ref=e528]: "8"
+          - cell "5" [ref=e529]:
+            - spinbutton [ref=e530]: "5"
+          - cell "R$ 2,50" [ref=e531]
+          - cell "R$ 20,00" [ref=e532]:
+            - strong [ref=e533]: R$ 20,00
+          - cell [ref=e534]:
+            - textbox [ref=e535]
+          - cell "+ - x" [ref=e536]:
+            - button "+" [ref=e537] [cursor=pointer]
+            - button "-" [ref=e538] [cursor=pointer]
+            - button "x" [ref=e539] [cursor=pointer]
+        - row "ALASKINHO 5 5 R$ 2,00 R$ 10,00 + - x" [ref=e540]:
+          - cell "ALASKINHO" [ref=e541]:
+            - textbox [ref=e542]: ALASKINHO
+          - cell "5" [ref=e543]:
+            - spinbutton [ref=e544]: "5"
+          - cell "5" [ref=e545]:
+            - spinbutton [ref=e546]: "5"
+          - cell "R$ 2,00" [ref=e547]
+          - cell "R$ 10,00" [ref=e548]:
+            - strong [ref=e549]: R$ 10,00
+          - cell [ref=e550]:
+            - textbox [ref=e551]
+          - cell "+ - x" [ref=e552]:
+            - button "+" [ref=e553] [cursor=pointer]
+            - button "-" [ref=e554] [cursor=pointer]
+            - button "x" [ref=e555] [cursor=pointer]
+        - row "CAIXA 5L (Sob Encomenda) 1 5 R$ 25,00 R$ 25,00 + - x" [ref=e556]:
+          - cell "CAIXA 5L (Sob Encomenda)" [ref=e557]:
+            - textbox [ref=e558]: CAIXA 5L (Sob Encomenda)
+          - cell "1" [ref=e559]:
+            - spinbutton [ref=e560]: "1"
+          - cell "5" [ref=e561]:
+            - spinbutton [ref=e562]: "5"
+          - cell "R$ 25,00" [ref=e563]
+          - cell "R$ 25,00" [ref=e564]:
+            - strong [ref=e565]: R$ 25,00
+          - cell [ref=e566]:
+            - textbox [ref=e567]
+          - cell "+ - x" [ref=e568]:
+            - button "+" [ref=e569] [cursor=pointer]
+            - button "-" [ref=e570] [cursor=pointer]
+            - button "x" [ref=e571] [cursor=pointer]
+        - row "CAIXA 10L (Sob Encomenda) 1 5 R$ 45,00 R$ 45,00 + - x" [ref=e572]:
+          - cell "CAIXA 10L (Sob Encomenda)" [ref=e573]:
+            - textbox [ref=e574]: CAIXA 10L (Sob Encomenda)
+          - cell "1" [ref=e575]:
+            - spinbutton [ref=e576]: "1"
+          - cell "5" [ref=e577]:
+            - spinbutton [ref=e578]: "5"
+          - cell "R$ 45,00" [ref=e579]
+          - cell "R$ 45,00" [ref=e580]:
+            - strong [ref=e581]: R$ 45,00
+          - cell [ref=e582]:
+            - textbox [ref=e583]
+          - cell "+ - x" [ref=e584]:
+            - button "+" [ref=e585] [cursor=pointer]
+            - button "-" [ref=e586] [cursor=pointer]
+            - button "x" [ref=e587] [cursor=pointer]
+        - row "ACAI 5L (Sob Encomenda) 1 5 R$ 20,00 R$ 20,00 + - x" [ref=e588]:
+          - cell "ACAI 5L (Sob Encomenda)" [ref=e589]:
+            - textbox [ref=e590]: ACAI 5L (Sob Encomenda)
+          - cell "1" [ref=e591]:
+            - spinbutton [ref=e592]: "1"
+          - cell "5" [ref=e593]:
+            - spinbutton [ref=e594]: "5"
+          - cell "R$ 20,00" [ref=e595]
+          - cell "R$ 20,00" [ref=e596]:
+            - strong [ref=e597]: R$ 20,00
+          - cell [ref=e598]:
+            - textbox [ref=e599]
+          - cell "+ - x" [ref=e600]:
+            - button "+" [ref=e601] [cursor=pointer]
+            - button "-" [ref=e602] [cursor=pointer]
+            - button "x" [ref=e603] [cursor=pointer]
+        - row "ACAI 10L (Sob Encomenda) 1 5 R$ 38,00 R$ 38,00 + - x" [ref=e604]:
+          - cell "ACAI 10L (Sob Encomenda)" [ref=e605]:
+            - textbox [ref=e606]: ACAI 10L (Sob Encomenda)
+          - cell "1" [ref=e607]:
+            - spinbutton [ref=e608]: "1"
+          - cell "5" [ref=e609]:
+            - spinbutton [ref=e610]: "5"
+          - cell "R$ 38,00" [ref=e611]
+          - cell "R$ 38,00" [ref=e612]:
+            - strong [ref=e613]: R$ 38,00
+          - cell [ref=e614]:
+            - textbox [ref=e615]
+          - cell "+ - x" [ref=e616]:
+            - button "+" [ref=e617] [cursor=pointer]
+            - button "-" [ref=e618] [cursor=pointer]
+            - button "x" [ref=e619] [cursor=pointer]
+        - row "ACAI Quente 300ml 12 5 R$ 3,50 R$ 42,00 + - x" [ref=e620]:
+          - cell "ACAI Quente 300ml" [ref=e621]:
+            - textbox [ref=e622]: ACAI Quente 300ml
+          - cell "12" [ref=e623]:
+            - spinbutton [ref=e624]: "12"
+          - cell "5" [ref=e625]:
+            - spinbutton [ref=e626]: "5"
+          - cell "R$ 3,50" [ref=e627]
+          - cell "R$ 42,00" [ref=e628]:
+            - strong [ref=e629]: R$ 42,00
+          - cell [ref=e630]:
+            - textbox [ref=e631]
+          - cell "+ - x" [ref=e632]:
+            - button "+" [ref=e633] [cursor=pointer]
+            - button "-" [ref=e634] [cursor=pointer]
+            - button "x" [ref=e635] [cursor=pointer]
+        - row "ACAI Quente 500ml 5 5 R$ 5,80 R$ 29,00 + - x" [ref=e636]:
+          - cell "ACAI Quente 500ml" [ref=e637]:
+            - textbox [ref=e638]: ACAI Quente 500ml
+          - cell "5" [ref=e639]:
+            - spinbutton [ref=e640]: "5"
+          - cell "5" [ref=e641]:
+            - spinbutton [ref=e642]: "5"
+          - cell "R$ 5,80" [ref=e643]
+          - cell "R$ 29,00" [ref=e644]:
+            - strong [ref=e645]: R$ 29,00
+          - cell [ref=e646]:
+            - textbox [ref=e647]
+          - cell "+ - x" [ref=e648]:
+            - button "+" [ref=e649] [cursor=pointer]
+            - button "-" [ref=e650] [cursor=pointer]
+            - button "x" [ref=e651] [cursor=pointer]
+        - row "ACAI Quente 700ml 3 5 R$ 8,10 R$ 24,30 + - x" [ref=e652]:
+          - cell "ACAI Quente 700ml" [ref=e653]:
+            - textbox [ref=e654]: ACAI Quente 700ml
+          - cell "3" [ref=e655]:
+            - spinbutton [ref=e656]: "3"
+          - cell "5" [ref=e657]:
+            - spinbutton [ref=e658]: "5"
+          - cell "R$ 8,10" [ref=e659]
+          - cell "R$ 24,30" [ref=e660]:
+            - strong [ref=e661]: R$ 24,30
+          - cell [ref=e662]:
+            - textbox [ref=e663]
+          - cell "+ - x" [ref=e664]:
+            - button "+" [ref=e665] [cursor=pointer]
+            - button "-" [ref=e666] [cursor=pointer]
+            - button "x" [ref=e667] [cursor=pointer]
+        - row "Chocolate Quente 300ml 8 5 R$ 2,50 R$ 20,00 + - x" [ref=e668]:
+          - cell "Chocolate Quente 300ml" [ref=e669]:
+            - textbox [ref=e670]: Chocolate Quente 300ml
+          - cell "8" [ref=e671]:
+            - spinbutton [ref=e672]: "8"
+          - cell "5" [ref=e673]:
+            - spinbutton [ref=e674]: "5"
+          - cell "R$ 2,50" [ref=e675]
+          - cell "R$ 20,00" [ref=e676]:
+            - strong [ref=e677]: R$ 20,00
+          - cell [ref=e678]:
+            - textbox [ref=e679]
+          - cell "+ - x" [ref=e680]:
+            - button "+" [ref=e681] [cursor=pointer]
+            - button "-" [ref=e682] [cursor=pointer]
+            - button "x" [ref=e683] [cursor=pointer]
+        - row "Chocolate Quente 400ml 3 5 R$ 3,50 R$ 10,50 + - x" [ref=e684]:
+          - cell "Chocolate Quente 400ml" [ref=e685]:
+            - textbox [ref=e686]: Chocolate Quente 400ml
+          - cell "3" [ref=e687]:
+            - spinbutton [ref=e688]: "3"
+          - cell "5" [ref=e689]:
+            - spinbutton [ref=e690]: "5"
+          - cell "R$ 3,50" [ref=e691]
+          - cell "R$ 10,50" [ref=e692]:
+            - strong [ref=e693]: R$ 10,50
+          - cell [ref=e694]:
+            - textbox [ref=e695]
+          - cell "+ - x" [ref=e696]:
+            - button "+" [ref=e697] [cursor=pointer]
+            - button "-" [ref=e698] [cursor=pointer]
+            - button "x" [ref=e699] [cursor=pointer]
+        - row "Chocolate Quente Especial 2 5 R$ 5,00 R$ 10,00 + - x" [ref=e700]:
+          - cell "Chocolate Quente Especial" [ref=e701]:
+            - textbox [ref=e702]: Chocolate Quente Especial
+          - cell "2" [ref=e703]:
+            - spinbutton [ref=e704]: "2"
+          - cell "5" [ref=e705]:
+            - spinbutton [ref=e706]: "5"
+          - cell "R$ 5,00" [ref=e707]
+          - cell "R$ 10,00" [ref=e708]:
+            - strong [ref=e709]: R$ 10,00
+          - cell [ref=e710]:
+            - textbox [ref=e711]
+          - cell "+ - x" [ref=e712]:
+            - button "+" [ref=e713] [cursor=pointer]
+            - button "-" [ref=e714] [cursor=pointer]
+            - button "x" [ref=e715] [cursor=pointer]
+        - row "Fondue Individual 1 5 R$ 8,00 R$ 8,00 + - x" [ref=e716]:
+          - cell "Fondue Individual" [ref=e717]:
+            - textbox [ref=e718]: Fondue Individual
+          - cell "1" [ref=e719]:
+            - spinbutton [ref=e720]: "1"
+          - cell "5" [ref=e721]:
+            - spinbutton [ref=e722]: "5"
+          - cell "R$ 8,00" [ref=e723]
+          - cell "R$ 8,00" [ref=e724]:
+            - strong [ref=e725]: R$ 8,00
+          - cell [ref=e726]:
+            - textbox [ref=e727]
+          - cell "+ - x" [ref=e728]:
+            - button "+" [ref=e729] [cursor=pointer]
+            - button "-" [ref=e730] [cursor=pointer]
+            - button "x" [ref=e731] [cursor=pointer]
+        - row "Bolo (fatia) 3 5 R$ 2,50 R$ 7,50 + - x" [ref=e732]:
+          - cell "Bolo (fatia)" [ref=e733]:
+            - textbox [ref=e734]: Bolo (fatia)
+          - cell "3" [ref=e735]:
+            - spinbutton [ref=e736]: "3"
+          - cell "5" [ref=e737]:
+            - spinbutton [ref=e738]: "5"
+          - cell "R$ 2,50" [ref=e739]
+          - cell "R$ 7,50" [ref=e740]:
+            - strong [ref=e741]: R$ 7,50
+          - cell [ref=e742]:
+            - textbox [ref=e743]
+          - cell "+ - x" [ref=e744]:
+            - button "+" [ref=e745] [cursor=pointer]
+            - button "-" [ref=e746] [cursor=pointer]
+            - button "x" [ref=e747] [cursor=pointer]
+        - row "Torrada/Biscoito 5 5 R$ 1,00 R$ 5,00 + - x" [ref=e748]:
+          - cell "Torrada/Biscoito" [ref=e749]:
+            - textbox [ref=e750]: Torrada/Biscoito
+          - cell "5" [ref=e751]:
+            - spinbutton [ref=e752]: "5"
+          - cell "5" [ref=e753]:
+            - spinbutton [ref=e754]: "5"
+          - cell "R$ 1,00" [ref=e755]
+          - cell "R$ 5,00" [ref=e756]:
+            - strong [ref=e757]: R$ 5,00
+          - cell [ref=e758]:
+            - textbox [ref=e759]
+          - cell "+ - x" [ref=e760]:
+            - button "+" [ref=e761] [cursor=pointer]
+            - button "-" [ref=e762] [cursor=pointer]
+            - button "x" [ref=e763] [cursor=pointer]
+        - row "Vinho Quente 3 5 R$ 4,00 R$ 12,00 + - x" [ref=e764]:
+          - cell "Vinho Quente" [ref=e765]:
+            - textbox [ref=e766]: Vinho Quente
+          - cell "3" [ref=e767]:
+            - spinbutton [ref=e768]: "3"
+          - cell "5" [ref=e769]:
+            - spinbutton [ref=e770]: "5"
+          - cell "R$ 4,00" [ref=e771]
+          - cell "R$ 12,00" [ref=e772]:
+            - strong [ref=e773]: R$ 12,00
+          - cell [ref=e774]:
+            - textbox [ref=e775]
+          - cell "+ - x" [ref=e776]:
+            - button "+" [ref=e777] [cursor=pointer]
+            - button "-" [ref=e778] [cursor=pointer]
+            - button "x" [ref=e779] [cursor=pointer]
+        - row "Cidra Quente 4 5 R$ 3,00 R$ 12,00 + - x" [ref=e780]:
+          - cell "Cidra Quente" [ref=e781]:
+            - textbox [ref=e782]: Cidra Quente
+          - cell "4" [ref=e783]:
+            - spinbutton [ref=e784]: "4"
+          - cell "5" [ref=e785]:
+            - spinbutton [ref=e786]: "5"
+          - cell "R$ 3,00" [ref=e787]
+          - cell "R$ 12,00" [ref=e788]:
+            - strong [ref=e789]: R$ 12,00
+          - cell [ref=e790]:
+            - textbox [ref=e791]
+          - cell "+ - x" [ref=e792]:
+            - button "+" [ref=e793] [cursor=pointer]
+            - button "-" [ref=e794] [cursor=pointer]
+            - button "x" [ref=e795] [cursor=pointer]
+        - row "Cafe Especial 6 5 R$ 2,00 R$ 12,00 + - x" [ref=e796]:
+          - cell "Cafe Especial" [ref=e797]:
+            - textbox [ref=e798]: Cafe Especial
+          - cell "6" [ref=e799]:
+            - spinbutton [ref=e800]: "6"
+          - cell "5" [ref=e801]:
+            - spinbutton [ref=e802]: "5"
+          - cell "R$ 2,00" [ref=e803]
+          - cell "R$ 12,00" [ref=e804]:
+            - strong [ref=e805]: R$ 12,00
+          - cell [ref=e806]:
+            - textbox [ref=e807]
+          - cell "+ - x" [ref=e808]:
+            - button "+" [ref=e809] [cursor=pointer]
+            - button "-" [ref=e810] [cursor=pointer]
+            - button "x" [ref=e811] [cursor=pointer]
+        - row "Petit Gateau 2 5 R$ 6,00 R$ 12,00 + - x" [ref=e812]:
+          - cell "Petit Gateau" [ref=e813]:
+            - textbox [ref=e814]: Petit Gateau
+          - cell "2" [ref=e815]:
+            - spinbutton [ref=e816]: "2"
+          - cell "5" [ref=e817]:
+            - spinbutton [ref=e818]: "5"
+          - cell "R$ 6,00" [ref=e819]
+          - cell "R$ 12,00" [ref=e820]:
+            - strong [ref=e821]: R$ 12,00
+          - cell [ref=e822]:
+            - textbox [ref=e823]
+          - cell "+ - x" [ref=e824]:
+            - button "+" [ref=e825] [cursor=pointer]
+            - button "-" [ref=e826] [cursor=pointer]
+            - button "x" [ref=e827] [cursor=pointer]
+        - row "Maca Canela 3 5 R$ 3,50 R$ 10,50 + - x" [ref=e828]:
+          - cell "Maca Canela" [ref=e829]:
+            - textbox [ref=e830]: Maca Canela
+          - cell "3" [ref=e831]:
+            - spinbutton [ref=e832]: "3"
+          - cell "5" [ref=e833]:
+            - spinbutton [ref=e834]: "5"
+          - cell "R$ 3,50" [ref=e835]
+          - cell "R$ 10,50" [ref=e836]:
+            - strong [ref=e837]: R$ 10,50
+          - cell [ref=e838]:
+            - textbox [ref=e839]
+          - cell "+ - x" [ref=e840]:
+            - button "+" [ref=e841] [cursor=pointer]
+            - button "-" [ref=e842] [cursor=pointer]
+            - button "x" [ref=e843] [cursor=pointer]
+    - generic [ref=e844]: "Valor Total do Estoque: R$ 1.367,60"
+    - generic [ref=e845]:
+      - generic [ref=e846]:
+        - strong [ref=e847]: ACAI 1L
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e848]:
+        - strong [ref=e849]: PALETA CX (24un)
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e850]:
+        - strong [ref=e851]: SKIMO CX (32un)
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e852]:
+        - strong [ref=e853]: PICOLE AGUA CX (40un)
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e854]:
+        - strong [ref=e855]: PICOLE LEITE CX (40un)
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e856]:
+        - strong [ref=e857]: SORVETE 300ml
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e858]:
+        - strong [ref=e859]: SORVETE 200ml
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e860]:
+        - strong [ref=e861]: POTE 1,3L (s/recheio)
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e862]:
+        - strong [ref=e863]: POTE 1,3L (c/recheio)
+        - text: ": estoque baixo (4 un <= min 5)"
+      - generic [ref=e864]:
+        - strong [ref=e865]: POTE 1,5L ESPECIAL
+        - text: ": estoque baixo (3 un <= min 5)"
+      - generic [ref=e866]:
+        - strong [ref=e867]: POTE 1,8L (s/recheio)
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e868]:
+        - strong [ref=e869]: MORENINHA CX
+        - text: ": estoque baixo (3 un <= min 5)"
+      - generic [ref=e870]:
+        - strong [ref=e871]: ALASKINHO
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e872]:
+        - strong [ref=e873]: CAIXA 5L (Sob Encomenda)
+        - text: ": estoque baixo (1 un <= min 5)"
+      - generic [ref=e874]:
+        - strong [ref=e875]: CAIXA 10L (Sob Encomenda)
+        - text: ": estoque baixo (1 un <= min 5)"
+      - generic [ref=e876]:
+        - strong [ref=e877]: ACAI 5L (Sob Encomenda)
+        - text: ": estoque baixo (1 un <= min 5)"
+      - generic [ref=e878]:
+        - strong [ref=e879]: ACAI 10L (Sob Encomenda)
+        - text: ": estoque baixo (1 un <= min 5)"
+      - generic [ref=e880]:
+        - strong [ref=e881]: ACAI Quente 500ml
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e882]:
+        - strong [ref=e883]: ACAI Quente 700ml
+        - text: ": estoque baixo (3 un <= min 5)"
+      - generic [ref=e884]:
+        - strong [ref=e885]: Chocolate Quente 400ml
+        - text: ": estoque baixo (3 un <= min 5)"
+      - generic [ref=e886]:
+        - strong [ref=e887]: Chocolate Quente Especial
+        - text: ": estoque baixo (2 un <= min 5)"
+      - generic [ref=e888]:
+        - strong [ref=e889]: Fondue Individual
+        - text: ": estoque baixo (1 un <= min 5)"
+      - generic [ref=e890]:
+        - strong [ref=e891]: Bolo (fatia)
+        - text: ": estoque baixo (3 un <= min 5)"
+      - generic [ref=e892]:
+        - strong [ref=e893]: Torrada/Biscoito
+        - text: ": estoque baixo (5 un <= min 5)"
+      - generic [ref=e894]:
+        - strong [ref=e895]: Vinho Quente
+        - text: ": estoque baixo (3 un <= min 5)"
+      - generic [ref=e896]:
+        - strong [ref=e897]: Cidra Quente
+        - text: ": estoque baixo (4 un <= min 5)"
+      - generic [ref=e898]:
+        - strong [ref=e899]: Petit Gateau
+        - text: ": estoque baixo (2 un <= min 5)"
+      - generic [ref=e900]:
+        - strong [ref=e901]: Maca Canela
+        - text: ": estoque baixo (3 un <= min 5)"
+  - generic [ref=e246]:
+    - button "Exportar Backup" [ref=e247] [cursor=pointer]
+    - generic [ref=e248] [cursor=pointer]: Importar Backup
+    - button "Limpar Dados" [ref=e249] [cursor=pointer]

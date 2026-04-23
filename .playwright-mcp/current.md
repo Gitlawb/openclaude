@@ -1,0 +1,115 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Sorveteria" [level=1] [ref=e5]
+      - text: Plano Interativo & Simulador
+    - generic [ref=e6]:
+      - generic [ref=e7]: Plano de Negócio
+      - button "📊 Dashboard" [ref=e8] [cursor=pointer]:
+        - generic [ref=e9]: 📊
+        - text: Dashboard
+      - button "🎯 Visão Geral" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: 🎯
+        - text: Visão Geral
+      - button "🍦 Catálogo" [ref=e12] [cursor=pointer]:
+        - generic [ref=e13]: 🍦
+        - text: Catálogo
+      - button "📈 Mercado" [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: 📈
+        - text: Mercado
+      - button "📢 Marketing" [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: 📢
+        - text: Marketing
+    - generic [ref=e18]:
+      - generic [ref=e19]: Simulador
+      - button "⚙️ Cenários" [ref=e20] [cursor=pointer]:
+        - generic [ref=e21]: ⚙️
+        - text: Cenários
+      - button "📋 DRE" [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: 📋
+        - text: DRE
+      - button "💰 Fluxo Caixa" [ref=e24] [cursor=pointer]:
+        - generic [ref=e25]: 💰
+        - text: Fluxo Caixa
+      - button "🛒 Vendas" [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: 🛒
+        - text: Vendas
+      - button "📦 Estoque" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]: 📦
+        - text: Estoque
+    - generic [ref=e30]:
+      - generic [ref=e31]: Gestão
+      - button "🏭 Fornecedores" [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: 🏭
+        - text: Fornecedores
+      - button "👥 Equipe" [ref=e34] [cursor=pointer]:
+        - generic [ref=e35]: 👥
+        - text: Equipe
+      - button "⚠️ Riscos" [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ⚠️
+        - text: Riscos
+      - button "🎯 Metas/KPIs" [ref=e38] [cursor=pointer]:
+        - generic [ref=e39]: 🎯
+        - text: Metas/KPIs
+      - button "🚀 Crescimento" [ref=e40] [cursor=pointer]:
+        - generic [ref=e41]: 🚀
+        - text: Crescimento
+      - button "📜 Histórico" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: 📜
+        - text: Histórico
+  - main [ref=e44]:
+    - generic [ref=e828]:
+      - heading "⚙️ Simulador de Cenários" [level=2] [ref=e829]
+      - generic [ref=e830]:
+        - heading "Configurações" [level=3] [ref=e831]
+        - generic [ref=e832]:
+          - generic [ref=e833]:
+            - generic [ref=e834]: Fator Sazonal
+            - combobox [ref=e835]
+          - button "🔄 Recalcular" [ref=e837] [cursor=pointer]
+      - generic [ref=e838]:
+        - heading "Vendas por Produto (ajuste quantidades e preços)" [level=3] [ref=e839]
+        - table [ref=e841]:
+          - rowgroup [ref=e842]:
+            - row "Produto Custo/Cx Un/Cx Cx/Mês Preço/Cx Receita Custo Total Lucro Margem" [ref=e843]
+            - row "PALETA R$ 44,00 24 5.0 120.00 R$ 600,00 R$ 220,00 R$ 380,00 63.3%" [ref=e853]
+            - row "SKIMO R$ 48,00 32 4.0 160.00 R$ 640,00 R$ 192,00 R$ 448,00 70.0%" [ref=e867]
+            - row "PICOLÉ Água R$ 30,00 40 3.0 120.00 R$ 360,00 R$ 90,00 R$ 270,00 75.0%" [ref=e881]
+            - row "PICOLÉ Leite R$ 36,00 40 5.0 120.00 R$ 600,00 R$ 180,00 R$ 420,00 70.0%" [ref=e895]
+            - row "PICOLÉ Gourmet R$ 282,00 40 3.0 400.00 R$ 1.200,00 R$ 846,00 R$ 354,00 29.5%" [ref=e909]
+            - row "MORENINHA R$ 25,00 40 2.0 80.00 R$ 160,00 R$ 50,00 R$ 110,00 68.8%" [ref=e923]
+            - row "SUNDAE R$ 45,00 32 2.0 160.00 R$ 320,00 R$ 90,00 R$ 230,00 71.9%" [ref=e937]
+            - row "ALASKINHO R$ 32,00 40 2.0 160.00 R$ 320,00 R$ 64,00 R$ 256,00 80.0%" [ref=e951]
+            - row "SORVETE 200ml R$ 128,00 20 3.0 180.00 R$ 540,00 R$ 384,00 R$ 156,00 28.9%" [ref=e965]
+            - row "SORVETE 300ml R$ 128,00 20 3.0 180.00 R$ 540,00 R$ 384,00 R$ 156,00 28.9%" [ref=e979]
+            - row "POTE 1L R$ 125,00 20 4.0 250.00 R$ 1.000,00 R$ 500,00 R$ 500,00 50.0%" [ref=e993]
+            - row "POTE 1,3L c/rech R$ 172,00 16 2.0 288.00 R$ 576,00 R$ 344,00 R$ 232,00 40.3%" [ref=e1007]
+            - row "POTE 1,5L Esp R$ 240,00 14 1.0 455.00 R$ 455,00 R$ 240,00 R$ 215,00 47.3%" [ref=e1021]
+            - row "POTE 1,8L c/rech R$ 184,00 27 2.0 540.00 R$ 1.080,00 R$ 368,00 R$ 712,00 65.9%" [ref=e1035]
+            - row "POTE 1,8L s/rech R$ 160,00 27 1.0 405.00 R$ 405,00 R$ 160,00 R$ 245,00 60.5%" [ref=e1049]
+            - row "AÇAÍ 1L R$ 135,00 25 5.0 275.00 R$ 1.375,00 R$ 675,00 R$ 700,00 50.9%" [ref=e1063]
+            - row "AÇAÍ 1,5L R$ 218,00 38 3.0 750.00 R$ 2.250,00 R$ 654,00 R$ 1.596,00 70.9%" [ref=e1077]
+            - row "AÇAÍ 300ml R$ 128,00 20 2.0 360.00 R$ 720,00 R$ 256,00 R$ 464,00 64.4%" [ref=e1091]
+            - row "CAIXA 5L R$ 720,00 1 1.0 1200.00 R$ 1.200,00 R$ 720,00 R$ 480,00 40.0%" [ref=e1105]
+            - row "CAIXA 10L R$ 1.340,00 1 1.0 2200.00 R$ 2.200,00 R$ 1.340,00 R$ 860,00 39.1%" [ref=e1119]
+            - row "TOTAL R$ 16.541,00 R$ 7.757,00 R$ 8.784,00 53.1%" [ref=e1133]
+      - generic [ref=e1144]:
+        - generic [ref=e1145]:
+          - generic [ref=e1146]: Receita Bruta
+          - generic [ref=e1147]: R$ 16.541,00
+        - generic [ref=e1148]:
+          - generic [ref=e1149]: CMV
+          - generic [ref=e1150]: "- R$ 7.757,00"
+        - generic [ref=e1151]:
+          - generic [ref=e1152]: Lucro Bruto
+          - generic [ref=e1153]: R$ 8.784,00
+          - generic [ref=e1154]: "Margem: 53.1%"
+        - generic [ref=e1155]:
+          - generic [ref=e1156]: Custos Fixos
+          - generic [ref=e1157]: "- R$ 0,00"
+        - generic [ref=e1158]:
+          - generic [ref=e1159]: Impostos
+          - generic [ref=e1160]: "- R$ 661,64"
+        - generic [ref=e1161]:
+          - generic [ref=e1162]: Resultado Líquido
+          - generic [ref=e1163]: +R$ 8.122,36

@@ -1,0 +1,135 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Sorveteria" [level=1] [ref=e5]
+      - text: Plano Interativo & Simulador
+    - generic [ref=e6]:
+      - generic [ref=e7]: Plano de Negócio
+      - button "📊 Dashboard" [active] [ref=e8] [cursor=pointer]:
+        - generic [ref=e9]: 📊
+        - text: Dashboard
+      - button "🎯 Visão Geral" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: 🎯
+        - text: Visão Geral
+      - button "🍦 Catálogo" [ref=e12] [cursor=pointer]:
+        - generic [ref=e13]: 🍦
+        - text: Catálogo
+      - button "📈 Mercado" [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: 📈
+        - text: Mercado
+      - button "📢 Marketing" [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: 📢
+        - text: Marketing
+    - generic [ref=e18]:
+      - generic [ref=e19]: Simulador
+      - button "⚙️ Cenários" [ref=e20] [cursor=pointer]:
+        - generic [ref=e21]: ⚙️
+        - text: Cenários
+      - button "📋 DRE" [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: 📋
+        - text: DRE
+      - button "💰 Fluxo Caixa" [ref=e24] [cursor=pointer]:
+        - generic [ref=e25]: 💰
+        - text: Fluxo Caixa
+      - button "🛒 Vendas" [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: 🛒
+        - text: Vendas
+      - button "📦 Estoque" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]: 📦
+        - text: Estoque
+    - generic [ref=e30]:
+      - generic [ref=e31]: Gestão
+      - button "🏭 Fornecedores" [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: 🏭
+        - text: Fornecedores
+      - button "👥 Equipe" [ref=e34] [cursor=pointer]:
+        - generic [ref=e35]: 👥
+        - text: Equipe
+      - button "⚠️ Riscos" [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ⚠️
+        - text: Riscos
+      - button "🎯 Metas/KPIs" [ref=e38] [cursor=pointer]:
+        - generic [ref=e39]: 🎯
+        - text: Metas/KPIs
+      - button "🚀 Crescimento" [ref=e40] [cursor=pointer]:
+        - generic [ref=e41]: 🚀
+        - text: Crescimento
+      - button "📜 Histórico" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: 📜
+        - text: Histórico
+  - main [ref=e44]:
+    - generic [ref=e960]:
+      - heading "📊 Dashboard" [level=2] [ref=e961]
+      - generic [ref=e962]:
+        - generic [ref=e963]:
+          - generic [ref=e964]: Faturamento (45d)
+          - generic [ref=e965]: R$ 41.869
+          - generic [ref=e966]: "Média: R$ 27.913/mês"
+        - generic [ref=e967]:
+          - generic [ref=e968]: Produto Top
+          - generic [ref=e969]: Açaí 1,5L
+          - generic [ref=e970]: R$ 5.428 (13%)
+        - generic [ref=e971]:
+          - generic [ref=e972]: Dias sem Venda
+          - generic [ref=e973]: ~13 dias
+          - generic [ref=e974]: 29% do período
+        - generic [ref=e975]:
+          - generic [ref=e976]: Status
+          - generic [ref=e977]: ⚠ Revisar Preços
+          - generic [ref=e978]: 3 produtos margem <2%
+      - generic [ref=e979]:
+        - heading "🏆 Top Produtos por Faturamento" [level=2] [ref=e980]
+        - generic [ref=e981]:
+          - generic [ref=e982]: Pote 1,8L C/R
+          - generic [ref=e984]: 11.4%
+        - generic [ref=e985]:
+          - generic [ref=e986]: Açaí 1,5L
+          - generic [ref=e988]: 13%
+        - generic [ref=e989]:
+          - generic [ref=e990]: Açaí 1L
+          - generic [ref=e992]: 10.1%
+        - generic [ref=e993]:
+          - generic [ref=e994]: Pote 1L C/R
+          - generic [ref=e996]: 9.1%
+        - generic [ref=e997]:
+          - generic [ref=e998]: Picolé Leite
+          - generic [ref=e1000]: 8.5%
+        - generic [ref=e1001]:
+          - generic [ref=e1002]: Pote 1,3L CX
+          - generic [ref=e1004]: 6.1%
+        - generic [ref=e1005]:
+          - generic [ref=e1006]: SKIMO CX
+          - generic [ref=e1008]: 5.5%
+        - generic [ref=e1009]:
+          - generic [ref=e1010]: Paleta CX
+          - generic [ref=e1012]: 5.5%
+      - generic [ref=e1013]:
+        - heading "📂 por Categoria" [level=2] [ref=e1014]
+        - generic [ref=e1015]:
+          - generic [ref=e1016]: Potes
+          - generic [ref=e1018]: 40.6%
+        - generic [ref=e1019]:
+          - generic [ref=e1020]: Açaí
+          - generic [ref=e1022]: 28.5%
+        - generic [ref=e1023]:
+          - generic [ref=e1024]: Picolés
+          - generic [ref=e1026]: 17.1%
+        - generic [ref=e1027]:
+          - generic [ref=e1028]: Paleta/Skimo
+          - generic [ref=e1030]: 11.1%
+        - generic [ref=e1031]:
+          - generic [ref=e1032]: Sorv 200/300ml
+          - generic [ref=e1034]: 5.7%
+      - generic [ref=e1035]:
+        - generic [ref=e1036]:
+          - heading "Alertas Críticos" [level=3] [ref=e1037]
+          - list [ref=e1038]:
+            - listitem [ref=e1039]: 3 produtos com margem < 2%
+            - listitem [ref=e1040]: 29% dos dias sem vendas
+            - listitem [ref=e1041]: Picolé Gourmet opera com prejuízo
+        - generic [ref=e1042]:
+          - heading "Oportunidades" [level=3] [ref=e1043]
+          - list [ref=e1044]:
+            - listitem [ref=e1045]: "Açaí 300ml: margem 181%"
+            - listitem [ref=e1046]: "Alaskinho: margem 400%"
+            - listitem [ref=e1047]: +15 clientes B2B potenciais

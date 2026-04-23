@@ -1,0 +1,347 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Sorveteria - Painel de Negocio" [level=1] [ref=e5]
+      - generic [ref=e6]: Revenda B2B + Revendedores Autonomos | 2 pessoas | Local/Bairro
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - text: Faturamento (45 dias)
+        - strong [ref=e9]: R$ 41.869
+      - generic [ref=e10]:
+        - text: Media Mensal
+        - strong [ref=e11]: R$ 27.913
+      - generic [ref=e12]:
+        - text: Media Diaria
+        - strong [ref=e13]: R$ 930
+  - generic [ref=e14]:
+    - button "1. Visao Geral" [ref=e15] [cursor=pointer]
+    - button "2. Produtos e Precos" [active] [ref=e16] [cursor=pointer]
+    - button "3. DRE" [ref=e17] [cursor=pointer]
+    - button "4. Fluxo de Caixa" [ref=e18] [cursor=pointer]
+    - button "5. Estoque" [ref=e19] [cursor=pointer]
+    - button "6. Cenarios e KPIs" [ref=e20] [cursor=pointer]
+  - generic [ref=e526]:
+    - generic [ref=e528]:
+      - generic [ref=e529]: "Fator Sazonal:"
+      - generic [ref=e530]: "1.00"
+      - slider [ref=e531]: "1"
+      - combobox [ref=e532]:
+        - option "Verao (Alta)" [selected]
+        - option "Outono/Primavera"
+        - option "Inverno"
+        - option "Inverno Forte"
+        - option "Verao Pico"
+      - button "Reset" [ref=e533] [cursor=pointer]
+    - generic [ref=e534]:
+      - heading "Catalogo de Produtos - Precificacao e Margens" [level=2] [ref=e535]
+      - table [ref=e537]:
+        - rowgroup [ref=e538]:
+          - row "Produto Categoria Custo/Cx Un/Cx Preco Venda B2B Marg. B2B Preco B2C Sugerido Marg. B2C Classif." [ref=e539]:
+            - columnheader "Produto" [ref=e540]
+            - columnheader "Categoria" [ref=e541]
+            - columnheader "Custo/Cx" [ref=e542]
+            - columnheader "Un/Cx" [ref=e543]
+            - columnheader "Preco Venda B2B" [ref=e544]
+            - columnheader "Marg. B2B" [ref=e545]
+            - columnheader "Preco B2C Sugerido" [ref=e546]
+            - columnheader "Marg. B2C" [ref=e547]
+            - columnheader "Classif." [ref=e548]
+        - rowgroup [ref=e549]:
+          - row "Paleta - cx 24un Individual R$ 44,00 24 88 100% 120 173% Estrela" [ref=e550]:
+            - cell "Paleta - cx 24un" [ref=e551]
+            - cell "Individual" [ref=e552]
+            - cell "R$ 44,00" [ref=e553]
+            - cell "24" [ref=e554]
+            - cell "88" [ref=e555]:
+              - spinbutton [ref=e556]: "88"
+            - cell "100%" [ref=e557]
+            - cell "120" [ref=e558]:
+              - spinbutton [ref=e559]: "120"
+            - cell "173%" [ref=e560]
+            - cell "Estrela" [ref=e561]:
+              - generic [ref=e562]: Estrela
+          - row "Skimo - cx 32un Individual R$ 48,00 32 96 100% 160 233% Estrela" [ref=e563]:
+            - cell "Skimo - cx 32un" [ref=e564]
+            - cell "Individual" [ref=e565]
+            - cell "R$ 48,00" [ref=e566]
+            - cell "32" [ref=e567]
+            - cell "96" [ref=e568]:
+              - spinbutton [ref=e569]: "96"
+            - cell "100%" [ref=e570]
+            - cell "160" [ref=e571]:
+              - spinbutton [ref=e572]: "160"
+            - cell "233%" [ref=e573]
+            - cell "Estrela" [ref=e574]:
+              - generic [ref=e575]: Estrela
+          - row "Picole Leite - cx 40un Individual R$ 36,00 40 72 100% 120 233% Regular" [ref=e576]:
+            - cell "Picole Leite - cx 40un" [ref=e577]
+            - cell "Individual" [ref=e578]
+            - cell "R$ 36,00" [ref=e579]
+            - cell "40" [ref=e580]
+            - cell "72" [ref=e581]:
+              - spinbutton [ref=e582]: "72"
+            - cell "100%" [ref=e583]
+            - cell "120" [ref=e584]:
+              - spinbutton [ref=e585]: "120"
+            - cell "233%" [ref=e586]
+            - cell "Regular" [ref=e587]:
+              - generic [ref=e588]: Regular
+          - row "Picole Agua - cx 40un Individual R$ 30,00 40 60 100% 100 233% Entrada" [ref=e589]:
+            - cell "Picole Agua - cx 40un" [ref=e590]
+            - cell "Individual" [ref=e591]
+            - cell "R$ 30,00" [ref=e592]
+            - cell "40" [ref=e593]
+            - cell "60" [ref=e594]:
+              - spinbutton [ref=e595]: "60"
+            - cell "100%" [ref=e596]
+            - cell "100" [ref=e597]:
+              - spinbutton [ref=e598]: "100"
+            - cell "233%" [ref=e599]
+            - cell "Entrada" [ref=e600]:
+              - generic [ref=e601]: Entrada
+          - row "Picole Gourmet Premium Premium R$ 282,00 12 340 21% 400 42% Premium" [ref=e602]:
+            - cell "Picole Gourmet Premium" [ref=e603]
+            - cell "Premium" [ref=e604]
+            - cell "R$ 282,00" [ref=e605]
+            - cell "12" [ref=e606]
+            - cell "340" [ref=e607]:
+              - spinbutton [ref=e608]: "340"
+            - cell "21%" [ref=e609]
+            - cell "400" [ref=e610]:
+              - spinbutton [ref=e611]: "400"
+            - cell "42%" [ref=e612]
+            - cell "Premium" [ref=e613]:
+              - generic [ref=e614]: Premium
+          - row "Moreninha - cx Individual R$ 25,00 24 40 60% 55 120% Entrada" [ref=e615]:
+            - cell "Moreninha - cx" [ref=e616]
+            - cell "Individual" [ref=e617]
+            - cell "R$ 25,00" [ref=e618]
+            - cell "24" [ref=e619]
+            - cell "40" [ref=e620]:
+              - spinbutton [ref=e621]: "40"
+            - cell "60%" [ref=e622]
+            - cell "55" [ref=e623]:
+              - spinbutton [ref=e624]: "55"
+            - cell "120%" [ref=e625]
+            - cell "Entrada" [ref=e626]:
+              - generic [ref=e627]: Entrada
+          - row "Sundae - cx 24un Individual R$ 34,00 24 68 100% 96 182% Regular" [ref=e628]:
+            - cell "Sundae - cx 24un" [ref=e629]
+            - cell "Individual" [ref=e630]
+            - cell "R$ 34,00" [ref=e631]
+            - cell "24" [ref=e632]
+            - cell "68" [ref=e633]:
+              - spinbutton [ref=e634]: "68"
+            - cell "100%" [ref=e635]
+            - cell "96" [ref=e636]:
+              - spinbutton [ref=e637]: "96"
+            - cell "182%" [ref=e638]
+            - cell "Regular" [ref=e639]:
+              - generic [ref=e640]: Regular
+          - row "Alaskinho - cx 40un Individual R$ 32,00 40 64 100% 120 275% Estrela" [ref=e641]:
+            - cell "Alaskinho - cx 40un" [ref=e642]
+            - cell "Individual" [ref=e643]
+            - cell "R$ 32,00" [ref=e644]
+            - cell "40" [ref=e645]
+            - cell "64" [ref=e646]:
+              - spinbutton [ref=e647]: "64"
+            - cell "100%" [ref=e648]
+            - cell "120" [ref=e649]:
+              - spinbutton [ref=e650]: "120"
+            - cell "275%" [ref=e651]
+            - cell "Estrela" [ref=e652]:
+              - generic [ref=e653]: Estrela
+          - row "Pote 1,8L c/ recheio Familiar R$ 184,00 16 260 41% 350 90% Estrela" [ref=e654]:
+            - cell "Pote 1,8L c/ recheio" [ref=e655]
+            - cell "Familiar" [ref=e656]
+            - cell "R$ 184,00" [ref=e657]
+            - cell "16" [ref=e658]
+            - cell "260" [ref=e659]:
+              - spinbutton [ref=e660]: "260"
+            - cell "41%" [ref=e661]
+            - cell "350" [ref=e662]:
+              - spinbutton [ref=e663]: "350"
+            - cell "90%" [ref=e664]
+            - cell "Estrela" [ref=e665]:
+              - generic [ref=e666]: Estrela
+          - row "Pote 1L c/ recheio Familiar R$ 125,00 16 190 52% 250 100% Estrela" [ref=e667]:
+            - cell "Pote 1L c/ recheio" [ref=e668]
+            - cell "Familiar" [ref=e669]
+            - cell "R$ 125,00" [ref=e670]
+            - cell "16" [ref=e671]
+            - cell "190" [ref=e672]:
+              - spinbutton [ref=e673]: "190"
+            - cell "52%" [ref=e674]
+            - cell "250" [ref=e675]:
+              - spinbutton [ref=e676]: "250"
+            - cell "100%" [ref=e677]
+            - cell "Estrela" [ref=e678]:
+              - generic [ref=e679]: Estrela
+          - row "Pote 1,5L Especial Premium R$ 240,00 12 320 33% 420 75% Premium" [ref=e680]:
+            - cell "Pote 1,5L Especial" [ref=e681]
+            - cell "Premium" [ref=e682]
+            - cell "R$ 240,00" [ref=e683]
+            - cell "12" [ref=e684]
+            - cell "320" [ref=e685]:
+              - spinbutton [ref=e686]: "320"
+            - cell "33%" [ref=e687]
+            - cell "420" [ref=e688]:
+              - spinbutton [ref=e689]: "420"
+            - cell "75%" [ref=e690]
+            - cell "Premium" [ref=e691]:
+              - generic [ref=e692]: Premium
+          - row "AcAi 1,5L c/ Nutella AcAi R$ 218,00 16 380 74% 500 129% Estrela" [ref=e693]:
+            - cell "AcAi 1,5L c/ Nutella" [ref=e694]
+            - cell "AcAi" [ref=e695]
+            - cell "R$ 218,00" [ref=e696]
+            - cell "16" [ref=e697]
+            - cell "380" [ref=e698]:
+              - spinbutton [ref=e699]: "380"
+            - cell "74%" [ref=e700]
+            - cell "500" [ref=e701]:
+              - spinbutton [ref=e702]: "500"
+            - cell "129%" [ref=e703]
+            - cell "Estrela" [ref=e704]:
+              - generic [ref=e705]: Estrela
+          - row "AcAi 1L AcAi R$ 135,00 20 230 70% 275 104% Atencao" [ref=e706]:
+            - cell "AcAi 1L" [ref=e707]
+            - cell "AcAi" [ref=e708]
+            - cell "R$ 135,00" [ref=e709]
+            - cell "20" [ref=e710]
+            - cell "230" [ref=e711]:
+              - spinbutton [ref=e712]: "230"
+            - cell "70%" [ref=e713]
+            - cell "275" [ref=e714]:
+              - spinbutton [ref=e715]: "275"
+            - cell "104%" [ref=e716]
+            - cell "Atencao" [ref=e717]:
+              - generic [ref=e718]: Atencao
+          - row "AcAi 300ml/200ml AcAi R$ 64,00 20 128 100% 180 181% Estrela" [ref=e719]:
+            - cell "AcAi 300ml/200ml" [ref=e720]
+            - cell "AcAi" [ref=e721]
+            - cell "R$ 64,00" [ref=e722]
+            - cell "20" [ref=e723]
+            - cell "128" [ref=e724]:
+              - spinbutton [ref=e725]: "128"
+            - cell "100%" [ref=e726]
+            - cell "180" [ref=e727]:
+              - spinbutton [ref=e728]: "180"
+            - cell "181%" [ref=e729]
+            - cell "Estrela" [ref=e730]:
+              - generic [ref=e731]: Estrela
+          - row "Sorvete 200ml/300ml Consumo Imediato R$ 64,00 20 96 50% 128 100% Regular" [ref=e732]:
+            - cell "Sorvete 200ml/300ml" [ref=e733]
+            - cell "Consumo Imediato" [ref=e734]
+            - cell "R$ 64,00" [ref=e735]
+            - cell "20" [ref=e736]
+            - cell "96" [ref=e737]:
+              - spinbutton [ref=e738]: "96"
+            - cell "50%" [ref=e739]
+            - cell "128" [ref=e740]:
+              - spinbutton [ref=e741]: "128"
+            - cell "100%" [ref=e742]
+            - cell "Regular" [ref=e743]:
+              - generic [ref=e744]: Regular
+          - row "Caixa 5L sob encomenda Encomenda R$ 360,00 1 540 50% 720 100% Premium" [ref=e745]:
+            - cell "Caixa 5L sob encomenda" [ref=e746]
+            - cell "Encomenda" [ref=e747]
+            - cell "R$ 360,00" [ref=e748]
+            - cell "1" [ref=e749]
+            - cell "540" [ref=e750]:
+              - spinbutton [ref=e751]: "540"
+            - cell "50%" [ref=e752]
+            - cell "720" [ref=e753]:
+              - spinbutton [ref=e754]: "720"
+            - cell "100%" [ref=e755]
+            - cell "Premium" [ref=e756]:
+              - generic [ref=e757]: Premium
+          - row "Caixa 10L sob encomenda Encomenda R$ 720,00 1 1080 50% 1340 86% Premium" [ref=e758]:
+            - cell "Caixa 10L sob encomenda" [ref=e759]
+            - cell "Encomenda" [ref=e760]
+            - cell "R$ 720,00" [ref=e761]
+            - cell "1" [ref=e762]
+            - cell "1080" [ref=e763]:
+              - spinbutton [ref=e764]: "1080"
+            - cell "50%" [ref=e765]
+            - cell "1340" [ref=e766]:
+              - spinbutton [ref=e767]: "1340"
+            - cell "86%" [ref=e768]
+            - cell "Premium" [ref=e769]:
+              - generic [ref=e770]: Premium
+          - row "Torrada - cx Acompanhamento R$ 25,00 24 45 80% 60 140% Regular" [ref=e771]:
+            - cell "Torrada - cx" [ref=e772]
+            - cell "Acompanhamento" [ref=e773]
+            - cell "R$ 25,00" [ref=e774]
+            - cell "24" [ref=e775]
+            - cell "45" [ref=e776]:
+              - spinbutton [ref=e777]: "45"
+            - cell "80%" [ref=e778]
+            - cell "60" [ref=e779]:
+              - spinbutton [ref=e780]: "60"
+            - cell "140%" [ref=e781]
+            - cell "Regular" [ref=e782]:
+              - generic [ref=e783]: Regular
+    - paragraph [ref=e785]:
+      - text: "Produtos de Inverno aparecem quando o fator sazonal <= 0.7. Valor atual:"
+      - strong [ref=e786]: "1.00"
+      - text: . Arraste o slider para baixo para ver.
+    - generic [ref=e787]:
+      - heading "Calculadora de Kits para Revendedores" [level=2] [ref=e788]
+      - table [ref=e790]:
+        - rowgroup [ref=e791]:
+          - row "Kit Conteudo Custo Revenda (B2C) Lucro Margem" [ref=e792]:
+            - columnheader "Kit" [ref=e793]
+            - columnheader "Conteudo" [ref=e794]
+            - columnheader "Custo" [ref=e795]
+            - columnheader "Revenda (B2C)" [ref=e796]
+            - columnheader "Lucro" [ref=e797]
+            - columnheader "Margem" [ref=e798]
+        - rowgroup [ref=e799]:
+          - row "Basico Para comecar 1x Paleta - cx 24un 1x Picole Agua - cx 40un R$ 74,00 R$ 220,00 R$ 146,00 197%" [ref=e800]:
+            - cell "Basico Para comecar" [ref=e801]:
+              - strong [ref=e802]: Basico
+              - text: Para comecar
+            - cell "1x Paleta - cx 24un 1x Picole Agua - cx 40un" [ref=e803]:
+              - text: 1x Paleta - cx 24un
+              - text: 1x Picole Agua - cx 40un
+            - cell "R$ 74,00" [ref=e804]
+            - cell "R$ 220,00" [ref=e805]
+            - cell "R$ 146,00" [ref=e806]
+            - cell "197%" [ref=e807]
+          - row "Padrao Para revendedor regular 1x Paleta - cx 24un 1x Skimo - cx 32un 1x Picole Leite - cx 40un R$ 128,00 R$ 400,00 R$ 272,00 213%" [ref=e808]:
+            - cell "Padrao Para revendedor regular" [ref=e809]:
+              - strong [ref=e810]: Padrao
+              - text: Para revendedor regular
+            - cell "1x Paleta - cx 24un 1x Skimo - cx 32un 1x Picole Leite - cx 40un" [ref=e811]:
+              - text: 1x Paleta - cx 24un
+              - text: 1x Skimo - cx 32un
+              - text: 1x Picole Leite - cx 40un
+            - cell "R$ 128,00" [ref=e812]
+            - cell "R$ 400,00" [ref=e813]
+            - cell "R$ 272,00" [ref=e814]
+            - cell "213%" [ref=e815]
+          - row "Completo Para revendedor ativo 1x Paleta - cx 24un 1x Skimo - cx 32un 1x Picole Leite - cx 40un 1x Sundae - cx 24un R$ 162,00 R$ 496,00 R$ 334,00 206%" [ref=e816]:
+            - cell "Completo Para revendedor ativo" [ref=e817]:
+              - strong [ref=e818]: Completo
+              - text: Para revendedor ativo
+            - cell "1x Paleta - cx 24un 1x Skimo - cx 32un 1x Picole Leite - cx 40un 1x Sundae - cx 24un" [ref=e819]:
+              - text: 1x Paleta - cx 24un
+              - text: 1x Skimo - cx 32un
+              - text: 1x Picole Leite - cx 40un
+              - text: 1x Sundae - cx 24un
+            - cell "R$ 162,00" [ref=e820]
+            - cell "R$ 496,00" [ref=e821]
+            - cell "R$ 334,00" [ref=e822]
+            - cell "206%" [ref=e823]
+          - row "Premium Para revendedor dedicado 2x Paleta - cx 24un 2x Skimo - cx 32un 1x Pote 1L c/ recheio R$ 309,00 R$ 810,00 R$ 501,00 162%" [ref=e824]:
+            - cell "Premium Para revendedor dedicado" [ref=e825]:
+              - strong [ref=e826]: Premium
+              - text: Para revendedor dedicado
+            - cell "2x Paleta - cx 24un 2x Skimo - cx 32un 1x Pote 1L c/ recheio" [ref=e827]:
+              - text: 2x Paleta - cx 24un
+              - text: 2x Skimo - cx 32un
+              - text: 1x Pote 1L c/ recheio
+            - cell "R$ 309,00" [ref=e828]
+            - cell "R$ 810,00" [ref=e829]
+            - cell "R$ 501,00" [ref=e830]
+            - cell "162%" [ref=e831]

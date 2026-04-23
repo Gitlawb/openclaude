@@ -1,0 +1,62 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - heading "❅ Power Planner" [level=1] [ref=e4]:
+        - generic [ref=e5]: ❅
+        - text: Power Planner
+      - paragraph [ref=e6]: Planejamento de Negocio
+    - generic [ref=e7]:
+      - generic [ref=e8]: Visao Geral
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: ●
+        - text: Dashboard
+        - generic [ref=e11]: "1"
+    - generic [ref=e12]:
+      - generic [ref=e13]: Financeiro
+      - generic [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: $
+        - text: DRE
+        - generic [ref=e16]: 12M
+        - generic [ref=e17]: "2"
+      - generic [ref=e18] [cursor=pointer]:
+        - generic [ref=e19]: ⇄
+        - text: Fluxo de Caixa
+        - generic [ref=e20]: "3"
+    - generic [ref=e21]:
+      - generic [ref=e22]: Operacional
+      - generic [ref=e23] [cursor=pointer]:
+        - generic [ref=e24]: ★
+        - text: Estoque
+        - generic [ref=e25]: "4"
+      - generic [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: ⚙
+        - text: Premissas
+        - generic [ref=e28]: "5"
+    - generic [ref=e29]:
+      - generic [ref=e30]: Estrategico
+      - generic [ref=e31] [cursor=pointer]:
+        - generic [ref=e32]: ♦
+        - text: Cenarios
+        - generic [ref=e33]: "0"
+        - generic [ref=e34]: "6"
+      - generic [ref=e35] [cursor=pointer]:
+        - generic [ref=e36]: ☰
+        - text: Plano e KPIs
+        - generic [ref=e37]: "7"
+    - generic [ref=e38]:
+      - button "⬇ Exportar Backup" [ref=e39] [cursor=pointer]
+      - generic [ref=e40] [cursor=pointer]: ⬆ Importar Backup
+      - button "🗑 Limpar Dados" [ref=e41] [cursor=pointer]
+      - generic [ref=e42]: Ctrl+1-7 trocar aba · Ctrl+S salvar
+  - generic [ref=e44]:
+    - generic [ref=e45]:
+      - generic [ref=e46]:
+        - heading "Dashboard" [level=2] [ref=e47]
+        - generic [ref=e48]: Visao geral do negocio
+      - generic [ref=e49]:
+        - generic [ref=e50]: Sem cenario ativo
+        - button "+ Novo Cenario" [ref=e51] [cursor=pointer]
+    - heading "Receita vs Custos — Projecao 12 Meses" [level=3] [ref=e53]
+    - generic [ref=e56]:
+      - heading "Alertas de Estoque" [level=3] [ref=e58]
+      - heading "KPIs em Destaque" [level=3] [ref=e60]

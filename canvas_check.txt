@@ -1,0 +1,7 @@
+{
+  "width": 300,
+  "height": 477,
+  "clientH": 477,
+  "visible": true,
+  "hasContent": true
+}

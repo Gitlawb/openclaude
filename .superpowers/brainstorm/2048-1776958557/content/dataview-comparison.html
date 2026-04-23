@@ -1,0 +1,248 @@
+<h2>Dataview hoje vs. N&iacute;vel 2 proposto</h2>
+<p class="subtitle">Mesma query, experi&ecirc;ncia diferente. Clique nas op&ccedil;&otilde;es para escolher o que voc&ecirc; prefere.</p>
+
+<style>
+  .dv-demo {
+    background: rgba(20, 20, 25, 0.5);
+    border: 1px solid var(--border, #2a2a33);
+    border-radius: 12px;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 480px;
+  }
+  .dv-demo h4 { margin: 0 0 8px 0; color: var(--text, #e0e0e0); font-size: 15px; }
+  .dv-demo .caption { font-size: 12px; color: var(--subtle, #888); margin-bottom: 16px; }
+  .dv-code {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 11px;
+    color: #c9d1d9;
+    line-height: 1.5;
+    margin-bottom: 12px;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .dv-code .kw { color: #ff7b72; }
+  .dv-code .str { color: #a5d6ff; }
+  .dv-code .fn { color: #d2a8ff; }
+  .dv-code .cmt { color: #8b949e; font-style: italic; }
+  .dv-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    background: #161b22;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .dv-table th {
+    background: #21262d;
+    padding: 8px 10px;
+    text-align: left;
+    color: #c9d1d9;
+    font-weight: 600;
+    border-bottom: 1px solid #30363d;
+  }
+  .dv-table td {
+    padding: 7px 10px;
+    color: #c9d1d9;
+    border-bottom: 1px solid #21262d;
+  }
+  .dv-table td.link { color: #58a6ff; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-ativo { background: #1f6f2a; color: #7ee787; }
+  .badge-pausa { background: #7d4e1a; color: #ffc266; }
+  .badge-fim { background: #30363d; color: #8b949e; }
+
+  .dv-chat-input {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .dv-chat-input .icon { color: #58a6ff; font-size: 14px; }
+  .dv-chat-input .text { flex: 1; color: #c9d1d9; font-size: 12px; font-style: italic; }
+  .dv-chat-input .send { background: #238636; color: white; border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: 600; }
+
+  .dv-toolbar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .chip {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    padding: 4px 10px;
+    border-radius: 14px;
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .chip.active { background: #1f6feb; border-color: #1f6feb; color: white; }
+  .chip.filter { background: rgba(88, 166, 255, 0.15); border-color: #58a6ff; color: #58a6ff; }
+  .chip.filter::after { content: " \00D7"; margin-left: 2px; }
+
+  .viz-toggle {
+    margin-left: auto;
+    display: flex;
+    gap: 2px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 2px;
+  }
+  .viz-toggle button {
+    background: transparent;
+    color: #8b949e;
+    padding: 3px 8px;
+    font-size: 10px;
+    border-radius: 3px;
+  }
+  .viz-toggle button.active { background: #1f6feb; color: white; }
+
+  .search-box {
+    width: 100%;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #c9d1d9;
+    font-size: 11px;
+    margin-bottom: 8px;
+  }
+
+  .chart-mock {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 16px;
+    height: 180px;
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    justify-content: space-around;
+  }
+  .chart-bar { background: linear-gradient(180deg, #58a6ff 0%, #1f6feb 100%); width: 40px; border-radius: 4px 4px 0 0; position: relative; }
+  .chart-bar span { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #8b949e; white-space: nowrap; }
+
+  .ai-insight {
+    background: rgba(88, 166, 255, 0.08);
+    border-left: 3px solid #58a6ff;
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #c9d1d9;
+    margin-top: 12px;
+  }
+  .ai-insight strong { color: #58a6ff; }
+</style>
+
+<div class="split">
+
+  <!-- LEFT: Dataview nativo -->
+  <div class="dv-demo">
+    <h4>Dataview hoje (nativo)</h4>
+    <div class="caption">Voc&ecirc; escreve DQL. Resultado &eacute; tabela est&aacute;tica.</div>
+
+    <div class="dv-code"><span class="kw">TABLE</span>
+  status,
+  cliente,
+  <span class="fn">dateformat</span>(file.mtime, <span class="str">"yyyy-MM-dd"</span>) <span class="kw">AS</span> <span class="str">"&Uacute;ltima edi&ccedil;&atilde;o"</span>
+<span class="kw">FROM</span> <span class="str">"03-Projetos"</span>
+<span class="kw">WHERE</span> status != <span class="str">"Arquivado"</span>
+<span class="kw">SORT</span> file.mtime <span class="kw">DESC</span></div>
+
+    <table class="dv-table">
+      <thead>
+        <tr><th>Nota</th><th>Status</th><th>Cliente</th><th>&Uacute;ltima ed.</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="link">FinPower</td><td>Ativo</td><td>Energinova</td><td>2026-04-22</td></tr>
+        <tr><td class="link">PowerSQT</td><td>Ativo</td><td>Energinova</td><td>2026-04-20</td></tr>
+        <tr><td class="link">SigBlock</td><td>Em pausa</td><td>Cliente X</td><td>2026-04-12</td></tr>
+        <tr><td class="link">NeuroGrid</td><td>Ativo</td><td>Energinova</td><td>2026-04-10</td></tr>
+        <tr><td class="link">EnergiField</td><td>Conclu&iacute;do</td><td>Energinova</td><td>2026-03-28</td></tr>
+      </tbody>
+    </table>
+
+    <div class="caption" style="margin-top: 14px;">
+      &bull; Sem busca na tabela &nbsp; &bull; Sem filtros cl&iacute;caveis<br>
+      &bull; Sem gr&aacute;fico &nbsp; &bull; Requer saber DQL
+    </div>
+  </div>
+
+  <!-- RIGHT: N&iacute;vel 2 proposto -->
+  <div class="dv-demo">
+    <h4>N&iacute;vel 2 &mdash; Linguagem natural + painel interativo</h4>
+    <div class="caption">Voc&ecirc; pergunta. Agente traduz. Resultado &eacute; interativo.</div>
+
+    <div class="dv-chat-input">
+      <span class="icon">&#9679;</span>
+      <span class="text">"projetos ativos da Energinova por cliente, com &uacute;ltima edi&ccedil;&atilde;o"</span>
+      <span class="send">Enviar</span>
+    </div>
+
+    <div class="dv-toolbar">
+      <span class="chip filter">status: Ativo</span>
+      <span class="chip filter">cliente: Energinova</span>
+      <span class="chip">+ filtro</span>
+      <div class="viz-toggle">
+        <button class="active">Tabela</button>
+        <button>Barra</button>
+        <button>Pizza</button>
+      </div>
+    </div>
+
+    <input class="search-box" type="text" placeholder="&#x1F50D; Buscar nesta tabela..." value="">
+
+    <table class="dv-table">
+      <thead>
+        <tr>
+          <th>Nota &#x25B4;</th><th>Status</th><th>Cliente</th><th>&Uacute;ltima ed. &#x25BE;</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="link">FinPower</td><td><span class="badge badge-ativo">Ativo</span></td><td>Energinova</td><td>2026-04-22</td></tr>
+        <tr><td class="link">PowerSQT</td><td><span class="badge badge-ativo">Ativo</span></td><td>Energinova</td><td>2026-04-20</td></tr>
+        <tr><td class="link">NeuroGrid</td><td><span class="badge badge-ativo">Ativo</span></td><td>Energinova</td><td>2026-04-10</td></tr>
+      </tbody>
+    </table>
+
+    <div class="ai-insight">
+      <strong>&#x2728; Insight do agente:</strong> 3 projetos ativos na Energinova. <strong>NeuroGrid</strong> n&atilde;o tem atualiza&ccedil;&atilde;o h&aacute; 13 dias &mdash; maior gap entre os ativos. Quer que eu abra a nota?
+    </div>
+  </div>
+
+</div>
+
+<div class="options" style="margin-top: 28px;">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Aprovo N&iacute;vel 1+2 no MVP</h3>
+      <p>Exatamente como mostrado. Entrada em linguagem natural + painel interativo com filtros, busca, toggle de chart e insights do agente.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>S&oacute; N&iacute;vel 1 (gera DQL) no MVP</h3>
+      <p>Mais barato, entrega em 1 dia. Agente gera a query, voc&ecirc; cola na nota, Dataview renderiza nativo. Guardamos painel interativo pra v1.5.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Quero algo diferente</h3>
+      <p>O mockup n&atilde;o bate com o que eu imaginava. Me diga no terminal o que precisa mudar.</p>
+    </div>
+  </div>
+</div>

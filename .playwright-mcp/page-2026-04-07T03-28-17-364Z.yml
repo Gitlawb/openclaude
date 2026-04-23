@@ -1,0 +1,70 @@
+- generic [ref=e2]:
+  - heading "Planejador de Negocio - Sorveteria" [level=1] [ref=e3]
+  - generic [ref=e4]:
+    - button "Dashboard" [ref=e5] [cursor=pointer]
+    - button "DRE" [ref=e6] [cursor=pointer]
+    - button "Fluxo de Caixa" [ref=e7] [cursor=pointer]
+    - button "Estoque" [ref=e8] [cursor=pointer]
+    - button "Cenarios" [ref=e9] [cursor=pointer]
+    - button "Plano e KPIs" [ref=e10] [cursor=pointer]
+  - generic [ref=e11]:
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - generic [ref=e14]: Receita Bruta
+        - generic [ref=e15]: R$ 1.056,00
+      - generic [ref=e16]:
+        - generic [ref=e17]: Custos Totais
+        - generic [ref=e18]: R$ 347,90
+      - generic [ref=e19]:
+        - generic [ref=e20]: Lucro Liquido
+        - generic [ref=e21]: R$ 708,10
+      - generic [ref=e22]:
+        - generic [ref=e23]: Margem
+        - generic [ref=e24]: 67.1%
+    - heading "Receita vs Custo (6 meses)" [level=2] [ref=e26]
+    - generic [ref=e29]:
+      - generic [ref=e30]:
+        - heading "Alertas de Estoque" [level=2] [ref=e31]
+        - generic [ref=e32]:
+          - generic [ref=e33]:
+            - text: "Estoque baixo:"
+            - strong [ref=e34]: ACAI 1,0L
+            - text: (5 un.)
+          - generic [ref=e35]:
+            - text: "Estoque baixo:"
+            - strong [ref=e36]: PALETA CX
+            - text: (5 un.)
+          - generic [ref=e37]:
+            - text: "Estoque baixo:"
+            - strong [ref=e38]: SKIMO CX
+            - text: (5 un.)
+          - generic [ref=e39]:
+            - text: "Estoque baixo:"
+            - strong [ref=e40]: PICOLE LEITE CX
+            - text: (5 un.)
+          - generic [ref=e41]:
+            - text: "Estoque baixo:"
+            - strong [ref=e42]: PICOLE GOURMET
+            - text: (3 un.)
+          - generic [ref=e43]:
+            - text: "Estoque baixo:"
+            - strong [ref=e44]: Sorvete 200ml
+            - text: (2 un.)
+          - generic [ref=e45]:
+            - text: "Estoque baixo:"
+            - strong [ref=e46]: Torrada
+            - text: (5 un.)
+      - generic [ref=e47]:
+        - heading "Resumo KPIs" [level=2] [ref=e48]
+        - generic [ref=e49]:
+          - generic [ref=e50]:
+            - generic [ref=e51]: 1 OK
+            - generic [ref=e52]: 0 Parcial
+            - generic [ref=e53]: 2 Critico
+          - generic [ref=e54]: "Tarefas: 0/0 (0%)"
+          - generic [ref=e55]:
+            - generic: 0%
+  - generic [ref=e56]:
+    - button "Exportar Backup" [ref=e57] [cursor=pointer]
+    - generic [ref=e58] [cursor=pointer]: Importar Backup
+    - button "Limpar Dados" [ref=e59] [cursor=pointer]

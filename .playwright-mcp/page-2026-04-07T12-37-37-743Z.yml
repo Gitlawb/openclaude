@@ -1,0 +1,190 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - heading "❅ Power Planner" [level=1] [ref=e4]:
+        - generic [ref=e5]: ❅
+        - text: Power Planner
+      - paragraph [ref=e6]: Planejamento de Negocio
+    - generic [ref=e7]:
+      - generic [ref=e8]: Visao Geral
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: ●
+        - text: Dashboard
+        - generic [ref=e11]: "1"
+    - generic [ref=e12]:
+      - generic [ref=e13]: Financeiro
+      - generic [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: $
+        - text: DRE
+        - generic [ref=e16]: 12M
+        - generic [ref=e17]: "2"
+      - generic [ref=e18] [cursor=pointer]:
+        - generic [ref=e19]: ⇄
+        - text: Fluxo de Caixa
+        - generic [ref=e20]: "3"
+    - generic [ref=e21]:
+      - generic [ref=e22]: Operacional
+      - generic [ref=e23] [cursor=pointer]:
+        - generic [ref=e24]: ★
+        - text: Estoque
+        - generic [ref=e25]: "14"
+        - generic [ref=e26]: "4"
+      - generic [ref=e27] [cursor=pointer]:
+        - generic [ref=e28]: ⚙
+        - text: Premissas
+        - generic [ref=e29]: "5"
+    - generic [ref=e30]:
+      - generic [ref=e31]: Estrategico
+      - generic [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: ♦
+        - text: Cenarios
+        - generic [ref=e34]: "0"
+        - generic [ref=e35]: "6"
+      - generic [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ☰
+        - text: Plano e KPIs
+        - generic [ref=e38]: "7"
+    - generic [ref=e39]:
+      - button "⬇ Exportar Backup" [ref=e40] [cursor=pointer]
+      - generic [ref=e41] [cursor=pointer]: ⬆ Importar Backup
+      - button "🗑 Limpar Dados" [ref=e42] [cursor=pointer]
+      - generic [ref=e43]: Ctrl+1-7 trocar aba · Ctrl+S salvar
+  - generic [ref=e293]:
+    - generic [ref=e295]:
+      - heading "Fluxo de Caixa" [level=2] [ref=e296]
+      - generic [ref=e297]: Projecao 12 meses
+    - generic [ref=e298]:
+      - generic [ref=e299]:
+        - generic [ref=e300]: Total Entradas
+        - generic [ref=e301]: R$ 20.518,32
+        - generic [ref=e302]: 12 meses
+      - generic [ref=e303]:
+        - generic [ref=e304]: Total Saidas
+        - generic [ref=e305]: R$ 174.674,34
+      - generic [ref=e306]:
+        - generic [ref=e307]: Saldo Final
+        - generic [ref=e308]: R$ -154.156,02
+        - generic [ref=e309]: negative
+      - generic [ref=e310]:
+        - generic [ref=e311]: Meses Sobrevivencia
+        - generic [ref=e312]: "-11"
+        - generic [ref=e313]: "Custo medio: R$ 14.556,20"
+    - table [ref=e315]:
+      - rowgroup [ref=e316]:
+        - row "Mes Entradas Saidas Saldo Acumulado" [ref=e317]:
+          - columnheader "Mes" [ref=e318]
+          - columnheader "Entradas" [ref=e319]
+          - columnheader "Saidas" [ref=e320]
+          - columnheader "Saldo" [ref=e321]
+          - columnheader "Acumulado" [ref=e322]
+      - rowgroup [ref=e323]:
+        - row "Abr/26 R$ 1.342,32 R$ 14.432,34 R$ -13.090,02 R$ -13.090,02" [ref=e324] [cursor=pointer]:
+          - cell "Abr/26" [ref=e325]:
+            - strong [ref=e326]: Abr/26
+          - cell "R$ 1.342,32" [ref=e327]
+          - cell "R$ 14.432,34" [ref=e328]
+          - cell "R$ -13.090,02" [ref=e329]:
+            - strong [ref=e330]: R$ -13.090,02
+          - cell "R$ -13.090,02" [ref=e331]:
+            - strong [ref=e332]: R$ -13.090,02
+        - row "Mai/26 R$ 1.629,96 R$ 14.529,27 R$ -12.899,31 R$ -25.989,33" [ref=e333] [cursor=pointer]:
+          - cell "Mai/26" [ref=e334]:
+            - strong [ref=e335]: Mai/26
+          - cell "R$ 1.629,96" [ref=e336]
+          - cell "R$ 14.529,27" [ref=e337]
+          - cell "R$ -12.899,31" [ref=e338]:
+            - strong [ref=e339]: R$ -12.899,31
+          - cell "R$ -25.989,33" [ref=e340]:
+            - strong [ref=e341]: R$ -25.989,33
+        - row "Jun/26 R$ 1.821,72 R$ 14.593,89 R$ -12.772,17 R$ -38.761,50" [ref=e342] [cursor=pointer]:
+          - cell "Jun/26" [ref=e343]:
+            - strong [ref=e344]: Jun/26
+          - cell "R$ 1.821,72" [ref=e345]
+          - cell "R$ 14.593,89" [ref=e346]
+          - cell "R$ -12.772,17" [ref=e347]:
+            - strong [ref=e348]: R$ -12.772,17
+          - cell "R$ -38.761,50" [ref=e349]:
+            - strong [ref=e350]: R$ -38.761,50
+        - row "Jul/26 R$ 1.917,60 R$ 14.626,20 R$ -12.708,60 R$ -51.470,10" [ref=e351] [cursor=pointer]:
+          - cell "Jul/26" [ref=e352]:
+            - strong [ref=e353]: Jul/26
+          - cell "R$ 1.917,60" [ref=e354]
+          - cell "R$ 14.626,20" [ref=e355]
+          - cell "R$ -12.708,60" [ref=e356]:
+            - strong [ref=e357]: R$ -12.708,60
+          - cell "R$ -51.470,10" [ref=e358]:
+            - strong [ref=e359]: R$ -51.470,10
+        - row "Ago/26 R$ 2.013,48 R$ 14.658,51 R$ -12.645,03 R$ -64.115,13" [ref=e360] [cursor=pointer]:
+          - cell "Ago/26" [ref=e361]:
+            - strong [ref=e362]: Ago/26
+          - cell "R$ 2.013,48" [ref=e363]
+          - cell "R$ 14.658,51" [ref=e364]
+          - cell "R$ -12.645,03" [ref=e365]:
+            - strong [ref=e366]: R$ -12.645,03
+          - cell "R$ -64.115,13" [ref=e367]:
+            - strong [ref=e368]: R$ -64.115,13
+        - row "Set/26 R$ 2.109,36 R$ 14.690,82 R$ -12.581,46 R$ -76.696,59" [ref=e369] [cursor=pointer]:
+          - cell "Set/26" [ref=e370]:
+            - strong [ref=e371]: Set/26
+          - cell "R$ 2.109,36" [ref=e372]
+          - cell "R$ 14.690,82" [ref=e373]
+          - cell "R$ -12.581,46" [ref=e374]:
+            - strong [ref=e375]: R$ -12.581,46
+          - cell "R$ -76.696,59" [ref=e376]:
+            - strong [ref=e377]: R$ -76.696,59
+        - row "Out/26 R$ 2.205,24 R$ 14.723,13 R$ -12.517,89 R$ -89.214,48" [ref=e378] [cursor=pointer]:
+          - cell "Out/26" [ref=e379]:
+            - strong [ref=e380]: Out/26
+          - cell "R$ 2.205,24" [ref=e381]
+          - cell "R$ 14.723,13" [ref=e382]
+          - cell "R$ -12.517,89" [ref=e383]:
+            - strong [ref=e384]: R$ -12.517,89
+          - cell "R$ -89.214,48" [ref=e385]:
+            - strong [ref=e386]: R$ -89.214,48
+        - row "Nov/26 R$ 2.109,36 R$ 14.690,82 R$ -12.581,46 R$ -101.795,94" [ref=e387] [cursor=pointer]:
+          - cell "Nov/26" [ref=e388]:
+            - strong [ref=e389]: Nov/26
+          - cell "R$ 2.109,36" [ref=e390]
+          - cell "R$ 14.690,82" [ref=e391]
+          - cell "R$ -12.581,46" [ref=e392]:
+            - strong [ref=e393]: R$ -12.581,46
+          - cell "R$ -101.795,94" [ref=e394]:
+            - strong [ref=e395]: R$ -101.795,94
+        - row "Dez/26 R$ 1.917,60 R$ 14.626,20 R$ -12.708,60 R$ -114.504,54" [ref=e396] [cursor=pointer]:
+          - cell "Dez/26" [ref=e397]:
+            - strong [ref=e398]: Dez/26
+          - cell "R$ 1.917,60" [ref=e399]
+          - cell "R$ 14.626,20" [ref=e400]
+          - cell "R$ -12.708,60" [ref=e401]:
+            - strong [ref=e402]: R$ -12.708,60
+          - cell "R$ -114.504,54" [ref=e403]:
+            - strong [ref=e404]: R$ -114.504,54
+        - row "Jan/27 R$ 1.246,44 R$ 14.400,03 R$ -13.153,59 R$ -127.658,13" [ref=e405] [cursor=pointer]:
+          - cell "Jan/27" [ref=e406]:
+            - strong [ref=e407]: Jan/27
+          - cell "R$ 1.246,44" [ref=e408]
+          - cell "R$ 14.400,03" [ref=e409]
+          - cell "R$ -13.153,59" [ref=e410]:
+            - strong [ref=e411]: R$ -13.153,59
+          - cell "R$ -127.658,13" [ref=e412]:
+            - strong [ref=e413]: R$ -127.658,13
+        - row "Fev/27 R$ 1.054,68 R$ 14.335,41 R$ -13.280,73 R$ -140.938,86" [ref=e414] [cursor=pointer]:
+          - cell "Fev/27" [ref=e415]:
+            - strong [ref=e416]: Fev/27
+          - cell "R$ 1.054,68" [ref=e417]
+          - cell "R$ 14.335,41" [ref=e418]
+          - cell "R$ -13.280,73" [ref=e419]:
+            - strong [ref=e420]: R$ -13.280,73
+          - cell "R$ -140.938,86" [ref=e421]:
+            - strong [ref=e422]: R$ -140.938,86
+        - row "Mar/27 R$ 1.150,56 R$ 14.367,72 R$ -13.217,16 R$ -154.156,02" [ref=e423] [cursor=pointer]:
+          - cell "Mar/27" [ref=e424]:
+            - strong [ref=e425]: Mar/27
+          - cell "R$ 1.150,56" [ref=e426]
+          - cell "R$ 14.367,72" [ref=e427]
+          - cell "R$ -13.217,16" [ref=e428]:
+            - strong [ref=e429]: R$ -13.217,16
+          - cell "R$ -154.156,02" [ref=e430]:
+            - strong [ref=e431]: R$ -154.156,02
+    - heading "Evolucao do Saldo Acumulado" [level=3] [ref=e433]
+  - generic [ref=e144]: Salvo

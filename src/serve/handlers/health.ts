@@ -5,20 +5,22 @@ import { fileURLToPath } from "node:url";
 
 const startedAt = Date.now();
 
+// Read package.json once at module load so a bad/missing package.json fails fast at startup
+// rather than returning 500 on first health poll.
+// Path assumes __dirname = <repo>/src/serve/handlers; `../../../` resolves to repo root.
+const PKG_PATH = join(dirname(fileURLToPath(import.meta.url)), "../../../package.json");
+const PKG: { version: string } = JSON.parse(readFileSync(PKG_PATH, "utf8"));
+
 export const healthRoute: Route = {
   method: "GET",
   path: "/health",
   public: true,
-  handler: async () => {
-    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "../../../package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    return {
-      status: 200,
-      body: {
-        status: "ok",
-        version: pkg.version,
-        uptime_ms: Date.now() - startedAt,
-      },
-    };
-  },
+  handler: async () => ({
+    status: 200,
+    body: {
+      status: "ok",
+      version: PKG.version,
+      uptime_ms: Date.now() - startedAt,
+    },
+  }),
 };

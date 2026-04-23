@@ -1,0 +1,147 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - heading "❅ Power Planner" [level=1] [ref=e4]:
+        - generic [ref=e5]: ❅
+        - text: Power Planner
+      - paragraph [ref=e6]: Planejamento de Negocio
+    - generic [ref=e7]:
+      - generic [ref=e8]: Visao Geral
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: ●
+        - text: Dashboard
+        - generic [ref=e11]: "1"
+    - generic [ref=e12]:
+      - generic [ref=e13]: Financeiro
+      - generic [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: $
+        - text: DRE
+        - generic [ref=e16]: 12M
+        - generic [ref=e17]: "2"
+      - generic [ref=e18] [cursor=pointer]:
+        - generic [ref=e19]: ⇄
+        - text: Fluxo de Caixa
+        - generic [ref=e20]: "3"
+    - generic [ref=e21]:
+      - generic [ref=e22]: Operacional
+      - generic [ref=e23] [cursor=pointer]:
+        - generic [ref=e24]: ★
+        - text: Estoque
+        - generic [ref=e25]: "14"
+        - generic [ref=e26]: "4"
+      - generic [ref=e27] [cursor=pointer]:
+        - generic [ref=e28]: ⚙
+        - text: Premissas
+        - generic [ref=e29]: "5"
+    - generic [ref=e30]:
+      - generic [ref=e31]: Estrategico
+      - generic [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: ♦
+        - text: Cenarios
+        - generic [ref=e34]: "0"
+        - generic [ref=e35]: "6"
+      - generic [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ☰
+        - text: Plano e KPIs
+        - generic [ref=e38]: "7"
+    - generic [ref=e39]:
+      - button "⬇ Exportar Backup" [ref=e40] [cursor=pointer]
+      - generic [ref=e41] [cursor=pointer]: ⬆ Importar Backup
+      - button "🗑 Limpar Dados" [ref=e42] [cursor=pointer]
+      - generic [ref=e43]: Ctrl+1-7 trocar aba · Ctrl+S salvar
+  - generic [ref=e45]:
+    - generic [ref=e46]:
+      - generic [ref=e47]:
+        - heading "Dashboard" [level=2] [ref=e48]
+        - generic [ref=e49]: Visao geral do negocio
+      - generic [ref=e50]:
+        - generic [ref=e51]: Sem cenario ativo
+        - button "+ Novo Cenario" [ref=e52] [cursor=pointer]
+    - generic [ref=e53]:
+      - generic [ref=e54]:
+        - generic [ref=e55]: Receita Bruta Mensal
+        - generic [ref=e56]: R$ 2.237,20
+        - generic [ref=e57]: "Custo total: R$ 14.733,90"
+      - generic [ref=e58]:
+        - generic [ref=e59]: Lucro Liquido
+        - generic [ref=e60]: R$ -12.496,70
+        - generic [ref=e61]: "-558.6 margem"
+      - generic [ref=e62]:
+        - generic [ref=e63]: Margem Liquida
+        - generic [ref=e64]: "-558.6%"
+        - generic [ref=e65]: "Meta: 20%"
+      - generic [ref=e66]:
+        - generic [ref=e67]: Valor Estoque
+        - generic [ref=e68]: R$ 1.077,00
+    - heading "Receita vs Custos — Projecao 12 Meses" [level=3] [ref=e70]
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - heading "Alertas de Estoque" [level=3] [ref=e75]
+        - generic [ref=e76]:
+          - generic [ref=e79]:
+            - text: "Estoque baixo:"
+            - strong [ref=e80]: POTE 1L Morango Trufado
+            - text: (5 un)
+          - generic [ref=e83]:
+            - text: "Estoque baixo:"
+            - strong [ref=e84]: POTE 1,5L Chocolate
+            - text: (3 un)
+          - generic [ref=e87]:
+            - text: "Estoque baixo:"
+            - strong [ref=e88]: POTE 1,5L Pistache
+            - text: (2 un)
+          - generic [ref=e91]:
+            - text: "Estoque baixo:"
+            - strong [ref=e92]: POTE 1L Leite Ninho
+            - text: (4 un)
+          - generic [ref=e95]:
+            - text: "Estoque baixo:"
+            - strong [ref=e96]: POTE 1,5L Snickers
+            - text: (3 un)
+          - generic [ref=e99]:
+            - text: "Estoque baixo:"
+            - strong [ref=e100]: PICOLE LEITE Chocolate cx40
+            - text: (5 un)
+          - generic [ref=e103]:
+            - text: "Estoque baixo:"
+            - strong [ref=e104]: PICOLE LEITE Morango cx40
+            - text: (4 un)
+          - generic [ref=e107]:
+            - text: "Estoque baixo:"
+            - strong [ref=e108]: SORVETE 300ml Choc.Trufado
+            - text: (5 un)
+          - generic [ref=e111]:
+            - text: "Estoque baixo:"
+            - strong [ref=e112]: SORVETE 300ml Morango
+            - text: (4 un)
+          - generic [ref=e115]:
+            - text: "Estoque baixo:"
+            - strong [ref=e116]: ACAI 1L Natural
+            - text: (5 un)
+          - generic [ref=e119]:
+            - text: "Estoque baixo:"
+            - strong [ref=e120]: ACAI Quente 500ml
+            - text: (4 un)
+          - generic [ref=e123]:
+            - text: "Estoque baixo:"
+            - strong [ref=e124]: Chocolate Quente Especial
+            - text: (2 un)
+          - generic [ref=e127]:
+            - text: "Estoque baixo:"
+            - strong [ref=e128]: Fondue Individual
+            - text: (1 un)
+          - generic [ref=e131]:
+            - text: "Estoque baixo:"
+            - strong [ref=e132]: Vinho Quente
+            - text: (2 un)
+      - generic [ref=e133]:
+        - heading "KPIs em Destaque" [level=3] [ref=e134]
+        - generic [ref=e135]:
+          - generic [ref=e136]:
+            - generic [ref=e137]: 0 OK
+            - generic [ref=e138]: 1 Parcial
+            - generic [ref=e139]: 4 Critico
+          - generic [ref=e140]: "Tarefas: 0/0 (0%)"
+          - generic [ref=e141]:
+            - generic: 0%
+  - generic [ref=e144]: Salvo

@@ -1,0 +1,320 @@
+<h2>Layout do plugin dentro do Obsidian</h2>
+<p class="subtitle">Onde o painel fica, como os elementos se organizam. Mesma capacidade, UX diferente.</p>
+
+<style>
+  .obs-window {
+    background: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 440px;
+    display: flex;
+    flex-direction: column;
+  }
+  .obs-titlebar {
+    height: 28px;
+    background: #262626;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 6px;
+    font-size: 11px;
+    color: #888;
+  }
+  .obs-titlebar .dots { display: flex; gap: 5px; }
+  .obs-titlebar .dots span { width: 9px; height: 9px; border-radius: 50%; background: #444; }
+  .obs-body { flex: 1; display: flex; }
+
+  .obs-sidebar-left {
+    width: 52px;
+    background: #1a1a1a;
+    border-right: 1px solid #2a2a2a;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 0;
+    gap: 4px;
+  }
+  .obs-sidebar-left .ic {
+    width: 36px; height: 28px; margin: 0 auto;
+    background: #2a2a2a; border-radius: 4px;
+    font-size: 11px; display:flex; align-items:center; justify-content:center;
+    color: #888;
+  }
+
+  .obs-filetree {
+    width: 180px;
+    background: #1c1c1c;
+    border-right: 1px solid #2a2a2a;
+    padding: 10px 8px;
+    font-size: 11px;
+    color: #aaa;
+    overflow: hidden;
+  }
+  .obs-filetree .folder { padding: 2px 4px; color: #ccc; }
+  .obs-filetree .file { padding: 2px 4px 2px 18px; color: #999; }
+  .obs-filetree .file.active { background: #264f78; color: white; border-radius: 3px; }
+
+  .obs-editor {
+    flex: 1;
+    background: #1e1e1e;
+    padding: 18px 24px;
+    color: #d4d4d4;
+    font-family: "SF Mono", Monaco, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow: hidden;
+  }
+  .obs-editor h1 { font-size: 16px; margin: 0 0 10px 0; color: white; font-family: -apple-system; }
+  .obs-editor p { margin: 6px 0; }
+  .obs-editor .wikilink { color: #58a6ff; }
+  .obs-editor .tag { color: #d2a8ff; }
+  .obs-editor .frontmatter { color: #6a6a6a; font-size: 11px; margin-bottom: 10px; }
+
+  .oc-panel {
+    background: #181818;
+    border-left: 1px solid #2a2a2a;
+    display: flex;
+    flex-direction: column;
+  }
+  .oc-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid #2a2a2a;
+    font-size: 11px;
+    color: #ccc;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .oc-header .dot { width: 6px; height: 6px; border-radius: 50%; background: #4caf50; }
+  .oc-chat { flex: 1; padding: 10px; overflow: hidden; font-size: 11px; color: #ddd; }
+  .oc-msg { padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; }
+  .oc-msg.user { background: #2d3a4e; color: #cfe0ff; margin-left: 20px; }
+  .oc-msg.agent { background: #242424; color: #cfcfcf; }
+  .oc-msg strong { color: #58a6ff; }
+  .oc-input {
+    border-top: 1px solid #2a2a2a;
+    padding: 8px;
+    background: #202020;
+    display: flex;
+    gap: 6px;
+  }
+  .oc-input input {
+    flex: 1; background: #0d0d0d; border: 1px solid #2a2a2a;
+    border-radius: 4px; padding: 5px 8px; color: #ccc; font-size: 11px;
+  }
+  .oc-input button { background: #1f6feb; color: white; padding: 5px 10px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+
+  .oc-bottom {
+    background: #181818;
+    border-top: 1px solid #2a2a2a;
+    display: flex;
+    flex-direction: column;
+  }
+  .oc-modal {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 68%;
+    background: #1e1e1e;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    z-index: 10;
+    overflow: hidden;
+  }
+
+  .label-tag {
+    display: inline-block;
+    background: #1f6feb;
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+</style>
+
+<div class="cards">
+
+  <!-- Layout A: sidebar direita (estilo Copilot) -->
+  <div class="card" data-choice="sidebar-right" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="obs-window">
+        <div class="obs-titlebar">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <span style="margin-left: 8px;">Energinova_Hub &mdash; Obsidian</span>
+        </div>
+        <div class="obs-body">
+          <div class="obs-sidebar-left">
+            <div class="ic">&#9776;</div><div class="ic">&#128269;</div><div class="ic">&#128279;</div>
+          </div>
+          <div class="obs-filetree">
+            <div class="folder">&#9662; 03-Projetos</div>
+            <div class="file active">FinPower.md</div>
+            <div class="file">PowerSQT.md</div>
+            <div class="folder">&#9662; 01-MOC</div>
+            <div class="file">MOC-Energinova.md</div>
+          </div>
+          <div class="obs-editor">
+            <div class="frontmatter">---<br>status: ativo<br>cliente: Energinova<br>---</div>
+            <h1>FinPower</h1>
+            <p>Sistema de gest&atilde;o financeira para cooperativas. Conecta com <span class="wikilink">[[PowerSQT]]</span>.</p>
+            <p>Tags: <span class="tag">#projeto/ativo</span></p>
+          </div>
+          <div class="oc-panel" style="width: 260px;">
+            <div class="oc-header"><span class="dot"></span> OpenClaude</div>
+            <div class="oc-chat">
+              <div class="oc-msg user">expande em zettels</div>
+              <div class="oc-msg agent"><strong>Agente:</strong> Criei 3 Zettels a partir da nota ativa. Revise no painel de diff abaixo.</div>
+            </div>
+            <div class="oc-input"><input placeholder="Pergunte ao agente..."><button>&#9658;</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A &mdash; Sidebar direita (tipo Copilot)</h3>
+      <p>Chat fixo &agrave; direita, painel de diffs/resultados abre embaixo do chat. <strong>Cl&aacute;ssico, familiar, menor risco.</strong></p>
+    </div>
+  </div>
+
+  <!-- Layout B: painel inferior (estilo DevTools) -->
+  <div class="card" data-choice="bottom-panel" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="obs-window">
+        <div class="obs-titlebar">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <span style="margin-left: 8px;">Energinova_Hub &mdash; Obsidian</span>
+        </div>
+        <div class="obs-body" style="flex-direction: column;">
+          <div style="display: flex; flex: 1;">
+            <div class="obs-sidebar-left">
+              <div class="ic">&#9776;</div><div class="ic">&#128269;</div>
+            </div>
+            <div class="obs-filetree">
+              <div class="folder">&#9662; 03-Projetos</div>
+              <div class="file active">FinPower.md</div>
+              <div class="file">PowerSQT.md</div>
+              <div class="folder">&#9662; 01-MOC</div>
+              <div class="file">MOC-Energinova.md</div>
+            </div>
+            <div class="obs-editor" style="flex: 1;">
+              <div class="frontmatter">---<br>status: ativo<br>---</div>
+              <h1>FinPower</h1>
+              <p>Sistema de gest&atilde;o financeira para cooperativas. <span class="wikilink">[[PowerSQT]]</span></p>
+            </div>
+          </div>
+          <div class="oc-bottom" style="height: 160px;">
+            <div class="oc-header"><span class="dot"></span> OpenClaude &nbsp; <span style="color:#666; font-weight: normal;">| Chat | Resultados | Hist&oacute;rico | Config</span></div>
+            <div style="display: flex; flex: 1;">
+              <div class="oc-chat" style="flex: 1; padding: 6px 10px;">
+                <div class="oc-msg user">expande em zettels</div>
+                <div class="oc-msg agent"><strong>Agente:</strong> 3 Zettels criados.</div>
+                <div class="oc-input" style="padding: 4px 0 0 0; border: none;"><input placeholder="Pergunte..."><button>&#9658;</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B &mdash; Painel inferior (tipo DevTools)</h3>
+      <p>Painel no rodap&eacute; com abas: Chat, Resultados, Hist&oacute;rico. <strong>Mais &aacute;rea horizontal pra tabelas e gr&aacute;ficos.</strong> Edi&ccedil;&atilde;o da nota fica menos comprimida.</p>
+    </div>
+  </div>
+
+  <!-- Layout C: modal invocável -->
+  <div class="card" data-choice="modal-hub" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="obs-window" style="position: relative;">
+        <div class="obs-titlebar">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <span style="margin-left: 8px;">Energinova_Hub &mdash; Obsidian</span>
+        </div>
+        <div class="obs-body">
+          <div class="obs-sidebar-left">
+            <div class="ic">&#9776;</div><div class="ic">&#128269;</div>
+          </div>
+          <div class="obs-filetree">
+            <div class="folder">&#9662; 03-Projetos</div>
+            <div class="file">FinPower.md</div>
+          </div>
+          <div class="obs-editor" style="flex: 1; opacity: 0.4;">
+            <div class="frontmatter">---</div>
+            <h1>FinPower</h1>
+            <p>Sistema...</p>
+          </div>
+        </div>
+        <div class="oc-modal">
+          <div class="oc-header" style="justify-content: space-between;">
+            <span><span class="dot"></span> OpenClaude &mdash; Hub</span>
+            <span style="color: #666;">Ctrl+K</span>
+          </div>
+          <div style="padding: 16px;">
+            <input class="oc-input" style="width: 100%; padding: 8px; background: #0d0d0d; border: 1px solid #3a3a3a; border-radius: 4px; color: #ccc;" value="expande em zettels" />
+            <div style="margin-top: 10px; font-size: 11px; color: #999;">
+              <div style="margin-bottom: 4px;"><span class="label-tag">SUGEST&Atilde;O</span> Resumir nota ativa</div>
+              <div style="margin-bottom: 4px;"><span class="label-tag">SUGEST&Atilde;O</span> Gerar MOC</div>
+              <div><span class="label-tag">SUGEST&Atilde;O</span> Buscar cross-vault</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C &mdash; Hub modal (tipo Raycast / Ctrl+K)</h3>
+      <p>Invocado via atalho <code>Ctrl+K</code>, flutua sobre o Obsidian. Zero espa&ccedil;o permanente, tudo por atalho.<strong> Minimalista mas sem chat persistente vis&iacute;vel.</strong></p>
+    </div>
+  </div>
+
+  <!-- Layout D: híbrido -->
+  <div class="card" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="obs-window" style="position: relative;">
+        <div class="obs-titlebar">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <span style="margin-left: 8px;">Energinova_Hub &mdash; Obsidian</span>
+        </div>
+        <div class="obs-body">
+          <div class="obs-sidebar-left">
+            <div class="ic">&#9776;</div><div class="ic">&#128269;</div>
+          </div>
+          <div class="obs-filetree">
+            <div class="folder">&#9662; 03-Projetos</div>
+            <div class="file active">FinPower.md</div>
+          </div>
+          <div class="obs-editor">
+            <div class="frontmatter">---</div>
+            <h1>FinPower</h1>
+            <p>Sistema... <span class="wikilink">[[PowerSQT]]</span></p>
+          </div>
+          <div class="oc-panel" style="width: 240px;">
+            <div class="oc-header" style="justify-content: space-between;">
+              <span><span class="dot"></span> OpenClaude</span>
+              <span style="color: #666; font-size: 10px;">Ctrl+K expande</span>
+            </div>
+            <div class="oc-chat">
+              <div class="oc-msg agent"><strong>Contexto:</strong> FinPower.md<br><small style="color:#888;">12 backlinks &bull; 3 tags</small></div>
+              <div class="oc-msg user">expande em zettels</div>
+              <div class="oc-msg agent"><strong>Agente:</strong> 3 Zettels criados.</div>
+            </div>
+            <div class="oc-input"><input placeholder="Pergunte..."><button>&#9658;</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>D &mdash; Sidebar + modal sob demanda (RECOMENDADO)</h3>
+      <p>Sidebar fina &agrave; direita pro chat do dia-a-dia. <code>Ctrl+K</code> abre modal hub pra a&ccedil;&otilde;es r&aacute;pidas. <strong>Melhor dos dois mundos.</strong></p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top: 24px; font-size: 12px; color: var(--subtle, #888);">
+  <strong>Nota:</strong> Em qualquer layout, o <em>diff preview</em> (P3) aparece como modal centralizado sobre o editor quando o agente quer escrever, com Aplicar / Descartar / Aplicar parcial.
+</div>

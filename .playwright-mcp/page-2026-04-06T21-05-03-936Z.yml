@@ -1,0 +1,157 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Sorveteria - Painel de Negocio" [level=1] [ref=e5]
+      - generic [ref=e6]: Revenda B2B + Revendedores Autonomos | 2 pessoas | Local/Bairro
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - text: Faturamento (45 dias)
+        - strong [ref=e9]: R$ 41.869
+      - generic [ref=e10]:
+        - text: Media Mensal
+        - strong [ref=e11]: R$ 27.913
+      - generic [ref=e12]:
+        - text: Media Diaria
+        - strong [ref=e13]: R$ 930
+  - generic [ref=e14]:
+    - button "1. Visao Geral" [ref=e15] [cursor=pointer]
+    - button "2. Produtos e Precos" [ref=e16] [cursor=pointer]
+    - button "3. DRE" [ref=e17] [cursor=pointer]
+    - button "4. Fluxo de Caixa" [ref=e18] [cursor=pointer]
+    - button "5. Estoque" [ref=e19] [cursor=pointer]
+    - button "6. Cenarios e KPIs" [active] [ref=e20] [cursor=pointer]
+  - generic [ref=e207]:
+    - generic [ref=e208]:
+      - heading "Salvar / Carregar / Comparar Cenarios" [level=2] [ref=e209]
+      - generic [ref=e210]:
+        - 'textbox "Nome do cenario (ex: Verao 2026)" [ref=e211]'
+        - button "Salvar" [ref=e212] [cursor=pointer]
+        - combobox [ref=e213]:
+          - option "-- selecionar cenario --" [selected]
+        - button "Carregar" [ref=e214] [cursor=pointer]
+        - button "Comparar" [ref=e215] [cursor=pointer]
+        - button "Excluir" [ref=e216] [cursor=pointer]
+    - generic [ref=e217]:
+      - heading "KPIs - Meta vs Realizado" [level=2] [ref=e218]
+      - table [ref=e220]:
+        - rowgroup [ref=e221]:
+          - row "KPI Atual Meta 3 Meses Meta 12 Meses Progresso" [ref=e222]:
+            - columnheader "KPI" [ref=e223]
+            - columnheader "Atual" [ref=e224]
+            - columnheader "Meta 3 Meses" [ref=e225]
+            - columnheader "Meta 12 Meses" [ref=e226]
+            - columnheader "Progresso" [ref=e227]
+        - rowgroup [ref=e228]:
+          - row "Faturamento mensal R$ 27913,00 R$ 30000,00 R$ 40000,00 70%" [ref=e229]:
+            - cell "Faturamento mensal" [ref=e230]
+            - cell "R$ 27913,00" [ref=e231]
+            - cell "R$ 30000,00" [ref=e232]
+            - cell "R$ 40000,00" [ref=e233]
+            - cell "70%" [ref=e234]:
+              - generic [ref=e237]: 70%
+          - row "Dias sem vendas/mes 9 5 2 0%" [ref=e238]:
+            - cell "Dias sem vendas/mes" [ref=e239]
+            - cell "9" [ref=e240]
+            - cell "5" [ref=e241]
+            - cell "2" [ref=e242]
+            - cell "0%" [ref=e243]:
+              - generic [ref=e245]: 0%
+          - row "Margem bruta media 50% 55% 60% 83%" [ref=e246]:
+            - cell "Margem bruta media" [ref=e247]
+            - cell "50%" [ref=e248]
+            - cell "55%" [ref=e249]
+            - cell "60%" [ref=e250]
+            - cell "83%" [ref=e251]:
+              - generic [ref=e254]: 83%
+          - row "Ticket medio por venda R$ 553,00 R$ 600,00 R$ 750,00 74%" [ref=e255]:
+            - cell "Ticket medio por venda" [ref=e256]
+            - cell "R$ 553,00" [ref=e257]
+            - cell "R$ 600,00" [ref=e258]
+            - cell "R$ 750,00" [ref=e259]
+            - cell "74%" [ref=e260]:
+              - generic [ref=e263]: 74%
+          - row "Clientes B2B ativos 0 5 15 0%" [ref=e264]:
+            - cell "Clientes B2B ativos" [ref=e265]
+            - cell "0" [ref=e266]
+            - cell "5" [ref=e267]
+            - cell "15" [ref=e268]
+            - cell "0%" [ref=e269]:
+              - generic [ref=e271]: 0%
+          - row "Revendedores ativos 0 5 20 0%" [ref=e272]:
+            - cell "Revendedores ativos" [ref=e273]
+            - cell "0" [ref=e274]
+            - cell "5" [ref=e275]
+            - cell "20" [ref=e276]
+            - cell "0%" [ref=e277]:
+              - generic [ref=e279]: 0%
+    - generic [ref=e280]:
+      - heading "Metas Trimestrais" [level=2] [ref=e281]
+      - list [ref=e282]:
+        - listitem [ref=e283]: T1 (Ago-Set-Out)
+        - listitem [ref=e284]:
+          - generic [ref=e285] [cursor=pointer]:
+            - checkbox "Formalizar 10+ clientes B2B" [ref=e286]
+            - generic [ref=e287]: Formalizar 10+ clientes B2B
+        - listitem [ref=e288]:
+          - generic [ref=e289] [cursor=pointer]:
+            - checkbox "Recrutar 5+ revendedores autonomos" [ref=e290]
+            - generic [ref=e291]: Recrutar 5+ revendedores autonomos
+        - listitem [ref=e292]:
+          - generic [ref=e293] [cursor=pointer]:
+            - checkbox "Reduzir dias sem vendas para <= 10/mes" [ref=e294]
+            - generic [ref=e295]: Reduzir dias sem vendas para <= 10/mes
+        - listitem [ref=e296]:
+          - generic [ref=e297] [cursor=pointer]:
+            - checkbox "Ter tabela de precos formalizada" [ref=e298]
+            - generic [ref=e299]: Ter tabela de precos formalizada
+        - listitem [ref=e300]:
+          - generic [ref=e301] [cursor=pointer]:
+            - checkbox "Criar controle de estoque funcional" [ref=e302]
+            - generic [ref=e303]: Criar controle de estoque funcional
+        - listitem [ref=e304]: T2 (Nov-Dez-Jan) - Verao
+        - listitem [ref=e305]:
+          - generic [ref=e306] [cursor=pointer]:
+            - checkbox "Faturar R$ 35k+/mes" [ref=e307]
+            - generic [ref=e308]: Faturar R$ 35k+/mes
+        - listitem [ref=e309]:
+          - generic [ref=e310] [cursor=pointer]:
+            - checkbox "Estoque reforcado para demanda" [ref=e311]
+            - generic [ref=e312]: Estoque reforcado para demanda
+        - listitem [ref=e313]:
+          - generic [ref=e314] [cursor=pointer]:
+            - checkbox "15+ clientes B2B ativos" [ref=e315]
+            - generic [ref=e316]: 15+ clientes B2B ativos
+        - listitem [ref=e317]:
+          - generic [ref=e318] [cursor=pointer]:
+            - checkbox "10+ revendedores ativos" [ref=e319]
+            - generic [ref=e320]: 10+ revendedores ativos
+        - listitem [ref=e321]: T3 (Fev-Mar-Abr)
+        - listitem [ref=e322]:
+          - generic [ref=e323] [cursor=pointer]:
+            - checkbox "Manter faturamento acima de R$ 30k/mes" [ref=e324]
+            - generic [ref=e325]: Manter faturamento acima de R$ 30k/mes
+        - listitem [ref=e326]:
+          - generic [ref=e327] [cursor=pointer]:
+            - checkbox "Iniciar transicao para outono/inverno" [ref=e328]
+            - generic [ref=e329]: Iniciar transicao para outono/inverno
+        - listitem [ref=e330]:
+          - generic [ref=e331] [cursor=pointer]:
+            - checkbox "Revisar precos com fornecedor" [ref=e332]
+            - generic [ref=e333]: Revisar precos com fornecedor
+        - listitem [ref=e334]:
+          - generic [ref=e335] [cursor=pointer]:
+            - checkbox "Avaliar primeira contratacao" [ref=e336]
+            - generic [ref=e337]: Avaliar primeira contratacao
+        - listitem [ref=e338]: T4 (Mai-Jun-Jul) - Inverno
+        - listitem [ref=e339]:
+          - generic [ref=e340] [cursor=pointer]:
+            - checkbox "Manter faturamento acima de R$ 22k/mes" [ref=e341]
+            - generic [ref=e342]: Manter faturamento acima de R$ 22k/mes
+        - listitem [ref=e343]:
+          - generic [ref=e344] [cursor=pointer]:
+            - checkbox "Focar em acAi e potes familiares" [ref=e345]
+            - generic [ref=e346]: Focar em acAi e potes familiares
+        - listitem [ref=e347]:
+          - generic [ref=e348] [cursor=pointer]:
+            - checkbox "Fechar contratos B2B para o ano seguinte" [ref=e349]
+            - generic [ref=e350]: Fechar contratos B2B para o ano seguinte

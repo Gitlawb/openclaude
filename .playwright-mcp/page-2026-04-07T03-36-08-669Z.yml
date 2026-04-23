@@ -1,0 +1,110 @@
+- generic [ref=e2]:
+  - heading "Planejador de Negocio - Sorveteria" [level=1] [ref=e3]
+  - generic [ref=e4]:
+    - button "Dashboard" [ref=e5] [cursor=pointer]
+    - button "DRE" [ref=e6] [cursor=pointer]
+    - button "Fluxo de Caixa" [ref=e7] [cursor=pointer]
+    - button "Estoque" [ref=e8] [cursor=pointer]
+    - button "Cenarios" [ref=e9] [cursor=pointer]
+    - button "Plano e KPIs" [ref=e10] [cursor=pointer]
+  - generic [ref=e11]:
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - generic [ref=e14]: Receita Bruta
+        - generic [ref=e15]: R$ 4.284,00
+      - generic [ref=e16]:
+        - generic [ref=e17]: Custos Totais
+        - generic [ref=e18]: R$ 1.367,60
+      - generic [ref=e19]:
+        - generic [ref=e20]: Lucro Liquido
+        - generic [ref=e21]: R$ 2.916,40
+      - generic [ref=e22]:
+        - generic [ref=e23]: Margem
+        - generic [ref=e24]: 68.1%
+    - heading "Receita vs Custo (6 meses)" [level=2] [ref=e26]
+    - generic [ref=e29]:
+      - generic [ref=e30]:
+        - heading "Alertas de Estoque" [level=2] [ref=e31]
+        - generic [ref=e32]:
+          - generic [ref=e33]:
+            - text: "Estoque baixo:"
+            - strong [ref=e34]: ACAI 1L
+            - text: (5 un.)
+          - generic [ref=e35]:
+            - text: "Estoque baixo:"
+            - strong [ref=e36]: PALETA CX (24un)
+            - text: (5 un.)
+          - generic [ref=e37]:
+            - text: "Estoque baixo:"
+            - strong [ref=e38]: SKIMO CX (32un)
+            - text: (5 un.)
+          - generic [ref=e39]:
+            - text: "Estoque baixo:"
+            - strong [ref=e40]: PICOLE AGUA CX (40un)
+            - text: (5 un.)
+          - generic [ref=e41]:
+            - text: "Estoque baixo:"
+            - strong [ref=e42]: PICOLE LEITE CX (40un)
+            - text: (5 un.)
+          - generic [ref=e43]:
+            - text: "Estoque baixo:"
+            - strong [ref=e44]: SORVETE 300ml
+            - text: (5 un.)
+          - generic [ref=e45]:
+            - text: "Estoque baixo:"
+            - strong [ref=e46]: SORVETE 200ml
+            - text: (5 un.)
+          - generic [ref=e47]:
+            - text: "Estoque baixo:"
+            - strong [ref=e48]: POTE 1,3L (s/recheio)
+            - text: (5 un.)
+          - generic [ref=e49]:
+            - text: "Estoque baixo:"
+            - strong [ref=e50]: POTE 1,3L (c/recheio)
+            - text: (4 un.)
+          - generic [ref=e51]:
+            - text: "Estoque baixo:"
+            - strong [ref=e52]: POTE 1,5L ESPECIAL
+            - text: (3 un.)
+          - generic [ref=e53]:
+            - text: "Estoque baixo:"
+            - strong [ref=e54]: POTE 1,8L (s/recheio)
+            - text: (5 un.)
+          - generic [ref=e55]:
+            - text: "Estoque baixo:"
+            - strong [ref=e56]: MORENINHA CX
+            - text: (3 un.)
+          - generic [ref=e57]:
+            - text: "Estoque baixo:"
+            - strong [ref=e58]: ALASKINHO
+            - text: (5 un.)
+          - generic [ref=e59]:
+            - text: "Estoque baixo:"
+            - strong [ref=e60]: CAIXA 5L (Sob Encomenda)
+            - text: (1 un.)
+          - generic [ref=e61]:
+            - text: "Estoque baixo:"
+            - strong [ref=e62]: CAIXA 10L (Sob Encomenda)
+            - text: (1 un.)
+          - generic [ref=e63]:
+            - text: "Estoque baixo:"
+            - strong [ref=e64]: ACAI 5L (Sob Encomenda)
+            - text: (1 un.)
+          - generic [ref=e65]:
+            - text: "Estoque baixo:"
+            - strong [ref=e66]: ACAI 10L (Sob Encomenda)
+            - text: (1 un.)
+      - generic [ref=e67]:
+        - heading "Resumo KPIs" [level=2] [ref=e68]
+        - generic [ref=e69]:
+          - generic [ref=e70]:
+            - generic [ref=e71]: 1 OK
+            - generic [ref=e72]: 0 Parcial
+            - generic [ref=e73]: 2 Critico
+          - generic [ref=e74]: "Tarefas: 0/0 (0%)"
+          - generic [ref=e75]:
+            - generic: 0%
+  - generic [ref=e76]:
+    - button "Exportar Backup" [ref=e77] [cursor=pointer]
+    - generic [ref=e78] [cursor=pointer]: Importar Backup
+    - button "Limpar Dados" [ref=e79] [cursor=pointer]

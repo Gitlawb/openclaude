@@ -1,0 +1,3 @@
+[      20ms] missing ) after argument list
+[  817330ms] ReferenceError: App is not defined
+    at HTMLButtonElement.onclick (file:///G:/Meu%20Drive/Desenvolvimento%20de%20Sistema%20-%20Projetos/Ambiente%20de%20Desenvolvimento/Sorveteria/negocio_planner.html:152:86)

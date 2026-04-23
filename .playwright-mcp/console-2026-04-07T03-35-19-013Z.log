@@ -1,0 +1,6 @@
+[   60516ms] TypeError: Cannot read properties of undefined (reading 'fmt')
+    at fmtMoney (http://localhost:8081/ferramenta_interativa.html:507:47)
+    at Object.renderMonthView (http://localhost:8081/ferramenta_interativa.html:689:63)
+    at Object.render (http://localhost:8081/ferramenta_interativa.html:669:10)
+    at Object.switch (http://localhost:8081/ferramenta_interativa.html:486:20)
+    at HTMLButtonElement.onclick (http://localhost:8081/ferramenta_interativa.html:76:92)

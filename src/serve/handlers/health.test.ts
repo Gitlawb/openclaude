@@ -32,5 +32,6 @@ describe("GET /health", () => {
     expect(j.status).toBe("ok");
     expect(j.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(typeof j.uptime_ms).toBe("number");
+    expect(j.uptime_ms).toBeGreaterThanOrEqual(0);
   });
 });

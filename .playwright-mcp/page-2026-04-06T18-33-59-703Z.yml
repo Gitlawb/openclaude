@@ -1,0 +1,429 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Sorveteria" [level=1] [ref=e5]
+      - text: Plano Interativo & Simulador
+    - generic [ref=e6]:
+      - generic [ref=e7]: Plano de Negócio
+      - button "📊 Dashboard" [ref=e8] [cursor=pointer]:
+        - generic [ref=e9]: 📊
+        - text: Dashboard
+      - button "🎯 Visão Geral" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: 🎯
+        - text: Visão Geral
+      - button "🍦 Catálogo" [ref=e12] [cursor=pointer]:
+        - generic [ref=e13]: 🍦
+        - text: Catálogo
+      - button "📈 Mercado" [ref=e14] [cursor=pointer]:
+        - generic [ref=e15]: 📈
+        - text: Mercado
+      - button "📢 Marketing" [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: 📢
+        - text: Marketing
+    - generic [ref=e18]:
+      - generic [ref=e19]: Simulador
+      - button "⚙️ Cenários" [ref=e20] [cursor=pointer]:
+        - generic [ref=e21]: ⚙️
+        - text: Cenários
+      - button "📋 DRE" [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: 📋
+        - text: DRE
+      - button "💰 Fluxo Caixa" [ref=e24] [cursor=pointer]:
+        - generic [ref=e25]: 💰
+        - text: Fluxo Caixa
+      - button "🛒 Vendas" [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: 🛒
+        - text: Vendas
+      - button "📦 Estoque" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]: 📦
+        - text: Estoque
+    - generic [ref=e30]:
+      - generic [ref=e31]: Gestão
+      - button "🏭 Fornecedores" [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: 🏭
+        - text: Fornecedores
+      - button "👥 Equipe" [ref=e34] [cursor=pointer]:
+        - generic [ref=e35]: 👥
+        - text: Equipe
+      - button "⚠️ Riscos" [ref=e36] [cursor=pointer]:
+        - generic [ref=e37]: ⚠️
+        - text: Riscos
+      - button "🎯 Metas/KPIs" [ref=e38] [cursor=pointer]:
+        - generic [ref=e39]: 🎯
+        - text: Metas/KPIs
+      - button "🚀 Crescimento" [ref=e40] [cursor=pointer]:
+        - generic [ref=e41]: 🚀
+        - text: Crescimento
+      - button "📜 Histórico" [ref=e42] [cursor=pointer]:
+        - generic [ref=e43]: 📜
+        - text: Histórico
+  - main [ref=e44]:
+    - generic [ref=e133]:
+      - heading "⚙️ Simulador de Cenários" [level=2] [ref=e501]
+      - generic [ref=e502]:
+        - heading "Configurações" [level=3] [ref=e503]
+        - generic [ref=e504]:
+          - generic [ref=e505]:
+            - generic [ref=e506]: Fator Sazonal
+            - combobox [ref=e507]:
+              - option "Alta (Nov-Fev) +40%"
+              - option "Média Alta +15%"
+              - option "Normal" [selected]
+              - option "Baixa (Abr-Jul) -30%"
+              - option "Inverno forte -45%"
+          - generic [ref=e508]:
+            - generic [ref=e509]: Nome do Cenário
+            - 'textbox "Ex: Verão 2026" [ref=e510]'
+          - button "🔄 Recalcular" [ref=e512] [cursor=pointer]
+          - button "💾 Salvar Cenário" [ref=e514] [cursor=pointer]
+        - generic [ref=e516]:
+          - checkbox "Incluir ☕ Produtos de Inverno (Açaí Quente, Chocolate, etc.)" [ref=e517]
+          - generic [ref=e518]: Incluir ☕ Produtos de Inverno (Açaí Quente, Chocolate, etc.)
+      - generic [ref=e519]:
+        - heading "Vendas por Produto (ajuste quantidades e preços)" [level=3] [ref=e520]
+        - table [ref=e522]:
+          - rowgroup [ref=e523]:
+            - row "Produto Custo/Cx Un/Cx Cx/Mês Preço/Cx Receita Custo Total Lucro Margem" [ref=e524]:
+              - columnheader "Produto" [ref=e525]
+              - columnheader "Custo/Cx" [ref=e526]
+              - columnheader "Un/Cx" [ref=e527]
+              - columnheader "Cx/Mês" [ref=e528]
+              - columnheader "Preço/Cx" [ref=e529]
+              - columnheader "Receita" [ref=e530]
+              - columnheader "Custo Total" [ref=e531]
+              - columnheader "Lucro" [ref=e532]
+              - columnheader "Margem" [ref=e533]
+            - row "PALETA R$ 44,00 24 5.0 120.00 R$ 600,00 R$ 220,00 R$ 380,00 63.3%" [ref=e534]:
+              - cell "PALETA" [ref=e535]:
+                - strong [ref=e536]: PALETA
+              - cell "R$ 44,00" [ref=e537]
+              - cell "24" [ref=e538]
+              - cell "5.0" [ref=e539]:
+                - spinbutton [ref=e540]: "5.0"
+              - cell "120.00" [ref=e541]:
+                - spinbutton [ref=e542]: "120.00"
+              - cell "R$ 600,00" [ref=e543]
+              - cell "R$ 220,00" [ref=e544]
+              - cell "R$ 380,00" [ref=e545]
+              - cell "63.3%" [ref=e546]:
+                - generic [ref=e547]: 63.3%
+            - row "SKIMO R$ 48,00 32 4.0 160.00 R$ 640,00 R$ 192,00 R$ 448,00 70.0%" [ref=e548]:
+              - cell "SKIMO" [ref=e549]:
+                - strong [ref=e550]: SKIMO
+              - cell "R$ 48,00" [ref=e551]
+              - cell "32" [ref=e552]
+              - cell "4.0" [ref=e553]:
+                - spinbutton [ref=e554]: "4.0"
+              - cell "160.00" [ref=e555]:
+                - spinbutton [ref=e556]: "160.00"
+              - cell "R$ 640,00" [ref=e557]
+              - cell "R$ 192,00" [ref=e558]
+              - cell "R$ 448,00" [ref=e559]
+              - cell "70.0%" [ref=e560]:
+                - generic [ref=e561]: 70.0%
+            - row "PICOLÉ Água R$ 30,00 40 3.0 120.00 R$ 360,00 R$ 90,00 R$ 270,00 75.0%" [ref=e562]:
+              - cell "PICOLÉ Água" [ref=e563]:
+                - strong [ref=e564]: PICOLÉ Água
+              - cell "R$ 30,00" [ref=e565]
+              - cell "40" [ref=e566]
+              - cell "3.0" [ref=e567]:
+                - spinbutton [ref=e568]: "3.0"
+              - cell "120.00" [ref=e569]:
+                - spinbutton [ref=e570]: "120.00"
+              - cell "R$ 360,00" [ref=e571]
+              - cell "R$ 90,00" [ref=e572]
+              - cell "R$ 270,00" [ref=e573]
+              - cell "75.0%" [ref=e574]:
+                - generic [ref=e575]: 75.0%
+            - row "PICOLÉ Leite R$ 36,00 40 5.0 120.00 R$ 600,00 R$ 180,00 R$ 420,00 70.0%" [ref=e576]:
+              - cell "PICOLÉ Leite" [ref=e577]:
+                - strong [ref=e578]: PICOLÉ Leite
+              - cell "R$ 36,00" [ref=e579]
+              - cell "40" [ref=e580]
+              - cell "5.0" [ref=e581]:
+                - spinbutton [ref=e582]: "5.0"
+              - cell "120.00" [ref=e583]:
+                - spinbutton [ref=e584]: "120.00"
+              - cell "R$ 600,00" [ref=e585]
+              - cell "R$ 180,00" [ref=e586]
+              - cell "R$ 420,00" [ref=e587]
+              - cell "70.0%" [ref=e588]:
+                - generic [ref=e589]: 70.0%
+            - row "PICOLÉ Gourmet R$ 282,00 40 3.0 400.00 R$ 1.200,00 R$ 846,00 R$ 354,00 29.5%" [ref=e590]:
+              - cell "PICOLÉ Gourmet" [ref=e591]:
+                - strong [ref=e592]: PICOLÉ Gourmet
+              - cell "R$ 282,00" [ref=e593]
+              - cell "40" [ref=e594]
+              - cell "3.0" [ref=e595]:
+                - spinbutton [ref=e596]: "3.0"
+              - cell "400.00" [ref=e597]:
+                - spinbutton [ref=e598]: "400.00"
+              - cell "R$ 1.200,00" [ref=e599]
+              - cell "R$ 846,00" [ref=e600]
+              - cell "R$ 354,00" [ref=e601]
+              - cell "29.5%" [ref=e602]:
+                - generic [ref=e603]: 29.5%
+            - row "MORENINHA R$ 25,00 40 2.0 80.00 R$ 160,00 R$ 50,00 R$ 110,00 68.8%" [ref=e604]:
+              - cell "MORENINHA" [ref=e605]:
+                - strong [ref=e606]: MORENINHA
+              - cell "R$ 25,00" [ref=e607]
+              - cell "40" [ref=e608]
+              - cell "2.0" [ref=e609]:
+                - spinbutton [ref=e610]: "2.0"
+              - cell "80.00" [ref=e611]:
+                - spinbutton [ref=e612]: "80.00"
+              - cell "R$ 160,00" [ref=e613]
+              - cell "R$ 50,00" [ref=e614]
+              - cell "R$ 110,00" [ref=e615]
+              - cell "68.8%" [ref=e616]:
+                - generic [ref=e617]: 68.8%
+            - row "SUNDAE R$ 45,00 32 2.0 160.00 R$ 320,00 R$ 90,00 R$ 230,00 71.9%" [ref=e618]:
+              - cell "SUNDAE" [ref=e619]:
+                - strong [ref=e620]: SUNDAE
+              - cell "R$ 45,00" [ref=e621]
+              - cell "32" [ref=e622]
+              - cell "2.0" [ref=e623]:
+                - spinbutton [ref=e624]: "2.0"
+              - cell "160.00" [ref=e625]:
+                - spinbutton [ref=e626]: "160.00"
+              - cell "R$ 320,00" [ref=e627]
+              - cell "R$ 90,00" [ref=e628]
+              - cell "R$ 230,00" [ref=e629]
+              - cell "71.9%" [ref=e630]:
+                - generic [ref=e631]: 71.9%
+            - row "ALASKINHO R$ 32,00 40 2.0 160.00 R$ 320,00 R$ 64,00 R$ 256,00 80.0%" [ref=e632]:
+              - cell "ALASKINHO" [ref=e633]:
+                - strong [ref=e634]: ALASKINHO
+              - cell "R$ 32,00" [ref=e635]
+              - cell "40" [ref=e636]
+              - cell "2.0" [ref=e637]:
+                - spinbutton [ref=e638]: "2.0"
+              - cell "160.00" [ref=e639]:
+                - spinbutton [ref=e640]: "160.00"
+              - cell "R$ 320,00" [ref=e641]
+              - cell "R$ 64,00" [ref=e642]
+              - cell "R$ 256,00" [ref=e643]
+              - cell "80.0%" [ref=e644]:
+                - generic [ref=e645]: 80.0%
+            - row "SORVETE 200ml R$ 128,00 20 3.0 180.00 R$ 540,00 R$ 384,00 R$ 156,00 28.9%" [ref=e646]:
+              - cell "SORVETE 200ml" [ref=e647]:
+                - strong [ref=e648]: SORVETE 200ml
+              - cell "R$ 128,00" [ref=e649]
+              - cell "20" [ref=e650]
+              - cell "3.0" [ref=e651]:
+                - spinbutton [ref=e652]: "3.0"
+              - cell "180.00" [ref=e653]:
+                - spinbutton [ref=e654]: "180.00"
+              - cell "R$ 540,00" [ref=e655]
+              - cell "R$ 384,00" [ref=e656]
+              - cell "R$ 156,00" [ref=e657]
+              - cell "28.9%" [ref=e658]:
+                - generic [ref=e659]: 28.9%
+            - row "SORVETE 300ml R$ 128,00 20 3.0 180.00 R$ 540,00 R$ 384,00 R$ 156,00 28.9%" [ref=e660]:
+              - cell "SORVETE 300ml" [ref=e661]:
+                - strong [ref=e662]: SORVETE 300ml
+              - cell "R$ 128,00" [ref=e663]
+              - cell "20" [ref=e664]
+              - cell "3.0" [ref=e665]:
+                - spinbutton [ref=e666]: "3.0"
+              - cell "180.00" [ref=e667]:
+                - spinbutton [ref=e668]: "180.00"
+              - cell "R$ 540,00" [ref=e669]
+              - cell "R$ 384,00" [ref=e670]
+              - cell "R$ 156,00" [ref=e671]
+              - cell "28.9%" [ref=e672]:
+                - generic [ref=e673]: 28.9%
+            - row "POTE 1L R$ 125,00 20 4.0 250.00 R$ 1.000,00 R$ 500,00 R$ 500,00 50.0%" [ref=e674]:
+              - cell "POTE 1L" [ref=e675]:
+                - strong [ref=e676]: POTE 1L
+              - cell "R$ 125,00" [ref=e677]
+              - cell "20" [ref=e678]
+              - cell "4.0" [ref=e679]:
+                - spinbutton [ref=e680]: "4.0"
+              - cell "250.00" [ref=e681]:
+                - spinbutton [ref=e682]: "250.00"
+              - cell "R$ 1.000,00" [ref=e683]
+              - cell "R$ 500,00" [ref=e684]
+              - cell "R$ 500,00" [ref=e685]
+              - cell "50.0%" [ref=e686]:
+                - generic [ref=e687]: 50.0%
+            - row "POTE 1,3L c/rech R$ 172,00 16 2.0 288.00 R$ 576,00 R$ 344,00 R$ 232,00 40.3%" [ref=e688]:
+              - cell "POTE 1,3L c/rech" [ref=e689]:
+                - strong [ref=e690]: POTE 1,3L c/rech
+              - cell "R$ 172,00" [ref=e691]
+              - cell "16" [ref=e692]
+              - cell "2.0" [ref=e693]:
+                - spinbutton [ref=e694]: "2.0"
+              - cell "288.00" [ref=e695]:
+                - spinbutton [ref=e696]: "288.00"
+              - cell "R$ 576,00" [ref=e697]
+              - cell "R$ 344,00" [ref=e698]
+              - cell "R$ 232,00" [ref=e699]
+              - cell "40.3%" [ref=e700]:
+                - generic [ref=e701]: 40.3%
+            - row "POTE 1,5L Esp R$ 240,00 14 1.0 455.00 R$ 455,00 R$ 240,00 R$ 215,00 47.3%" [ref=e702]:
+              - cell "POTE 1,5L Esp" [ref=e703]:
+                - strong [ref=e704]: POTE 1,5L Esp
+              - cell "R$ 240,00" [ref=e705]
+              - cell "14" [ref=e706]
+              - cell "1.0" [ref=e707]:
+                - spinbutton [ref=e708]: "1.0"
+              - cell "455.00" [ref=e709]:
+                - spinbutton [ref=e710]: "455.00"
+              - cell "R$ 455,00" [ref=e711]
+              - cell "R$ 240,00" [ref=e712]
+              - cell "R$ 215,00" [ref=e713]
+              - cell "47.3%" [ref=e714]:
+                - generic [ref=e715]: 47.3%
+            - row "POTE 1,8L c/rech R$ 184,00 27 2.0 540.00 R$ 1.080,00 R$ 368,00 R$ 712,00 65.9%" [ref=e716]:
+              - cell "POTE 1,8L c/rech" [ref=e717]:
+                - strong [ref=e718]: POTE 1,8L c/rech
+              - cell "R$ 184,00" [ref=e719]
+              - cell "27" [ref=e720]
+              - cell "2.0" [ref=e721]:
+                - spinbutton [ref=e722]: "2.0"
+              - cell "540.00" [ref=e723]:
+                - spinbutton [ref=e724]: "540.00"
+              - cell "R$ 1.080,00" [ref=e725]
+              - cell "R$ 368,00" [ref=e726]
+              - cell "R$ 712,00" [ref=e727]
+              - cell "65.9%" [ref=e728]:
+                - generic [ref=e729]: 65.9%
+            - row "POTE 1,8L s/rech R$ 160,00 27 1.0 405.00 R$ 405,00 R$ 160,00 R$ 245,00 60.5%" [ref=e730]:
+              - cell "POTE 1,8L s/rech" [ref=e731]:
+                - strong [ref=e732]: POTE 1,8L s/rech
+              - cell "R$ 160,00" [ref=e733]
+              - cell "27" [ref=e734]
+              - cell "1.0" [ref=e735]:
+                - spinbutton [ref=e736]: "1.0"
+              - cell "405.00" [ref=e737]:
+                - spinbutton [ref=e738]: "405.00"
+              - cell "R$ 405,00" [ref=e739]
+              - cell "R$ 160,00" [ref=e740]
+              - cell "R$ 245,00" [ref=e741]
+              - cell "60.5%" [ref=e742]:
+                - generic [ref=e743]: 60.5%
+            - row "AÇAÍ 1L R$ 135,00 25 5.0 275.00 R$ 1.375,00 R$ 675,00 R$ 700,00 50.9%" [ref=e744]:
+              - cell "AÇAÍ 1L" [ref=e745]:
+                - strong [ref=e746]: AÇAÍ 1L
+              - cell "R$ 135,00" [ref=e747]
+              - cell "25" [ref=e748]
+              - cell "5.0" [ref=e749]:
+                - spinbutton [ref=e750]: "5.0"
+              - cell "275.00" [ref=e751]:
+                - spinbutton [ref=e752]: "275.00"
+              - cell "R$ 1.375,00" [ref=e753]
+              - cell "R$ 675,00" [ref=e754]
+              - cell "R$ 700,00" [ref=e755]
+              - cell "50.9%" [ref=e756]:
+                - generic [ref=e757]: 50.9%
+            - row "AÇAÍ 1,5L R$ 218,00 38 3.0 750.00 R$ 2.250,00 R$ 654,00 R$ 1.596,00 70.9%" [ref=e758]:
+              - cell "AÇAÍ 1,5L" [ref=e759]:
+                - strong [ref=e760]: AÇAÍ 1,5L
+              - cell "R$ 218,00" [ref=e761]
+              - cell "38" [ref=e762]
+              - cell "3.0" [ref=e763]:
+                - spinbutton [ref=e764]: "3.0"
+              - cell "750.00" [ref=e765]:
+                - spinbutton [ref=e766]: "750.00"
+              - cell "R$ 2.250,00" [ref=e767]
+              - cell "R$ 654,00" [ref=e768]
+              - cell "R$ 1.596,00" [ref=e769]
+              - cell "70.9%" [ref=e770]:
+                - generic [ref=e771]: 70.9%
+            - row "AÇAÍ 300ml R$ 128,00 20 2.0 360.00 R$ 720,00 R$ 256,00 R$ 464,00 64.4%" [ref=e772]:
+              - cell "AÇAÍ 300ml" [ref=e773]:
+                - strong [ref=e774]: AÇAÍ 300ml
+              - cell "R$ 128,00" [ref=e775]
+              - cell "20" [ref=e776]
+              - cell "2.0" [ref=e777]:
+                - spinbutton [ref=e778]: "2.0"
+              - cell "360.00" [ref=e779]:
+                - spinbutton [ref=e780]: "360.00"
+              - cell "R$ 720,00" [ref=e781]
+              - cell "R$ 256,00" [ref=e782]
+              - cell "R$ 464,00" [ref=e783]
+              - cell "64.4%" [ref=e784]:
+                - generic [ref=e785]: 64.4%
+            - row "CAIXA 5L R$ 720,00 1 1.0 1200.00 R$ 1.200,00 R$ 720,00 R$ 480,00 40.0%" [ref=e786]:
+              - cell "CAIXA 5L" [ref=e787]:
+                - strong [ref=e788]: CAIXA 5L
+              - cell "R$ 720,00" [ref=e789]
+              - cell "1" [ref=e790]
+              - cell "1.0" [ref=e791]:
+                - spinbutton [ref=e792]: "1.0"
+              - cell "1200.00" [ref=e793]:
+                - spinbutton [ref=e794]: "1200.00"
+              - cell "R$ 1.200,00" [ref=e795]
+              - cell "R$ 720,00" [ref=e796]
+              - cell "R$ 480,00" [ref=e797]
+              - cell "40.0%" [ref=e798]:
+                - generic [ref=e799]: 40.0%
+            - row "CAIXA 10L R$ 1.340,00 1 1.0 2200.00 R$ 2.200,00 R$ 1.340,00 R$ 860,00 39.1%" [ref=e800]:
+              - cell "CAIXA 10L" [ref=e801]:
+                - strong [ref=e802]: CAIXA 10L
+              - cell "R$ 1.340,00" [ref=e803]
+              - cell "1" [ref=e804]
+              - cell "1.0" [ref=e805]:
+                - spinbutton [ref=e806]: "1.0"
+              - cell "2200.00" [ref=e807]:
+                - spinbutton [ref=e808]: "2200.00"
+              - cell "R$ 2.200,00" [ref=e809]
+              - cell "R$ 1.340,00" [ref=e810]
+              - cell "R$ 860,00" [ref=e811]
+              - cell "39.1%" [ref=e812]:
+                - generic [ref=e813]: 39.1%
+            - row "TOTAL R$ 16.541,00 R$ 7.757,00 R$ 8.784,00 53.1%" [ref=e814]:
+              - cell "TOTAL" [ref=e815]
+              - cell [ref=e816]
+              - cell [ref=e817]
+              - cell [ref=e818]
+              - cell [ref=e819]
+              - cell "R$ 16.541,00" [ref=e820]
+              - cell "R$ 7.757,00" [ref=e821]
+              - cell "R$ 8.784,00" [ref=e822]
+              - cell "53.1%" [ref=e823]:
+                - generic [ref=e824]: 53.1%
+      - generic [ref=e825]:
+        - generic [ref=e826]:
+          - generic [ref=e827]: Receita Bruta
+          - generic [ref=e828]: R$ 16.541,00
+        - generic [ref=e829]:
+          - generic [ref=e830]: CMV
+          - generic [ref=e831]: "- R$ 7.757,00"
+        - generic [ref=e832]:
+          - generic [ref=e833]: Lucro Bruto
+          - generic [ref=e834]: R$ 8.784,00
+          - generic [ref=e835]: "Margem: 53.1%"
+        - generic [ref=e836]:
+          - generic [ref=e837]: Custos Fixos
+          - generic [ref=e838]: "- R$ 0,00"
+        - generic [ref=e839]:
+          - generic [ref=e840]: Impostos
+          - generic [ref=e841]: "- R$ 661,64"
+        - generic [ref=e842]:
+          - generic [ref=e843]: Resultado Líquido
+          - generic [ref=e844]: +R$ 8.122,36
+      - generic [ref=e845]:
+        - heading "📂 Cenários Salvos (1)" [level=3] [ref=e846]
+        - table [ref=e848]:
+          - rowgroup [ref=e849]:
+            - row "Nome Receita Custo Lucro Líq. Margem Ações" [ref=e850]:
+              - columnheader "Nome" [ref=e851]
+              - columnheader "Receita" [ref=e852]
+              - columnheader "Custo" [ref=e853]
+              - columnheader "Lucro Líq." [ref=e854]
+              - columnheader "Margem" [ref=e855]
+              - columnheader "Ações" [ref=e856]
+            - row "Cenário 1 06/04/2026 · Normal R$ 0,00 R$ 0,00 +R$ 0,00 0% 📥 Carregar 🗑️" [ref=e857]:
+              - cell "Cenário 1 06/04/2026 · Normal" [ref=e858]:
+                - strong [ref=e859]: Cenário 1
+                - text: 06/04/2026 · Normal
+              - cell "R$ 0,00" [ref=e860]
+              - cell "R$ 0,00" [ref=e861]
+              - cell "+R$ 0,00" [ref=e862]
+              - cell "0%" [ref=e863]:
+                - generic [ref=e864]: 0%
+              - cell "📥 Carregar 🗑️" [ref=e865]:
+                - button "📥 Carregar" [ref=e866] [cursor=pointer]
+                - button "🗑️" [ref=e867] [cursor=pointer]

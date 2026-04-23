@@ -1,0 +1,45 @@
+{
+  "dash-chart": {
+    "status": "found",
+    "attrW": 300,
+    "attrH": 200,
+    "offsetW": 0,
+    "offsetH": 0,
+    "containerW": 0,
+    "dataUrlLength": 9426,
+    "hasContent": true
+  },
+  "dre-chart": {
+    "status": "found",
+    "attrW": 300,
+    "attrH": 220,
+    "offsetW": 0,
+    "offsetH": 0,
+    "containerW": 0,
+    "dataUrlLength": 10378,
+    "hasContent": true
+  },
+  "fc-chart": {
+    "status": "found",
+    "attrW": 706,
+    "attrH": 200,
+    "offsetW": 0,
+    "offsetH": 0,
+    "containerW": 0,
+    "dataUrlLength": 18106,
+    "hasContent": true
+  },
+  "sz-chart": {
+    "status": "found",
+    "attrW": 706,
+    "attrH": 100,
+    "offsetW": 706,
+    "offsetH": 100,
+    "containerW": 716,
+    "dataUrlLength": 4210,
+    "hasContent": false
+  },
+  "scen-comp-chart": {
+    "status": "not_found"
+  }
+}

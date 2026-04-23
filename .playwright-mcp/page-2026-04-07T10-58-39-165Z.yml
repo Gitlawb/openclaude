@@ -1,0 +1,54 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - heading "❅ Power Planner" [level=1] [ref=e4]:
+        - generic [ref=e5]: ❅
+        - text: Power Planner
+      - paragraph [ref=e6]: Planejamento de Negocio
+    - generic [ref=e7]:
+      - generic [ref=e8]: Visao Geral
+      - generic [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: ●
+        - text: Dashboard
+    - generic [ref=e11]:
+      - generic [ref=e12]: Financeiro
+      - generic [ref=e13] [cursor=pointer]:
+        - generic [ref=e14]: $
+        - text: DRE
+        - generic [ref=e15]: 12M
+      - generic [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: ⇄
+        - text: Fluxo de Caixa
+    - generic [ref=e18]:
+      - generic [ref=e19]: Operacional
+      - generic [ref=e20] [cursor=pointer]:
+        - generic [ref=e21]: ★
+        - text: Estoque
+      - generic [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: ⚙
+        - text: Premissas
+    - generic [ref=e24]:
+      - generic [ref=e25]: Estrategico
+      - generic [ref=e26] [cursor=pointer]:
+        - generic [ref=e27]: ♦
+        - text: Cenarios
+        - generic [ref=e28]: "0"
+      - generic [ref=e29] [cursor=pointer]:
+        - generic [ref=e30]: ☰
+        - text: Plano e KPIs
+    - generic [ref=e31]:
+      - button "⬇ Exportar Backup" [ref=e32] [cursor=pointer]
+      - generic [ref=e33] [cursor=pointer]: ⬆ Importar Backup
+      - button "🗑 Limpar Dados" [ref=e34] [cursor=pointer]
+  - generic [ref=e36]:
+    - generic [ref=e37]:
+      - generic [ref=e38]:
+        - heading "Dashboard" [level=2] [ref=e39]
+        - generic [ref=e40]: Visao geral do negocio
+      - generic [ref=e41]:
+        - generic [ref=e42]: Sem cenario ativo
+        - button "+ Novo Cenario" [ref=e43] [cursor=pointer]
+    - heading "Receita vs Custos — Projecao 12 Meses" [level=3] [ref=e45]
+    - generic [ref=e48]:
+      - heading "Alertas de Estoque" [level=3] [ref=e50]
+      - heading "KPIs em Destaque" [level=3] [ref=e52]
