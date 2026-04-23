@@ -1,14 +1,22 @@
 {
   "name": "@gitlawb/openclaude",
-  "version": "0.6.0",
+  "version": "0.4.0",
   "description": "Claude Code opened to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
     "openclaude": "./bin/openclaude"
   },
+  "exports": {
+    "./sdk": {
+      "types": "./src/entrypoints/sdk.d.ts",
+      "import": "./dist/sdk.mjs"
+    }
+  },
   "files": [
     "bin/",
     "dist/cli.mjs",
+    "dist/sdk.mjs",
+    "src/entrypoints/sdk.d.ts",
     "README.md"
   ],
   "scripts": {
