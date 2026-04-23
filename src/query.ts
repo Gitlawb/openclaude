@@ -1516,6 +1516,26 @@ async function* queryLoop(
     }
     queryCheckpoint('query_tool_execution_end')
 
+    // Track multi-turn context after tool execution
+    if (feature('MULTI_TURN_CONTEXT')) {
+      const { addMessageToTurn, addToolCallToTurn, startNewTurn } = await import('./utils/multiTurnContext.js')
+      addMessageToTurn(assistantMessage)
+      for (const toolUse of toolUseBlocks) {
+        addToolCallToTurn({
+          id: toolUse.id,
+          name: toolUse.name,
+          input: toolUse.input as Record<string, unknown>,
+          timestamp: Date.now(),
+        })
+      }
+    }
+
+    // Update conversation arc phase
+    if (feature('CONVERSATION_ARC')) {
+      const { updateArcPhase } = await import('./utils/conversationArc.js')
+      updateArcPhase([assistantMessage])
+    }
+
     // Generate tool use summary after tool batch completes — passed to next recursive call
     let nextPendingToolUseSummary:
       | Promise<ToolUseSummaryMessage | null>
