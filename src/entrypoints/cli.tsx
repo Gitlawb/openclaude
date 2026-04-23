@@ -48,6 +48,15 @@ if (feature('ABLATION_BASELINE') && process.env.CLAUDE_CODE_ABLATION_BASELINE) {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
+  // Fast-path for `openclaude serve`: daemon HTTP/SSE server.
+  // MUST run before provider setup and banner rendering — those pollute stdout
+  // and break clients that parse the server-started JSON line.
+  if (args[0] === 'serve') {
+    const { serveCommand } = await import('../commands/serve/index.js');
+    await serveCommand(args.slice(1));
+    return;
+  }
+
   // Fast-path for --version/-v: zero module loading needed
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
     // MACRO.VERSION is inlined at build time
@@ -263,13 +272,6 @@ async function main(): Promise<void> {
       default:
         await bg.handleBgFlag(args);
     }
-    return;
-  }
-
-  // Fast-path for `openclaude serve`: HTTP/SSE server.
-  if (args[0] === 'serve') {
-    const { serveCommand } = await import('../commands/serve/index.js');
-    await serveCommand(args.slice(1));
     return;
   }
 
