@@ -76,44 +76,48 @@ export function getMemoryDelta(
   current: readonly MemoryFileInput[],
   messages: readonly ScannableMessage[],
 ): MemoryDelta | null {
-  const announced = new Map<string, string>()
-  let attachmentCount = 0
-  let mdCount = 0
+  // Reconstruct the "last announced" map of path → contentHash by
+  // folding all prior memory_delta attachments in arrival order.
+  const announcedHashByPath = new Map<string, string>()
+  let totalAttachmentCount = 0
+  let priorMemoryDeltaCount = 0
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
-    attachmentCount++
+    totalAttachmentCount++
     if (msg.attachment?.type !== 'memory_delta') continue
-    mdCount++
-    const names = msg.attachment.addedNames ?? []
-    const hashes = msg.attachment.addedHashes ?? []
-    for (let i = 0; i < names.length; i++) {
-      const h = hashes[i] ?? ''
-      announced.set(names[i]!, h)
+    priorMemoryDeltaCount++
+    const priorAddedNames = msg.attachment.addedNames ?? []
+    const priorAddedHashes = msg.attachment.addedHashes ?? []
+    for (let i = 0; i < priorAddedNames.length; i++) {
+      const priorHash = priorAddedHashes[i] ?? ''
+      announcedHashByPath.set(priorAddedNames[i]!, priorHash)
     }
-    for (const n of msg.attachment.removedNames ?? []) {
-      announced.delete(n)
+    for (const priorRemovedPath of msg.attachment.removedNames ?? []) {
+      announcedHashByPath.delete(priorRemovedPath)
     }
   }
 
-  const currentMap = new Map<string, string>()
-  const currentHashes = new Map<string, string>()
-  for (const f of current) {
-    currentMap.set(f.path, f.content)
-    currentHashes.set(f.path, djb2Hash(f.content).toString(36))
+  // Build the current snapshot: path → content + hash-of-content.
+  const currentContentByPath = new Map<string, string>()
+  const currentHashByPath = new Map<string, string>()
+  for (const file of current) {
+    currentContentByPath.set(file.path, file.content)
+    currentHashByPath.set(file.path, djb2Hash(file.content).toString(36))
   }
 
+  // Diff current vs announced: hashed difference → added, missing path → removed.
   const added: Array<{ name: string; content: string; hash: string }> = []
-  for (const [path, content] of currentMap) {
-    const prior = announced.get(path)
-    const cur = currentHashes.get(path)!
-    if (prior !== cur) {
-      added.push({ name: path, content, hash: cur })
+  for (const [path, content] of currentContentByPath) {
+    const priorHash = announcedHashByPath.get(path)
+    const currentHash = currentHashByPath.get(path)!
+    if (priorHash !== currentHash) {
+      added.push({ name: path, content, hash: currentHash })
     }
   }
 
   const removed: string[] = []
-  for (const path of announced.keys()) {
-    if (!currentMap.has(path)) removed.push(path)
+  for (const path of announcedHashByPath.keys()) {
+    if (!currentContentByPath.has(path)) removed.push(path)
   }
 
   if (added.length === 0 && removed.length === 0) return null
@@ -129,19 +133,20 @@ export function getMemoryDelta(
   logEvent('tengu_memory_delta', {
     addedCount: added.length,
     removedCount: removed.length,
-    priorAnnouncedCount: announced.size,
-    attachmentCount,
-    mdCount,
+    priorAnnouncedCount: announcedHashByPath.size,
+    attachmentCount: totalAttachmentCount,
+    mdCount: priorMemoryDeltaCount,
   })
 
   return {
-    addedNames: added.map(a => a.name),
-    addedContent: added.map(a => a.content),
-    addedHashes: added.map(a => a.hash),
+    addedNames: added.map(entry => entry.name),
+    addedContent: added.map(entry => entry.content),
+    addedHashes: added.map(entry => entry.hash),
     removedNames: removed,
-    // mdCount, not announced.size: a prior delta that removed everything
-    // leaves announced empty but is NOT the initial announcement. Using
-    // mdCount avoids a false "isInitial: true" after a full retraction.
-    isInitial: mdCount === 0,
+    // Use priorMemoryDeltaCount, not announcedHashByPath.size: a prior
+    // delta that removed everything leaves the map empty but is NOT the
+    // initial announcement. Counting deltas avoids a false "isInitial:
+    // true" after a full retraction.
+    isInitial: priorMemoryDeltaCount === 0,
   }
 }

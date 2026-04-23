@@ -71,27 +71,30 @@ export function getTodoReminderDelta(
   current: readonly TodoSnapshotItem[],
   messages: readonly ScannableMessage[],
 ): TodoReminderDelta | null {
-  const announced = new Map<string, string>()
+  // Reconstruct "last announced" state from prior todo_reminder_delta
+  // attachments. Each delta carries a full snapshot, so the most recent
+  // one alone suffices — but we fold through the list ("last-write-wins")
+  // for symmetry with the other delta scanners.
+  const announcedStatusById = new Map<string, string>()
   let hasPriorDelta = false
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
     if (msg.attachment?.type !== 'todo_reminder_delta') continue
     hasPriorDelta = true
-    // Each delta carries the full snapshot at its emission point — so
-    // the most recent one alone is enough to reconstruct state. We
-    // still fold through the list to mirror the other delta scanners'
-    // "last-write-wins" reconstruction for symmetry.
-    announced.clear()
-    for (const item of msg.attachment.snapshot ?? []) {
-      announced.set(item.id, item.status)
+    announcedStatusById.clear()
+    for (const priorItem of msg.attachment.snapshot ?? []) {
+      announcedStatusById.set(priorItem.id, priorItem.status)
     }
   }
 
-  const currentMap = new Map<string, TodoSnapshotItem>()
+  // Index the current snapshot by id for O(1) lookup during the diff.
+  const currentItemById = new Map<string, TodoSnapshotItem>()
   for (const item of current) {
-    currentMap.set(item.id, item)
+    currentItemById.set(item.id, item)
   }
 
+  // Diff: new id → added; same id, different status → statusChanged;
+  // previously-announced id missing from current → removed.
   const added: TodoSnapshotItem[] = []
   const statusChanged: Array<{
     id: string
@@ -100,7 +103,7 @@ export function getTodoReminderDelta(
     text: string
   }> = []
   for (const item of current) {
-    const priorStatus = announced.get(item.id)
+    const priorStatus = announcedStatusById.get(item.id)
     if (priorStatus === undefined) {
       added.push(item)
     } else if (priorStatus !== item.status) {
@@ -114,8 +117,8 @@ export function getTodoReminderDelta(
   }
 
   const removedIds: string[] = []
-  for (const id of announced.keys()) {
-    if (!currentMap.has(id)) removedIds.push(id)
+  for (const id of announcedStatusById.keys()) {
+    if (!currentItemById.has(id)) removedIds.push(id)
   }
 
   if (
@@ -139,7 +142,7 @@ export function getTodoReminderDelta(
     addedCount: added.length,
     statusChangedCount: statusChanged.length,
     removedCount: removedIds.length,
-    priorAnnouncedCount: announced.size,
+    priorAnnouncedCount: announcedStatusById.size,
     isInitial: !hasPriorDelta,
   })
 

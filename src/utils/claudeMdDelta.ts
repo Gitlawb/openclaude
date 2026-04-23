@@ -87,15 +87,15 @@ export function getClaudeMdDelta(
   currentContent: string | null | undefined,
   messages: readonly ScannableMessage[],
 ): ClaudeMdDelta | null {
-  let lastHash: string | null = null
-  let attachmentCount = 0
-  let cmdCount = 0
+  let lastAnnouncedHash: string | null = null
+  let totalAttachmentCount = 0
+  let priorClaudeMdDeltaCount = 0
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
-    attachmentCount++
+    totalAttachmentCount++
     if (msg.attachment?.type !== 'claude_md_delta') continue
-    cmdCount++
-    lastHash = msg.attachment.contentHash ?? null
+    priorClaudeMdDeltaCount++
+    lastAnnouncedHash = msg.attachment.contentHash ?? null
   }
 
   const normalized = currentContent ?? ''
@@ -106,21 +106,21 @@ export function getClaudeMdDelta(
     normalized.length === 0 ? '' : djb2Hash(normalized).toString(36)
 
   // True no-op: nothing to announce, nothing was ever announced.
-  if (lastHash === null && currentHash === '') return null
+  if (lastAnnouncedHash === null && currentHash === '') return null
   // Unchanged from last announcement — copy elision.
-  if (lastHash === currentHash) return null
+  if (lastAnnouncedHash === currentHash) return null
 
   logEvent('tengu_claude_md_delta', {
     changed: true,
-    priorAnnounced: lastHash !== null,
+    priorAnnounced: lastAnnouncedHash !== null,
     currentLength: normalized.length,
-    attachmentCount,
-    cmdCount,
+    attachmentCount: totalAttachmentCount,
+    cmdCount: priorClaudeMdDeltaCount,
   })
 
   return {
     addedContent: normalized,
     contentHash: currentHash,
-    isInitial: lastHash === null,
+    isInitial: lastAnnouncedHash === null,
   }
 }

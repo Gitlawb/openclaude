@@ -180,201 +180,236 @@ function baselineTodoReminder(
 
 describe('static-dedup integration: per-scanner byte savings', () => {
   test('CLAUDE.md: turn 2+ emits zero bytes when content unchanged', () => {
-    const content = repeat(TYPICAL_CLAUDE_MD_SIZE)
-    const messages: AttachmentMessage[] = []
+    const claudeMdContent = repeat(TYPICAL_CLAUDE_MD_SIZE)
+    const transcript: AttachmentMessage[] = []
 
     // Turn 1 — initial emission
-    const d1 = getClaudeMdDelta(content, messages)
-    expect(d1).not.toBeNull()
-    expect(d1!.isInitial).toBe(true)
-    expect(d1!.addedContent.length).toBe(TYPICAL_CLAUDE_MD_SIZE)
-    messages.push(
-      claudeMdDeltaMsg(d1!.addedContent, d1!.contentHash, d1!.isInitial),
+    const turn1Delta = getClaudeMdDelta(claudeMdContent, transcript)
+    expect(turn1Delta).not.toBeNull()
+    expect(turn1Delta!.isInitial).toBe(true)
+    expect(turn1Delta!.addedContent.length).toBe(TYPICAL_CLAUDE_MD_SIZE)
+    transcript.push(
+      claudeMdDeltaMsg(
+        turn1Delta!.addedContent,
+        turn1Delta!.contentHash,
+        turn1Delta!.isInitial,
+      ),
     )
 
     // Turn 2 & 3 — content unchanged
-    expect(getClaudeMdDelta(content, messages)).toBeNull()
-    expect(getClaudeMdDelta(content, messages)).toBeNull()
+    expect(getClaudeMdDelta(claudeMdContent, transcript)).toBeNull()
+    expect(getClaudeMdDelta(claudeMdContent, transcript)).toBeNull()
 
     // Byte + token accounting for turn 2 specifically. Tokens are the
     // unit the Fase 2 plan targets (-30 to -40% body JSON); bytes are
     // what Copilot bills. Both must move.
-    const baselineTurn2 = serialize([baselineClaudeMd(content)])
-    const dedupTurn2 = serialize([]) // null → no attachment emitted
-    const byteSavings = (baselineTurn2 - dedupTurn2) / baselineTurn2
+    const baselineTurn2Bytes = serialize([baselineClaudeMd(claudeMdContent)])
+    const dedupTurn2Bytes = serialize([]) // null → no attachment emitted
+    const byteSavings =
+      (baselineTurn2Bytes - dedupTurn2Bytes) / baselineTurn2Bytes
     expect(byteSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
 
-    const baselineTokens = estimateTokens([baselineClaudeMd(content)])
-    const dedupTokens = estimateTokens([])
-    const tokenSavings = (baselineTokens - dedupTokens) / baselineTokens
+    const baselineTurn2Tokens = estimateTokens([
+      baselineClaudeMd(claudeMdContent),
+    ])
+    const dedupTurn2Tokens = estimateTokens([])
+    const tokenSavings =
+      (baselineTurn2Tokens - dedupTurn2Tokens) / baselineTurn2Tokens
     expect(tokenSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
   })
 
   test('gitStatus: turn 2+ emits zero bytes (snapshot is immutable)', () => {
-    const status = repeat(TYPICAL_GIT_STATUS_SIZE)
-    const messages: AttachmentMessage[] = []
+    const gitStatusSnapshot = repeat(TYPICAL_GIT_STATUS_SIZE)
+    const transcript: AttachmentMessage[] = []
 
-    const d1 = getGitStatusDelta(status, messages)
-    expect(d1).not.toBeNull()
-    expect(d1!.content).toBe(status)
-    messages.push(gitStatusDeltaMsg(d1!.content))
+    const turn1Delta = getGitStatusDelta(gitStatusSnapshot, transcript)
+    expect(turn1Delta).not.toBeNull()
+    expect(turn1Delta!.content).toBe(gitStatusSnapshot)
+    transcript.push(gitStatusDeltaMsg(turn1Delta!.content))
 
     // By design: subsequent turns never re-emit (snapshot is immutable)
-    expect(getGitStatusDelta(status, messages)).toBeNull()
-    expect(getGitStatusDelta(status, messages)).toBeNull()
+    expect(getGitStatusDelta(gitStatusSnapshot, transcript)).toBeNull()
+    expect(getGitStatusDelta(gitStatusSnapshot, transcript)).toBeNull()
 
-    const baselineTurn2 = serialize([baselineGitStatus(status)])
-    const dedupTurn2 = serialize([])
-    const savings = (baselineTurn2 - dedupTurn2) / baselineTurn2
-    expect(savings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+    const baselineTurn2Bytes = serialize([baselineGitStatus(gitStatusSnapshot)])
+    const dedupTurn2Bytes = serialize([])
+    const byteSavings =
+      (baselineTurn2Bytes - dedupTurn2Bytes) / baselineTurn2Bytes
+    expect(byteSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
   })
 
   test('nested memory: turn 2+ emits zero bytes when files unchanged', () => {
-    const files: MemoryFileInput[] = Array.from(
+    const memoryFiles: MemoryFileInput[] = Array.from(
       { length: TYPICAL_MEMORY_FILE_COUNT },
-      (_, i) => ({
-        path: `/pkg-${i}/CLAUDE.md`,
+      (_, index) => ({
+        path: `/pkg-${index}/CLAUDE.md`,
         content: repeat(TYPICAL_MEMORY_FILE_SIZE),
       }),
     )
-    const messages: AttachmentMessage[] = []
+    const transcript: AttachmentMessage[] = []
 
-    const d1 = getMemoryDelta(files, messages)
-    expect(d1).not.toBeNull()
-    expect(d1!.isInitial).toBe(true)
-    expect(d1!.addedNames.length).toBe(TYPICAL_MEMORY_FILE_COUNT)
-    messages.push(
+    const turn1Delta = getMemoryDelta(memoryFiles, transcript)
+    expect(turn1Delta).not.toBeNull()
+    expect(turn1Delta!.isInitial).toBe(true)
+    expect(turn1Delta!.addedNames.length).toBe(TYPICAL_MEMORY_FILE_COUNT)
+    transcript.push(
       memoryDeltaMsg(
-        d1!.addedNames,
-        d1!.addedContent,
-        d1!.addedHashes,
-        d1!.removedNames,
-        d1!.isInitial,
+        turn1Delta!.addedNames,
+        turn1Delta!.addedContent,
+        turn1Delta!.addedHashes,
+        turn1Delta!.removedNames,
+        turn1Delta!.isInitial,
       ),
     )
 
-    expect(getMemoryDelta(files, messages)).toBeNull()
-    expect(getMemoryDelta(files, messages)).toBeNull()
+    expect(getMemoryDelta(memoryFiles, transcript)).toBeNull()
+    expect(getMemoryDelta(memoryFiles, transcript)).toBeNull()
 
-    const baselineTurn2 = serialize(baselineMemoryAttachments(files))
-    const dedupTurn2 = serialize([])
-    const savings = (baselineTurn2 - dedupTurn2) / baselineTurn2
-    expect(savings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+    const baselineTurn2Bytes = serialize(
+      baselineMemoryAttachments(memoryFiles),
+    )
+    const dedupTurn2Bytes = serialize([])
+    const byteSavings =
+      (baselineTurn2Bytes - dedupTurn2Bytes) / baselineTurn2Bytes
+    expect(byteSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
   })
 
   test('todo reminder: turn 2+ emits zero bytes when list unchanged', () => {
-    const todos: TodoSnapshotItem[] = Array.from({ length: 10 }, (_, i) => ({
-      id: `task-${i}`,
-      status: 'pending',
-      text: `Task number ${i} with enough context to be realistic`,
-    }))
-    const messages: AttachmentMessage[] = []
+    const todoSnapshot: TodoSnapshotItem[] = Array.from(
+      { length: 10 },
+      (_, index) => ({
+        id: `task-${index}`,
+        status: 'pending',
+        text: `Task number ${index} with enough context to be realistic`,
+      }),
+    )
+    const transcript: AttachmentMessage[] = []
 
-    const d1 = getTodoReminderDelta(todos, messages)
-    expect(d1).not.toBeNull()
-    expect(d1!.isInitial).toBe(true)
-    expect(d1!.added.length).toBe(10)
-    messages.push(todoReminderDeltaMsg(d1!.snapshot))
+    const turn1Delta = getTodoReminderDelta(todoSnapshot, transcript)
+    expect(turn1Delta).not.toBeNull()
+    expect(turn1Delta!.isInitial).toBe(true)
+    expect(turn1Delta!.added.length).toBe(10)
+    transcript.push(todoReminderDeltaMsg(turn1Delta!.snapshot))
 
-    expect(getTodoReminderDelta(todos, messages)).toBeNull()
-    expect(getTodoReminderDelta(todos, messages)).toBeNull()
+    expect(getTodoReminderDelta(todoSnapshot, transcript)).toBeNull()
+    expect(getTodoReminderDelta(todoSnapshot, transcript)).toBeNull()
 
-    const baselineTurn2 = serialize([baselineTodoReminder(todos)])
-    const dedupTurn2 = serialize([])
-    const savings = (baselineTurn2 - dedupTurn2) / baselineTurn2
-    expect(savings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+    const baselineTurn2Bytes = serialize([baselineTodoReminder(todoSnapshot)])
+    const dedupTurn2Bytes = serialize([])
+    const byteSavings =
+      (baselineTurn2Bytes - dedupTurn2Bytes) / baselineTurn2Bytes
+    expect(byteSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
   })
 })
 
 describe('static-dedup integration: combined 3-turn session', () => {
   test('total payload across turns 2-3 is ≥25% smaller than baseline', () => {
-    const claudeMd = repeat(TYPICAL_CLAUDE_MD_SIZE)
-    const gitStatus = repeat(TYPICAL_GIT_STATUS_SIZE)
-    const memFiles: MemoryFileInput[] = Array.from(
+    const claudeMdContent = repeat(TYPICAL_CLAUDE_MD_SIZE)
+    const gitStatusSnapshot = repeat(TYPICAL_GIT_STATUS_SIZE)
+    const memoryFiles: MemoryFileInput[] = Array.from(
       { length: TYPICAL_MEMORY_FILE_COUNT },
-      (_, i) => ({
-        path: `/pkg-${i}/CLAUDE.md`,
+      (_, index) => ({
+        path: `/pkg-${index}/CLAUDE.md`,
         content: repeat(TYPICAL_MEMORY_FILE_SIZE),
       }),
     )
-    const todos: TodoSnapshotItem[] = Array.from({ length: 10 }, (_, i) => ({
-      id: `task-${i}`,
-      status: 'pending',
-      text: `Task ${i}`,
-    }))
+    const todoSnapshot: TodoSnapshotItem[] = Array.from(
+      { length: 10 },
+      (_, index) => ({
+        id: `task-${index}`,
+        status: 'pending',
+        text: `Task ${index}`,
+      }),
+    )
 
     // --- Baseline (always-emit) accounting for turns 2 and 3 ---
-    const baselinePerTurn = serialize([
-      baselineClaudeMd(claudeMd),
-      baselineGitStatus(gitStatus),
-      ...baselineMemoryAttachments(memFiles),
-      baselineTodoReminder(todos),
+    const bytesPerBaselineTurn = serialize([
+      baselineClaudeMd(claudeMdContent),
+      baselineGitStatus(gitStatusSnapshot),
+      ...baselineMemoryAttachments(memoryFiles),
+      baselineTodoReminder(todoSnapshot),
     ])
-    const baselineTurns23 = baselinePerTurn * 2
+    const baselineBytesTurns23 = bytesPerBaselineTurn * 2
 
     // --- Dedup path: simulate turn 1 emission, then measure turns 2+3 ---
-    const messages: AttachmentMessage[] = []
+    const transcript: AttachmentMessage[] = []
 
-    // Turn 1 — initial emissions
-    const cmd1 = getClaudeMdDelta(claudeMd, messages)
-    messages.push(
-      claudeMdDeltaMsg(cmd1!.addedContent, cmd1!.contentHash, cmd1!.isInitial),
-    )
-    const gs1 = getGitStatusDelta(gitStatus, messages)
-    messages.push(gitStatusDeltaMsg(gs1!.content))
-    const mem1 = getMemoryDelta(memFiles, messages)
-    messages.push(
-      memoryDeltaMsg(
-        mem1!.addedNames,
-        mem1!.addedContent,
-        mem1!.addedHashes,
-        mem1!.removedNames,
-        mem1!.isInitial,
+    // Turn 1 — initial emissions. Each scanner pushes its delta into
+    // the transcript so subsequent scans can reconstruct prior state.
+    const turn1ClaudeMd = getClaudeMdDelta(claudeMdContent, transcript)
+    transcript.push(
+      claudeMdDeltaMsg(
+        turn1ClaudeMd!.addedContent,
+        turn1ClaudeMd!.contentHash,
+        turn1ClaudeMd!.isInitial,
       ),
     )
-    const td1 = getTodoReminderDelta(todos, messages)
-    messages.push(todoReminderDeltaMsg(td1!.snapshot))
+    const turn1GitStatus = getGitStatusDelta(gitStatusSnapshot, transcript)
+    transcript.push(gitStatusDeltaMsg(turn1GitStatus!.content))
+    const turn1Memory = getMemoryDelta(memoryFiles, transcript)
+    transcript.push(
+      memoryDeltaMsg(
+        turn1Memory!.addedNames,
+        turn1Memory!.addedContent,
+        turn1Memory!.addedHashes,
+        turn1Memory!.removedNames,
+        turn1Memory!.isInitial,
+      ),
+    )
+    const turn1Todo = getTodoReminderDelta(todoSnapshot, transcript)
+    transcript.push(todoReminderDeltaMsg(turn1Todo!.snapshot))
 
-    // Turn 2 — measure what gets added (should be ~nothing)
+    // Turn 2 — measure what gets added (expected: ~nothing).
     const turn2Additions: Record<string, unknown>[] = []
-    const cmd2 = getClaudeMdDelta(claudeMd, messages)
-    if (cmd2) turn2Additions.push({ type: 'claude_md_delta', ...cmd2 })
-    const gs2 = getGitStatusDelta(gitStatus, messages)
-    if (gs2) turn2Additions.push({ type: 'git_status_delta', ...gs2 })
-    const mem2 = getMemoryDelta(memFiles, messages)
-    if (mem2) turn2Additions.push({ type: 'memory_delta', ...mem2 })
-    const td2 = getTodoReminderDelta(todos, messages)
-    if (td2) turn2Additions.push({ type: 'todo_reminder_delta', ...td2 })
+    const turn2ClaudeMd = getClaudeMdDelta(claudeMdContent, transcript)
+    if (turn2ClaudeMd)
+      turn2Additions.push({ type: 'claude_md_delta', ...turn2ClaudeMd })
+    const turn2GitStatus = getGitStatusDelta(gitStatusSnapshot, transcript)
+    if (turn2GitStatus)
+      turn2Additions.push({ type: 'git_status_delta', ...turn2GitStatus })
+    const turn2Memory = getMemoryDelta(memoryFiles, transcript)
+    if (turn2Memory)
+      turn2Additions.push({ type: 'memory_delta', ...turn2Memory })
+    const turn2Todo = getTodoReminderDelta(todoSnapshot, transcript)
+    if (turn2Todo)
+      turn2Additions.push({ type: 'todo_reminder_delta', ...turn2Todo })
 
-    // Turn 3 — measure what gets added
+    // Turn 3 — measure what gets added.
     const turn3Additions: Record<string, unknown>[] = []
-    const cmd3 = getClaudeMdDelta(claudeMd, messages)
-    if (cmd3) turn3Additions.push({ type: 'claude_md_delta', ...cmd3 })
-    const gs3 = getGitStatusDelta(gitStatus, messages)
-    if (gs3) turn3Additions.push({ type: 'git_status_delta', ...gs3 })
-    const mem3 = getMemoryDelta(memFiles, messages)
-    if (mem3) turn3Additions.push({ type: 'memory_delta', ...mem3 })
-    const td3 = getTodoReminderDelta(todos, messages)
-    if (td3) turn3Additions.push({ type: 'todo_reminder_delta', ...td3 })
+    const turn3ClaudeMd = getClaudeMdDelta(claudeMdContent, transcript)
+    if (turn3ClaudeMd)
+      turn3Additions.push({ type: 'claude_md_delta', ...turn3ClaudeMd })
+    const turn3GitStatus = getGitStatusDelta(gitStatusSnapshot, transcript)
+    if (turn3GitStatus)
+      turn3Additions.push({ type: 'git_status_delta', ...turn3GitStatus })
+    const turn3Memory = getMemoryDelta(memoryFiles, transcript)
+    if (turn3Memory)
+      turn3Additions.push({ type: 'memory_delta', ...turn3Memory })
+    const turn3Todo = getTodoReminderDelta(todoSnapshot, transcript)
+    if (turn3Todo)
+      turn3Additions.push({ type: 'todo_reminder_delta', ...turn3Todo })
 
-    const dedupTurns23 = serialize(turn2Additions) + serialize(turn3Additions)
-    const byteSavings = (baselineTurns23 - dedupTurns23) / baselineTurns23
+    const dedupBytesTurns23 =
+      serialize(turn2Additions) + serialize(turn3Additions)
+    const byteSavings =
+      (baselineBytesTurns23 - dedupBytesTurns23) / baselineBytesTurns23
     expect(byteSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
 
     // Token-level savings — matches the unit the Fase 2 plan targets.
     // estimateWithBounds uses the project's `json` compression ratio
     // (~2 chars/token), so the number reflects what a tokenizer would
     // produce on the wire, not a hardcoded char-per-token guess.
-    const baselineTokens =
+    const baselineTokensTurns23 =
       estimateTokens([
-        baselineClaudeMd(claudeMd),
-        baselineGitStatus(gitStatus),
-        ...baselineMemoryAttachments(memFiles),
-        baselineTodoReminder(todos),
+        baselineClaudeMd(claudeMdContent),
+        baselineGitStatus(gitStatusSnapshot),
+        ...baselineMemoryAttachments(memoryFiles),
+        baselineTodoReminder(todoSnapshot),
       ]) * 2
-    const dedupTokens =
+    const dedupTokensTurns23 =
       estimateTokens(turn2Additions) + estimateTokens(turn3Additions)
-    const tokenSavings = (baselineTokens - dedupTokens) / baselineTokens
+    const tokenSavings =
+      (baselineTokensTurns23 - dedupTokensTurns23) / baselineTokensTurns23
     expect(tokenSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
 
     // Stability: turn 3 must not regress vs turn 2 (scanners idempotent
@@ -387,18 +422,22 @@ describe('static-dedup integration: combined 3-turn session', () => {
     // the delta must re-emit. A savings claim that silently dropped
     // real changes would be dangerous; make sure the "always return
     // null" path is never the accidental fast path.
-    const original = repeat(TYPICAL_CLAUDE_MD_SIZE)
-    const changed = original + 'NEW_SECTION'
-    const messages: AttachmentMessage[] = []
+    const originalContent = repeat(TYPICAL_CLAUDE_MD_SIZE)
+    const changedContent = originalContent + 'NEW_SECTION'
+    const transcript: AttachmentMessage[] = []
 
-    const d1 = getClaudeMdDelta(original, messages)
-    messages.push(
-      claudeMdDeltaMsg(d1!.addedContent, d1!.contentHash, d1!.isInitial),
+    const turn1Delta = getClaudeMdDelta(originalContent, transcript)
+    transcript.push(
+      claudeMdDeltaMsg(
+        turn1Delta!.addedContent,
+        turn1Delta!.contentHash,
+        turn1Delta!.isInitial,
+      ),
     )
     // Real drift: must re-emit
-    const d2 = getClaudeMdDelta(changed, messages)
-    expect(d2).not.toBeNull()
-    expect(d2!.addedContent).toBe(changed)
-    expect(d2!.isInitial).toBe(false)
+    const turn2Delta = getClaudeMdDelta(changedContent, transcript)
+    expect(turn2Delta).not.toBeNull()
+    expect(turn2Delta!.addedContent).toBe(changedContent)
+    expect(turn2Delta!.isInitial).toBe(false)
   })
 })
