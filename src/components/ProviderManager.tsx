@@ -1326,8 +1326,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       },
       {
         value: 'kimi-code',
-        label: 'Moonshot Ai - Kimi Code',
-        description: 'Kimi Code - Subscription endpoint',
+        label: 'Moonshot AI - Kimi Code',
+        description: 'Moonshot AI - Kimi Code Subscription endpoint',
       },
       {
         value: 'nvidia-nim',
