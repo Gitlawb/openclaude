@@ -923,10 +923,9 @@ export function setActiveProviderProfile(
   const profileEnv = (() => {
     switch (activeProfile.provider) {
       case 'spark':
-        // Spark uses 3 credentials (app_id, api_key, api_secret) which
-        // don't fit the single-apiKey profile model. The env was already
-        // applied above via applyProviderProfileToProcessEnv(); skip the
-        // legacy profile file path for Spark.
+        // Spark uses a single SPARK_API_KEY (Bearer token) via the OpenAI-compatible
+        // endpoint. The env is already applied above via applyProviderProfileToProcessEnv();
+        // skip the legacy profile file path for Spark.
         return null
       case 'gemini':
         return (

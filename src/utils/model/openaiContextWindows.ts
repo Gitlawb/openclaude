@@ -220,6 +220,16 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'glm-5':                    202_752,
   'glm-4.7':                  202_752,
 
+  // Spark (iFlytek 星火) — values from Spark official docs
+  'generalv4.0':              128_000,
+  'generalv4':                128_000,
+  'generalv3.5':               32_768,
+  'general':                   32_768,
+  'pro-128k':                 128_000,
+  'lite':                     32_768,
+  'max-32k':                   32_768,
+  '4.0Ultra':                 128_000,
+
   // Moonshot AI direct API (api.moonshot.ai/v1). Values from Moonshot's
   // published model card — all K2 tier share 256K context. Prefix matching
   // in lookupByKey catches variants like "kimi-k2.6-preview".
@@ -402,6 +412,16 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'kimi-k2.5':                 32_768,
   'glm-5':                     16_384,
   'glm-4.7':                   16_384,
+
+  // Spark (iFlytek 星火)
+  'generalv4.0':               8_192,
+  'generalv4':                 8_192,
+  'generalv3.5':               8_192,
+  'general':                   8_192,
+  'pro-128k':                  8_192,
+  'lite':                      4_096,
+  'max-32k':                   8_192,
+  '4.0Ultra':                  8_192,
 
   // Moonshot AI direct API
   'kimi-k2.6':                 32_768,

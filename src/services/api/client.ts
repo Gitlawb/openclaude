@@ -208,7 +208,7 @@ export async function getAnthropicClient({
     }) as unknown as Anthropic
   }
 
-  // Spark (iFlytek 星火) uses a dedicated shim with HMAC-SHA256 auth
+  // Spark (iFlytek 星火) uses a dedicated shim with Bearer token auth
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_SPARK)) {
     const { createSparkShimClient } = await import('./sparkShim.js')
     return createSparkShimClient({
