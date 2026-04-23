@@ -1356,6 +1356,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'Together chat/completions endpoint',
       },
       {
+        value: 'xai',
+        label: 'xAI',
+        description: 'xAI Grok OpenAI-compatible endpoint',
+      },
+      {
         value: 'zai',
         label: 'Z.AI - GLM Coding Plan',
         description: 'Z.AI GLM coding subscription endpoint',

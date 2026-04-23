@@ -23,7 +23,6 @@ import {
   sanitizeApiKey,
   sanitizeProviderConfigValue,
 } from './providerSecrets.js'
-import { getPrimaryModel } from './providerModels.js'
 
 export {
   maskSecretForDisplay,
@@ -75,6 +74,7 @@ const PROFILE_ENV_KEYS = [
   'BANKR_BASE_URL',
   'BNKR_API_KEY',
   'BANKR_MODEL',
+  'XAI_API_KEY',
 ] as const
 
 const SECRET_ENV_KEYS = [
@@ -86,6 +86,7 @@ const SECRET_ENV_KEYS = [
   'MINIMAX_API_KEY',
   'MISTRAL_API_KEY',
   'BNKR_API_KEY',
+  'XAI_API_KEY',
 ] as const
 
 export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral'
@@ -114,6 +115,7 @@ export type ProfileEnv = {
   BANKR_BASE_URL?: string
   BNKR_API_KEY?: string
   BANKR_MODEL?: string
+  XAI_API_KEY?: string
 }
 
 export type ProfileFile = {

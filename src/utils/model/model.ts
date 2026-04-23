@@ -71,6 +71,10 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
   }
+  // xAI — OPENAI_MODEL carries the active Grok model; fall back to grok-3.
+  if (getAPIProvider() === 'xai') {
+    return process.env.OPENAI_MODEL || 'grok-3'
+  }
   return getDefaultHaikuModel()
 }
 
@@ -119,7 +123,8 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       provider === 'codex' ||
       provider === 'github' ||
       provider === 'nvidia-nim' ||
-      provider === 'minimax'
+      provider === 'minimax' ||
+      provider === 'xai'
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
@@ -194,6 +199,10 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
   }
+  // xAI — flagship Grok model for "opus"-equivalent.
+  if (getAPIProvider() === 'xai') {
+    return process.env.OPENAI_MODEL || 'grok-4'
+  }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // even when values match, since 3P availability lags firstParty and
   // these will diverge again at the next model launch.
@@ -236,6 +245,10 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.5'
   }
+  // xAI — flagship Grok model for "sonnet"-equivalent.
+  if (getAPIProvider() === 'xai') {
+    return process.env.OPENAI_MODEL || 'grok-4'
+  }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (getAPIProvider() !== 'firstParty') {
     return getModelStrings().sonnet45
@@ -275,6 +288,10 @@ export function getDefaultHaikuModel(): ModelName {
   // MiniMax — fastest tier for "haiku"-equivalent.
   if (getAPIProvider() === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
+  }
+  // xAI — faster Grok model for "haiku"-equivalent.
+  if (getAPIProvider() === 'xai') {
+    return process.env.OPENAI_MODEL || 'grok-3'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -343,6 +360,10 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   // Codex provider: always use the configured Codex model (default gpt-5.5)
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
+  }
+  // xAI provider: always use the configured Grok model (default grok-4)
+  if (getAPIProvider() === 'xai') {
+    return process.env.OPENAI_MODEL || 'grok-4'
   }
 
   // Ants default to defaultModel from flag config, or Opus 1M if not configured
@@ -524,7 +545,7 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
   // For OpenAI/Gemini/Codex/GitHub providers, show the actual model name not a Claude alias
-  if (getAPIProvider() === 'openai' || getAPIProvider() === 'gemini' || getAPIProvider() === 'codex' || getAPIProvider() === 'github') {
+  if (getAPIProvider() === 'openai' || getAPIProvider() === 'gemini' || getAPIProvider() === 'codex' || getAPIProvider() === 'github' || getAPIProvider() === 'xai') {
     // Return display names for known GitHub Copilot models
     const copilotModelNames: Record<string, string> = {
       'gpt-5.5': 'GPT-5.5',

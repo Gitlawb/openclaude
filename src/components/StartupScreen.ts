@@ -138,6 +138,7 @@ export function detectProvider(): { name: string; model: string; baseUrl: string
     else if (/api\.kimi\.com/i.test(baseUrl)) name = 'Moonshot AI - Kimi Code'
     else if (/moonshot/i.test(baseUrl)) name = 'Moonshot AI - API'
     else if (/deepseek/i.test(baseUrl)) name = 'DeepSeek'
+    else if (/x\.ai/i.test(baseUrl)) name = 'xAI'
     else if (isZaiBaseUrl(baseUrl)) name = 'Z.AI - GLM'
     else if (/mistral/i.test(baseUrl)) name = 'Mistral'
     // rawModel fallback — fires only when base URL is generic/custom.
@@ -148,6 +149,7 @@ export function detectProvider(): { name: string; model: string; baseUrl: string
     else if (/\bkimi-k/i.test(rawModel) || /moonshot/i.test(rawModel))
       name = 'Moonshot AI - API'
     else if (/deepseek/i.test(rawModel)) name = 'DeepSeek'
+    else if (/grok/i.test(rawModel)) name = 'xAI'
     else if (containsExactZaiGlmModelId(rawModel)) name = 'Z.AI - GLM'
     else if (/mistral/i.test(rawModel)) name = 'Mistral'
     else if (/llama/i.test(rawModel)) name = 'Meta Llama'

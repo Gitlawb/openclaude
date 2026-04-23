@@ -39,6 +39,7 @@ const RESTORED_KEYS = [
   'MISTRAL_BASE_URL',
   'MISTRAL_MODEL',
   'MISTRAL_API_KEY',
+  'XAI_API_KEY',
 ] as const
 
 type MockConfigState = {
