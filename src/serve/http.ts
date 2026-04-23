@@ -22,6 +22,7 @@ export type HttpAppOpts = {
   routes: Route[];
   rateLimit?: { windowMs: number; max: number };
   allowedOrigin?: string;
+  port?: number;
 };
 
 type Matched = { route: Route; params: Record<string, string> };
@@ -144,7 +145,7 @@ export async function createHttpApp(opts: HttpAppOpts): Promise<{ server: Server
     }
   });
 
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  await new Promise<void>((r) => server.listen(opts.port ?? 0, "127.0.0.1", r));
   const addr = server.address();
   if (!addr || typeof addr === "string") throw new Error("bind failed");
   if (cleanupTimer) {

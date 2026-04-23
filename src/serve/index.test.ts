@@ -29,8 +29,10 @@ describe("startServer", () => {
       expect(server.port).toBeGreaterThan(0);
       expect(server.token).toMatch(/^[0-9a-f]{64}$/);
 
-      const before = await fetch(server.url).then(r => r.status).catch(() => -1);
-      expect(before).toBe(501);
+      // Unknown path without auth returns 404 (auth happens after route match)
+      // For the liveness check, hit /health which is public.
+      const before = await fetch(`${server.url}/health`).then(r => r.status).catch(() => -1);
+      expect(before).toBe(200);
     } finally {
       await server.stop();
     }

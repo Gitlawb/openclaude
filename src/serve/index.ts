@@ -1,5 +1,6 @@
-import { createServer, type Server } from "node:http";
+import { createHttpApp } from "./http";
 import { ensureServerToken } from "./auth";
+import { healthRoute } from "./handlers/health";
 
 export type ServerOpts = {
   port?: number;
@@ -16,18 +17,17 @@ export type ServerHandle = {
 
 export async function startServer(opts: ServerOpts): Promise<ServerHandle> {
   const token = ensureServerToken();
-  const server: Server = createServer((_req, res) => {
-    res.writeHead(501);
-    res.end("Not implemented");
-  });
-  await new Promise<void>((resolve) => server.listen(opts.port ?? 0, "127.0.0.1", resolve));
-  const addr = server.address();
-  if (!addr || typeof addr === "string") throw new Error("Failed to bind");
-  const port = addr.port;
-  return {
-    url: `http://127.0.0.1:${port}`,
-    port,
+  const routes = [healthRoute];
+  const app = await createHttpApp({
     token,
-    stop: () => new Promise<void>((r) => server.close(() => r())),
+    routes,
+    port: opts.port,
+    rateLimit: { windowMs: 60_000, max: 100 },
+  });
+  return {
+    url: `http://127.0.0.1:${app.port}`,
+    port: app.port,
+    token,
+    stop: () => new Promise<void>((r) => app.server.close(() => r())),
   };
 }
