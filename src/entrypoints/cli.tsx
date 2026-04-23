@@ -266,6 +266,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Fast-path for `openclaude serve`: HTTP/SSE server.
+  if (args[0] === 'serve') {
+    const { serveCommand } = await import('../commands/serve/index.js');
+    await serveCommand(process.argv.slice(3));
+    return;
+  }
+
   // Fast-path for template job commands.
   if (feature('TEMPLATES') && (args[0] === 'new' || args[0] === 'list' || args[0] === 'reply')) {
     profileCheckpoint('cli_templates_path');
