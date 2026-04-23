@@ -1,0 +1,279 @@
+{
+  "mcpServers": {
+    "brave-search": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      },
+      "settings": {
+        "timeout": 15000,
+        "maxResults": 20
+      },
+      "timeout": 30000,
+      "retries": 3
+    },
+    "context7": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp@latest"
+      ],
+      "env": {},
+      "settings": {
+        "maxTokens": 8000,
+        "cacheTtl": 3600
+      },
+      "timeout": 30000,
+      "retries": 2
+    },
+    "docker": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-docker"
+      ],
+      "env": {},
+      "settings": {
+        "listContainers": true,
+        "maxContainers": 100
+      },
+      "timeout": 20000,
+      "retries": 2
+    },
+    "filesystem": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/adrianstanca/Desktop",
+        "/Users/adrianstanca/cortexbuild-ultimate",
+        "/Users/adrianstanca/autoresearch-trio",
+        "/Users/adrianstanca/Desktop/openclaude-main",
+        "/Users/adrianstanca/skills"
+      ],
+      "env": {},
+      "settings": {
+        "maxFiles": 10000,
+        "maxDepth": 20
+      },
+      "timeout": 30000,
+      "retries": 2
+    },
+    "firebase": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "firebase-mcp@latest"
+      ],
+      "env": {
+        "FIREBASE_TOKEN": "${FIREBASE_TOKEN}"
+      },
+      "settings": {
+        "timeout": 60000,
+        "maxResults": 100
+      },
+      "timeout": 90000,
+      "retries": 3
+    },
+    "git": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-git"
+      ],
+      "env": {},
+      "settings": {
+        "includeDiff": true,
+        "maxHistory": 100
+      },
+      "timeout": 15000,
+      "retries": 2
+    },
+    "github": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "settings": {
+        "timeout": 15000,
+        "maxRequests": 5000
+      },
+      "timeout": 30000,
+      "retries": 3
+    },
+    "honcho": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@honcho/mcp"
+      ],
+      "env": {
+        "HONCHO_API_KEY": "${HONCHO_API_KEY}"
+      },
+      "settings": {
+        "timeout": 30000
+      },
+      "timeout": 60000,
+      "retries": 3
+    },
+    "hostinger-mcp": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "hostinger-api-mcp@latest"
+      ],
+      "env": {
+        "API_TOKEN": "${HOSTINGER_API_TOKEN}"
+      },
+      "settings": {
+        "timeout": 30000,
+        "maxItems": 100
+      },
+      "timeout": 60000,
+      "retries": 3
+    },
+    "memory": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {},
+      "settings": {
+        "maxEntities": 10000,
+        "maxRelations": 50000
+      },
+      "timeout": 30000,
+      "retries": 2
+    },
+    "ollama": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "ollama-mcp"
+      ],
+      "env": {
+        "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
+        "OLLAMA_API_KEY": "${OLLAMA_API_KEY}"
+      },
+      "settings": {
+        "timeout": 120000,
+        "streamTimeout": 300000
+      },
+      "timeout": 300000,
+      "retries": 2
+    },
+    "playwright": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "env": {},
+      "settings": {
+        "browser": "chromium",
+        "headless": true,
+        "timeout": 30000
+      },
+      "timeout": 60000,
+      "retries": 2
+    },
+    "postgresql": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres"
+      ],
+      "env": {
+        "DATABASE_URL": "${POSTGRES_URL}"
+      },
+      "settings": {
+        "maxRows": 1000,
+        "timeout": 30000
+      },
+      "timeout": 60000,
+      "retries": 3
+    },
+    "redis": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-redis"
+      ],
+      "env": {
+        "REDIS_URL": "${REDIS_URL}"
+      },
+      "settings": {
+        "maxKeys": 10000,
+        "scanCount": 1000
+      },
+      "timeout": 15000,
+      "retries": 3
+    },
+    "semgrep": {
+      "command": "/opt/homebrew/bin/semgrep",
+      "args": [
+        "mcp"
+      ],
+      "env": {},
+      "settings": {
+        "timeout": 120000,
+        "maxFindings": 200
+      },
+      "timeout": 180000,
+      "retries": 2
+    },
+    "sequential-thinking": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "env": {},
+      "settings": {
+        "maxSteps": 50,
+        "timeout": 60000
+      },
+      "timeout": 120000,
+      "retries": 1
+    },
+    "serena": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-serena"
+      ],
+      "env": {},
+      "settings": {
+        "maxSymbols": 10000,
+        "timeout": 30000
+      },
+      "timeout": 60000,
+      "retries": 2
+    },
+    "vercel": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@vercel/mcp@latest"
+      ],
+      "env": {
+        "VERCEL_TOKEN": "${VERCEL_TOKEN}"
+      },
+      "settings": {
+        "timeout": 60000,
+        "maxDeployments": 50
+      },
+      "timeout": 90000,
+      "retries": 3
+    }
+  }
+}
