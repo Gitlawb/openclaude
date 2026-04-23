@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { verifyBearer } from "./auth";
+import { ServerError, errorResponse } from "./errors";
 
 export type RouteHandler = (req: {
   params: Record<string, string>;
@@ -140,6 +141,12 @@ export async function createHttpApp(opts: HttpAppOpts): Promise<{ server: Server
       res.writeHead(status, { "content-type": "application/json", ...extra });
       res.end(JSON.stringify(result.body));
     } catch (err) {
+      if (err instanceof ServerError) {
+        const r = errorResponse(err);
+        res.writeHead(r.status, { "content-type": "application/json" });
+        res.end(JSON.stringify(r.body));
+        return;
+      }
       res.writeHead(500, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: { code: "INTERNAL", message: String(err) } }));
     }
