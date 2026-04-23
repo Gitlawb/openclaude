@@ -1,23 +1,23 @@
 import { describe, it, expect } from "bun:test";
 import { startServer } from "./index";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 describe("startServer", () => {
-  it("returns server info with url, port, token, stop()", async () => {
-    const home = mkdtempSync(join(tmpdir(), "oc-s-"));
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
+  it("binds to 127.0.0.1, issues a 64-char hex token, and closes cleanly", async () => {
+    const server = await startServer({ port: 0 });
     try {
-      const server = await startServer({ port: 0 });
       expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
       expect(server.port).toBeGreaterThan(0);
-      expect(typeof server.token).toBe("string");
-      expect(server.token.length).toBe(64);
-      await server.stop();
+      expect(server.token).toMatch(/^[0-9a-f]{64}$/);
+
+      // verify server is accepting connections before stop
+      const before = await fetch(server.url).then(r => r.status).catch(() => -1);
+      expect(before).toBe(501);
     } finally {
-      rmSync(home, { recursive: true, force: true });
+      await server.stop();
     }
+
+    // verify server rejects connections after stop
+    const after = await fetch(server.url).then(r => r.status).catch(() => -1);
+    expect(after).toBe(-1);
   });
 });

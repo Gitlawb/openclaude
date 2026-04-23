@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 
 export type ServerOpts = {
   port?: number;
+  /** Passed through for later tasks (project-scoped config); unused in scaffold. */
   projectDir?: string;
 };
 
