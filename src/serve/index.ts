@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { randomBytes } from "node:crypto";
+import { ensureServerToken } from "./auth";
 
 export type ServerOpts = {
   port?: number;
@@ -15,7 +15,7 @@ export type ServerHandle = {
 };
 
 export async function startServer(opts: ServerOpts): Promise<ServerHandle> {
-  const token = randomBytes(32).toString("hex");
+  const token = ensureServerToken();
   const server: Server = createServer((_req, res) => {
     res.writeHead(501);
     res.end("Not implemented");
