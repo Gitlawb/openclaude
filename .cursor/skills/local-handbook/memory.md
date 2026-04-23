@@ -29,7 +29,7 @@ Handbook **v2** · last structurally updated **2026-04-23** (MCP merge + Cursor 
 
 - **`/Users/adrianstanca/Desktop/openclaude-main`** — **`.cursor/skills/local-handbook/`** now on disk (same layout as canonical handbook: `SKILL.md`, `logic.md`, `memory.md`, **`config/`**, **`scripts/apply-machine-config.sh`**). Landed on branch **`cursor/cursor-dev-path-7e04`** as **`9596f34`** (2026-04-23). **`origin`** `https://github.com/adrianstanca1/openclaude.git`, **`upstream`** `https://github.com/Gitlawb/openclaude.git`. **Canonical repo guide:** root **`AGENTS.md`**. **Upstream PR:** `https://github.com/Gitlawb/openclaude/pull/766` — prior **`AGENTS.md`** + review thread; fork PR history as before.
 - **`/Users/adrianstanca/autoresearch-trio`** — `.cursor/skills/local-handbook/`. Branch **`cursor/autoimprove-trio-session-log`** tracks **`origin/cursor/autoimprove-trio-session-log`**.
-- **`/Users/adrianstanca/cortexbuild-ultimate`** — `.cursor/skills/local-handbook/`. **`main`** uses **Husky** — commits must satisfy **Conventional Commits** (`type(scope): description`, description starts lowercase).
+- **`/Users/adrianstanca/cortexbuild-ultimate`** — `.cursor/skills/local-handbook/`. **`main`** uses **Husky** — commits must satisfy **Conventional Commits** (`type(scope): description`, description starts lowercase). **Docker Ollama:** `docker-compose.yml` sets **`OLLAMA_NUM_PARALLEL`**, **`OLLAMA_MAX_LOADED_MODELS`**, **`OLLAMA_KEEP_ALIVE`** on the compose service (**`perf(ollama):`** commit **`d6da41f`**); host Ollama in **`~/.zshrc`** may use different values.
 
 ## Git / push (snapshot)
 
@@ -45,6 +45,8 @@ Handbook **v2** · last structurally updated **2026-04-23** (MCP merge + Cursor 
 ## Session log (optimization)
 
 - **2026-04-23 (continuation):** `infsh` / `belt` updated to **v1.8.8** (`infsh update`). **Ollama** responds on **`127.0.0.1:11434`** (processes running). **Cursor plugin MCP `mcp_auth`:** completed for **`plugin-vercel-vercel`** and **`plugin-supabase-supabase`**; Stripe and Slack were **user-skipped** in the auth UI; Notion, Sentry, Greptile, and Amplitude **timed out** (retry from **Cursor → MCP** when you have time); **GitLab** auth failed with **SSE 404** (reinstall or check GitLab plugin / endpoint). **VS Code** `User/mcp.json` was rebuilt from a corrupt backup; keep timestamped **`mcp.json.corrupt-backup-*`** until you confirm VS Code MCP is stable.
+
+- **2026-04-23 (setup verify):** Smoke-tested MCP tools: **Vercel** `list_teams` OK; **GitHub** `user-github` search OK; **Supabase** `list_organizations` OK; **Notion** `notion-get-users` (self) OK; **Ollama** `ollama_list` OK. **`plugin-sentry-sentry`** is **not** in the current `empty-window` MCP folder list (re-enable Sentry plugin in Cursor if you want it). **`mcp_auth`** still available for **Stripe, Slack, Greptile, Amplitude** only — agent runs were **skipped** in UI; complete **one at a time** from **Cursor → Settings → MCP** (avoid parallel prompts; if you see **HTTP 405**, retry from MCP only, same browser, no VPN block).
 
 ## Anti-patterns
 
