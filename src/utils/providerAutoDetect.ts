@@ -43,6 +43,7 @@ export type DetectedProviderKind =
   | 'minimax'
   | 'xai'
   | 'ollama'
+  | 'ollama-cloud'
   | 'lm-studio'
 
 export type DetectedProvider = {
@@ -163,6 +164,14 @@ export function detectProviderFromEnv(
 
   if (envHasNonEmpty(env, 'XAI_API_KEY')) {
     return { kind: 'xai', source: 'XAI_API_KEY set' }
+  }
+
+  // OLLAMA_API_KEY detection runs before local Ollama probe by design:
+  // a user who sets OLLAMA_API_KEY explicitly intends to use Ollama Cloud.
+  // Local Ollama (port 11434) is auto-probed below and will be found if
+  // the user has OLLAMA_BASE_URL or a running local instance without the key.
+  if (envHasNonEmpty(env, 'OLLAMA_API_KEY')) {
+    return { kind: 'ollama-cloud', source: 'OLLAMA_API_KEY set', baseUrl: 'https://ollama.com/v1' }
   }
 
   return null

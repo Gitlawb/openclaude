@@ -380,6 +380,11 @@ function isLikelyOllamaEndpoint(baseUrl: string): boolean {
       return true
     }
 
+    // Ollama Cloud (ollama.com)
+    if (hostname === 'ollama.com' || hostname.endsWith('.ollama.com')) {
+      return true
+    }
+
     return (
       hostname.includes('ollama') ||
       pathname.includes('ollama')

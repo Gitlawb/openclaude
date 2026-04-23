@@ -20,12 +20,25 @@ from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
+
+
+def _is_ollama_cloud() -> bool:
+    """Return True if the base URL points to ollama.com (Ollama Cloud)."""
+    return "ollama.com" in OLLAMA_BASE_URL
+
+
+def _auth_headers() -> dict[str, str]:
+    """Return Authorization header if OLLAMA_API_KEY is set (required for Cloud)."""
+    if OLLAMA_API_KEY:
+        return {"Authorization": f"Bearer {OLLAMA_API_KEY}"}
+    return {}
 
 
 async def check_ollama_running() -> bool:
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+        async with httpx.AsyncClient(timeout=3.0 if not _is_ollama_cloud() else 10.0) as client:
+            resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags", headers=_auth_headers())
             return resp.status_code == 200
     except Exception:
         return False
@@ -33,8 +46,8 @@ async def check_ollama_running() -> bool:
 
 async def list_ollama_models() -> list[str]:
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+        async with httpx.AsyncClient(timeout=5.0 if not _is_ollama_cloud() else 15.0) as client:
+            resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags", headers=_auth_headers())
             resp.raise_for_status()
             data = resp.json()
             return [m["name"] for m in data.get("models", [])]
@@ -108,7 +121,7 @@ async def ollama_chat(
         "options": {"num_predict": max_tokens, "temperature": temperature},
     }
     async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
+        resp = await client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload, headers=_auth_headers())
         resp.raise_for_status()
         data = resp.json()
     assistant_text = data.get("message", {}).get("content", "")
@@ -150,7 +163,7 @@ async def ollama_chat_stream(
     yield "event: content_block_start\n"
     yield f'data: {json.dumps({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})}\n\n'
     async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream("POST", f"{OLLAMA_BASE_URL}/api/chat", json=payload) as resp:
+        async with client.stream("POST", f"{OLLAMA_BASE_URL}/api/chat", json=payload, headers=_auth_headers()) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
                 if not line:

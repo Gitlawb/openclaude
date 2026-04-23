@@ -16,12 +16,6 @@ import { LoadingState } from '../../components/design-system/LoadingState.js'
 import { useCodexOAuthFlow } from '../../components/useCodexOAuthFlow.js'
 import { useTerminalSize } from '../../hooks/useTerminalSize.js'
 import { Box, Text } from '../../ink.js'
-import { probeRouteReadiness } from '../../integrations/discoveryService.js'
-import {
-  getProviderPresetUiMetadata,
-  getRouteLabel,
-  resolveRouteIdFromBaseUrl,
-} from '../../integrations/index.js'
 import {
   type CodexOAuthTokens,
 } from '../../services/api/codexOAuth.js'
@@ -38,6 +32,7 @@ import {
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
   buildMistralProfileEnv,
+  buildOllamaCloudProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
@@ -45,6 +40,8 @@ import {
   DEFAULT_GEMINI_MODEL,
   DEFAULT_MISTRAL_BASE_URL,
   DEFAULT_MISTRAL_MODEL,
+  DEFAULT_OLLAMA_CLOUD_BASE_URL,
+  DEFAULT_OLLAMA_CLOUD_MODEL,
   deleteProfileFile,
   loadProfileFile,
   maskSecretForDisplay,
@@ -75,6 +72,7 @@ import {
 import {
   getOllamaChatBaseUrl,
   getLocalOpenAICompatibleProviderLabel,
+  probeOllamaGenerationReadiness,
   type OllamaGenerationReadiness,
 } from '../../utils/providerDiscovery.js'
 
@@ -142,6 +140,11 @@ type Step =
   | { name: 'auto-goal' }
   | { name: 'auto-detect'; goal: RecommendationGoal }
   | { name: 'ollama-detect' }
+  | { name: 'ollama-cloud-key' }
+  | {
+      name: 'ollama-cloud-model'
+      apiKey: string
+    }
   | { name: 'openai-key'; defaultModel: string }
   | { name: 'openai-base'; apiKey: string; defaultModel: string }
   | {
@@ -224,34 +227,6 @@ function getSafeDisplayValue(
   )
 }
 
-function getConfiguredOpenAICompatibleProviderLabel(
-  baseUrl: string,
-  options?: {
-    processEnv?: SecretSourceEnv
-    model?: string
-  },
-): string {
-  const routeId = resolveRouteIdFromBaseUrl(baseUrl)
-  if (routeId) {
-    return getRouteLabel(routeId) ?? 'OpenAI-compatible'
-  }
-
-  const request = resolveProviderRequest({
-    model: options?.model,
-    baseUrl,
-  })
-
-  if (request.transport === 'codex_responses') {
-    return 'Codex'
-  }
-
-  if (isLocalProviderUrl(request.baseUrl)) {
-    return getLocalOpenAICompatibleProviderLabel(request.baseUrl)
-  }
-
-  return 'OpenAI-compatible'
-}
-
 export function getProviderWizardDefaults(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): ProviderWizardDefaults {
@@ -266,10 +241,10 @@ export function getProviderWizardDefaults(
     sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource) ||
     DEFAULT_GEMINI_MODEL
   const safeMistralModel =
-    sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL, processEnv) ||
     DEFAULT_MISTRAL_MODEL
   const safeMistralBaseUrl =
-    sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL, processEnv) ||
     DEFAULT_MISTRAL_BASE_URL
 
   return {
@@ -291,9 +266,8 @@ export function buildCurrentProviderSummary(options?: {
   const savedProfileLabel = persisted?.profile ?? 'none'
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
-    const geminiMetadata = getProviderPresetUiMetadata('gemini', processEnv)
     return {
-      providerLabel: geminiMetadata.label,
+      providerLabel: 'Google Gemini',
       modelLabel: getSafeDisplayValue(
         processEnv.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
         secretSource,
@@ -307,9 +281,8 @@ export function buildCurrentProviderSummary(options?: {
   }
 
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
-    const mistralMetadata = getProviderPresetUiMetadata('mistral', processEnv)
     return {
-      providerLabel: mistralMetadata.label,
+      providerLabel: 'Mistral',
       modelLabel: getSafeDisplayValue(
         processEnv.MISTRAL_MODEL ?? DEFAULT_MISTRAL_MODEL,
         processEnv
@@ -345,14 +318,15 @@ export function buildCurrentProviderSummary(options?: {
       baseUrl: processEnv.OPENAI_BASE_URL,
     })
 
+    let providerLabel = 'OpenAI-compatible'
+    if (request.transport === 'codex_responses') {
+      providerLabel = 'Codex'
+    } else if (isLocalProviderUrl(request.baseUrl)) {
+      providerLabel = getLocalOpenAICompatibleProviderLabel(request.baseUrl)
+    }
+
     return {
-      providerLabel: getConfiguredOpenAICompatibleProviderLabel(
-        request.baseUrl,
-        {
-          model: processEnv.OPENAI_MODEL,
-          processEnv: secretSource,
-        },
-      ),
+      providerLabel,
       modelLabel: getSafeDisplayValue(request.requestedModel, secretSource),
       endpointLabel: getSafeDisplayValue(request.baseUrl, secretSource),
       savedProfileLabel,
@@ -381,10 +355,8 @@ function buildSavedProfileSummary(
 ): SavedProfileSummary {
   switch (profile) {
     case 'gemini':
-      {
-        const geminiMetadata = getProviderPresetUiMetadata('gemini')
       return {
-        providerLabel: geminiMetadata.label,
+        providerLabel: 'Google Gemini',
         modelLabel: getSafeDisplayValue(
           env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL,
           process.env,
@@ -404,12 +376,9 @@ function buildSavedProfileSummary(
               ? 'configured'
               : undefined,
       }
-      }
     case 'mistral':
-      {
-        const mistralMetadata = getProviderPresetUiMetadata('mistral')
       return {
-        providerLabel: mistralMetadata.label,
+        providerLabel: 'Mistral',
         modelLabel: getSafeDisplayValue(
           env.MISTRAL_MODEL ?? DEFAULT_MISTRAL_MODEL,
           process.env,
@@ -424,7 +393,6 @@ function buildSavedProfileSummary(
           maskSecretForDisplay(env.MISTRAL_API_KEY) !== undefined
             ? 'configured'
             : undefined,
-      }
       }
     case 'codex':
       return {
@@ -458,14 +426,32 @@ function buildSavedProfileSummary(
           env,
         ),
       }
+    case 'ollama-cloud':
+      return {
+        providerLabel: 'Ollama Cloud',
+        modelLabel: getSafeDisplayValue(
+          env.OPENAI_MODEL ?? DEFAULT_OLLAMA_CLOUD_MODEL,
+          process.env,
+          env,
+        ),
+        endpointLabel: getSafeDisplayValue(
+          env.OPENAI_BASE_URL ?? DEFAULT_OLLAMA_CLOUD_BASE_URL,
+          process.env,
+          env,
+        ),
+        credentialLabel:
+          maskSecretForDisplay(env.OLLAMA_API_KEY) !== undefined
+            ? 'configured'
+            : undefined,
+      }
     case 'openai':
     default: {
       const baseUrl = env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL
 
       return {
-        providerLabel: getConfiguredOpenAICompatibleProviderLabel(baseUrl, {
-          model: env.OPENAI_MODEL,
-        }),
+        providerLabel: isLocalProviderUrl(baseUrl)
+          ? getLocalOpenAICompatibleProviderLabel(baseUrl)
+          : 'OpenAI-compatible',
         modelLabel: getSafeDisplayValue(
           env.OPENAI_MODEL ?? 'gpt-4o',
           process.env,
@@ -666,10 +652,6 @@ function ProviderChooser({
 }): React.ReactNode {
   const summary = buildCurrentProviderSummary()
   const canUseCodexOAuth = !isBareMode()
-  const ollamaMetadata = getProviderPresetUiMetadata('ollama')
-  const openAIMetadata = getProviderPresetUiMetadata('openai')
-  const geminiMetadata = getProviderPresetUiMetadata('gemini')
-  const mistralMetadata = getProviderPresetUiMetadata('mistral')
   const helperText = canUseCodexOAuth
     ? 'Save a provider profile without editing environment variables first. Codex profiles backed by env, auth.json, or OpenClaude secure storage can switch this session immediately when validation succeeds.'
     : 'Save a provider profile without editing environment variables first. Codex profiles backed by env or auth.json can switch this session immediately.'
@@ -681,24 +663,30 @@ function ProviderChooser({
         'Prefer local Ollama when available, otherwise guide you into OpenAI-compatible setup',
     },
     {
-      label: ollamaMetadata.label,
+      label: 'Ollama',
       value: 'ollama',
-      description: ollamaMetadata.description,
+      description: 'Use a local Ollama model with no API key',
     },
     {
-      label: openAIMetadata.name,
+      label: 'Ollama Cloud',
+      value: 'ollama-cloud',
+      description: 'Remote models via ollama.com (requires API key)',
+    },
+    {
+      label: 'OpenAI-compatible',
       value: 'openai',
-      description: 'OpenAI and similar OpenAI-compatible APIs',
+      description:
+        'GPT-4o, DeepSeek, OpenRouter, Groq, LM Studio, and similar APIs',
     },
     {
-      label: geminiMetadata.label,
+      label: 'Gemini',
       value: 'gemini',
-      description: 'Use Gemini with API key, access token, or local ADC',
+      description: 'Use Google Gemini with API key, access token, or local ADC',
     },
     {
-      label: mistralMetadata.label,
+      label: 'Mistral',
       value: 'mistral',
-      description: mistralMetadata.description,
+      description: 'Use Mistral with API key'
     },
     {
       label: 'Codex',
@@ -832,17 +820,7 @@ function AutoRecommendationStep({
     void (async () => {
       const defaultModel = getGoalDefaultOpenAIModel(goal)
       try {
-        const readiness = await probeRouteReadiness('ollama')
-        if (!readiness) {
-          if (!cancelled) {
-            setStatus({
-              state: 'error',
-              message: 'Ollama readiness probe is not configured for this route.',
-            })
-          }
-          return
-        }
-
+        const readiness = await probeOllamaGenerationReadiness()
         if (readiness.state !== 'ready') {
           if (!cancelled) {
             setStatus({
@@ -1005,17 +983,7 @@ function OllamaModelStep({
     let cancelled = false
 
     void (async () => {
-      const readiness = await probeRouteReadiness('ollama')
-      if (!readiness) {
-        if (!cancelled) {
-          setStatus({
-            state: 'unavailable',
-            message: 'Ollama readiness probe is not configured for this route.',
-          })
-        }
-        return
-      }
-
+      const readiness = await probeOllamaGenerationReadiness()
       if (readiness.state !== 'ready') {
         if (!cancelled) {
           setStatus({
@@ -1095,6 +1063,77 @@ function OllamaModelStep({
         />
       </Box>
     </Dialog>
+  )
+}
+
+function OllamaCloudKeyStep({
+  onKeyResolved,
+  onBack,
+  onCancel,
+}: {
+  onKeyResolved: (apiKey: string) => void
+  onBack: () => void
+  onCancel: () => void
+}): React.ReactNode {
+  return (
+    <TextEntryDialog
+      title="Ollama Cloud setup"
+      subtitle="Step 1 of 2"
+      description={
+        process.env.OLLAMA_API_KEY
+          ? 'Enter an Ollama Cloud API key, or leave blank to reuse the current OLLAMA_API_KEY from this session.'
+          : 'Enter your Ollama Cloud API key. Create one at https://ollama.com/settings/keys'
+      }
+      initialValue=""
+      placeholder="..."
+      mask="*"
+      allowEmpty={Boolean(process.env.OLLAMA_API_KEY)}
+      validate={value => {
+        const candidate = value.trim() || process.env.OLLAMA_API_KEY || ''
+        return sanitizeApiKey(candidate)
+          ? null
+          : 'Enter a real API key. Get one at https://ollama.com/settings/keys'
+      }}
+      onSubmit={value => {
+        const apiKey = value.trim() || process.env.OLLAMA_API_KEY || ''
+        onKeyResolved(apiKey)
+      }}
+      onCancel={onBack}
+    />
+  )
+}
+
+function OllamaCloudModelStep({
+  apiKey,
+  onSave,
+  onBack,
+  onCancel,
+}: {
+  apiKey: string
+  onSave: (profile: ProviderProfile, env: ProfileEnv) => void
+  onBack: () => void
+  onCancel: () => void
+}): React.ReactNode {
+  return (
+    <TextEntryDialog
+      title="Ollama Cloud setup"
+      subtitle="Step 2 of 2"
+      description={`Enter a model name. Leave blank for ${DEFAULT_OLLAMA_CLOUD_MODEL}. Cloud models are listed at https://ollama.com/search?c=cloud`}
+      initialValue={DEFAULT_OLLAMA_CLOUD_MODEL}
+      placeholder={DEFAULT_OLLAMA_CLOUD_MODEL}
+      allowEmpty
+      onSubmit={value => {
+        const env = buildOllamaCloudProfileEnv({
+          model: value.trim() || DEFAULT_OLLAMA_CLOUD_MODEL,
+          apiKey,
+          processEnv: process.env,
+        })
+        if (env) {
+          onSave('ollama-cloud', env)
+        }
+      }}
+      onCancel={onBack}
+    />
   )
 }
 
@@ -1310,6 +1349,8 @@ export function ProviderWizard({
               setStep({ name: 'auto-goal' })
             } else if (value === 'ollama') {
               setStep({ name: 'ollama-detect' })
+            } else if (value === 'ollama-cloud') {
+              setStep({ name: 'ollama-cloud-key' })
             } else if (value === 'openai') {
               setStep({
                 name: 'openai-key',
@@ -1367,18 +1408,35 @@ export function ProviderWizard({
         />
       )
 
+    case 'ollama-cloud-key':
+      return (
+        <OllamaCloudKeyStep
+          onKeyResolved={apiKey => setStep({ name: 'ollama-cloud-model', apiKey })}
+          onBack={() => setStep({ name: 'choose' })}
+          onCancel={() => onDone()}
+        />
+      )
+
+    case 'ollama-cloud-model':
+      return (
+        <OllamaCloudModelStep
+          apiKey={step.apiKey}
+          onSave={(profile, env) => finishProfileSave(onDone, profile, env)}
+          onBack={() => setStep({ name: 'ollama-cloud-key' })}
+          onCancel={() => onDone()}
+        />
+      )
+
     case 'openai-key':
-      {
-        const openAIMetadata = getProviderPresetUiMetadata('openai')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title={`${openAIMetadata.name} setup`}
+          title="OpenAI-compatible setup"
           subtitle="Step 1 of 3"
           description={
             process.env.OPENAI_API_KEY
-              ? `Enter an API key, or leave this blank to reuse the current ${openAIMetadata.credentialEnvVars[0] ?? 'OPENAI_API_KEY'} from this session.`
-              : `Enter the API key for ${openAIMetadata.name}.`
+              ? 'Enter an API key, or leave this blank to reuse the current OPENAI_API_KEY from this session.'
+              : 'Enter the API key for your OpenAI-compatible provider.'
           }
           initialValue=""
           placeholder="sk-..."
@@ -1401,17 +1459,14 @@ export function ProviderWizard({
           onCancel={() => setStep({ name: 'choose' })}
         />
       )
-      }
 
     case 'openai-base':
-      {
-        const openAIMetadata = getProviderPresetUiMetadata('openai')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title={`${openAIMetadata.name} setup`}
+          title="OpenAI-compatible setup"
           subtitle="Step 2 of 3"
-          description={`Optionally enter a base URL. Leave blank for ${openAIMetadata.baseUrl || DEFAULT_OPENAI_BASE_URL}.`}
+          description={`Optionally enter a base URL. Leave blank for ${DEFAULT_OPENAI_BASE_URL}.`}
           initialValue={
             defaults.openAIBaseUrl === DEFAULT_OPENAI_BASE_URL
               ? ''
@@ -1435,15 +1490,12 @@ export function ProviderWizard({
           }
         />
       )
-      }
 
     case 'openai-model':
-      {
-        const openAIMetadata = getProviderPresetUiMetadata('openai')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title={`${openAIMetadata.name} setup`}
+          title="OpenAI-compatible setup"
           subtitle="Step 3 of 3"
           description={`Enter a model name. Leave blank for ${step.defaultModel}.`}
           initialValue={defaults.openAIModel ?? step.defaultModel}
@@ -1470,20 +1522,17 @@ export function ProviderWizard({
           }
         />
       )
-      }
 
     case 'mistral-key':
-      {
-        const mistralMetadata = getProviderPresetUiMetadata('mistral')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title={`${mistralMetadata.label} setup`}
+          title="Mistral setup"
           subtitle="Step 1 of 3"
           description={
             process.env.MISTRAL_API_KEY
-              ? `Enter an API key, or leave this blank to reuse the current ${mistralMetadata.credentialEnvVars[0] ?? 'MISTRAL_API_KEY'} from this session.`
-              : `Enter the API key for ${mistralMetadata.label}.`
+              ? 'Enter an API key, or leave this blank to reuse the current MISTRAL_API_KEY from this session.'
+              : 'Enter the API key for your Mistral provider.'
           }
           initialValue=""
           placeholder="..."
@@ -1506,17 +1555,14 @@ export function ProviderWizard({
           onCancel={() => setStep({ name: 'choose' })}
         />
       )
-      }
 
     case 'mistral-base':
-      {
-        const mistralMetadata = getProviderPresetUiMetadata('mistral')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title={`${mistralMetadata.label} setup`}
+          title="Mistral setup"
           subtitle="Step 2 of 3"
-          description={`Optionally enter a base URL. Leave blank for ${mistralMetadata.baseUrl || DEFAULT_MISTRAL_BASE_URL}.`}
+          description={`Optionally enter a base URL. Leave blank for ${DEFAULT_MISTRAL_BASE_URL}.`}
           initialValue={
             defaults.mistralBaseUrl === DEFAULT_MISTRAL_BASE_URL
               ? ''
@@ -1540,15 +1586,12 @@ export function ProviderWizard({
           }
         />
       )
-      }
 
     case 'mistral-model':
-      {
-        const mistralMetadata = getProviderPresetUiMetadata('mistral')
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title={`${mistralMetadata.label} setup`}
+          title="Mistral setup"
           subtitle="Step 3 of 3"
           description={`Enter a model name. Leave blank for ${step.defaultModel}.`}
           initialValue={defaults.mistralModel ?? step.defaultModel}
@@ -1574,7 +1617,6 @@ export function ProviderWizard({
           }
         />
       )
-      }
 
     case 'gemini-auth-method': {
       const hasShellGeminiKey = Boolean(

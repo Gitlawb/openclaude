@@ -59,6 +59,8 @@ class Provider:
         """True if the provider has an API key set."""
         if self.name in ("ollama", "atomic-chat"):
             return True  # Local providers need no API key
+        if self.name == "ollama-cloud":
+            return bool(self.api_key)  # Ollama Cloud requires OLLAMA_API_KEY
         return bool(self.api_key)
 
     @property
@@ -127,6 +129,14 @@ def build_default_providers() -> list[Provider]:
             cost_per_1k_tokens=0.0,   # free — local
             big_model=big if "gemini" not in big and "gpt" not in big else "llama3:8b",
             small_model=small if "gemini" not in small and "gpt" not in small else "llama3:8b",
+        ),
+        Provider(
+            name="ollama-cloud",
+            ping_url="https://ollama.com/api/tags",
+            api_key_env="OLLAMA_API_KEY",
+            cost_per_1k_tokens=0.0,   # pricing TBD — cloud offload
+            big_model=big if "gpt-oss" not in big and "gpt" not in big else "gpt-oss:120b",
+            small_model=small if "gpt-oss" not in small and "gpt" not in small else "gpt-oss:120b",
         ),
         Provider(
             name="atomic-chat",
