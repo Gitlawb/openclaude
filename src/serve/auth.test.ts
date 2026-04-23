@@ -28,6 +28,13 @@ describe("ensureServerToken", () => {
     const mode = statSync(join(home, ".openclaude", "server-token")).mode & 0o777;
     expect(mode).toBe(0o600);
   });
+
+  it("throws when existing token file is malformed", () => {
+    const { writeFileSync, mkdirSync } = require("node:fs");
+    mkdirSync(join(home, ".openclaude"), { recursive: true });
+    writeFileSync(join(home, ".openclaude", "server-token"), "not-hex!");
+    expect(() => ensureServerToken(home)).toThrow(/malformed/i);
+  });
 });
 
 describe("verifyBearer", () => {
@@ -43,7 +50,7 @@ describe("verifyBearer", () => {
   it("rejects mismatch", () => {
     expect(verifyBearer("Bearer abc124", "abc123")).toBe(false);
   });
-  it("rejects unequal length without leaking timing", () => {
+  it("accepts equal-length strings and rejects unequal-length strings", () => {
     expect(verifyBearer("Bearer x", "xy")).toBe(false);
     expect(verifyBearer("Bearer xy", "xy")).toBe(true);
   });
