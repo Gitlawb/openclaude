@@ -43,6 +43,11 @@ describe("HTTP app", () => {
     expect(r.status).toBe(404);
   });
 
+  it("returns 404 for malformed URI in path param (no uncaught throw)", async () => {
+    const r = await call("/echo/%GG", { authorization: `Bearer ${token}` });
+    expect(r.status).toBe(404);
+  });
+
   it("CORS: Obsidian origin allowed", async () => {
     const r = await call("/ping", {
       authorization: `Bearer ${token}`,

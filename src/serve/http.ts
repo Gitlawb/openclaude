@@ -35,8 +35,15 @@ function matchRoute(routes: Route[], method: string, pathname: string): Matched 
     const params: Record<string, string> = {};
     let ok = true;
     for (let i = 0; i < rp.length; i++) {
-      if (rp[i]!.startsWith(":")) params[rp[i]!.slice(1)] = decodeURIComponent(ap[i]!);
-      else if (rp[i] !== ap[i]) { ok = false; break; }
+      if (rp[i]!.startsWith(":")) {
+        try {
+          params[rp[i]!.slice(1)] = decodeURIComponent(ap[i]!);
+        } catch {
+          // malformed URI component → this route can't match; try next
+          ok = false;
+          break;
+        }
+      } else if (rp[i] !== ap[i]) { ok = false; break; }
     }
     if (ok) return { route, params };
   }
@@ -55,6 +62,17 @@ export async function createHttpApp(opts: HttpAppOpts): Promise<{ server: Server
   const allowedOrigin = opts.allowedOrigin ?? "app://obsidian.md";
   const hits = new Map<string, { count: number; resetAt: number }>();
   const rl = opts.rateLimit;
+
+  // Periodically evict expired rate-limit entries so the map doesn't grow unbounded.
+  // unref() so the interval never blocks process exit.
+  const cleanupTimer = rl
+    ? setInterval(() => {
+        const now = Date.now();
+        for (const [k, v] of hits) {
+          if (v.resetAt < now) hits.delete(k);
+        }
+      }, rl.windowMs).unref()
+    : undefined;
 
   const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
@@ -129,5 +147,12 @@ export async function createHttpApp(opts: HttpAppOpts): Promise<{ server: Server
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const addr = server.address();
   if (!addr || typeof addr === "string") throw new Error("bind failed");
+  if (cleanupTimer) {
+    const originalClose = server.close.bind(server);
+    server.close = ((cb?: (err?: Error) => void) => {
+      clearInterval(cleanupTimer);
+      return originalClose(cb);
+    }) as typeof server.close;
+  }
   return { server, port: addr.port };
 }
