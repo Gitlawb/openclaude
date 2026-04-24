@@ -38,7 +38,7 @@ const DEFAULT_ZONES: ZoneConfig[] = [
   { name: 'system', maxTokens: 8000, retentionPolicy: 'keep_all', priority: 1 },
 ]
 
-function classifyMessage(message: Message): PriorityZone {
+function classifyMessage(message: Message, isRecent?: boolean): PriorityZone {
   const content = typeof message.message?.content === 'string'
     ? message.message.content
     : ''
@@ -53,6 +53,10 @@ function classifyMessage(message: Message): PriorityZone {
 
   if (content.length > 2000 || content.includes('tool_use')) {
     return 'important'
+  }
+
+  if (isRecent) {
+    return 'recent'
   }
 
   return 'background'
@@ -76,7 +80,7 @@ export function partitionContext(
   const olderMessages = messages.slice(0, -recentCount)
 
   for (const msg of recentMessages) {
-    const zone = classifyMessage(msg)
+    const zone = classifyMessage(msg, true)
     zones.get(zone)!.push(msg)
     zoneTokens.set(zone, zoneTokens.get(zone)! + roughTokenCountEstimation(
       typeof msg.message?.content === 'string' ? msg.message.content : ''
@@ -84,10 +88,15 @@ export function partitionContext(
   }
 
   for (const msg of olderMessages) {
-    const zone = classifyMessage(msg)
+    const zone = classifyMessage(msg, false)
     const currentZone = zones.get(zone)!
 
-    if (zone === 'important' && zoneTokens.get('important')! < 30000) {
+    if (zone === 'system') {
+      currentZone.push(msg)
+      zoneTokens.set('system', zoneTokens.get('system')! + roughTokenCountEstimation(
+        typeof msg.message?.content === 'string' ? msg.message.content : ''
+      ))
+    } else if (zone === 'important' && zoneTokens.get('important')! < 30000) {
       currentZone.push(msg)
       zoneTokens.set('important', zoneTokens.get('important')! + roughTokenCountEstimation(
         typeof msg.message?.content === 'string' ? msg.message.content : ''
@@ -122,7 +131,6 @@ export function getAllMessages(context: PartitionedContext): Message[] {
   return messages.sort((a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0))
 }
 
-export function getAvailableSpace(context: PartitionedContext): number {
-  const reserved = (context.zoneTokens.get('important') ?? 0) + (context.zoneTokens.get('system') ?? 0)
-  return Math.max(0, reserved - context.totalTokens)
+export function getAvailableSpace(context: PartitionedContext, contextWindow: number): number {
+  return Math.max(0, contextWindow - context.totalTokens)
 }

@@ -51,19 +51,33 @@ function calculateKeywordOverlap(text1: string, text2: string): number {
 }
 
 export function hasToolCalls(message: Message): boolean {
-  const content = typeof message.message?.content === 'string'
-    ? message.message.content
-    : ''
-
-  return content.includes('tool_use') || content.includes('function_call')
+  const content = message.message?.content
+  if (Array.isArray(content)) {
+    return content.some(
+      block => typeof block === 'object' && 
+      ('type' in block) && 
+      (block.type === 'tool_use' || block.type === 'tool_use_block' || block.type === 'function_call')
+    )
+  }
+  
+  const textContent = typeof content === 'string' ? content : ''
+  return textContent.includes('tool_use') || textContent.includes('function_call')
 }
 
 export function hasErrors(message: Message): boolean {
-  const content = typeof message.message?.content === 'string'
-    ? message.message.content
-    : ''
-
-  return content.includes('error') || content.includes('fail') || content.includes('exception')
+  const content = message.message?.content
+  if (Array.isArray(content)) {
+    return content.some(
+      block => typeof block === 'object' && 
+      'type' in block && 
+      block.type === 'tool_result' &&
+      'is_error' in block &&
+      block.is_error === true
+    )
+  }
+  
+  const textContent = typeof content === 'string' ? content : ''
+  return textContent.includes('error') || textContent.includes('fail') || textContent.includes('exception')
 }
 
 export function calculateRelevance(

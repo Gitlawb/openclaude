@@ -78,7 +78,7 @@ describe('contextPartitioning', () => {
       ]
 
       const context = partitionContext(messages, { contextWindow: 100000 })
-      const available = getAvailableSpace(context)
+      const available = getAvailableSpace(context, 100000)
 
       expect(available).toBeGreaterThanOrEqual(0)
     })
