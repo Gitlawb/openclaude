@@ -38,6 +38,8 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'github:copilot:gpt-5.2':                  400_000,
   'github:copilot:gpt-5.2-codex':            400_000,
   'github:copilot:gpt-5.3-codex':            400_000,
+  'github:copilot:gpt-5.5':                  400_000,
+  'github:copilot:gpt-5.5-mini':             400_000,
   'github:copilot:gpt-5.4':                  400_000,
   'github:copilot:gpt-5.4-mini':             400_000,
   // Gemini
@@ -60,6 +62,8 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'github_copilot/gpt-4.1':                  128_000,
   'github_copilot/gpt-4o':                   128_000,
   'github_copilot/gpt-5-mini':               264_000,
+  'github_copilot/gpt-5.5':                  400_000,
+  'github_copilot/gpt-5.5-mini':             400_000,
   'github_copilot/gpt-5.4':                  400_000,
   'github_copilot/gpt-5.4-mini':             400_000,
   'github_copilot/gemini-2.5-pro':           128_000,
@@ -71,6 +75,9 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   // limits for the same model name, so we cannot safely hardcode values here.
 
   // OpenAI
+  'gpt-5.5':               1_050_000,
+  'gpt-5.5-mini':            400_000,
+  'gpt-5.5-nano':            400_000,
   'gpt-5.4':               1_050_000,
   'gpt-5.4-mini':            400_000,
   'gpt-5.4-nano':            400_000,
@@ -288,6 +295,9 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   // NOTE: bare Claude model names omitted — see context windows comment above.
 
   // OpenAI
+  'gpt-5.5':                 128_000,
+  'gpt-5.5-mini':            128_000,
+  'gpt-5.5-nano':            128_000,
   'gpt-5.4':                 128_000,
   'gpt-5.4-mini':            128_000,
   'gpt-5.4-nano':            128_000,
@@ -413,16 +423,51 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'moonshot-v1-128k':          32_768,
 }
 
-function lookupByModel<T>(table: Record<string, T>, model: string): T | undefined {
+// External context-window overrides loaded once at startup.
+// Set CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS to a JSON object mapping model name
+// → context-window token count to add or override entries without editing
+// this file.  Example:
+//   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS='{"my-corp/llm-v2":200000}'
+const OPENAI_EXTERNAL_CONTEXT_WINDOWS: Record<string, number> = (() => {
+  try {
+    const raw = process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, number>
+    }
+  } catch { /* ignore malformed JSON */ }
+  return {}
+})()
+
+// External max-output-token overrides.
+// Set CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS to a JSON object mapping model name
+// → max output token count.
+const OPENAI_EXTERNAL_MAX_OUTPUT_TOKENS: Record<string, number> = (() => {
+  try {
+    const raw = process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, number>
+    }
+  } catch { /* ignore malformed JSON */ }
+  return {}
+})()
+
+function lookupByModel<T>(table: Record<string, T>, externalTable: Record<string, T>, model: string): T | undefined {
   // Try provider-qualified key first: "{OPENAI_MODEL}:{model}" so that
   // e.g. "github:copilot:claude-haiku-4.5" can have different limits than
   // a bare "claude-haiku-4.5" served by another provider.
   const providerModel = process.env.OPENAI_MODEL?.trim()
   if (providerModel && providerModel !== model) {
     const qualified = `${providerModel}:${model}`
+    // External table takes precedence over the built-in table.
+    const externalQualified = lookupByKey(externalTable, qualified)
+    if (externalQualified !== undefined) return externalQualified
     const qualifiedResult = lookupByKey(table, qualified)
     if (qualifiedResult !== undefined) return qualifiedResult
   }
+  const externalResult = lookupByKey(externalTable, model)
+  if (externalResult !== undefined) return externalResult
   return lookupByKey(table, model)
 }
 
@@ -446,7 +491,7 @@ function lookupByKey<T>(table: Record<string, T>, model: string): T | undefined 
  * "gpt-4o-2024-11-20" resolve to the base "gpt-4o" entry.
  */
 export function getOpenAIContextWindow(model: string): number | undefined {
-  return lookupByModel(OPENAI_CONTEXT_WINDOWS, model)
+  return lookupByModel(OPENAI_CONTEXT_WINDOWS, OPENAI_EXTERNAL_CONTEXT_WINDOWS, model)
 }
 
 /**
@@ -454,5 +499,5 @@ export function getOpenAIContextWindow(model: string): number | undefined {
  * Returns undefined if the model is not in the table.
  */
 export function getOpenAIMaxOutputTokens(model: string): number | undefined {
-  return lookupByModel(OPENAI_MAX_OUTPUT_TOKENS, model)
+  return lookupByModel(OPENAI_MAX_OUTPUT_TOKENS, OPENAI_EXTERNAL_MAX_OUTPUT_TOKENS, model)
 }

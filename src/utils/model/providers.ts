@@ -19,7 +19,12 @@ export function getAPIProvider(): APIProvider {
   if (isEnvTruthy(process.env.NVIDIA_NIM)) {
     return 'nvidia-nim'
   }
-  if (isEnvTruthy(process.env.MINIMAX_API_KEY)) {
+  // MiniMax is signalled by a real API key, not a '1'/'true' flag. Using
+  // isEnvTruthy() here silently treated every MiniMax user as 'firstParty'
+  // (or 'openai' once they set CLAUDE_CODE_USE_OPENAI via the profile),
+  // making every provider-kind-specific branch for 'minimax' elsewhere in
+  // the codebase unreachable. Presence check is the correct signal.
+  if (typeof process.env.MINIMAX_API_KEY === 'string' && process.env.MINIMAX_API_KEY.trim() !== '') {
     return 'minimax'
   }
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)

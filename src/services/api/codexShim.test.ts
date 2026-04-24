@@ -8,6 +8,7 @@ import {
   convertCodexResponseToAnthropicMessage,
   convertToolsToResponsesTools,
 } from './codexShim.js'
+import { __test as webSearchToolTest } from '../../tools/WebSearchTool/WebSearchTool.js'
 
 const tempDirs: string[] = []
 const originalEnv = {
@@ -87,7 +88,7 @@ describe('Codex provider config', () => {
 
     const resolved = resolveProviderRequest({ model: 'codexplan' })
     expect(resolved.transport).toBe('codex_responses')
-    expect(resolved.resolvedModel).toBe('gpt-5.4')
+    expect(resolved.resolvedModel).toBe('gpt-5.5')
     expect(resolved.reasoning).toEqual({ effort: 'high' })
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
@@ -113,7 +114,7 @@ describe('Codex provider config', () => {
 
     expect(resolved.transport).toBe('chat_completions')
     expect(resolved.baseUrl).toBe('http://127.0.0.1:8080/v1')
-    expect(resolved.resolvedModel).toBe('gpt-5.4')
+    expect(resolved.resolvedModel).toBe('gpt-5.5')
   })
 
   test('resolves codexplan to Codex transport even when OPENAI_BASE_URL is the string "undefined"', async () => {
@@ -160,7 +161,7 @@ describe('Codex provider config', () => {
     const resolved = resolveProviderRequest()
     expect(resolved.transport).toBe('codex_responses')
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
-    expect(resolved.resolvedModel).toBe('gpt-5.4')
+    expect(resolved.resolvedModel).toBe('gpt-5.5')
   })
 
   test('does not override custom base URL for codexplan (e.g., local provider)', async () => {
@@ -605,6 +606,164 @@ describe('Codex request translation', () => {
       {
         type: 'text',
         text: 'Here is the answer.',
+      },
+    ])
+  })
+
+  test('recovers Codex web search text and sources from sparse completed response', () => {
+    const output = webSearchToolTest.makeOutputFromCodexWebSearchResponse(
+      {
+        output: [
+          {
+            type: 'web_search_call',
+            sources: [
+              {
+                title: 'OpenClaude repo',
+                url: 'https://github.com/example/openclaude',
+              },
+            ],
+          },
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [
+              {
+                type: 'text',
+                text: 'OpenClaude is available on GitHub.',
+                sources: [
+                  {
+                    title: 'Docs',
+                    url: 'https://docs.example.com/openclaude',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      'OpenClaude GitHub 2026',
+      0.42,
+    )
+
+    expect(output.results).toEqual([
+      'OpenClaude is available on GitHub.',
+      {
+        tool_use_id: 'codex-web-search',
+        content: [
+          {
+            title: 'OpenClaude repo',
+            url: 'https://github.com/example/openclaude',
+          },
+          {
+            title: 'Docs',
+            url: 'https://docs.example.com/openclaude',
+          },
+        ],
+      },
+    ])
+  })
+
+  test('falls back to a non-empty Codex web search result message', () => {
+    const output = webSearchToolTest.makeOutputFromCodexWebSearchResponse(
+      { output: [] },
+      'OpenClaude GitHub 2026',
+      0.11,
+    )
+
+    expect(output.results).toEqual(['No results found.'])
+  })
+
+  test('surfaces Codex web search failure reason with a message', () => {
+    const output = webSearchToolTest.makeOutputFromCodexWebSearchResponse(
+      {
+        output: [
+          {
+            type: 'web_search_call',
+            status: 'failed',
+            error: { message: 'upstream search provider rate-limited' },
+          },
+        ],
+      },
+      'OpenClaude GitHub 2026',
+      0.05,
+    )
+
+    expect(output.results).toEqual([
+      'Web search failed: upstream search provider rate-limited',
+    ])
+  })
+
+  test('surfaces Codex web search failure reason nested under action.error', () => {
+    const output = webSearchToolTest.makeOutputFromCodexWebSearchResponse(
+      {
+        output: [
+          {
+            type: 'web_search_call',
+            status: 'failed',
+            action: { error: { message: 'query blocked' } },
+          },
+        ],
+      },
+      'OpenClaude GitHub 2026',
+      0.05,
+    )
+
+    expect(output.results).toEqual(['Web search failed: query blocked'])
+  })
+
+  test('handles Codex web search failure with no reason attached', () => {
+    const output = webSearchToolTest.makeOutputFromCodexWebSearchResponse(
+      {
+        output: [
+          {
+            type: 'web_search_call',
+            status: 'failed',
+          },
+        ],
+      },
+      'OpenClaude GitHub 2026',
+      0.05,
+    )
+
+    expect(output.results).toEqual(['Web search failed.'])
+  })
+
+  test('a failure item does not suppress sources from a later message item', () => {
+    const output = webSearchToolTest.makeOutputFromCodexWebSearchResponse(
+      {
+        output: [
+          {
+            type: 'web_search_call',
+            status: 'failed',
+            error: { message: 'partial outage' },
+          },
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [
+              {
+                type: 'output_text',
+                text: 'Partial results below.',
+                sources: [
+                  { title: 'Docs', url: 'https://docs.example.com/openclaude' },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      'OpenClaude GitHub 2026',
+      0.05,
+    )
+
+    expect(output.results).toEqual([
+      'Web search failed: partial outage',
+      'Partial results below.',
+      {
+        tool_use_id: 'codex-web-search',
+        content: [
+          { title: 'Docs', url: 'https://docs.example.com/openclaude' },
+        ],
       },
     ])
   })

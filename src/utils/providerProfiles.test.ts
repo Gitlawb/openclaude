@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 import type { ProviderProfile } from './config.js'
@@ -7,6 +11,7 @@ async function importFreshProvidersModule() {
 }
 
 const originalEnv = { ...process.env }
+const originalCwd = process.cwd()
 
 const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
@@ -75,6 +80,7 @@ afterEach(() => {
 
   mock.restore()
   mockConfigState = createMockConfigState()
+  process.chdir(originalCwd)
 })
 
 async function importFreshProviderProfileModules() {
@@ -612,6 +618,45 @@ describe('setActiveProviderProfile', () => {
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
       'openai_prof',
     )
+  })
+
+  test('persists no-key openai-compatible profiles for restart fallback', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    process.chdir(tempDir)
+    process.env.OPENAI_API_KEY = 'sk-shell-should-not-persist'
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const ollamaProfile = buildProfile({
+        id: 'ollama_prof',
+        name: 'Ollama',
+        provider: 'openai',
+        baseUrl: 'http://localhost:11434/v1',
+        model: 'llama3.1:8b, qwen2.5:7b',
+        apiKey: '',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [ollamaProfile],
+      }))
+
+      const result = setActiveProviderProfile('ollama_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('ollama_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'http://localhost:11434/v1',
+        OPENAI_MODEL: 'llama3.1:8b',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
   })
 
   test('sets ANTHROPIC_MODEL env var when switching to an anthropic-type provider', async () => {
