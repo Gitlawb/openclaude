@@ -606,6 +606,9 @@ export type GlobalConfig = {
   // CURRENT_MIGRATION_VERSION, runMigrations() skips all sync migrations
   // (avoiding 11× saveGlobalConfig lock+re-read on every startup).
   migrationVersion?: number
+
+  // Knowledge Graph configuration
+  knowledgeGraphEnabled: boolean
 }
 
 /**
@@ -653,6 +656,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     copyFullResponse: false,
     providerProfiles: [],
     openaiAdditionalModelOptionsCacheByProfile: {},
+    knowledgeGraphEnabled: true,
   }
 }
 
@@ -699,6 +703,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'prStatusFooterEnabled',
   'remoteControlAtStartup',
   'remoteDialogSeen',
+  'knowledgeGraphEnabled',
 ] as const
 
 export type GlobalConfigKey = (typeof GLOBAL_CONFIG_KEYS)[number]

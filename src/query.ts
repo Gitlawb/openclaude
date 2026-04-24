@@ -253,7 +253,10 @@ async function* queryLoop(
   Terminal
 > {
   // Start a new turn for multi-turn context tracking
-  if (feature('MULTI_TURN_CONTEXT')) {
+  if (
+    feature('MULTI_TURN_CONTEXT') &&
+    getGlobalConfig().knowledgeGraphEnabled
+  ) {
     const { startNewTurn } = await import('./utils/multiTurnContext.js')
     startNewTurn()
   }
