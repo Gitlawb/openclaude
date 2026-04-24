@@ -35,6 +35,7 @@ export type ProviderPreset =
   | 'custom'
   | 'nvidia-nim'
   | 'minimax'
+  | 'bankr'
   | 'atomic-chat'
 
 export type ProviderProfileInput = {
@@ -297,6 +298,15 @@ export function getProviderPresetDefaults(
         apiKey: '',
         requiresApiKey: false,
       }
+    case 'bankr':
+      return {
+        provider: 'openai',
+        name: 'Bankr',
+        baseUrl: 'https://llm.bankr.bot/v1',
+        model: process.env.BANKR_MODEL ?? 'claude-opus-4.6',
+        apiKey: process.env.BNKR_API_KEY ?? '',
+        requiresApiKey: true,
+      }
     case 'ollama':
     default:
       return {
@@ -481,7 +491,11 @@ function isProcessEnvAlignedWithProfile(
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
     sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
     (!includeApiKey ||
-      sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey))
+      sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
+    (profile.baseUrl?.toLowerCase().includes('bankr')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.BNKR_API_KEY, profile.apiKey)
+      : true)
   )
 }
 
@@ -534,6 +548,9 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.MINIMAX_API_KEY
   delete processEnv.NVIDIA_API_KEY
   delete processEnv.NVIDIA_NIM
+  delete processEnv.BANKR_BASE_URL
+  delete processEnv.BNKR_API_KEY
+  delete processEnv.BANKR_MODEL
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -605,6 +622,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     }
     if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
       process.env.NVIDIA_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('bankr')) {
+      process.env.BNKR_API_KEY = profile.apiKey
     }
   } else {
     delete process.env.OPENAI_API_KEY
@@ -860,6 +880,9 @@ function buildOpenAICompatibleStartupEnv(
   }
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey
+    if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
+      env.BNKR_API_KEY = activeProfile.apiKey
+    }
   } else {
     delete env.OPENAI_API_KEY
   }

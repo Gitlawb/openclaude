@@ -110,6 +110,7 @@ const PRESET_ORDER = [
   'Anthropic',
   'Atomic Chat',
   'Azure OpenAI',
+  'Bankr',
   'Codex OAuth',
   'DeepSeek',
   'Google Gemini',

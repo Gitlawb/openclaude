@@ -197,6 +197,10 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (host.includes('minimax') || haystack.includes('minimax')) {
       return 'MiniMax'
     }
+    // Check for Bankr LLM gateway
+    if (host.includes('bankr') || haystack.includes('bankr')) {
+      return 'Bankr'
+    }
     // Moonshot AI (Kimi) direct API
     if (host.includes('moonshot') || haystack.includes('moonshot') || haystack.includes('kimi')) {
       return 'Moonshot (Kimi)'

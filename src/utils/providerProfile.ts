@@ -70,6 +70,9 @@ const PROFILE_ENV_KEYS = [
   'MISTRAL_BASE_URL',
   'MISTRAL_API_KEY',
   'MISTRAL_MODEL',
+  'BANKR_BASE_URL',
+  'BNKR_API_KEY',
+  'BANKR_MODEL',
 ] as const
 
 const SECRET_ENV_KEYS = [
@@ -80,6 +83,7 @@ const SECRET_ENV_KEYS = [
   'NVIDIA_API_KEY',
   'MINIMAX_API_KEY',
   'MISTRAL_API_KEY',
+  'BNKR_API_KEY',
 ] as const
 
 export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral'
@@ -105,6 +109,9 @@ export type ProfileEnv = {
   MISTRAL_BASE_URL?: string
   MISTRAL_API_KEY?: string
   MISTRAL_MODEL?: string
+  BANKR_BASE_URL?: string
+  BNKR_API_KEY?: string
+  BANKR_MODEL?: string
 }
 
 export type ProfileFile = {
@@ -121,7 +128,8 @@ type SecretValueSource = Partial<
     | 'GOOGLE_API_KEY'
     | 'NVIDIA_API_KEY'
     | 'MINIMAX_API_KEY'
-    | 'MISTRAL_API_KEY',
+    | 'MISTRAL_API_KEY'
+    | 'BNKR_API_KEY',
     string | undefined
   >
 >
@@ -390,6 +398,42 @@ export function buildMistralProfileEnv(options: {
     )
   if (baseUrl) {
     env.MISTRAL_BASE_URL = baseUrl
+  }
+
+  return env
+}
+
+export function buildBankrProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.BNKR_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const env: ProfileEnv = {
+    BNKR_API_KEY: key,
+    BANKR_MODEL:
+      sanitizeProviderConfigValue(options.model, { BNKR_API_KEY: key }) ||
+      sanitizeProviderConfigValue(
+        processEnv.BANKR_MODEL,
+        { BNKR_API_KEY: key },
+      ) ||
+      'claude-opus-4.6',
+  }
+
+  const baseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, { BNKR_API_KEY: key }) ||
+    sanitizeProviderConfigValue(
+      processEnv.BANKR_BASE_URL,
+      { BNKR_API_KEY: key },
+    )
+  if (baseUrl) {
+    env.BANKR_BASE_URL = baseUrl
   }
 
   return env
