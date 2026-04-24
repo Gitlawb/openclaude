@@ -13,7 +13,7 @@ export function UnsupportedUsage({
   return (
     <Box flexDirection="column" gap={1}>
       <Text dimColor>
-        /usage is not currently available for {providerLabel}.
+        Usage details are not currently available for {providerLabel}.
       </Text>
       <Text dimColor>
         <ConfigurableShortcutHint

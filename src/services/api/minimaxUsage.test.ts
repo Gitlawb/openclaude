@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'bun:test'
+import { resolve } from 'node:path'
 
 import {
   buildMiniMaxUsageRows,
   getMiniMaxUsageUrls,
   normalizeMiniMaxUsagePayload,
 } from './minimaxUsage.js'
+
+const fixture = (name: string) =>
+  Bun.file(resolve(import.meta.dir, '__fixtures__', name))
 
 describe('normalizeMiniMaxUsagePayload', () => {
   test('normalizes interval and weekly quota payloads', () => {
@@ -73,41 +77,47 @@ describe('normalizeMiniMaxUsagePayload', () => {
     })
   })
 
-  test('normalizes MiniMax model_remains subscription payloads', () => {
-    const usage = normalizeMiniMaxUsagePayload({
-      model_remains: [
-        {
-          start_time: 1771588800000,
-          end_time: 1771603200000,
-          remains_time: 5925660,
-          current_interval_total_count: 1500,
-          current_interval_usage_count: 1437,
-          model_name: 'MiniMax-M2.7',
-        },
-      ],
-      base_resp: {
-        status_code: 0,
-        status_msg: 'success',
-      },
-    })
+  test('normalizes MiniMax model_remains payloads from a captured fixture', async () => {
+    const payload = await fixture('minimax-model-remains.json').json()
+    const originalDateNow = Date.now
+    Date.now = () => Date.parse('2026-02-20T15:00:00.000Z')
 
-    expect(usage).toMatchObject({
-      availability: 'available',
-      snapshots: [
-        {
-          limitName: 'MiniMax-M2.7',
-          windows: [
-            {
-              label: '5h limit',
-              usedPercent: 96,
-              remaining: 63,
-              total: 1500,
-              resetsAt: '2026-02-20T16:00:00.000Z',
-            },
-          ],
-        },
-      ],
-    })
+    try {
+      const usage = normalizeMiniMaxUsagePayload(payload)
+
+      expect(usage).toMatchObject({
+        availability: 'available',
+        planType: 'Plus Highspeed',
+        snapshots: [
+          {
+            limitName: 'MiniMax-M2.7',
+            windows: [
+              {
+                label: '5h limit',
+                usedPercent: 96,
+                remaining: 63,
+                total: 1500,
+                resetsAt: '2026-02-20T16:00:00.000Z',
+              },
+            ],
+          },
+          {
+            limitName: 'MiniMax-M2.7-highspeed',
+            windows: [
+              {
+                label: '5h limit',
+                usedPercent: 50,
+                remaining: 1000,
+                total: 2000,
+                resetsAt: '2026-02-20T16:00:00.000Z',
+              },
+            ],
+          },
+        ],
+      })
+    } finally {
+      Date.now = originalDateNow
+    }
   })
 
   test('treats current_interval_usage_count as used count for MiniMax subscription payloads', () => {
@@ -246,12 +256,70 @@ describe('buildMiniMaxUsageRows', () => {
 })
 
 describe('MiniMax usage helpers', () => {
-  test('returns both documented and fallback usage endpoints', () => {
-    expect(getMiniMaxUsageUrls('https://api.minimax.io/v1')).toEqual([
-      'https://www.minimax.io/v1/token_plan/remains',
-      'https://api.minimax.io/v1/token_plan/remains',
-      'https://www.minimax.io/v1/api/openplatform/coding_plan/remains',
-      'https://api.minimax.io/v1/api/openplatform/coding_plan/remains',
+  test('keeps usage endpoints on the configured provider host and path', () => {
+    expect(
+      getMiniMaxUsageUrls('https://proxy.example/providers/minimax/v1'),
+    ).toEqual([
+      'https://proxy.example/providers/minimax/v1/token_plan/remains',
+      'https://proxy.example/providers/minimax/v1/api/openplatform/coding_plan/remains',
     ])
+  })
+
+  test('falls back to OPENAI_API_BASE when OPENAI_BASE_URL is unset', () => {
+    const originalBaseUrl = process.env.OPENAI_BASE_URL
+    const originalApiBase = process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_BASE_URL
+    process.env.OPENAI_API_BASE = 'https://gateway.example/openai/v1'
+
+    try {
+      expect(getMiniMaxUsageUrls()).toEqual([
+        'https://gateway.example/openai/v1/token_plan/remains',
+        'https://gateway.example/openai/v1/api/openplatform/coding_plan/remains',
+      ])
+    } finally {
+      if (originalBaseUrl === undefined) {
+        delete process.env.OPENAI_BASE_URL
+      } else {
+        process.env.OPENAI_BASE_URL = originalBaseUrl
+      }
+
+      if (originalApiBase === undefined) {
+        delete process.env.OPENAI_API_BASE
+      } else {
+        process.env.OPENAI_API_BASE = originalApiBase
+      }
+    }
+  })
+
+  test('throws when an explicitly configured MiniMax base url is invalid', () => {
+    expect(() => getMiniMaxUsageUrls('not a url')).toThrow(
+      'MiniMax usage base URL is invalid: not a url',
+    )
+  })
+
+  test('uses the default MiniMax base url when no provider base is configured', () => {
+    const originalBaseUrl = process.env.OPENAI_BASE_URL
+    const originalApiBase = process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+
+    try {
+      expect(getMiniMaxUsageUrls()).toEqual([
+        'https://api.minimax.io/v1/token_plan/remains',
+        'https://api.minimax.io/v1/api/openplatform/coding_plan/remains',
+      ])
+    } finally {
+      if (originalBaseUrl === undefined) {
+        delete process.env.OPENAI_BASE_URL
+      } else {
+        process.env.OPENAI_BASE_URL = originalBaseUrl
+      }
+
+      if (originalApiBase === undefined) {
+        delete process.env.OPENAI_API_BASE
+      } else {
+        process.env.OPENAI_API_BASE = originalApiBase
+      }
+    }
   })
 })
