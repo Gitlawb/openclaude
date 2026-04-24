@@ -35,6 +35,21 @@ describe('parseModelList', () => {
     ])
   })
 
+  test('splits semicolon-separated models', () => {
+    expect(parseModelList('glm-4.7; glm-4.7-flash')).toEqual([
+      'glm-4.7',
+      'glm-4.7-flash',
+    ])
+  })
+
+  test('splits mixed comma- and semicolon-separated models', () => {
+    expect(parseModelList('gpt-5.4; gpt-5.4-mini, o3')).toEqual([
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'o3',
+    ])
+  })
+
   test('returns empty array for empty string', () => {
     expect(parseModelList('')).toEqual([])
   })
@@ -62,6 +77,10 @@ describe('getPrimaryModel', () => {
     expect(getPrimaryModel('glm-4.7, glm-4.7-flash')).toBe('glm-4.7')
   })
 
+  test('returns first model from semicolon-separated list', () => {
+    expect(getPrimaryModel('glm-4.7; glm-4.7-flash')).toBe('glm-4.7')
+  })
+
   test('returns the only model when single model is provided', () => {
     expect(getPrimaryModel('llama3.1:8b')).toBe('llama3.1:8b')
   })
@@ -84,6 +103,10 @@ describe('getPrimaryModel', () => {
 describe('hasMultipleModels', () => {
   test('returns true when multiple models are present', () => {
     expect(hasMultipleModels('glm-4.7, glm-4.7-flash')).toBe(true)
+  })
+
+  test('returns true for semicolon-separated models', () => {
+    expect(hasMultipleModels('glm-4.7; glm-4.7-flash')).toBe(true)
   })
 
   test('returns false for a single model', () => {
