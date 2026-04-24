@@ -43,6 +43,11 @@ import {
 import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
+import {
+  CLAUDE_MD_CONTEXT_KEY,
+  isStaticDedupEnabled,
+} from './claudeMdDelta.js'
+import { GIT_STATUS_CONTEXT_KEY } from './gitStatusDelta.js'
 import { createUserMessage } from './messages.js'
 import {
   getAPIProvider,
@@ -487,11 +492,16 @@ export function appendSystemContext(
   systemPrompt: SystemPrompt,
   context: { [k: string]: string },
 ): string[] {
+  // WHY: byte-identity required for implicit prefix caching in
+  // OpenAI/Kimi/DeepSeek and for Anthropic cache_control breakpoints.
+  // Emit keys in a deterministic (sorted) order so spurious insertion-
+  // order differences across rebuilds don't bust the cache prefix.
+  const filtered = filterStaticDedupKeys(context)
+  const sortedKeys = Object.keys(filtered).sort()
+  if (sortedKeys.length === 0) return [...systemPrompt].filter(Boolean)
   return [
     ...systemPrompt,
-    Object.entries(context)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join('\n'),
+    sortedKeys.map(key => `${key}: ${filtered[key]}`).join('\n'),
   ].filter(Boolean)
 }
 
@@ -503,16 +513,20 @@ export function prependUserContext(
     return messages
   }
 
-  if (Object.entries(context).length === 0) {
+  // WHY: byte-identity required for implicit prefix caching in
+  // OpenAI/Kimi/DeepSeek. Static-dedup (claudeMd) is emitted via the
+  // claude_md_delta attachment pipeline; suppress it here so the two
+  // paths don't double-announce.
+  const filtered = filterStaticDedupKeys(context)
+  const sortedKeys = Object.keys(filtered).sort()
+  if (sortedKeys.length === 0) {
     return messages
   }
 
   return [
     createUserMessage({
-      content: `<system-reminder>\nAs you answer the user's questions, you can use the following context:\n${Object.entries(
-        context,
-      )
-        .map(([key, value]) => `# ${key}\n${value}`)
+      content: `<system-reminder>\nAs you answer the user's questions, you can use the following context:\n${sortedKeys
+        .map(key => `# ${key}\n${filtered[key]}`)
         .join('\n')}
 
       IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n`,
@@ -520,6 +534,34 @@ export function prependUserContext(
     }),
     ...messages,
   ]
+}
+
+/**
+ * When static-dedup is on, strip the context keys that are now emitted
+ * via the delta attachment pipeline so we don't double-announce the
+ * same content. Each participating delta module exports its own
+ * `*_CONTEXT_KEY` — adding a new dedup delta is a single-file change
+ * there, no edits required here.
+ *
+ * Uses `isStaticDedupEnabled()` (single source of truth) rather than
+ * re-reading the env directly so any future gate logic (e.g. a
+ * GrowthBook rollout) stays centralized.
+ */
+const STATIC_DEDUP_CONTEXT_KEYS = [
+  CLAUDE_MD_CONTEXT_KEY,
+  GIT_STATUS_CONTEXT_KEY,
+] as const
+
+function filterStaticDedupKeys(context: {
+  [k: string]: string
+}): { [k: string]: string } {
+  if (!isStaticDedupEnabled()) return context
+  const out: { [k: string]: string } = {}
+  for (const key of Object.keys(context)) {
+    if ((STATIC_DEDUP_CONTEXT_KEYS as readonly string[]).includes(key)) continue
+    out[key] = context[key]!
+  }
+  return out
 }
 
 /**

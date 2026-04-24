@@ -175,6 +175,7 @@ export OPENAI_MODEL=gpt-4o
 | `CODEX_AUTH_JSON_PATH` | Codex only | Path to a Codex CLI `auth.json` file |
 | `CODEX_HOME` | Codex only | Alternative Codex home directory |
 | `OPENCLAUDE_DISABLE_CO_AUTHORED_BY` | No | Suppress the default `Co-Authored-By` trailer in generated git commits |
+| `OPENCLAUDE_STATIC_DEDUP` | No | `true` to skip re-serializing unchanged CLAUDE.md / gitStatus / nested memory / todo reminders on turn 2+. Reduces request payload; largest gain on providers without cache (Copilot) and on implicit prefix caching (OpenAI/Kimi/DeepSeek). Default off while rolling out. |
 
 You can also use `ANTHROPIC_MODEL` to override the model name. `OPENAI_MODEL` takes priority.
 

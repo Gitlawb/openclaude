@@ -4241,6 +4241,91 @@ You have exited auto mode. The user may now want to interact more directly. You 
         createUserMessage({ content: parts.join('\n\n'), isMeta: true }),
       ])
     }
+    case 'claude_md_delta': {
+      if (attachment.addedContent.length === 0) return []
+      const header = attachment.isInitial
+        ? 'Project memory (CLAUDE.md) — follow these conventions:'
+        : 'Project memory (CLAUDE.md) was updated since last turn:'
+      return wrapMessagesInSystemReminder([
+        createUserMessage({
+          content: `${header}\n\n${attachment.addedContent}`,
+          isMeta: true,
+        }),
+      ])
+    }
+    case 'git_status_delta': {
+      if (!attachment.content) return []
+      return wrapMessagesInSystemReminder([
+        createUserMessage({
+          content: `As you answer the user's questions, you can use the following context:\n# gitStatus\n${attachment.content}`,
+          isMeta: true,
+        }),
+      ])
+    }
+    case 'memory_delta': {
+      const parts: string[] = []
+      if (attachment.addedContent.length > 0) {
+        const header = attachment.isInitial
+          ? 'Nested memory files for this workspace:'
+          : 'Nested memory files changed since last turn:'
+        parts.push(
+          `${header}\n\n${attachment.addedNames
+            .map(
+              (name, i) =>
+                `## ${name}\n${attachment.addedContent[i] ?? ''}`,
+            )
+            .join('\n\n')}`,
+        )
+      }
+      if (attachment.removedNames.length > 0) {
+        parts.push(
+          `The following memory files are no longer active. Their contents above no longer apply:\n${attachment.removedNames.map(n => `- ${n}`).join('\n')}`,
+        )
+      }
+      if (parts.length === 0) return []
+      return wrapMessagesInSystemReminder([
+        createUserMessage({ content: parts.join('\n\n'), isMeta: true }),
+      ])
+    }
+    case 'todo_reminder_delta': {
+      const parts: string[] = []
+      if (attachment.isInitial && attachment.added.length > 0) {
+        parts.push(
+          `Current task list:\n${attachment.added
+            .map(t => `- [${t.status}] ${t.text}`)
+            .join('\n')}`,
+        )
+      } else {
+        if (attachment.added.length > 0) {
+          parts.push(
+            `New tasks since last reminder:\n${attachment.added
+              .map(t => `- [${t.status}] ${t.text}`)
+              .join('\n')}`,
+          )
+        }
+        if (attachment.statusChanged.length > 0) {
+          parts.push(
+            `Task status changes:\n${attachment.statusChanged
+              .map(
+                t =>
+                  `- ${t.text} (${t.priorStatus} -> ${t.newStatus})`,
+              )
+              .join('\n')}`,
+          )
+        }
+        if (attachment.removedIds.length > 0) {
+          parts.push(
+            `Tasks removed since last reminder:\n${attachment.removedIds
+              .map(id => `- ${id}`)
+              .join('\n')}`,
+          )
+        }
+      }
+      if (parts.length === 0) return []
+      return wrapMessagesInSystemReminder([
+        createUserMessage({ content: parts.join('\n\n'), isMeta: true }),
+      ])
+    }
     case 'companion_intro': {
       return wrapMessagesInSystemReminder([
         createUserMessage({

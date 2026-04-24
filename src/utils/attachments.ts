@@ -251,6 +251,17 @@ import { removeTeammateFromTeamFile } from './swarm/teamHelpers.js'
 import { unassignTeammateTasks } from './tasks.js'
 import { getCompanionIntroAttachment } from '../buddy/prompt.js'
 import { isBuddyEnabled } from '../buddy/feature.js'
+import {
+  getClaudeMdDelta,
+  isStaticDedupEnabled,
+} from './claudeMdDelta.js'
+import { getGitStatusDelta } from './gitStatusDelta.js'
+import { getMemoryDelta, type MemoryFileInput } from './memoryDelta.js'
+import {
+  getTodoReminderDelta,
+  type TodoSnapshotItem,
+} from './todoReminderDelta.js'
+import { getSystemContext, getUserContext } from '../context.js'
 
 export const TODO_REMINDER_CONFIG = {
   TURNS_SINCE_WRITE: 10,
@@ -706,6 +717,47 @@ export type Attachment =
       removedNames: string[]
     }
   | {
+      // Phase 2 static-dedup: emit CLAUDE.md body once (or when changed)
+      // instead of re-prepending the full content every turn. See
+      // src/utils/claudeMdDelta.ts for the scan+diff rationale.
+      type: 'claude_md_delta'
+      addedContent: string
+      contentHash: string
+      isInitial: boolean
+    }
+  | {
+      // Phase 2 static-dedup: emit gitStatus on turn 1 only. The
+      // snapshot is immutable by design (see getGitStatus in
+      // src/context.ts). See src/utils/gitStatusDelta.ts.
+      type: 'git_status_delta'
+      content: string
+    }
+  | {
+      // Phase 2 static-dedup: nested memory files. See
+      // src/utils/memoryDelta.ts.
+      type: 'memory_delta'
+      addedNames: string[]
+      addedContent: string[]
+      addedHashes: string[]
+      removedNames: string[]
+      isInitial: boolean
+    }
+  | {
+      // Phase 2 static-dedup: todo/task reminder diff. See
+      // src/utils/todoReminderDelta.ts.
+      type: 'todo_reminder_delta'
+      added: Array<{ id: string; status: string; text: string }>
+      statusChanged: Array<{
+        id: string
+        priorStatus: string
+        newStatus: string
+        text: string
+      }>
+      removedIds: string[]
+      isInitial: boolean
+      snapshot: Array<{ id: string; status: string }>
+    }
+  | {
       type: 'companion_intro'
       name: string
       species: string
@@ -862,6 +914,24 @@ export async function getAttachments(
         ),
       ),
     ),
+    // Static-dedup deltas (Phase 2 token-optimization). Opt-in via
+    // OPENCLAUDE_STATIC_DEDUP=true. See src/utils/claudeMdDelta.ts et al.
+    // for rationale. These complement (do not replace) the existing
+    // prependUserContext / appendSystemContext injection paths; the
+    // swap-in wiring lives in api.ts.
+    ...(isStaticDedupEnabled()
+      ? [
+          maybe('claude_md_delta', () =>
+            getClaudeMdDeltaAttachment(messages),
+          ),
+          maybe('git_status_delta', () =>
+            getGitStatusDeltaAttachment(messages),
+          ),
+          maybe('memory_delta', () =>
+            Promise.resolve(getMemoryDeltaAttachment(messages)),
+          ),
+        ]
+      : []),
     ...(isBuddyEnabled()
         ? [
             maybe('companion_intro', () =>
@@ -1583,6 +1653,154 @@ export function getMcpInstructionsDeltaAttachment(
   const delta = getMcpInstructionsDelta(mcpClients, messages ?? [], clientSide)
   if (!delta) return []
   return [{ type: 'mcp_instructions_delta', ...delta }]
+}
+
+/**
+ * CLAUDE.md delta attachment — emits only the current CLAUDE.md body
+ * if it changed since the last turn, or nothing on a no-op.
+ * See src/utils/claudeMdDelta.ts for the diff logic.
+ */
+async function getClaudeMdDeltaAttachment(
+  messages: Message[] | undefined,
+): Promise<Attachment[]> {
+  const userContext = await getUserContext()
+  const current = userContext.claudeMd ?? ''
+  const delta = getClaudeMdDelta(
+    current,
+    (messages ?? []) as Parameters<typeof getClaudeMdDelta>[1],
+  )
+  if (!delta) return []
+  return [
+    {
+      type: 'claude_md_delta',
+      addedContent: delta.addedContent,
+      contentHash: delta.contentHash,
+      isInitial: delta.isInitial,
+    },
+  ]
+}
+
+/**
+ * gitStatus delta attachment — emits the snapshot only on the turn that
+ * has no prior git_status_delta attachment. See
+ * src/utils/gitStatusDelta.ts for rationale (snapshot is immutable by
+ * design per getGitStatus in src/context.ts).
+ */
+async function getGitStatusDeltaAttachment(
+  messages: Message[] | undefined,
+): Promise<Attachment[]> {
+  const systemContext = await getSystemContext()
+  const delta = getGitStatusDelta(
+    systemContext.gitStatus,
+    (messages ?? []) as Parameters<typeof getGitStatusDelta>[1],
+  )
+  if (!delta) return []
+  return [{ type: 'git_status_delta', content: delta.content }]
+}
+
+/**
+ * Nested-memory delta attachment — reconstructs the current nested
+ * memory set from `nested_memory` attachments emitted in PRIOR turns
+ * (already part of `messages`), diffs against prior `memory_delta`
+ * attachments, and emits only added/changed content + retraction
+ * names. See src/utils/memoryDelta.ts.
+ *
+ * 📌 NOT A RACE: although this wrapper runs in the same Promise.all
+ * batch as `getNestedMemoryAttachments` (see `allThreadAttachments`
+ * in getAttachments), it reads `messages` — the INPUT parameter,
+ * which is the accumulated conversation up through the last completed
+ * turn. New outputs of THIS turn aren't in `messages` yet; they get
+ * appended by the caller after getAttachments returns. So the scanner
+ * only ever sees prior-turn `nested_memory`, and that is by design:
+ *   Turn 1: scanner sees no prior nested_memory → returns null.
+ *   Turn 2+: scanner sees turn 1's nested_memory → emits memory_delta.
+ *
+ * ⚠️ INTENTIONAL ASYMMETRY vs the three sibling Phase-2 deltas
+ * (`claudeMdDelta`, `gitStatusDelta`, `todoReminderDelta`). Those three
+ * REPLACE their raw counterpart when `isStaticDedupEnabled()` is true:
+ * `filterStaticDedupKeys` (in src/utils/api.ts) strips `claudeMd` /
+ * `gitStatus` from the system/user context so they only flow through
+ * the delta. memory_delta, by contrast, COEXISTS with raw
+ * `nested_memory` — raw still fires every turn because downstream
+ * consumers (claude.ts::getSystemBlocksWithScope prompt-cache scoping;
+ * getUserContext memory injection) read `nested_memory` directly and
+ * don't understand the delta shape yet. The result: turn 2 carries
+ * memory content twice (raw + delta) before stabilizing from turn 3+.
+ *
+ * Model-context invariant: the model NEVER loses access to memory
+ * because raw nested_memory continues emitting on every turn. The
+ * delta is a COMPLEMENT that sets up future savings once consumers
+ * migrate — not a replacement that could drop content.
+ *
+ * TODO(follow-up, separate PR): teach getSystemBlocksWithScope and
+ * getUserContext to read from `memory_delta`, then gate raw
+ * `nested_memory` behind `!isStaticDedupEnabled()` to match the other
+ * three deltas. Expected additional savings: ~9KB per turn 2+ of
+ * redundant memory content on 3P providers without cache.
+ */
+function getMemoryDeltaAttachment(
+  messages: Message[] | undefined,
+): Attachment[] {
+  // The "current" set is reconstructed from nested_memory attachments
+  // produced earlier in the same turn (the caller invokes them ahead
+  // of this delta in allThreadAttachments). We also look at nested
+  // memory entries from prior turns to build the present snapshot.
+  //
+  // Reading from the transcript keeps this function pure (no
+  // filesystem I/O) — the authoritative source for "what memory is
+  // currently loaded" is the attachments generated upstream.
+  const current: MemoryFileInput[] = []
+  const seen = new Set<string>()
+  for (const msg of messages ?? []) {
+    if (msg.type !== 'attachment') continue
+    if (msg.attachment.type !== 'nested_memory') continue
+    const path = msg.attachment.path
+    if (seen.has(path)) continue
+    seen.add(path)
+    current.push({
+      path,
+      content: msg.attachment.content.content ?? '',
+    })
+  }
+
+  const delta = getMemoryDelta(
+    current,
+    (messages ?? []) as Parameters<typeof getMemoryDelta>[1],
+  )
+  if (!delta) return []
+  return [
+    {
+      type: 'memory_delta',
+      addedNames: delta.addedNames,
+      addedContent: delta.addedContent,
+      addedHashes: delta.addedHashes,
+      removedNames: delta.removedNames,
+      isInitial: delta.isInitial,
+    },
+  ]
+}
+
+/**
+ * Build a TodoSnapshotItem[] from a v1 TodoList. Exported for tests and
+ * for the todo reminder dedup path in getTodoReminderAttachments.
+ */
+export function todoListToSnapshot(todos: TodoList): TodoSnapshotItem[] {
+  return todos.map((t, idx) => ({
+    id: `${idx}:${t.content}`,
+    status: t.status,
+    text: t.content,
+  }))
+}
+
+/**
+ * Build a TodoSnapshotItem[] from v2 Task[]. Exported for tests.
+ */
+export function taskListToSnapshot(tasks: Task[]): TodoSnapshotItem[] {
+  return tasks.map(t => ({
+    id: `#${t.id}`,
+    status: t.status,
+    text: t.subject,
+  }))
 }
 
 function getCriticalSystemReminderAttachment(
@@ -3267,7 +3485,8 @@ function getTodoReminderTurnCounts(messages: Message[]): {
     } else if (
       lastReminderIndex === -1 &&
       message?.type === 'attachment' &&
-      message.attachment.type === 'todo_reminder'
+      (message.attachment.type === 'todo_reminder' ||
+        message.attachment.type === 'todo_reminder_delta')
     ) {
       lastReminderIndex = i
     }
@@ -3324,6 +3543,33 @@ async function getTodoReminderAttachments(
     const todoKey = toolUseContext.agentId ?? getSessionId()
     const appState = toolUseContext.getAppState()
     const todos = appState.todos[todoKey] ?? []
+
+    // Phase 2 static-dedup: emit a todo_reminder_delta that only carries
+    // added/changed/removed items since the last reminder. The full
+    // snapshot is embedded in the attachment so future turns can
+    // reconstruct state. See src/utils/todoReminderDelta.ts.
+    if (isStaticDedupEnabled()) {
+      const delta = getTodoReminderDelta(
+        todoListToSnapshot(todos),
+        messages as Parameters<typeof getTodoReminderDelta>[1],
+      )
+      if (!delta) return []
+      return [
+        {
+          type: 'todo_reminder_delta',
+          added: delta.added.map(a => ({
+            id: a.id,
+            status: a.status,
+            text: a.text,
+          })),
+          statusChanged: delta.statusChanged,
+          removedIds: delta.removedIds,
+          isInitial: delta.isInitial,
+          snapshot: delta.snapshot,
+        },
+      ]
+    }
+
     return [
       {
         type: 'todo_reminder',
@@ -3376,7 +3622,8 @@ function getTaskReminderTurnCounts(messages: Message[]): {
     } else if (
       lastReminderIndex === -1 &&
       message?.type === 'attachment' &&
-      message.attachment.type === 'task_reminder'
+      (message.attachment.type === 'task_reminder' ||
+        message.attachment.type === 'todo_reminder_delta')
     ) {
       lastReminderIndex = i
     }
@@ -3439,6 +3686,29 @@ async function getTaskReminderAttachments(
     turnsSinceLastReminder >= TODO_REMINDER_CONFIG.TURNS_BETWEEN_REMINDERS
   ) {
     const tasks = await listTasks(getTaskListId())
+
+    if (isStaticDedupEnabled()) {
+      const delta = getTodoReminderDelta(
+        taskListToSnapshot(tasks),
+        messages as Parameters<typeof getTodoReminderDelta>[1],
+      )
+      if (!delta) return []
+      return [
+        {
+          type: 'todo_reminder_delta',
+          added: delta.added.map(a => ({
+            id: a.id,
+            status: a.status,
+            text: a.text,
+          })),
+          statusChanged: delta.statusChanged,
+          removedIds: delta.removedIds,
+          isInitial: delta.isInitial,
+          snapshot: delta.snapshot,
+        },
+      ]
+    }
+
     return [
       {
         type: 'task_reminder',
