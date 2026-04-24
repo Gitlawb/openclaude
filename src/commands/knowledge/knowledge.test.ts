@@ -30,12 +30,14 @@ describe('knowledge command', () => {
   it('enables and disables knowledge graph engine', async () => {
     // Test Disable
     const res1 = await knowledgeCallWithCapture('enable no')
-    expect(getGlobalConfig().knowledgeGraphEnabled).toBe(false)
+    const config1 = getGlobalConfig()
+    expect(config1.knowledgeGraphEnabled).toBe(false)
     expect(res1.toLowerCase()).toContain('disabled')
 
     // Test Enable
     const res2 = await knowledgeCallWithCapture('enable yes')
-    expect(getGlobalConfig().knowledgeGraphEnabled).toBe(true)
+    const config2 = getGlobalConfig()
+    expect(config2.knowledgeGraphEnabled).toBe(true)
     expect(res2.toLowerCase()).toContain('enabled')
   })
 

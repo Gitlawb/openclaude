@@ -14,7 +14,7 @@ export const call: LocalCommandCall = async (args, _context) => {
     const arc = getArc();
     const entityCount = Object.keys(arc?.knowledgeGraph.entities || {}).length;
     
-    const statusText = config.knowledgeGraphEnabled 
+    const statusText = (config.knowledgeGraphEnabled !== false)
       ? chalk.green('ENABLED') 
       : chalk.red('DISABLED');
       
