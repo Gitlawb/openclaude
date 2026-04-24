@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.ts'
 import {
+  applySavedProfileToCurrentSession,
   buildStartupEnvFromProfile,
   buildAtomicChatProfileEnv,
   buildCodexProfileEnv,
@@ -109,6 +110,24 @@ test('openai launch ignores mismatched persisted ollama env', async () => {
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
   assert.equal(env.CODEX_API_KEY, undefined)
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
+})
+
+test('openai launch omits api key when no key is resolved', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEY: undefined as any,
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(Object.hasOwn(env, 'OPENAI_API_KEY'), false)
 })
 
 test('openai launch ignores codex shell transport hints', async () => {
@@ -570,6 +589,51 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
   assert.equal(env.GEMINI_BASE_URL, 'https://generativelanguage.googleapis.com/v1beta/openai')
   assert.equal(env.GEMINI_AUTH_MODE, 'api-key')
   assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
+test('buildStartupEnvFromProfile preserves explicit GitHub provider settings when the legacy file is stale', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_GITHUB: '1',
+    OPENAI_MODEL: 'github:copilot',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-stale',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_GITHUB, '1')
+  assert.equal(env.OPENAI_MODEL, 'github:copilot')
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.OPENAI_BASE_URL, undefined)
+})
+
+test('applySavedProfileToCurrentSession can switch away from GitHub provider env', async () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_GITHUB: '1',
+    OPENAI_MODEL: 'github:copilot',
+  }
+
+  const error = await applySavedProfileToCurrentSession({
+    profileFile: profile('ollama', {
+      OPENAI_BASE_URL: 'http://localhost:11434/v1',
+      OPENAI_MODEL: 'llama3.1:8b',
+    }),
+    processEnv,
+  })
+
+  assert.equal(error, null)
+  assert.equal(processEnv.CLAUDE_CODE_USE_GITHUB, undefined)
+  assert.equal(processEnv.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(processEnv.OPENAI_BASE_URL, 'http://localhost:11434/v1')
+  assert.equal(processEnv.OPENAI_MODEL, 'llama3.1:8b')
+  assert.equal(Object.hasOwn(processEnv, 'OPENAI_API_KEY'), false)
 })
 
 test('buildStartupEnvFromProfile preserves plural-profile env when the legacy file is stale', async () => {

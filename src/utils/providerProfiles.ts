@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto'
+import { isCodexBaseUrl } from '../services/api/providerConfig.js'
 import {
   getGlobalConfig,
   saveGlobalConfig,
@@ -12,6 +13,7 @@ import {
   buildGeminiProfileEnv,
   buildMistralProfileEnv,
   buildOpenAIProfileEnv,
+  type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
 
@@ -832,6 +834,38 @@ export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] 
   }))
 }
 
+function buildOpenAICompatibleStartupEnv(
+  activeProfile: ProviderProfile,
+): ProfileEnv | null {
+  if (isCodexBaseUrl(activeProfile.baseUrl)) {
+    return null
+  }
+
+  if (activeProfile.apiKey) {
+    const strictEnv = buildOpenAIProfileEnv({
+      goal: 'balanced',
+      model: activeProfile.model,
+      baseUrl: activeProfile.baseUrl,
+      apiKey: activeProfile.apiKey,
+      processEnv: {},
+    })
+    if (strictEnv) {
+      return strictEnv
+    }
+  }
+
+  const env: ProfileEnv = {
+    OPENAI_BASE_URL: activeProfile.baseUrl,
+    OPENAI_MODEL: getPrimaryModel(activeProfile.model),
+  }
+  if (activeProfile.apiKey) {
+    env.OPENAI_API_KEY = activeProfile.apiKey
+  } else {
+    delete env.OPENAI_API_KEY
+  }
+  return env
+}
+
 export function setActiveProviderProfile(
   profileId: string,
 ): ProviderProfile | null {
@@ -890,15 +924,17 @@ export function setActiveProviderProfile(
           }) ?? null
         )
       default:
-        // anthropic and all openai-compatible providers
-        return (
-          buildOpenAIProfileEnv({
-            model: activeProfile.model,
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        )
+        return activeProfile.provider === 'anthropic'
+          ? (
+              buildOpenAIProfileEnv({
+                goal: 'balanced',
+                model: activeProfile.model,
+                baseUrl: activeProfile.baseUrl,
+                apiKey: activeProfile.apiKey,
+                processEnv: process.env,
+              }) ?? null
+            )
+          : buildOpenAICompatibleStartupEnv(activeProfile)
     }
   })()
 
