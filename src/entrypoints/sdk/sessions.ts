@@ -37,17 +37,18 @@ import {
 // ============================================================================
 
 function toSDKSessionInfo(info: SessionInfo): SDKSessionInfo {
+  // Internal SessionInfo already uses camelCase — matches public SDK contract
   return {
-    session_id: info.sessionId,
+    sessionId: info.sessionId,
     summary: info.summary,
-    last_modified: info.lastModified,
-    file_size: info.fileSize,
-    custom_title: info.customTitle,
-    first_prompt: info.firstPrompt,
-    git_branch: info.gitBranch,
+    lastModified: info.lastModified,
+    fileSize: info.fileSize,
+    customTitle: info.customTitle,
+    firstPrompt: info.firstPrompt,
+    gitBranch: info.gitBranch,
     cwd: info.cwd,
     tag: info.tag,
-    created_at: info.createdAt,
+    createdAt: info.createdAt,
   }
 }
 
@@ -130,7 +131,7 @@ function entryToSessionMessage(entry: JsonlEntry): SessionMessage {
     content: entry.message?.content,
     timestamp: entry.timestamp,
     uuid: entry.uuid,
-    parent_uuid: entry.parentUuid,
+    parentUuid: entry.parentUuid,
   }
 }
 
@@ -438,5 +439,5 @@ export async function forkSession(
     })
   }
 
-  return { session_id: forkSessionId }
+  return { sessionId: forkSessionId }
 }

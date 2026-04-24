@@ -452,7 +452,7 @@ class QueryImpl implements Query {
             if (self.continueSession && !self._sessionIdExplicitlyProvided) {
               const sessions = await listSessions({ dir: self.cwd, limit: 1 })
               if (sessions.length > 0) {
-                effectiveSessionId = sessions[0].session_id
+                effectiveSessionId = sessions[0].sessionId
                 const loaded = await loadAndInjectSessionMessages(effectiveSessionId, self.cwd, self.engine, self.resumeSessionAt)
                 if (!loaded) {
                   effectiveSessionId = undefined
@@ -461,7 +461,7 @@ class QueryImpl implements Query {
             } else if (self.shouldFork && self._sessionId) {
               try {
                 const forkResult = await forkSession(self._sessionId, { dir: self.cwd })
-                effectiveSessionId = forkResult.session_id
+                effectiveSessionId = forkResult.sessionId
                 const loaded = await loadAndInjectSessionMessages(effectiveSessionId, self.cwd, self.engine, self.resumeSessionAt)
                 if (!loaded) {
                   effectiveSessionId = undefined
