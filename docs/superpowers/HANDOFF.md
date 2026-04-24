@@ -4,9 +4,9 @@
 > *"Leia `docs/superpowers/HANDOFF.md` e retome de onde paramos."*
 > Ou copie o kick-off prompt da Seção 11.
 
-**Última atualização:** 2026-04-23
+**Última atualização:** 2026-04-23 (sessão 2)
 **Branch ativa:** `feat/serve`
-**Próxima tarefa:** Task 5 do Plano #1
+**Próxima tarefa:** Task 12 do Plano #1 (integrar LLM real)
 
 ---
 
@@ -28,65 +28,82 @@
 ## 2. Estado atual (confirmado por testes)
 
 **Branch:** `feat/serve` (criada a partir de `main`)
+**HEAD:** `9bbda61`
 
-**Commits na branch (11 total):**
+**Commits na branch (18 total, mais recentes primeiro):**
 ```
+9bbda61  feat(serve): add SSE helper and /chat endpoint with pluggable agent
+ee05ab8  feat(serve): add /sessions CRUD endpoints
+47fd10a  feat(serve): add SessionManager with JSONL persistence
+f358907  feat(serve): add vault registry persistence (~/.openclaude/vaults.yml)
+4989ad4  feat(serve): add tripwires for destructive shell and protected config writes
+b2cd10a  feat(serve): add vault-bound path resolution (blocks .. escapes)
+caa77cd  feat(serve): add typed ServerError with HTTP status mapping
+0423881  docs: add HANDOFF.md for zero-friction session resumption
 ded8603  fix(serve): dispatch serve subcommand before banner to keep stdout clean
 9f83134  fix(serve): resolve package.json path in both source and bundled layouts
 7387c0d  refactor(serve): fail fast on bad package.json and tighten health test
 f1b0025  feat(serve): add /health endpoint (public, no auth)
 4d115be  refactor(serve): bound hits map eviction and guard malformed URI decode
 2b51bdc  feat(serve): add HTTP core with routing, CORS, and rate limit
-ae499f5  fix(serve): harden token auth (atomic create, hash-based constant time, malformed check)
+ae499f5  fix(serve): harden token auth (atomic create, hash-based constant time)
 60d3523  feat(serve): add token generator + bearer middleware with constant-time compare
-cf3dd7a  refactor(serve): harden scaffold per code review (argv consistency, NaN guard, tighter tests)
-9994f77  feat(serve): scaffold openclaude serve subcommand (empty 501 responder)
-f60c2b1  docs(plans): add Phase 1 implementation plan (server foundation)   [comes from main]
-b496479  docs(specs): add openclaude-obsidian plugin design                  [comes from main]
+cf3dd7a  refactor(serve): harden scaffold per code review
+9994f77  feat(serve): scaffold openclaude serve subcommand
 ```
 
-**Tasks concluídas do Plano #1:**
+**Tasks concluídas do Plano #1 (11 de 20):**
 - ✅ Task 1: Scaffold `src/serve/` + CLI subcommand
-- ✅ Task 2: Token auth (`ensureServerToken` + `verifyBearer` com constant-time hash)
-- ✅ Task 3: HTTP core (routing, CORS, rate limit, bounded hits map)
+- ✅ Task 2: Token auth (constant-time hash)
+- ✅ Task 3: HTTP core (routing, CORS, rate limit)
 - ✅ Task 4: `/health` endpoint (público)
+- ✅ Task 5: Typed errors (`ServerError`, `ErrorCode`, `errorResponse`)
+- ✅ Task 6: Path normalization vault-bound (`resolveInsideVault`)
+- ✅ Task 7: Tripwires (bash + fs blocklist)
+- ✅ Task 8: Vault registry YAML (hand-rolled parser, no dep)
+- ✅ Task 9: Session manager JSONL persist
+- ✅ Task 10: `/sessions` CRUD endpoints
+- ✅ Task 11: SSE helper + `/chat` com mock agent pluggable
 
-**Verificado em produção (manual smoke):**
+**Verificado em produção (manual smokes):**
 - `openclaude serve --port 7777` inicia sem banner no stdout (só JSON)
-- `GET /health` retorna 200 com `{status, version, uptime_ms}`
-- Auth, CORS, rate limit funcionam
-- Token gerado em `~/.openclaude/server-token` (64 hex chars, mode 0600 no Unix)
+- `GET /health` → 200 com `{status, version, uptime_ms}`
+- `/sessions` CRUD — GET/POST/GET/DELETE/GET roundtrip com typed 404 final
+- `/chat` streaming SSE — `curl -N POST /chat` devolve `event: token` + `event: done`
+  com `sessionId` auto-criado
+- Token em `~/.openclaude/server-token` (64 hex, mode 0600 no Unix)
 
-**Testes automatizados:** 19 pass / 0 fail / 31 expect() calls / ~400ms — rodar com `bun test src/serve/`
+**Testes automatizados:** 54 pass / 0 fail / 89 expect() calls / ~400ms
+  — rodar com `bun test src/serve/`
+  — 12 arquivos de teste (antes: 4)
 
 **Typecheck:** zero erros em `src/serve/` (erros pré-existentes em outros módulos inalterados).
 
 ---
 
-## 3. Tasks restantes do Plano #1 (16 de 20)
+## 3. Tasks restantes do Plano #1 (9 de 20)
 
 Ordem de execução:
 
 | # | Task | Entrega |
 |---|---|---|
-| 5 | Typed errors (`ServerError`, `ErrorCode`) | `src/serve/errors.ts` |
-| 6 | Path normalization + vault-bound | `src/serve/paths.ts` |
-| 7 | Tripwires (security backstop) | `src/serve/tripwires.ts` |
-| 8 | Vault registry YAML | `src/serve/vaultRegistry.ts` |
-| 9 | Session manager JSONL persist | `src/serve/session.ts` |
-| 10 | `/sessions` endpoints | `src/serve/handlers/sessions.ts` |
-| 11 | SSE helper + `/chat` mock agent | **Chat funciona via curl (com mock)** |
-| 12 | Integração real OpenClaude Query engine | **Chat funciona com LLM real** |
+| 12 | Integração real OpenClaude Query engine | **Chat funciona com LLM real** (próxima) |
 | 13 | Pending edits store + endpoints | P3 preview flow |
 | 14 | Shadow backup + `/backups` | Reversibilidade |
 | 15 | `/config`, `/models`, `/vaults` | Config endpoints |
 | 16 | `/tools/search` (cross-vault) | Busca |
 | 17 | `/tools/dataview` + `/tools/analyze-results` | DQL generator |
 | 18 | `/tools/mermaid-graph` | Grafos on-demand |
-| 19 | Security matrix E2E | Todos os security tests |
+| 19 | Security matrix E2E | **Inclui fix: tripwire fs regex pra aceitar `[\\/]` (Windows)** |
 | 20 | README + tag `phase-1-server-complete` | **Phase 1 COMPLETA** |
 
 Cada task tem código completo + testes TDD no arquivo do plano.
+
+**Task 12 é diferente das anteriores** — primeira que modifica código fora de
+`src/serve/`. O Step 1 do plano pede um `grep` investigativo pra localizar o
+entry point real do streaming (`query()` ou similar). Não é copy-paste; é um
+adapter que traduz o formato do core OpenClaude para o contrato `AgentFn`
+(AsyncIterable<AgentEvent>) definido em Task 11.
 
 ---
 
@@ -167,12 +184,21 @@ Listadas no spec Seção 15:
 
 ## 9. Lições aprendidas (valer pra próximas tasks)
 
+**Sessão 1 (Tasks 1-4):**
 - **Bundler flatten:** `import.meta.url` em `dist/cli.mjs` != em `src/serve/handlers/*.ts`. Use `findPackageJson` walking up, não path relativo fixo.
 - **stdout pollution:** fast-paths de CLI devem vir ANTES de `printStartupScreen()` pra daemons manterem JSON limpo.
 - **TOCTOU em arquivos sensíveis:** `openSync('wx', 0o600)` > `existsSync` + `writeFileSync`.
 - **Constant-time compare:** hash ambos os lados antes de `timingSafeEqual` pra eliminar length leak.
 - **Rate limit cleanup:** `hits` map precisa de eviction timer ou cresce sem limite.
 - **decodeURIComponent:** throws em input malformado — wrap em try/catch no route matcher.
+
+**Sessão 2 (Tasks 5-11):**
+- **Stateful singletons em `index.ts` precisam ir dentro de `startServer()`**, não module-scope. Tests rotacionam `process.env.HOME` em `beforeEach`; module-scope aliasa todos os tests pro primeiro home. Aplicado em `SessionManager` (Task 10) e `chatRoute(sm)` (Task 11). `setMockAgent(defaultMock)` continua em module-scope porque é idempotente e tests sobrescrevem.
+- **Testes com paths hard-coded Unix (`/vault`) falham em Windows** porque `path.resolve` normaliza pro drive. Sempre computar expected via `resolve()` — função em si é cross-platform, só a assertion string não é. Aplicado em Task 6 (paths).
+- **Gap conhecido a fechar em Task 19:** tripwire fs regex em `src/serve/tripwires.ts` usa `\/` literal; não pega paths Windows `\`. Extender pra `[\\/]` na security matrix E2E antes de Phase 1 fechar.
+- **JSONL é a escolha certa pra append-only logs** (sessões): crash-resilient, O(1) append, streamable. `filter(Boolean)` no split drop-a linha vazia trailing sem esforço. Metadata (`createdAt/updatedAt`) delegada ao fs via `statSync` (`birthtimeMs || ctimeMs` cobre ext3/ext4 antigos).
+- **SSE `sse.end()` deve estar em `finally`** — garante fechamento do stream mesmo se o agent generator throw. Send `event: error` no catch ANTES do finally pra cliente saber o que rolou.
+- **Union discriminada > interface genérica** pra protocolos de eventos. `AgentEvent` força narrowing por `evt.event`, compilador lista consumers quando adicionar evento novo. Aplicado em Task 11.
 
 ---
 
@@ -209,13 +235,17 @@ Retomando projeto openclaude-obsidian.
 Contexto completo em: docs/superpowers/HANDOFF.md
 
 Estado atual:
-- Branch feat/serve, commit HEAD: ded8603
-- Plano #1 Tasks 1-4 concluídas, 19 testes verdes
-- Próxima: Task 5 (typed errors)
+- Branch feat/serve, commit HEAD: 9bbda61
+- Plano #1 Tasks 1-11 concluídas, 54 testes verdes
+- Próxima: Task 12 (integrar Query engine OpenClaude real no /chat)
 
-Use superpowers:subagent-driven-development pra continuar.
+Task 12 é diferente — Step 1 pede grep investigativo em src/query* /
+src/assistant/ pra localizar o streaming real. Não é copy-paste; é
+escrever um adapter de AsyncIterable<{role, content}> (core) pra
+AsyncIterable<AgentEvent> (definido em src/serve/handlers/chat.ts).
+
 Leia HANDOFF.md e o plano, me dê um resumo de 3 linhas confirmando que
-entendeu o estado, e dispache o implementer da Task 5.
+entendeu o estado, e comece pelo grep investigativo da Task 12.
 
 Sem re-brainstorming. Sem re-review do design. Sem reabrir decisões fechadas.
 ```
@@ -226,9 +256,23 @@ Sem re-brainstorming. Sem re-review do design. Sem reabrir decisões fechadas.
 
 Antes de qualquer tool call, confirmar:
 - [ ] Está em `e:/Agente_OpenClaude_Segundo_cérebro/`?
-- [ ] Branch atual é `feat/serve`?
-- [ ] `bun test src/serve/` mostra 19 pass?
+- [ ] Branch atual é `feat/serve`, HEAD é `9bbda61`?
+- [ ] `bun test src/serve/` mostra 54 pass?
 - [ ] Plano em `docs/superpowers/plans/2026-04-23-openclaude-obsidian-phase-1-server.md` existe?
 - [ ] HANDOFF.md foi lido (este arquivo)?
 
-Se todos sim, despache implementer da Task 5 imediatamente. Sem prolegômenos.
+Se todos sim, vá pra Task 12. Comece pelo grep investigativo do Step 1 da task.
+
+Smoke útil pra confirmar que nada regrediu:
+```bash
+bun run build
+node dist/cli.mjs serve --port 7778 &
+sleep 2
+TOKEN=$(cat "$USERPROFILE/.openclaude/server-token" 2>/dev/null || cat ~/.openclaude/server-token)
+curl -sN -X POST http://127.0.0.1:7778/chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"message":"test"}' -m 5
+# Esperado: event: token data: {"text":"echo: test"} / event: done ...
+kill %1
+```
