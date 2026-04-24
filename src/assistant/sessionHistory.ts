@@ -87,8 +87,9 @@ async function fetchPage(
 }
 
 function extractSessionId(baseUrl: string): string {
-  const match = baseUrl.split('/v1/sessions/')[1]
-  return match ? match.split('/')[0] : 'default'
+  // More robust extraction - handle various URL formats
+  const match = baseUrl.match(/\/v1\/sessions\/([^/]+)/)
+  return match ? match[1] : 'default'
 }
 
 function serializeToCacheMessage(events: SDKMessage[]): CacheMessage[] {
@@ -115,9 +116,19 @@ function serializeToCacheMessage(events: SDKMessage[]): CacheMessage[] {
 
 function deserializeFromCacheMessage(messages: CacheMessage[]): SDKMessage[] {
   return messages.map((m): SDKMessage => {
+    // Reconstruct structured content from JSON string if needed
+    let content: SDKMessage['content']
+    try {
+      content = typeof m.content === 'string' && m.content.startsWith('[')
+        ? JSON.parse(m.content)
+        : m.content
+    } catch {
+      content = m.content
+    }
+    
     const msg: SDKMessage = {
       role: m.role,
-      content: m.content,
+      content,
       tool_calls: m.tool_calls as SDKMessage['tool_calls'],
       tool_use_id: m.tool_use_id,
     }
@@ -139,14 +150,18 @@ export async function fetchLatestEvents(
 ): Promise<HistoryPage | null> {
   const sessionId = extractSessionId(ctx.baseUrl)
 
-  // Check cache first before fetching from API
+  // Check cache first - but still fetch to get pagination metadata
   const cached = await loadCachedSession(sessionId)
   if (cached) {
-    return {
-      events: cached,
-      firstId: null,
-      hasMore: true,
+    // Fetch latest to get real pagination, use cache only for events
+    const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
+    
+    if (page && page.events.length > 0) {
+      // Update cache with fresh events
+      await cacheSession(sessionId, page.events)
     }
+    
+    return page
   }
 
   const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
@@ -167,6 +182,9 @@ export async function fetchOlderEvents(
   return fetchPage(ctx, { limit, before_id: beforeId }, 'fetchOlderEvents')
 }
 
+// Track last saved event count to avoid unnecessary disk writes
+const lastSavedCounts = new Map<string, number>()
+
 export async function cacheSession(
   sessionId: string,
   events: SDKMessage[],
@@ -175,12 +193,20 @@ export async function cacheSession(
   const messages = serializeToCacheMessage(events)
   cache.set(sessionId, messages)
 
-  const session = createSession(
-    messages as never,
-    { model: process.env.OPENAI_MODEL },
-  )
-  session.id = sessionId
-  await saveSession(session)
+  // Only persist if message count changed (meaningful change)
+  const newCount = events.length
+  const lastCount = lastSavedCounts.get(sessionId) ?? 0
+  
+  if (newCount > lastCount) {
+    lastSavedCounts.set(sessionId, newCount)
+    
+    const session = createSession(
+      messages as never,
+      { model: process.env.OPENAI_MODEL },
+    )
+    session.id = sessionId
+    await saveSession(session)
+  }
 }
 
 export async function loadCachedSession(
