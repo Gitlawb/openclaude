@@ -5,7 +5,7 @@ const knowledge: Command = {
   name: 'knowledge',
   description: 'Manage native Knowledge Graph',
   supportsNonInteractive: true,
-  argumentHint: 'enable <yes|no> | clear | status',
+  argumentHint: 'enable <yes|no> | clear | status | list',
   load: () => import('./knowledge.js'),
 }
 

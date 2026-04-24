@@ -1,30 +1,36 @@
-import { describe, expect, it, beforeEach, spyOn } from 'bun:test'
+import { describe, expect, it, beforeEach } from 'bun:test'
 import { call as knowledgeCall } from './knowledge.js'
 import { getGlobalConfig } from '../../utils/config.js'
-import { getArc, addEntity } from '../../utils/conversationArc.js'
+import { getArc, addEntity, resetArc } from '../../utils/conversationArc.js'
 
 describe('knowledge command', () => {
-  let lastResult: string | undefined
-  const onDone = (result?: string) => {
-    lastResult = result
+  const mockContext = {} as any
+  
+  const knowledgeCallWithCapture = async (args: string) => {
+    const result = await knowledgeCall(args, mockContext)
+    if (result.type === 'text') {
+      return result.value
+    }
+    return ''
   }
 
   beforeEach(() => {
     // Reset config to a known state
     const config = getGlobalConfig()
     config.knowledgeGraphEnabled = true
+    resetArc()
   })
 
   it('enables and disables knowledge graph engine', async () => {
     // Test Disable
-    await knowledgeCall(onDone, ['enable', 'no'])
+    const res1 = await knowledgeCallWithCapture('enable no')
     expect(getGlobalConfig().knowledgeGraphEnabled).toBe(false)
-    expect(lastResult).toContain('disabled')
+    expect(res1).toContain('disabled')
 
     // Test Enable
-    await knowledgeCall(onDone, ['enable', 'yes'])
+    const res2 = await knowledgeCallWithCapture('enable yes')
     expect(getGlobalConfig().knowledgeGraphEnabled).toBe(true)
-    expect(lastResult).toContain('enabled')
+    expect(res2).toContain('enabled')
   })
 
   it('clears the knowledge graph', async () => {
@@ -33,13 +39,13 @@ describe('knowledge command', () => {
     expect(Object.keys(getArc()!.knowledgeGraph.entities).length).toBe(1)
 
     // Clear it
-    await knowledgeCall(onDone, ['clear'])
+    const res = await knowledgeCallWithCapture('clear')
     expect(Object.keys(getArc()!.knowledgeGraph.entities).length).toBe(0)
-    expect(lastResult).toContain('cleared')
+    expect(res).toContain('cleared')
   })
 
   it('shows error on unknown subcommand', async () => {
-    await knowledgeCall(onDone, ['invalid'])
-    expect(lastResult).toContain('Unknown subcommand')
+    const res = await knowledgeCallWithCapture('invalid')
+    expect(res).toContain('Unknown subcommand')
   })
 })
