@@ -31,25 +31,36 @@ afterEach(() => {
   }
 })
 
-test('deepseek-chat uses provider-specific context and output caps', () => {
+test('deepseek-v4-flash uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('deepseek-v4-flash')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('deepseek-v4-flash')).toEqual({
+    default: 262_144,
+    upperLimit: 262_144,
+  })
+  expect(getMaxOutputTokensForModel('deepseek-v4-flash')).toBe(262_144)
+})
+
+test('deepseek legacy aliases keep their documented provider caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
 
   expect(getContextWindowForModel('deepseek-chat')).toBe(128_000)
-  expect(getModelMaxOutputTokens('deepseek-chat')).toEqual({
-    default: 8_192,
-    upperLimit: 8_192,
-  })
+  expect(getContextWindowForModel('deepseek-reasoner')).toBe(128_000)
   expect(getMaxOutputTokensForModel('deepseek-chat')).toBe(8_192)
+  expect(getMaxOutputTokensForModel('deepseek-reasoner')).toBe(65_536)
 })
 
-test('deepseek-chat clamps oversized max output overrides to the provider limit', () => {
+test('deepseek-v4-flash clamps oversized max output overrides to the provider limit', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '32000'
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '500000'
   delete process.env.OPENAI_MODEL
 
-  expect(getMaxOutputTokensForModel('deepseek-chat')).toBe(8_192)
+  expect(getMaxOutputTokensForModel('deepseek-v4-flash')).toBe(262_144)
 })
 
 test('gpt-4o uses provider-specific context and output caps', () => {

@@ -174,7 +174,7 @@ export function getProviderPresetDefaults(
         provider: 'openai',
         name: 'DeepSeek',
         baseUrl: 'https://api.deepseek.com/v1',
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner',
         apiKey: '',
         requiresApiKey: true,
       }
@@ -839,7 +839,7 @@ export function persistActiveProviderProfileModel(
 
 /**
  * Generate model options from a provider profile's model field.
- * Each comma-separated model becomes a separate option in the picker.
+ * Each parsed model becomes a separate option in the picker.
  */
 export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] {
   const models = parseModelList(profile.model)

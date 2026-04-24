@@ -590,6 +590,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('http://127.0.0.1:1337/v1')
     expect(defaults.requiresApiKey).toBe(false)
   })
+
+  test('deepseek preset defaults to DeepSeek V4 flash and exposes flash/pro aliases', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('deepseek')
+
+    expect(defaults.provider).toBe('openai')
+    expect(defaults.name).toBe('DeepSeek')
+    expect(defaults.baseUrl).toBe('https://api.deepseek.com/v1')
+    expect(defaults.model).toBe(
+      'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner',
+    )
+    expect(defaults.requiresApiKey).toBe(true)
+  })
 })
 
 describe('setActiveProviderProfile', () => {
@@ -652,6 +666,45 @@ describe('setActiveProviderProfile', () => {
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'http://localhost:11434/v1',
         OPENAI_MODEL: 'llama3.1:8b',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists primary model for keyed openai-compatible multi-model profiles', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    process.chdir(tempDir)
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const deepSeekProfile = buildProfile({
+        id: 'deepseek_prof',
+        name: 'DeepSeek',
+        provider: 'openai',
+        baseUrl: 'https://api.deepseek.com/v1',
+        model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat',
+        apiKey: 'sk-deepseek-live',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [deepSeekProfile],
+      }))
+
+      const result = setActiveProviderProfile('deepseek_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('deepseek_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
+        OPENAI_MODEL: 'deepseek-v4-flash',
+        OPENAI_API_KEY: 'sk-deepseek-live',
       })
     } finally {
       process.chdir(originalCwd)

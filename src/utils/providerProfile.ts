@@ -15,6 +15,7 @@ import {
 } from './providerRecommendation.js'
 import { readGeminiAccessToken } from './geminiCredentials.js'
 import { getOllamaChatBaseUrl } from './providerDiscovery.js'
+import { getPrimaryModel } from './providerModels.js'
 import { getProviderValidationError } from './providerValidation.js'
 import {
   maskSecretForDisplay,

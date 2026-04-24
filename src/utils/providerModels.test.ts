@@ -16,6 +16,21 @@ describe('parseModelList', () => {
     ])
   })
 
+  test('splits semicolon-separated models', () => {
+    expect(parseModelList('glm-4.7; glm-4.7-flash')).toEqual([
+      'glm-4.7',
+      'glm-4.7-flash',
+    ])
+  })
+
+  test('splits mixed comma- and semicolon-separated models', () => {
+    expect(parseModelList('gpt-5.4; gpt-5.4-mini, o3')).toEqual([
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'o3',
+    ])
+  })
+
   test('returns single model in an array', () => {
     expect(parseModelList('llama3.1:8b')).toEqual(['llama3.1:8b'])
   })
