@@ -104,13 +104,19 @@ export function getTodoReminderDelta(
   }> = []
   for (const item of current) {
     const priorStatus = announcedStatusById.get(item.id)
+    // Normalize status — a missing or undefined value at either end is
+    // coerced to '' so the compare never trips a false "statusChanged"
+    // against `undefined`. TodoSnapshotItem.status is typed as string,
+    // but this guards runtime-built snapshots (e.g. malformed upstream
+    // data) from flipping into phantom status-change emissions.
+    const currentStatus = item.status ?? ''
     if (priorStatus === undefined) {
-      added.push(item)
-    } else if (priorStatus !== item.status) {
+      added.push({ ...item, status: currentStatus })
+    } else if (priorStatus !== currentStatus) {
       statusChanged.push({
         id: item.id,
         priorStatus,
-        newStatus: item.status,
+        newStatus: currentStatus,
         text: item.text,
       })
     }

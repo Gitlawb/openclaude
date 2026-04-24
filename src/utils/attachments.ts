@@ -1699,10 +1699,21 @@ async function getGitStatusDeltaAttachment(
 }
 
 /**
- * Nested-memory delta attachment — diffs the current set of
- * nested_memory attachments (already emitted earlier in this turn)
- * against prior memory_delta attachments. Emits only added/changed
- * content and retraction names. See src/utils/memoryDelta.ts.
+ * Nested-memory delta attachment — reconstructs the current nested
+ * memory set from `nested_memory` attachments emitted in PRIOR turns
+ * (already part of `messages`), diffs against prior `memory_delta`
+ * attachments, and emits only added/changed content + retraction
+ * names. See src/utils/memoryDelta.ts.
+ *
+ * 📌 NOT A RACE: although this wrapper runs in the same Promise.all
+ * batch as `getNestedMemoryAttachments` (see `allThreadAttachments`
+ * in getAttachments), it reads `messages` — the INPUT parameter,
+ * which is the accumulated conversation up through the last completed
+ * turn. New outputs of THIS turn aren't in `messages` yet; they get
+ * appended by the caller after getAttachments returns. So the scanner
+ * only ever sees prior-turn `nested_memory`, and that is by design:
+ *   Turn 1: scanner sees no prior nested_memory → returns null.
+ *   Turn 2+: scanner sees turn 1's nested_memory → emits memory_delta.
  *
  * ⚠️ INTENTIONAL ASYMMETRY vs the three sibling Phase-2 deltas
  * (`claudeMdDelta`, `gitStatusDelta`, `todoReminderDelta`). Those three
@@ -1710,22 +1721,22 @@ async function getGitStatusDeltaAttachment(
  * `filterStaticDedupKeys` (in src/utils/api.ts) strips `claudeMd` /
  * `gitStatus` from the system/user context so they only flow through
  * the delta. memory_delta, by contrast, COEXISTS with raw
- * `nested_memory` on turn 1 and emits its delta on turn 2+ — which
- * means turn 2 carries the same memory content TWICE (raw + delta)
- * before stabilizing from turn 3+.
+ * `nested_memory` — raw still fires every turn because downstream
+ * consumers (claude.ts::getSystemBlocksWithScope prompt-cache scoping;
+ * getUserContext memory injection) read `nested_memory` directly and
+ * don't understand the delta shape yet. The result: turn 2 carries
+ * memory content twice (raw + delta) before stabilizing from turn 3+.
  *
- * WHY kept this way: `nested_memory` is consumed by code paths outside
- * the dedup pipeline that don't understand the delta shape yet — the
- * prompt-cache scoping logic in `claude.ts::getSystemBlocksWithScope`
- * and memory injection in `getUserContext` both read `nested_memory`
- * directly. Suppressing raw `nested_memory` when dedup=on would
- * silently break those consumers until each is migrated.
+ * Model-context invariant: the model NEVER loses access to memory
+ * because raw nested_memory continues emitting on every turn. The
+ * delta is a COMPLEMENT that sets up future savings once consumers
+ * migrate — not a replacement that could drop content.
  *
- * TODO(follow-up, separate PR): teach those consumers to read from
- * `memory_delta`, then gate raw `nested_memory` behind
- * `!isStaticDedupEnabled()` to match the other three. Expected
- * additional savings: ~9KB per turn 2 of redundant memory content on
- * 3P providers without cache.
+ * TODO(follow-up, separate PR): teach getSystemBlocksWithScope and
+ * getUserContext to read from `memory_delta`, then gate raw
+ * `nested_memory` behind `!isStaticDedupEnabled()` to match the other
+ * three deltas. Expected additional savings: ~9KB per turn 2+ of
+ * redundant memory content on 3P providers without cache.
  */
 function getMemoryDeltaAttachment(
   messages: Message[] | undefined,

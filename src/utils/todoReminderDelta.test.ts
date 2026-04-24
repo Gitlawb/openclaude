@@ -111,4 +111,31 @@ describe('getTodoReminderDelta', () => {
     expect(delta.added.map(x => x.id)).toEqual(['a', 'z'])
     expect(delta.snapshot.map(x => x.id)).toEqual(['a', 'z'])
   })
+
+  // Defensive: `status` is typed as string, but runtime-built snapshots
+  // from upstream helpers could theoretically pass undefined. The
+  // scanner must NOT interpret undefined as a status transition.
+  test('status defensive: undefined status is treated as empty string, not as transition', () => {
+    const withEmpty = getTodoReminderDelta(
+      [{ id: 'x', status: '' as unknown as string, text: 'no status' }],
+      [],
+    )!
+    expect(withEmpty.added[0]!.status).toBe('')
+
+    // Simulate a prior delta that announced 'x' with empty status.
+    const priorSnapshot: FakeMsg = {
+      type: 'attachment',
+      attachment: {
+        type: 'todo_reminder_delta',
+        snapshot: [{ id: 'x', status: '' }],
+      },
+    }
+    // Same item, same status: must be a no-op (not a phantom change).
+    expect(
+      getTodoReminderDelta(
+        [{ id: 'x', status: '' as unknown as string, text: 'no status' }],
+        [priorSnapshot],
+      ),
+    ).toBeNull()
+  })
 })
