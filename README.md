@@ -13,7 +13,25 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, A
 OpenClaude is also mirrored to GitLawb:
 [gitlawb.com/node/repos/z6MkqDnb/openclaude](https://gitlawb.com/node/repos/z6MkqDnb/openclaude)
 
-[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
+[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Sponsors](#sponsors) | [Community](#community)
+
+## Sponsors
+
+<p align="center">
+  <a href="https://gitlawb.com">
+    <img src="https://gitlawb.com/logo.png" alt="GitLawb logo" width="96">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://bankr.bot">
+    <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="96">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://gitlawb.com"><strong>GitLawb</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
+</p>
 
 ## Star History
 
