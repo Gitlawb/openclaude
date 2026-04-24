@@ -617,7 +617,7 @@ export type GlobalConfig = {
  * a factory gives fresh refs at zero clone cost.
  */
 function createDefaultGlobalConfig(): GlobalConfig {
-  return {
+  const config: GlobalConfig = {
     numStartups: 0,
     installMethod: undefined,
     autoUpdates: undefined,
@@ -658,6 +658,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     openaiAdditionalModelOptionsCacheByProfile: {},
     knowledgeGraphEnabled: true,
   }
+  return config
 }
 
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = createDefaultGlobalConfig()
