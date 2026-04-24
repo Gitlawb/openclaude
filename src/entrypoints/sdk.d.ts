@@ -91,33 +91,58 @@ export type McpServerStatus = {
   }[]
 }
 
-export type PermissionResult =
-  | {
-      behavior: 'allow'
-      updatedInput?: Record<string, unknown>
-      updatedPermissions?: unknown[]
-      toolUseID?: string
-      decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
-    }
-  | {
-      behavior: 'deny'
-      message: string
-      interrupt?: boolean
-      toolUseID?: string
-      decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
-    }
+export type PermissionResult = ({
+  behavior: 'allow'
+  updatedInput?: Record<string, unknown>
+  updatedPermissions?: ({
+    type: 'addRules'
+    rules: { toolName: string; ruleContent?: string }[]
+    behavior: 'allow' | 'deny' | 'ask'
+    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
+  }) | ({
+    type: 'replaceRules'
+    rules: { toolName: string; ruleContent?: string }[]
+    behavior: 'allow' | 'deny' | 'ask'
+    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
+  }) | ({
+    type: 'removeRules'
+    rules: { toolName: string; ruleContent?: string }[]
+    behavior: 'allow' | 'deny' | 'ask'
+    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
+  }) | ({
+    type: 'setMode'
+    mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk'
+    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
+  }) | ({
+    type: 'addDirectories'
+    directories: string[]
+    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
+  }) | ({
+    type: 'removeDirectories'
+    directories: string[]
+    destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
+  })[]
+  toolUseID?: string
+  decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
+}) | ({
+  behavior: 'deny'
+  message: string
+  interrupt?: boolean
+  toolUseID?: string
+  decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject'
+})
 
 export type SDKSessionInfo = {
-  session_id: string
+  sessionId: string
   summary: string
-  last_modified: number
-  file_size?: number
-  custom_title?: string
-  first_prompt?: string
-  git_branch?: string
+  lastModified: number
+  fileSize?: number
+  customTitle?: string
+  firstPrompt?: string
+  gitBranch?: string
   cwd?: string
   tag?: string
-  created_at?: number
+  createdAt?: number
 }
 
 export type ListSessionsOptions = {
@@ -149,7 +174,7 @@ export type ForkSessionOptions = {
 }
 
 export type ForkSessionResult = {
-  session_id: string
+  sessionId: string
 }
 
 export type SessionMessage = {
@@ -157,95 +182,15 @@ export type SessionMessage = {
   content: unknown
   timestamp?: string
   uuid?: string
-  parent_uuid?: string | null
+  parentUuid?: string | null
   [key: string]: unknown
 }
 
-export type SDKMessage = {
-  type: string
-  uuid?: string
-  message?: unknown
-  parent_tool_use_id?: string | null
-  timestamp?: string
-  session_id?: string
-  [key: string]: unknown
-}
-
-export type SDKUserMessage = {
-  type: 'user'
-  message: Record<string, unknown> & { role: 'user'; content: string | Array<unknown> }
-  parent_tool_use_id: string | null
-  isSynthetic?: boolean
-  tool_use_result?: unknown
-  priority?: 'now' | 'next' | 'later'
-  timestamp?: string
-  uuid?: string
-  session_id?: string
-}
-
-export type SDKResultMessage = SDKMessage & (
-  | {
-      type: 'result'
-      subtype: 'success'
-      is_error: boolean
-      duration_ms: number
-      duration_api_ms: number
-      num_turns: number
-      result: string
-      stop_reason: string | null
-      total_cost_usd: number
-      usage: Record<string, number>
-      modelUsage: Record<string, {
-        inputTokens: number
-        outputTokens: number
-        cacheReadInputTokens: number
-        cacheCreationInputTokens: number
-        webSearchRequests: number
-        costUSD: number
-        contextWindow: number
-        maxOutputTokens: number
-      }>
-      permission_denials: {
-        tool_name: string
-        tool_use_id: string
-        tool_input: Record<string, unknown>
-      }[]
-      structured_output?: unknown
-      fast_mode_state?: 'off' | 'cooldown' | 'on'
-      uuid: string
-      session_id: string
-    }
-  | {
-      type: 'result'
-      subtype: 'error_during_execution' | 'error_max_turns' | 'error_max_budget_usd' | 'error_max_structured_output_retries'
-      is_error: boolean
-      duration_ms: number
-      duration_api_ms: number
-      num_turns: number
-      stop_reason: string | null
-      total_cost_usd: number
-      usage: Record<string, number>
-      modelUsage: Record<string, {
-        inputTokens: number
-        outputTokens: number
-        cacheReadInputTokens: number
-        cacheCreationInputTokens: number
-        webSearchRequests: number
-        costUSD: number
-        contextWindow: number
-        maxOutputTokens: number
-      }>
-      permission_denials: {
-        tool_name: string
-        tool_use_id: string
-        tool_input: Record<string, unknown>
-      }[]
-      errors: string[]
-      fast_mode_state?: 'off' | 'cooldown' | 'on'
-      uuid: string
-      session_id: string
-    }
-)
+// Re-export precise SDK message types from generated types
+// These use camelCase field names and discriminated unions for full IntelliSense
+export type { SDKMessage as SDKMessage } from './sdk/coreTypes.generated.js'
+export type { SDKUserMessage as SDKUserMessage } from './sdk/coreTypes.generated.js'
+export type { SDKResultMessage as SDKResultMessage } from './sdk/coreTypes.generated.js'
 
 // ============================================================================
 // Query types
@@ -358,7 +303,8 @@ export type SDKPermissionRequestMessage = {
   tool_name: string
   tool_use_id: string
   input: Record<string, unknown>
-  session_id?: string
+  uuid: string
+  session_id: string
 }
 
 export type SDKPermissionTimeoutMessage = {
@@ -366,6 +312,8 @@ export type SDKPermissionTimeoutMessage = {
   tool_name: string
   tool_use_id: string
   timed_out_after_ms: number
+  uuid: string
+  session_id: string
 }
 
 // ============================================================================
