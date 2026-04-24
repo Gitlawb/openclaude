@@ -32,17 +32,32 @@ const DEFAULT_CONFIG: Required<SlidingWindowConfig> = {
 }
 
 function calculateImportance(message: Message, preserveTools: boolean, preserveErrors: boolean): number {
-  const content = typeof message.message?.content === 'string'
-    ? message.message.content
-    : ''
-
   let score = 0.3
+  const content = message.message?.content
 
-  if (preserveTools && (content.includes('tool_use') || content.includes('function_call'))) {
+  // Handle structured content blocks
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (typeof block !== 'object' || block === null) continue
+      
+      if (preserveTools && (block.type === 'tool_use' || block.type === 'tool_use_block')) {
+        score += 0.4
+      }
+      
+      if (preserveErrors && block.type === 'tool_result' && 'is_error' in block && block.is_error) {
+        score += 0.4
+      }
+    }
+  }
+
+  // Fallback to string content check
+  const textContent = typeof content === 'string' ? content : ''
+  
+  if (preserveTools && (textContent.includes('tool_use') || textContent.includes('function_call'))) {
     score += 0.4
   }
 
-  if (preserveErrors && (content.includes('error') || content.includes('fail'))) {
+  if (preserveErrors && (textContent.includes('error') || textContent.includes('fail'))) {
     score += 0.4
   }
 
@@ -57,7 +72,7 @@ function calculateImportance(message: Message, preserveTools: boolean, preserveE
     score += 0.1
   }
 
-  if (content.includes('important') || content.includes('critical')) {
+  if (textContent.includes('important') || textContent.includes('critical')) {
     score += 0.15
   }
 
@@ -79,16 +94,8 @@ export function createSlidingWindow(
 ): SlidingWindowState {
   const cfg = { ...DEFAULT_CONFIG, ...config }
 
-  if (messages.length <= cfg.minMessages) {
-    const totalTokens = messages.reduce((sum, m) => sum + getMessageTokens(m), 0)
-    return {
-      messages,
-      totalTokens,
-      droppedCount: 0,
-      windowStartTime: Date.now(),
-    }
-  }
-
+  // Always enforce maxTokens - apply sliding even for small message counts
+  // to ensure budget is respected
   const recentMessages = messages.slice(-cfg.preserveRecent)
 
   const olderMessages = messages.slice(0, -cfg.preserveRecent).map((msg, idx) => ({
@@ -105,7 +112,7 @@ export function createSlidingWindow(
   let droppedCount = 0
 
   for (const item of olderMessages) {
-    if (totalTokens + item.tokens <= cfg.maxTokens && selected.length < olderMessages.length - droppedCount) {
+    if (totalTokens + item.tokens <= cfg.maxTokens) {
       selected.push(item.message)
       totalTokens += item.tokens
     } else {

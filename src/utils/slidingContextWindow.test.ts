@@ -15,54 +15,54 @@ function createMessage(role: string, content: string, createdAt: number = Date.n
 
 describe('slidingContextWindow', () => {
   describe('createSlidingWindow', () => {
-    it('creates window within token limit', () => {
+    it('enforces maxTokens limit', () => {
       const messages = [
-        createMessage('user', 'Hello world'),
-        createMessage('assistant', 'Hi there'),
-        createMessage('user', 'Help with code'),
-        createMessage('assistant', 'What do you need?'),
+        createMessage('user', 'A'.repeat(1000), 1000),
+        createMessage('user', 'B'.repeat(1000), 2000),
+        createMessage('user', 'C'.repeat(1000), 3000),
+        createMessage('user', 'Recent', Date.now()),
       ]
 
-      const state = createSlidingWindow(messages, { maxTokens: 10000 })
+      const state = createSlidingWindow(messages, { maxTokens: 100, preserveRecent: 1 })
 
-      expect(state.totalTokens).toBeGreaterThan(0)
-      expect(state.messages.length).toBeGreaterThan(0)
+      expect(state.totalTokens).toBeLessThanOrEqual(1000)
     })
 
-    it('preserves recent messages', () => {
+    it('never drops preserved recent messages', () => {
       const messages = [
-        createMessage('user', 'Old message', 1000),
-        createMessage('assistant', 'Old response', 2000),
-        createMessage('user', 'Recent message', Date.now()),
+        createMessage('user', 'Old', 1000),
+        createMessage('user', 'Old2', 2000),
+        createMessage('user', 'Recent1', Date.now()),
+        createMessage('user', 'Recent2', Date.now()),
       ]
 
-      const state = createSlidingWindow(messages, { maxTokens: 10000, preserveRecent: 2 })
+      const state = createSlidingWindow(messages, { maxTokens: 100, preserveRecent: 2 })
+      const recentCount = state.messages.filter(m => 
+        (m.message?.created_at ?? 0) >= Date.now() - 1000
+      ).length
 
-      expect(state.messages.length).toBeGreaterThan(0)
+      expect(recentCount).toBeGreaterThanOrEqual(2)
     })
 
-    it('preserves tool calls', () => {
-      const messages = [
-        createMessage('user', 'Regular message', 1000),
-        createMessage('assistant', 'Using tool_use to check file', 2000),
-      ]
+    it('handles structured content blocks', () => {
+      const messages = [{
+        message: { 
+          role: 'assistant', 
+          content: [
+            { type: 'tool_use', id: 'tool1', name: 'read' },
+            { type: 'text', text: 'result here' }
+          ], 
+          id: 'test', 
+          type: 'message', 
+          created_at: Date.now() 
+        },
+        sender: 'assistant',
+      }]
 
       const state = createSlidingWindow(messages, { maxTokens: 10000, preserveTools: true })
 
-      expect(state.messages.length).toBeGreaterThan(0)
-    })
-
-    it('drops messages when over limit', () => {
-      const messages = [
-        createMessage('user', 'Message 1', 1000),
-        createMessage('user', 'Message 2', 2000),
-        createMessage('user', 'Message 3', 3000),
-        createMessage('user', 'Message 4', 4000),
-      ]
-
-      const state = createSlidingWindow(messages, { maxTokens: 50 })
-
-      expect(state.droppedCount).toBeGreaterThanOrEqual(0)
+      expect(state.messages.length).toBe(1)
+      expect(state.totalTokens).toBeGreaterThan(0)
     })
   })
 
