@@ -3415,10 +3415,7 @@ test('Moonshot: echoes reasoning_content on assistant tool-call messages', async
   )
 })
 
-test('non-Moonshot providers do NOT receive reasoning_content on assistant messages', async () => {
-  // Guard: only Moonshot opts in. DeepSeek/OpenRouter/etc. receive the
-  // outgoing assistant message without reasoning_content to avoid
-  // unknown-field rejections from strict servers.
+test('DeepSeek echoes reasoning_content on assistant tool-call messages', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
   process.env.OPENAI_API_KEY = 'sk-deepseek'
 
@@ -3428,7 +3425,7 @@ test('non-Moonshot providers do NOT receive reasoning_content on assistant messa
     return new Response(
       JSON.stringify({
         id: 'chatcmpl-1',
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-flash',
         choices: [
           { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
         ],
@@ -3440,7 +3437,7 @@ test('non-Moonshot providers do NOT receive reasoning_content on assistant messa
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   await client.beta.messages.create({
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     system: 'test',
     messages: [
       { role: 'user', content: 'hi' },
@@ -3473,7 +3470,7 @@ test('non-Moonshot providers do NOT receive reasoning_content on assistant messa
     m => m.role === 'assistant' && Array.isArray(m.tool_calls),
   )
   expect(assistantWithToolCall).toBeDefined()
-  expect(assistantWithToolCall?.reasoning_content).toBeUndefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe('thought')
 })
 
 test('Moonshot: cn host is also detected', async () => {
@@ -3506,6 +3503,112 @@ test('Moonshot: cn host is also detected', async () => {
   })
 
   expect(requestBody?.store).toBeUndefined()
+})
+
+test('DeepSeek sends thinking toggle and normalized reasoning effort', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-pro',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-pro',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+    thinking: { type: 'enabled' },
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+  expect(requestBody?.max_tokens).toBe(64)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('DeepSeek omits thinking controls when the Anthropic-side request does not set them', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-flash',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(requestBody?.thinking).toBeUndefined()
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+})
+
+test('DeepSeek forwards an explicit thinking disable toggle for V4 models', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-flash',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 32,
+    stream: false,
+    thinking: { type: 'disabled' },
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'disabled' })
+  expect(requestBody?.reasoning_effort).toBeUndefined()
 })
 
 

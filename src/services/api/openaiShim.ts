@@ -88,6 +88,9 @@ const MOONSHOT_API_HOSTS = new Set([
   'api.moonshot.ai',
   'api.moonshot.cn',
 ])
+const DEEPSEEK_API_HOSTS = new Set([
+  'api.deepseek.com',
+])
 
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
@@ -160,6 +163,21 @@ function isMoonshotBaseUrl(baseUrl: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+function isDeepSeekBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    return DEEPSEEK_API_HOSTS.has(new URL(baseUrl).hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+function normalizeDeepSeekReasoningEffort(
+  effort: 'low' | 'medium' | 'high' | 'xhigh',
+): 'high' | 'max' {
+  return effort === 'xhigh' ? 'max' : 'high'
 }
 
 function formatRetryAfterHint(response: Response): string {
@@ -1487,9 +1505,11 @@ class OpenAIShimMessages {
     )
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       // Moonshot requires every assistant tool-call message to carry
-      // reasoning_content when its thinking feature is active. Echo it back
-      // from the thinking block we captured on the inbound response.
-      preserveReasoningContent: isMoonshotBaseUrl(request.baseUrl),
+      // reasoning_content when its thinking feature is active. DeepSeek does
+      // the same for tool-call turns in thinking mode. Echo it back from the
+      // thinking block we captured on the inbound response.
+      preserveReasoningContent:
+        isMoonshotBaseUrl(request.baseUrl) || isDeepSeekBaseUrl(request.baseUrl),
     })
 
     const body: Record<string, unknown> = {
@@ -1527,8 +1547,9 @@ class OpenAIShimMessages {
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
     const isMoonshot = isMoonshotBaseUrl(request.baseUrl)
+    const isDeepSeek = isDeepSeekBaseUrl(request.baseUrl)
 
-    if ((isGithub || isMistral || isLocal || isMoonshot) && body.max_completion_tokens !== undefined) {
+    if ((isGithub || isMistral || isLocal || isMoonshot || isDeepSeek) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
@@ -1538,12 +1559,33 @@ class OpenAIShimMessages {
     // Moonshot (api.moonshot.ai/.cn) has not published support for the
     // parameter either; strip it preemptively to avoid the same class of
     // error on strict-parse providers.
-    if (isMistral || isGeminiMode() || isMoonshot) {
+    if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek) {
       delete body.store
     }
 
     if (params.temperature !== undefined) body.temperature = params.temperature
     if (params.top_p !== undefined) body.top_p = params.top_p
+
+    if (isDeepSeek) {
+      const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
+      const deepSeekThinkingType =
+        requestedThinkingType === 'disabled'
+          ? 'disabled'
+          : requestedThinkingType === 'enabled' || requestedThinkingType === 'adaptive'
+            ? 'enabled'
+            : undefined
+
+      if (deepSeekThinkingType) {
+        body.thinking = { type: deepSeekThinkingType }
+      }
+
+      if (deepSeekThinkingType === 'enabled') {
+        const effort = request.reasoning?.effort
+        if (effort) {
+          body.reasoning_effort = normalizeDeepSeekReasoningEffort(effort)
+        }
+      }
+    }
 
     if (params.tools && params.tools.length > 0) {
       const converted = convertTools(

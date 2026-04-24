@@ -539,6 +539,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('http://127.0.0.1:1337/v1')
     expect(defaults.requiresApiKey).toBe(false)
   })
+
+  test('deepseek preset defaults to DeepSeek V4 flash and exposes flash/pro aliases', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('deepseek')
+
+    expect(defaults.provider).toBe('openai')
+    expect(defaults.name).toBe('DeepSeek')
+    expect(defaults.baseUrl).toBe('https://api.deepseek.com/v1')
+    expect(defaults.model).toBe(
+      'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner',
+    )
+    expect(defaults.requiresApiKey).toBe(true)
+  })
 })
 
 describe('setActiveProviderProfile', () => {
