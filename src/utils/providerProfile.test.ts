@@ -784,6 +784,22 @@ test('openai profiles ignore poisoned shell model and base url values', () => {
   })
 })
 
+test('openai profiles normalize multi-model profile values to the primary model', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    apiKey: 'sk-live',
+    model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat',
+    baseUrl: 'https://api.deepseek.com/v1',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
+    OPENAI_MODEL: 'deepseek-v4-flash',
+    OPENAI_API_KEY: 'sk-live',
+  })
+})
+
 test('startup env ignores poisoned persisted openai model and base url', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('openai', {

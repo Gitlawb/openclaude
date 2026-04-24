@@ -3473,6 +3473,64 @@ test('DeepSeek echoes reasoning_content on assistant tool-call messages', async 
   expect(assistantWithToolCall?.reasoning_content).toBe('thought')
 })
 
+test('generic OpenAI-compatible providers do not echo reasoning_content on assistant tool-call messages', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-openai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'thought' },
+          { type: 'text', text: 'hello' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBeUndefined()
+})
+
 test('Moonshot: cn host is also detected', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.moonshot.cn/v1'
   process.env.OPENAI_API_KEY = 'sk-moonshot-test'

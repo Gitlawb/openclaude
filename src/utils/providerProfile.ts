@@ -15,6 +15,7 @@ import {
 } from './providerRecommendation.js'
 import { readGeminiAccessToken } from './geminiCredentials.js'
 import { getOllamaChatBaseUrl } from './providerDiscovery.js'
+import { getPrimaryModel } from './providerModels.js'
 import { getProviderValidationError } from './providerValidation.js'
 import {
   maskSecretForDisplay,
@@ -296,6 +297,7 @@ export function buildOpenAIProfileEnv(options: {
 
   const defaultModel = getGoalDefaultOpenAIModel(options.goal)
   const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
+  const requestedModel = sanitizeProviderConfigValue(options.model, secretSource)
   const shellOpenAIModel = sanitizeProviderConfigValue(
     processEnv.OPENAI_MODEL,
     secretSource,
@@ -317,7 +319,7 @@ export function buildOpenAIProfileEnv(options: {
       (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
       DEFAULT_OPENAI_BASE_URL,
     OPENAI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
+      (requestedModel ? getPrimaryModel(requestedModel) : undefined) ||
       (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
       defaultModel,
     OPENAI_API_KEY: key,
