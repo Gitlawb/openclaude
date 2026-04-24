@@ -230,14 +230,16 @@ export async function listOpenAICompatibleModels(options?: {
 }): Promise<string[] | null> {
   const { signal, clear } = withTimeoutSignal(5000)
   try {
+    const baseUrl = getOpenAICompatibleModelsBaseUrl(options?.baseUrl)
+    const isBankr = baseUrl.toLowerCase().includes('bankr')
     const response = await fetch(
-      `${getOpenAICompatibleModelsBaseUrl(options?.baseUrl)}/models`,
+      `${baseUrl}/models`,
       {
         method: 'GET',
         headers: options?.apiKey
-          ? {
-              Authorization: `Bearer ${options.apiKey}`,
-            }
+          ? isBankr
+            ? { 'X-API-Key': options.apiKey }
+            : { Authorization: `Bearer ${options.apiKey}` }
           : undefined,
         signal,
       },

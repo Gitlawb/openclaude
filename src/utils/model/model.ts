@@ -124,7 +124,6 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
       (isOpenAIShimProvider ? process.env.OPENAI_MODEL : undefined) ||
-      (process.env.BANKR_MODEL) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
       setting ||
       undefined

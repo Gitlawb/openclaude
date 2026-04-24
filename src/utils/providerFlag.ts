@@ -155,6 +155,9 @@ export function applyProviderFlag(
       process.env.OPENAI_BASE_URL ??= 'https://llm.bankr.bot/v1'
       process.env.OPENAI_MODEL ??= 'claude-opus-4.6'
       if (model) process.env.OPENAI_MODEL = model
+      if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
+      }
       break
   }
 
