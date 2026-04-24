@@ -31,7 +31,11 @@ const CODEX_ALIAS_MODELS: Record<
   }
 > = {
   codexplan: {
-    model: 'gpt-5.4',
+    model: 'gpt-5.5',
+    reasoningEffort: 'high',
+  },
+  'gpt-5.5': {
+    model: 'gpt-5.5',
     reasoningEffort: 'high',
   },
   'gpt-5.4': {
@@ -58,6 +62,10 @@ const CODEX_ALIAS_MODELS: Record<
   },
   'gpt-5.1-codex-mini': {
     model: 'gpt-5.1-codex-mini',
+  },
+  'gpt-5.5-mini': {
+    model: 'gpt-5.5-mini',
+    reasoningEffort: 'medium',
   },
   'gpt-5.4-mini': {
     model: 'gpt-5.4-mini',

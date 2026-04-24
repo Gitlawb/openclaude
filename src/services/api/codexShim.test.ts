@@ -88,7 +88,7 @@ describe('Codex provider config', () => {
 
     const resolved = resolveProviderRequest({ model: 'codexplan' })
     expect(resolved.transport).toBe('codex_responses')
-    expect(resolved.resolvedModel).toBe('gpt-5.4')
+    expect(resolved.resolvedModel).toBe('gpt-5.5')
     expect(resolved.reasoning).toEqual({ effort: 'high' })
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
   })
@@ -114,7 +114,7 @@ describe('Codex provider config', () => {
 
     expect(resolved.transport).toBe('chat_completions')
     expect(resolved.baseUrl).toBe('http://127.0.0.1:8080/v1')
-    expect(resolved.resolvedModel).toBe('gpt-5.4')
+    expect(resolved.resolvedModel).toBe('gpt-5.5')
   })
 
   test('resolves codexplan to Codex transport even when OPENAI_BASE_URL is the string "undefined"', async () => {
@@ -161,7 +161,7 @@ describe('Codex provider config', () => {
     const resolved = resolveProviderRequest()
     expect(resolved.transport).toBe('codex_responses')
     expect(resolved.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
-    expect(resolved.resolvedModel).toBe('gpt-5.4')
+    expect(resolved.resolvedModel).toBe('gpt-5.5')
   })
 
   test('does not override custom base URL for codexplan (e.g., local provider)', async () => {

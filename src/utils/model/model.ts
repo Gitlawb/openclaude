@@ -178,9 +178,9 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
-  // Codex provider: use user-specified model or default to gpt-5.4
+  // Codex provider: use user-specified model or default to gpt-5.5
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
+    return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -222,7 +222,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
+    return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -258,7 +258,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
+    return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -340,9 +340,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
-  // Codex provider: always use the configured Codex model (default gpt-5.4)
+  // Codex provider: always use the configured Codex model (default gpt-5.5)
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.4'
+    return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
 
   // Ants default to defaultModel from flag config, or Opus 1M if not configured
@@ -506,7 +506,7 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
   }
   // Handle Codex models - show actual model name + resolved model
   if (setting === 'codexplan') {
-    return 'codexplan (gpt-5.4)'
+    return 'codexplan (gpt-5.5)'
   }
   if (setting === 'codexspark') {
     return 'codexspark (gpt-5.3-codex-spark)'
@@ -527,6 +527,8 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
   if (getAPIProvider() === 'openai' || getAPIProvider() === 'gemini' || getAPIProvider() === 'codex' || getAPIProvider() === 'github') {
     // Return display names for known GitHub Copilot models
     const copilotModelNames: Record<string, string> = {
+      'gpt-5.5': 'GPT-5.5',
+      'gpt-5.5-mini': 'GPT-5.5 mini',
       'gpt-5.4': 'GPT-5.4',
       'gpt-5.4-mini': 'GPT-5.4 mini',
       'gpt-5.3-codex': 'GPT-5.3 Codex',
@@ -553,6 +555,8 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
     return null
   }
   switch (model) {
+    case 'gpt-5.5':
+      return 'GPT-5.5'
     case 'gpt-5.4':
       return 'GPT-5.4'
     case 'gpt-5.3-codex-spark':
@@ -687,7 +691,7 @@ export function parseUserSpecifiedModel(
 
   // Handle Codex aliases - map to actual model names
   if (modelString === 'codexplan') {
-    return 'gpt-5.4'
+    return 'gpt-5.5'
   }
   if (modelString === 'codexspark') {
     return 'gpt-5.3-codex-spark'
