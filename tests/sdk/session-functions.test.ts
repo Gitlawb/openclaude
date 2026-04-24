@@ -103,10 +103,10 @@ describe('forkSession metadata preservation (COR-2)', () => {
 
     const result = await forkSession(sourceId, { dir: testProjectDir })
 
-    expect(result.session_id).toBeDefined()
-    expect(result.session_id).not.toBe(sourceId)
+    expect(result.sessionId).toBeDefined()
+    expect(result.sessionId).not.toBe(sourceId)
 
-    const forkedPath = join(sessionDir, `${result.session_id}.jsonl`)
+    const forkedPath = join(sessionDir, `${result.sessionId}.jsonl`)
     const forkedEntries = await readJSONLFile<any>(forkedPath)
 
     const titleEntry = forkedEntries.find(e => e.type === 'custom-title')
@@ -114,11 +114,11 @@ describe('forkSession metadata preservation (COR-2)', () => {
 
     expect(titleEntry).toBeDefined()
     expect(titleEntry.customTitle).toBe('My Test Session')
-    expect(titleEntry.sessionId).toBe(result.session_id)
+    expect(titleEntry.sessionId).toBe(result.sessionId)
 
     expect(tagEntry).toBeDefined()
     expect(tagEntry.tag).toBe('important')
-    expect(tagEntry.sessionId).toBe(result.session_id)
+    expect(tagEntry.sessionId).toBe(result.sessionId)
   })
 })
 
@@ -353,8 +353,8 @@ describe('E2E: session lifecycle — create → read → mutate → fork → del
 
     // Step 5: Fork — should create new session with remapped UUIDs
     const forked = await forkSession(sid, { dir: testProjectDir, title: 'Forked Copy' })
-    expect(forked.session_id).not.toBe(sid)
-    const forkedPath = join(sessionDir, `${forked.session_id}.jsonl`)
+    expect(forked.sessionId).not.toBe(sid)
+    const forkedPath = join(sessionDir, `${forked.sessionId}.jsonl`)
     const forkedEntries = await readJSONLFile<any>(forkedPath)
 
     // Forked session should have remapped UUIDs (different from originals)
@@ -379,7 +379,7 @@ describe('E2E: session lifecycle — create → read → mutate → fork → del
     expect(deletedInfo).toBeUndefined()
 
     // Forked session should still be readable
-    const forkedMessages = await getSessionMessages(forked.session_id, { dir: testProjectDir })
+    const forkedMessages = await getSessionMessages(forked.sessionId, { dir: testProjectDir })
     expect(forkedMessages.length).toBeGreaterThanOrEqual(2)
   })
 })
