@@ -15,7 +15,11 @@ describe('knowledge command', () => {
   }
 
   beforeEach(() => {
-    // Reset global config by returning a NEW object (standard pattern to avoid early exit in test helper)
+    // Force set the property on the config object to ensure it's defined
+    const config = getGlobalConfig()
+    config.knowledgeGraphEnabled = true
+    
+    // Also use the standard save path
     saveGlobalConfig(current => ({
       ...current,
       knowledgeGraphEnabled: true
