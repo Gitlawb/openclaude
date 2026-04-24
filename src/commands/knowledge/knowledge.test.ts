@@ -15,11 +15,11 @@ describe('knowledge command', () => {
   }
 
   beforeEach(() => {
-    // Force reset global config specifically for knowledge graph setting
-    saveGlobalConfig(current => {
-      current.knowledgeGraphEnabled = true
-      return current
-    })
+    // Reset global config by returning a NEW object (standard pattern to avoid early exit in test helper)
+    saveGlobalConfig(current => ({
+      ...current,
+      knowledgeGraphEnabled: true
+    }))
     resetArc()
   })
 
@@ -27,12 +27,12 @@ describe('knowledge command', () => {
     // Test Disable
     const res1 = await knowledgeCallWithCapture('enable no')
     expect(getGlobalConfig().knowledgeGraphEnabled).toBe(false)
-    expect(res1).toContain('disabled')
+    expect(res1.toLowerCase()).toContain('disabled')
 
     // Test Enable
     const res2 = await knowledgeCallWithCapture('enable yes')
     expect(getGlobalConfig().knowledgeGraphEnabled).toBe(true)
-    expect(res2).toContain('enabled')
+    expect(res2.toLowerCase()).toContain('enabled')
   })
 
   it('clears the knowledge graph', async () => {

@@ -1,17 +1,18 @@
 import type { LocalCommandCall } from '../../types/command.js';
-import { getArcSummary, resetArc, getArcStats } from '../../utils/conversationArc.js';
+import { getArcSummary, resetArc, getArcStats, getArc } from '../../utils/conversationArc.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import chalk from 'chalk';
 
 export const call: LocalCommandCall = async (args, _context) => {
-  const arg = (args || '').trim().toLowerCase();
+  const arg = (String(args || '')).trim().toLowerCase();
   const splitArgs = arg.split(/\s+/).filter(Boolean);
   const subCommand = splitArgs[0];
 
   if (!subCommand || subCommand === 'status') {
     const config = getGlobalConfig();
     const stats = getArcStats();
-    const entityCount = Object.keys((config as any).knowledgeGraph?.entities || {}).length || 0;
+    const arc = getArc();
+    const entityCount = Object.keys(arc?.knowledgeGraph.entities || {}).length;
     
     const statusText = config.knowledgeGraphEnabled 
       ? chalk.green('ENABLED') 
