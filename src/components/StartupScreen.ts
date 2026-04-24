@@ -148,6 +148,8 @@ export function detectProvider(): { name: string; model: string; baseUrl: string
     else if (/deepseek/i.test(rawModel)) name = 'DeepSeek'
     else if (/mistral/i.test(rawModel)) name = 'Mistral'
     else if (/llama/i.test(rawModel)) name = 'Meta Llama'
+    else if (/bankr/i.test(baseUrl)) name = 'Bankr'
+    else if (/bankr/i.test(rawModel)) name = 'Bankr'
     else if (isLocal) name = getLocalOpenAICompatibleProviderLabel(baseUrl)
     
     // Resolve model alias to actual model name + reasoning effort

@@ -89,6 +89,9 @@ const MOONSHOT_API_HOSTS = new Set([
   'api.moonshot.cn',
 ])
 const KIMI_CODE_API_HOST = 'api.kimi.com'
+const DEEPSEEK_API_HOSTS = new Set([
+  'api.deepseek.com',
+])
 
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
@@ -167,6 +170,21 @@ function isMoonshotCompatibleBaseUrl(baseUrl: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+function isDeepSeekBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    return DEEPSEEK_API_HOSTS.has(new URL(baseUrl).hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+function normalizeDeepSeekReasoningEffort(
+  effort: 'low' | 'medium' | 'high' | 'xhigh',
+): 'high' | 'max' {
+  return effort === 'xhigh' ? 'max' : 'high'
 }
 
 function formatRetryAfterHint(response: Response): string {
@@ -1494,9 +1512,12 @@ class OpenAIShimMessages {
     )
     const openaiMessages = convertMessages(compressedMessages, params.system, {
       // Moonshot/Kimi Code requires every assistant tool-call message to carry
-      // reasoning_content when its thinking feature is active. Echo it back
-      // from the thinking block we captured on the inbound response.
-      preserveReasoningContent: isMoonshotCompatibleBaseUrl(request.baseUrl),
+      // reasoning_content when its thinking feature is active. DeepSeek does
+      // the same for tool-call turns in thinking mode. Echo it back from the
+      // thinking block we captured on the inbound response.
+      preserveReasoningContent:
+        isMoonshotCompatibleBaseUrl(request.baseUrl) ||
+        isDeepSeekBaseUrl(request.baseUrl),
     })
 
     const body: Record<string, unknown> = {
@@ -1534,23 +1555,46 @@ class OpenAIShimMessages {
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
     const isMoonshot = isMoonshotCompatibleBaseUrl(request.baseUrl)
+    const isDeepSeek = isDeepSeekBaseUrl(request.baseUrl)
 
-    if ((isGithub || isMistral || isLocal || isMoonshot) && body.max_completion_tokens !== undefined) {
+    if ((isGithub || isMistral || isLocal || isMoonshot || isDeepSeek) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
 
     // mistral and gemini don't recognize body.store — Gemini returns 400
     // "Invalid JSON payload received. Unknown name 'store': Cannot find field."
-    // Moonshot direct API and Kimi Code's OpenAI-compatible coding endpoint
-    // have not published support for the parameter either; strip it
-    // preemptively to avoid the same class of error on strict-parse providers.
-    if (isMistral || isGeminiMode() || isMoonshot) {
+    // Moonshot direct API, Kimi Code's OpenAI-compatible coding endpoint,
+    // and DeepSeek have not published support for the parameter either;
+    // strip it preemptively to avoid the same class of error on strict-parse
+    // providers.
+    if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek) {
       delete body.store
     }
 
     if (params.temperature !== undefined) body.temperature = params.temperature
     if (params.top_p !== undefined) body.top_p = params.top_p
+
+    if (isDeepSeek) {
+      const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
+      const deepSeekThinkingType =
+        requestedThinkingType === 'disabled'
+          ? 'disabled'
+          : requestedThinkingType === 'enabled' || requestedThinkingType === 'adaptive'
+            ? 'enabled'
+            : undefined
+
+      if (deepSeekThinkingType) {
+        body.thinking = { type: deepSeekThinkingType }
+      }
+
+      if (deepSeekThinkingType === 'enabled') {
+        const effort = request.reasoning?.effort
+        if (effort) {
+          body.reasoning_effort = normalizeDeepSeekReasoningEffort(effort)
+        }
+      }
+    }
 
     if (params.tools && params.tools.length > 0) {
       const converted = convertTools(
@@ -1601,10 +1645,18 @@ class OpenAIShimMessages {
         (hostname.includes('cognitiveservices') || hostname.includes('openai') || hostname.includes('services.ai'))
     } catch { /* malformed URL — not Azure */ }
 
+    let isBankr = false
+    try {
+      isBankr = request.baseUrl.toLowerCase().includes('bankr')
+    } catch { /* malformed URL — not Bankr */ }
+
     if (apiKey) {
       if (isAzure) {
         // Azure uses api-key header instead of Bearer token
         headers['api-key'] = apiKey
+      } else if (isBankr) {
+        // Bankr uses X-API-Key header instead of Bearer token
+        headers['X-API-Key'] = apiKey
       } else {
         headers.Authorization = `Bearer ${apiKey}`
       }
@@ -2157,6 +2209,17 @@ export function createOpenAIShimClient(options: {
     process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE
     process.env.OPENAI_API_KEY ??=
       process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
+  }
+
+  // Map Bankr env vars to OpenAI-compatible ones when present
+  if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
+    process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
+  }
+  if (process.env.BANKR_BASE_URL && !process.env.OPENAI_BASE_URL) {
+    process.env.OPENAI_BASE_URL = process.env.BANKR_BASE_URL
+  }
+  if (process.env.BANKR_MODEL && !process.env.OPENAI_MODEL) {
+    process.env.OPENAI_MODEL = process.env.BANKR_MODEL
   }
 
   const beta = new OpenAIShimBeta({
