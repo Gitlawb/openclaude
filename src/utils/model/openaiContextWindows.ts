@@ -96,7 +96,14 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'o3-mini':                  200_000,
   'o4-mini':                  200_000,
 
-  // DeepSeek (V3: 128k context per official docs)
+  // DeepSeek
+  // V4 series (replaces deprecated V3 models — thinking enabled by default)
+  'deepseek-v4-pro':          128_000,
+  'deepseek-v4-flash':        128_000,
+  // User-facing display names
+  'DeepSeek-V4-Pro':          128_000,
+  'DeepSeek-V4-Flash':        128_000,
+  // Deprecated V3 models (kept for backward compatibility)
   'deepseek-chat':            128_000,
   'deepseek-reasoner':        128_000,
 
@@ -317,6 +324,12 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'o4-mini':                  100_000,
 
   // DeepSeek
+  'deepseek-v4-pro':           32_768,
+  'deepseek-v4-flash':         32_768,
+  // User-facing display names
+  'DeepSeek-V4-Pro':           32_768,
+  'DeepSeek-V4-Flash':         32_768,
+  // Deprecated
   'deepseek-chat':              8_192,
   'deepseek-reasoner':         32_768,
 

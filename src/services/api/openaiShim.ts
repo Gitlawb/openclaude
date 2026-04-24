@@ -1555,6 +1555,7 @@ class OpenAIShimMessages {
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
     const isMoonshot = isMoonshotBaseUrl(request.baseUrl)
+    const isDeepseek = isDeepseekBaseUrl(request.baseUrl)
 
     if ((isGithub || isMistral || isLocal || isMoonshot) && body.max_completion_tokens !== undefined) {
       body.max_tokens = body.max_completion_tokens
@@ -1570,8 +1571,13 @@ class OpenAIShimMessages {
       delete body.store
     }
 
-    if (params.temperature !== undefined) body.temperature = params.temperature
-    if (params.top_p !== undefined) body.top_p = params.top_p
+    // DeepSeek V4+ models have thinking enabled by default and reject
+    // temperature/top_p when thinking is active (the API ignores them
+    // silently but the payload contract expects them stripped).
+    if (!isDeepseek) {
+      if (params.temperature !== undefined) body.temperature = params.temperature
+      if (params.top_p !== undefined) body.top_p = params.top_p
+    }
 
     if (params.tools && params.tools.length > 0) {
       const converted = convertTools(
@@ -1599,6 +1605,13 @@ class OpenAIShimMessages {
           }
         }
       }
+    }
+
+    // DeepSeek V4+ models require thinking mode to be explicitly enabled
+    // via extra_body. Without it, the V4 endpoint may hang or reject the
+    // request. Pass the thinking toggle for all DeepSeek API hosts.
+    if (isDeepseek) {
+      body.extra_body = { thinking: { type: 'enabled' } }
     }
 
     const headers: Record<string, string> = {
