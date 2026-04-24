@@ -37,6 +37,9 @@ const DEFAULT_CONFIG: Required<HybridConfig> = {
   costThreshold: 0.01,
 }
 
+// Always keep last 3 messages (recent user turn + assistant response + tools)
+const MIN_TAILMessages = 3
+
 function getCacheAge(message: Message): number {
   const created = message.message?.created_at ?? 0
   if (created === 0) return 1000
@@ -116,7 +119,12 @@ export function applyHybridStrategy(
   config: HybridConfig,
 ): HybridStrategyResult {
   const cfg = { ...DEFAULT_CONFIG, ...config }
-  const split = splitContext(messages, cfg)
+  
+  // Always preserve the conversation tail (last N messages)
+  const tailMessages = messages.slice(-MIN_TAILMessages)
+  const coreMessages = messages.slice(0, -MIN_TAILMessages)
+  
+  const split = splitContext(coreMessages, cfg)
 
   let strategy: HybridStrategyResult['strategy'] = 'balanced'
   if (split.cachedTokens > split.freshTokens * 1.5) {
@@ -125,7 +133,7 @@ export function applyHybridStrategy(
     strategy = 'fresh_heavy'
   }
 
-  const selectedMessages = [...split.cached, ...split.fresh].sort(
+  const selectedMessages = [...split.cached, ...split.fresh, ...tailMessages].sort(
     (a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0)
   )
 

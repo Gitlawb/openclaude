@@ -84,7 +84,7 @@ export function predictContextNeeds(
 
     if (confidence > highestConfidence && confidence >= threshold) {
       highestConfidence = confidence
-      matchedCategory = matchedCategory
+      matchedCategory = category
     }
   }
 

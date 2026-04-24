@@ -59,6 +59,20 @@ describe('contextPreload', () => {
       })
 
       expect(prediction.confidence).toBeGreaterThan(0)
+      expect(prediction.predictedNeed.length).toBeGreaterThan(0)
+    })
+
+    it('returns non-empty predictedNeed when pattern matches', () => {
+      const patterns = [
+        { userQuery: 'debug', neededContext: ['error_history', 'stack_trace'], frequency: 2 },
+      ]
+
+      const prediction = predictContextNeeds('debug this error', patterns, {
+        maxPreloadTokens: 10000,
+        confidenceThreshold: 0.1,
+      })
+
+      expect(prediction.predictedNeed).toContain('error_history')
     })
   })
 

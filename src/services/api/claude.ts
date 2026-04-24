@@ -1286,6 +1286,7 @@ async function* queryModel(
   // Apply hybrid context strategy for optimal cache/fresh balance
   if (feature('HYBRID_CONTEXT_STRATEGY')) {
     const { applyHybridStrategy } = await import('../../utils/hybridContextStrategy.js')
+    // Cap at 200k to avoid edge case with very large context windows
     const strategyResult = applyHybridStrategy(messagesForAPI, {
       cacheWeight: 0.4,
       freshWeight: 0.6,
