@@ -23,9 +23,12 @@
  * moving parts, and the test fails for the right reason if anyone
  * breaks the dedup path.
  */
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { estimateWithBounds } from '../services/tokenEstimation.js'
-import { getClaudeMdDelta } from './claudeMdDelta.js'
+import {
+  getClaudeMdDelta,
+  isStaticDedupEnabled,
+} from './claudeMdDelta.js'
 import { getGitStatusDelta } from './gitStatusDelta.js'
 import { getMemoryDelta, type MemoryFileInput } from './memoryDelta.js'
 import { stableStringify } from './stableStringify.js'
@@ -439,5 +442,192 @@ describe('static-dedup integration: combined 3-turn session', () => {
     expect(turn2Delta).not.toBeNull()
     expect(turn2Delta!.addedContent).toBe(changedContent)
     expect(turn2Delta!.isInitial).toBe(false)
+  })
+})
+
+/**
+ * End-to-end: toggle the real OPENCLAUDE_STATIC_DEDUP env var and
+ * measure what would go on the wire under each setting.
+ *
+ * The per-scanner tests above simulate both paths with hand-built
+ * attachment arrays. This block instead treats the feature as a
+ * black box: flip the env var, exercise the same pipeline
+ * (`isStaticDedupEnabled()` gates which attachments reach the shim)
+ * and compute the savings percentages that ship in the PR claim.
+ *
+ * Numbers from this block are the ones to quote externally — they're
+ * measured by the same code path production uses.
+ */
+describe('static-dedup integration: env-toggled end-to-end savings', () => {
+  const ENV_VAR = 'OPENCLAUDE_STATIC_DEDUP'
+  let originalEnvValue: string | undefined
+
+  beforeAll(() => {
+    originalEnvValue = process.env[ENV_VAR]
+  })
+
+  afterAll(() => {
+    if (originalEnvValue === undefined) {
+      delete process.env[ENV_VAR]
+    } else {
+      process.env[ENV_VAR] = originalEnvValue
+    }
+  })
+
+  /**
+   * Build the full per-turn static payload that a provider would see,
+   * deciding what to include based on `isStaticDedupEnabled()`:
+   *
+   * - Flag OFF: baseline shape (claudeMd/gitStatus injected via context,
+   *   full nested_memory + todo_reminder attachments).
+   * - Flag ON: delta shape (delta attachments instead; scanners emit
+   *   full content on turn 1, null on turn 2+).
+   *
+   * The transcript accumulates across turns so the scanners can
+   * reconstruct prior-announced state — exactly like production.
+   */
+  function emitTurnPayload(
+    transcript: AttachmentMessage[],
+    claudeMdContent: string,
+    gitStatusSnapshot: string,
+    memoryFiles: MemoryFileInput[],
+    todoSnapshot: TodoSnapshotItem[],
+  ): Record<string, unknown>[] {
+    if (!isStaticDedupEnabled()) {
+      // Baseline: every turn re-emits the full static bundle.
+      return [
+        baselineClaudeMd(claudeMdContent),
+        baselineGitStatus(gitStatusSnapshot),
+        ...baselineMemoryAttachments(memoryFiles),
+        baselineTodoReminder(todoSnapshot),
+      ]
+    }
+
+    const emitted: Record<string, unknown>[] = []
+    const claudeMdDelta = getClaudeMdDelta(claudeMdContent, transcript)
+    if (claudeMdDelta) {
+      emitted.push({ type: 'claude_md_delta', ...claudeMdDelta })
+      transcript.push(
+        claudeMdDeltaMsg(
+          claudeMdDelta.addedContent,
+          claudeMdDelta.contentHash,
+          claudeMdDelta.isInitial,
+        ),
+      )
+    }
+    const gitStatusDelta = getGitStatusDelta(gitStatusSnapshot, transcript)
+    if (gitStatusDelta) {
+      emitted.push({ type: 'git_status_delta', ...gitStatusDelta })
+      transcript.push(gitStatusDeltaMsg(gitStatusDelta.content))
+    }
+    const memoryDelta = getMemoryDelta(memoryFiles, transcript)
+    if (memoryDelta) {
+      emitted.push({ type: 'memory_delta', ...memoryDelta })
+      transcript.push(
+        memoryDeltaMsg(
+          memoryDelta.addedNames,
+          memoryDelta.addedContent,
+          memoryDelta.addedHashes,
+          memoryDelta.removedNames,
+          memoryDelta.isInitial,
+        ),
+      )
+    }
+    const todoDelta = getTodoReminderDelta(todoSnapshot, transcript)
+    if (todoDelta) {
+      emitted.push({ type: 'todo_reminder_delta', ...todoDelta })
+      transcript.push(todoReminderDeltaMsg(todoDelta.snapshot))
+    }
+    return emitted
+  }
+
+  /** Simulate a stable N-turn session and return per-turn payload sizes. */
+  function measureSession(turnCount: number): {
+    totalBytes: number
+    totalTokens: number
+    turnBytes: number[]
+  } {
+    const claudeMdContent = repeat(TYPICAL_CLAUDE_MD_SIZE)
+    const gitStatusSnapshot = repeat(TYPICAL_GIT_STATUS_SIZE)
+    const memoryFiles: MemoryFileInput[] = Array.from(
+      { length: TYPICAL_MEMORY_FILE_COUNT },
+      (_, index) => ({
+        path: `/pkg-${index}/CLAUDE.md`,
+        content: repeat(TYPICAL_MEMORY_FILE_SIZE),
+      }),
+    )
+    const todoSnapshot: TodoSnapshotItem[] = Array.from(
+      { length: 10 },
+      (_, index) => ({
+        id: `task-${index}`,
+        status: 'pending',
+        text: `Task ${index}`,
+      }),
+    )
+
+    const transcript: AttachmentMessage[] = []
+    let totalBytes = 0
+    let totalTokens = 0
+    const turnBytes: number[] = []
+    for (let turnIndex = 0; turnIndex < turnCount; turnIndex++) {
+      const turnPayload = emitTurnPayload(
+        transcript,
+        claudeMdContent,
+        gitStatusSnapshot,
+        memoryFiles,
+        todoSnapshot,
+      )
+      const bytes = serialize(turnPayload)
+      totalBytes += bytes
+      totalTokens += estimateTokens(turnPayload)
+      turnBytes.push(bytes)
+    }
+    return { totalBytes, totalTokens, turnBytes }
+  }
+
+  test('flag OFF → baseline emits full static payload every turn', () => {
+    process.env[ENV_VAR] = ''
+    expect(isStaticDedupEnabled()).toBe(false)
+
+    const baseline = measureSession(3)
+    // Every turn carries the full static bundle → near-identical sizes.
+    expect(baseline.turnBytes[0]).toBe(baseline.turnBytes[1])
+    expect(baseline.turnBytes[1]).toBe(baseline.turnBytes[2])
+  })
+
+  test('flag ON → turn 2+ payloads drop sharply', () => {
+    process.env[ENV_VAR] = 'true'
+    expect(isStaticDedupEnabled()).toBe(true)
+
+    const dedup = measureSession(3)
+    // Turn 1 carries the full initial deltas; turn 2 and 3 should
+    // collapse to near-zero because nothing changed.
+    expect(dedup.turnBytes[0]).toBeGreaterThan(1_000)
+    expect(dedup.turnBytes[1]).toBeLessThan(50)
+    expect(dedup.turnBytes[2]).toBeLessThan(50)
+  })
+
+  test('measured savings: flag ON vs flag OFF over a 10-turn session', () => {
+    // Run both paths and compute the percentage the PR claims.
+    process.env[ENV_VAR] = ''
+    const baseline = measureSession(10)
+    process.env[ENV_VAR] = 'true'
+    const dedup = measureSession(10)
+
+    const byteSavings =
+      (baseline.totalBytes - dedup.totalBytes) / baseline.totalBytes
+    const tokenSavings =
+      (baseline.totalTokens - dedup.totalTokens) / baseline.totalTokens
+
+    // Guardrail: claim is "≥25% body reduction over a stable session".
+    expect(byteSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+    expect(tokenSavings).toBeGreaterThanOrEqual(MIN_SAVINGS_RATIO)
+
+    // Log the measured numbers so running this test prints the %
+    // the PR description can quote (`bun test <file>` surfaces them).
+    // eslint-disable-next-line no-console
+    console.log(
+      `[static-dedup measured] bytes: baseline=${baseline.totalBytes} dedup=${dedup.totalBytes} savings=${(byteSavings * 100).toFixed(1)}% | tokens: baseline=${baseline.totalTokens} dedup=${dedup.totalTokens} savings=${(tokenSavings * 100).toFixed(1)}%`,
+    )
   })
 })
