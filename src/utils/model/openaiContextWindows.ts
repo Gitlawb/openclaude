@@ -38,6 +38,8 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'github:copilot:gpt-5.2':                  400_000,
   'github:copilot:gpt-5.2-codex':            400_000,
   'github:copilot:gpt-5.3-codex':            400_000,
+  'github:copilot:gpt-5.5':                  400_000,
+  'github:copilot:gpt-5.5-mini':             400_000,
   'github:copilot:gpt-5.4':                  400_000,
   'github:copilot:gpt-5.4-mini':             400_000,
   // Gemini
@@ -60,6 +62,8 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'github_copilot/gpt-4.1':                  128_000,
   'github_copilot/gpt-4o':                   128_000,
   'github_copilot/gpt-5-mini':               264_000,
+  'github_copilot/gpt-5.5':                  400_000,
+  'github_copilot/gpt-5.5-mini':             400_000,
   'github_copilot/gpt-5.4':                  400_000,
   'github_copilot/gpt-5.4-mini':             400_000,
   'github_copilot/gemini-2.5-pro':           128_000,
@@ -71,6 +75,9 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   // limits for the same model name, so we cannot safely hardcode values here.
 
   // OpenAI
+  'gpt-5.5':               1_050_000,
+  'gpt-5.5-mini':            400_000,
+  'gpt-5.5-nano':            400_000,
   'gpt-5.4':               1_050_000,
   'gpt-5.4-mini':            400_000,
   'gpt-5.4-nano':            400_000,
@@ -288,6 +295,9 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   // NOTE: bare Claude model names omitted — see context windows comment above.
 
   // OpenAI
+  'gpt-5.5':                 128_000,
+  'gpt-5.5-mini':            128_000,
+  'gpt-5.5-nano':            128_000,
   'gpt-5.4':                 128_000,
   'gpt-5.4-mini':            128_000,
   'gpt-5.4-nano':            128_000,

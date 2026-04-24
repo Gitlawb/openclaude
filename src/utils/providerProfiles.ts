@@ -153,7 +153,7 @@ export function getProviderPresetDefaults(
         provider: 'openai',
         name: 'OpenAI',
         baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-5.3-codex',
+        model: 'gpt-5.4',
         apiKey: '',
         requiresApiKey: true,
       }
