@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
 import { call as knowledgeCall } from './knowledge.js'
-import { getGlobalConfig } from '../../utils/config.js'
+import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { getArc, addEntity, resetArc } from '../../utils/conversationArc.js'
 
 describe('knowledge command', () => {
@@ -15,9 +15,11 @@ describe('knowledge command', () => {
   }
 
   beforeEach(() => {
-    // Reset config to a known state
-    const config = getGlobalConfig()
-    config.knowledgeGraphEnabled = true
+    // Reset global config specifically for knowledge graph setting
+    saveGlobalConfig(current => ({
+      ...current,
+      knowledgeGraphEnabled: true
+    }))
     resetArc()
   })
 
@@ -36,7 +38,8 @@ describe('knowledge command', () => {
   it('clears the knowledge graph', async () => {
     // Add a fact first
     addEntity('test', 'fact')
-    expect(Object.keys(getArc()!.knowledgeGraph.entities).length).toBe(1)
+    const arc = getArc()
+    expect(Object.keys(arc!.knowledgeGraph.entities).length).toBe(1)
 
     // Clear it
     const res = await knowledgeCallWithCapture('clear')
