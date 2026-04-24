@@ -1,6 +1,9 @@
+import { homedir } from "node:os";
 import { createHttpApp } from "./http";
 import { ensureServerToken } from "./auth";
+import { SessionManager } from "./session";
 import { healthRoute } from "./handlers/health";
+import { sessionsRoutes } from "./handlers/sessions";
 
 export type ServerOpts = {
   port?: number;
@@ -17,7 +20,10 @@ export type ServerHandle = {
 
 export async function startServer(opts: ServerOpts): Promise<ServerHandle> {
   const token = ensureServerToken();
-  const routes = [healthRoute];
+  // SessionManager is constructed per-start (not at module scope) so tests
+  // that rotate process.env.HOME in beforeEach get isolated state each run.
+  const sm = new SessionManager(homedir());
+  const routes = [healthRoute, ...sessionsRoutes(sm)];
   const app = await createHttpApp({
     token,
     routes,
