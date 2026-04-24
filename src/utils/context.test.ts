@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from 'bun:test'
 
-import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
+import { getMaxOutputTokensForModel } from '../services/api/claude.js'
 import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
-} from './context.ts'
+  calculateTokenBudget,
+} from './context.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -93,4 +94,31 @@ test('gpt-5.4 family keeps large max output overrides within provider limits', (
   expect(getMaxOutputTokensForModel('gpt-5.4')).toBe(128_000)
   expect(getMaxOutputTokensForModel('gpt-5.4-mini')).toBe(128_000)
   expect(getMaxOutputTokensForModel('gpt-5.4-nano')).toBe(128_000)
+})
+
+test('calculateTokenBudget uses model-specific output cap', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  
+  const budget = calculateTokenBudget({
+    model: 'deepseek-chat',
+    systemPrompt: 'You are helpful',
+    historyMessages: [{ message: { role: 'user', content: 'hello' } } as any],
+  })
+
+  // Should use model's 8192 output cap, not 20% of context window
+  expect(budget.reserved).toBe(8192)
+  expect(budget.available).toBeLessThan(budget.total)
+})
+
+test('calculateTokenBudget handles numeric history fallback', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  
+  const budget = calculateTokenBudget({
+    model: 'gpt-4o',
+    historyMessages: 10, // 10 messages * 100 tokens
+  })
+
+  // Numeric history should estimate ~100 tokens per message
+  expect(budget.history).toBe(1000)
+  expect(budget.available).toBeGreaterThan(0)
 })
