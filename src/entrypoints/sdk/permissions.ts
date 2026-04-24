@@ -148,6 +148,8 @@ export function createExternalCanUseTool(
         tool_name: tool.name,
         tool_use_id: toolUseID,
         input: input as Record<string, unknown>,
+        uuid: requestId,
+        session_id: toolUseID,
       })
 
       const pendingPromise = permissionTarget.registerPendingPermission(toolUseID)
@@ -178,6 +180,8 @@ export function createExternalCanUseTool(
           tool_name: tool.name,
           tool_use_id: toolUseID,
           timed_out_after_ms: timeoutMs,
+          uuid: toolUseID,
+          session_id: toolUseID,
         })
       }
       console.warn(
