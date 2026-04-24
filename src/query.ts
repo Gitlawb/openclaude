@@ -377,6 +377,16 @@ async function* queryLoop(
 
     let messagesForQuery = [...getMessagesAfterCompactBoundary(messages)]
 
+    // Extract facts and update phase from the latest message (user input or tool result)
+    if (
+      feature('CONVERSATION_ARC') &&
+      getGlobalConfig().knowledgeGraphEnabled &&
+      messagesForQuery.length > 0
+    ) {
+      const { updateArcPhase } = await import('./utils/conversationArc.js')
+      updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
+    }
+
     let tracking = autoCompactTracking
 
     // Enforce per-message budget on aggregate tool result size. Runs BEFORE
