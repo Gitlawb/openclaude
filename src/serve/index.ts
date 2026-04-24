@@ -4,6 +4,15 @@ import { ensureServerToken } from "./auth";
 import { SessionManager } from "./session";
 import { healthRoute } from "./handlers/health";
 import { sessionsRoutes } from "./handlers/sessions";
+import { chatRoute, setMockAgent } from "./handlers/chat";
+
+// Default mock agent — Task 12 will replace with the real OpenClaude engine.
+// Tests override this in beforeEach; the override wins because setMockAgent
+// assigns to a module-level variable.
+setMockAgent(async function* (input) {
+  yield { event: "token", data: { text: `echo: ${input.message}` } };
+  yield { event: "done", data: { finishReason: "stop" } };
+});
 
 export type ServerOpts = {
   port?: number;
@@ -23,7 +32,7 @@ export async function startServer(opts: ServerOpts): Promise<ServerHandle> {
   // SessionManager is constructed per-start (not at module scope) so tests
   // that rotate process.env.HOME in beforeEach get isolated state each run.
   const sm = new SessionManager(homedir());
-  const routes = [healthRoute, ...sessionsRoutes(sm)];
+  const routes = [healthRoute, ...sessionsRoutes(sm), chatRoute(sm)];
   const app = await createHttpApp({
     token,
     routes,
