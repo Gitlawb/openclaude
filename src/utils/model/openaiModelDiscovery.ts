@@ -39,10 +39,22 @@ function isAzureOpenAIBaseUrl(baseUrl: string): boolean {
   }
 }
 
+function isBankrBaseUrl(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase().includes('bankr')
+  } catch {
+    return false
+  }
+}
+
 function getOpenAIAuthHeaders(baseUrl: string): Record<string, string> {
   const apiKey = process.env.OPENAI_API_KEY?.trim()
   if (!apiKey) {
     return {}
+  }
+
+  if (isBankrBaseUrl(baseUrl)) {
+    return { 'X-API-Key': apiKey }
   }
 
   const headers: Record<string, string> = {
