@@ -253,7 +253,10 @@ async function* queryLoop(
   Terminal
 > {
   // Start a new turn for multi-turn context tracking
-  if (feature('MULTI_TURN_CONTEXT')) {
+  if (
+    feature('MULTI_TURN_CONTEXT') &&
+    getGlobalConfig().knowledgeGraphEnabled
+  ) {
     const { startNewTurn } = await import('./utils/multiTurnContext.js')
     startNewTurn()
   }
@@ -373,6 +376,16 @@ async function* queryLoop(
     }
 
     let messagesForQuery = [...getMessagesAfterCompactBoundary(messages)]
+
+    // Extract facts and update phase from the latest message (user input or tool result)
+    if (
+      feature('CONVERSATION_ARC') &&
+      getGlobalConfig().knowledgeGraphEnabled &&
+      messagesForQuery.length > 0
+    ) {
+      const { updateArcPhase } = await import('./utils/conversationArc.js')
+      updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
+    }
 
     let tracking = autoCompactTracking
 
@@ -1523,7 +1536,10 @@ async function* queryLoop(
     queryCheckpoint('query_tool_execution_end')
 
     // Track multi-turn context after tool execution
-    if (feature('MULTI_TURN_CONTEXT')) {
+    if (
+      feature('MULTI_TURN_CONTEXT') &&
+      getGlobalConfig().knowledgeGraphEnabled
+    ) {
       const { addMessageToTurn, addToolCallToTurn } = await import(
         './utils/multiTurnContext.js'
       )
@@ -1539,7 +1555,10 @@ async function* queryLoop(
     }
 
     // Update conversation arc phase
-    if (feature('CONVERSATION_ARC')) {
+    if (
+      feature('CONVERSATION_ARC') &&
+      getGlobalConfig().knowledgeGraphEnabled
+    ) {
       const { updateArcPhase } = await import('./utils/conversationArc.js')
       updateArcPhase([assistantMessage])
     }

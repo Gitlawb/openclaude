@@ -119,25 +119,26 @@ function extractFactsAutomatically(content: string): void {
   const arc = getArc()
   if (!arc) return
 
-  // 1. Detect Environment Variables (KEY=VALUE)
-  const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]+)=([^\s\n"']+)/g)
+  // 1. Detect Environment Variables (KEY=VALUE) - strictly uppercase keys
+  const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
   for (const match of envMatches) {
     addEntity('environment_variable', match[1], { value: match[2] })
   }
 
-  // 2. Detect Absolute Paths
+  // 2. Detect Absolute Paths - ensure it looks like a path and not a div or code
   const pathMatches = content.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
   for (const match of pathMatches) {
     const path = match[1]
-    if (path.length > 5 && !path.includes('node_modules')) {
+    // Exclude common noise and ensure it's a long enough path
+    if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
       addEntity('path', path, { type: 'absolute' })
     }
   }
 
-  // 3. Detect Versions (v1.2.3 or version 1.2.3)
+  // 3. Detect Versions - require vX.Y.Z or version X.Y.Z
   const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
   for (const match of versionMatches) {
-    addEntity('version', match[0], { semver: match[1] })
+    addEntity('version', match[0].toLowerCase(), { semver: match[1] })
   }
 
   // 4. Detect Hostnames/URLs
@@ -145,7 +146,9 @@ function extractFactsAutomatically(content: string): void {
   for (const match of urlMatches) {
     try {
       const url = new URL(match[1])
-      addEntity('endpoint', url.hostname, { url: url.toString() })
+      if (url.hostname.includes('.')) {
+        addEntity('endpoint', url.hostname, { url: url.toString() })
+      }
     } catch {
       // Ignore invalid URLs
     }
@@ -261,6 +264,17 @@ export function addEntity(
 ): Entity {
   const arc = getArc()
   if (!arc) throw new Error('Arc not initialized')
+
+  // Check for existing entity to avoid duplicates (Deduplication Logic)
+  const existingEntity = Object.values(arc.knowledgeGraph.entities).find(
+    e => e.type === type && e.name === name,
+  )
+
+  if (existingEntity) {
+    existingEntity.attributes = { ...existingEntity.attributes, ...attributes }
+    arc.lastUpdateTime = Date.now()
+    return existingEntity
+  }
 
   const id = `entity_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
   const entity: Entity = { id, type, name, attributes }
