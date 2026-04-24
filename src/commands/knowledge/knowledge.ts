@@ -4,7 +4,7 @@ import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import chalk from 'chalk';
 
 export const call: LocalCommandCall = async (args, _context) => {
-  const arg = args.trim().toLowerCase();
+  const arg = (args || '').trim().toLowerCase();
   const splitArgs = arg.split(/\s+/).filter(Boolean);
   const subCommand = splitArgs[0];
 

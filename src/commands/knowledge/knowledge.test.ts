@@ -15,11 +15,11 @@ describe('knowledge command', () => {
   }
 
   beforeEach(() => {
-    // Reset global config specifically for knowledge graph setting
-    saveGlobalConfig(current => ({
-      ...current,
-      knowledgeGraphEnabled: true
-    }))
+    // Force reset global config specifically for knowledge graph setting
+    saveGlobalConfig(current => {
+      current.knowledgeGraphEnabled = true
+      return current
+    })
     resetArc()
   })
 
