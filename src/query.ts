@@ -252,6 +252,12 @@ async function* queryLoop(
   | ToolUseSummaryMessage,
   Terminal
 > {
+  // Start a new turn for multi-turn context tracking
+  if (feature('MULTI_TURN_CONTEXT')) {
+    const { startNewTurn } = await import('./utils/multiTurnContext.js')
+    startNewTurn()
+  }
+
   // Immutable params — never reassigned during the query loop.
   const {
     systemPrompt,
@@ -1518,7 +1524,9 @@ async function* queryLoop(
 
     // Track multi-turn context after tool execution
     if (feature('MULTI_TURN_CONTEXT')) {
-      const { addMessageToTurn, addToolCallToTurn, startNewTurn } = await import('./utils/multiTurnContext.js')
+      const { addMessageToTurn, addToolCallToTurn } = await import(
+        './utils/multiTurnContext.js'
+      )
       addMessageToTurn(assistantMessage)
       for (const toolUse of toolUseBlocks) {
         addToolCallToTurn({

@@ -40,6 +40,7 @@ const DEFAULT_OPTIONS: Required<MultiTurnOptions> = {
 let turnHistory: TurnContext[] = []
 let currentTurn: TurnContext | null = null
 let turnCounter = 0
+let activeOptions: Required<MultiTurnOptions> = { ...DEFAULT_OPTIONS }
 
 export function startNewTurn(): TurnContext {
   const turn: TurnContext = {
@@ -51,9 +52,8 @@ export function startNewTurn(): TurnContext {
     tokens: 0,
   }
 
-  const cfg = DEFAULT_OPTIONS
-  if (turnHistory.length >= cfg.maxTurns) {
-    turnHistory = turnHistory.slice(-cfg.maxTurns + 1)
+  if (turnHistory.length >= activeOptions.maxTurns) {
+    turnHistory = turnHistory.slice(-activeOptions.maxTurns + 1)
   }
 
   currentTurn = turn
@@ -133,6 +133,7 @@ export function resetMultiTurnState(): void {
 }
 
 export function createMultiTurnTracker(options: MultiTurnOptions = {}) {
+  activeOptions = { ...DEFAULT_OPTIONS, ...options }
   return {
     startTurn: startNewTurn,
     getCurrentTurn,
