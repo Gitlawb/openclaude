@@ -57,6 +57,11 @@ import {
   shouldAttemptLocalToollessRetry,
 } from './providerConfig.js'
 import {
+  getAimlapiAttributionHeaders,
+  getAimlapiOpenAICompatibleApiKey,
+  syncAimlapiOpenAIEnv,
+} from '../../providers/aimlapi/index.js'
+import {
   buildOpenAICompatibilityErrorMessage,
   classifyOpenAIHttpFailure,
   classifyOpenAINetworkFailure,
@@ -72,6 +77,7 @@ import { createStreamState, processStreamChunk, getStreamStats } from '../../uti
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
+  AIMLAPI_API_KEY: string
   CODEX_API_KEY: string
   GEMINI_API_KEY: string
   GOOGLE_API_KEY: string
@@ -1584,6 +1590,7 @@ class OpenAIShimMessages {
     const apiKey =
       this.providerOverride?.apiKey ??
       process.env.OPENAI_API_KEY ??
+      getAimlapiOpenAICompatibleApiKey(request.baseUrl) ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
@@ -1610,6 +1617,8 @@ class OpenAIShimMessages {
         }
       }
     }
+
+    Object.assign(headers, getAimlapiAttributionHeaders(request.baseUrl))
 
     if (isGithubCopilot) {
       Object.assign(headers, COPILOT_HEADERS)
@@ -2150,6 +2159,8 @@ export function createOpenAIShimClient(options: {
     process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE
     process.env.OPENAI_API_KEY ??=
       process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
+  } else {
+    syncAimlapiOpenAIEnv(process.env)
   }
 
   const beta = new OpenAIShimBeta({

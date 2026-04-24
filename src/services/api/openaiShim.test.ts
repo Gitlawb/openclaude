@@ -6,6 +6,7 @@ type FetchType = typeof globalThis.fetch
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
@@ -75,6 +76,7 @@ beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
+  delete process.env.AIMLAPI_API_KEY
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.GITHUB_TOKEN
   delete process.env.GH_TOKEN
@@ -93,6 +95,7 @@ beforeEach(() => {
 afterEach(() => {
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+  restoreEnv('AIMLAPI_API_KEY', originalEnv.AIMLAPI_API_KEY)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
   restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
   restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
@@ -170,6 +173,99 @@ test('strips canonical Anthropic headers from direct shim defaultHeaders', async
   expect(capturedHeaders?.get('x-app')).toBeNull()
   expect(capturedHeaders?.get('x-client-app')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+})
+
+test('adds AI/ML API attribution headers and uses AIMLAPI_API_KEY fallback', async () => {
+  let capturedHeaders: Headers | undefined
+
+  process.env.OPENAI_BASE_URL = 'https://api.aimlapi.com/v1'
+  delete process.env.OPENAI_API_KEY
+  process.env.AIMLAPI_API_KEY = 'aiml-test-key'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-aiml',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'hello',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer aiml-test-key')
+  expect(capturedHeaders?.get('http-referer')).toBe('OpenClaude')
+  expect(capturedHeaders?.get('x-title')).toBe('OpenClaude')
+})
+
+test('does not add AI/ML API attribution headers to other OpenAI-compatible providers', async () => {
+  let capturedHeaders: Headers | undefined
+
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_API_KEY = 'openrouter-test-key'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openrouter',
+        model: 'openai/gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'hello',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-4o',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer openrouter-test-key')
+  expect(capturedHeaders?.get('http-referer')).toBeNull()
+  expect(capturedHeaders?.get('x-title')).toBeNull()
 })
 
 test('strips canonical Anthropic headers from per-request shim headers too', async () => {

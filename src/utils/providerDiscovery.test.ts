@@ -60,6 +60,72 @@ test('returns null when a local openai-compatible /models request fails', async 
   ).resolves.toBeNull()
 })
 
+test('lists AI/ML API chat completion model options with metadata', async () => {
+  const { listOpenAICompatibleModelOptions } = await loadProviderDiscoveryModule()
+
+  globalThis.fetch = mock((input, init) => {
+    const url = typeof input === 'string' ? input : input.url
+    expect(url).toBe('https://api.aimlapi.com/v1/models')
+    expect(init?.headers).toEqual({
+      'HTTP-Referer': 'OpenClaude',
+      'X-Title': 'OpenClaude',
+      Authorization: 'Bearer aiml-key',
+    })
+
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'gpt-4o',
+              type: 'openai/responses/submit',
+              info: { name: 'GPT 4o', developer: 'OpenAI' },
+            },
+            {
+              id: 'gpt-4o',
+              type: 'openai/chat-completions',
+              info: {
+                name: 'GPT 4o',
+                developer: 'OpenAI',
+                contextLength: 128000,
+              },
+            },
+            {
+              id: 'deepseek-chat',
+              type: 'openai/chat-completions',
+              info: { name: 'DeepSeek Chat', developer: 'DeepSeek' },
+            },
+            {
+              id: 'image-model',
+              type: 'openai/images/generations',
+              info: { name: 'Image Model', developer: 'Example' },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
+  }) as typeof globalThis.fetch
+
+  await expect(
+    listOpenAICompatibleModelOptions({
+      baseUrl: 'https://api.aimlapi.com/v1',
+      apiKey: 'aiml-key',
+    }),
+  ).resolves.toEqual([
+      {
+        value: 'gpt-4o',
+        label: 'GPT 4o',
+        description: 'OpenAI - 128000 context',
+      },
+    {
+      value: 'deepseek-chat',
+      label: 'DeepSeek Chat',
+      description: 'DeepSeek',
+    },
+  ])
+})
+
 test('detects LM Studio from the default localhost port', async () => {
   const { getLocalOpenAICompatibleProviderLabel } =
     await loadProviderDiscoveryModule()

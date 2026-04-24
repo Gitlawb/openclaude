@@ -15,10 +15,16 @@ import {
   parseChatgptAccountId,
 } from './codexOAuthShared.js'
 import { DEFAULT_GEMINI_BASE_URL } from 'src/utils/providerProfile.js'
+import {
+  AIMLAPI_DEFAULT_BASE_URL,
+  isAimlapiBaseUrl,
+} from '../../providers/aimlapi/index.js'
+export { isAimlapiBaseUrl } from '../../providers/aimlapi/index.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
+export const DEFAULT_AIMLAPI_BASE_URL = AIMLAPI_DEFAULT_BASE_URL
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
@@ -617,7 +623,7 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
     return null
   }
 
-  if (!isLocalProviderUrl(request.baseUrl)) {
+  if (!isLocalProviderUrl(request.baseUrl) && !isAimlapiBaseUrl(request.baseUrl)) {
     return null
   }
 

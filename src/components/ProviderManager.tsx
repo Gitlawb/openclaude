@@ -43,6 +43,9 @@ import {
   type OllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
 import {
+  AIMLAPI_PROVIDER_PRESET_OPTION,
+} from '../providers/aimlapi/index.js'
+import {
   rankOllamaModels,
   recommendOllamaModel,
 } from '../utils/providerRecommendation.js'
@@ -1254,6 +1257,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // should always find known providers first. `Skip for now` (first-run
     // only) comes last, after Custom.
     const options = [
+      AIMLAPI_PROVIDER_PRESET_OPTION,
       {
         value: 'dashscope-intl',
         label: 'Alibaba Coding Plan',
