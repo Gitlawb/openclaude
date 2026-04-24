@@ -780,4 +780,39 @@ describe('static-dedup integration: production injection functions', () => {
       `[static-dedup pipeline] bytes: baseline=${baseline.bytes} dedup=${dedup.bytes} savings=${(byteSavings * 100).toFixed(1)}% | tokens: baseline=${baseline.tokens} dedup=${dedup.tokens} savings=${(tokenSavings * 100).toFixed(1)}%`,
     )
   })
+
+  // INVARIANT: memory-related context keys must NOT be stripped by
+  // filterStaticDedupKeys. See src/utils/attachments.ts comment on
+  // getMemoryDeltaAttachment — raw `nested_memory` intentionally
+  // COEXISTS with memory_delta on turn 1/2 because upstream consumers
+  // (claude.ts::getSystemBlocksWithScope, getUserContext) still read
+  // nested_memory directly. If a future contributor mistakes this for
+  // a bug and adds a NESTED_MEMORY_CONTEXT_KEY to the strip list, the
+  // coexistence breaks silently without this test failing.
+  test('filterStaticDedupKeys does NOT strip memory or non-dedup keys when flag ON', () => {
+    process.env[ENV_VAR] = 'true'
+    expect(isStaticDedupEnabled()).toBe(true)
+
+    const context = {
+      claudeMd: 'should be stripped',
+      gitStatus: 'should be stripped',
+      // Keys below are NOT dedup targets and must survive the filter.
+      nestedMemory: 'nested memory payload — coexists with memory_delta',
+      directoryStructure: 'src/\n  utils/\n',
+      platform: 'linux',
+      mcpInstructions: 'some mcp instructions',
+    }
+    const output = appendSystemContext(EMPTY_SYSTEM_PROMPT, context)
+    const joined = output.join('\n')
+
+    // Dedup keys stripped.
+    expect(joined).not.toContain('claudeMd:')
+    expect(joined).not.toContain('gitStatus:')
+
+    // Non-dedup keys — including memory-related — must survive.
+    expect(joined).toContain('nestedMemory:')
+    expect(joined).toContain('directoryStructure:')
+    expect(joined).toContain('platform:')
+    expect(joined).toContain('mcpInstructions:')
+  })
 })

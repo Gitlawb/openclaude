@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { stableStringify } from '../../utils/stableStringify.js'
 import { createOpenAIShimClient } from './openaiShim.js'
 
 type FetchType = typeof globalThis.fetch
@@ -160,7 +161,8 @@ test('BUG REPRO: without compression, all 30 tool results are sent at full size'
 
   const body = await captureRequestBody(messages, 'gpt-4o')
   const toolMessages = getToolMessages(body)
-  const payloadSize = JSON.stringify(body).length
+  // stableStringify = same serializer openaiShim uses for actual requests.
+  const payloadSize = stableStringify(body).length
 
   // All 30 tool results present, none truncated
   expect(toolMessages.length).toBe(30)
@@ -185,7 +187,8 @@ test('FIX: with compression on Copilot gpt-4o (tier 5/10/rest), 30 turns shrinks
 
   const body = await captureRequestBody(messages, 'gpt-4o')
   const toolMessages = getToolMessages(body)
-  const payloadSize = JSON.stringify(body).length
+  // stableStringify = same serializer openaiShim uses for actual requests.
+  const payloadSize = stableStringify(body).length
 
   // Structure preserved: still 30 tool messages, no orphan tool_calls
   expect(toolMessages.length).toBe(30)
