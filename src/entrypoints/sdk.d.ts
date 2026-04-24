@@ -1,5 +1,6 @@
 // Type declarations for @gitlawb/openclaude SDK
-// Generated from src/entrypoints/sdk/index.ts
+// Manually maintained — keep in sync with src/entrypoints/sdk/index.ts
+// Drift is caught by validate-externals.ts (runs in CI)
 
 // ============================================================================
 // Error
