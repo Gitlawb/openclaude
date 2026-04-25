@@ -179,6 +179,9 @@ export type EditorMode = 'emacs' | (typeof EDITOR_MODES)[number]
 
 export type DiffTool = 'terminal' | 'auto'
 
+export type ShowCacheStatsMode = 'off' | 'compact' | 'full'
+export const SHOW_CACHE_STATS_MODES = ['off', 'compact', 'full'] as const satisfies readonly ShowCacheStatsMode[]
+
 export type OutputStyle = string
 
 export type Providers = typeof PROVIDERS[number]
@@ -246,6 +249,11 @@ export type GlobalConfig = {
   autoCompactEnabled: boolean // Controls whether auto-compact is enabled
   toolHistoryCompressionEnabled: boolean // Compress old tool_result content for small-context providers
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
+  // Controls whether to show per-query cache hit/miss stats at the end of each turn.
+  // 'off'     — no display
+  // 'compact' — one-line summary (e.g. "[Cache: 1.2k read • hit 12%]")
+  // 'full'    — breakdown (read / created / hit-rate) per query
+  showCacheStats: ShowCacheStatsMode
   /**
    * @deprecated Use settings.env instead.
    */
@@ -628,6 +636,7 @@ function createDefaultGlobalConfig(): GlobalConfig {
     autoCompactEnabled: true,
     toolHistoryCompressionEnabled: true,
     showTurnDuration: true,
+    showCacheStats: 'compact',
     hasSeenTasksHint: false,
     hasUsedStash: false,
     hasUsedBackgroundTask: false,
@@ -677,6 +686,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'autoCompactEnabled',
   'toolHistoryCompressionEnabled',
   'showTurnDuration',
+  'showCacheStats',
   'diffTool',
   'env',
   'tipsHistory',

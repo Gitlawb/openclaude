@@ -300,6 +300,26 @@ export function Config({
       });
     }
   }, {
+    id: 'showCacheStats',
+    label: 'Cache stats display',
+    value: globalConfig.showCacheStats,
+    options: ['off', 'compact', 'full'],
+    type: 'enum' as const,
+    onChange(mode: string) {
+      const showCacheStats = (mode === 'off' || mode === 'compact' || mode === 'full' ? mode : 'compact') as 'off' | 'compact' | 'full';
+      saveGlobalConfig(current_cs => ({
+        ...current_cs,
+        showCacheStats
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        showCacheStats
+      });
+      logEvent('tengu_show_cache_stats_setting_changed', {
+        mode: showCacheStats as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
     id: 'spinnerTipsEnabled',
     label: 'Show tips',
     value: settingsData?.spinnerTipsEnabled ?? true,
