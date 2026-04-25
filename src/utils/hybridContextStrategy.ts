@@ -37,8 +37,50 @@ const DEFAULT_CONFIG: Required<HybridConfig> = {
   costThreshold: 0.01,
 }
 
-// Always keep last 3 messages (recent user turn + assistant response + tools)
-const MIN_TAILMessages = 3
+// Keep enough for: tool_use -> tool_result -> assistant -> user -> next
+const MIN_TAILMessages = 5
+
+// Preserve message chains (tool_use + tool_result pairs)
+function getMessageChain(
+  messages: Message[],
+): { chains: Message[][]; orphans: Message[] } {
+  const byId = new Map<string, Message[]>()
+  const idsWithResult = new Set<string>()
+
+  // Find tool_results and their parent IDs
+  for (const msg of messages) {
+    const content = msg.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block?.type === 'tool_result' && block?.tool_use_id) {
+          idsWithResult.add(block.tool_use_id)
+        }
+      }
+    }
+  }
+
+  // Group by ID
+  for (const msg of messages) {
+    const id = msg.message?.id ?? ''
+    if (!id) continue
+    const existing = byId.get(id) ?? []
+    existing.push(msg)
+    byId.set(id, existing)
+  }
+
+  const chains: Message[][] = []
+  const orphans: Message[] = []
+
+  for (const [id, msgs] of byId) {
+    if (idsWithResult.has(id) || msgs.length > 1) {
+      chains.push(msgs)
+    } else {
+      orphans.push(...msgs)
+    }
+  }
+
+  return { chains, orphans }
+}
 
 function getCacheAge(message: Message): number {
   const created = message.message?.created_at ?? 0
@@ -120,6 +162,9 @@ export function applyHybridStrategy(
 ): HybridStrategyResult {
   const cfg = { ...DEFAULT_CONFIG, ...config }
   
+  // Preserve message chains (tool_use/tool_result pairs)
+  const { chains, orphans } = getMessageChain(messages)
+  
   // Always preserve the conversation tail (last N messages)
   const tailMessages = messages.slice(-MIN_TAILMessages)
   const coreMessages = messages.slice(0, -MIN_TAILMessages)
@@ -133,7 +178,13 @@ export function applyHybridStrategy(
     strategy = 'fresh_heavy'
   }
 
-  const selectedMessages = [...split.cached, ...split.fresh, ...tailMessages].sort(
+  // Preserve chains + tail + split result
+  const selectedMessages = [
+    ...chains.flat(),
+    ...split.cached, 
+    ...split.fresh, 
+    ...tailMessages
+  ].sort(
     (a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0)
   )
 
