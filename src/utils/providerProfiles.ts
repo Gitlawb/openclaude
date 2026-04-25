@@ -16,6 +16,7 @@ import {
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
+import { resolveProfileRoute } from '../integrations/index.js'
 
 export type ProviderPreset =
   | 'anthropic'
@@ -73,18 +74,11 @@ function normalizeBaseUrl(value: string): string {
 function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const id = trimValue(profile.id)
   const name = trimValue(profile.name)
-  const provider =
-    profile.provider === 'anthropic'
-      ? 'anthropic'
-      : profile.provider === 'mistral'
-        ? 'mistral'
-        : profile.provider === 'gemini'
-          ? 'gemini'
-          : 'openai'
+  const provider = trimValue(profile.provider)
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
 
-  if (!id || !name || !baseUrl || !model) {
+  if (!id || !name || !baseUrl || !model || !provider) {
     return null
   }
 
@@ -568,8 +562,20 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id
 
+  const route = resolveProfileRoute(profile.provider)
+
   process.env.ANTHROPIC_MODEL = getPrimaryModel(profile.model)
-  if (profile.provider === 'anthropic') {
+
+  if (route.routeId === 'unknown-fallback') {
+    // Safe fallback for unrecognised providers — OpenAI-compatible so the
+    // user can still interact, but warn that the provider string was not
+    // resolved to a known descriptor.
+    console.warn(
+      `[applyProviderProfileToProcessEnv] Unknown provider "${profile.provider}" — falling back to OpenAI-compatible env shaping.`,
+    )
+  }
+
+  if (route.vendorId === 'anthropic') {
     process.env.ANTHROPIC_BASE_URL = profile.baseUrl
 
     if (profile.apiKey) {
@@ -585,7 +591,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     return
   }
 
-  if (profile.provider === 'mistral') {
+  if (route.vendorId === 'mistral' || route.gatewayId === 'mistral') {
     process.env.CLAUDE_CODE_USE_MISTRAL = '1'
     process.env.MISTRAL_BASE_URL = profile.baseUrl
     process.env.MISTRAL_MODEL = getPrimaryModel(profile.model)
@@ -602,7 +608,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     return
   }
 
-  if (profile.provider === 'gemini') {
+  if (route.vendorId === 'gemini') {
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     process.env.GEMINI_BASE_URL = profile.baseUrl
     process.env.GEMINI_MODEL = getPrimaryModel(profile.model)
@@ -619,6 +625,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     return
   }
 
+  // Default: OpenAI-compatible (covers openai, ollama, deepseek, together,
+  // groq, azure-openai, openrouter, lmstudio, nvidia-nim, minimax, bankr,
+  // atomic-chat, custom, and any unknown fallback).
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = profile.baseUrl
   process.env.OPENAI_MODEL = getPrimaryModel(profile.model)

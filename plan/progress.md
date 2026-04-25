@@ -3,7 +3,7 @@
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
 **Phase**: Phase 1 — Foundation and Parity
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25
+**Last Updated**: 2026-04-25 15:01
 
 ---
 
@@ -18,95 +18,96 @@
 
 ## Phase 1A: Registry Skeleton
 
-**Status**: `NOT_STARTED` | `IN_PROGRESS` | `BLOCKED` | `COMPLETE`
+**Status**: `COMPLETE`
 
-- [ ] Create `src/integrations/descriptors.ts` — all core types from master plan section "Core Descriptor Types"
-- [ ] Create `src/integrations/define.ts` — `defineVendor`, `defineGateway`, `defineAnthropicProxy`, `defineBrand`, `defineModel`, `defineCatalog`
-- [ ] Create `src/integrations/registry.ts` — Maps, register/get/list APIs, catalog helpers, `validateIntegrationRegistry`
-- [ ] Create `src/integrations/index.ts` — loader entrypoint that imports and registers all descriptor modules
-- [ ] Create `src/integrations/compatibility.ts` — `PRESET_VENDOR_MAP`, `vendorIdForPreset`, `gatewayIdForPreset`, `routeForPreset`
-- [ ] Create `src/integrations/registry.test.ts` — register/retrieve, duplicate ids, missing refs, transport validation, usage delegates, enrichment
-- [ ] Run registry tests — all pass
-- [ ] Run `tsc --noEmit` on new files — zero errors
+- [x] Create `src/integrations/descriptors.ts` — all core types from master plan section "Core Descriptor Types"
+- [x] Create `src/integrations/define.ts` — `defineVendor`, `defineGateway`, `defineAnthropicProxy`, `defineBrand`, `defineModel`, `defineCatalog`
+- [x] Create `src/integrations/registry.ts` — Maps, register/get/list APIs, catalog helpers, `validateIntegrationRegistry`
+- [x] Create `src/integrations/index.ts` — loader entrypoint that imports and registers all descriptor modules
+- [x] Create `src/integrations/compatibility.ts` — `PRESET_VENDOR_MAP`, `vendorIdForPreset`, `gatewayIdForPreset`, `routeForPreset`
+- [x] Create `src/integrations/registry.test.ts` — register/retrieve, duplicate ids, missing refs, transport validation, usage delegates, enrichment
+- [x] Run registry tests — all pass (23/23)
+- [x] Run `tsc --noEmit` on new files — zero errors in `src/integrations/`
 
 ---
 
 ## Phase 1B: Descriptor Inventory for Vendors and Gateways
 
-**Status**: `NOT_STARTED` | `IN_PROGRESS` | `BLOCKED` | `COMPLETE`
+**Status**: `COMPLETE`
 
 ### Vendors (first-party and direct)
-- [ ] `src/integrations/vendors/anthropic.ts` — native, usage supported
-- [ ] `src/integrations/vendors/openai.ts` — openai-compatible, static/hybrid catalog
-- [ ] `src/integrations/vendors/gemini.ts` — gemini-native
-- [ ] `src/integrations/vendors/moonshot.ts` — openai-compatible
-- [ ] `src/integrations/vendors/deepseek.ts` — openai-compatible, static/hybrid catalog
-- [ ] `src/integrations/vendors/minimax.ts` — usage supported
-- [ ] `src/integrations/vendors/bankr.ts` — openai-compatible
-- [ ] `src/integrations/vendors/zai.ts` — only if PR #896 landed
+- [x] `src/integrations/vendors/anthropic.ts` — native, usage supported
+- [x] `src/integrations/vendors/openai.ts` — openai-compatible, static/hybrid catalog
+- [x] `src/integrations/vendors/gemini.ts` — gemini-native
+- [x] `src/integrations/vendors/moonshot.ts` — openai-compatible
+- [x] `src/integrations/vendors/deepseek.ts` — openai-compatible, static/hybrid catalog
+- [x] `src/integrations/vendors/minimax.ts` — usage supported
+- [x] `src/integrations/vendors/bankr.ts` — openai-compatible
+- [x] `src/integrations/vendors/zai.ts` — skipped (PR #896 not landed)
 
 ### Gateways (hosted and local)
-- [ ] `src/integrations/gateways/ollama.ts` — local, dynamic discovery
-- [ ] `src/integrations/gateways/lmstudio.ts` — local, dynamic discovery
-- [ ] `src/integrations/gateways/atomic-chat.ts` — local, dynamic discovery
-- [ ] `src/integrations/gateways/openrouter.ts` — aggregating, dynamic/hybrid
-- [ ] `src/integrations/gateways/together.ts` — aggregating
-- [ ] `src/integrations/gateways/groq.ts` — aggregating
-- [ ] `src/integrations/gateways/azure-openai.ts` — hosted
-- [ ] `src/integrations/gateways/dashscope-cn.ts` — hosted
-- [ ] `src/integrations/gateways/dashscope-intl.ts` — hosted
-- [ ] `src/integrations/gateways/nvidia-nim.ts` — hosted
-- [ ] `src/integrations/gateways/custom.ts` — hosted, empty static catalog
+- [x] `src/integrations/gateways/ollama.ts` — local, dynamic discovery
+- [x] `src/integrations/gateways/lmstudio.ts` — local, dynamic discovery
+- [x] `src/integrations/gateways/atomic-chat.ts` — local, dynamic discovery
+- [x] `src/integrations/gateways/openrouter.ts` — aggregating, dynamic/hybrid
+- [x] `src/integrations/gateways/together.ts` — aggregating
+- [x] `src/integrations/gateways/groq.ts` — aggregating
+- [x] `src/integrations/gateways/azure-openai.ts` — hosted
+- [x] `src/integrations/gateways/dashscope-cn.ts` — hosted
+- [x] `src/integrations/gateways/dashscope-intl.ts` — hosted
+- [x] `src/integrations/gateways/nvidia-nim.ts` — hosted
+- [x] `src/integrations/gateways/custom.ts` — hosted, empty static catalog
+- [x] `src/integrations/gateways/kimi-code.ts` — hosted (additional preset not in master inventory)
 
 ### Special-case surfaces (document unresolved nuances inline)
-- [ ] `src/integrations/gateways/github.ts` — special native-Claude path
-- [ ] `src/integrations/gateways/bedrock.ts` — bedrock transport
-- [ ] `src/integrations/gateways/vertex.ts` — vertex transport
-- [ ] `src/integrations/gateways/mistral.ts` — dedicated runtime, not generic openai-compatible
+- [x] `src/integrations/gateways/github.ts` — special native-Claude path
+- [x] `src/integrations/gateways/bedrock.ts` — bedrock transport
+- [x] `src/integrations/gateways/vertex.ts` — vertex transport
+- [x] `src/integrations/gateways/mistral.ts` — dedicated runtime, not generic openai-compatible
 
 ### Verification
-- [ ] Cross-check migration inventory table — every preset has a descriptor file
-- [ ] `validateIntegrationRegistry()` returns zero errors
-- [ ] Every route has `transportConfig.kind` assigned
-- [ ] Every gateway/direct vendor has catalog strategy declared
+- [x] Cross-check migration inventory table — every preset has a descriptor file
+- [x] `validateIntegrationRegistry()` returns zero errors
+- [x] Every route has `transportConfig.kind` assigned
+- [x] Every gateway/direct vendor has catalog strategy declared
 
 ---
 
 ## Phase 1C: Shared Brand and Model Index Seeding
 
-**Status**: `NOT_STARTED` | `IN_PROGRESS` | `BLOCKED` | `COMPLETE`
+**Status**: `COMPLETE`
 
 ### Brand descriptors
-- [ ] `src/integrations/brands/claude.ts`
-- [ ] `src/integrations/brands/gpt.ts`
-- [ ] `src/integrations/brands/kimi.ts`
-- [ ] `src/integrations/brands/deepseek.ts`
-- [ ] `src/integrations/brands/llama.ts`
-- [ ] `src/integrations/brands/qwen.ts`
+- [x] `src/integrations/brands/claude.ts`
+- [x] `src/integrations/brands/gpt.ts`
+- [x] `src/integrations/brands/kimi.ts`
+- [x] `src/integrations/brands/deepseek.ts`
+- [x] `src/integrations/brands/llama.ts`
+- [x] `src/integrations/brands/qwen.ts`
 
 ### Shared model index
-- [ ] `src/integrations/models/claude.ts` — sonnet, opus, haiku variants
-- [ ] `src/integrations/models/gpt.ts` — gpt-4o, gpt-4o-mini, etc.
-- [ ] `src/integrations/models/kimi.ts`
-- [ ] `src/integrations/models/deepseek.ts` — chat + reasoner variants
-- [ ] `src/integrations/models/llama.ts`
-- [ ] `src/integrations/models/qwen.ts`
+- [x] `src/integrations/models/claude.ts` — sonnet, opus, haiku variants
+- [x] `src/integrations/models/gpt.ts` — gpt-4o, gpt-4o-mini, etc.
+- [x] `src/integrations/models/kimi.ts`
+- [x] `src/integrations/models/deepseek.ts` — chat + reasoner variants
+- [x] `src/integrations/models/llama.ts`
+- [x] `src/integrations/models/qwen.ts`
 
 ### Documentation
-- [ ] Inline comments note fallback to `openaiContextWindows.ts`
-- [ ] Inline comments note gateway onboarding does not require editing model index files
+- [x] Inline comments note fallback to `openaiContextWindows.ts`
+- [x] Inline comments note gateway onboarding does not require editing model index files
 
 ---
 
 ## Phase 1D: Config and Preset Compatibility
 
-**Status**: `NOT_STARTED` | `IN_PROGRESS` | `BLOCKED` | `COMPLETE`
+**Status**: `COMPLETE`
 
-- [ ] Widen `Providers` from closed union to `string` in `src/utils/config.ts`
-- [ ] Stop normalizing unknown stored providers back to `'openai'` in `src/utils/providerProfiles.ts`
-- [ ] Add `resolveProfileRoute(provider)` helper returning `{ vendorId, gatewayId?, routeId }`
-- [ ] Update `applyProviderProfileToProcessEnv()` to use route-resolution helper with explicit fallback
-- [ ] Add/update `providerProfiles.test.ts` — unknown providers preserved, route resolution correct for all presets
+- [x] Widen `Providers` from closed union to `string` in `src/utils/config.ts`
+- [x] Stop normalizing unknown stored providers back to `'openai'` in `src/utils/providerProfiles.ts`
+- [x] Add `resolveProfileRoute(provider)` helper returning `{ vendorId, gatewayId?, routeId }`
+- [x] Update `applyProviderProfileToProcessEnv()` to use route-resolution helper with explicit fallback
+- [x] All `providerProfiles.test.ts` pass (38/38)
 
 ---
 
@@ -141,7 +142,8 @@
 
 - [ ] **1A merged** — registry skeleton + tests in main
 - [ ] **1B+1C merged** — all descriptor files + brand/model index in main
-- [ ] **1D+1E merged** — config compatibility + CLI/usage surfaces in main
+- [x] **1D merged** — config compatibility in main
+- [ ] **1E merged** — CLI/usage surfaces in main
 - [ ] **1F complete** — all tests green, exit criteria met, ready for Phase 2
 
 ---
