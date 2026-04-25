@@ -370,8 +370,13 @@ function getCodexModelOptions(): ModelOption[] {
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 
 import { getAllCopilotModels } from './copilotModels.js'
+import { getCachedGithubModelOptions } from './githubModels.js'
 
 function getCopilotModelOptions(): ModelOption[] {
+  const dynamicModels = getCachedGithubModelOptions()
+  if (dynamicModels.length > 0) {
+    return dynamicModels
+  }
   return getAllCopilotModels().map(m => ({
     value: m.id,
     label: m.name,

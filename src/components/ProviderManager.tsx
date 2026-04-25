@@ -139,7 +139,7 @@ const FORM_STEPS: Array<{
 
 const GITHUB_PROVIDER_ID = '__github_models__'
 const GITHUB_PROVIDER_LABEL = 'GitHub Models'
-const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
+const GITHUB_PROVIDER_DEFAULT_MODEL = 'gpt-4o'
 const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 const CODEX_OAUTH_PROVIDER_NAME = 'Codex OAuth'
 const CODEX_OAUTH_PROVIDER_MODEL = 'codexplan'
