@@ -42,6 +42,11 @@ function profile(profile: ProfileFile['profile'], env: ProfileFile['env']): Prof
   }
 }
 
+async function importFreshProviderProfileModule() {
+  const nonce = `${Date.now()}-${Math.random()}`
+  return import(`./providerProfile.ts?ts=${nonce}`)
+}
+
 const missingCodexAuthPath = join(tmpdir(), 'openclaude-missing-codex-auth.json')
 
 test('matching persisted ollama env is reused for ollama launch', async () => {
@@ -630,6 +635,7 @@ test('buildStartupEnvFromProfile preserves explicit GitHub provider settings whe
 })
 
 test('applySavedProfileToCurrentSession can switch away from GitHub provider env', async () => {
+  const { applySavedProfileToCurrentSession } = await importFreshProviderProfileModule()
   const processEnv = {
     CLAUDE_CODE_USE_GITHUB: '1',
     OPENAI_MODEL: 'github:copilot',

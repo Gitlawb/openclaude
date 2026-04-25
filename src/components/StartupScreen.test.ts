@@ -101,9 +101,14 @@ describe('detectProvider — direct vendor endpoints', () => {
     expect(detectProvider().name).toBe('DeepSeek')
   })
 
-  test('api.moonshot.cn labels as Moonshot (Kimi)', () => {
+  test('api.kimi.com labels as Moonshot AI - Kimi Code', () => {
+    setupOpenAIMode('https://api.kimi.com/coding/v1', 'kimi-for-coding')
+    expect(detectProvider().name).toBe('Moonshot AI - Kimi Code')
+  })
+
+  test('api.moonshot.cn labels as Moonshot AI - API', () => {
     setupOpenAIMode('https://api.moonshot.cn/v1', 'moonshot-v1-8k')
-    expect(detectProvider().name).toBe('Moonshot (Kimi)')
+    expect(detectProvider().name).toBe('Moonshot AI - API')
   })
 
   test('api.mistral.ai labels as Mistral', () => {
@@ -125,9 +130,14 @@ describe('detectProvider — rawModel fallback when URL is generic', () => {
     expect(detectProvider().name).toBe('DeepSeek')
   })
 
-  test('custom proxy + kimi-k2 falls back to Moonshot (Kimi)', () => {
+  test('custom proxy + kimi-for-coding falls back to Moonshot AI - Kimi Code', () => {
+    setupOpenAIMode('https://my-proxy.internal/v1', 'kimi-for-coding')
+    expect(detectProvider().name).toBe('Moonshot AI - Kimi Code')
+  })
+
+  test('custom proxy + kimi-k2 falls back to Moonshot AI - API', () => {
     setupOpenAIMode('https://my-proxy.internal/v1', 'kimi-k2-instruct')
-    expect(detectProvider().name).toBe('Moonshot (Kimi)')
+    expect(detectProvider().name).toBe('Moonshot AI - API')
   })
 
   test('custom proxy + llama-3.3 falls back to Meta Llama', () => {

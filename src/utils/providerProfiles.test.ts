@@ -591,6 +591,27 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(false)
   })
 
+  test('kimi-code preset defaults to the Kimi Code coding endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('kimi-code')
+
+    expect(defaults.provider).toBe('openai')
+    expect(defaults.name).toBe('Moonshot AI - Kimi Code')
+    expect(defaults.baseUrl).toBe('https://api.kimi.com/coding/v1')
+    expect(defaults.model).toBe('kimi-for-coding')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('moonshotai preset keeps the direct API under the renamed display label', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('moonshotai')
+
+    expect(defaults.name).toBe('Moonshot AI - API')
+    expect(defaults.baseUrl).toBe('https://api.moonshot.ai/v1')
+    expect(defaults.model).toBe('kimi-k2.5')
+  })
   test('deepseek preset defaults to DeepSeek V4 flash and exposes flash/pro aliases', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 

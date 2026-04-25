@@ -3563,6 +3563,107 @@ test('Moonshot: cn host is also detected', async () => {
   expect(requestBody?.store).toBeUndefined()
 })
 
+test('Kimi Code endpoint inherits Moonshot max_tokens/store compatibility', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
+  process.env.OPENAI_API_KEY = 'sk-kimi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-for-coding',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-for-coding',
+    system: 'you are kimi code',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.max_tokens).toBe(256)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Kimi Code endpoint echoes reasoning_content on assistant tool-call messages', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
+  process.env.OPENAI_API_KEY = 'sk-kimi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-for-coding',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-for-coding',
+    system: 'you are kimi code',
+    messages: [
+      { role: 'user', content: 'check the logs' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Need to inspect logs via Bash; running a cat.',
+          },
+          { type: 'text', text: "I'll inspect the logs." },
+          {
+            type: 'tool_use',
+            id: 'call_bash_1',
+            name: 'Bash',
+            input: { command: 'cat /tmp/app.log' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_bash_1',
+            content: 'log line 1\nlog line 2',
+          },
+        ],
+      },
+    ],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to inspect logs via Bash; running a cat.',
+  )
+})
+
 test('DeepSeek sends thinking toggle and normalized reasoning effort', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
   process.env.OPENAI_API_KEY = 'sk-deepseek'

@@ -232,6 +232,17 @@ test('DashScope kimi-k2.5 uses provider-specific context and output caps', () =>
   })
 })
 
+test('Kimi Code kimi-for-coding uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('kimi-for-coding')).toBe(262_144)
+  expect(getModelMaxOutputTokens('kimi-for-coding')).toEqual({
+    default: 32_768,
+    upperLimit: 32_768,
+  })
+})
+
 test('DashScope glm-5 uses provider-specific context and output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
