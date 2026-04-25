@@ -64,6 +64,7 @@ import {
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
+import { isZaiBaseUrl } from '../../utils/zaiProvider.js'
 import {
   normalizeToolArguments,
   hasToolFieldMapping,
@@ -93,10 +94,6 @@ const KIMI_CODE_API_HOST = 'api.kimi.com'
 const DEEPSEEK_API_HOSTS = new Set([
   'api.deepseek.com',
 ])
-const ZAI_API_HOSTS = new Set([
-  'api.z.ai',
-])
-
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
   'Editor-Version': 'vscode/1.99.3',
@@ -180,15 +177,6 @@ function isDeepSeekBaseUrl(baseUrl: string | undefined): boolean {
   if (!baseUrl) return false
   try {
     return DEEPSEEK_API_HOSTS.has(new URL(baseUrl).hostname.toLowerCase())
-  } catch {
-    return false
-  }
-}
-
-function isZaiBaseUrl(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false
-  try {
-    return ZAI_API_HOSTS.has(new URL(baseUrl).hostname.toLowerCase())
   } catch {
     return false
   }

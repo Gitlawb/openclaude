@@ -429,13 +429,13 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'qwen3-max':                 32_768,
   'qwen3-max-2026-01-23':      32_768,
   'kimi-k2.5':                 32_768,
-  // GLM models — DashScope glm-5/glm-4.7 have lower limits;
-  // Z.AI Coding Plan models (both GLM-* and glm-* casing) have higher limits.
+  // GLM models — lowercase aliases stay on conservative DashScope-style
+  // limits; Z.AI Coding Plan's exact uppercase GLM-* IDs use higher limits.
   'glm-5':                     16_384,
   'glm-4.7':                   16_384,
-  'glm-5.1':                   131_072,
-  'glm-5-turbo':               131_072,
-  'glm-4.5-air':                65_536,
+  'glm-5.1':                    16_384,
+  'glm-5-turbo':                16_384,
+  'glm-4.5-air':                16_384,
   'GLM-5':                     131_072,
   'GLM-5.1':                   131_072,
   'GLM-5-Turbo':               131_072,
