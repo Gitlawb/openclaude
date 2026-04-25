@@ -17,6 +17,8 @@ import { Byline } from '../design-system/Byline.js';
 import { ProgressBar } from '../design-system/ProgressBar.js';
 import { isEligibleForOverageCreditGrant, OverageCreditUpsell } from '../LogoV2/OverageCreditUpsell.js';
 import { CodexUsage } from './CodexUsage.js';
+import { MiniMaxUsage } from './MiniMaxUsage.js';
+import { UnsupportedUsage } from './UnsupportedUsage.js';
 type LimitBarProps = {
   title: string;
   limit: RateLimit;
@@ -266,8 +268,25 @@ function AnthropicUsage(): React.ReactNode {
     </Box>;
 }
 export function Usage(): React.ReactNode {
-  if (getAPIProvider() === 'codex') {
+  const provider = getAPIProvider();
+  if (provider === 'codex') {
     return <CodexUsage />;
+  }
+  if (provider === 'minimax') {
+    return <MiniMaxUsage />;
+  }
+  if (provider !== 'firstParty') {
+    const providerLabel = {
+      openai: 'this OpenAI-compatible provider',
+      gemini: 'Google Gemini',
+      github: 'GitHub Models',
+      mistral: 'Mistral',
+      'nvidia-nim': 'NVIDIA NIM',
+      bedrock: 'AWS Bedrock',
+      vertex: 'Google Vertex AI',
+      foundry: 'Microsoft Foundry'
+    }[provider] ?? 'this provider';
+    return <UnsupportedUsage providerLabel={providerLabel} />;
   }
   return <AnthropicUsage />;
 }
