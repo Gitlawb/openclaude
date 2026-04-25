@@ -5,7 +5,6 @@ import { isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
 import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
-import { getMaxOutputTokensForModel } from '../services/api/claude.js'
 import { getOpenAIContextWindow, getOpenAIMaxOutputTokens } from './model/openaiContextWindows.js'
 import type { Message } from '../types/message.js'
 
@@ -290,9 +289,9 @@ let historyTokens: number
     historyTokens = 0
   }
   
-  // FIX: Use model's actual max output tokens instead of 20% heuristic
-  const modelMaxOutput = getMaxOutputTokensForModel(options.model)
-  const outputBuffer = options.outputBuffer ?? modelMaxOutput
+  // FIX: Use model's actual max output tokens via local function (avoids API layer cycle)
+  const modelMaxOutput = getModelMaxOutputTokens(options.model)
+  const outputBuffer = options.outputBuffer ?? modelMaxOutput.default
   const used = systemPromptTokens + toolsTokens + historyTokens
   const available = Math.max(0, contextWindow - used - outputBuffer)
   

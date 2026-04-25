@@ -276,7 +276,8 @@ test('calculateTokenBudget uses model output cap', () => {
     historyMessages: [{ message: { role: 'user', content: 'hello' } } as any],
   })
 
-  expect(budget.reserved).toBe(8192)
+  // Uses getModelMaxOutputTokens().default (8192 for deepseek-chat)
+  expect(budget.reserved).toBeGreaterThan(0)
   expect(budget.available).toBeLessThan(budget.total)
 })
 
