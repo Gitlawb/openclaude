@@ -15,6 +15,15 @@ export default defineVendor({
   transportConfig: {
     kind: 'openai-compatible',
   },
+  validation: {
+    kind: 'credential-env',
+    routing: {
+      matchDefaultBaseUrl: true,
+    },
+    credentialEnvVars: ['BNKR_API_KEY', 'OPENAI_API_KEY'],
+    missingCredentialMessage:
+      'Bankr auth is required. Set BNKR_API_KEY or OPENAI_API_KEY.',
+  },
   catalog: {
     source: 'static',
     models: [

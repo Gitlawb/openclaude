@@ -4,7 +4,7 @@
 **Current Phase**: Phase 1 — Foundation and Parity
 **Next Planned Phase**: Phase 2 — Runtime Metadata Adoption
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 16:19
+**Last Updated**: 2026-04-25 16:49
 
 ---
 
@@ -159,7 +159,7 @@ Notes:
 
 ## Phase 2: Runtime Metadata Adoption
 
-**Status**: `NOT_STARTED`
+**Status**: `IN_PROGRESS`
 
 **Goal**: Move decision-making logic onto descriptors so runtime surfaces stop duplicating provider rules.
 
@@ -177,7 +177,7 @@ Notes:
 Notes:
 - Once the entry blockers clear, start `2A` and `2A.5` first; they are the planned front door for Phase 2 work.
 - `2B` depends on `2A.5`, `2C` depends on `2A.5`, `2D` should coordinate with `2A` and `2B`, and `2E` stays last.
-- Until the blockers clear, keep Phase 2 items as planning-only and do not check boxes opportunistically.
+- `2A` was completed on-branch on 2026-04-25 by explicit user direction before the broader entry blockers were formally reconciled; keep that sequencing note visible while the remaining Phase 2 packets stay gated behind stable follow-on prerequisites.
 
 ### Phase 2 Recommended Sequence
 
@@ -189,42 +189,55 @@ Notes:
 
 ## Phase 2A: Validation Metadata Migration
 
-**Status**: `NOT_STARTED`
+**Status**: `COMPLETE`
 
-- [ ] Inventory current validation rules by provider
-- [ ] Classify which rules are pure metadata and which are true runtime logic
-- [ ] Move metadata-like rules into descriptors
-- [ ] Keep truly procedural rules in helper functions where needed
-- [ ] Route validation entry points through descriptor-backed metadata
+- [x] Inventory current validation rules by provider
+- [x] Classify which rules are pure metadata and which are true runtime logic
+- [x] Move metadata-like rules into descriptors
+- [x] Keep truly procedural rules in helper functions where needed
+- [x] Route validation entry points through descriptor-backed metadata
 
 Notes:
 - First work to start after the Phase 2 entry blockers clear.
 - Keep a short migration note listing which validation rules stay procedural so later cleanup does not try to over-normalize them.
+- Inventory/classification result: descriptor-backed targets can cover OpenAI, Gemini, GitHub, Mistral, MiniMax, and Bankr validation selection; Codex transport validation and GitHub token inspection remain procedural.
+- Implementation in branch: `ValidationMetadata` now includes routing hints, vendor/gateway descriptors declare their own validation-selection metadata, and `src/utils/providerValidation.ts` now resolves validation targets from descriptor metadata instead of a hardcoded provider-id list.
+- Procedural rules intentionally kept in helpers: Codex auth depends on transport resolution plus auth/account state, and GitHub token inspection still needs runtime token parsing/expiry checks after descriptor target selection.
+- Focused verification on 2026-04-25 is green:
+  - `bun test src/utils/providerValidation.test.ts src/utils/providerProfile.test.ts`
+  - `bun test src/utils/providerProfiles.test.ts src/integrations/registry.test.ts src/integrations/index.test.ts`
+  - filtered `bun run typecheck` for the touched Phase 2A files returned clean output
+- Additional 2A regression coverage now verifies descriptor-driven precedence for Mistral vs stale OpenAI mode, GitHub vs OpenAI mode, and fallback validation for generic OpenAI-compatible routes such as Moonshot.
 
 ---
 
 ## Phase 2A.5: Discovery Cache Service
 
-**Status**: `NOT_STARTED`
+**Status**: `COMPLETE`
 
-- [ ] Create `src/integrations/discoveryCache.ts`
-- [ ] Create `src/integrations/discoveryCache.test.ts`
-- [ ] Implement `parseDurationString` with `m`, `h`, `d` support and raw numbers
-- [ ] Implement `getCachedModels`, `setCachedModels`, `isCacheStale`
-- [ ] Implement `recordDiscoveryError` with stale-data preservation
-- [ ] Implement `clearDiscoveryCache` (per-route and all-routes)
-- [ ] Implement atomic writes (temp + rename)
-- [ ] Implement in-memory locking for concurrent access
-- [ ] Implement schema version + migration stub
-- [ ] Implement corruption fallback (empty cache, no crash)
-- [ ] Verify parse and TTL behavior in unit tests
-- [ ] Verify atomic write does not corrupt existing cache on crash mid-write
-- [ ] Verify concurrent writes are serialized
-- [ ] Verify `recordDiscoveryError` preserves stale cache data
+- [x] Create `src/integrations/discoveryCache.ts`
+- [x] Create `src/integrations/discoveryCache.test.ts`
+- [x] Implement `parseDurationString` with `m`, `h`, `d` support and raw numbers
+- [x] Implement `getCachedModels`, `setCachedModels`, `isCacheStale`
+- [x] Implement `recordDiscoveryError` with stale-data preservation
+- [x] Implement `clearDiscoveryCache` (per-route and all-routes)
+- [x] Implement atomic writes (temp + rename)
+- [x] Implement in-memory locking for concurrent access
+- [x] Implement schema version + migration stub
+- [x] Implement corruption fallback (empty cache, no crash)
+- [x] Verify parse and TTL behavior in unit tests
+- [x] Verify atomic write does not corrupt existing cache on crash mid-write
+- [x] Verify concurrent writes are serialized
+- [x] Verify `recordDiscoveryError` preserves stale cache data
 
 Notes:
 - This can begin alongside `2A` once Phase 2 entry blockers clear.
 - `2B` and `2C` should not start wiring discovery caching until this packet is complete enough to provide stable helper APIs.
+- Landed in branch: `src/integrations/discoveryCache.ts` stores per-route model discovery entries under `model-discovery-cache.json` in the Claude config home, with atomic temp-file writes, versioned schema loading, corruption fallback, and a serialized in-memory write lock.
+- Current helper behavior: `getCachedModels(routeId, ttlMs)` returns only fresh successful entries, while `recordDiscoveryError()` preserves stale models or stores an error-only entry for later consumers.
+- Focused verification on 2026-04-25 is green:
+  - `bun test src/integrations/discoveryCache.test.ts`
+  - filtered `bun run typecheck` for `src/integrations/discoveryCache*.ts` returned clean output
 
 ---
 

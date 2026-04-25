@@ -15,6 +15,14 @@ export default defineVendor({
   transportConfig: {
     kind: 'gemini-native',
   },
+  validation: {
+    kind: 'gemini-credential',
+    routing: {
+      enablementEnvVar: 'CLAUDE_CODE_USE_GEMINI',
+    },
+    missingCredentialMessage:
+      'GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_ACCESS_TOKEN, or Google ADC credentials are required when CLAUDE_CODE_USE_GEMINI=1.',
+  },
   catalog: {
     source: 'static',
     models: [

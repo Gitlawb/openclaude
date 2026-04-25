@@ -15,6 +15,25 @@ export default defineVendor({
   transportConfig: {
     kind: 'openai-compatible',
   },
+  validation: {
+    kind: 'credential-env',
+    routing: {
+      matchDefaultBaseUrl: true,
+      fallbackWhenUseOpenAI: true,
+    },
+    credentialEnvVars: ['OPENAI_API_KEY'],
+    allowLocalBaseUrlWithoutCredential: true,
+    missingCredentialMessage:
+      'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    invalidCredentialValues: [
+      {
+        envVar: 'OPENAI_API_KEY',
+        value: 'SUA_CHAVE',
+        message:
+          'Invalid OPENAI_API_KEY: placeholder value SUA_CHAVE detected. Set a real key or unset for local providers.',
+      },
+    ],
+  },
   isFirstParty: true,
   catalog: {
     source: 'static',

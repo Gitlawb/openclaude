@@ -3,13 +3,20 @@ import { afterEach, expect, test } from 'bun:test'
 import {
   getProviderValidationError,
   shouldExitForStartupProviderValidationError,
-} from './providerValidation.ts'
+} from './providerValidation.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
+  MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
+  MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  BNKR_API_KEY: process.env.BNKR_API_KEY,
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+  GH_TOKEN: process.env.GH_TOKEN,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
@@ -29,7 +36,14 @@ afterEach(() => {
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
+  restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
+  restoreEnv('MISTRAL_API_KEY', originalEnv.MISTRAL_API_KEY)
+  restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
+  restoreEnv('BNKR_API_KEY', originalEnv.BNKR_API_KEY)
+  restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
+  restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
   restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
@@ -95,6 +109,91 @@ test('openai missing key error includes recovery guidance and config locations',
   )
   expect(message).toContain('Saved startup settings can come from')
   expect(message).toContain('.openclaude-profile.json')
+})
+
+test('mistral validation is descriptor-backed and requires MISTRAL_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_MISTRAL = '1'
+  delete process.env.MISTRAL_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'MISTRAL_API_KEY is required when CLAUDE_CODE_USE_MISTRAL=1.',
+  )
+})
+
+test('mistral validation still wins when stale openai mode is also set', async () => {
+  process.env.CLAUDE_CODE_USE_MISTRAL = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.MISTRAL_API_KEY
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'MISTRAL_API_KEY is required when CLAUDE_CODE_USE_MISTRAL=1.',
+  )
+})
+
+test('minimax validation accepts MINIMAX_API_KEY without OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.minimax.io/v1'
+  process.env.MINIMAX_API_KEY = 'minimax-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('bankr validation accepts BNKR_API_KEY without OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llm.bankr.bot/v1'
+  process.env.BNKR_API_KEY = 'bankr-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('openai validation does not accept unrelated minimax credentials', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.MINIMAX_API_KEY = 'minimax-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+  )
+})
+
+test('openai-compatible routes without custom validation fall back to openai validation', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+  )
+})
+
+test('github validation stays descriptor-selected and reports missing auth', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'GitHub Copilot authentication required.\n' +
+      'Run /onboard-github in the CLI to sign in with your GitHub account.\n' +
+      'This will store your OAuth token securely and enable Copilot models.',
+  )
+})
+
+test('github validation is skipped when openai mode is also active', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+  )
 })
 
 test('startup provider validation allows interactive recovery', () => {

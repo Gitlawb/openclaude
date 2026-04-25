@@ -26,6 +26,15 @@ export default defineGateway({
       supportsUserCustomHeaders: true,
     },
   },
+  validation: {
+    kind: 'credential-env',
+    routing: {
+      enablementEnvVar: 'CLAUDE_CODE_USE_MISTRAL',
+    },
+    credentialEnvVars: ['MISTRAL_API_KEY'],
+    missingCredentialMessage:
+      'MISTRAL_API_KEY is required when CLAUDE_CODE_USE_MISTRAL=1.',
+  },
   catalog: {
     source: 'static',
     models: [

@@ -117,6 +117,41 @@ export interface UsageMetadata {
   silentlyIgnore?: boolean
 }
 
+export interface InvalidCredentialValue {
+  envVar: string
+  value: string
+  message: string
+}
+
+export interface ValidationRoutingMetadata {
+  enablementEnvVar?: string
+  matchDefaultBaseUrl?: boolean
+  fallbackWhenUseOpenAI?: boolean
+  skipWhenUseOpenAI?: boolean
+}
+
+export type ValidationMetadata =
+  | {
+      routing?: ValidationRoutingMetadata
+      kind: 'credential-env'
+      credentialEnvVars: string[]
+      allowLocalBaseUrlWithoutCredential?: boolean
+      missingCredentialMessage?: string
+      invalidCredentialValues?: InvalidCredentialValue[]
+    }
+  | {
+      routing?: ValidationRoutingMetadata
+      kind: 'gemini-credential'
+      missingCredentialMessage: string
+    }
+  | {
+      routing?: ValidationRoutingMetadata
+      kind: 'github-token'
+      missingCredentialMessage: string
+      expiredCredentialMessage: string
+      invalidCredentialMessage: string
+    }
+
 export interface VendorDescriptor {
   id: string
   label: string
@@ -131,6 +166,7 @@ export interface VendorDescriptor {
   transportConfig: TransportConfig
   catalog?: ModelCatalogConfig
   usage?: UsageMetadata
+  validation?: ValidationMetadata
 }
 
 export interface GatewayDescriptor {
@@ -144,6 +180,7 @@ export interface GatewayDescriptor {
   transportConfig: TransportConfig
   catalog?: ModelCatalogConfig
   usage?: UsageMetadata
+  validation?: ValidationMetadata
 }
 
 export interface AnthropicProxyDescriptor {
@@ -165,6 +202,7 @@ export interface AnthropicProxyDescriptor {
   transportConfig: TransportConfig
   catalog?: ModelCatalogConfig
   usage?: UsageMetadata
+  validation?: ValidationMetadata
 }
 
 export interface BrandDescriptor {
