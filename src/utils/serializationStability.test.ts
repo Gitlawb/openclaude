@@ -53,6 +53,32 @@ describe('stableStringify', () => {
     expect(stableStringify('x')).toBe('"x"')
     expect(stableStringify(true)).toBe('true')
   })
+
+  test('throws TypeError on circular structures (same behavior as JSON.stringify)', () => {
+    const obj: Record<string, unknown> = {}
+    obj.self = obj
+    // The exact message varies by engine (V8: "Converting circular structure
+    // to JSON", Bun: "JSON.stringify cannot serialize cyclic structures.").
+    // We only pin the error class — same contract as native JSON.stringify.
+    expect(() => stableStringify(obj)).toThrow(TypeError)
+    expect(() => JSON.stringify(obj)).toThrow(TypeError)
+  })
+
+  test('throws TypeError on circular references nested deep in the graph', () => {
+    const inner: Record<string, unknown> = { val: 1 }
+    const outer = { a: { b: inner } }
+    inner.cycle = outer
+    expect(() => stableStringify(outer)).toThrow(TypeError)
+  })
+
+  test('does not throw on DAGs (same object referenced from multiple keys)', () => {
+    const shared = { x: 1 }
+    // Native JSON.stringify handles this fine — stableStringify must too.
+    expect(() => stableStringify({ a: shared, b: shared })).not.toThrow()
+    expect(stableStringify({ a: shared, b: shared })).toBe(
+      '{"a":{"x":1},"b":{"x":1}}',
+    )
+  })
 })
 
 describe('sortKeysDeep', () => {

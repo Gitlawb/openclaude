@@ -39,9 +39,17 @@
  * - Array element order is preserved.
  * - Undefined values are dropped (matching `JSON.stringify`).
  * - Indentation matches the `space` argument (0 by default → compact).
+ *
+ * Single-pass: `deepSort` walks the value tree once, building a sorted
+ * clone. A `WeakSet` of ancestors tracks the current path through the
+ * object graph so that circular references throw `TypeError` (same
+ * contract as native `JSON.stringify`). Ancestors are always removed in
+ * a `finally` block when unwinding out of each object branch (even on
+ * exception), so DAG inputs — where the same object is reachable via
+ * multiple keys — are handled correctly and do not throw.
  */
 export function stableStringify(value: unknown, space?: number): string {
-  return JSON.stringify(value, sortingReplacer, space)
+  return JSON.stringify(deepSort(value), null, space)
 }
 
 /**
@@ -54,29 +62,23 @@ export function sortKeysDeep<T>(value: T): T {
   return deepSort(value) as T
 }
 
-function deepSort(value: unknown): unknown {
+function deepSort(value: unknown, ancestors = new WeakSet()): unknown {
   if (value === null || typeof value !== 'object') return value
-  if (Array.isArray(value)) return value.map(deepSort)
-  const sorted: Record<string, unknown> = {}
-  const keys = Object.keys(value as Record<string, unknown>).sort()
-  for (const key of keys) {
-    const v = (value as Record<string, unknown>)[key]
-    if (v === undefined) continue
-    sorted[key] = deepSort(v)
+  if (Array.isArray(value)) return value.map(v => deepSort(v, ancestors))
+  if (ancestors.has(value as object)) {
+    throw new TypeError('Converting circular structure to JSON')
   }
-  return sorted
-}
-
-// JSON.stringify replacer that sorts object keys at every depth.
-function sortingReplacer(_key: string, val: unknown): unknown {
-  if (val === null || typeof val !== 'object' || Array.isArray(val)) return val
-  const sorted: Record<string, unknown> = {}
-  const keys = Object.keys(val as Record<string, unknown>).sort()
-  for (const k of keys) {
-    const v = (val as Record<string, unknown>)[k]
-    if (v === undefined) continue
-    sorted[k] = v
+  ancestors.add(value as object)
+  try {
+    const sorted: Record<string, unknown> = {}
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      const v = (value as Record<string, unknown>)[key]
+      if (v === undefined) continue
+      sorted[key] = deepSort(v, ancestors)
+    }
+    return sorted
+  } finally {
+    ancestors.delete(value as object)
   }
-  return sorted
 }
 

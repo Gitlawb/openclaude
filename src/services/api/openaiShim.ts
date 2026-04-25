@@ -1908,7 +1908,7 @@ class OpenAIShimMessages {
             responsesResponse = await fetchWithProxyRetry(responsesUrl, {
               method: 'POST',
               headers,
-              body: JSON.stringify(responsesBody),
+              body: stableStringify(responsesBody),
               signal: options?.signal,
             })
           } catch (error) {
