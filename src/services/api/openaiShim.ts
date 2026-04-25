@@ -1556,7 +1556,17 @@ class OpenAIShimMessages {
     const isDeepSeek = isDeepSeekBaseUrl(request.baseUrl)
     const isZai = isZaiBaseUrl(request.baseUrl)
 
-    if ((isGithub || isMistral || isLocal || isMoonshot || isDeepSeek || isZai) && body.max_completion_tokens !== undefined) {
+    if (
+      (
+        isGithub ||
+        isMistral ||
+        isLocal ||
+        isMoonshot ||
+        isDeepSeek ||
+        isZai
+      ) &&
+      body.max_completion_tokens !== undefined
+    ) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
