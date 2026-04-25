@@ -429,17 +429,17 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'qwen3-max':                 32_768,
   'qwen3-max-2026-01-23':      32_768,
   'kimi-k2.5':                 32_768,
-  'glm-5':                     16_384,
-  'glm-4.7':                   16_384,
-  'glm-5.1':                  131_072,
-  'glm-5-turbo':              131_072,
-  'glm-4.5-air':               65_536,
-  // Z.AI Coding Plan models (uppercase variants)
-  'GLM-5.1':                  131_072,
-  'GLM-5-Turbo':              131_072,
-  'GLM-5':                    131_072,
-  'GLM-4.7':                  131_072,
-  'GLM-4.5-Air':               65_536,
+  // GLM models — consistent limits across casing variants
+  'glm-5':                     131_072,
+  'glm-5.1':                   131_072,
+  'glm-5-turbo':               131_072,
+  'glm-4.7':                   131_072,
+  'glm-4.5-air':                65_536,
+  'GLM-5':                     131_072,
+  'GLM-5.1':                   131_072,
+  'GLM-5-Turbo':               131_072,
+  'GLM-4.7':                   131_072,
+  'GLM-4.5-Air':                65_536,
 
   // Moonshot AI direct API
   'kimi-for-coding':           32_768,
