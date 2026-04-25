@@ -1,9 +1,10 @@
-# OpenClaude Descriptor Migration — Phase 1 Progress Tracker
+# OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Phase**: Phase 1 — Foundation and Parity
+**Current Phase**: Phase 1 — Foundation and Parity
+**Next Planned Phase**: Phase 2 — Runtime Metadata Adoption
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 16:23
+**Last Updated**: 2026-04-25 16:19
 
 ---
 
@@ -109,7 +110,7 @@
 - [x] Update `applyProviderProfileToProcessEnv()` to use route-resolution helper with explicit fallback
 - [x] Preserve Bedrock/Vertex/GitHub runtime exceptions during descriptor-backed profile activation
 - [x] Serialize descriptor-backed startup fallback using legacy-compatible startup kinds so saved profiles still reload
-- [x] All `providerProfiles.test.ts` pass (38/38)
+- [x] All `providerProfiles.test.ts` pass (43/43)
 
 ---
 
@@ -142,16 +143,184 @@ Notes:
 - Re-ran targeted Phase 1E/1F verification on 2026-04-25 after the latest compatibility/usage/provider changes, including loader/registry sanity coverage; all targeted suites are green.
 - Filtered `bun run typecheck` output for the Phase 1 files changed in this branch is now clean.
 - Repo-wide `bun run typecheck` is still red in unrelated existing areas such as `src/__tests__/providerCounts.test.ts`, `src/assistant/sessionHistory.ts`, `src/bootstrap/state.ts`, and multiple `src/bridge/` and `src/cli/` files; that baseline issue is not a new Phase 1 blocker introduced by this branch.
+- After the repo-wide typecheck blocker is resolved or explicitly waived, finish Phase 1 by rerunning `bun run typecheck`, updating the exit criteria, and checking `1F complete`.
 
 ---
 
 ## Phase 1 Merge Checkpoints
 
-- [ ] **1A merged** — registry skeleton + tests in main
-- [ ] **1B+1C merged** — all descriptor files + brand/model index in main
-- [x] **1D merged** — config compatibility in main
-- [x] **1E merged** — CLI/usage surfaces in main
+- [ ] **1A merged** — registry skeleton + tests checkpoint landed on `cheeky-cooking-moon`
+- [ ] **1B+1C merged** — descriptor inventory + brand/model index checkpoint landed on `cheeky-cooking-moon`
+- [x] **1D merged** — config compatibility checkpoint landed on `cheeky-cooking-moon`
+- [x] **1E merged** — CLI/usage checkpoint landed on `cheeky-cooking-moon`
 - [ ] **1F complete** — all tests green, exit criteria met, ready for Phase 2
+
+---
+
+## Phase 2: Runtime Metadata Adoption
+
+**Status**: `NOT_STARTED`
+
+**Goal**: Move decision-making logic onto descriptors so runtime surfaces stop duplicating provider rules.
+
+### Phase 2 Exit Criteria
+
+- [ ] Validation, discovery hints, preset metadata, and runtime affordances are descriptor-backed
+- [ ] UI and command surfaces read shared metadata instead of bespoke switches
+
+### Phase 2 Entry Blockers
+
+- [ ] Phase 1F is completed, or the repo-wide `tsc --noEmit` baseline is explicitly accepted as pre-existing debt
+- [ ] Phase 1 merge checkpoints are confirmed in branch order on `cheeky-cooking-moon`
+- [ ] Phase 1 exit criteria are reconciled with current behavior before Phase 2 consumer migrations begin
+
+Notes:
+- Once the entry blockers clear, start `2A` and `2A.5` first; they are the planned front door for Phase 2 work.
+- `2B` depends on `2A.5`, `2C` depends on `2A.5`, `2D` should coordinate with `2A` and `2B`, and `2E` stays last.
+- Until the blockers clear, keep Phase 2 items as planning-only and do not check boxes opportunistically.
+
+### Phase 2 Recommended Sequence
+
+- [ ] Migrate read-only metadata consumers first
+- [ ] Migrate env/routing helpers second
+- [ ] Retire duplicated logic only after parity is verified
+
+---
+
+## Phase 2A: Validation Metadata Migration
+
+**Status**: `NOT_STARTED`
+
+- [ ] Inventory current validation rules by provider
+- [ ] Classify which rules are pure metadata and which are true runtime logic
+- [ ] Move metadata-like rules into descriptors
+- [ ] Keep truly procedural rules in helper functions where needed
+- [ ] Route validation entry points through descriptor-backed metadata
+
+Notes:
+- First work to start after the Phase 2 entry blockers clear.
+- Keep a short migration note listing which validation rules stay procedural so later cleanup does not try to over-normalize them.
+
+---
+
+## Phase 2A.5: Discovery Cache Service
+
+**Status**: `NOT_STARTED`
+
+- [ ] Create `src/integrations/discoveryCache.ts`
+- [ ] Create `src/integrations/discoveryCache.test.ts`
+- [ ] Implement `parseDurationString` with `m`, `h`, `d` support and raw numbers
+- [ ] Implement `getCachedModels`, `setCachedModels`, `isCacheStale`
+- [ ] Implement `recordDiscoveryError` with stale-data preservation
+- [ ] Implement `clearDiscoveryCache` (per-route and all-routes)
+- [ ] Implement atomic writes (temp + rename)
+- [ ] Implement in-memory locking for concurrent access
+- [ ] Implement schema version + migration stub
+- [ ] Implement corruption fallback (empty cache, no crash)
+- [ ] Verify parse and TTL behavior in unit tests
+- [ ] Verify atomic write does not corrupt existing cache on crash mid-write
+- [ ] Verify concurrent writes are serialized
+- [ ] Verify `recordDiscoveryError` preserves stale cache data
+
+Notes:
+- This can begin alongside `2A` once Phase 2 entry blockers clear.
+- `2B` and `2C` should not start wiring discovery caching until this packet is complete enough to provide stable helper APIs.
+
+---
+
+## Phase 2B: Discovery and Readiness Metadata Migration
+
+**Status**: `BLOCKED`
+
+- [ ] Map current readiness flows for Ollama, Atomic Chat, and other local/openai-compatible providers
+- [ ] Define which probe behaviors can be declared as metadata
+- [ ] Keep actual probe execution in code, but drive probe selection from descriptors
+- [ ] Add a model discovery service that can run declarative `catalog.discovery` configs
+- [ ] Consume `discoveryCache.ts` in the discovery service
+- [ ] Wire `setCachedModels` / `getCachedModels` into declarative `catalog.discovery` execution
+- [ ] Implement deterministic hybrid merge behavior where curated descriptor entries override discovered metadata
+- [ ] Implement built-in `discovery.kind: 'openai-compatible'` support for standard `/v1/models` discovery
+- [ ] Ensure OpenAI-compatible discovery uses the route's base URL and descriptor/profile-resolved headers automatically
+- [ ] Reserve custom discovery functions for non-standard response shapes only
+- [ ] Verify local provider labels still render correctly
+- [ ] Verify readiness messages still render correctly
+
+Notes:
+- Unblock after `2A.5` provides the cache service and `2A` clarifies the descriptor-backed metadata boundaries.
+- Start with Ollama and Atomic Chat first so local readiness flows stay easy to compare with current behavior.
+
+---
+
+## Phase 2C: Provider UI Metadata Migration
+
+**Status**: `BLOCKED`
+
+- [ ] Replace hardcoded preset labels/defaults with descriptor lookups
+- [ ] Drive auth/setup prompts from descriptor metadata
+- [ ] Wire custom-header capability flags into the custom-provider flow
+- [ ] Make `/model` read active route catalog entries instead of global model availability
+- [ ] Call `getCachedModels` before rendering `/model` for dynamic/hybrid routes so cached discovered models appear immediately
+- [ ] Call `isCacheStale` to trigger background refresh when picker opens
+- [ ] Add `/model refresh` command to force model discovery refresh for the active route
+- [ ] Add an in-picker refresh action for model discovery, such as pressing `r`
+- [ ] Call `clearDiscoveryCache(routeId)` from `/model refresh` and in-picker refresh handlers
+- [ ] Show non-blocking refresh states: loading, success, failure with stale cache, and no changes found
+- [ ] Surface `entry.error` in the picker UI when refresh failed but stale data exists
+- [ ] Keep any UX-only branching that is truly presentational
+- [ ] Verify the `/provider` experience remains understandable after metadata migration
+
+Notes:
+- Unblock after `2A.5` and the first round of `2B` discovery/readiness helpers are stable enough for UI consumers.
+- Work this packet in two slices: descriptor-backed provider labels/setup first, then `/model` cache/refresh UX second.
+
+---
+
+## Phase 2D: Runtime Provider Detection Alignment
+
+**Status**: `BLOCKED`
+
+- [ ] Define the boundary between `APIProvider` and descriptor ids
+- [ ] Decide which legacy runtime provider names stay externally visible
+- [ ] Map descriptor-backed state onto `getAPIProvider()` without breaking existing callers
+- [ ] Inventory current `openaiShim.ts` provider/base-url conditionals and classify which can become descriptor metadata
+- [ ] Preserve DeepSeek/Moonshot `reasoning_content` replay behavior from PR #895 if it has landed
+- [ ] If PR #895 has not landed, explicitly test whether the migration still covers its reported DeepSeek thinking-mode edge cases
+- [ ] Preserve Z.AI GLM Coding Plan behavior from PR #896 if it has landed
+- [ ] Move Z.AI-style `max_tokens`, `store` stripping, thinking request format, and `reasoning_content` gates into descriptor metadata where possible
+- [ ] Avoid assuming DeepSeek-like reasoning behavior only applies to direct DeepSeek URLs; gateways may expose models with the same requirement
+- [ ] Document exceptions such as `github`, `bedrock`, `vertex`, and `mistral`
+- [ ] Verify existing callers still receive expected provider categories
+
+Notes:
+- Unblock after `2A` and `2B` establish the descriptor-backed metadata that runtime detection will consume.
+- Before starting, check whether PR `#895` or PR `#896` landed so this packet preserves the right transport quirks instead of duplicating stale assumptions.
+
+---
+
+## Phase 2E: Phase-2 Verification and Drift Audit
+
+**Status**: `BLOCKED`
+
+- [ ] Run `/provider` flows for representative providers
+- [ ] Verify validation errors still appear at the right times
+- [ ] Verify local discovery still works
+- [ ] Audit remaining switch statements
+- [ ] Document whether each remaining switch is intentional or stale
+
+Notes:
+- Unblock only after `2A` through `2D` are complete enough to audit as one behavior slice.
+- Treat this packet as the gate before any Phase 3 cleanup work starts.
+
+---
+
+## Phase 2 Merge Checkpoints
+
+- [ ] **2A merged** — validation metadata checkpoint landed on `cheeky-cooking-moon`
+- [ ] **2A.5 merged** — discovery cache service checkpoint landed on `cheeky-cooking-moon`
+- [ ] **2B merged** — discovery/readiness metadata checkpoint landed on `cheeky-cooking-moon`
+- [ ] **2C merged** — provider UI metadata checkpoint landed on `cheeky-cooking-moon`
+- [ ] **2D merged** — runtime provider detection checkpoint landed on `cheeky-cooking-moon`
+- [ ] **2E complete** — drift audit is green and Phase 3 can begin
 
 ---
 
@@ -165,8 +334,6 @@ src/integrations/
   index.ts
   compatibility.ts
   registry.test.ts
-  discoveryCache.ts         (Phase 2A.5)
-  discoveryCache.test.ts    (Phase 2A.5)
   brands/
     claude.ts
     deepseek.ts
@@ -215,4 +382,4 @@ src/integrations/
 
 ## How to Update This File
 
-Check boxes as tasks complete. When a whole phase (1A–1F) is done, update its **Status** and check the corresponding merge checkpoint. When all merge checkpoints are done, the Phase 1 exit criteria should all be checked too.
+Check boxes as tasks complete. When a whole phase packet (1A–1F, 2A–2E, etc.) is done, update its **Status** and check the corresponding merge checkpoint. When a phase's merge checkpoints are done, update that phase's exit criteria to match the actual branch state.
