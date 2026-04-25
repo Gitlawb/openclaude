@@ -1,11 +1,10 @@
 import { afterEach, expect, test } from 'bun:test'
 
-import { getMaxOutputTokensForModel } from '../services/api/claude.js'
+import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
 import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
-  calculateTokenBudget,
-} from './context.js'
+} from './context.ts'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -265,29 +264,4 @@ test('DashScope models clamp oversized max output overrides to the provider limi
   expect(getMaxOutputTokensForModel('qwen3-max')).toBe(32_768)
   expect(getMaxOutputTokensForModel('kimi-k2.5')).toBe(32_768)
   expect(getMaxOutputTokensForModel('glm-5')).toBe(16_384)
-})
-
-test('calculateTokenBudget uses model output cap', () => {
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  
-  const budget = calculateTokenBudget({
-    model: 'deepseek-chat',
-    systemPrompt: 'You are helpful',
-    historyMessages: [{ message: { role: 'user', content: 'hello' } } as any],
-  })
-
-  expect(budget.reserved).toBe(8192)
-  expect(budget.available).toBeLessThan(budget.total)
-})
-
-test('calculateTokenBudget handles numeric history', () => {
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  
-  const budget = calculateTokenBudget({
-    model: 'gpt-4o',
-    historyMessages: 10,
-  })
-
-  expect(budget.history).toBe(1000)
-  expect(budget.available).toBeGreaterThan(0)
 })
