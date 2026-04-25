@@ -59,7 +59,7 @@ export function getSmallFastModel(): ModelName {
   }
   // For GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'claude-haiku-4.5'
+    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // NVIDIA NIM — OPENAI_MODEL carries the user's active NIM model; use a
   // small Meta Llama variant as the conservative fallback.
@@ -185,7 +185,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'claude-opus-4.6'
+    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
@@ -227,7 +227,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'claude-sonnet-4.6'
+    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
@@ -263,7 +263,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'claude-haiku-4.5'
+    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
@@ -328,7 +328,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
       normalizeModelSetting(settings.model) ||
       normalizeModelSetting(process.env.GITHUB_MODEL) ||
       normalizeModelSetting(process.env.OPENAI_MODEL) ||
-      'claude-sonnet-4.6'
+      'gpt-4o'
     )
   }
   // Gemini provider: always use the configured Gemini model
