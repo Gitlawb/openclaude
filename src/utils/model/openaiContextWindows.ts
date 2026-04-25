@@ -232,6 +232,15 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'kimi-k2.5':                262_144,
   'glm-5':                    202_752,
   'glm-4.7':                  202_752,
+  'glm-5.1':                  202_752,
+  'glm-5-turbo':              202_752,
+  'glm-4.5-air':              128_000,
+  // Z.AI Coding Plan models (uppercase variants)
+  'GLM-5.1':                  202_752,
+  'GLM-5-Turbo':              202_752,
+  'GLM-5':                    202_752,
+  'GLM-4.7':                  202_752,
+  'GLM-4.5-Air':              128_000,
 
   // Moonshot AI direct API (api.moonshot.ai/v1). Values from Moonshot's
   // published model card — all K2 tier share 256K context. Prefix matching
@@ -422,6 +431,15 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'kimi-k2.5':                 32_768,
   'glm-5':                     16_384,
   'glm-4.7':                   16_384,
+  'glm-5.1':                  131_072,
+  'glm-5-turbo':              131_072,
+  'glm-4.5-air':               65_536,
+  // Z.AI Coding Plan models (uppercase variants)
+  'GLM-5.1':                  131_072,
+  'GLM-5-Turbo':              131_072,
+  'GLM-5':                    131_072,
+  'GLM-4.7':                  131_072,
+  'GLM-4.5-Air':               65_536,
 
   // Moonshot AI direct API
   'kimi-for-coding':           32_768,

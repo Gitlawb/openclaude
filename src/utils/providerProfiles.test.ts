@@ -625,6 +625,18 @@ describe('getProviderPresetDefaults', () => {
     )
     expect(defaults.requiresApiKey).toBe(true)
   })
+
+  test('zai preset defaults to Z.AI GLM Coding Plan endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('zai')
+
+    expect(defaults.provider).toBe('openai')
+    expect(defaults.name).toBe('Z.AI - GLM Coding Plan')
+    expect(defaults.baseUrl).toBe('https://api.z.ai/api/coding/paas/v4')
+    expect(defaults.model).toBe('GLM-5.1, GLM-5-Turbo, GLM-4.7, GLM-4.5-Air')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
 })
 
 describe('setActiveProviderProfile', () => {

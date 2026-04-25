@@ -205,6 +205,10 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (host.includes('bankr') || haystack.includes('bankr')) {
       return 'Bankr'
     }
+    // Z.AI GLM Coding Plan
+    if (hostname === 'api.z.ai') {
+      return 'Z.AI - GLM'
+    }
     // Moonshot AI direct API
     if (
       host.includes('moonshot') ||
