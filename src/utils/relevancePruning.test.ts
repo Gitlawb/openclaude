@@ -38,6 +38,24 @@ describe('relevancePruning', () => {
 
       expect(result.length).toBeGreaterThan(0)
     })
+
+    it('preserves message id groups together', () => {
+      // Messages with same ID should be kept together
+      const messages = [
+        { message: { role: 'assistant', content: 'Hello', id: 'msg1', created_at: 1000 } },
+        { message: { role: 'tool_result', content: 'Result', id: 'msg1', created_at: 1001 } },
+        { message: { role: 'user', content: 'New request', id: 'msg2', created_at: 2000 } },
+      ] as any[]
+
+      const result = pruneByRelevance(messages, { targetTokens: 500 })
+
+      // Either both msg1 messages are kept or neither (not partial)
+      const msg1Msgs = result.filter(m => m.message?.id === 'msg1')
+      // If any msg1 is kept, all should be kept
+      if (msg1Msgs.length > 0) {
+        expect(msg1Msgs.length).toBe(2)
+      }
+    })
   })
 
   describe('hasToolCalls', () => {

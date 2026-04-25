@@ -299,17 +299,25 @@ export async function autoCompactIfNeeded(
     : Math.floor(contextWindow * 0.1)
 
   if (!partitioned.canFitInWindow && availableSpace > 1000) {
-    const pruned = pruneByRelevance(messages, {
+    // Preserve system messages
+    const systemMessages = messages.filter(m => m.message?.role === 'system')
+    const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
+    
+    const pruned = pruneByRelevance(nonSystemMessages, {
       targetTokens: availableSpace,
       preserveRecent: 3,
       preserveTools: true,
       preserveErrors: true,
     })
-    if (pruned.length > 0 && pruned.length < messages.length) {
+    
+    // Combine preserved system + pruned
+    const finalMessages = [...systemMessages, ...pruned]
+    
+    if (finalMessages.length > 0 && finalMessages.length < messages.length) {
       logForDebugging(
-        `partition+prune: ${messages.length} -> ${pruned.length} messages`,
+        `partition+prune: ${messages.length} -> ${finalMessages.length} messages`,
       )
-      messages = pruned
+      messages = finalMessages
     }
   }
 

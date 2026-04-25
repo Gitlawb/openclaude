@@ -128,32 +128,45 @@ export function pruneByRelevance(
   const recentMessages = messages.slice(-preserveRecent)
   const olderMessages = messages.slice(0, -preserveRecent)
 
-  const scored: Array<{ message: Message; score: number }> = olderMessages.map(msg => ({
-    message: msg,
-    score: calculateRelevance(msg, options),
-  }))
+  // Group by message.id to preserve transcript pairs
+  const byId = new Map<string, Message[]>()
+  for (const msg of olderMessages) {
+    const id = msg.message?.id ?? `idx-${Math.random()}`
+    const existing = byId.get(id) ?? []
+    existing.push(msg)
+    byId.set(id, existing)
+  }
+
+  // Score each message ID group
+  const scored: Array<{ groupId: string; messages: Message[]; score: number }> = []
+  for (const [id, msgs] of byId) {
+    const avgScore = msgs.reduce((sum, m) => sum + calculateRelevance(m, options), 0) / msgs.length
+    scored.push({ groupId: id, messages: msgs, score: avgScore })
+  }
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
-    return (b.message.message?.created_at ?? 0) - (a.message.message?.created_at ?? 0)
+    const aTime = a.messages[0]?.message?.created_at ?? 0
+    const bTime = b.messages[0]?.message?.created_at ?? 0
+    return bTime - aTime
   })
 
   const result: Message[] = [...recentMessages]
 
-  for (const { message, score } of scored) {
-    if (score < minRelevanceScore) continue
-
-    const content = typeof message.message?.content === 'string'
-      ? message.message.content
-      : ''
-
+  for (const { groupId, messages: groupMsgs } of scored) {
+    const content = groupMsgs.map(m => 
+      typeof m.message?.content === 'string' ? m.message.content : ''
+    ).join('')
     const tokens = roughTokenCountEstimation(content)
 
+    // Group must fit together
     if (totalTokens + tokens > targetTokens) {
-      break
+      continue
     }
 
-    result.push(message)
+    for (const msg of groupMsgs) {
+      result.push(msg)
+    }
     totalTokens += tokens
   }
 
