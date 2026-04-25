@@ -147,7 +147,7 @@ export function detectProvider(): { name: string; model: string; baseUrl: string
     else if (/\bkimi-k/i.test(rawModel) || /moonshot/i.test(rawModel))
       name = 'Moonshot AI - API'
     else if (/deepseek/i.test(rawModel)) name = 'DeepSeek'
-    else if (/\bGLM-?5/i.test(rawModel) || /\bGLM-?4/i.test(rawModel)) name = 'Z.AI - GLM'
+    else if (/\bGLM-5/i.test(rawModel) || /\bGLM-4/i.test(rawModel)) name = 'Z.AI - GLM'
     else if (/mistral/i.test(rawModel)) name = 'Mistral'
     else if (/llama/i.test(rawModel)) name = 'Meta Llama'
     else if (/bankr/i.test(baseUrl)) name = 'Bankr'

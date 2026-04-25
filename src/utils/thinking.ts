@@ -112,7 +112,7 @@ export function modelSupportsThinking(model: string): boolean {
     return true
   }
   // Z.AI GLM models support reasoning_content via OpenAI-compatible API
-  if (/^glm-5|^glm-4\.7/i.test(canonical)) {
+  if (/^glm-5(?:\.1|-turbo)?$|^glm-4\.7$|^glm-4\.5-air$/i.test(canonical)) {
     return true
   }
   // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
