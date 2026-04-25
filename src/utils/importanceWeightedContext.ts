@@ -37,7 +37,17 @@ const DEFAULT_OPTIONS: Required<WeightedContextOptions> = {
 function getContent(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
-    return content.map(c => 'text' in c ? c.text : 'thinking' in c ? c.thinking : '').join(' ')
+    return content.map(c => {
+      if (typeof c === 'string') return c
+      if (typeof c === 'object' && c !== null) {
+        // Keep structured blocks for importance scoring
+        if ('text' in c) return (c as any).text ?? ''
+        if ('thinking' in c) return (c as any).thinking ?? ''
+        // Include tool_use, tool_result in content
+        if ('type' in c) return `[${(c as any).type}]`
+      }
+      return ''
+    }).join(' ')
   }
   return ''
 }
@@ -97,17 +107,31 @@ export function selectWeightedMessages(
 
   const scores = calculateImportanceScores(messages, options)
   const recent = messages.slice(-cfg.preserveRecent)
+  
+  // Check if recent alone exceeds budget
+  const recentTokens = recent.reduce((sum, m) => 
+    sum + roughTokenCountEstimation(getContent(m.message?.content)), 0)
+  
+  if (recentTokens > cfg.maxTokens) {
+    // Return truncated recent within budget
+    const truncated: Message[] = []
+    let used = 0
+    for (const msg of recent) {
+      const tok = roughTokenCountEstimation(getContent(msg.message?.content))
+      if (used + tok <= cfg.maxTokens) {
+        truncated.push(msg)
+        used += tok
+      }
+    }
+    return truncated
+  }
 
   scores.sort((a, b) => b.score - a.score)
 
   const selected: Message[] = []
-  let totalTokens = 0
+  let totalTokens = recentTokens  // Start with recent tokens
 
   for (const { message } of scores) {
-    if (selected.length >= cfg.preserveRecent && selected.length >= messages.length - cfg.preserveRecent) {
-      break
-    }
-
     const content = getContent(message.message?.content)
     const tokens = roughTokenCountEstimation(content)
 
