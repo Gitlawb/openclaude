@@ -150,18 +150,26 @@ export async function fetchLatestEvents(
 ): Promise<HistoryPage | null> {
   const sessionId = extractSessionId(ctx.baseUrl)
 
-  // Check cache first - but still fetch to get pagination metadata
+  // Check cache first - return cached immediately for offline/restart behavior
   const cached = await loadCachedSession(sessionId)
-  if (cached) {
-    // Fetch latest to get real pagination, use cache only for events
-    const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
-    
-    if (page && page.events.length > 0) {
-      // Update cache with fresh events
-      await cacheSession(sessionId, page.events)
+  if (cached && cached.length > 0) {
+    // Return cached immediately (offline support)
+    const result: HistoryPage = {
+      events: cached,
+      firstId: cached[0]?.message?.id ?? null,
+      hasMore: true,
     }
     
-    return page
+    // Then fetch fresh in background to update cache
+    fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
+      .then(async page => {
+        if (page && page.events.length > 0) {
+          await cacheSession(sessionId, page.events)
+        }
+      })
+      .catch(() => {}) // Ignore background errors
+    
+    return result
   }
 
   const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
@@ -184,6 +192,7 @@ export async function fetchOlderEvents(
 
 // Track last saved event count to avoid unnecessary disk writes
 const lastSavedCounts = new Map<string, number>()
+const lastSavedIds = new Map<string, Set<string>>()
 
 export async function cacheSession(
   sessionId: string,
@@ -193,12 +202,17 @@ export async function cacheSession(
   const messages = serializeToCacheMessage(events)
   cache.set(sessionId, messages)
 
-  // Only persist if message count changed (meaningful change)
+  // Check for meaningful change: new message IDs or count change
+  const newIds = new Set(events.map(e => e.id))
+  const lastIds = lastSavedIds.get(sessionId)
   const newCount = events.length
   const lastCount = lastSavedCounts.get(sessionId) ?? 0
   
-  if (newCount > lastCount) {
+  // Persist if: count changed OR new event IDs (meaningful change)
+  const hasNewIds = !lastIds || [...newIds].some(id => !lastIds.has(id))
+  if (hasNewIds || newCount !== lastCount) {
     lastSavedCounts.set(sessionId, newCount)
+    lastSavedIds.set(sessionId, newIds)
     
     const session = createSession(
       messages as never,
