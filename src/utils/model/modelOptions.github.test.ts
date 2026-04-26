@@ -80,7 +80,45 @@ test('GitHub provider exposes default + all Copilot models in /model options', a
     (option: { value: unknown }) => option.value !== null,
   )
 
-  expect(nonDefault.length).toBeGreaterThan(1)
-  expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-4o')).toBe(true)
-  expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-5.3-codex')).toBe(true)
+  expect(nonDefault).toEqual([
+    {
+      value: 'gpt-4o',
+      label: 'gpt-4o',
+      description: 'Currently configured GitHub model',
+    },
+  ])
+})
+
+test('GitHub provider uses dynamic cached models when available', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+
+  mock.restore()
+  mock.module('./providers.js', () => ({
+    getAPIProvider: () => 'github',
+  }))
+  mock.module('./githubModels.js', () => ({
+    getCachedGithubModelOptions: () => [
+      {
+        value: 'openai/gpt-5-mini',
+        label: 'GPT-5 mini',
+        description: 'GitHub Models · Fast and cheap',
+      },
+    ],
+  }))
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { getModelOptions } = await import(`./modelOptions.js?ts=${nonce}`)
+  const options = getModelOptions(false)
+  const nonDefault = options.filter(
+    (option: { value: unknown }) => option.value !== null,
+  )
+
+  expect(nonDefault).toEqual([
+    {
+      value: 'openai/gpt-5-mini',
+      label: 'GPT-5 mini',
+      description: 'GitHub Models · Fast and cheap',
+    },
+  ])
 })

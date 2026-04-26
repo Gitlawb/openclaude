@@ -1,0 +1,1 @@
+const g = process.env.GITHUB_TOKEN; async function f() { const r = await fetch('https://api.githubcopilot.com/models', { headers: { 'Authorization': 'Bearer ' + g.trim() } }); const d = await r.json(); console.log(JSON.stringify(d.filter(m => m.id.includes('4.5')), null, 2)); } f();

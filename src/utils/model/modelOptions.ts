@@ -369,7 +369,6 @@ function getCodexModelOptions(): ModelOption[] {
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 
-import { getAllCopilotModels } from './copilotModels.js'
 import { getCachedGithubModelOptions } from './githubModels.js'
 
 function getCopilotModelOptions(): ModelOption[] {
@@ -377,11 +376,21 @@ function getCopilotModelOptions(): ModelOption[] {
   if (dynamicModels.length > 0) {
     return dynamicModels
   }
-  return getAllCopilotModels().map(m => ({
-    value: m.id,
-    label: m.name,
-    description: `${m.family}${m.reasoning ? ' · Reasoning' : ''}${m.tool_call ? ' · Tool call' : ''} · ${Math.round(m.limit.context / 1000)}K context`,
-  }))
+
+  // Avoid showing the static full catalog when plan-aware GitHub models
+  // have not been loaded yet; that list can include unavailable models.
+  const currentModel = getUserSpecifiedModelSetting()
+  if (currentModel != null) {
+    return [
+      {
+        value: currentModel,
+        label: currentModel,
+        description: 'Currently configured GitHub model',
+      },
+    ]
+  }
+
+  return []
 }
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {

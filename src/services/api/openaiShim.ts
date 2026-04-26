@@ -71,6 +71,7 @@ import {
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
 import { createStreamState, processStreamChunk, getStreamStats } from '../../utils/streamingOptimizer.js'
 import { updateGithubRateLimit } from '../../utils/githubRateLimit.js'
+import { markGithubModelUnsupported } from '../../utils/model/githubModels.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -117,6 +118,14 @@ const SENSITIVE_URL_QUERY_PARAM_NAMES = [
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+}
+
+function isGithubModelNotSupportedError(errorBody: string): boolean {
+  const normalized = errorBody.toLowerCase()
+  return (
+    normalized.includes('model_not_supported') ||
+    normalized.includes('requested model is not supported')
+  )
 }
 
 function isMistralMode(): boolean {
@@ -1905,6 +1914,14 @@ class OpenAIShimMessages {
       const rateHint =
         isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
 
+      if (
+        isGithub &&
+        response.status === 400 &&
+        isGithubModelNotSupportedError(errorBody)
+      ) {
+        markGithubModelUnsupported(request.resolvedModel)
+      }
+
       // If GitHub Copilot returns error about /chat/completions,
       // try the /responses endpoint (needed for GPT-5+ models)
       if (isGithub && response.status === 400) {
@@ -1971,6 +1988,13 @@ class OpenAIShimMessages {
             return responsesResponse
           }
           const responsesErrorBody = await responsesResponse.text().catch(() => 'unknown error')
+          if (
+            isGithub &&
+            responsesResponse.status === 400 &&
+            isGithubModelNotSupportedError(responsesErrorBody)
+          ) {
+            markGithubModelUnsupported(request.resolvedModel)
+          }
           const responsesFailure = classifyOpenAIHttpFailure({
             status: responsesResponse.status,
             body: responsesErrorBody,

@@ -16,6 +16,7 @@ import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1
 import type { ModelOption } from '../../utils/model/modelOptions.js';
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js';
 import { getAPIProvider } from '../../utils/model/providers.js';
+import { getCachedGithubModelOptions, refreshGithubModelsCache } from '../../utils/model/githubModels.js';
 import { getActiveOpenAIModelOptionsCache, setActiveOpenAIModelOptionsCache } from '../../utils/providerProfiles.js';
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
@@ -301,6 +302,23 @@ async function refreshOpenAIModelOptionsCache(): Promise<void> {
     // Keep /model usable even if endpoint discovery fails.
   }
 }
+
+async function refreshGithubModelOptionsCache(): Promise<void> {
+  if (getAPIProvider() !== 'github') {
+    return
+  }
+
+  if (getCachedGithubModelOptions().length > 0) {
+    return
+  }
+
+  try {
+    await refreshGithubModelsCache()
+  } catch {
+    // Keep /model usable even if endpoint discovery fails.
+  }
+}
+
 export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
   args = args?.trim() || '';
   if (COMMON_INFO_ARGS.includes(args)) {
@@ -324,6 +342,11 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
     void refreshOpenAIModelOptionsCache();
   }
+
+  if (getAPIProvider() === 'github') {
+    await refreshGithubModelOptionsCache()
+  }
+
   return <ModelPickerWrapper onDone={onDone} />;
 };
 function renderModelLabel(model: string | null): string {

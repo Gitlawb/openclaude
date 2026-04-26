@@ -1,7 +1,6 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 
 import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
-import { getAPIProvider } from '../../utils/model/providers.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -56,7 +55,8 @@ test('opens the model picker without awaiting local model discovery refresh', as
 
   expect(getAdditionalModelOptionsCacheScope()).toBe('openai:http://127.0.0.1:8080/v1')
 
-  const { call } = await import('./model.js')
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { call } = await import(`./model.js?ts=${nonce}`)
   const result = await Promise.race([
     call(() => {}, {} as never, ''),
     new Promise(resolve => setTimeout(() => resolve('timeout'), 50)),
@@ -65,4 +65,42 @@ test('opens the model picker without awaiting local model discovery refresh', as
   resolveDiscovery?.()
 
   expect(result).not.toBe('timeout')
+})
+
+test('awaits GitHub model refresh before opening picker when cache is empty', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+
+  let resolveRefresh: (() => void) | undefined
+  const refreshGithubModelsCache = mock(
+    () =>
+      new Promise<void>(resolve => {
+        resolveRefresh = resolve
+      }),
+  )
+
+  mock.module('../../utils/model/githubModels.js', () => ({
+    getCachedGithubModelOptions: () => [],
+    refreshGithubModelsCache,
+  }))
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { call } = await import(`./model.js?ts=${nonce}`)
+  const pendingCall = call(() => {}, {} as never, '')
+  const result = await Promise.race([
+    pendingCall,
+    new Promise(resolve => setTimeout(() => resolve('timeout'), 50)),
+  ])
+
+  expect(result).toBe('timeout')
+
+  resolveRefresh?.()
+  await pendingCall
+
+  expect(refreshGithubModelsCache).toHaveBeenCalled()
 })
