@@ -232,7 +232,7 @@ test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses
   expect(capturedBody?.model).toBe('gpt-5.4')
   expect(capturedBody?.instructions).toBe('test system')
   expect(capturedBody?.max_output_tokens).toBe(64)
-  expect(capturedBody?.store).toBeUndefined()
+  expect(capturedBody?.store).toBe(false)
   expect(capturedBody?.input).toEqual([
     {
       type: 'message',
@@ -240,6 +240,49 @@ test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses
       content: [{ type: 'input_text', text: 'hello' }],
     },
   ])
+})
+
+test('strips store from strict OpenAI-compatible responses providers', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let capturedUrl = ''
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'kimi-k2.5',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'kimi-k2.5',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://api.moonshot.ai/v1/responses')
+  expect(capturedBody?.store).toBeUndefined()
 })
 
 test('uses custom OpenAI-compatible auth header value when configured', async () => {
@@ -313,7 +356,7 @@ test('honors bearer scheme for custom OpenAI-compatible auth headers', async () 
   expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
-test('uses custom auth header value as fallback credential when no custom header is configured', async () => {
+test('ignores custom auth header value when no custom header is configured', async () => {
   delete process.env.OPENAI_API_KEY
   process.env.OPENAI_AUTH_HEADER_VALUE = 'gateway-header-value'
   let capturedHeaders: Headers | undefined
@@ -343,7 +386,7 @@ test('uses custom auth header value as fallback credential when no custom header
     stream: false,
   })
 
-  expect(capturedHeaders?.get('authorization')).toBe('Bearer gateway-header-value')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
 test('strips canonical Anthropic headers from per-request shim headers too', async () => {

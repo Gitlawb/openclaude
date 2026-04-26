@@ -1669,6 +1669,11 @@ class OpenAIShimMessages {
           }>,
         ),
         stream: params.stream ?? false,
+        store: false,
+      }
+
+      if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek || isZai) {
+        delete responsesBody.store
       }
 
       if (!Array.isArray(responsesBody.input) || responsesBody.input.length === 0) {
@@ -1724,7 +1729,14 @@ class OpenAIShimMessages {
       process.env.OPENAI_API_KEY ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
     const configuredAuthHeaderValue = process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
-    const authValue = configuredAuthHeaderValue || apiKey
+    const customAuthHeader = process.env.OPENAI_AUTH_HEADER?.trim()
+    const hasCustomAuthHeader = Boolean(
+      customAuthHeader &&
+      /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader),
+    )
+    const authValue = hasCustomAuthHeader
+      ? configuredAuthHeaderValue || apiKey
+      : apiKey
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -1740,12 +1752,8 @@ class OpenAIShimMessages {
     } catch { /* malformed URL — not Bankr */ }
 
     if (authValue) {
-      const customAuthHeader = process.env.OPENAI_AUTH_HEADER?.trim()
       const customAuthScheme = process.env.OPENAI_AUTH_SCHEME === 'raw' ? 'raw' : 'bearer'
-      if (
-        customAuthHeader &&
-        /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader)
-      ) {
+      if (hasCustomAuthHeader && customAuthHeader) {
         headers[customAuthHeader] =
           customAuthScheme === 'bearer'
             ? `Bearer ${authValue}`
@@ -2064,13 +2072,9 @@ class OpenAIShimMessages {
         continue
       }
 
-      const responsesTools =
-        request.transport === 'responses'
-          ? buildResponsesBody().tools
-          : undefined
       const hasToolsPayload =
         request.transport === 'responses'
-          ? Array.isArray(responsesTools) && responsesTools.length > 0
+          ? Array.isArray(params.tools) && params.tools.length > 0
           : Array.isArray(body.tools) && body.tools.length > 0
 
       if (
