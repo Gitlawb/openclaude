@@ -288,7 +288,6 @@ test('strips store from strict OpenAI-compatible responses providers', async () 
 test('uses custom OpenAI-compatible auth header value when configured', async () => {
   process.env.OPENAI_API_KEY = 'generic-key'
   process.env.OPENAI_AUTH_HEADER = 'api-key'
-  process.env.OPENAI_AUTH_SCHEME = 'raw'
   process.env.OPENAI_AUTH_HEADER_VALUE = 'hicap-header-value'
   let capturedHeaders: Headers | undefined
 
@@ -319,6 +318,39 @@ test('uses custom OpenAI-compatible auth header value when configured', async ()
 
   expect(capturedHeaders?.get('api-key')).toBe('hicap-header-value')
   expect(capturedHeaders?.get('authorization')).toBeNull()
+})
+
+test('defaults Authorization custom auth header to bearer scheme', async () => {
+  process.env.OPENAI_API_KEY = 'authorization-key'
+  process.env.OPENAI_AUTH_HEADER = 'Authorization'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer authorization-key')
 })
 
 test('honors bearer scheme for custom OpenAI-compatible auth headers', async () => {

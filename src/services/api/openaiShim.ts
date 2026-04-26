@@ -1752,8 +1752,14 @@ class OpenAIShimMessages {
     } catch { /* malformed URL — not Bankr */ }
 
     if (authValue) {
-      const customAuthScheme = process.env.OPENAI_AUTH_SCHEME === 'raw' ? 'raw' : 'bearer'
       if (hasCustomAuthHeader && customAuthHeader) {
+        const defaultCustomAuthScheme =
+          customAuthHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
+        const customAuthScheme =
+          process.env.OPENAI_AUTH_SCHEME === 'raw' ||
+          process.env.OPENAI_AUTH_SCHEME === 'bearer'
+            ? process.env.OPENAI_AUTH_SCHEME
+            : defaultCustomAuthScheme
         headers[customAuthHeader] =
           customAuthScheme === 'bearer'
             ? `Bearer ${authValue}`
