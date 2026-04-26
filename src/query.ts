@@ -475,8 +475,14 @@ async function* queryLoop(
       messagesForQuery = collapseResult.messages
     }
 
+    const lastMessage = messagesForQuery[messagesForQuery.length - 1]
+    const userQueryText = lastMessage?.type === 'user' ? (typeof lastMessage.message.content === 'string' ? lastMessage.message.content : '') : ''
+
+    const { getArcSummary } = await import('./utils/conversationArc.js')
+    const arcSummary = getArcSummary(userQueryText)
+
     const fullSystemPrompt = asSystemPrompt(
-      appendSystemContext(systemPrompt, systemContext),
+      appendSystemContext(`${systemPrompt}\n\n${arcSummary}`, systemContext),
     )
 
     queryCheckpoint('query_autocompact_start')
@@ -1867,6 +1873,13 @@ async function* queryLoop(
     }
 
     queryCheckpoint('query_recursive_call')
+    
+    // Persist conversation progress to global project memory
+    if (getGlobalConfig().knowledgeGraphEnabled) {
+      const { finalizeArcTurn } = await import('./utils/conversationArc.js')
+      finalizeArcTurn()
+    }
+
     const next: State = {
       messages: [...messagesForQuery, ...assistantMessages, ...toolResults],
       toolUseContext: toolUseContextWithQueryTracking,

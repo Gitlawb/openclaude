@@ -2,9 +2,15 @@ import { describe, expect, it, beforeEach } from 'bun:test'
 import { call as knowledgeCall } from './knowledge.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { getArc, addEntity, resetArc } from '../../utils/conversationArc.js'
+import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js'
 
 describe('knowledge command', () => {
   const mockContext = {} as any
+
+  beforeEach(() => {
+    resetArc()
+    resetGlobalGraph()
+  })
   
   const knowledgeCallWithCapture = async (args: string) => {
     const result = await knowledgeCall(args, mockContext)
@@ -51,12 +57,13 @@ describe('knowledge command', () => {
   it('clears the knowledge graph', async () => {
     // Add a fact first
     addEntity('test', 'fact')
-    const arc = getArc()
-    expect(Object.keys(arc!.knowledgeGraph.entities).length).toBe(1)
+    const graph = getGlobalGraph()
+    expect(Object.keys(graph.entities).length).toBe(1)
 
     // Clear it
     const res = await knowledgeCallWithCapture('clear')
-    expect(Object.keys(getArc()!.knowledgeGraph.entities).length).toBe(0)
+    const graphAfter = getGlobalGraph()
+    expect(Object.keys(graphAfter.entities).length).toBe(0)
     expect(res.toLowerCase()).toContain('cleared')
   })
 

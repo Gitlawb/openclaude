@@ -6,34 +6,50 @@
  */
 
 import type { Message } from '../types/message.js'
+import { 
+  addGlobalEntity, 
+  addGlobalRelation, 
+  addGlobalSummary,
+  addGlobalRule,
+  getGlobalGraph,
+  getGlobalGraphSummary,
+  getOrchestratedMemory,
+  extractKeywords
+} from './knowledgeGraph.js'
 
-export interface Entity {
-  id: string
-  type: string // e.g., 'system', 'preference', 'credential'
-  name: string // e.g., 'RHEL9', 'Jira URL'
-  attributes: Record<string, string>
-}
+// ... (Goal, Decision, Milestone interfaces)
 
-export interface Relation {
-  sourceId: string
-  targetId: string
-  type: string // e.g., 'runs_on', 'configured_as'
-}
+export function finalizeArcTurn(): void {
+  const arc = getArc()
+  if (!arc) return
 
-export interface KnowledgeGraph {
-  entities: Record<string, Entity>
-  relations: Relation[]
-}
+  const completedGoals = arc.goals.filter(g => g.status === 'completed')
+  const graph = getGlobalGraph()
+  // Heuristic to detect new facts: entities added after arc start
+  const newFacts = Object.values(graph.entities).filter(e => 
+    e.id.includes(String(arc.id.split('_')[1])) || 
+    graph.lastUpdateTime > arc.startTime
+  )
+  
+  if (completedGoals.length === 0 && arc.decisions.length === 0 && newFacts.length === 0) return
 
-export interface ConversationArc {
-  id: string
-  goals: Goal[]
-  decisions: Decision[]
-  milestones: Milestone[]
-  knowledgeGraph: KnowledgeGraph
-  currentPhase: 'init' | 'exploring' | 'implementing' | 'reviewing' | 'completed'
-  startTime: number
-  lastUpdateTime: number
+  // Generate a concise summary of what was learned/done
+  let summaryContent = `In session ${arc.id}: `
+  if (completedGoals.length > 0) {
+    summaryContent += `Completed goals: ${completedGoals.map(g => g.description).join(', ')}. `
+  }
+  if (arc.decisions.length > 0) {
+    summaryContent += `Made decisions: ${arc.decisions.map(d => d.description).join(', ')}. `
+  }
+  if (newFacts.length > 0) {
+    const uniqueFactNames = Array.from(new Set(newFacts.map(f => f.name)))
+    summaryContent += `Learned about: ${uniqueFactNames.join(', ')}. `
+  }
+
+  const keywords = extractKeywords(summaryContent)
+  if (keywords.length > 0) {
+    addGlobalSummary(summaryContent, keywords)
+  }
 }
 
 export interface Goal {
@@ -57,6 +73,16 @@ export interface Milestone {
   achievedAt: number
 }
 
+export interface ConversationArc {
+  id: string
+  goals: Goal[]
+  decisions: Decision[]
+  milestones: Milestone[]
+  currentPhase: 'init' | 'exploring' | 'implementing' | 'reviewing' | 'completed'
+  startTime: number
+  lastUpdateTime: number
+}
+
 const ARC_KEYWORDS = {
   init: ['start', 'begin', 'help', 'please'],
   exploring: ['check', 'find', 'look', 'what', 'how', 'where', 'show'],
@@ -73,10 +99,6 @@ export function initializeArc(): ConversationArc {
     goals: [],
     decisions: [],
     milestones: [],
-    knowledgeGraph: {
-      entities: {},
-      relations: [],
-    },
     currentPhase: 'init',
     startTime: Date.now(),
     lastUpdateTime: Date.now(),
@@ -86,7 +108,9 @@ export function initializeArc(): ConversationArc {
 
 export function getArc(): ConversationArc | null {
   if (!conversationArc) {
-    return initializeArc()
+    initializeArc()
+    // Trigger global graph load
+    getGlobalGraph()
   }
   return conversationArc
 }
@@ -119,26 +143,25 @@ function extractFactsAutomatically(content: string): void {
   const arc = getArc()
   if (!arc) return
 
-  // 1. Detect Environment Variables (KEY=VALUE) - strictly uppercase keys
+  // 1. Detect Environment Variables (KEY=VALUE)
   const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
   for (const match of envMatches) {
-    addEntity('environment_variable', match[1], { value: match[2] })
+    addGlobalEntity('environment_variable', match[1], { value: match[2] })
   }
 
-  // 2. Detect Absolute Paths - ensure it looks like a path and not a div or code
+  // 2. Detect Absolute Paths
   const pathMatches = content.matchAll(/(\/(?:[\w.-]+\/)+[\w.-]+)/g)
   for (const match of pathMatches) {
     const path = match[1]
-    // Exclude common noise and ensure it's a long enough path
     if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
-      addEntity('path', path, { type: 'absolute' })
+      addGlobalEntity('path', path, { type: 'absolute' })
     }
   }
 
-  // 3. Detect Versions - require vX.Y.Z or version X.Y.Z
+  // 3. Detect Versions
   const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
   for (const match of versionMatches) {
-    addEntity('version', match[0].toLowerCase(), { semver: match[1] })
+    addGlobalEntity('version', match[0].toLowerCase(), { semver: match[1] })
   }
 
   // 4. Detect Hostnames/URLs
@@ -147,10 +170,76 @@ function extractFactsAutomatically(content: string): void {
     try {
       const url = new URL(match[1])
       if (url.hostname.includes('.')) {
-        addEntity('endpoint', url.hostname, { url: url.toString() })
+        addGlobalEntity('endpoint', url.hostname, { url: url.toString() })
       }
-    } catch {
-      // Ignore invalid URLs
+    } catch { /* ignore */ }
+  }
+
+  // 5. Detect IPv4
+  const ipMatches = content.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)
+  for (const match of ipMatches) {
+    const ip = match[1]
+    const context = content.toLowerCase()
+    const tags: Record<string, string> = { type: 'ipv4' }
+    
+    // Contextual tagging: if 'database' or 'prod' is nearby, tag the IP
+    if (context.includes('database') || context.includes('db')) tags.role = 'database'
+    if (context.includes('prod')) tags.env = 'production'
+    if (context.includes('worker')) tags.role = 'worker'
+    
+    addGlobalEntity('server_ip', ip, tags)
+  }
+
+  // 6. DYNAMIC CONCEPT DISCOVERY (Improved for Doctoral precision)
+  
+  // A. Detect symbols in backticks (High confidence symbols)
+  const backtickMatches = content.matchAll(/`([^`]+)`/g)
+  for (const match of backtickMatches) {
+    const symbol = match[1]
+    if (symbol.length > 2 && symbol.length < 60) {
+      addGlobalEntity('concept', symbol, { source: 'backticks' })
+    }
+  }
+
+  // B. Detect Technical Concepts (Hyphenated-Terms, PascalCase, camelCase)
+  // Now also capturing lowercase hyphenated terms (worker-node-49)
+  const technicalMatches = content.matchAll(/\b([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)+|[A-Z][a-z]+[A-Z][\w]*|[a-z]+[A-Z][\w]*)\b/g)
+  for (const match of technicalMatches) {
+    const word = match[1]
+    if (!['The', 'This', 'That', 'With', 'From', 'Here', 'There'].includes(word)) {
+      addGlobalEntity('concept', word, { source: 'auto_discovery' })
+    }
+    }
+
+    // C. Specific pattern for availability/percentages
+    const metricMatches = content.matchAll(/(\d+(?:\.\d+)?%)/g)
+    for (const match of metricMatches) {
+    addGlobalEntity('metric', match[1], { type: 'availability' })
+    }
+
+    // D. Project Rule Detection (Passive Learning)
+    const rulePatterns = [
+    /\b(?:always|must|should)\s+(?:use|implement|follow)\b\s+([^.!?]+)/gi,
+    /\b(?:never|cannot|should\s+not)\b\s+([^.!?]+)/gi,
+    /\b(?:prefer)\b\s+([^.!?]+)/gi
+    ]
+    for (const pattern of rulePatterns) {
+    const ruleMatches = content.matchAll(pattern)
+    for (const match of ruleMatches) {
+      addGlobalRule(match[0].trim())
+    }
+    }
+
+    // E. Direct Tech detection for UI/State
+    if (content.toLowerCase().includes('redux')) addGlobalEntity('technology', 'Redux', { category: 'state_management' })
+    if (content.toLowerCase().includes('react')) addGlobalEntity('technology', 'React', { category: 'frontend' })
+
+    // F. Project File Signatures
+    if (content.match(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/i)) {
+
+    const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
+    for (const match of fileMatches) {
+      addGlobalEntity('project_file', match[1].toLowerCase(), { category: 'configuration' })
     }
   }
 }
@@ -182,7 +271,7 @@ export function updateArcPhase(messages: Message[]): void {
       }
     }
 
-    // NEW: Passive fact extraction (Automatic Learning)
+    // Passive fact extraction (Automatic Learning)
     extractFactsAutomatically(content)
   }
 }
@@ -257,77 +346,7 @@ export function addMilestone(description: string): Milestone {
   return milestone
 }
 
-export function addEntity(
-  type: string,
-  name: string,
-  attributes: Record<string, string> = {},
-): Entity {
-  const arc = getArc()
-  if (!arc) throw new Error('Arc not initialized')
-
-  // Check for existing entity to avoid duplicates (Deduplication Logic)
-  const existingEntity = Object.values(arc.knowledgeGraph.entities).find(
-    e => e.type === type && e.name === name,
-  )
-
-  if (existingEntity) {
-    existingEntity.attributes = { ...existingEntity.attributes, ...attributes }
-    arc.lastUpdateTime = Date.now()
-    return existingEntity
-  }
-
-  const id = `entity_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-  const entity: Entity = { id, type, name, attributes }
-
-  arc.knowledgeGraph.entities[id] = entity
-  arc.lastUpdateTime = Date.now()
-  return entity
-}
-
-export function addRelation(
-  sourceId: string,
-  targetId: string,
-  type: string,
-): void {
-  const arc = getArc()
-  if (!arc) throw new Error('Arc not initialized')
-
-  if (!arc.knowledgeGraph.entities[sourceId] || !arc.knowledgeGraph.entities[targetId]) {
-    throw new Error('Source or target entity not found in graph')
-  }
-
-  arc.knowledgeGraph.relations.push({ sourceId, targetId, type })
-  arc.lastUpdateTime = Date.now()
-}
-
-export function getGraphSummary(): string {
-  const arc = getArc()
-  if (!arc || Object.keys(arc.knowledgeGraph.entities).length === 0) {
-    return ''
-  }
-
-  let summary = '\\nKnowledge Graph:\\n'
-  for (const entity of Object.values(arc.knowledgeGraph.entities)) {
-    summary += `- [${entity.type}] ${entity.name}`
-    const attrs = Object.entries(entity.attributes)
-    if (attrs.length > 0) {
-      summary += ` (${attrs.map(([k, v]) => `${k}: ${v}`).join(', ')})`
-    }
-    summary += '\\n'
-  }
-
-  for (const rel of arc.knowledgeGraph.relations) {
-    const src = arc.knowledgeGraph.entities[rel.sourceId]?.name
-    const tgt = arc.knowledgeGraph.entities[rel.targetId]?.name
-    if (src && tgt) {
-      summary += `- ${src} --(${rel.type})--> ${tgt}\\n`
-    }
-  }
-
-  return summary
-}
-
-export function getArcSummary(): string {
+export function getArcSummary(query?: string): string {
   const arc = getArc()
   if (!arc) return 'No conversation arc'
 
@@ -343,17 +362,22 @@ export function getArcSummary(): string {
     summary += `Active: ${activeGoals[0].description.slice(0, 50)}...\\n`
   }
 
-  if (arc.decisions.length > 0) {
-    summary += `Decisions: ${arc.decisions.length}\\n`
-  }
+  // 1. Primary: Targeted RAG Search (High volume context)
+  summary += getOrchestratedMemory(query || '')
 
-  if (arc.milestones.length > 0) {
-    summary += `Latest milestone: ${arc.milestones[
-      arc.milestones.length - 1
-    ].description.slice(0, 40)}`
+  // 2. Secondary: Global Snapshot (Full Graph for small/medium projects)
+  const graph = getGlobalGraph()
+  const entities = Object.values(graph.entities)
+  if (entities.length < 100) {
+      summary += '\\n--- Full Project Knowledge Graph ---\\n'
+      for (const e of entities) {
+          summary += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k,v]) => `${k}=${v}`).join(', ')}\\n`
+      }
+      if (graph.rules.length > 0) {
+          summary += '\\nActive Project Rules:\\n'
+          graph.rules.forEach(r => summary += `- ${r}\\n`)
+      }
   }
-
-  summary += getGraphSummary()
 
   return summary
 }
@@ -375,3 +399,8 @@ export function getArcStats() {
     durationMs: arc.lastUpdateTime - arc.startTime,
   }
 }
+
+// Re-export Knowledge Graph management through the Arc for convenience
+export const addEntity = addGlobalEntity
+export const addRelation = addGlobalRelation
+export const getGraphSummary = getGlobalGraphSummary
