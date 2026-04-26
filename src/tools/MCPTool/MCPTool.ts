@@ -40,6 +40,21 @@ export type { MCPProgress } from '../../types/tools.js'
 
 const ajv = new Ajv({ strict: false })
 
+// Cache compiled validators to avoid recompiling on every validateInput call.
+// AJV compilation is expensive — schemas don't change between calls.
+// Uses WeakMap to allow garbage collection of schemas from disconnected/refreshed
+// MCP tools, preventing memory leaks from accumulating strong references.
+const compiledValidatorCache = new WeakMap<object, ReturnType<typeof ajv.compile>>()
+
+function getCompiledValidator(schema: object) {
+  let validator = compiledValidatorCache.get(schema)
+  if (!validator) {
+    validator = ajv.compile(schema)
+    compiledValidatorCache.set(schema, validator)
+  }
+  return validator
+}
+
 export const MCPTool = buildTool({
   isMcp: true,
   // Overridden in mcpClient.ts with the real MCP tool name + args
@@ -78,7 +93,7 @@ export const MCPTool = buildTool({
   async validateInput(input, context): Promise<ValidationResult> {
     if (this.inputJSONSchema) {
       try {
-        const validate = ajv.compile(this.inputJSONSchema)
+        const validate = getCompiledValidator(this.inputJSONSchema)
         if (!validate(input)) {
           return {
             result: false,
@@ -87,9 +102,10 @@ export const MCPTool = buildTool({
           }
         }
       } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error)
         return {
           result: false,
-          message: `Failed to compile JSON schema for validation: ${error}`,
+          message: `Failed to compile JSON schema for validation: ${errMsg}`,
           errorCode: 500,
         }
       }
@@ -109,7 +125,8 @@ export const MCPTool = buildTool({
     if (Array.isArray(output)) {
       return output.some(
         block =>
-          block?.type === 'text' &&
+          block != null &&
+          block.type === 'text' &&
           typeof block.text === 'string' &&
           isOutputLineTruncated(block.text),
       )
@@ -117,6 +134,16 @@ export const MCPTool = buildTool({
     return false
   },
   mapToolResultToToolResultBlockParam(content, toolUseID) {
+    // Defensive guard: if content is undefined/null (shouldn't happen after
+    // the abort path fix in client.ts), return a clear indicator rather than
+    // sending undefined to the API which would cause an error.
+    if (content === undefined || content === null) {
+      return {
+        tool_use_id: toolUseID,
+        type: 'tool_result',
+        content: '[No content returned from MCP tool]',
+      }
+    }
     return {
       tool_use_id: toolUseID,
       type: 'tool_result',
