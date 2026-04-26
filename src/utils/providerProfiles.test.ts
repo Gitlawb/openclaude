@@ -408,13 +408,35 @@ describe('applyProviderProfileToProcessEnv', () => {
         provider: 'custom',
         baseUrl: 'https://custom.example/v1',
         customHeaders: {
+          'api-key': 'custom-provider-key',
           'X-Team': 'devtools',
         },
       }),
     )
 
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe('X-Team: devtools')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'api-key: custom-provider-key\nX-Team: devtools',
+    )
+  })
+
+  test('supported routes still reject managed custom headers', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'https://custom.example/v1',
+        customHeaders: {
+          'x-api-key': 'managed-provider-key',
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
   })
 
   test('unsupported routes do not apply profile custom headers to env', async () => {

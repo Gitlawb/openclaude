@@ -2,7 +2,6 @@ const HEADER_NAME_RE = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/
 
 const RESERVED_HEADER_NAMES = new Set([
   'authorization',
-  'api-key',
   'x-api-key',
   'x-app',
   'x-client-app',

@@ -196,7 +196,7 @@ export async function getAnthropicClient({
     const safeHeaders: Record<string, string> = {}
     for (const [k, v] of Object.entries(defaultHeaders)) {
       const lower = k.toLowerCase()
-      if (lower === 'authorization' || lower === 'x-api-key' || lower === 'api-key') continue
+      if (lower === 'authorization' || lower === 'x-api-key') continue
       safeHeaders[k] = v
     }
     return createOpenAIShimClient({

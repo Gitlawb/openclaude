@@ -225,6 +225,7 @@ test('strips Anthropic-specific custom headers before sending OpenAI-compatible 
     'x-anthropic-additional-protection: true',
     'x-claude-remote-session-id: remote-123',
     'x-app: cli',
+    'api-key: custom-provider-key',
     'x-safe-header: keep-me',
   ].join('\n')
 
@@ -276,6 +277,7 @@ test('strips Anthropic-specific custom headers before sending OpenAI-compatible 
   expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
   expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
   expect(capturedHeaders?.get('x-app')).toBeNull()
+  expect(capturedHeaders?.get('api-key')).toBe('custom-provider-key')
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer openai-test-key')
 })
@@ -287,6 +289,7 @@ test('strips Anthropic-specific custom headers on providerOverride shim requests
     'anthropic-version: 2023-06-01',
     'anthropic-beta: prompt-caching-2024-07-31',
     'x-claude-remote-session-id: remote-123',
+    'api-key: custom-provider-key',
     'x-safe-header: keep-me',
   ].join('\n')
 
@@ -340,6 +343,7 @@ test('strips Anthropic-specific custom headers on providerOverride shim requests
   expect(capturedHeaders?.get('anthropic-version')).toBeNull()
   expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
   expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
+  expect(capturedHeaders?.get('api-key')).toBe('custom-provider-key')
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer provider-test-key')
 })
