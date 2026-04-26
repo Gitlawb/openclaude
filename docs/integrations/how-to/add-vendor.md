@@ -63,9 +63,10 @@ Normal vendor onboarding is additive now:
 4. let `src/integrations/generated/integrationArtifacts.generated.ts` feed the
    loader, compatibility mapping, preset typing, and provider UI metadata.
 
-Preset ordering is derived automatically from preset descriptions using
-standard alphanumeric sorting. `custom` is always pinned last by the generated
-manifest and is not configurable from descriptor files.
+Preset ordering is derived automatically: `anthropic` is pinned first, middle
+entries sort by preset description using standard alphanumeric sorting, and
+`custom` is pinned last by the generated manifest. This ordering is not
+configurable from descriptor files.
 
 ## Example: standard API-key vendor with direct OpenAI-compatible routing
 

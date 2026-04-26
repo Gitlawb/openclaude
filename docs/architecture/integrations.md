@@ -153,8 +153,9 @@ When contributor docs say "compatibility layer," they mean these env/preset/
 legacy-name bridges rather than the descriptor registry itself.
 
 Preset ordering for `/provider` flows is also derived. The generated manifest
-sorts preset-participating routes by preset description using standard
-alphanumeric sorting, and always keeps `custom` at the bottom automatically.
+pins `anthropic` first, sorts the remaining preset-participating routes by
+preset description using standard alphanumeric sorting, and always keeps
+`custom` at the bottom automatically.
 
 ## Current constraints
 

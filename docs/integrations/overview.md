@@ -175,5 +175,6 @@ Important compatibility surfaces include:
 Contributor docs should describe these as compatibility bridges, not as the
 primary architecture.
 
-Preset ordering is derived from preset descriptions with standard alphanumeric
-sorting, and `custom` is always pinned last automatically.
+Preset ordering pins `anthropic` first, derives the middle entries from preset
+descriptions with standard alphanumeric sorting, and pins `custom` last
+automatically.

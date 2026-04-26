@@ -85,21 +85,23 @@ route-name aliases needed.
 ```ts
 import { defineModel } from '../define.js'
 
-export default defineModel({
-  id: 'acme-chat',
-  label: 'Acme Chat',
-  vendorId: 'acme',
-  classification: ['chat', 'coding'],
-  defaultModel: 'acme-chat',
-  capabilities: {
-    supportsStreaming: true,
-    supportsFunctionCalling: true,
-    supportsJsonMode: true,
-    supportsReasoning: false,
-  },
-  contextWindow: 128_000,
-  maxOutputTokens: 8_192,
-})
+export default [
+  defineModel({
+    id: 'acme-chat',
+    label: 'Acme Chat',
+    vendorId: 'acme',
+    classification: ['chat', 'coding'],
+    defaultModel: 'acme-chat',
+    capabilities: {
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: false,
+    },
+    contextWindow: 128_000,
+    maxOutputTokens: 8_192,
+  }),
+]
 ```
 
 Use this when:
@@ -117,27 +119,29 @@ routes under different API names.
 ```ts
 import { defineModel } from '../define.js'
 
-export default defineModel({
-  id: 'deepseek-reasoner',
-  label: 'DeepSeek Reasoner',
-  brandId: 'deepseek',
-  vendorId: 'deepseek',
-  classification: ['chat', 'reasoning', 'coding'],
-  defaultModel: 'deepseek-reasoner',
-  providerModelMap: {
-    deepseek: 'deepseek-reasoner',
-    openrouter: 'deepseek/deepseek-r1',
-    galaxy: 'galaxy/deepseek-r1',
-  },
-  capabilities: {
-    supportsStreaming: true,
-    supportsFunctionCalling: true,
-    supportsJsonMode: true,
-    supportsReasoning: true,
-  },
-  contextWindow: 128_000,
-  maxOutputTokens: 8_192,
-})
+export default [
+  defineModel({
+    id: 'deepseek-reasoner',
+    label: 'DeepSeek Reasoner',
+    brandId: 'deepseek',
+    vendorId: 'deepseek',
+    classification: ['chat', 'reasoning', 'coding'],
+    defaultModel: 'deepseek-reasoner',
+    providerModelMap: {
+      deepseek: 'deepseek-reasoner',
+      openrouter: 'deepseek/deepseek-r1',
+      galaxy: 'galaxy/deepseek-r1',
+    },
+    capabilities: {
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: true,
+    },
+    contextWindow: 128_000,
+    maxOutputTokens: 8_192,
+  }),
+]
 ```
 
 What `providerModelMap` is for:

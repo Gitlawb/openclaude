@@ -62,9 +62,10 @@ Normal gateway onboarding is additive now:
 4. let `src/integrations/generated/integrationArtifacts.generated.ts` feed the
    loader, compatibility mapping, preset typing, and provider UI metadata.
 
-Preset ordering is not configured manually. The generated manifest sorts
-preset-participating routes by preset description using standard alphanumeric
-sorting, and always pins `custom` to the bottom automatically.
+Preset ordering is not configured manually. The generated manifest pins
+`anthropic` first, sorts the remaining preset-participating routes by preset
+description using standard alphanumeric sorting, and always pins `custom` to
+the bottom automatically.
 
 For gateway presets, set `preset.vendorId` so compatibility/profile helpers
 know which vendor contract the gateway belongs to.
@@ -348,20 +349,22 @@ Minimal pattern:
 ```ts
 import { defineModel } from '../define.js'
 
-export default defineModel({
-  id: 'deepseek-reasoner',
-  label: 'DeepSeek Reasoner',
-  vendorId: 'deepseek',
-  classification: ['chat', 'reasoning'],
-  defaultModel: 'deepseek-reasoner',
-  providerModelMap: {
-    galaxy: 'galaxy/deepseek-r1',
-    openrouter: 'deepseek/deepseek-r1',
-  },
-  capabilities: {
-    supportsReasoning: true,
-  },
-})
+export default [
+  defineModel({
+    id: 'deepseek-reasoner',
+    label: 'DeepSeek Reasoner',
+    vendorId: 'deepseek',
+    classification: ['chat', 'reasoning'],
+    defaultModel: 'deepseek-reasoner',
+    providerModelMap: {
+      galaxy: 'galaxy/deepseek-r1',
+      openrouter: 'deepseek/deepseek-r1',
+    },
+    capabilities: {
+      supportsReasoning: true,
+    },
+  }),
+]
 ```
 
 The gateway still owns route availability. `providerModelMap` only helps shared
