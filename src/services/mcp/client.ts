@@ -1001,10 +1001,12 @@ export const connectToServer = memoize(
 
       const client = new Client(
         {
+          // name stays 'claude-code' for compatibility with MCP servers that
+          // gate features on the upstream client identifier.
           name: 'claude-code',
           title: 'OpenClaude',
           version: MACRO.VERSION ?? 'unknown',
-          description: "Anthropic's agentic coding tool",
+          description: 'OpenClaude — coding-agent CLI for any LLM provider',
           websiteUrl: PRODUCT_URL,
         },
         {
@@ -3329,10 +3331,12 @@ export async function setupSdkMcpClients(
 
       const client = new Client(
         {
+          // name stays 'claude-code' for compatibility with MCP servers that
+          // gate features on the upstream client identifier.
           name: 'claude-code',
           title: 'OpenClaude',
           version: MACRO.VERSION ?? 'unknown',
-          description: "Anthropic's agentic coding tool",
+          description: 'OpenClaude — coding-agent CLI for any LLM provider',
           websiteUrl: PRODUCT_URL,
         },
         {
