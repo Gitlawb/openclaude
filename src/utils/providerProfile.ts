@@ -89,7 +89,7 @@ const SECRET_ENV_KEYS = [
   'XAI_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral'
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'xai'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
@@ -172,7 +172,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'atomic-chat' ||
     value === 'nvidia-nim' ||
     value === 'minimax' ||
-    value === 'mistral'
+    value === 'mistral' ||
+    value === 'xai'
   )
 }
 
