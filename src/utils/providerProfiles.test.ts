@@ -427,15 +427,15 @@ describe('applyProviderProfileToProcessEnv', () => {
         provider: 'custom',
         baseUrl: 'https://custom.example/v1',
         customHeaders: {
-          'api-key': 'custom-provider-key',
           'X-Team': 'devtools',
+          'X-Trace': 'enabled',
         },
       }),
     )
 
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
-      'api-key: custom-provider-key\nX-Team: devtools',
+      'X-Team: devtools\nX-Trace: enabled',
     )
   })
 
@@ -448,7 +448,7 @@ describe('applyProviderProfileToProcessEnv', () => {
         provider: 'custom',
         baseUrl: 'https://custom.example/v1',
         customHeaders: {
-          'x-api-key': 'managed-provider-key',
+          'api-key': 'managed-provider-key',
           'X-Team': 'devtools',
         },
       }),

@@ -104,7 +104,10 @@ function hasXaiEnvOnlyProviderIntent(): boolean {
     !isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) &&
     !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
     !isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
-    !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
   )
 }
 
@@ -196,7 +199,7 @@ export async function getAnthropicClient({
     const safeHeaders: Record<string, string> = {}
     for (const [k, v] of Object.entries(defaultHeaders)) {
       const lower = k.toLowerCase()
-      if (lower === 'authorization' || lower === 'x-api-key') continue
+      if (lower === 'authorization' || lower === 'x-api-key' || lower === 'api-key') continue
       safeHeaders[k] = v
     }
     return createOpenAIShimClient({

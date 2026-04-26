@@ -15,6 +15,8 @@ const originalFetch = globalThis.fetch
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_SKIP_BEDROCK_AUTH: process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
@@ -47,6 +49,8 @@ beforeEach(() => {
   process.env.GEMINI_AUTH_MODE = 'api-key'
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH
   delete process.env.GOOGLE_API_KEY
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_BASE_URL
@@ -60,6 +64,8 @@ beforeEach(() => {
 afterEach(() => {
   ;(globalThis as Record<string, unknown>).MACRO = originalMacro
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+  restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
+  restoreEnv('CLAUDE_CODE_SKIP_BEDROCK_AUTH', originalEnv.CLAUDE_CODE_SKIP_BEDROCK_AUTH)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
@@ -211,6 +217,31 @@ test('routes env-only xAI requests through the OpenAI-compatible shim', async ()
   })
 })
 
+test('env-only xAI fallback yields to explicit Bedrock selection', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+  process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH = '1'
+  process.env.XAI_API_KEY = 'xai-test-key'
+
+  globalThis.fetch = (async () => {
+    throw new Error('xAI/OpenAI shim fetch should not run')
+  }) as FetchType
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: 'claude-sonnet-4-6',
+  })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+  expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  expect(process.env.OPENAI_MODEL).toBeUndefined()
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+})
+
 test('strips Anthropic-specific custom headers before sending OpenAI-compatible shim requests', async () => {
   let capturedHeaders: Headers | undefined
 
@@ -277,7 +308,7 @@ test('strips Anthropic-specific custom headers before sending OpenAI-compatible 
   expect(capturedHeaders?.get('x-anthropic-additional-protection')).toBeNull()
   expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
   expect(capturedHeaders?.get('x-app')).toBeNull()
-  expect(capturedHeaders?.get('api-key')).toBe('custom-provider-key')
+  expect(capturedHeaders?.get('api-key')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer openai-test-key')
 })
@@ -343,7 +374,7 @@ test('strips Anthropic-specific custom headers on providerOverride shim requests
   expect(capturedHeaders?.get('anthropic-version')).toBeNull()
   expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
   expect(capturedHeaders?.get('x-claude-remote-session-id')).toBeNull()
-  expect(capturedHeaders?.get('api-key')).toBe('custom-provider-key')
+  expect(capturedHeaders?.get('api-key')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer provider-test-key')
 })

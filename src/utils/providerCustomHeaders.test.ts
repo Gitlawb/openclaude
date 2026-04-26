@@ -8,11 +8,11 @@ import {
 describe('parseProfileCustomHeadersInput', () => {
   test('accepts semicolon and newline separated custom headers', () => {
     expect(
-      parseProfileCustomHeadersInput('X-Team: devtools; api-key: provider-key\nX-Env: test'),
+      parseProfileCustomHeadersInput('X-Team: devtools; X-Trace: enabled\nX-Env: test'),
     ).toEqual({
       headers: {
         'X-Team': 'devtools',
-        'api-key': 'provider-key',
+        'X-Trace': 'enabled',
         'X-Env': 'test',
       },
     })
@@ -23,6 +23,9 @@ describe('parseProfileCustomHeadersInput', () => {
       error: expect.stringContaining('Name: value'),
     })
     expect(parseProfileCustomHeadersInput('Authorization: Bearer token')).toMatchObject({
+      error: expect.stringContaining('managed by OpenClaude'),
+    })
+    expect(parseProfileCustomHeadersInput('api-key: token')).toMatchObject({
       error: expect.stringContaining('managed by OpenClaude'),
     })
     expect(parseProfileCustomHeadersInput('x-api-key: token')).toMatchObject({

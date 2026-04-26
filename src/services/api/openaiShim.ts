@@ -130,7 +130,8 @@ function filterAnthropicHeaders(
       lower === 'x-app' ||
       lower === 'x-client-app' ||
       lower === 'authorization' ||
-      lower === 'x-api-key'
+      lower === 'x-api-key' ||
+      lower === 'api-key'
     ) {
       continue
     }
