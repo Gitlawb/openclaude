@@ -4,7 +4,7 @@
  * Contains information about deprecated models and their retirement dates.
  */
 
-import { type APIProvider, getAPIProvider } from './providers.js'
+import { type LegacyAPIProvider, getAPIProvider } from './providers.js'
 
 type DeprecatedModelInfo = {
   isDeprecated: true
@@ -21,8 +21,8 @@ type DeprecationInfo = DeprecatedModelInfo | NotDeprecatedInfo
 type DeprecationEntry = {
   /** Human-readable model name */
   modelName: string
-  /** Retirement dates by provider (null = not deprecated for that provider) */
-  retirementDates: Record<APIProvider, string | null>
+  /** Retirement dates by legacy provider category (null = not deprecated there) */
+  retirementDates: Record<LegacyAPIProvider, string | null>
 }
 
 /**

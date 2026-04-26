@@ -27,6 +27,10 @@ const RESTORED_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_MODEL',
   'OPENAI_API_KEY',
+  'CODEX_API_KEY',
+  'CODEX_CREDENTIAL_SOURCE',
+  'CHATGPT_ACCOUNT_ID',
+  'CODEX_ACCOUNT_ID',
   'ANTHROPIC_BEDROCK_BASE_URL',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
@@ -41,6 +45,12 @@ const RESTORED_KEYS = [
   'MISTRAL_BASE_URL',
   'MISTRAL_MODEL',
   'MISTRAL_API_KEY',
+  'MINIMAX_API_KEY',
+  'NVIDIA_API_KEY',
+  'NVIDIA_NIM',
+  'BANKR_BASE_URL',
+  'BNKR_API_KEY',
+  'BANKR_MODEL',
 ] as const
 
 type MockConfigState = {
@@ -235,6 +245,47 @@ describe('applyProviderProfileToProcessEnv', () => {
     )
     expect(process.env.OPENAI_MODEL).toBe('github:copilot')
     expect(getFreshAPIProvider()).toBe('github')
+  })
+
+  test('nvidia-nim profile keeps openai-compatible routing but stamps NVIDIA_NIM', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'nvidia-nim',
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        apiKey: 'nvapi-test',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://integrate.api.nvidia.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe(
+      'nvidia/llama-3.1-nemotron-70b-instruct',
+    )
+    expect(process.env.OPENAI_API_KEY).toBe('nvapi-test')
+    expect(process.env.NVIDIA_API_KEY).toBe('nvapi-test')
+    expect(process.env.NVIDIA_NIM).toBe('1')
+  })
+
+  test('provider profile apply clears stale codex-managed credentials', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CODEX_API_KEY = 'codex-stale'
+    process.env.CODEX_CREDENTIAL_SOURCE = 'oauth'
+    process.env.CHATGPT_ACCOUNT_ID = 'acct-stale'
+    process.env.CODEX_ACCOUNT_ID = 'acct-stale-legacy'
+
+    applyProviderProfileToProcessEnv(buildProfile())
+
+    expect(process.env.CODEX_API_KEY).toBeUndefined()
+    expect(process.env.CODEX_CREDENTIAL_SOURCE).toBeUndefined()
+    expect(process.env.CHATGPT_ACCOUNT_ID).toBeUndefined()
+    expect(process.env.CODEX_ACCOUNT_ID).toBeUndefined()
   })
 
   test('anthropic profile clears competing gemini/github flags', async () => {
@@ -998,8 +1049,7 @@ describe('setActiveProviderProfile', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
-    // ANTHROPIC_MODEL is set to the profile model for all provider types
-    expect(process.env.ANTHROPIC_MODEL).toBe('gpt-4o')
+    expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(

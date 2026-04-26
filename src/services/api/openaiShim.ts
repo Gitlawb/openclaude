@@ -81,7 +81,6 @@ type SecretValueSource = Partial<{
   MISTRAL_API_KEY: string
 }>
 
-const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
 const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
@@ -374,6 +373,45 @@ function isGeminiMode(): boolean {
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
     hasGeminiApiHost(process.env.OPENAI_BASE_URL)
   )
+}
+
+function hydrateOpenAIShimCompatibilityEnv(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  // Provider selection, base URL defaults, and model defaults now flow
+  // through resolveProviderRequest(). The shim still needs a few legacy
+  // credential aliases because downstream auth/header paths read OPENAI_*.
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
+    const geminiApiKey =
+      processEnv.GEMINI_API_KEY ?? processEnv.GOOGLE_API_KEY
+    if (geminiApiKey && !processEnv.OPENAI_API_KEY) {
+      processEnv.OPENAI_API_KEY = geminiApiKey
+    }
+    return
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    if (processEnv.MISTRAL_API_KEY && !processEnv.OPENAI_API_KEY) {
+      processEnv.OPENAI_API_KEY = processEnv.MISTRAL_API_KEY
+    }
+    return
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+    processEnv.OPENAI_API_KEY ??=
+      processEnv.GITHUB_TOKEN ?? processEnv.GH_TOKEN ?? ''
+    return
+  }
+
+  if (processEnv.BNKR_API_KEY && !processEnv.OPENAI_API_KEY) {
+    processEnv.OPENAI_API_KEY = processEnv.BNKR_API_KEY
+  }
+  if (processEnv.BANKR_BASE_URL && !processEnv.OPENAI_BASE_URL) {
+    processEnv.OPENAI_BASE_URL = processEnv.BANKR_BASE_URL
+  }
+  if (processEnv.BANKR_MODEL && !processEnv.OPENAI_MODEL) {
+    processEnv.OPENAI_MODEL = processEnv.BANKR_MODEL
+  }
 }
 
 function convertMessages(
@@ -2147,44 +2185,7 @@ export function createOpenAIShimClient(options: {
 }): unknown {
   hydrateGeminiAccessTokenFromSecureStorage()
   hydrateGithubModelsTokenFromSecureStorage()
-
-  // When Gemini provider is active, map Gemini env vars to OpenAI-compatible ones
-  // so the existing providerConfig.ts infrastructure picks them up correctly.
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
-    process.env.OPENAI_BASE_URL ??=
-      process.env.GEMINI_BASE_URL ??
-      'https://generativelanguage.googleapis.com/v1beta/openai'
-    const geminiApiKey =
-      process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY
-    if (geminiApiKey && !process.env.OPENAI_API_KEY) {
-      process.env.OPENAI_API_KEY = geminiApiKey
-    }
-    if (process.env.GEMINI_MODEL && !process.env.OPENAI_MODEL) {
-      process.env.OPENAI_MODEL = process.env.GEMINI_MODEL
-    }
-  } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
-    process.env.OPENAI_BASE_URL =
-      process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1'
-    process.env.OPENAI_API_KEY = process.env.MISTRAL_API_KEY
-    if (process.env.MISTRAL_MODEL) {
-      process.env.OPENAI_MODEL = process.env.MISTRAL_MODEL
-    }
-  } else if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
-    process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE
-    process.env.OPENAI_API_KEY ??=
-      process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
-  }
-
-  // Map Bankr env vars to OpenAI-compatible ones when present
-  if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
-    process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
-  }
-  if (process.env.BANKR_BASE_URL && !process.env.OPENAI_BASE_URL) {
-    process.env.OPENAI_BASE_URL = process.env.BANKR_BASE_URL
-  }
-  if (process.env.BANKR_MODEL && !process.env.OPENAI_MODEL) {
-    process.env.OPENAI_MODEL = process.env.BANKR_MODEL
-  }
+  hydrateOpenAIShimCompatibilityEnv()
 
   const beta = new OpenAIShimBeta({
     ...(options.defaultHeaders ?? {}),

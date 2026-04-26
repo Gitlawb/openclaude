@@ -1,10 +1,10 @@
 # OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Current Phase**: Phase 3 — Cleanup
-**Next Planned Phase**: Phase 3A — Dead Switch Removal
+**Current Phase**: Phase 3C — Env-Shaping Consolidation (complete on branch)
+**Next Planned Phase**: Phase 3D — Final Audit and Documentation Pass
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 20:58
+**Last Updated**: 2026-04-25 21:19
 
 ---
 
@@ -428,8 +428,8 @@ Notes:
 
 ### Phase 3 Recommended Sequence
 
-- [ ] Remove dead metadata switches first
-- [ ] Consolidate overlapping type/name surfaces second
+- [x] Remove dead metadata switches first
+- [x] Consolidate overlapping type/name surfaces second
 - [ ] Consolidate env-shaping/runtime bridges third
 - [ ] Finish with one more audit and documentation pass
 
@@ -441,11 +441,11 @@ Notes:
 
 ## Phase 3A: Dead Switch Removal
 
-**Status**: `IN_PROGRESS`
+**Status**: `COMPLETE`
 
 - [x] Identify every switch made redundant by descriptors
 - [x] Remove only the switches proven obsolete by tests
-- [ ] Keep a short migration note in commit/PR text for anything user-visible
+- [x] Keep a short migration note in commit/PR text for anything user-visible
 
 ### Current Slice Checklist
 
@@ -479,16 +479,24 @@ Notes:
   - focused verification is green:
     - `bun test src/integrations/routeMetadata.test.ts src/utils/status.test.ts src/components/CostThresholdDialog.test.ts src/utils/model/providers.test.ts`
     - filtered `bun run typecheck` for the touched `routeMetadata`, `status`, and `CostThresholdDialog` files returned `FILTER_CLEAN`
+- `3A` migration note / checkpoint landed on `cheeky-cooking-moon` in commit `df8f232` (`refactor: start phase 3a dead-switch cleanup`), so the remaining `3A` work is closed and the next active packet is `3B`.
 
 ---
 
 ## Phase 3B: Type and Naming Consolidation
 
-**Status**: `READY`
+**Status**: `COMPLETE`
 
-- [ ] Decide which legacy names remain public API
-- [ ] Keep compatibility aliases where callers still rely on them
-- [ ] Rename internal helpers where descriptor terminology is clearer
+- [x] Decide which legacy names remain public API
+- [x] Keep compatibility aliases where callers still rely on them
+- [x] Rename internal helpers where descriptor terminology is clearer
+
+### Current Slice Checklist
+
+- [x] Keep `APIProvider` as the public compatibility surface for existing callers
+- [x] Introduce explicit `legacy` / `compatibility` names for bridge types and tables
+- [x] Rename provider-profile compatibility helper names so env-shaping bridges read like bridges
+- [x] Verify the naming-only pass does not change provider/profile behavior
 
 Notes:
 - This packet is the place to make the long-term naming decision after Phase 2D, but it should stay behavior-light wherever possible.
@@ -496,19 +504,32 @@ Notes:
 - `src/utils/model/configs.ts` and similar provider-keyed tables should either be renamed as explicit compatibility bridges or moved behind clearer descriptor-era helpers.
 - Any consolidation here must preserve the external caller contracts that still intentionally consume legacy provider categories.
 - Keep saved-profile formats, env var names, and user-facing route/provider wording stable unless a later packet explicitly migrates them.
+- Active work resumed on 2026-04-25 21:11 with a first naming-only pass over `src/utils/model/providers.ts`, `src/utils/model/configs.ts`, `src/utils/model/modelStrings.ts`, `src/utils/model/deprecation.ts`, and `src/utils/providerProfiles.ts`.
+- Current target for this pass:
+  - keep `APIProvider` as the public compatibility surface for existing callers
+  - introduce clearer internal `legacy` / `compatibility` names for bridge types and tables
+  - rename provider-profile runtime helper names so env-shaping bridges read like bridges instead of descriptor-native routing
+- Completed on 2026-04-25 21:19:
+  - kept `APIProvider` as the backward-compatible public name, but introduced `LegacyAPIProvider` in `src/utils/model/providers.ts` so the bridge surface is named explicitly where internal callers want that clarity
+  - renamed the provider-keyed compatibility table surface in `src/utils/model/configs.ts` to `LegacyProviderModelConfig` / `LEGACY_PROVIDER_MODEL_CONFIGS`, while preserving `ModelConfig` and `ALL_MODEL_CONFIGS` as compatibility aliases for older imports
+  - updated `src/utils/model/modelStrings.ts` and `src/utils/model/deprecation.ts` to use the clearer legacy compatibility names internally
+  - renamed `resolveProfileRuntime()` / `ProfileRuntimeMode` to `resolveProfileCompatibility()` / `ProfileCompatibilityMode` in `src/utils/providerProfiles.ts` so the env-shaping bridge reads as compatibility logic rather than descriptor-native routing
+  - focused verification is green:
+    - `bun test src/utils/model/providers.test.ts src/utils/providerProfiles.test.ts src/utils/swarm/teammateModel.test.ts src/utils/status.test.ts`
+    - filtered `bun run typecheck` for the touched provider/config/modelStrings/deprecation/providerProfiles files returned `FILTER_CLEAN`
 
 ---
 
 ## Phase 3C: Env-Shaping Consolidation
 
-**Status**: `READY`
+**Status**: `COMPLETE`
 
-- [ ] Compare `providerProfiles.ts`, `providerProfile.ts`, and startup env builders
-- [ ] Centralize the parts that can now be safely descriptor-driven
-- [ ] Replace eligible `openaiShim.ts` base URL/provider conditionals with descriptor-backed transport config
-- [ ] Keep `reasoning_content` preservation behavior intact for routes that require it
-- [ ] Add or retain regression coverage for assistant messages with thinking blocks, no thinking blocks, string content, tool calls, and synthetic interrupt messages
-- [ ] Preserve special-case behavior where transport contracts still differ
+- [x] Compare `providerProfiles.ts`, `providerProfile.ts`, and startup env builders
+- [x] Centralize the parts that can now be safely descriptor-driven
+- [x] Replace eligible `openaiShim.ts` base URL/provider conditionals with descriptor-backed transport config
+- [x] Keep `reasoning_content` preservation behavior intact for routes that require it
+- [x] Add or retain regression coverage for assistant messages with thinking blocks, no thinking blocks, string content, tool calls, and synthetic interrupt messages
+- [x] Preserve special-case behavior where transport contracts still differ
 
 Notes:
 - Phase 2D and 2E intentionally left some env shaping in place for compatibility; this is the cleanup packet that can reduce that duplication.
@@ -516,6 +537,12 @@ Notes:
 - The known intentional exceptions from Phase 2E (`github`, `mistral`, `bedrock`, `vertex`, `foundry`, env-only MiniMax fallback, env-only NVIDIA NIM fallback) must be re-evaluated carefully rather than flattened by default.
 - `openaiShim.ts` should only lose branches that are already provably covered by descriptor/runtime metadata.
 - Keep the `reasoning_content` regression list above attached to this packet as a hard gate, not as optional follow-up.
+- Active work resumed on 2026-04-25 21:08 with the first `3C` packet focused on consolidating shared compatibility env shaping between `providerProfile.ts`, `providerProfiles.ts`, and the eligible `openaiShim.ts` OpenAI-env projection path without flattening the known exception routes.
+- Completed on 2026-04-25 21:32 by introducing a shared managed-env clear/apply path in `src/utils/providerProfile.ts`, switching `buildLaunchEnv()` and `applyProviderProfileToProcessEnv()` onto that shared compatibility shaper, and reducing `createOpenAIShimClient()` to the remaining credential aliasing that `resolveProviderRequest()` does not already cover.
+- The `3C` packet intentionally preserved the known exception routes instead of flattening them: `github`, `mistral`, `bedrock`, `vertex`, env-only Bankr aliasing, env-only MiniMax fallback detection, and the NVIDIA NIM mode bit now remain explicit where transport/auth contracts still differ.
+- Targeted verification is green:
+  - `bun test src/utils/providerProfile.test.ts src/utils/providerProfiles.test.ts src/services/api/openaiShim.test.ts`
+  - filtered `bun run typecheck` output no longer reports new errors in `src/utils/providerProfile.ts` or `src/utils/providerProfiles.ts`; the remaining hits in `src/services/api/openaiShim.ts` are pre-existing repo baseline noise that was already present before this packet.
 
 ---
 
@@ -536,8 +563,8 @@ Notes:
 
 ## Phase 3 Merge Checkpoints
 
-- [ ] **3A merged** — dead-switch cleanup landed in small safe packets
-- [ ] **3B merged** — type/naming consolidation landed separately from runtime behavior changes
+- [x] **3A merged** — dead-switch cleanup landed in small safe packets
+- [x] **3B merged** — type/naming consolidation landed separately from runtime behavior changes
 - [ ] **3C merged** — env-shaping consolidation landed after targeted regression tests
 - [ ] **3D complete** — final audit/doc pass is green and Phase 4 can begin
 

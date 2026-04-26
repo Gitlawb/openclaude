@@ -8,6 +8,7 @@ import {
 import type { ModelOption } from './model/modelOptions.js'
 import { getPrimaryModel, parseModelList } from './providerModels.js'
 import {
+  buildCompatibilityProcessEnv,
   createProfileFile,
   saveProfileFile,
   buildBedrockProfileEnv,
@@ -18,6 +19,7 @@ import {
   buildNvidiaNimProfileEnv,
   buildOpenAIProfileEnv,
   buildVertexProfileEnv,
+  clearManagedProfileEnv,
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
@@ -65,7 +67,7 @@ export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
 const PROFILE_ENV_APPLIED_FLAG = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED'
 const PROFILE_ENV_APPLIED_ID = 'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID'
 
-type ProfileRuntimeMode =
+type ProfileCompatibilityMode =
   | 'anthropic'
   | 'gemini'
   | 'mistral'
@@ -74,32 +76,32 @@ type ProfileRuntimeMode =
   | 'vertex'
   | 'openai'
 
-function resolveProfileRuntime(provider: string): {
+function resolveProfileCompatibility(provider: string): {
   route: ResolvedProfileRoute
-  mode: ProfileRuntimeMode
+  compatibilityMode: ProfileCompatibilityMode
 } {
   const route = resolveProfileRoute(provider)
 
   if (route.gatewayId === 'github') {
-    return { route, mode: 'github' }
+    return { route, compatibilityMode: 'github' }
   }
   if (route.gatewayId === 'bedrock') {
-    return { route, mode: 'bedrock' }
+    return { route, compatibilityMode: 'bedrock' }
   }
   if (route.gatewayId === 'vertex') {
-    return { route, mode: 'vertex' }
+    return { route, compatibilityMode: 'vertex' }
   }
   if (route.vendorId === 'anthropic') {
-    return { route, mode: 'anthropic' }
+    return { route, compatibilityMode: 'anthropic' }
   }
   if (route.vendorId === 'gemini') {
-    return { route, mode: 'gemini' }
+    return { route, compatibilityMode: 'gemini' }
   }
   if (route.vendorId === 'mistral' || route.gatewayId === 'mistral') {
-    return { route, mode: 'mistral' }
+    return { route, compatibilityMode: 'mistral' }
   }
 
-  return { route, mode: 'openai' }
+  return { route, compatibilityMode: 'openai' }
 }
 
 function trimValue(value: string | undefined): string {
@@ -271,19 +273,19 @@ function hasConflictingProviderFlagsForProfile(
   processEnv: NodeJS.ProcessEnv,
   profile: ProviderProfile,
 ): boolean {
-  const { mode } = resolveProfileRuntime(profile.provider)
+  const { compatibilityMode } = resolveProfileCompatibility(profile.provider)
 
-  if (mode === 'anthropic') {
+  if (compatibilityMode === 'anthropic') {
     return hasProviderSelectionFlags(processEnv)
   }
 
   return (
-    (mode !== 'openai' && processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
-    (mode !== 'gemini' && processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
-    (mode !== 'mistral' && processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
-    (mode !== 'github' && processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
-    (mode !== 'bedrock' && processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
-    (mode !== 'vertex' && processEnv.CLAUDE_CODE_USE_VERTEX !== undefined) ||
+    (compatibilityMode !== 'openai' && processEnv.CLAUDE_CODE_USE_OPENAI !== undefined) ||
+    (compatibilityMode !== 'gemini' && processEnv.CLAUDE_CODE_USE_GEMINI !== undefined) ||
+    (compatibilityMode !== 'mistral' && processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined) ||
+    (compatibilityMode !== 'github' && processEnv.CLAUDE_CODE_USE_GITHUB !== undefined) ||
+    (compatibilityMode !== 'bedrock' && processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined) ||
+    (compatibilityMode !== 'vertex' && processEnv.CLAUDE_CODE_USE_VERTEX !== undefined) ||
     processEnv.CLAUDE_CODE_USE_FOUNDRY !== undefined
   )
 }
@@ -303,7 +305,7 @@ function isProcessEnvAlignedWithProfile(
   },
 ): boolean {
   const includeApiKey = options?.includeApiKey ?? true
-  const { mode } = resolveProfileRuntime(profile.provider)
+  const { compatibilityMode } = resolveProfileCompatibility(profile.provider)
 
   if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
     return false
@@ -313,7 +315,7 @@ function isProcessEnvAlignedWithProfile(
     return false
   }
 
-  if (mode === 'anthropic') {
+  if (compatibilityMode === 'anthropic') {
     return (
       !hasProviderSelectionFlags(processEnv) &&
       sameOptionalEnvValue(processEnv.ANTHROPIC_BASE_URL, profile.baseUrl) &&
@@ -323,7 +325,7 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
-  if (mode === 'mistral') {
+  if (compatibilityMode === 'mistral') {
     return (
       processEnv.CLAUDE_CODE_USE_MISTRAL !== undefined &&
       processEnv.CLAUDE_CODE_USE_GEMINI === undefined &&
@@ -339,7 +341,7 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
-  if (mode === 'gemini') {
+  if (compatibilityMode === 'gemini') {
     return (
       processEnv.CLAUDE_CODE_USE_GEMINI !== undefined &&
       processEnv.CLAUDE_CODE_USE_MISTRAL === undefined &&
@@ -355,7 +357,7 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
-  if (mode === 'github') {
+  if (compatibilityMode === 'github') {
     return (
       processEnv.CLAUDE_CODE_USE_GITHUB !== undefined &&
       processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
@@ -369,7 +371,7 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
-  if (mode === 'bedrock') {
+  if (compatibilityMode === 'bedrock') {
     return (
       processEnv.CLAUDE_CODE_USE_BEDROCK !== undefined &&
       processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
@@ -383,7 +385,7 @@ function isProcessEnvAlignedWithProfile(
     )
   }
 
-  if (mode === 'vertex') {
+  if (compatibilityMode === 'vertex') {
     return (
       processEnv.CLAUDE_CODE_USE_VERTEX !== undefined &&
       processEnv.CLAUDE_CODE_USE_OPENAI === undefined &&
@@ -431,55 +433,15 @@ export function getActiveProviderProfile(
 export function clearProviderProfileEnvFromProcessEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): void {
-  delete processEnv.CLAUDE_CODE_USE_OPENAI
-  delete processEnv.CLAUDE_CODE_USE_GEMINI
-  delete processEnv.CLAUDE_CODE_USE_MISTRAL
-  delete processEnv.CLAUDE_CODE_USE_GITHUB
-  delete processEnv.CLAUDE_CODE_USE_BEDROCK
-  delete processEnv.CLAUDE_CODE_USE_VERTEX
-  delete processEnv.CLAUDE_CODE_USE_FOUNDRY
-
-  delete processEnv.OPENAI_BASE_URL
-  delete processEnv.OPENAI_API_BASE
-  delete processEnv.OPENAI_MODEL
-  delete processEnv.OPENAI_API_KEY
-
-  delete processEnv.ANTHROPIC_BASE_URL
-  delete processEnv.ANTHROPIC_MODEL
-  delete processEnv.ANTHROPIC_API_KEY
-  delete processEnv.ANTHROPIC_BEDROCK_BASE_URL
-  delete processEnv.ANTHROPIC_VERTEX_BASE_URL
+  clearManagedProfileEnv(processEnv)
   delete processEnv[PROFILE_ENV_APPLIED_FLAG]
   delete processEnv[PROFILE_ENV_APPLIED_ID]
-
-  delete processEnv.GEMINI_MODEL
-  delete processEnv.GEMINI_BASE_URL
-  delete processEnv.GEMINI_API_KEY
-  delete processEnv.GEMINI_AUTH_MODE
-  delete processEnv.GEMINI_ACCESS_TOKEN
-  delete processEnv.GOOGLE_API_KEY
-
-  delete processEnv.MISTRAL_MODEL
-  delete processEnv.MISTRAL_BASE_URL
-  delete processEnv.MISTRAL_API_KEY
-
-  // Clear provider-specific API keys
-  delete processEnv.MINIMAX_API_KEY
-  delete processEnv.NVIDIA_API_KEY
-  delete processEnv.NVIDIA_NIM
-  delete processEnv.BANKR_BASE_URL
-  delete processEnv.BNKR_API_KEY
-  delete processEnv.BANKR_MODEL
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
-  clearProviderProfileEnvFromProcessEnv()
-  process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
-  process.env[PROFILE_ENV_APPLIED_ID] = profile.id
-
-  const { route, mode } = resolveProfileRuntime(profile.provider)
-
-  process.env.ANTHROPIC_MODEL = getPrimaryModel(profile.model)
+  const { route, compatibilityMode } = resolveProfileCompatibility(profile.provider)
+  const primaryModel = getPrimaryModel(profile.model)
+  let profileEnv: ProfileEnv
 
   if (route.routeId === 'unknown-fallback') {
     // Safe fallback for unrecognised providers — OpenAI-compatible so the
@@ -490,99 +452,78 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     )
   }
 
-  if (mode === 'anthropic') {
-    process.env.ANTHROPIC_BASE_URL = profile.baseUrl
-
-    if (profile.apiKey) {
-      process.env.ANTHROPIC_API_KEY = profile.apiKey
-    } else {
-      delete process.env.ANTHROPIC_API_KEY
+  if (compatibilityMode === 'anthropic') {
+    profileEnv = {
+      ANTHROPIC_BASE_URL: profile.baseUrl,
+      ANTHROPIC_MODEL: primaryModel,
+      ...(profile.apiKey ? { ANTHROPIC_API_KEY: profile.apiKey } : {}),
     }
-
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_API_BASE
-    delete process.env.OPENAI_MODEL
-    delete process.env.OPENAI_API_KEY
-    return
-  }
-
-  if (mode === 'mistral') {
-    process.env.CLAUDE_CODE_USE_MISTRAL = '1'
-    process.env.MISTRAL_BASE_URL = profile.baseUrl
-    process.env.MISTRAL_MODEL = getPrimaryModel(profile.model)
-
-    if (profile.apiKey) {
-      process.env.MISTRAL_API_KEY = profile.apiKey
-    } else {
-      delete process.env.MISTRAL_API_KEY
+  } else if (compatibilityMode === 'mistral') {
+    profileEnv = {
+      MISTRAL_BASE_URL: profile.baseUrl,
+      MISTRAL_MODEL: primaryModel,
+      ...(profile.apiKey ? { MISTRAL_API_KEY: profile.apiKey } : {}),
     }
-
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_API_KEY
-    delete process.env.OPENAI_MODEL
-    return
-  }
-
-  if (mode === 'gemini') {
-    process.env.CLAUDE_CODE_USE_GEMINI = '1'
-    process.env.GEMINI_BASE_URL = profile.baseUrl
-    process.env.GEMINI_MODEL = getPrimaryModel(profile.model)
-
-    if (profile.apiKey) {
-      process.env.GEMINI_API_KEY = profile.apiKey
-    } else {
-      delete process.env.GEMINI_API_KEY
+  } else if (compatibilityMode === 'gemini') {
+    profileEnv = {
+      GEMINI_BASE_URL: profile.baseUrl,
+      GEMINI_MODEL: primaryModel,
+      ...(profile.apiKey ? { GEMINI_API_KEY: profile.apiKey } : {}),
     }
-
-    delete process.env.OPENAI_BASE_URL
-    delete process.env.OPENAI_API_KEY
-    delete process.env.OPENAI_MODEL
-    return
-  }
-
-  if (mode === 'github') {
-    process.env.CLAUDE_CODE_USE_GITHUB = '1'
-    process.env.OPENAI_BASE_URL = profile.baseUrl
-    process.env.OPENAI_MODEL = getPrimaryModel(profile.model)
-    delete process.env.OPENAI_API_KEY
-    return
-  }
-
-  if (mode === 'bedrock') {
-    process.env.CLAUDE_CODE_USE_BEDROCK = '1'
-    process.env.ANTHROPIC_BEDROCK_BASE_URL = profile.baseUrl
-    return
-  }
-
-  if (mode === 'vertex') {
-    process.env.CLAUDE_CODE_USE_VERTEX = '1'
-    process.env.ANTHROPIC_VERTEX_BASE_URL = profile.baseUrl
-    return
-  }
-
-  // Default: OpenAI-compatible (covers openai, ollama, deepseek, together,
-  // groq, azure-openai, openrouter, lmstudio, nvidia-nim, minimax, bankr,
-  // atomic-chat, custom, and any unknown fallback).
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL = profile.baseUrl
-  process.env.OPENAI_MODEL = getPrimaryModel(profile.model)
-
-  if (profile.apiKey) {
-    process.env.OPENAI_API_KEY = profile.apiKey
-    // Also set provider-specific API keys for detection
-    const baseUrl = profile.baseUrl.toLowerCase()
-    if (baseUrl.includes('minimax')) {
-      process.env.MINIMAX_API_KEY = profile.apiKey
-    }
-    if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
-      process.env.NVIDIA_API_KEY = profile.apiKey
-    }
-    if (baseUrl.includes('bankr')) {
-      process.env.BNKR_API_KEY = profile.apiKey
-    }
+  } else if (compatibilityMode === 'github') {
+    profileEnv = buildGithubProfileEnv({
+      model: primaryModel,
+      baseUrl: profile.baseUrl,
+    })
+  } else if (compatibilityMode === 'bedrock') {
+    profileEnv = buildBedrockProfileEnv({
+      model: primaryModel,
+      baseUrl: profile.baseUrl,
+    })
+  } else if (compatibilityMode === 'vertex') {
+    profileEnv = buildVertexProfileEnv({
+      model: primaryModel,
+      baseUrl: profile.baseUrl,
+    })
   } else {
-    delete process.env.OPENAI_API_KEY
+    const openAIProfileEnv: ProfileEnv = {
+      OPENAI_BASE_URL: profile.baseUrl,
+      OPENAI_MODEL: primaryModel,
+    }
+
+    if (profile.apiKey) {
+      openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
+      if (route.vendorId === 'minimax' || profile.baseUrl.toLowerCase().includes('minimax')) {
+        openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
+      }
+      if (
+        route.gatewayId === 'nvidia-nim' ||
+        profile.baseUrl.toLowerCase().includes('nvidia') ||
+        profile.baseUrl.toLowerCase().includes('integrate.api.nvidia')
+      ) {
+        openAIProfileEnv.NVIDIA_API_KEY = profile.apiKey
+      }
+      if (route.routeId === 'bankr' || profile.baseUrl.toLowerCase().includes('bankr')) {
+        openAIProfileEnv.BNKR_API_KEY = profile.apiKey
+      }
+    }
+    if (route.gatewayId === 'nvidia-nim') {
+      openAIProfileEnv.NVIDIA_NIM = '1'
+    }
+
+    profileEnv = openAIProfileEnv
   }
+
+  const nextEnv = buildCompatibilityProcessEnv({
+    processEnv: process.env,
+    compatibilityMode,
+    profileEnv,
+  })
+
+  clearProviderProfileEnvFromProcessEnv()
+  Object.assign(process.env, nextEnv)
+  process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
+  process.env[PROFILE_ENV_APPLIED_ID] = profile.id
 }
 
 export function applyActiveProviderProfileFromConfig(
@@ -849,9 +790,9 @@ function buildStartupProfileFromActiveProfile(
   profile: ProviderProfileStartup
   env: ProfileEnv
 } | null {
-  const { route, mode } = resolveProfileRuntime(activeProfile.provider)
+  const { route, compatibilityMode } = resolveProfileCompatibility(activeProfile.provider)
 
-  switch (mode) {
+  switch (compatibilityMode) {
     case 'anthropic':
       return {
         profile: 'openai',

@@ -3,7 +3,10 @@ import { shouldUseCodexTransport } from '../../services/api/providerConfig.js'
 import { resolveActiveRouteIdFromEnv } from '../../integrations/routeMetadata.js'
 import { isEnvTruthy } from '../envUtils.js'
 
-export type APIProvider =
+// Legacy provider categories that older model/status/runtime callers still
+// consume. Descriptor route ids are the newer source of truth, but we keep
+// this compatibility surface stable until later cleanup packets retire it.
+export type LegacyAPIProvider =
   | 'firstParty'
   | 'bedrock'
   | 'vertex'
@@ -16,7 +19,11 @@ export type APIProvider =
   | 'minimax'
   | 'mistral'
 
-export function getAPIProvider(): APIProvider {
+// Backward-compatible public alias. Keep importing APIProvider where callers
+// intentionally consume the legacy category surface.
+export type APIProvider = LegacyAPIProvider
+
+export function getAPIProvider(): LegacyAPIProvider {
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
     return 'foundry'
   }
