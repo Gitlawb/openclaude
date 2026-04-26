@@ -240,10 +240,21 @@ export function parseDurationString(input: number | string): number {
 export async function getCachedModels(
   routeId: string,
   ttlMs: number,
+  options?: {
+    includeStale?: boolean
+  },
 ): Promise<DiscoveryCacheEntry | null> {
   const cache = await loadDiscoveryCache()
   const entry = cache.entries[routeId]
-  if (!entry || entry.updatedAt === null) {
+  if (!entry) {
+    return null
+  }
+
+  if (options?.includeStale) {
+    return entry
+  }
+
+  if (entry.updatedAt === null) {
     return null
   }
 

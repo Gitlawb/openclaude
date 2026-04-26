@@ -78,6 +78,13 @@ describe('discovery cache storage', () => {
     })
     await expect(isCacheStale('ollama', 1_000)).resolves.toBe(false)
     await expect(getCachedModels('ollama', 100)).resolves.toBeNull()
+    await expect(
+      getCachedModels('ollama', 100, { includeStale: true }),
+    ).resolves.toEqual({
+      models: [createModel('llama3')],
+      updatedAt,
+      error: null,
+    })
     await expect(isCacheStale('ollama', 100)).resolves.toBe(true)
   })
 
@@ -110,6 +117,16 @@ describe('discovery cache storage', () => {
     expect(raw.entries.openrouter.error?.message).toBe('discovery failed')
     expect(raw.entries.openrouter.error?.recordedAt).toBeNumber()
     await expect(getCachedModels('openrouter', 1_000)).resolves.toBeNull()
+    await expect(
+      getCachedModels('openrouter', 1_000, { includeStale: true }),
+    ).resolves.toEqual({
+      models: [createModel('openai/gpt-5-mini')],
+      updatedAt,
+      error: {
+        message: 'discovery failed',
+        recordedAt: expect.any(Number),
+      },
+    })
   })
 
   test('recordDiscoveryError stores error-only entry when no cache exists', async () => {
@@ -132,6 +149,16 @@ describe('discovery cache storage', () => {
     expect(raw.entries.lmstudio.updatedAt).toBeNull()
     expect(raw.entries.lmstudio.error?.message).toBe('boom')
     await expect(getCachedModels('lmstudio', 1_000)).resolves.toBeNull()
+    await expect(
+      getCachedModels('lmstudio', 1_000, { includeStale: true }),
+    ).resolves.toEqual({
+      models: [],
+      updatedAt: null,
+      error: {
+        message: 'boom',
+        recordedAt: expect.any(Number),
+      },
+    })
     await expect(isCacheStale('lmstudio', 1_000)).resolves.toBe(true)
   })
 

@@ -140,6 +140,15 @@ test('minimax validation accepts MINIMAX_API_KEY without OPENAI_API_KEY', async 
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test('minimax validation accepts MINIMAX_API_KEY on minimax chat host alias', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.minimax.chat/v1'
+  process.env.MINIMAX_API_KEY = 'minimax-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('bankr validation accepts BNKR_API_KEY without OPENAI_API_KEY', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://llm.bankr.bot/v1'

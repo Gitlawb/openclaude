@@ -19,6 +19,7 @@ export default defineVendor({
     kind: 'credential-env',
     routing: {
       matchDefaultBaseUrl: true,
+      matchBaseUrlHosts: ['api.minimax.io', 'api.minimax.chat'],
     },
     credentialEnvVars: ['MINIMAX_API_KEY', 'OPENAI_API_KEY'],
     missingCredentialMessage:

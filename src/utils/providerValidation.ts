@@ -128,6 +128,21 @@ function baseUrlMatchesDescriptor(
   )
 }
 
+function getNormalizedBaseUrlHost(
+  baseUrl: string | undefined,
+): string | undefined {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  if (!normalizedBaseUrl) {
+    return undefined
+  }
+
+  try {
+    return new URL(normalizedBaseUrl).hostname.toLowerCase()
+  } catch {
+    return undefined
+  }
+}
+
 function getValidationTargets(): ValidationTarget[] {
   ensureIntegrationsLoaded()
 
@@ -185,13 +200,26 @@ function getRuntimeValidationTarget(
 
   const baseUrlMatchedTarget = validationTargets.find(target => {
     const routing = getValidationRouting(target)
-    if (!routing?.matchDefaultBaseUrl) {
+    if (!routing?.matchDefaultBaseUrl && !routing?.matchBaseUrlHosts?.length) {
       return false
     }
 
-    return baseUrlMatchesDescriptor(
+    if (baseUrlMatchesDescriptor(
       request.baseUrl,
       getValidationTargetBaseUrl(target),
+    )) {
+      return true
+    }
+
+    const requestHost = getNormalizedBaseUrlHost(request.baseUrl)
+    if (!requestHost) {
+      return false
+    }
+
+    return (
+      routing.matchBaseUrlHosts?.some(
+        host => requestHost === host.toLowerCase(),
+      ) ?? false
     )
   })
 

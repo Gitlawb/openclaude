@@ -126,6 +126,7 @@ export interface InvalidCredentialValue {
 export interface ValidationRoutingMetadata {
   enablementEnvVar?: string
   matchDefaultBaseUrl?: boolean
+  matchBaseUrlHosts?: string[]
   fallbackWhenUseOpenAI?: boolean
   skipWhenUseOpenAI?: boolean
 }

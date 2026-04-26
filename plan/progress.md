@@ -4,7 +4,7 @@
 **Current Phase**: Phase 1 — Foundation and Parity
 **Next Planned Phase**: Phase 2 — Runtime Metadata Adoption
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 16:49
+**Last Updated**: 2026-04-25 17:03
 
 ---
 
@@ -234,10 +234,13 @@ Notes:
 - This can begin alongside `2A` once Phase 2 entry blockers clear.
 - `2B` and `2C` should not start wiring discovery caching until this packet is complete enough to provide stable helper APIs.
 - Landed in branch: `src/integrations/discoveryCache.ts` stores per-route model discovery entries under `model-discovery-cache.json` in the Claude config home, with atomic temp-file writes, versioned schema loading, corruption fallback, and a serialized in-memory write lock.
-- Current helper behavior: `getCachedModels(routeId, ttlMs)` returns only fresh successful entries, while `recordDiscoveryError()` preserves stale models or stores an error-only entry for later consumers.
+- Current helper behavior: `getCachedModels(routeId, ttlMs)` stays fresh-by-default, and `getCachedModels(routeId, ttlMs, { includeStale: true })` exposes preserved stale entries or error-only entries so later `/model` consumers can surface fallback data and refresh failures together.
 - Focused verification on 2026-04-25 is green:
   - `bun test src/integrations/discoveryCache.test.ts`
   - filtered `bun run typecheck` for `src/integrations/discoveryCache*.ts` returned clean output
+- Follow-up hardening on 2026-04-25:
+  - MiniMax validation routing now recognizes both `api.minimax.io` and `api.minimax.chat`
+  - stale discovery cache entries are readable through the public helper API when callers opt in with `includeStale: true`
 
 ---
 
