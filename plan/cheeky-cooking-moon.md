@@ -119,6 +119,9 @@ This is one of the main reasons new integrations keep requiring coordinated edit
 - Keep gateway onboarding cheap:
   - a typical new gateway should be addable in `src/integrations/gateways/<id>.ts`
   - a gateway with a large manual catalog should usually need only one optional companion catalog file
+- Treat descriptor-native onboarding as a hard requirement, not a documentation aspiration:
+  - a preset-participating route must derive its loader registration, preset mapping, and `/provider` UI metadata from descriptor-authored data
+  - if static typing or bundler constraints require generation, the only extra step may be regenerating checked-in artifacts, never hand-editing multiple metadata tables
 - Preserve current transport behavior:
   - OpenAI-compatible flows continue through `src/services/api/openaiShim.ts`
   - Anthropic-native flows continue through the native Claude path
@@ -203,6 +206,12 @@ Catalog ownership rules:
 - shared files under `models/` act as a glossary/index for reusable metadata and optional route enrichment; they are not the default place to encode gateway or direct-vendor availability
 - `src/integrations/index.ts` is the descriptor loader, but it must not become another hand-maintained provider switch
 - the loader should be generated or use constrained directory discovery for known descriptor folders so adding a normal gateway remains a one-file or two-file change
+
+Descriptor additivity rules:
+
+- normal descriptor-backed routes must not require hand-edits in `src/integrations/index.ts`, `src/integrations/compatibility.ts`, `src/integrations/providerUiMetadata.ts`, or a separately maintained preset-id union
+- if a route should appear in preset-driven `/provider` flows, that participation must be declared in descriptor-authored metadata, not a second manually maintained source of truth
+- generated loader or preset-manifest files are acceptable only when they are derived from descriptor files and validated by tests
 
 ### Core Descriptor Types
 
@@ -633,6 +642,12 @@ export function routeForPreset(preset: ProviderPreset): {
   routeId: string
 } { ... }
 ```
+
+End-state rule:
+
+- `compatibility.ts` should become a thin derived view over descriptor-authored preset metadata, not a permanently hand-maintained preset-routing table
+- `providerUiMetadata.ts` ordering, descriptions, env-var overrides, and display names for preset-driven routes should come from the same descriptor-authored metadata or from a generated manifest derived from it
+- if `ProviderPreset` remains a closed type, it should be generated from descriptor-authored preset ids rather than maintained as a separate handwritten union
 
 ## Behavioral Rules
 
@@ -1563,11 +1578,42 @@ Dependencies:
 
 - Phase 3A through 3C
 
+#### Phase 3E: Descriptor-Native Onboarding Closure
+
+Scope:
+
+- eliminate the remaining hand-maintained onboarding surfaces that keep descriptor authoring from being truly additive
+- make preset-driven `/provider` participation descriptor-owned instead of split across loader, compatibility, and UI tables
+
+Tracking checklist:
+
+- [ ] choose and implement the sustainable loader strategy: constrained descriptor-folder discovery or generated loader artifacts
+- [ ] remove the need to hand-edit `src/integrations/index.ts` for normal descriptor-backed routes
+- [ ] define descriptor-owned preset metadata for routes that should appear in preset-driven `/provider` flows
+- [ ] derive `routeForPreset()` and related compatibility helpers from descriptor-authored preset metadata or a generated manifest derived from it
+- [ ] derive provider preset ordering, descriptions, display labels/names, and env-var override metadata from the same descriptor-authored source
+- [ ] eliminate or generate any separate handwritten preset-id union so preset typing cannot drift from descriptor reality
+- [ ] add validation for duplicate preset ids, incomplete preset metadata, and descriptor routes that opt into presets without sufficient UI/config data
+- [ ] add tests that prove a representative preset-participating gateway can be added with descriptor file changes only, or descriptor file changes plus regeneration of derived artifacts, with no hand-edits to unrelated consumer tables
+- [ ] add equivalent tests for a representative direct model-serving vendor
+- [ ] keep an explicit opt-out path for descriptor routes that should not appear as presets
+
+Suggested owner split:
+
+1. Agent 1: loader/preset-manifest design and implementation
+2. Agent 2: `/provider` consumer migration and validation coverage
+
+Dependencies:
+
+- Phase 2 complete
+- should land before Phase 4 docs claim fully additive onboarding as branch reality
+
 Phase 3 merge checkpoints:
 
 - [ ] merge dead-switch removal in small PRs
 - [ ] merge type consolidation separately from runtime behavior changes
 - [ ] merge env-shaping consolidation after targeted regression tests
+- [ ] merge descriptor-native onboarding closure before declaring the docs fully end-state accurate
 - [ ] merge final audit/doc updates last
 
 ### Phase 4: Documentation and Reference Samples
@@ -1680,7 +1726,8 @@ Tracking checklist:
 - [ ] include a gateway example with required static custom headers
 - [ ] include guidance for optional user-supplied custom headers
 - [ ] avoid redundant gateway examples that use `targetVendorId` or `isOpenAICompatible`; use `transportConfig.kind` instead
-- [ ] document how presets, compatibility mappings, and consumer surfaces should be updated
+- [ ] document descriptor-owned preset metadata and the loader/preset-manifest workflow for preset-driven routes
+- [ ] do not instruct contributors to hand-edit `src/integrations/index.ts`, `src/integrations/compatibility.ts`, or `src/integrations/providerUiMetadata.ts` for normal descriptor-backed routes
 
 Suggested doc outputs:
 
@@ -2043,8 +2090,10 @@ Suggested targeted runs:
 - [ ] `/usage` either renders real data or a clear fallback for every provider
 - [ ] custom providers never crash model lookup or `/usage`
 - [ ] adding a representative new gateway can be done in one file, or two files when it needs a large manual catalog
-- [ ] adding that representative gateway does not require editing provider flags, provider profiles, `/provider`, `/model`, `/usage`, or shim switch logic
+- [ ] adding that representative gateway does not require hand-editing `src/integrations/index.ts`, `src/integrations/compatibility.ts`, `src/integrations/providerUiMetadata.ts`, provider flags, provider profiles, `/provider`, `/model`, `/usage`, or shim switch logic
 - [ ] adding a representative direct model-serving vendor follows the same one-file or two-file catalog pattern where applicable
+- [ ] a representative preset-participating gateway appears in `/provider` flows from descriptor-authored metadata alone, or from descriptor-authored metadata plus regeneration of derived artifacts
+- [ ] preset ids, preset ordering, preset UI copy, and preset route mappings cannot drift from descriptor-authored metadata without failing validation/tests
 - [ ] no gateway is treated as implicitly supporting every model in the shared model index
 - [ ] no direct vendor is treated as implicitly supporting every model in the shared model index
 - [ ] dynamic `/model` discovery shows cached entries immediately when available

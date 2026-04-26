@@ -1,10 +1,10 @@
 # OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Current Phase**: Phase 4E — Reference Sample Pack and Docs Review (complete on branch)
-**Next Planned Phase**: None — Phase 4 is complete on `cheeky-cooking-moon`
+**Current Phase**: Phase 4E — Reference Sample Pack and Docs Review (complete on branch; follow-up hard requirement opened for 3E)
+**Next Planned Phase**: Phase 3E — Descriptor-Native Onboarding Closure
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 23:25
+**Last Updated**: 2026-04-26 00:10
 
 ---
 
@@ -580,12 +580,36 @@ Notes:
 
 ---
 
+## Phase 3E: Descriptor-Native Onboarding Closure
+
+**Status**: `PLANNED`
+
+- [ ] Choose and implement the sustainable loader strategy: constrained descriptor-folder discovery or generated loader artifacts
+- [ ] Remove the need to hand-edit `src/integrations/index.ts` for normal descriptor-backed routes
+- [ ] Define descriptor-owned preset metadata for routes that should appear in preset-driven `/provider` flows
+- [ ] Derive `routeForPreset()` and related compatibility helpers from descriptor-authored preset metadata or a generated manifest derived from it
+- [ ] Derive provider preset ordering, descriptions, display labels/names, and env-var override metadata from the same descriptor-authored source
+- [ ] Eliminate or generate any separate handwritten preset-id union so preset typing cannot drift from descriptor reality
+- [ ] Add validation for duplicate preset ids, incomplete preset metadata, and descriptor routes that opt into presets without sufficient UI/config data
+- [ ] Add tests that prove a representative preset-participating gateway can be added with descriptor file changes only, or descriptor file changes plus regeneration of derived artifacts, with no hand-edits to unrelated consumer tables
+- [ ] Add equivalent tests for a representative direct model-serving vendor
+- [ ] Keep an explicit opt-out path for descriptor routes that should not appear as presets
+
+Notes:
+- Added on 2026-04-26 after follow-up review confirmed the remaining additive-onboarding gap is structural, not just documentation wording.
+- Current branch reality is still accurate as documented in `docs/integrations/how-to/add-gateway.md`: descriptor files exist, but `src/integrations/index.ts`, `src/integrations/compatibility.ts`, `src/integrations/providerUiMetadata.ts`, and the handwritten `ProviderPreset` union still require coordinated follow-through for some routes.
+- This packet is now the hard-requirement closure work for `cheeky-cooking-moon`; the branch should not claim fully additive preset-participating gateway onboarding until these checkboxes are green.
+- Once `3E` lands, Phase 4 gateway/vendor docs need a cleanup pass so they stop documenting manual loader/preset/UI edits as acceptable normal workflow.
+
+---
+
 ## Phase 3 Merge Checkpoints
 
 - [x] **3A merged** — dead-switch cleanup landed in small safe packets
 - [x] **3B merged** — type/naming consolidation landed separately from runtime behavior changes
 - [x] **3C merged** — env-shaping consolidation landed after targeted regression tests
 - [x] **3D complete** — final audit/doc pass is green and Phase 4 can begin
+- [ ] **3E pending** — additive onboarding is not considered closed until loader/preset metadata are descriptor-native
 
 Notes:
 - As with the earlier checkpoints, "merged" here means landed on `cheeky-cooking-moon`, not merged out to another branch.
@@ -726,6 +750,7 @@ Notes:
   - `docs/integrations/how-to/add-vendor.md` — vendor onboarding rules plus direct OpenAI-compatible, custom-static-header, and first-party-catalog examples
   - `docs/integrations/how-to/add-gateway.md` — one-file and two-file gateway patterns, transport-family examples, discovery-cache guidance, token-field guidance, and compatibility-surface follow-through
 - The new gateway guide explicitly keeps `transportConfig.kind` as the routing contract and treats `category` as display/grouping metadata only.
+- Follow-up review on 2026-04-26 intentionally kept the guide honest about current branch reality, but that note is now temporary debt tracked by `3E` rather than acceptable end state.
 
 ---
 
