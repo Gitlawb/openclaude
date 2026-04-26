@@ -117,6 +117,28 @@ test('openai launch ignores mismatched persisted ollama env', async () => {
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
 })
 
+test('anthropic launch preserves unmanaged process env values', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'anthropic',
+    persisted: profile('anthropic', {
+      ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+      ANTHROPIC_API_KEY: 'sk-ant-persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      PATH: '/usr/local/bin:/usr/bin',
+      HOME: '/Users/example',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  assert.equal(env.PATH, '/usr/local/bin:/usr/bin')
+  assert.equal(env.HOME, '/Users/example')
+  assert.equal(env.ANTHROPIC_MODEL, 'claude-sonnet-4-6')
+  assert.equal(env.ANTHROPIC_API_KEY, 'sk-ant-persisted')
+  assert.equal(env.OPENAI_MODEL, undefined)
+})
+
 test('openai launch omits api key when no key is resolved', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

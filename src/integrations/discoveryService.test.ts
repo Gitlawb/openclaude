@@ -92,6 +92,52 @@ describe('discoverModelsForRoute', () => {
     expect(callCount).toBe(1)
   })
 
+  test('partitions cached discovery results by endpoint base URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    let callCount = 0
+    setMockFetch(mock((input: string | URL | Request) => {
+      callCount++
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const model = url.startsWith('http://remote-a.example/v1/')
+        ? 'remote-a-model'
+        : 'remote-b-model'
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: model }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const firstRemoteA = await discoverModelsForRoute('atomic-chat', {
+      baseUrl: 'http://remote-a.example/v1',
+    })
+    const firstRemoteB = await discoverModelsForRoute('atomic-chat', {
+      baseUrl: 'http://remote-b.example/v1',
+    })
+    const secondRemoteA = await discoverModelsForRoute('atomic-chat', {
+      baseUrl: 'http://remote-a.example/v1',
+    })
+
+    expect(firstRemoteA?.source).toBe('network')
+    expect(firstRemoteA?.models.map(model => model.apiName)).toEqual([
+      'remote-a-model',
+    ])
+    expect(firstRemoteB?.source).toBe('network')
+    expect(firstRemoteB?.models.map(model => model.apiName)).toEqual([
+      'remote-b-model',
+    ])
+    expect(secondRemoteA?.source).toBe('cache')
+    expect(secondRemoteA?.models.map(model => model.apiName)).toEqual([
+      'remote-a-model',
+    ])
+    expect(callCount).toBe(2)
+  })
+
   test('preserves stale cache data when refresh fails', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 

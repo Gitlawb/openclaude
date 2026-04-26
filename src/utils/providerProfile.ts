@@ -928,22 +928,26 @@ export async function buildLaunchEnv(options: {
       sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) ||
       sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY)
 
-    return {
-      ...(anthropicBaseUrl
-        ? { ANTHROPIC_BASE_URL: anthropicBaseUrl }
-        : {}),
-      ANTHROPIC_MODEL:
-        normalizeProfileModel(
-          sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
-        ) ||
-        normalizeProfileModel(
-          sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
-        ) ||
-        'claude-sonnet-4-6',
-      ...(anthropicApiKey
-        ? { ANTHROPIC_API_KEY: anthropicApiKey }
-        : {}),
-    }
+    return buildCompatibilityProcessEnv({
+      processEnv,
+      compatibilityMode: 'anthropic',
+      profileEnv: {
+        ...(anthropicBaseUrl
+          ? { ANTHROPIC_BASE_URL: anthropicBaseUrl }
+          : {}),
+        ANTHROPIC_MODEL:
+          normalizeProfileModel(
+            sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
+          ) ||
+          normalizeProfileModel(
+            sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
+          ) ||
+          'claude-sonnet-4-6',
+        ...(anthropicApiKey
+          ? { ANTHROPIC_API_KEY: anthropicApiKey }
+          : {}),
+      },
+    })
   }
 
   if (options.profile === 'bedrock') {

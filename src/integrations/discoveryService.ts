@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   getCachedModels,
   parseDurationString,
@@ -68,6 +69,60 @@ function getDiscoveryCacheTtlMs(
   return typeof ttl === 'string' || typeof ttl === 'number'
     ? parseDurationString(ttl)
     : 0
+}
+
+function normalizeDiscoveryCacheBaseUrl(
+  baseUrl: string | undefined,
+): string {
+  if (!baseUrl?.trim()) {
+    return ''
+  }
+
+  try {
+    const parsed = new URL(baseUrl)
+    parsed.hash = ''
+    parsed.search = ''
+    return parsed.toString().replace(/\/+$/, '').toLowerCase()
+  } catch {
+    return baseUrl.trim().replace(/\/+$/, '').toLowerCase()
+  }
+}
+
+function normalizeDiscoveryCacheHeaders(
+  headers: Record<string, string> | undefined,
+): Array<[string, string]> {
+  return Object.entries(headers ?? {})
+    .map(([name, value]) => [name.trim().toLowerCase(), value.trim()] as const)
+    .filter(([name, value]) => name && value)
+    .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
+}
+
+function hashDiscoveryCachePartition(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+function getDiscoveryCacheKey(
+  routeId: string,
+  options?: {
+    baseUrl?: string
+    apiKey?: string
+    headers?: Record<string, string>
+  },
+): string {
+  const partition = {
+    baseUrl: normalizeDiscoveryCacheBaseUrl(getRouteBaseUrl(routeId, options)),
+    apiKeyHash: options?.apiKey?.trim()
+      ? hashDiscoveryCachePartition(options.apiKey.trim())
+      : '',
+    headers: normalizeDiscoveryCacheHeaders(
+      getRouteDiscoveryHeaders(routeId, options),
+    ),
+  }
+
+  return `${routeId}:${hashDiscoveryCachePartition(partition)}`
 }
 
 function getRouteBaseUrl(
@@ -206,8 +261,9 @@ export async function discoverModelsForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
+  const cacheKey = getDiscoveryCacheKey(routeId, options)
   if (!options?.forceRefresh && ttlMs > 0) {
-    const cached = await getCachedModels(routeId, ttlMs)
+    const cached = await getCachedModels(cacheKey, ttlMs)
     if (cached) {
       return {
         routeId,
@@ -225,7 +281,7 @@ export async function discoverModelsForRoute(
       throw new Error(`Discovery failed for route ${routeId}`)
     }
 
-    await setCachedModels(routeId, { models: discovered })
+    await setCachedModels(cacheKey, { models: discovered })
     return {
       routeId,
       models: mergeCatalogEntries(staticEntries, discovered),
@@ -234,9 +290,9 @@ export async function discoverModelsForRoute(
       source: 'network',
     }
   } catch (error) {
-    await recordDiscoveryError(routeId, error)
+    await recordDiscoveryError(cacheKey, error)
 
-    const staleEntry = await getCachedModels(routeId, ttlMs, {
+    const staleEntry = await getCachedModels(cacheKey, ttlMs, {
       includeStale: true,
     })
 
@@ -277,8 +333,9 @@ export async function refreshStartupDiscoveryForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
+  const cacheKey = getDiscoveryCacheKey(routeId, options)
   if (ttlMs > 0) {
-    const cached = await getCachedModels(routeId, ttlMs)
+    const cached = await getCachedModels(cacheKey, ttlMs)
     if (cached) {
       return {
         routeId,
