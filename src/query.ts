@@ -109,7 +109,7 @@ import {
 } from './bootstrap/state.js'
 import { createBudgetTracker, checkTokenBudget } from './query/tokenBudget.js'
 import { count } from './utils/array.js'
-
+import { getGlobalConfig } from './utils/config.js'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const snipModule = feature('HISTORY_SNIP')
   ? (require('./services/compact/snipCompact.js') as typeof import('./services/compact/snipCompact.js'))
@@ -1880,7 +1880,10 @@ async function* queryLoop(
     queryCheckpoint('query_recursive_call')
     
     // Persist conversation progress to global project memory
-    if (getGlobalConfig().knowledgeGraphEnabled) {
+    if (
+      feature('CONVERSATION_ARC') &&
+      getGlobalConfig().knowledgeGraphEnabled
+    ) {
       const { finalizeArcTurn } = await import('./utils/conversationArc.js')
       finalizeArcTurn()
     }
