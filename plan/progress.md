@@ -1,10 +1,10 @@
 # OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Current Phase**: Phase 3D — Final Audit and Documentation Pass (complete on branch)
+**Current Phase**: Phase 3 — Cleanup (complete on branch)
 **Next Planned Phase**: Phase 4A — Documentation Structure and Terminology
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 21:19
+**Last Updated**: 2026-04-25 22:02
 
 ---
 
@@ -398,21 +398,21 @@ Notes:
 
 ## Phase 3: Cleanup
 
-**Status**: `IN_PROGRESS`
+**Status**: `COMPLETE`
 
 **Goal**: Remove transitional duplication once descriptor-backed behavior is trusted.
 
 ### Phase 3 Exit Criteria
 
-- [ ] Obsolete switch chains are removed
-- [ ] Compatibility shims are minimized and clearly named
-- [ ] Remaining exceptions are intentional and documented
+- [x] Obsolete switch chains are removed
+- [x] Compatibility shims are minimized and clearly named
+- [x] Remaining exceptions are intentional and documented
 
 ### Phase 3 Entry Blockers
 
 - [x] Phase 2 is complete on `cheeky-cooking-moon`
 - [x] Phase 2E drift audit is recorded in `plan/phase-2e-drift-audit.md`
-- [ ] Decide whether repo-wide `bun run typecheck` baseline debt stays accepted during Phase 3 implementation, or whether any cleanup packet should carve off part of that debt explicitly
+- [x] Repo-wide `bun run typecheck` baseline debt remains accepted as pre-existing debt during Phase 3; no cleanup packet in this branch carved off that broader debt separately
 
 Notes:
 - Phase 3 starts from the completed Phase 2 drift audit, not from the original migration assumptions.
@@ -424,14 +424,15 @@ Notes:
   - compatibility tables in `src/utils/model/configs.ts`
   - duplicated provider/env shaping spread across `src/utils/providerProfiles.ts`, `src/utils/providerProfile.ts`, and startup/runtime helpers
   - remaining explicit provider branches recorded in `plan/phase-2e-drift-audit.md`
-- Until the repo-wide typecheck-debt decision is explicit, keep each Phase 3 packet scoped tightly and do not treat unrelated baseline `bun run typecheck` noise as proof that the cleanup work itself is blocked.
+- With the repo-wide typecheck-debt decision now recorded, the Phase 3 packets stayed tightly scoped and did not treat unrelated baseline `bun run typecheck` noise as proof that the cleanup work itself was blocked.
+- Decision recorded after the completed `3D` audit: repo-wide `bun run typecheck` failures remain broader pre-existing repo debt, so Phase 3 closed without expanding scope to resolve unrelated baseline errors.
 
 ### Phase 3 Recommended Sequence
 
 - [x] Remove dead metadata switches first
 - [x] Consolidate overlapping type/name surfaces second
-- [ ] Consolidate env-shaping/runtime bridges third
-- [ ] Finish with one more audit and documentation pass
+- [x] Consolidate env-shaping/runtime bridges third
+- [x] Finish with one more audit and documentation pass
 
 Notes:
 - Keep these as separate branch-local checkpoints on `cheeky-cooking-moon`; Phase 3 cleanup should not be bundled into one large mixed packet.
@@ -572,6 +573,218 @@ Notes:
 - [x] **3B merged** — type/naming consolidation landed separately from runtime behavior changes
 - [x] **3C merged** — env-shaping consolidation landed after targeted regression tests
 - [x] **3D complete** — final audit/doc pass is green and Phase 4 can begin
+
+Notes:
+- As with the earlier checkpoints, "merged" here means landed on `cheeky-cooking-moon`, not merged out to another branch.
+
+---
+
+## Phase 4: Documentation and Reference Samples
+
+**Status**: `PLANNED`
+
+**Goal**: Produce implementation-quality documentation for the descriptor system and give future contributors reliable reference examples for the most common integration patterns.
+
+### Phase 4 Exit Criteria
+
+- [ ] Docs explain how to add each descriptor type
+- [ ] Docs include detailed worked samples for multiple gateway and vendor patterns
+- [ ] Docs explain when and how `/usage` should be attached to a vendor or gateway
+- [ ] Docs clearly call out the difference between metadata, routing, and transport behavior
+- [ ] All documentation lives under `/docs`
+- [ ] All documentation is written in `.md` format
+- [ ] Docs are organized into a clear, maintainable `/docs` structure
+
+### Phase 4 Entry Blockers
+
+- [x] Phase 3 is complete on `cheeky-cooking-moon`
+- [x] `docs/architecture/integrations.md` exists from `3D` and can seed the architecture/terminology packet
+- [ ] Confirm the remaining Phase 4 doc structure and target file layout before authoring the new how-to/reference guides
+
+Notes:
+- This phase should mirror the master-plan packet order (`4A` through `4E`) rather than mixing glossary, how-to, `/usage`, and reference-sample work together.
+- As with the earlier checkpoints, Phase 4 work stays branch-local on `cheeky-cooking-moon`; nothing in this tracker implies merging outside the branch.
+- Treat the existing `docs/architecture/integrations.md` note as the seed artifact for `4A`, not as a reason to skip the remaining glossary, terminology, and docs-structure work.
+
+### Phase 4 Recommended Sequence
+
+- [ ] Document the architecture and terminology first
+- [ ] Document add-a-new-integration workflows second
+- [ ] Add worked reference samples third
+- [ ] Add `/usage` integration guidance and review docs for accuracy last
+
+---
+
+## Phase 4A: Documentation Structure and Terminology
+
+**Status**: `PLANNED`
+
+- [ ] Ensure all new documentation lives under `/docs`
+- [ ] Ensure all documentation files are `.md`
+- [ ] Choose the target doc locations
+- [x] Add a top-level architecture document for descriptors and registry behavior
+- [ ] Define standard terminology for vendor, gateway, model, brand, and anthropic proxy
+- [ ] Document the boundary between descriptor metadata and transport implementation
+- [ ] Document that `transportConfig.kind` is the routing contract for gateways
+- [ ] Document that gateway `category` is optional display/grouping metadata and must not drive runtime routing
+- [ ] Document the descriptor authoring pattern using `defineVendor`, `defineGateway`, `defineCatalog`, `defineModel`, `defineBrand`, and `defineAnthropicProxy`
+- [ ] Document that loader-owned registration means contributors should not call registry functions directly in normal descriptor files
+- [ ] Document the compatibility layer and legacy naming expectations
+
+Notes:
+- Seed artifact already present from `3D`: `docs/architecture/integrations.md`.
+- `4A` still needs the docs-structure decision plus the overview/glossary follow-through before this packet should move to `IN_PROGRESS` or `COMPLETE`.
+
+Suggested doc outputs:
+- `docs/architecture/integrations.md`
+- `docs/integrations/overview.md`
+- `docs/integrations/glossary.md`
+
+---
+
+## Phase 4B: "How To Add a Vendor" and "How To Add a Gateway" Guides
+
+**Status**: `PLANNED`
+
+- [ ] Write a step-by-step guide for adding a new vendor
+- [ ] Write a step-by-step guide for adding a new gateway
+- [ ] Keep all vendor and gateway guides under `/docs` as Markdown files
+- [ ] Include a vendor example with direct OpenAI-compatible routing
+- [ ] Include a vendor example that acts as its own first-party model endpoint with a catalog, such as OpenAI or DeepSeek
+- [ ] Include a gateway example that is addable in one file
+- [ ] Include a gateway example that uses an optional `gateways/<id>.models.ts` companion file for a large manual catalog or discovery function
+- [ ] Ensure examples use `defineGateway` and `defineCatalog` rather than direct registry/type imports
+- [ ] Explicitly show default exports from descriptor files and catalog files
+- [ ] Explicitly avoid `registerGateway`, `registerVendor`, and direct `import type` boilerplate in contributor-facing examples
+- [ ] Show `transportConfig.kind: 'openai-compatible'` for hosted OpenAI-compatible gateways
+- [ ] Show `transportConfig.kind: 'local'` for local gateways such as Ollama or LM Studio
+- [ ] Show `transportConfig.kind: 'anthropic-proxy'` for Anthropic-compatible proxy gateways
+- [ ] Explain the difference between `max_tokens` and `max_completion_tokens` for OpenAI-compatible routes
+- [ ] Document when to set `openaiShim.maxTokensField: 'max_tokens'`
+- [ ] Document when to set `openaiShim.maxTokensField: 'max_completion_tokens'`
+- [ ] Include examples for strict OpenAI-compatible providers that reject the wrong max-token field, such as Z.AI-style routes
+- [ ] Explain `category: 'local' | 'hosted' | 'aggregating'` as optional grouping only
+- [ ] Include a gateway example that exposes only its own hosted models
+- [ ] Include a gateway example that hosts a mixed catalog of third-party brands/models
+- [ ] Include a gateway example with `catalog.source: 'dynamic'`
+- [ ] Include a gateway example with `catalog.source: 'hybrid'`
+- [ ] Include a gateway example with discovery implemented in `gateways/<id>.models.ts`, human-readable discovery cache TTL, refresh mode, and manual refresh enabled
+- [ ] Document `discoveryCacheTtl` with examples such as `30m`, `1h`, and `1d`
+- [ ] Document each `discoveryRefreshMode` option with when to use it
+- [ ] Include examples for `manual`, `on-open`, `background-if-stale`, and `startup`
+- [ ] Include a gateway example whose hosted models differ in reasoning/thinking support, context window, input limits, and output limits
+- [ ] Include a gateway example with required static custom headers
+- [ ] Include guidance for optional user-supplied custom headers
+- [ ] Avoid redundant gateway examples that use `targetVendorId` or `isOpenAICompatible`; use `transportConfig.kind` instead
+- [ ] Document how presets, compatibility mappings, and consumer surfaces should be updated
+
+Suggested doc outputs:
+- `docs/integrations/how-to/add-vendor.md`
+- `docs/integrations/how-to/add-gateway.md`
+
+Required sample patterns:
+- vendor with standard API key auth
+- vendor with custom static headers
+- vendor that owns a first-party model catalog
+- gateway addable in one file
+- gateway addable in two files because it needs a large manual catalog or discovery function
+- gateway with only first-party models
+- gateway with mixed hosted models and `providerModelMap`
+- gateway transport examples for `openai-compatible`, `local`, and `anthropic-proxy`
+- gateway max-token-field examples for legacy/common `max_tokens` providers and newer OpenAI/Azure-style `max_completion_tokens` providers
+- gateway with static catalog because discovery is unavailable
+- gateway with hybrid catalog because discovery is incomplete
+- gateway with dynamic discovery, stale cache fallback, `/model refresh`, and in-picker refresh
+- gateway discovery TTL examples: `30m` for fast-changing catalogs, `1h` for moderately active providers, `1d` for stable hosted gateways
+- gateway refresh-mode examples: `manual` for flaky/rate-limited providers, `on-open` for routes that need fresh lists, `background-if-stale` for most hosted gateways, `startup` for fast local providers
+- gateway whose models differ in reasoning/thinking behavior and context/input/output limits
+- gateway with custom header requirements
+- gateway examples must not use removed fields such as `targetVendorId`, `isOpenAICompatible`, or routing-oriented gateway `classification`
+
+---
+
+## Phase 4C: "How To Add a Model" and "How To Add an Anthropic Proxy" Guides
+
+**Status**: `PLANNED`
+
+- [ ] Write a step-by-step guide for adding a model descriptor
+- [ ] Keep all model and anthropic proxy guides under `/docs` as Markdown files
+- [ ] Ensure model and anthropic proxy examples use `defineModel` and `defineAnthropicProxy`
+- [ ] Explain that shared model descriptors act primarily as glossary/index metadata and optional route enrichment
+- [ ] Explain when to add a brand descriptor versus only a model descriptor
+- [ ] Document `providerModelMap` with concrete examples
+- [ ] Explain model lookup priority and fallback to `openaiContextWindows.ts`
+- [ ] Explain why adding a gateway or direct-vendor catalog should not normally require editing multiple shared model files
+- [ ] Write a step-by-step guide for adding an anthropic proxy descriptor
+- [ ] Document Anthropic-specific env var contracts and routing expectations
+- [ ] Explain how anthropic proxies differ from OpenAI-compatible gateways
+
+Suggested doc outputs:
+- `docs/integrations/how-to/add-model.md`
+- `docs/integrations/how-to/add-anthropic-proxy.md`
+
+Required sample patterns:
+- model attached to a canonical vendor only
+- model shared across multiple route catalogs using `providerModelMap`
+- anthropic proxy using Anthropic-native auth and base URL configuration
+
+---
+
+## Phase 4D: `/usage` Integration Guide for Vendors and Gateways
+
+**Status**: `PLANNED`
+
+- [ ] Keep the `/usage` guide under `/docs` as a Markdown file
+- [ ] Document the `usage` field on vendor, gateway, and anthropic proxy descriptors
+- [ ] Explain when `/usage` belongs on the vendor descriptor
+- [ ] Explain when a gateway should delegate usage to a linked vendor
+- [ ] Explain when a gateway should define its own usage handling because it has its own usage API
+- [ ] Document required fetch/parse module structure for supported usage integrations
+- [ ] Document fallback behavior for unsupported providers
+- [ ] Include one worked vendor `/usage` example
+- [ ] Include one worked gateway `/usage` example
+- [ ] Include one worked unsupported-provider fallback example
+- [ ] Ensure `/usage` examples follow the `define*` authoring style and do not call registry functions directly
+
+Suggested doc outputs:
+- `docs/integrations/how-to/add-usage-support.md`
+
+Required sample patterns:
+- vendor with native usage API
+- gateway that delegates usage behavior to a linked vendor
+- gateway with its own usage API
+- unsupported provider with neutral fallback behavior
+
+---
+
+## Phase 4E: Reference Sample Pack and Docs Review
+
+**Status**: `PLANNED`
+
+- [ ] Keep the sample pack and contributor notes under `/docs` as Markdown files
+- [ ] Gather the best sample snippets into one reference pack
+- [ ] Verify samples are internally consistent with descriptor interfaces
+- [ ] Verify samples use `define*` helpers and default exports rather than direct registry/type imports
+- [ ] Verify gateway samples use `transportConfig.kind` for routing and only use `category` for optional grouping
+- [ ] Verify no sample uses removed gateway fields such as `targetVendorId` or `isOpenAICompatible`
+- [ ] Verify samples explain `max_tokens` versus `max_completion_tokens` and use `openaiShim.maxTokensField` where needed
+- [ ] Verify samples use the correct repo paths and current command surfaces
+- [ ] Verify `/usage` examples reflect actual routing rules
+- [ ] Remove or mark any sample that is intentionally illustrative rather than copy-paste ready
+- [ ] Add a short "common pitfalls" section for contributors
+
+Suggested doc outputs:
+- `docs/integrations/reference-samples.md`
+- `docs/integrations/common-pitfalls.md`
+
+---
+
+## Phase 4 Merge Checkpoints
+
+- [ ] **4A merged** — architecture/overview/glossary docs landed on `cheeky-cooking-moon`
+- [ ] **4B+4C merged** — vendor/gateway/model/proxy how-to guides landed on `cheeky-cooking-moon`
+- [ ] **4D merged** — `/usage` integration guide landed on `cheeky-cooking-moon`
+- [ ] **4E complete** — reference sample pack and docs-review pass are green
 
 Notes:
 - As with the earlier checkpoints, "merged" here means landed on `cheeky-cooking-moon`, not merged out to another branch.

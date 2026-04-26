@@ -1126,6 +1126,36 @@ export async function applySavedProfileToCurrentSession(options: {
   processEnv?: NodeJS.ProcessEnv
 }): Promise<string | null> {
   const processEnv = options.processEnv ?? process.env
+  const hasExplicitSelection = hasExplicitProviderSelection(processEnv)
+  const profileManagedEnv =
+    processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+
+  if (options.profileFile.profile === 'codex' && hasExplicitSelection) {
+    const explicitEnv = await buildLaunchEnv({
+      profile: options.profileFile.profile,
+      persisted: options.profileFile,
+      goal: normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
+      processEnv,
+      getOllamaChatBaseUrl,
+      readGeminiAccessToken,
+    })
+    delete explicitEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete explicitEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    const validationError = await getProviderValidationError(explicitEnv)
+
+    if (profileManagedEnv) {
+      delete processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+      delete processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+      applyProfileEnvToProcessEnv(processEnv, explicitEnv)
+      return validationError
+    }
+
+    return (
+      validationError ??
+      'current session already has an explicit provider selection'
+    )
+  }
+
   const baseEnv = { ...processEnv }
   const isCodexOAuthProfile =
     options.profileFile.profile === 'codex' &&
