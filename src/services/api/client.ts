@@ -95,7 +95,8 @@ function createStderrLogger(): ClientOptions['logger'] {
 }
 
 function hasNonEmptyEnvValue(value: string | undefined): boolean {
-  return typeof value === 'string' && value.trim() !== ''
+  const trimmed = value?.trim().toLowerCase()
+  return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
 }
 
 function hasXaiEnvOnlyProviderIntent(): boolean {

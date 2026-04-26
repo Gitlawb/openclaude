@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import { getCostThresholdProviderLabel } from './CostThresholdDialog.js'
 
@@ -24,13 +24,27 @@ afterEach(() => {
   restoreEnv()
 })
 
-test('getCostThresholdProviderLabel uses the active provider category for first-party sessions', () => {
+function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_MODEL
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.NVIDIA_NIM
+  delete process.env.XAI_API_KEY
+}
 
+beforeEach(() => {
+  clearProviderEnv()
+})
+
+test('getCostThresholdProviderLabel uses the active provider category for first-party sessions', () => {
   expect(getCostThresholdProviderLabel()).toBe('Anthropic API')
 })
 

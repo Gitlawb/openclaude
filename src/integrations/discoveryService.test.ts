@@ -9,7 +9,15 @@ const originalEnv = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_MODEL: process.env.OPENAI_MODEL,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
+  CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
+  CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
 }
 
 let tempDir: string
@@ -24,38 +32,53 @@ function setMockFetch(
   globalThis.fetch = implementation
 }
 
+function restoreEnvValue(
+  key: keyof typeof originalEnv,
+): void {
+  const value = originalEnv[key]
+  if (value === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = value
+  }
+}
+
+function clearProviderEnv(): void {
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+}
+
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-discovery-service-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.OPENROUTER_API_KEY
-  delete process.env.OPENAI_BASE_URL
-  delete process.env.CLAUDE_CODE_USE_OPENAI
+  clearProviderEnv()
   globalThis.fetch = originalFetch
 })
 
 afterEach(() => {
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })
-  if (originalEnv.CLAUDE_CONFIG_DIR === undefined) {
-    delete process.env.CLAUDE_CONFIG_DIR
-  } else {
-    process.env.CLAUDE_CONFIG_DIR = originalEnv.CLAUDE_CONFIG_DIR
-  }
-  if (originalEnv.OPENROUTER_API_KEY === undefined) {
-    delete process.env.OPENROUTER_API_KEY
-  } else {
-    process.env.OPENROUTER_API_KEY = originalEnv.OPENROUTER_API_KEY
-  }
-  if (originalEnv.OPENAI_BASE_URL === undefined) {
-    delete process.env.OPENAI_BASE_URL
-  } else {
-    process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  }
-  if (originalEnv.CLAUDE_CODE_USE_OPENAI === undefined) {
-    delete process.env.CLAUDE_CODE_USE_OPENAI
-  } else {
-    process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  }
+  restoreEnvValue('CLAUDE_CONFIG_DIR')
+  restoreEnvValue('OPENROUTER_API_KEY')
+  restoreEnvValue('OPENAI_BASE_URL')
+  restoreEnvValue('OPENAI_API_BASE')
+  restoreEnvValue('OPENAI_MODEL')
+  restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
+  restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
+  restoreEnvValue('CLAUDE_CODE_USE_MISTRAL')
+  restoreEnvValue('CLAUDE_CODE_USE_GITHUB')
+  restoreEnvValue('CLAUDE_CODE_USE_BEDROCK')
+  restoreEnvValue('CLAUDE_CODE_USE_VERTEX')
+  restoreEnvValue('CLAUDE_CODE_USE_FOUNDRY')
 })
 
 describe('discoverModelsForRoute', () => {

@@ -27,6 +27,11 @@ export type LegacyAPIProvider =
 // intentionally consume the legacy category surface.
 export type APIProvider = LegacyAPIProvider
 
+function hasProviderEnvValue(value: string | undefined): boolean {
+  const trimmed = value?.trim().toLowerCase()
+  return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
+}
+
 export function getAPIProvider(): LegacyAPIProvider {
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
     return 'foundry'
@@ -75,17 +80,11 @@ export function getAPIProvider(): LegacyAPIProvider {
 
       // Preserve the legacy MiniMax env-only signal as a fallback for users
       // who still export MINIMAX_API_KEY without the newer route/base-url env.
-      if (
-        typeof process.env.MINIMAX_API_KEY === 'string' &&
-        process.env.MINIMAX_API_KEY.trim() !== ''
-      ) {
+      if (hasProviderEnvValue(process.env.MINIMAX_API_KEY)) {
         return 'minimax'
       }
 
-      if (
-        typeof process.env.XAI_API_KEY === 'string' &&
-        process.env.XAI_API_KEY.trim() !== ''
-      ) {
+      if (hasProviderEnvValue(process.env.XAI_API_KEY)) {
         return 'xai'
       }
 

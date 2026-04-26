@@ -23,6 +23,22 @@ afterEach(() => {
   restoreEnv()
 })
 
+function clearProviderEnv(): void {
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_MODEL
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.NVIDIA_NIM
+  delete process.env.XAI_API_KEY
+}
+
 async function importFreshTeammateModelModule() {
   mock.restore()
   const nonce = `${Date.now()}-${Math.random()}`
@@ -30,6 +46,7 @@ async function importFreshTeammateModelModule() {
 }
 
 test('getHardcodedTeammateModelFallback returns a Mistral fallback in mistral mode', async () => {
+  clearProviderEnv()
   process.env.CLAUDE_CODE_USE_MISTRAL = '1'
   const { getHardcodedTeammateModelFallback } =
     await importFreshTeammateModelModule()
