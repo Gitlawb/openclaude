@@ -9,13 +9,13 @@ Use it for:
 
 - terminology and architecture rules;
 - authoring rules for descriptor files;
-- future how-to guides for vendors, gateways, models, anthropic proxies, and
+- how-to guides for vendors, gateways, models, anthropic proxies, and
   `/usage`;
 - reference samples that match the current implementation.
 
 ## Documentation Structure
 
-Phase 4 uses this docs layout:
+This is the current docs layout:
 
 ```text
 docs/
@@ -34,32 +34,8 @@ docs/
     common-pitfalls.md
 ```
 
-Current Phase 4A outputs:
-
-- `docs/architecture/integrations.md`
-- `docs/integrations/overview.md`
-- `docs/integrations/glossary.md`
-
-Current Phase 4B outputs:
-
-- `docs/integrations/how-to/add-vendor.md`
-- `docs/integrations/how-to/add-gateway.md`
-
-Current Phase 4C outputs:
-
-- `docs/integrations/how-to/add-model.md`
-- `docs/integrations/how-to/add-anthropic-proxy.md`
-
-Current Phase 4D outputs:
-
-- `docs/integrations/how-to/add-usage-support.md`
-
-Current Phase 4E outputs:
-
-- `docs/integrations/reference-samples.md`
-- `docs/integrations/common-pitfalls.md`
-
-Phase 4 is currently fully staged on `cheeky-cooking-moon`.
+All of the files listed above are part of the current contributor guide for the
+descriptor-era integration system.
 
 ## Reading Order
 
@@ -117,6 +93,20 @@ Gateway `category` exists to help people understand the route:
 
 It is valid to use `category` for docs, grouping, or display copy. It is not
 valid to treat `category` as the transport selector.
+
+### OpenAI-compatible request shaping belongs in `openaiShim`
+
+For OpenAI-compatible or local routes, keep request-shaping metadata in
+`transportConfig.openaiShim`.
+
+Examples:
+
+- `maxTokensField`
+- `headers`
+- `supportsUserCustomHeaders`
+
+That matches the current runtime metadata flow in
+`src/integrations/runtimeMetadata.ts`.
 
 ## Descriptor Authoring Pattern
 

@@ -50,7 +50,7 @@ executors.
 A vendor that also acts as its own model-serving route, rather than only
 existing behind a separate gateway.
 
-Examples in this branch include first-party or direct vendors such as OpenAI,
+Current examples include first-party or direct vendors such as OpenAI,
 DeepSeek, Gemini, MiniMax, and Bankr.
 
 ## Gateway

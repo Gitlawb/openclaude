@@ -30,8 +30,9 @@ Typical gateway cases:
    Use `static`, `dynamic`, or `hybrid`.
 6. Decide whether the gateway needs discovery cache TTL, refresh mode, and
    manual refresh.
-7. Add any required static headers and decide whether users may add custom
-   headers.
+7. For OpenAI-compatible or local routes, add any required static headers and
+   decide whether users may add custom headers through
+   `transportConfig.openaiShim`.
 8. If the gateway should appear in preset-driven `/provider` flows, add a
    `preset` block on the descriptor.
 9. Run `bun run integrations:generate` so the generated loader and preset
@@ -113,11 +114,11 @@ export default defineGateway({
   },
   transportConfig: {
     kind: 'openai-compatible',
-    headers: {
-      'X-Acme-Client': 'openclaude',
-    },
-    supportsUserCustomHeaders: true,
     openaiShim: {
+      headers: {
+        'X-Acme-Client': 'openclaude',
+      },
+      supportsUserCustomHeaders: true,
       maxTokensField: 'max_completion_tokens',
     },
   },
@@ -182,7 +183,7 @@ transportConfig: {
 ```
 
 In most cases, a real Anthropic-native third-party route should eventually be
-documented through the dedicated anthropic-proxy guide in Phase 4C. The key
+documented through the dedicated anthropic-proxy guide. The key
 point here is that the transport family belongs in `transportConfig.kind`, not
 in a gateway-specific compatibility flag.
 
@@ -452,7 +453,8 @@ transportConfig: {
 
 ## Custom headers
 
-Required static headers belong in `transportConfig.headers`.
+For OpenAI-compatible or local routes, required static headers belong in
+`transportConfig.openaiShim.headers`.
 
 Optional user-supplied custom headers should be allowed only when the route
 really supports them:
@@ -460,10 +462,12 @@ really supports them:
 ```ts
 transportConfig: {
   kind: 'openai-compatible',
-  headers: {
-    'X-Acme-Client': 'openclaude',
+  openaiShim: {
+    headers: {
+      'X-Acme-Client': 'openclaude',
+    },
+    supportsUserCustomHeaders: true,
   },
-  supportsUserCustomHeaders: true,
 }
 ```
 

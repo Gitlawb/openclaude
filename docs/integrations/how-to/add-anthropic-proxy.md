@@ -43,8 +43,8 @@ the appropriate `transportConfig.kind`.
    This is the Anthropic-proxy-specific env contract.
 6. Set `transportConfig.kind: 'anthropic-proxy'`.
 7. Add capabilities and optional catalog/usage/validation metadata as needed.
-8. Let loader-owned registration handle the descriptor once the repo begins
-   loading concrete anthropic proxy files.
+8. Run `bun run integrations:generate` so the generated loader picks up the
+   new descriptor.
 
 ## Authoring rules
 
@@ -152,10 +152,10 @@ proxy even if it can reach Claude-family models.
 
 ## Current repo note
 
-The `src/integrations/anthropicProxies/` directory already exists as the future
-home for this descriptor type, but the current branch still focuses on vendors,
-gateways, brands, and models first. That means the guide is authoring-ready
-even though the repo has not yet shipped live proxy descriptors.
+The `src/integrations/anthropicProxies/` directory is already part of the
+generated loader flow, even though the repo does not currently ship any live
+anthropic-proxy descriptors. That means contributors can add one through the
+same descriptor-plus-regeneration workflow used for vendors and gateways.
 
 ## What not to do
 

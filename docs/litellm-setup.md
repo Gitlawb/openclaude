@@ -69,16 +69,20 @@ openclaude
 
 Replace `<your-litellm-model-alias>` with a model name from your `litellm_config.yaml` (e.g., `gpt-4o`, `claude-sonnet-4`, `gemini-2.5-flash`).
 
+If your LiteLLM proxy is local and does not enforce auth, `OPENAI_API_KEY` can
+be omitted when you configure env vars manually.
+
 ### Option B: Using /provider
 
 1. Run `openclaude`
 2. Type `/provider` to open the provider setup flow
 3. Choose the **OpenAI-compatible** option
-4. When prompted for the API key, enter the key required by your LiteLLM proxy
-   If your local LiteLLM setup does not enforce auth, you may still need to enter a placeholder value
-      - 5. When prompted for the base URL, enter `http://localhost:4000`
-        6. 6. When prompted for the model, enter the LiteLLM model name or alias you configured
-           7. 7. Save the provider configuration
+4. When prompted for the API key, enter the key required by your LiteLLM proxy.
+   If your local LiteLLM setup does not enforce auth, you may still need to
+   enter a placeholder value because the guided flow expects one.
+5. When prompted for the base URL, enter `http://localhost:4000`
+6. When prompted for the model, enter the LiteLLM model name or alias you configured
+7. Save the provider configuration
 
 ## 3. Example LiteLLM Configs
 

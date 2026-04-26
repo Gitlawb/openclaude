@@ -22,7 +22,7 @@ Current implementation note:
   `Codex` path);
 - the descriptor schema already includes `fetchModule` and `parseModule`, but
   those fields are still a contract for supported integrations rather than a
-  fully generic module-loader pipeline in this branch.
+  fully generic module-loader pipeline in the current implementation.
 
 That means new docs should describe both the descriptor contract and the
 current runtime reality.
@@ -107,7 +107,7 @@ Put usage support on the vendor descriptor when:
 
 This is the normal pattern for first-party or direct vendors.
 
-Current real examples in this branch:
+Current real examples in the implementation:
 
 - `anthropic`
 - `minimax`
@@ -350,9 +350,9 @@ When usage is unsupported:
 The current settings usage screen already resolves unsupported providers to
 `UnsupportedUsage` with the active provider label.
 
-## Current supported routes in this branch
+## Current supported routes
 
-As of this branch state:
+As of the current implementation:
 
 - `anthropic` is supported;
 - `minimax` is supported;

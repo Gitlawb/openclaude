@@ -10,7 +10,7 @@ Use it when you want a quick starting point after reading:
 - `docs/integrations/glossary.md`
 - the relevant how-to guide under `docs/integrations/how-to/`
 
-All samples here are implementation-aligned with the current branch, but most
+All samples here are implementation-aligned with the current implementation, but most
 of them are still illustrative patterns. Replace ids, env vars, labels, and
 URLs with real route-specific values before shipping them.
 
@@ -290,7 +290,7 @@ Notes:
 - `background-if-stale` is the normal hosted-gateway choice when cached models
   should appear immediately and refresh in the background;
 - `allowManualRefresh: true` is the shape that supports `/model refresh` and
-  the in-picker refresh flow in the current branch.
+  the in-picker refresh flow in the current implementation.
 
 ## Sample 5: Shared model descriptor with `providerModelMap`
 
@@ -335,8 +335,7 @@ availability by itself. The route catalog still owns the offered subset.
 ## Sample 6: Anthropic proxy
 
 Status: Illustrative pattern. Matches the current descriptor interface even
-though this branch still focuses operationally on vendor and gateway routes
-first.
+though the repo does not yet ship concrete anthropic-proxy descriptors.
 
 ```ts
 import { defineAnthropicProxy } from '../define.js'
@@ -381,7 +380,8 @@ OpenAI-compatible gateway with different headers.
 ## Sample 7: `/usage` patterns
 
 Status: Illustrative patterns. The metadata shapes are current, but runtime
-support is still limited to the existing resolver/UI paths in this branch.
+support is still limited to the existing resolver/UI paths in the current
+implementation.
 
 Vendor-owned usage:
 
@@ -461,7 +461,7 @@ export default defineVendor({
 })
 ```
 
-Current branch rule:
+Current implementation rule:
 `src/commands/usage/index.ts` currently resolves vendor and gateway targets,
 plus the `firstParty` compatibility id. `src/components/Settings/Usage.tsx`
 still has concrete UI branches for Anthropic, MiniMax, and Codex.

@@ -124,8 +124,9 @@ Why this is the right shape:
 
 ## Example: vendor with custom static headers
 
-Use static headers only for fixed protocol requirements. Secrets still belong
-in credential env vars or runtime auth handling.
+For OpenAI-compatible vendors, put fixed request headers in
+`transportConfig.openaiShim.headers`. Secrets still belong in credential env
+vars or runtime auth handling.
 
 ```ts
 import { defineVendor } from '../define.js'
@@ -144,11 +145,11 @@ export default defineVendor({
   },
   transportConfig: {
     kind: 'openai-compatible',
-    headers: {
-      'X-Acme-Client': 'openclaude',
-      'X-Acme-Protocol': 'labs-v1',
-    },
     openaiShim: {
+      headers: {
+        'X-Acme-Client': 'openclaude',
+        'X-Acme-Protocol': 'labs-v1',
+      },
       maxTokensField: 'max_completion_tokens',
     },
   },
