@@ -7,7 +7,7 @@ import {
   getRuntimeMainLoopModel,
   parseUserSpecifiedModel,
 } from './model.js'
-import { getAPIProvider } from './providers.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './providers.js'
 
 export const AGENT_MODEL_OPTIONS = [...MODEL_ALIASES, 'inherit'] as const
 export type AgentModelAlias = (typeof AGENT_MODEL_OPTIONS)[number]
@@ -77,6 +77,26 @@ export function getAgentModel(
 
   const agentModelWithExp = agentModel ?? getDefaultSubagentModel()
 
+  // Provider-aware model alias fallback for agents.
+  // Claude-native providers (Bedrock, Vertex, Foundry, official Anthropic API)
+  // have guaranteed haiku/sonnet model availability. Custom Anthropic-compatible
+  // endpoints, OpenAI-shim, Gemini, Mistral, and other providers may not have
+  // equivalent models, causing "model not found" errors when resolving aliases.
+  // For haiku/sonnet aliases on non-Claude-native providers, inherit parent model.
+  // Note: 'opus' is NOT included here because it's handled separately by
+  // aliasMatchesParentTier() which checks if parent's tier matches the alias.
+  if (
+    (agentModelWithExp === 'haiku' || agentModelWithExp === 'sonnet') &&
+    !checkIsClaudeNativeProvider()
+  ) {
+    // Non-Claude-native provider → inherit parent model
+    return getRuntimeMainLoopModel({
+      permissionMode: permissionMode ?? 'default',
+      mainLoopModel: parentModel,
+      exceeds200kTokens: false,
+    })
+  }
+
   if (agentModelWithExp === 'inherit') {
     // Apply runtime model resolution for inherit to get the effective model
     // This ensures agents using 'inherit' get opusplan→Opus resolution in plan mode
@@ -119,6 +139,22 @@ function aliasMatchesParentTier(alias: string, parentModel: string): boolean {
     default:
       return false
   }
+}
+
+/**
+ * Check if the current provider is Claude-native (has guaranteed haiku/sonnet models).
+ * Claude-native providers: Bedrock, Vertex, Foundry, official Anthropic API.
+ * Non-Claude-native: OpenAI, Gemini, Mistral, GitHub, NVIDIA NIM, MiniMax,
+ * and custom Anthropic-compatible endpoints (proxies, self-hosted).
+ */
+export function checkIsClaudeNativeProvider(): boolean {
+  const provider = getAPIProvider()
+  return (
+    provider === 'bedrock' ||
+    provider === 'vertex' ||
+    provider === 'foundry' ||
+    (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl())
+  )
 }
 
 export function getAgentModelDisplay(model: string | undefined): string {

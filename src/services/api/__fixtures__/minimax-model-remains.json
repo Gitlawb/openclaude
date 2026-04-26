@@ -1,0 +1,21 @@
+{
+  "plan_type": "plus_highspeed",
+  "model_remains": [
+    {
+      "model_name": "MiniMax-M2.7",
+      "remains_time": 3600,
+      "current_interval_total_count": 1500,
+      "current_interval_usage_count": 1437
+    },
+    {
+      "model_name": "MiniMax-M2.7-highspeed",
+      "end_time": 1771603200000,
+      "current_interval_total_count": 2000,
+      "current_interval_usage_count": 1000
+    }
+  ],
+  "base_resp": {
+    "status_code": 0,
+    "status_msg": "success"
+  }
+}

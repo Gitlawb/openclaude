@@ -2,7 +2,10 @@ import * as React from 'react'
 
 import type { LocalJSXCommandCall, LocalJSXCommandOnDone } from '../../types/command.js'
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js'
-import { ProviderManager } from '../../components/ProviderManager.js'
+import {
+  ProviderManager,
+  type ProviderManagerResult,
+} from '../../components/ProviderManager.js'
 import TextInput from '../../components/TextInput.js'
 import {
   Select,
@@ -66,9 +69,66 @@ import {
 import {
   getOllamaChatBaseUrl,
   getLocalOpenAICompatibleProviderLabel,
-  hasLocalOllama,
-  listOllamaModels,
+  probeOllamaGenerationReadiness,
+  type OllamaGenerationReadiness,
 } from '../../utils/providerDiscovery.js'
+
+export function buildProviderManagerCompletion(result?: ProviderManagerResult): {
+  message: string
+  metaMessages?: string[]
+} {
+  const message =
+    result?.message ??
+    (result?.action === 'saved'
+      ? 'Provider profile updated'
+      : 'Provider manager closed')
+  const metaMessages =
+    result?.action === 'activated' && result.activeProviderName
+      ? [
+          `<system-reminder>Provider switched mid-session to ${result.activeProviderName}${
+            result.activeProviderModel
+              ? ` using model ${result.activeProviderModel}`
+              : ''
+          }. Use this provider/model for subsequent requests unless the user switches again.</system-reminder>`,
+        ]
+      : undefined
+
+  return { message, metaMessages }
+}
+
+function describeOllamaReadinessIssue(
+  readiness: OllamaGenerationReadiness,
+  options?: {
+    baseUrl?: string
+    allowManualFallback?: boolean
+  },
+): string {
+  const endpoint = options?.baseUrl ?? 'http://localhost:11434'
+
+  if (readiness.state === 'unreachable') {
+    return `Could not reach Ollama at ${endpoint}. Start Ollama first, then run /provider again.`
+  }
+
+  if (readiness.state === 'no_models') {
+    const manualSuffix = options?.allowManualFallback
+      ? ', or enter details manually'
+      : ''
+    return `Ollama is running, but no installed models were found. Pull a chat model such as qwen2.5-coder:7b or llama3.1:8b first${manualSuffix}.`
+  }
+
+  if (readiness.state === 'generation_failed') {
+    const modelHint = readiness.probeModel ?? 'the selected model'
+    const detailSuffix = readiness.detail
+      ? ` Details: ${readiness.detail}.`
+      : ''
+    const manualSuffix = options?.allowManualFallback
+      ? ' You can also enter details manually.'
+      : ''
+    return `Ollama is reachable and models are installed, but a generation probe failed for ${modelHint}.${detailSuffix} Run "ollama run ${modelHint}" once and retry.${manualSuffix}`
+  }
+
+  return ''
+}
 
 type ProviderChoice = 'auto' | ProviderProfile | 'codex-oauth' | 'clear'
 
@@ -715,6 +775,7 @@ function AutoRecommendationStep({
     | {
         state: 'openai'
         defaultModel: string
+        reason: string
       }
     | {
         state: 'error'
@@ -728,19 +789,27 @@ function AutoRecommendationStep({
     void (async () => {
       const defaultModel = getGoalDefaultOpenAIModel(goal)
       try {
-        const ollamaAvailable = await hasLocalOllama()
-        if (!ollamaAvailable) {
+        const readiness = await probeOllamaGenerationReadiness()
+        if (readiness.state !== 'ready') {
           if (!cancelled) {
-            setStatus({ state: 'openai', defaultModel })
+            setStatus({
+              state: 'openai',
+              defaultModel,
+              reason: describeOllamaReadinessIssue(readiness),
+            })
           }
           return
         }
 
-        const models = await listOllamaModels()
-        const recommended = recommendOllamaModel(models, goal)
+        const recommended = recommendOllamaModel(readiness.models, goal)
         if (!recommended) {
           if (!cancelled) {
-            setStatus({ state: 'openai', defaultModel })
+            setStatus({
+              state: 'openai',
+              defaultModel,
+              reason:
+                'Ollama responded to a generation probe, but no recommended chat model matched this goal.',
+            })
           }
           return
         }
@@ -796,10 +865,10 @@ function AutoRecommendationStep({
       <Dialog title="Auto setup fallback" onCancel={onCancel}>
         <Box flexDirection="column" gap={1}>
           <Text>
-            No viable local Ollama chat model was detected. Auto setup can
-            continue into OpenAI-compatible setup with a default model of{' '}
+            Auto setup can continue into OpenAI-compatible setup with a default model of{' '}
             {status.defaultModel}.
           </Text>
+          <Text dimColor>{status.reason}</Text>
           <Select
             options={[
               { label: 'Continue to OpenAI-compatible setup', value: 'continue' },
@@ -883,32 +952,19 @@ function OllamaModelStep({
     let cancelled = false
 
     void (async () => {
-      const available = await hasLocalOllama()
-      if (!available) {
+      const readiness = await probeOllamaGenerationReadiness()
+      if (readiness.state !== 'ready') {
         if (!cancelled) {
           setStatus({
             state: 'unavailable',
-            message:
-              'Could not reach Ollama at http://localhost:11434. Start Ollama first, then run /provider again.',
+            message: describeOllamaReadinessIssue(readiness),
           })
         }
         return
       }
 
-      const models = await listOllamaModels()
-      if (models.length === 0) {
-        if (!cancelled) {
-          setStatus({
-            state: 'unavailable',
-            message:
-              'Ollama is running, but no installed models were found. Pull a chat model such as qwen2.5-coder:7b or llama3.1:8b first.',
-          })
-        }
-        return
-      }
-
-      const ranked = rankOllamaModels(models, 'balanced')
-      const recommended = recommendOllamaModel(models, 'balanced')
+      const ranked = rankOllamaModels(readiness.models, 'balanced')
+      const recommended = recommendOllamaModel(readiness.models, 'balanced')
       if (!cancelled) {
         setStatus({
           state: 'ready',
@@ -1673,13 +1729,8 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
     <ProviderManager
       mode="manage"
       onDone={result => {
-        const message =
-          result?.message ??
-          (result?.action === 'saved'
-            ? 'Provider profile updated'
-            : 'Provider manager closed')
-
-        onDone(message, { display: 'system' })
+        const { message, metaMessages } = buildProviderManagerCompletion(result)
+        onDone(message, { display: 'system', metaMessages })
       }}
     />
   )

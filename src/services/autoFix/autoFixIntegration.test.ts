@@ -3,6 +3,8 @@ import { getAutoFixConfig } from './autoFixConfig.js'
 import { shouldRunAutoFix, buildAutoFixContext } from './autoFixHook.js'
 import { runAutoFixCheck } from './autoFixRunner.js'
 
+const TEST_CWD = process.cwd()
+
 describe('autoFix end-to-end flow', () => {
   test('full flow: config → shouldRun → check → context', async () => {
     const config = getAutoFixConfig({
@@ -19,7 +21,7 @@ describe('autoFix end-to-end flow', () => {
       test: config!.test,
       timeout: config!.timeout,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(true)
 
@@ -39,7 +41,7 @@ describe('autoFix end-to-end flow', () => {
       lint: config!.lint,
       timeout: config!.timeout,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(false)
     const context = buildAutoFixContext(result)

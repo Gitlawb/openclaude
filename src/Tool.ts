@@ -249,6 +249,11 @@ export type ToolUseContext = {
   /** When true, canUseTool must always be called even when hooks auto-approve.
    *  Used by speculation for overlay file path rewriting. */
   requireCanUseTool?: boolean
+  /**
+   * Optional callback used by hook-chain fallback actions that launch
+   * AgentTool from hook runtime paths.
+   */
+  hookChainsCanUseTool?: CanUseToolFn
   messages: Message[]
   fileReadingLimits?: {
     maxTokens?: number

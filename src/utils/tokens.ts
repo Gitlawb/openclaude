@@ -1,5 +1,5 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
+import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
@@ -196,6 +196,198 @@ export function getAssistantMessageContentLength(
     }
   }
   return contentLength
+}
+
+/**
+ * Extract thinking tokens from an assistant message.
+ * Returns breakdown of thinking vs output tokens.
+ */
+export function extractThinkingTokens(
+  message: AssistantMessage,
+): { thinking: number; output: number; total: number } {
+  let thinking = 0
+  let output = 0
+
+  for (const block of message.message.content) {
+    if (block.type === 'thinking') {
+      thinking += roughTokenCountEstimation(block.thinking)
+    } else if (block.type === 'redacted_thinking') {
+      thinking += roughTokenCountEstimation(block.data)
+    } else if (block.type === 'text') {
+      output += roughTokenCountEstimation(block.text)
+    } else if (block.type === 'tool_use') {
+      output += roughTokenCountEstimation(jsonStringify(block.input))
+    }
+  }
+
+  return { thinking, output, total: thinking + output }
+}
+
+/**
+ * Token usage history entry for tracking patterns over time.
+ */
+export interface TokenUsageEntry {
+  timestamp: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  model: string
+}
+
+/**
+ * Token analytics summary from historical data.
+ */
+export interface TokenAnalytics {
+  totalRequests: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCacheRead: number
+  totalCacheCreation: number
+  averageInputPerRequest: number
+  averageOutputPerRequest: number
+  cacheHitRate: number
+  mostUsedModel: string
+  requestsLastHour: number
+  requestsLastDay: number
+}
+
+/**
+ * Historical Token Analytics Tracker
+ * 
+ * Tracks token usage patterns over time for analytics,
+ * cost optimization, and capacity planning.
+ */
+export class TokenUsageTracker {
+  private history: TokenUsageEntry[] = []
+  private readonly maxEntries: number
+
+  constructor(maxEntries = 1000) {
+    this.maxEntries = maxEntries
+  }
+
+  /**
+   * Record a token usage event from API response.
+   */
+  record(usage: {
+    input_tokens: number
+    output_tokens: number
+    cache_read_input_tokens?: number
+    cache_creation_input_tokens?: number
+    model: string
+  }): void {
+    const entry: TokenUsageEntry = {
+      timestamp: Date.now(),
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+      cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+      model: usage.model,
+    }
+
+    this.history.push(entry)
+
+    // Trim old entries
+    if (this.history.length > this.maxEntries) {
+      this.history = this.history.slice(-this.maxEntries)
+    }
+  }
+
+  /**
+   * Get analytics summary for all recorded usage.
+   */
+  getAnalytics(): TokenAnalytics {
+    if (this.history.length === 0) {
+      return {
+        totalRequests: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCacheRead: 0,
+        totalCacheCreation: 0,
+        averageInputPerRequest: 0,
+        averageOutputPerRequest: 0,
+        cacheHitRate: 0,
+        mostUsedModel: 'unknown',
+        requestsLastHour: 0,
+        requestsLastDay: 0,
+      }
+    }
+
+    const now = Date.now()
+    const hourAgo = now - 60 * 60 * 1000
+    const dayAgo = now - 24 * 60 * 60 * 1000
+
+    let totalInput = 0
+    let totalOutput = 0
+    let totalCacheRead = 0
+    let totalCacheCreation = 0
+    let modelCounts = new Map<string, number>()
+    let requestsLastHour = 0
+    let requestsLastDay = 0
+
+    for (const entry of this.history) {
+      totalInput += entry.inputTokens
+      totalOutput += entry.outputTokens
+      totalCacheRead += entry.cacheReadTokens
+      totalCacheCreation += entry.cacheCreationTokens
+
+      modelCounts.set(entry.model, (modelCounts.get(entry.model) ?? 0) + 1)
+
+      if (entry.timestamp >= hourAgo) requestsLastHour++
+      if (entry.timestamp >= dayAgo) requestsLastDay++
+    }
+
+    // Find most used model
+    let mostUsedModel = 'unknown'
+    let maxCount = 0
+    for (const [model, count] of modelCounts) {
+      if (count > maxCount) {
+        maxCount = count
+        mostUsedModel = model
+      }
+    }
+
+    const totalRequests = this.history.length
+    const totalCache = totalCacheRead + totalCacheCreation
+    const totalTokens = totalInput + totalOutput + totalCache
+    const cacheHitRate = totalTokens > 0 ? (totalCacheRead / totalTokens) * 100 : 0
+
+    return {
+      totalRequests,
+      totalInputTokens: totalInput,
+      totalOutputTokens: totalOutput,
+      totalCacheRead,
+      totalCacheCreation,
+      averageInputPerRequest: Math.round(totalInput / totalRequests),
+      averageOutputPerRequest: Math.round(totalOutput / totalRequests),
+      cacheHitRate: Math.round(cacheHitRate),
+      mostUsedModel,
+      requestsLastHour,
+      requestsLastDay,
+    }
+  }
+
+  /**
+   * Get recent entries within time window.
+   */
+  getRecent(windowMs: number): TokenUsageEntry[] {
+    const cutoff = Date.now() - windowMs
+    return this.history.filter(e => e.timestamp >= cutoff)
+  }
+
+  /**
+   * Clear history.
+   */
+  clear(): void {
+    this.history = []
+  }
+
+  /**
+   * Get history size.
+   */
+  get size(): number {
+    return this.history.length
+  }
 }
 
 /**

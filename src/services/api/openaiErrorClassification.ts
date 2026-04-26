@@ -320,10 +320,7 @@ export function classifyOpenAIHttpFailure(options: {
     }
   }
 
-  if (
-    (options.status >= 200 && options.status < 300 && isMalformedProviderResponse(body)) ||
-    (options.status >= 400 && isMalformedProviderResponse(body))
-  ) {
+  if (options.status >= 400 && isMalformedProviderResponse(body)) {
     return {
       source: 'http',
       category: 'malformed_provider_response',

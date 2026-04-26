@@ -55,6 +55,7 @@ import { type MCPProgress, MCPTool } from '../../tools/MCPTool/MCPTool.js'
 import { createMcpAuthTool } from '../../tools/McpAuthTool/McpAuthTool.js'
 import { ReadMcpResourceTool } from '../../tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
 import { createAbortController } from '../../utils/abortController.js'
+import { AbortError, isAbortError } from '../../utils/errors.js'
 import { count } from '../../utils/array.js'
 import {
   checkAndRefreshOAuthTokenIfNeeded,
@@ -1001,10 +1002,12 @@ export const connectToServer = memoize(
 
       const client = new Client(
         {
+          // name stays 'claude-code' for compatibility with MCP servers that
+          // gate features on the upstream client identifier.
           name: 'claude-code',
-          title: 'Open Claude',
+          title: 'OpenClaude',
           version: MACRO.VERSION ?? 'unknown',
-          description: "Anthropic's agentic coding tool",
+          description: 'OpenClaude — coding-agent CLI for any LLM provider',
           websiteUrl: PRODUCT_URL,
         },
         {
@@ -2524,7 +2527,7 @@ export async function transformResultContent(
       return [
         {
           type: 'text',
-          text: resultContent.text,
+          text: recursivelySanitizeUnicode(resultContent.text) as string,
         },
       ]
     case 'audio': {
@@ -2569,7 +2572,9 @@ export async function transformResultContent(
         return [
           {
             type: 'text',
-            text: `${prefix}${resource.text}`,
+            text: recursivelySanitizeUnicode(
+              `${prefix}${resource.text}`,
+            ) as string,
           },
         ]
       } else if ('blob' in resource) {
@@ -3279,11 +3284,18 @@ async function callMCPTool({
       }
     }
 
-    // When the users hits esc, avoid logspew
-    if (!(e instanceof Error) || e.name !== 'AbortError') {
-      throw e
+    // When the user hits esc, convert to our AbortError class so the tool
+    // execution framework handles it properly (skips logging, creates
+    // is_error: true result with [Request interrupted by user for tool use]).
+    // Previously this returned { content: undefined }, which masked the
+    // cancellation and caused mapToolResultToToolResultBlockParam to send
+    // empty/undefined content to the API as if it were a successful result.
+    if (isAbortError(e)) {
+      throw new AbortError(
+        e instanceof Error ? e.message : 'Tool execution cancelled',
+      )
     }
-    return { content: undefined }
+    throw e
   } finally {
     // Always clear intervals
     if (progressInterval !== undefined) {
@@ -3327,10 +3339,12 @@ export async function setupSdkMcpClients(
 
       const client = new Client(
         {
+          // name stays 'claude-code' for compatibility with MCP servers that
+          // gate features on the upstream client identifier.
           name: 'claude-code',
-          title: 'Open Claude',
+          title: 'OpenClaude',
           version: MACRO.VERSION ?? 'unknown',
-          description: "Anthropic's agentic coding tool",
+          description: 'OpenClaude — coding-agent CLI for any LLM provider',
           websiteUrl: PRODUCT_URL,
         },
         {

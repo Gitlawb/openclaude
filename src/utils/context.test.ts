@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
 import {
@@ -11,6 +11,12 @@ const originalEnv = {
   CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
 }
+
+beforeEach(() => {
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+})
 
 afterEach(() => {
   if (originalEnv.CLAUDE_CODE_USE_OPENAI === undefined) {
@@ -31,25 +37,36 @@ afterEach(() => {
   }
 })
 
-test('deepseek-chat uses provider-specific context and output caps', () => {
+test('deepseek-v4-flash uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_MODEL
+
+  expect(getContextWindowForModel('deepseek-v4-flash')).toBe(1_048_576)
+  expect(getModelMaxOutputTokens('deepseek-v4-flash')).toEqual({
+    default: 262_144,
+    upperLimit: 262_144,
+  })
+  expect(getMaxOutputTokensForModel('deepseek-v4-flash')).toBe(262_144)
+})
+
+test('deepseek legacy aliases keep their documented provider caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
 
   expect(getContextWindowForModel('deepseek-chat')).toBe(128_000)
-  expect(getModelMaxOutputTokens('deepseek-chat')).toEqual({
-    default: 8_192,
-    upperLimit: 8_192,
-  })
+  expect(getContextWindowForModel('deepseek-reasoner')).toBe(128_000)
   expect(getMaxOutputTokensForModel('deepseek-chat')).toBe(8_192)
+  expect(getMaxOutputTokensForModel('deepseek-reasoner')).toBe(65_536)
 })
 
-test('deepseek-chat clamps oversized max output overrides to the provider limit', () => {
+test('deepseek-v4-flash clamps oversized max output overrides to the provider limit', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '32000'
+  process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '500000'
   delete process.env.OPENAI_MODEL
 
-  expect(getMaxOutputTokensForModel('deepseek-chat')).toBe(8_192)
+  expect(getMaxOutputTokensForModel('deepseek-v4-flash')).toBe(262_144)
 })
 
 test('gpt-4o uses provider-specific context and output caps', () => {
@@ -221,6 +238,17 @@ test('DashScope kimi-k2.5 uses provider-specific context and output caps', () =>
   })
 })
 
+test('Kimi Code kimi-for-coding uses provider-specific context and output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('kimi-for-coding')).toBe(262_144)
+  expect(getModelMaxOutputTokens('kimi-for-coding')).toEqual({
+    default: 32_768,
+    upperLimit: 32_768,
+  })
+})
+
 test('DashScope glm-5 uses provider-specific context and output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
@@ -243,6 +271,43 @@ test('DashScope glm-4.7 uses provider-specific context and output caps', () => {
   })
 })
 
+test('Z.AI uppercase GLM models use Coding Plan output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('GLM-5.1')).toBe(202_752)
+  expect(getModelMaxOutputTokens('GLM-5.1')).toEqual({
+    default: 131_072,
+    upperLimit: 131_072,
+  })
+  expect(getModelMaxOutputTokens('GLM-5-Turbo')).toEqual({
+    default: 131_072,
+    upperLimit: 131_072,
+  })
+  expect(getModelMaxOutputTokens('GLM-4.5-Air')).toEqual({
+    default: 65_536,
+    upperLimit: 65_536,
+  })
+})
+
+test('lowercase GLM aliases keep conservative output caps', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getModelMaxOutputTokens('glm-5.1')).toEqual({
+    default: 16_384,
+    upperLimit: 16_384,
+  })
+  expect(getModelMaxOutputTokens('glm-5-turbo')).toEqual({
+    default: 16_384,
+    upperLimit: 16_384,
+  })
+  expect(getModelMaxOutputTokens('glm-4.5-air')).toEqual({
+    default: 16_384,
+    upperLimit: 16_384,
+  })
+})
+
 test('DashScope models clamp oversized max output overrides to the provider limit', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '100000'
@@ -253,4 +318,5 @@ test('DashScope models clamp oversized max output overrides to the provider limi
   expect(getMaxOutputTokensForModel('qwen3-max')).toBe(32_768)
   expect(getMaxOutputTokensForModel('kimi-k2.5')).toBe(32_768)
   expect(getMaxOutputTokensForModel('glm-5')).toBe(16_384)
+  expect(getMaxOutputTokensForModel('glm-5.1')).toBe(16_384)
 })

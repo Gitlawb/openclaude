@@ -50,6 +50,23 @@ describe('growthbook stub — local feature flag overrides', () => {
     expect(stub.getAllGrowthBookFeatures()).toEqual({})
   })
 
+  // ── Open-build defaults (_openBuildDefaults) ────────────────────
+
+  test('returns open-build default when flags file is absent', () => {
+    // tengu_passport_quail is in _openBuildDefaults as true; without a
+    // flags file the stub should return the open-build override, not
+    // the call-site defaultValue.
+    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_passport_quail', false)).toBe(true)
+    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_coral_fern', false)).toBe(true)
+  })
+
+  test('flags file overrides open-build defaults', () => {
+    // User-provided feature-flags.json takes priority over _openBuildDefaults.
+    writeFileSync(flagsFile, JSON.stringify({ tengu_passport_quail: false }))
+
+    expect(stub.getFeatureValue_CACHED_MAY_BE_STALE('tengu_passport_quail', true)).toBe(false)
+  })
+
   // ── Valid JSON object ────────────────────────────────────────────
 
   test('loads and returns values from a valid JSON file', () => {

@@ -97,6 +97,51 @@ async function waitForCondition(
   throw new Error('Timed out waiting for ProviderManager test condition')
 }
 
+// Provider list is sorted alphabetically by label in the preset picker, so
+// reaching a given provider takes more keypresses than it used to. Keep the
+// target-by-label indirection here so these tests survive future list edits
+// without further churn.
+//
+// Order matches ProviderManager.renderPresetSelection() when
+// canUseCodexOAuth === true (default in mocked tests).
+const PRESET_ORDER = [
+  'Alibaba Coding Plan',
+  'Alibaba Coding Plan (China)',
+  'Anthropic',
+  'Atomic Chat',
+  'Azure OpenAI',
+  'Bankr',
+  'Codex OAuth',
+  'DeepSeek',
+  'Google Gemini',
+  'Groq',
+  'LM Studio',
+  'MiniMax',
+  'Mistral',
+  'Moonshot AI - API',
+  'Moonshot AI - Kimi Code',
+  'NVIDIA NIM',
+  'Ollama',
+  'OpenAI',
+  'OpenRouter',
+  'Together AI',
+  'xAI',
+  'Z.AI - GLM Coding Plan',
+  'Custom',
+] as const
+
+async function navigateToPreset(
+  stdin: { write: (data: string) => void },
+  label: (typeof PRESET_ORDER)[number],
+): Promise<void> {
+  const index = PRESET_ORDER.indexOf(label)
+  if (index < 0) throw new Error(`Unknown preset label: ${label}`)
+  for (let i = 0; i < index; i++) {
+    stdin.write('j')
+    await Bun.sleep(25)
+  }
+}
+
 function createDeferred<T>(): {
   promise: Promise<T>
   resolve: (value: T) => void
@@ -110,6 +155,7 @@ function createDeferred<T>(): {
 
 function mockProviderProfilesModule(options?: {
   addProviderProfile?: (...args: unknown[]) => unknown
+  getActiveProviderProfile?: () => unknown
   getProviderProfiles?: () => unknown[]
   updateProviderProfile?: (...args: unknown[]) => unknown
   setActiveProviderProfile?: (...args: unknown[]) => unknown
@@ -118,7 +164,7 @@ function mockProviderProfilesModule(options?: {
     addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
-    getActiveProviderProfile: () => null,
+    getActiveProviderProfile: options?.getActiveProviderProfile ?? (() => null),
     getProviderPresetDefaults: (preset: string) =>
       preset === 'ollama'
         ? {
@@ -148,18 +194,23 @@ function mockProviderManagerDependencies(
     addProviderProfile?: (...args: unknown[]) => unknown
     applySavedProfileToCurrentSession?: (...args: unknown[]) => Promise<string | null>
     clearCodexCredentials?: () => { success: boolean; warning?: string }
+    getActiveProviderProfile?: () => unknown
     getProviderProfiles?: () => unknown[]
-    hasLocalOllama?: () => Promise<boolean>
-    listOllamaModels?: () => Promise<
-      Array<{
-        name: string
-        sizeBytes?: number | null
-        family?: string | null
-        families?: string[]
-        parameterSize?: string | null
-        quantizationLevel?: string | null
-      }>
-    >
+    probeOllamaGenerationReadiness?: () => Promise<{
+      state: 'ready' | 'unreachable' | 'no_models' | 'generation_failed'
+      models: Array<
+        {
+          name: string
+          sizeBytes?: number | null
+          family?: string | null
+          families?: string[]
+          parameterSize?: string | null
+          quantizationLevel?: string | null
+        }
+      >
+      probeModel?: string
+      detail?: string
+    }>
     codexSyncRead?: () => unknown
     codexAsyncRead?: () => Promise<unknown>
     updateProviderProfile?: (...args: unknown[]) => unknown
@@ -183,14 +234,19 @@ function mockProviderManagerDependencies(
 ): void {
   mockProviderProfilesModule({
     addProviderProfile: options?.addProviderProfile,
+    getActiveProviderProfile: options?.getActiveProviderProfile,
     getProviderProfiles: options?.getProviderProfiles,
     updateProviderProfile: options?.updateProviderProfile,
     setActiveProviderProfile: options?.setActiveProviderProfile,
   })
 
   mock.module('../utils/providerDiscovery.js', () => ({
-    hasLocalOllama: options?.hasLocalOllama ?? (async () => false),
-    listOllamaModels: options?.listOllamaModels ?? (async () => []),
+    probeOllamaGenerationReadiness:
+      options?.probeOllamaGenerationReadiness ??
+      (async () => ({
+        state: 'unreachable' as const,
+        models: [],
+      })),
   }))
 
   mock.module('../utils/githubModelsCredentials.js', () => ({
@@ -281,6 +337,10 @@ async function mountProviderManager(
   options?: {
     mode?: 'first-run' | 'manage'
     onDone?: (result?: unknown) => void
+    onChangeAppState?: (args: {
+      newState: unknown
+      oldState: unknown
+    }) => void
   },
 ): Promise<{
   stdin: PassThrough
@@ -295,7 +355,7 @@ async function mountProviderManager(
   })
 
   root.render(
-    <AppStateProvider>
+    <AppStateProvider onChangeAppState={options?.onChangeAppState}>
       <KeybindingSetup>
         <ProviderManager
           mode={options?.mode ?? 'manage'}
@@ -455,19 +515,22 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
     async () => undefined,
     {
       addProviderProfile,
-      hasLocalOllama: async () => true,
-      listOllamaModels: async () => [
-        {
-          name: 'gemma4:31b-cloud',
-          family: 'gemma',
-          parameterSize: '31b',
-        },
-        {
-          name: 'kimi-k2.5:cloud',
-          family: 'kimi',
-          parameterSize: '2.5b',
-        },
-      ],
+      probeOllamaGenerationReadiness: async () => ({
+        state: 'ready',
+        models: [
+          {
+            name: 'gemma4:31b-cloud',
+            family: 'gemma',
+            parameterSize: '31b',
+          },
+          {
+            name: 'kimi-k2.5:cloud',
+            family: 'kimi',
+            parameterSize: '2.5b',
+          },
+        ],
+        probeModel: 'gemma4:31b-cloud',
+      }),
     },
   )
 
@@ -480,11 +543,10 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
 
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Set up provider') && frame.includes('Ollama'),
+    frame => frame.includes('Set up provider'),
   )
 
-  mounted.stdin.write('j')
-  await Bun.sleep(50)
+  await navigateToPreset(mounted.stdin, 'Ollama')
   mounted.stdin.write('\r')
 
   const modelFrame = await waitForFrameOutput(
@@ -579,12 +641,7 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
     frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
   )
 
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
   mounted.stdin.write('\r')
 
   await waitForCondition(() => onDone.mock.calls.length > 0)
@@ -676,12 +733,7 @@ test('ProviderManager first-run Codex OAuth reports next-startup fallback when s
     frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
   )
 
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
   mounted.stdin.write('\r')
 
   await waitForCondition(() => onDone.mock.calls.length > 0)
@@ -775,12 +827,7 @@ test('ProviderManager does not hijack a manual Codex profile when OAuth credenti
     frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
   )
 
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
-  mounted.stdin.write('j')
-  await Bun.sleep(25)
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
   mounted.stdin.write('\r')
 
   await waitForCondition(() => onDone.mock.calls.length > 0)
@@ -866,6 +913,223 @@ test('ProviderManager keeps Codex OAuth as next-startup only when activating the
   )
   expect(applySavedProfileToCurrentSession).toHaveBeenCalled()
   expect(setActiveProviderProfile).toHaveBeenCalledWith('provider_codex_oauth')
+
+  await mounted.dispose()
+})
+
+test('ProviderManager activating a multi-model provider sets the session model to the primary model', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const multiModelProfile = {
+    id: 'provider_multi_model',
+    provider: 'openai',
+    name: 'Multi Model Provider',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-5.4; gpt-5.4-mini',
+    apiKey: 'sk-test',
+  }
+
+  const setActiveProviderProfile = mock(() => multiModelProfile)
+  const appStateChanges: Array<{ newState: any; oldState: any }> = []
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [multiModelProfile],
+      setActiveProviderProfile,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    onChangeAppState: args => {
+      appStateChanges.push(args as { newState: any; oldState: any })
+    },
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('Set active provider'),
+  )
+
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Set active provider') &&
+      frame.includes('Multi Model Provider'),
+  )
+
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => setActiveProviderProfile.mock.calls.length > 0)
+  await waitForCondition(() =>
+    appStateChanges.some(
+      ({ newState, oldState }) =>
+        newState.mainLoopModel === 'gpt-5.4' &&
+        oldState.mainLoopModel !== newState.mainLoopModel,
+    ),
+  )
+
+  expect(setActiveProviderProfile).toHaveBeenCalledWith('provider_multi_model')
+  expect(
+    appStateChanges.some(
+      ({ newState }) =>
+        newState.mainLoopModel === 'gpt-5.4' &&
+        newState.mainLoopModelForSession === null,
+    ),
+  ).toBe(true)
+  expect(
+    appStateChanges.some(
+      ({ newState }) => newState.mainLoopModel === 'gpt-5.4; gpt-5.4-mini',
+    ),
+  ).toBe(false)
+
+  await mounted.dispose()
+})
+
+test('ProviderManager editing an active multi-model provider keeps app state on the primary model', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const multiModelProfile = {
+    id: 'provider_multi_model',
+    provider: 'openai',
+    name: 'Multi Model Provider',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-5.4; gpt-5.4-mini',
+    apiKey: 'sk-test',
+  }
+
+  const updateProviderProfile = mock(() => multiModelProfile)
+  const appStateChanges: Array<{ newState: any; oldState: any }> = []
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getActiveProviderProfile: () => multiModelProfile,
+      getProviderProfiles: () => [multiModelProfile],
+      updateProviderProfile,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    onChangeAppState: args => {
+      appStateChanges.push(args as { newState: any; oldState: any })
+    },
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('Edit provider'),
+  )
+
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Edit provider') &&
+      frame.includes('Multi Model Provider'),
+  )
+
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Edit provider profile') &&
+      frame.includes('Step 1 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 2 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 3 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 4 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 5 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 6 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 7 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => updateProviderProfile.mock.calls.length > 0)
+  await waitForCondition(() =>
+    appStateChanges.some(
+      ({ newState, oldState }) =>
+        newState.mainLoopModel === 'gpt-5.4' &&
+        oldState.mainLoopModel !== newState.mainLoopModel,
+    ),
+  )
+
+  expect(updateProviderProfile).toHaveBeenCalledWith(
+    'provider_multi_model',
+    expect.objectContaining({
+      model: 'gpt-5.4; gpt-5.4-mini',
+    }),
+  )
+  expect(
+    appStateChanges.some(
+      ({ newState }) =>
+        newState.mainLoopModel === 'gpt-5.4' &&
+        newState.mainLoopModelForSession === null,
+    ),
+  ).toBe(true)
+  expect(
+    appStateChanges.some(
+      ({ newState }) => newState.mainLoopModel === 'gpt-5.4; gpt-5.4-mini',
+    ),
+  ).toBe(false)
 
   await mounted.dispose()
 })

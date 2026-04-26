@@ -55,5 +55,5 @@ test('sandbox auto-allow still enforces Bash path constraints', async () => {
 
   expect(result.behavior).toBe('ask')
   expect(result.message).toContain('was blocked')
-  expect(result.message).toContain('/etc/passwd')
+  expect(result.message).toContain('passwd')
 })

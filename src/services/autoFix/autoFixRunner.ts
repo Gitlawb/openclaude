@@ -46,14 +46,31 @@ async function runCommand(
 
     const killTree = () => {
       try {
-        if (!isWindows && proc.pid) {
+        if (isWindows && proc.pid) {
+          // shell=true on Windows can leave child commands running unless we
+          // terminate the full process tree.
+          const killer = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], {
+            windowsHide: true,
+            stdio: 'ignore',
+          })
+          killer.unref()
+          return
+        }
+
+        if (proc.pid) {
           // Kill the entire process group
           process.kill(-proc.pid, 'SIGTERM')
-        } else {
-          proc.kill('SIGTERM')
+          return
         }
+
+        proc.kill('SIGTERM')
       } catch {
-        // Process may have already exited
+        // Process may have already exited; fallback to direct child kill.
+        try {
+          proc.kill('SIGTERM')
+        } catch {
+          // Ignore final fallback errors.
+        }
       }
     }
 

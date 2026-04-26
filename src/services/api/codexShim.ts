@@ -1,4 +1,6 @@
 import { APIError } from '@anthropic-ai/sdk'
+import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
+import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import type {
   ResolvedCodexCredentials,
@@ -6,10 +8,9 @@ import type {
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from './openaiSchemaSanitizer.js'
 import {
-  looksLikeLeakedReasoningPrefix,
-  shouldBufferPotentialReasoningPrefix,
-  stripLeakedReasoningPreamble,
-} from './reasoningLeakSanitizer.js'
+  createThinkTagFilter,
+  stripThinkTags,
+} from './thinkTagSanitizer.js'
 
 export interface AnthropicUsage {
   input_tokens: number
@@ -78,21 +79,12 @@ type CodexSseEvent = {
   data: Record<string, any>
 }
 
-function makeUsage(usage?: {
-  input_tokens?: number
-  output_tokens?: number
-  input_tokens_details?: { cached_tokens?: number }
-  prompt_tokens_details?: { cached_tokens?: number }
-}): AnthropicUsage {
-  return {
-    input_tokens: usage?.input_tokens ?? 0,
-    output_tokens: usage?.output_tokens ?? 0,
-    cache_creation_input_tokens: 0,
-    cache_read_input_tokens:
-      usage?.input_tokens_details?.cached_tokens ??
-      usage?.prompt_tokens_details?.cached_tokens ??
-      0,
-  }
+function makeUsage(usage?: Record<string, unknown>): AnthropicUsage {
+  // Single source of truth for raw → Anthropic shape. Lives in
+  // cacheMetrics.ts alongside the raw-shape extractor so any new
+  // provider quirk requires a one-file change and the integration test
+  // can call the exact same function instead of re-implementing it.
+  return buildAnthropicUsageFromRawUsage(usage)
 }
 
 function makeMessageId(): string {
@@ -485,13 +477,15 @@ export async function performCodexRequest(options: {
   defaultHeaders: Record<string, string>
   signal?: AbortSignal
 }): Promise<Response> {
-  const input = convertAnthropicMessagesToResponsesInput(
+  const compressedMessages = compressToolHistory(
     options.params.messages as Array<{
       role?: string
       message?: { role?: string; content?: unknown }
       content?: unknown
     }>,
+    options.request.resolvedModel,
   )
+  const input = convertAnthropicMessagesToResponsesInput(compressedMessages)
   const body: Record<string, unknown> = {
     model: options.request.resolvedModel,
     input: input.length > 0
@@ -734,25 +728,22 @@ export async function* codexStreamToAnthropic(
     { index: number; toolUseId: string }
   >()
   let activeTextBlockIndex: number | null = null
-  let activeTextBuffer = ''
-  let textBufferMode: 'none' | 'pending' | 'strip' = 'none'
+  const thinkFilter = createThinkTagFilter()
   let nextContentBlockIndex = 0
   let sawToolUse = false
   let finalResponse: Record<string, any> | undefined
 
   const closeActiveTextBlock = async function* () {
     if (activeTextBlockIndex === null) return
-    if (textBufferMode !== 'none') {
-      const sanitized = stripLeakedReasoningPreamble(activeTextBuffer)
-      if (sanitized) {
-        yield {
-          type: 'content_block_delta',
-          index: activeTextBlockIndex,
-          delta: {
-            type: 'text_delta',
-            text: sanitized,
-          },
-        }
+    const tail = thinkFilter.flush()
+    if (tail) {
+      yield {
+        type: 'content_block_delta',
+        index: activeTextBlockIndex,
+        delta: {
+          type: 'text_delta',
+          text: tail,
+        },
       }
     }
     yield {
@@ -760,8 +751,6 @@ export async function* codexStreamToAnthropic(
       index: activeTextBlockIndex,
     }
     activeTextBlockIndex = null
-    activeTextBuffer = ''
-    textBufferMode = 'none'
   }
 
   const startTextBlockIfNeeded = async function* () {
@@ -837,43 +826,17 @@ export async function* codexStreamToAnthropic(
 
     if (event.event === 'response.output_text.delta') {
       yield* startTextBlockIfNeeded()
-      activeTextBuffer += payload.delta ?? ''
       if (activeTextBlockIndex !== null) {
-        if (
-          textBufferMode === 'strip' ||
-          looksLikeLeakedReasoningPrefix(activeTextBuffer)
-        ) {
-          textBufferMode = 'strip'
-          continue
-        }
-
-        if (textBufferMode === 'pending') {
-          if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
-            continue
-          }
+        const visible = thinkFilter.feed(payload.delta ?? '')
+        if (visible) {
           yield {
             type: 'content_block_delta',
             index: activeTextBlockIndex,
             delta: {
               type: 'text_delta',
-              text: activeTextBuffer,
+              text: visible,
             },
           }
-          textBufferMode = 'none'
-          continue
-        }
-
-        if (shouldBufferPotentialReasoningPrefix(activeTextBuffer)) {
-          textBufferMode = 'pending'
-          continue
-        }
-        yield {
-          type: 'content_block_delta',
-          index: activeTextBlockIndex,
-          delta: {
-            type: 'text_delta',
-            text: payload.delta ?? '',
-          },
         }
       }
       continue
@@ -940,18 +903,14 @@ export async function* codexStreamToAnthropic(
       stop_reason: determineStopReason(finalResponse, sawToolUse),
       stop_sequence: null,
     },
-    usage: {
-      // Subtract cached tokens: OpenAI includes them in input_tokens,
-      // but Anthropic convention treats input_tokens as non-cached only.
-      input_tokens: (finalResponse?.usage?.input_tokens ?? 0) -
-        (finalResponse?.usage?.input_tokens_details?.cached_tokens ??
-         finalResponse?.usage?.prompt_tokens_details?.cached_tokens ?? 0),
-      output_tokens: finalResponse?.usage?.output_tokens ?? 0,
-      cache_read_input_tokens:
-        finalResponse?.usage?.input_tokens_details?.cached_tokens ??
-        finalResponse?.usage?.prompt_tokens_details?.cached_tokens ??
-        0,
-    },
+    // Delegate to the shared normalizer so the streaming message_delta
+    // path uses the same raw→Anthropic conversion as makeUsage() above
+    // and the non-streaming response converter below. Previously this
+    // block had its own inline subtraction that missed Kimi / DeepSeek
+    // / Gemini raw shapes that the shared helper handles.
+    usage: makeUsage(
+      finalResponse?.usage as Record<string, unknown> | undefined,
+    ),
   }
   yield { type: 'message_stop' }
 }
@@ -969,7 +928,7 @@ export function convertCodexResponseToAnthropicMessage(
         if (part?.type === 'output_text') {
           content.push({
             type: 'text',
-            text: stripLeakedReasoningPreamble(part.text ?? ''),
+            text: stripThinkTags(part.text ?? ''),
           })
         }
       }

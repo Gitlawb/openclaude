@@ -7,6 +7,10 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
+  OPENAI_AUTH_HEADER: process.env.OPENAI_AUTH_HEADER,
+  OPENAI_AUTH_SCHEME: process.env.OPENAI_AUTH_SCHEME,
+  OPENAI_AUTH_HEADER_VALUE: process.env.OPENAI_AUTH_HEADER_VALUE,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
@@ -75,6 +79,10 @@ beforeEach(() => {
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.GITHUB_TOKEN
   delete process.env.GH_TOKEN
@@ -94,6 +102,10 @@ afterEach(() => {
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
+  restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
+  restoreEnv('OPENAI_AUTH_SCHEME', originalEnv.OPENAI_AUTH_SCHEME)
+  restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
   restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
   restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
   restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
@@ -170,6 +182,243 @@ test('strips canonical Anthropic headers from direct shim defaultHeaders', async
   expect(capturedHeaders?.get('x-app')).toBeNull()
   expect(capturedHeaders?.get('x-client-app')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+})
+
+test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let capturedUrl = ''
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: {
+          input_tokens: 8,
+          output_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('http://example.test/v1/responses')
+  expect(capturedBody?.model).toBe('gpt-5.4')
+  expect(capturedBody?.instructions).toBe('test system')
+  expect(capturedBody?.max_output_tokens).toBe(64)
+  expect(capturedBody?.store).toBe(false)
+  expect(capturedBody?.input).toEqual([
+    {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: 'hello' }],
+    },
+  ])
+})
+
+test('strips store from strict OpenAI-compatible responses providers', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let capturedUrl = ''
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl = String(input)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'kimi-k2.5',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'kimi-k2.5',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://api.moonshot.ai/v1/responses')
+  expect(capturedBody?.store).toBeUndefined()
+})
+
+test('uses custom OpenAI-compatible auth header value when configured', async () => {
+  process.env.OPENAI_API_KEY = 'generic-key'
+  process.env.OPENAI_AUTH_HEADER = 'api-key'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'hicap-header-value'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('api-key')).toBe('hicap-header-value')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
+})
+
+test('defaults Authorization custom auth header to bearer scheme', async () => {
+  process.env.OPENAI_API_KEY = 'authorization-key'
+  process.env.OPENAI_AUTH_HEADER = 'Authorization'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer authorization-key')
+})
+
+test('honors bearer scheme for custom OpenAI-compatible auth headers', async () => {
+  process.env.OPENAI_API_KEY = 'custom-key'
+  process.env.OPENAI_AUTH_HEADER = 'X-Custom-Authorization'
+  process.env.OPENAI_AUTH_SCHEME = 'bearer'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('x-custom-authorization')).toBe('Bearer custom-key')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
+})
+
+test('ignores custom auth header value when no custom header is configured', async () => {
+  delete process.env.OPENAI_API_KEY
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'gateway-header-value'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
 test('strips canonical Anthropic headers from per-request shim headers too', async () => {
@@ -2513,7 +2762,7 @@ test('non-streaming: real content takes precedence over reasoning_content', asyn
   ])
 })
 
-test('non-streaming: strips leaked reasoning preamble from assistant content', async () => {
+test('non-streaming: strips <think> tag block from assistant content', async () => {
   globalThis.fetch = (async () => {
     return new Response(
       JSON.stringify({
@@ -2524,7 +2773,7 @@ test('non-streaming: strips leaked reasoning preamble from assistant content', a
             message: {
               role: 'assistant',
               content:
-                'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+                '<think>user wants a greeting, respond briefly</think>Hey! How can I help you today?',
             },
             finish_reason: 'stop',
           },
@@ -2645,7 +2894,7 @@ test('streaming: thinking block closed before tool call', async () => {
   expect(thinkingStart?.content_block?.type).toBe('thinking')
 })
 
-test('streaming: strips leaked reasoning preamble from assistant content deltas', async () => {
+test('streaming: strips <think> tag block from assistant content deltas', async () => {
   globalThis.fetch = (async () => {
     const chunks = makeStreamChunks([
       {
@@ -2658,7 +2907,7 @@ test('streaming: strips leaked reasoning preamble from assistant content deltas'
             delta: {
               role: 'assistant',
               content:
-                'The user just said "hey" - a simple greeting. I should respond briefly and friendly.\n\nHey! How can I help you today?',
+                '<think>user wants a greeting, respond briefly</think>Hey! How can I help you today?',
             },
             finish_reason: null,
           },
@@ -2700,10 +2949,10 @@ test('streaming: strips leaked reasoning preamble from assistant content deltas'
     }
   }
 
-  expect(textDeltas).toEqual(['Hey! How can I help you today?'])
+  expect(textDeltas.join('')).toBe('Hey! How can I help you today?')
 })
 
-test('streaming: strips leaked reasoning preamble when split across multiple content chunks', async () => {
+test('streaming: strips <think> tag split across multiple content chunks', async () => {
   globalThis.fetch = (async () => {
     const chunks = makeStreamChunks([
       {
@@ -2715,7 +2964,7 @@ test('streaming: strips leaked reasoning preamble when split across multiple con
             index: 0,
             delta: {
               role: 'assistant',
-              content: 'The user said "hey" - this is a simple greeting. ',
+              content: '<think>user wants a greeting,',
             },
             finish_reason: null,
           },
@@ -2729,8 +2978,21 @@ test('streaming: strips leaked reasoning preamble when split across multiple con
           {
             index: 0,
             delta: {
-              content:
-                'I should respond in a friendly, concise way.\n\nHey! How can I help you today?',
+              content: ' respond briefly</th',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: 'ink>Hey! How can I help you today?',
             },
             finish_reason: null,
           },
@@ -2773,7 +3035,69 @@ test('streaming: strips leaked reasoning preamble when split across multiple con
     }
   }
 
-  expect(textDeltas).toEqual(['Hey! How can I help you today?'])
+  expect(textDeltas.join('')).toBe('Hey! How can I help you today?')
+})
+
+test('streaming: preserves prose without tags (no phrase-based false positive)', async () => {
+  // Regression: older phrase-based sanitizer would strip "I should..." prose.
+  // The tag-based approach leaves legitimate assistant output alone.
+  globalThis.fetch = (async () => {
+    const chunks = makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              content:
+                'I should note that the user role requires a briefly concise friendly response format.',
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'gpt-5-mini',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+          },
+        ],
+      },
+    ])
+
+    return makeSseResponse(chunks)
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'gpt-5-mini',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hey' }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const delta = (event as { delta?: { type?: string; text?: string } }).delta
+    if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      textDeltas.push(delta.text)
+    }
+  }
+
+  expect(textDeltas.join('')).toBe(
+    'I should note that the user role requires a briefly concise friendly response format.',
+  )
 })
 
 test('classifies localhost transport failures with actionable category marker', async () => {
@@ -2856,6 +3180,204 @@ test('classifies chat-completions endpoint 404 failures with endpoint_not_found 
     }),
   ).rejects.toThrow('openai_category=endpoint_not_found')
 })
+test('self-heals localhost resolution failures by retrying local loopback base URL', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+
+  const requestUrls: string[] = []
+  globalThis.fetch = (async (input, _init) => {
+    const url = typeof input === 'string' ? input : input.url
+    requestUrls.push(url)
+
+    if (url.includes('localhost')) {
+      const error = Object.assign(new TypeError('fetch failed'), {
+        code: 'ENOTFOUND',
+      })
+      throw error
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'hello from loopback',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 4,
+          completion_tokens: 3,
+          total_tokens: 7,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
+  expect(requestUrls[0]).toBe('http://localhost:11434/v1/chat/completions')
+  expect(requestUrls).toContain('http://127.0.0.1:11434/v1/chat/completions')
+})
+
+test('self-heals local endpoint_not_found by retrying with /v1 base URL', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434'
+
+  const requestUrls: string[] = []
+  globalThis.fetch = (async (input, _init) => {
+    const url = typeof input === 'string' ? input : input.url
+    requestUrls.push(url)
+
+    if (url === 'http://localhost:11434/chat/completions') {
+      return new Response('Not Found', {
+        status: 404,
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+      })
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'hello from /v1',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 2,
+          total_tokens: 7,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
+  expect(requestUrls).toEqual([
+    'http://localhost:11434/chat/completions',
+    'http://localhost:11434/v1/chat/completions',
+  ])
+})
+
+test('self-heals tool-call incompatibility by retrying local Ollama requests without tools', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    const requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    requestBodies.push(requestBody)
+
+    if (requestBodies.length === 1) {
+      return new Response('tool_calls are not supported', {
+        status: 400,
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+      })
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'qwen2.5-coder:7b',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'fallback without tools',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 4,
+          total_tokens: 12,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'qwen2.5-coder:7b',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read a file',
+          input_schema: {
+            type: 'object',
+            properties: {
+              filePath: { type: 'string' },
+            },
+            required: ['filePath'],
+          },
+        },
+      ],
+      max_tokens: 64,
+      stream: false,
+    }),
+  ).resolves.toBeDefined()
+
+  expect(requestBodies).toHaveLength(2)
+  expect(Array.isArray(requestBodies[0]?.tools)).toBe(true)
+  expect(requestBodies[0]?.tool_choice).toBeUndefined()
+  expect(
+    requestBodies[1]?.tools === undefined ||
+      (Array.isArray(requestBodies[1]?.tools) && requestBodies[1]?.tools.length === 0),
+  ).toBe(true)
+  expect(requestBodies[1]?.tool_choice).toBeUndefined()
+})
 
 test('preserves valid tool_result and drops orphan tool_result', async () => {
   let requestBody: Record<string, unknown> | undefined
@@ -2924,7 +3446,7 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
           {
             role: 'user',
             content: 'What happened?',
-          }
+          },
         ],
       },
     ],
@@ -2933,14 +3455,864 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
   })
 
   const messages = requestBody?.messages as Array<Record<string, unknown>>
-  
+
   // Should have: system, user, assistant (tool_use), tool (valid_call_1), user
   // Should NOT have: tool (orphan_call_2)
-  
+
   const toolMessages = messages.filter(m => m.role === 'tool')
   expect(toolMessages.length).toBe(1)
   expect(toolMessages[0].tool_call_id).toBe('valid_call_1')
-  
+
   const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
   expect(orphanMessage).toBeUndefined()
+  
+  // Actually, the semantic message IS injected here because the user block with orphan 
+  // tool result is converted to:
+  // 1. Tool result (valid_call_1) -> role 'tool'
+  // 2. User content ("What happened?") -> role 'user'
+  // This triggers the tool -> assistant injection.
+  const assistantMessages = messages.filter(m => m.role === 'assistant')
+  expect(assistantMessages.some(m => m.content === '[Tool execution interrupted by user]')).toBe(true)
+})
+
+test('drops empty assistant message when only thinking block was present and stripped', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-1',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'mistral-large-latest',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      { role: 'user', content: 'Initial' },
+      { role: 'assistant', content: [{ type: 'thinking', thinking: 'I am thinking...', signature: 'sig' }] },
+      { role: 'user', content: 'Interrupting query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  // The assistant msg is dropped because thinking is stripped.
+  // The two user messages are coalesced.
+  expect(messages.length).toBe(1)
+  expect(messages[0].role).toBe('user')
+  expect(String(messages[0].content)).toContain('Initial')
+  expect(String(messages[0].content)).toContain('Interrupting query')
+})
+
+test('injects semantic assistant message when tool result is followed by user message', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({
+      id: 'chatcmpl-2',
+      object: 'chat.completion',
+      created: 123456789,
+      model: 'mistral-large-latest',
+      choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    }), { headers: { 'Content-Type': 'application/json' } })
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'mistral-large-latest',
+    messages: [
+      { 
+        role: 'assistant', 
+        content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: {} }] 
+      },
+      { 
+        role: 'user', 
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'Result' }
+        ] 
+      },
+      { role: 'user', content: 'Next user query' },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  // Roles should be: assistant (tool_calls) -> tool -> assistant (semantic) -> user
+  const roles = messages.map(m => m.role)
+  expect(roles).toEqual(['assistant', 'tool', 'assistant', 'user'])
+  
+  const semanticMsg = messages[2]
+  expect(semanticMsg.role).toBe('assistant')
+  expect(semanticMsg.content).toBe('[Tool execution interrupted by user]')
+})
+
+test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  process.env.OPENAI_API_KEY = 'sk-moonshot-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-k2.6',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-k2.6',
+    system: 'you are kimi',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.max_tokens).toBe(256)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Moonshot: echoes reasoning_content on assistant tool-call messages', async () => {
+  // Regression for: "API Error: 400 {"error":{"message":"thinking is enabled
+  // but reasoning_content is missing in assistant tool call message at index
+  // N"}}" when the agent sends a prior-turn assistant response back to Kimi.
+  // The thinking block captured from the inbound response must round-trip
+  // as reasoning_content on the outgoing echoed assistant message.
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  process.env.OPENAI_API_KEY = 'sk-moonshot-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-k2.6',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-k2.6',
+    system: 'you are kimi',
+    messages: [
+      { role: 'user', content: 'check the logs' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Need to inspect logs via Bash; running a cat.',
+          },
+          { type: 'text', text: "I'll inspect the logs." },
+          {
+            type: 'tool_use',
+            id: 'call_bash_1',
+            name: 'Bash',
+            input: { command: 'cat /tmp/app.log' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_bash_1',
+            content: 'log line 1\nlog line 2',
+          },
+        ],
+      },
+    ],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to inspect logs via Bash; running a cat.',
+  )
+})
+
+test('DeepSeek echoes reasoning_content on assistant tool-call messages', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-flash',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'thought' },
+          { type: 'text', text: 'hello' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe('thought')
+})
+
+test('generic OpenAI-compatible providers do not echo reasoning_content on assistant tool-call messages', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-openai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'thought' },
+          { type: 'text', text: 'hello' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBeUndefined()
+})
+
+test('Moonshot: cn host is also detected', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.cn/v1'
+  process.env.OPENAI_API_KEY = 'sk-moonshot-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-k2.6',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-k2.6',
+    system: 'you are kimi',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Kimi Code endpoint inherits Moonshot max_tokens/store compatibility', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
+  process.env.OPENAI_API_KEY = 'sk-kimi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-for-coding',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-for-coding',
+    system: 'you are kimi code',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.max_tokens).toBe(256)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Kimi Code endpoint echoes reasoning_content on assistant tool-call messages', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
+  process.env.OPENAI_API_KEY = 'sk-kimi-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'kimi-for-coding',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'kimi-for-coding',
+    system: 'you are kimi code',
+    messages: [
+      { role: 'user', content: 'check the logs' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Need to inspect logs via Bash; running a cat.',
+          },
+          { type: 'text', text: "I'll inspect the logs." },
+          {
+            type: 'tool_use',
+            id: 'call_bash_1',
+            name: 'Bash',
+            input: { command: 'cat /tmp/app.log' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_bash_1',
+            content: 'log line 1\nlog line 2',
+          },
+        ],
+      },
+    ],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Need to inspect logs via Bash; running a cat.',
+  )
+})
+
+test('DeepSeek sends thinking toggle and normalized reasoning effort', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-pro',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-pro',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+    thinking: { type: 'enabled' },
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+  expect(requestBody?.max_tokens).toBe(64)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('DeepSeek omits thinking controls when the Anthropic-side request does not set them', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-flash',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(requestBody?.thinking).toBeUndefined()
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+})
+
+test('DeepSeek forwards an explicit thinking disable toggle for V4 models', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'sk-deepseek'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-flash',
+    system: 'test',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 32,
+    stream: false,
+    thinking: { type: 'disabled' },
+  })
+
+  expect(requestBody?.thinking).toEqual({ type: 'disabled' })
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+})
+
+
+test('collapses multiple text blocks in tool_result to string for DeepSeek compatibility (issue #774)', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'deepseek-reasoner',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Run ls' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: [
+              { type: 'text', text: 'line one' },
+              { type: 'text', text: 'line two' },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const toolMessages = messages.filter(m => m.role === 'tool')
+  expect(toolMessages.length).toBe(1)
+  expect(toolMessages[0].tool_call_id).toBe('call_1')
+  expect(typeof toolMessages[0].content).toBe('string')
+  expect(toolMessages[0].content).toBe('line one\n\nline two')
+})
+
+test('collapses multiple text blocks into a single string for DeepSeek compatibility (issue #774)', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'deepseek-reasoner',
+    system: 'test system',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Hello!' },
+          { type: 'text', text: 'How are you?' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages.length).toBe(2) // system + user
+  expect(messages[1].role).toBe('user')
+  expect(typeof messages[1].content).toBe('string')
+  expect(messages[1].content).toBe('Hello!\n\nHow are you?')
+})
+
+test('preserves mixed text and image tool results as multipart content', async () => {
+  let requestBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 4,
+          total_tokens: 16,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: 'test system',
+    messages: [
+      { role: 'user', content: 'Show me' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'cat image.png' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: [
+              { type: 'text', text: 'Here is the image:' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: 'iVBORw0KGgo=',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const toolMessages = messages.filter(m => m.role === 'tool')
+  expect(toolMessages.length).toBe(1)
+  expect(Array.isArray(toolMessages[0].content)).toBe(true)
+  const content = toolMessages[0].content as Array<Record<string, unknown>>
+  expect(content.length).toBe(2)
+  expect(content[0].type).toBe('text')
+  expect(content[1].type).toBe('image_url')
+})
+
+test('Z.AI: uses max_tokens (not max_completion_tokens) and strips store', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'GLM-5.1',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'GLM-5.1',
+    system: 'you are glm',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.max_tokens).toBe(256)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Z.AI: thinking mode enabled when requested', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'GLM-5.1',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'Let me think...',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'GLM-5.1',
+    system: 'you are glm',
+    messages: [{ role: 'user', content: 'think hard' }],
+    max_tokens: 1024,
+    stream: false,
+    thinking: { type: 'enabled', budget_tokens: 1024 },
+  })
+
+  expect((requestBody?.thinking as Record<string, string>)?.type).toBe('enabled')
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.max_tokens).toBe(1024)
 })

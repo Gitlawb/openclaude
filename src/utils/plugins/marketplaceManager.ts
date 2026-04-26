@@ -532,6 +532,7 @@ export async function gitPull(
 ): Promise<{ code: number; stderr: string }> {
   logForDebugging(`git pull: cwd=${cwd} ref=${ref ?? 'default'}`)
   const env = { ...process.env, ...GIT_NO_PROMPT_ENV }
+  const baseArgs = ['-c', 'core.hooksPath=/dev/null']
   const credentialArgs = options?.disableCredentialHelper
     ? ['-c', 'credential.helper=']
     : []
@@ -539,7 +540,7 @@ export async function gitPull(
   if (ref) {
     const fetchResult = await execFileNoThrowWithCwd(
       gitExe(),
-      [...credentialArgs, 'fetch', 'origin', ref],
+      [...baseArgs, ...credentialArgs, 'fetch', 'origin', ref],
       { cwd, timeout: getPluginGitTimeoutMs(), stdin: 'ignore', env },
     )
 
@@ -549,7 +550,7 @@ export async function gitPull(
 
     const checkoutResult = await execFileNoThrowWithCwd(
       gitExe(),
-      [...credentialArgs, 'checkout', ref],
+      [...baseArgs, ...credentialArgs, 'checkout', ref],
       { cwd, timeout: getPluginGitTimeoutMs(), stdin: 'ignore', env },
     )
 
@@ -559,7 +560,7 @@ export async function gitPull(
 
     const pullResult = await execFileNoThrowWithCwd(
       gitExe(),
-      [...credentialArgs, 'pull', 'origin', ref],
+      [...baseArgs, ...credentialArgs, 'pull', 'origin', ref],
       { cwd, timeout: getPluginGitTimeoutMs(), stdin: 'ignore', env },
     )
     if (pullResult.code !== 0) {
@@ -571,7 +572,7 @@ export async function gitPull(
 
   const result = await execFileNoThrowWithCwd(
     gitExe(),
-    [...credentialArgs, 'pull', 'origin', 'HEAD'],
+    [...baseArgs, ...credentialArgs, 'pull', 'origin', 'HEAD'],
     { cwd, timeout: getPluginGitTimeoutMs(), stdin: 'ignore', env },
   )
   if (result.code !== 0) {
@@ -625,6 +626,8 @@ async function gitSubmoduleUpdate(
     [
       '-c',
       'core.sshCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=yes',
+      '-c',
+      'core.hooksPath=/dev/null',
       ...credentialArgs,
       'submodule',
       'update',
@@ -810,6 +813,8 @@ export async function gitClone(
   const args = [
     '-c',
     'core.sshCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=yes',
+    '-c',
+    'core.hooksPath=/dev/null',
     'clone',
     '--depth',
     '1',

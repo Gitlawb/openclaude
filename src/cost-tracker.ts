@@ -1,6 +1,15 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import chalk from 'chalk'
 import {
+  extractCacheMetrics,
+  resolveCacheProvider,
+} from './services/api/cacheMetrics.js'
+import {
+  recordRequest as recordCacheRequest,
+  resetSessionCacheStats,
+} from './services/api/cacheStatsTracker.js'
+import { getAPIProvider, isGithubNativeAnthropicMode } from './utils/model/providers.js'
+import {
   addToTotalCostState,
   addToTotalLinesChanged,
   getCostCounter,
@@ -22,7 +31,7 @@ import {
   getTotalWebSearchRequests,
   getUsageForModel,
   hasUnknownModelCost,
-  resetCostState,
+  resetCostState as baseResetCostState,
   resetStateForTests,
   setCostStateForRestore,
   setHasUnknownModelCost,
@@ -62,10 +71,20 @@ export {
   formatCost,
   hasUnknownModelCost,
   resetStateForTests,
-  resetCostState,
   setHasUnknownModelCost,
   getModelUsage,
   getUsageForModel,
+}
+
+/**
+ * Wraps bootstrap's resetCostState() so /clear, /compact and session
+ * switches zero the cache-stats tracker alongside the cost counters.
+ * Exported under the same name so existing callers pick up the cache
+ * reset without any call-site changes.
+ */
+export function resetCostState(): void {
+  baseResetCostState()
+  resetSessionCacheStats()
 }
 
 type StoredCostState = {
@@ -251,6 +270,16 @@ function round(number: number, precision: number): number {
   return Math.round(number * precision) / precision
 }
 
+// Env-gated verbose token usage log. Treated as a boolean regardless of
+// value specifics — any truthy-ish string switches it on. `verbose` is the
+// documented keyword but we accept `1`/`true` for ergonomic parity with
+// other OPENCLAUDE_* flags.
+function shouldLogTokenUsageVerbose(): boolean {
+  const v = (process.env.OPENCLAUDE_LOG_TOKEN_USAGE ?? '').trim().toLowerCase()
+  if (!v) return false
+  return v !== '0' && v !== 'false' && v !== 'off'
+}
+
 function addToTotalModelUsage(
   cost: number,
   usage: Usage,
@@ -286,6 +315,43 @@ export function addToTotalSessionCost(
 ): number {
   const modelUsage = addToTotalModelUsage(cost, usage, model)
   addToTotalCostState(cost, modelUsage, model)
+
+  // Record normalized cache metrics for REPL display + /cache-stats.
+  // Resolved from the current process provider — at this point `usage` has
+  // already been Anthropic-shaped by the shim layer, so we feed the
+  // corresponding bucket (anthropic / copilot-claude / openai-like) to the
+  // extractor. For providers that genuinely don't report cache data
+  // (vanilla Copilot, Ollama), resolveCacheProvider steers us to
+  // supported:false so the UI shows "N/A" instead of lying with "0%".
+  const cacheProvider = resolveCacheProvider(getAPIProvider(), {
+    githubNativeAnthropic: isGithubNativeAnthropicMode(model),
+    openAiBaseUrl: process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
+  })
+  const cacheMetrics = extractCacheMetrics(
+    usage as unknown as Record<string, unknown>,
+    cacheProvider,
+  )
+  recordCacheRequest(cacheMetrics, model)
+
+  // Opt-in structured per-request debug log on stderr. Power-user knob, not
+  // shown in the REPL — complements CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT
+  // (which is model-facing). Any truthy value except "0"/"false" enables it.
+  if (shouldLogTokenUsageVerbose()) {
+    process.stderr.write(
+      JSON.stringify({
+        tag: 'openclaude.tokenUsage',
+        model,
+        provider: cacheProvider,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+        cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
+        cache_supported: cacheMetrics.supported,
+        cache_hit_rate: cacheMetrics.hitRate,
+        cost_usd: cost,
+      }) + '\n',
+    )
+  }
 
   const attrs =
     isFastModeEnabled() && usage.speed === 'fast'

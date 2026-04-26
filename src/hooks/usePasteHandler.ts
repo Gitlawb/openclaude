@@ -35,6 +35,24 @@ type PasteHandlerProps = {
   ) => void
 }
 
+export function shouldHandleInputAsPaste(options: {
+  hasTextPasteHandler: boolean
+  hasImagePasteHandler: boolean
+  inputLength: number
+  pastePending: boolean
+  hasImageFilePath: boolean
+  isFromPaste: boolean
+}): boolean {
+  return (
+    (options.hasTextPasteHandler &&
+      (options.inputLength > PASTE_THRESHOLD ||
+        options.pastePending ||
+        options.hasImageFilePath ||
+        options.isFromPaste)) ||
+    (options.hasImagePasteHandler && options.hasImageFilePath)
+  )
+}
+
 export function usePasteHandler({
   onPaste,
   onInput,
@@ -236,11 +254,6 @@ export function usePasteHandler({
     // The keypress parser sets isPasted=true for content within bracketed paste.
     const isFromPaste = event.keypress.isPasted
 
-    // If this is pasted content, set isPasting state for UI feedback
-    if (isFromPaste) {
-      setIsPasting(true)
-    }
-
     // Handle large pastes (>PASTE_THRESHOLD chars)
     // Usually we get one or two input characters at a time. If we
     // get more than the threshold, the user has probably pasted.
@@ -268,6 +281,7 @@ export function usePasteHandler({
       canFallbackToClipboardImage &&
       onImagePaste
     ) {
+      setIsPasting(true)
       checkClipboardForImage()
       // Reset isPasting since there's no text content to process
       setIsPasting(false)
@@ -275,14 +289,17 @@ export function usePasteHandler({
     }
 
     // Check if we should handle as paste (from bracketed paste, large input, or continuation)
-    const shouldHandleAsPaste =
-      onPaste &&
-      (input.length > PASTE_THRESHOLD ||
-        pastePendingRef.current ||
-        hasImageFilePath ||
-        isFromPaste)
+    const shouldHandleAsPaste = shouldHandleInputAsPaste({
+      hasTextPasteHandler: Boolean(onPaste),
+      hasImagePasteHandler: Boolean(onImagePaste),
+      inputLength: input.length,
+      pastePending: pastePendingRef.current,
+      hasImageFilePath,
+      isFromPaste,
+    })
 
     if (shouldHandleAsPaste) {
+      setIsPasting(true)
       pastePendingRef.current = true
       setPasteState(({ chunks, timeoutId }) => {
         return {

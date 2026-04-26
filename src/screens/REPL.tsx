@@ -133,6 +133,8 @@ import { hasConsoleBillingAccess } from '../utils/billing.js';
 import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js';
 import { textForResubmit, handleMessageFromStream, type StreamingToolUse, type StreamingThinking, isCompactBoundaryMessage, getMessagesAfterCompactBoundary, getContentText, createUserMessage, createAssistantMessage, createTurnDurationMessage, createAgentsKilledMessage, createApiMetricsMessage, createSystemMessage, createCommandInputMessage, formatCommandInputTags } from '../utils/messages.js';
+import { getCurrentTurnCacheMetrics, resetCurrentTurn } from '../services/api/cacheStatsTracker.js';
+import { formatCacheMetricsCompact, formatCacheMetricsFull } from '../services/api/cacheMetrics.js';
 import { generateSessionTitle } from '../utils/sessionTitle.js';
 import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_STDOUT_TAG } from '../constants/xml.js';
 import { escapeXml } from '../utils/xml.js';
@@ -1134,7 +1136,7 @@ export function REPL({
   // session from mid-conversation context.
   const haikuTitleAttemptedRef = useRef((initialMessages?.length ?? 0) > 0);
   const agentTitle = mainThreadAgentDefinition?.agentType;
-  const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'Open Claude';
+  const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'OpenClaude';
   const isWaitingForApproval = toolUseConfirmQueue.length > 0 || promptQueue.length > 0 || pendingWorkerRequest || pendingSandboxRequest;
   // Local-jsx commands (like /plugin, /config) show user-facing dialogs that
   // wait for input. Require jsx != null — if the flag is stuck true but jsx
@@ -2921,6 +2923,13 @@ export function REPL({
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
       resetTimingRefs();
+      // Start-of-turn cache tracker reset. The end-of-turn path at the
+      // bottom of this function already resets, but mirror the call here
+      // so a turn that never reaches end-of-turn (crash, unhandled
+      // rejection, process exit) still starts clean on the next one.
+      // Idempotent with respect to the end-of-turn reset — double-reset
+      // is a no-op.
+      resetCurrentTurn();
       setMessages(oldMessages => [...oldMessages, ...newMessages]);
       responseLengthRef.current = 0;
       if (feature('TOKEN_BUDGET')) {
@@ -3019,6 +3028,38 @@ export function REPL({
             setMessages(prev => [...prev, createTurnDurationMessage(turnDurationMs, budgetInfo, count(prev, isLoggableMessage))]);
           }
         }
+        // Cache stats line — controlled by `/config showCacheStats`. Shows
+        // per-query read/hit stats using the provider-normalized metrics
+        // from cacheStatsTracker. 'off' skips, 'compact' gives a one-liner,
+        // 'full' gives a breakdown. Display is skipped when the user
+        // aborted or proactive mode is active — but the counter reset
+        // below still runs in those cases.
+        if (!abortController.signal.aborted && !proactiveActive) {
+          // Defensive default: config layer already merges 'compact' from
+          // DEFAULT_GLOBAL_CONFIG (see config.ts:1494) for configs that
+          // predate this feature, so `mode` should always be defined.
+          // The `?? 'compact'` fallback covers pathological cases — a
+          // corrupt config read that returned an empty object, or a
+          // race between writer and reader — where the merge didn't
+          // land. Rendering the line is the safer failure mode than
+          // silently hiding it.
+          const mode = getGlobalConfig().showCacheStats ?? 'compact';
+          if (mode !== 'off') {
+            const turnMetrics = getCurrentTurnCacheMetrics();
+            // Skip rendering if the turn recorded no API activity at all —
+            // avoids a spurious "[Cache: cold]" on local-only commands.
+            if (turnMetrics.supported || turnMetrics.read > 0 || turnMetrics.total > 0) {
+              const line = mode === 'full' ? formatCacheMetricsFull(turnMetrics) : formatCacheMetricsCompact(turnMetrics);
+              setMessages(prev => [...prev, createSystemMessage(line, 'info')]);
+            }
+          }
+        }
+        // Reset turn counters UNCONDITIONALLY — users routinely interrupt
+        // (Ctrl+C) mid-turn, and if we kept the reset gated on
+        // !aborted, the in-flight turn's metrics would leak into the
+        // next turn's aggregate. Proactive turns also need the reset so
+        // their metrics don't pile onto the following user turn.
+        resetCurrentTurn();
         // Clear the controller so CancelRequestHandler's canCancelRunningTask
         // reads false at the idle prompt. Without this, the stale non-aborted
         // controller makes ctrl+c fire onCancel() (aborting nothing) instead of
@@ -3873,7 +3914,7 @@ export function REPL({
   // empty to non-empty, not on every length change -- otherwise a render loop
   // (concurrent onQuery thrashing, etc.) spams saveGlobalConfig, which hits
   // ELOCKED under concurrent sessions and falls back to unlocked writes.
-  // That write storm is the primary trigger for ~/.claude.json corruption
+  // That write storm is the primary trigger for ~/.openclaude.json corruption
   // (GH #3117).
   const hasCountedQueueUseRef = useRef(false);
   useEffect(() => {
@@ -4148,7 +4189,7 @@ export function REPL({
   useEffect(() => {
     const handleSuspend = () => {
       // Print suspension instructions
-      process.stdout.write(`\nClaude Code has been suspended. Run \`fg\` to bring Claude Code back.\nNote: ctrl + z now suspends Claude Code, ctrl + _ undoes input.\n`);
+      process.stdout.write(`\nOpenClaude has been suspended. Run \`fg\` to bring OpenClaude back.\nNote: ctrl + z now suspends OpenClaude, ctrl + _ undoes input.\n`);
     };
     const handleResume = () => {
       // Force complete component tree replacement instead of terminal clear

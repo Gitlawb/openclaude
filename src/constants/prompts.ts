@@ -496,7 +496,7 @@ ${CYBER_RISK_INSTRUCTION}`,
     systemPromptSection('ant_model_override', () =>
       getAntModelOverrideSection(),
     ),
-    systemPromptSection('env_info_simple', () =>
+    systemPromptSection(`env_info_simple:${model}`, () =>
       computeSimpleEnvInfo(model, additionalWorkingDirectories),
     ),
     systemPromptSection('language', () =>
@@ -519,7 +519,7 @@ ${CYBER_RISK_INSTRUCTION}`,
       'MCP servers connect/disconnect between turns',
     ),
     systemPromptSection('scratchpad', () => getScratchpadInstructions()),
-    systemPromptSection('frc', () => getFunctionResultClearingSection(model)),
+    systemPromptSection(`frc:${model}`, () => getFunctionResultClearingSection(model)),
     systemPromptSection(
       'summarize_tool_results',
       () => SUMMARIZE_TOOL_RESULTS_SECTION,
@@ -823,6 +823,11 @@ function getFunctionResultClearingSection(model: string): string | null {
     return null
   }
   const config = getCachedMCConfigForFRC()
+  if (!config) {
+    // External/stub builds return null from getCachedMCConfig — abort the
+    // section rather than trying to read .supportedModels off null.
+    return null
+  }
   const isModelSupported = config.supportedModels?.some(pattern =>
     model.includes(pattern),
   )

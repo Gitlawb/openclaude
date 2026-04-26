@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'child_process'
 import { constants as fsConstants, readFileSync, unlinkSync } from 'fs'
-import { type FileHandle, mkdir, open, realpath } from 'fs/promises'
+import { type FileHandle, mkdir, open, stat } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
 import { isAbsolute, resolve } from 'path'
 import { join as posixJoin } from 'path/posix'
@@ -217,22 +217,34 @@ export async function exec(
 
   let cwd = pwd()
 
-  // Recover if the current working directory no longer exists on disk.
-  // This can happen when a command deletes its own CWD (e.g., temp dir cleanup).
+  // Recover if the current working directory no longer exists on disk,
+  // or was replaced by a non-directory (e.g., the path was renamed and a file
+  // was created in its place). realpath() succeeds on any existing path
+  // regardless of type, so we must also verify it's a directory — otherwise
+  // spawn would fail later with ENOTDIR / exit 126.
+  let cwdIsValidDir = false
   try {
-    await realpath(cwd)
+    cwdIsValidDir = (await stat(cwd)).isDirectory()
   } catch {
+    cwdIsValidDir = false
+  }
+  if (!cwdIsValidDir) {
     const fallback = getOriginalCwd()
     logForDebugging(
-      `Shell CWD "${cwd}" no longer exists, recovering to "${fallback}"`,
+      `Shell CWD "${cwd}" is not a valid directory, recovering to "${fallback}"`,
     )
+    let fallbackIsValidDir = false
     try {
-      await realpath(fallback)
+      fallbackIsValidDir = (await stat(fallback)).isDirectory()
+    } catch {
+      fallbackIsValidDir = false
+    }
+    if (fallbackIsValidDir) {
       setCwdState(fallback)
       cwd = fallback
-    } catch {
+    } else {
       return createFailedCommand(
-        `Working directory "${cwd}" no longer exists. Please restart Claude from an existing directory.`,
+        `Working directory "${cwd}" is no longer a valid directory. Please restart Claude from an existing directory.`,
       )
     }
   }

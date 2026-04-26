@@ -15,13 +15,14 @@ import {
 } from '../../utils/mcpOutputStorage.js'
 import { getSettings_DEPRECATED } from '../../utils/settings/settings.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
+import { ssrfGuardedLookup } from '../../utils/hooks/ssrfGuard.js'
 import { isPreapprovedHost } from './preapproved.js'
 import { makeSecondaryModelPrompt } from './prompt.js'
 
 // Custom error classes for domain blocking
 class DomainBlockedError extends Error {
   constructor(domain: string) {
-    super(`Claude Code is unable to fetch from ${domain}`)
+    super(`OpenClaude is unable to fetch from ${domain}`)
     this.name = 'DomainBlockedError'
   }
 }
@@ -274,19 +275,76 @@ export async function getWithPermittedRedirects(
   if (depth > MAX_REDIRECTS) {
     throw new Error(`Too many redirects (exceeded ${MAX_REDIRECTS})`)
   }
+
+  const axiosConfig = {
+    signal,
+    timeout: FETCH_TIMEOUT_MS,
+    maxRedirects: 0,
+    responseType: 'arraybuffer' as const,
+    maxContentLength: MAX_HTTP_CONTENT_LENGTH,
+    lookup: ssrfGuardedLookup,
+    headers: {
+      Accept: 'text/markdown, text/html, */*',
+      'User-Agent': getWebFetchUserAgent(),
+    },
+  }
+
   try {
-    return await axios.get(url, {
-      signal,
-      timeout: FETCH_TIMEOUT_MS,
-      maxRedirects: 0,
-      responseType: 'arraybuffer',
-      maxContentLength: MAX_HTTP_CONTENT_LENGTH,
-      headers: {
-        Accept: 'text/markdown, text/html, */*',
-        'User-Agent': getWebFetchUserAgent(),
-      },
-    })
+    return await axios.get(url, axiosConfig)
   } catch (error) {
+    // Try native fetch as a fallback for timeout / network errors
+    // (Bun/Node bundled contexts occasionally hang with axios + custom lookup.)
+    const isTimeoutLike =
+      axios.isAxiosError(error) &&
+      (!error.response &&
+        (error.code === 'ECONNABORTED' ||
+          error.code === 'ETIMEDOUT' ||
+          error.message?.toLowerCase().includes('timeout')))
+    if (isTimeoutLike && !signal.aborted) {
+      try {
+        const fetchResponse = await fetch(url, {
+          signal,
+          redirect: 'manual',
+          headers: axiosConfig.headers,
+        })
+        // Handle redirects manually
+        if ([301, 302, 307, 308].includes(fetchResponse.status)) {
+          const redirectLocation = fetchResponse.headers.get('location')
+          if (!redirectLocation) {
+            throw new Error('Redirect missing Location header')
+          }
+          const redirectUrl = new URL(redirectLocation, url).toString()
+          if (redirectChecker(url, redirectUrl)) {
+            return getWithPermittedRedirects(
+              redirectUrl,
+              signal,
+              redirectChecker,
+              depth + 1,
+            )
+          } else {
+            return {
+              type: 'redirect' as const,
+              originalUrl: url,
+              redirectUrl,
+              statusCode: fetchResponse.status,
+            }
+          }
+        }
+        const arrayBuffer = await fetchResponse.arrayBuffer()
+        // Build an AxiosResponse-like shape so downstream code stays happy
+        return {
+          data: new Uint8Array(arrayBuffer),
+          status: fetchResponse.status,
+          statusText: fetchResponse.statusText,
+          headers: Object.fromEntries(fetchResponse.headers.entries()),
+          config: axiosConfig,
+          request: undefined,
+        } as unknown as AxiosResponse<ArrayBuffer>
+      } catch {
+        // Fall through to original error handling
+      }
+    }
+
     if (
       axios.isAxiosError(error) &&
       error.response &&
@@ -487,6 +545,58 @@ export async function getURLMarkdownContent(
   return entry
 }
 
+// Budget for the secondary-model summarization after fetch. If the small-
+// fast model is slow (e.g. a 200k-context third-party running a reasoning
+// pass over ~100KB of markdown), we'd rather fall back to raw truncated
+// markdown than hang the tool. Also keeps the worst-case WebFetch bounded
+// to FETCH_TIMEOUT_MS + SECONDARY_MODEL_TIMEOUT_MS regardless of provider.
+const SECONDARY_MODEL_TIMEOUT_MS = 45_000
+
+function raceWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const err = new Error(`Secondary-model summarization timed out after ${timeoutMs}ms`)
+      ;(err as NodeJS.ErrnoException).code = 'SECONDARY_MODEL_TIMEOUT'
+      reject(err)
+    }, timeoutMs)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new AbortError())
+    }
+    if (signal.aborted) {
+      clearTimeout(timer)
+      reject(new AbortError())
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      err => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        reject(err)
+      },
+    )
+  })
+}
+
+function buildFallbackMarkdownSummary(truncatedContent: string): string {
+  return [
+    '[Secondary-model summarization unavailable — returning raw fetched content.',
+    'This typically means the configured small-fast model took too long or errored.]',
+    '',
+    truncatedContent,
+  ].join('\n')
+}
+
 export async function applyPromptToMarkdown(
   prompt: string,
   markdownContent: string,
@@ -506,18 +616,35 @@ export async function applyPromptToMarkdown(
     prompt,
     isPreapprovedDomain,
   )
-  const assistantMessage = await queryHaiku({
-    systemPrompt: asSystemPrompt([]),
-    userPrompt: modelPrompt,
-    signal,
-    options: {
-      querySource: 'web_fetch_apply',
-      agents: [],
-      isNonInteractiveSession,
-      hasAppendSystemPrompt: false,
-      mcpTools: [],
-    },
-  })
+  let assistantMessage
+  try {
+    assistantMessage = await raceWithTimeout(
+      queryHaiku({
+        systemPrompt: asSystemPrompt([]),
+        userPrompt: modelPrompt,
+        signal,
+        options: {
+          querySource: 'web_fetch_apply',
+          agents: [],
+          isNonInteractiveSession,
+          hasAppendSystemPrompt: false,
+          mcpTools: [],
+        },
+      }),
+      SECONDARY_MODEL_TIMEOUT_MS,
+      signal,
+    )
+  } catch (err) {
+    // User interrupts and SIGINTs still propagate. Everything else (timeout,
+    // provider-side error, unsupported model on third-party endpoint) falls
+    // back to raw markdown so the user still gets usable content rather than
+    // a hang. Log so it's visible in debug traces.
+    if (err instanceof AbortError || (err as Error)?.name === 'AbortError') {
+      throw err
+    }
+    logError(err)
+    return buildFallbackMarkdownSummary(truncatedContent)
+  }
 
   // We need to bubble this up, so that the tool call throws, causing us to return
   // an is_error tool_use block to the server, and render a red dot in the UI.
@@ -532,5 +659,5 @@ export async function applyPromptToMarkdown(
       return contentBlock.text
     }
   }
-  return 'No response from model'
+  return buildFallbackMarkdownSummary(truncatedContent)
 }

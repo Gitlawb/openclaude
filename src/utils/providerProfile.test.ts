@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.ts'
 import {
+  applySavedProfileToCurrentSession,
   buildStartupEnvFromProfile,
   buildAtomicChatProfileEnv,
   buildCodexProfileEnv,
@@ -39,6 +40,11 @@ function profile(profile: ProfileFile['profile'], env: ProfileFile['env']): Prof
     env,
     createdAt: '2026-04-01T00:00:00.000Z',
   }
+}
+
+async function importFreshProviderProfileModule() {
+  const nonce = `${Date.now()}-${Math.random()}`
+  return import(`./providerProfile.ts?ts=${nonce}`)
 }
 
 const missingCodexAuthPath = join(tmpdir(), 'openclaude-missing-codex-auth.json')
@@ -111,6 +117,24 @@ test('openai launch ignores mismatched persisted ollama env', async () => {
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
 })
 
+test('openai launch omits api key when no key is resolved', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_KEY: undefined as any,
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(Object.hasOwn(env, 'OPENAI_API_KEY'), false)
+})
+
 test('openai launch ignores codex shell transport hints', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',
@@ -144,6 +168,39 @@ test('openai launch ignores codex persisted transport hints', async () => {
 
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(env.OPENAI_API_KEY, 'sk-live')
+})
+
+test('openai launch preserves shell responses format and custom auth overrides', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://persisted.example/v1',
+      OPENAI_MODEL: 'persisted-model',
+      OPENAI_API_FORMAT: 'chat_completions',
+      OPENAI_AUTH_HEADER: 'X-Persisted-Key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'persisted-secret',
+      OPENAI_API_KEY: 'sk-persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://shell.example/v1',
+      OPENAI_MODEL: 'shell-model',
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_AUTH_HEADER: 'api-key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'shell-secret',
+      OPENAI_API_KEY: 'sk-live',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://shell.example/v1')
+  assert.equal(env.OPENAI_MODEL, 'shell-model')
+  assert.equal(env.OPENAI_API_FORMAT, 'responses')
+  assert.equal(env.OPENAI_AUTH_HEADER, 'api-key')
+  assert.equal(env.OPENAI_AUTH_SCHEME, 'raw')
+  assert.equal(env.OPENAI_AUTH_HEADER_VALUE, 'shell-secret')
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
 })
 
@@ -358,6 +415,32 @@ test('codex profiles require a chatgpt account id', () => {
   assert.equal(env, null)
 })
 
+test('codex launch clears openai-compatible format and custom auth env', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'codex',
+    persisted: profile('codex', {
+      OPENAI_BASE_URL: 'https://chatgpt.com/backend-api/codex',
+      OPENAI_MODEL: 'codexspark',
+      CHATGPT_ACCOUNT_ID: 'acct_persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_AUTH_HEADER: 'api-key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'hicap-header-secret',
+      CODEX_API_KEY: 'codex-live',
+      CHATGPT_ACCOUNT_ID: 'acct_live',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_FORMAT, undefined)
+  assert.equal(env.OPENAI_AUTH_HEADER, undefined)
+  assert.equal(env.OPENAI_AUTH_SCHEME, undefined)
+  assert.equal(env.OPENAI_AUTH_HEADER_VALUE, undefined)
+  assert.equal(env.CODEX_API_KEY, 'codex-live')
+})
+
 test('gemini profiles accept google api key fallback', () => {
   const env = buildGeminiProfileEnv({
     processEnv: {
@@ -368,6 +451,21 @@ test('gemini profiles accept google api key fallback', () => {
   assert.deepEqual(env, {
     GEMINI_AUTH_MODE: 'api-key',
     GEMINI_MODEL: 'gemini-2.0-flash',
+    GEMINI_API_KEY: 'gem-live',
+  })
+})
+
+test('gemini profiles use the first model from a semicolon-separated list', () => {
+  const env = buildGeminiProfileEnv({
+    authMode: 'api-key',
+    apiKey: 'gem-live',
+    model: 'gemini-2.5-pro; gemini-2.5-flash',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    GEMINI_AUTH_MODE: 'api-key',
+    GEMINI_MODEL: 'gemini-2.5-pro',
     GEMINI_API_KEY: 'gem-live',
   })
 })
@@ -572,31 +670,110 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
   assert.equal(env.OPENAI_API_KEY, undefined)
 })
 
-test('buildStartupEnvFromProfile lets saved startup profile override profile-managed env', async () => {
+test('buildStartupEnvFromProfile preserves explicit GitHub provider settings when the legacy file is stale', async () => {
   const processEnv = {
-    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
-    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: 'saved_ollama',
-    CLAUDE_CODE_USE_OPENAI: '1',
-    OPENAI_BASE_URL: 'http://localhost:11434/v1',
-    OPENAI_MODEL: 'llama3.1:8b',
+    CLAUDE_CODE_USE_GITHUB: '1',
+    OPENAI_MODEL: 'github:copilot',
   }
 
   const env = await buildStartupEnvFromProfile({
     persisted: profile('openai', {
-      OPENAI_API_KEY: 'sk-persisted',
+      OPENAI_API_KEY: 'sk-stale',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_USE_GITHUB, '1')
+  assert.equal(env.OPENAI_MODEL, 'github:copilot')
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.OPENAI_BASE_URL, undefined)
+})
+
+test('applySavedProfileToCurrentSession can switch away from GitHub provider env', async () => {
+  const { applySavedProfileToCurrentSession } = await importFreshProviderProfileModule()
+  const processEnv = {
+    CLAUDE_CODE_USE_GITHUB: '1',
+    OPENAI_MODEL: 'github:copilot',
+  }
+
+  const error = await applySavedProfileToCurrentSession({
+    profileFile: profile('ollama', {
+      OPENAI_BASE_URL: 'http://localhost:11434/v1',
+      OPENAI_MODEL: 'llama3.1:8b',
+    }),
+    processEnv,
+  })
+
+  assert.equal(error, null)
+  assert.equal(processEnv.CLAUDE_CODE_USE_GITHUB, undefined)
+  assert.equal(processEnv.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(processEnv.OPENAI_BASE_URL, 'http://localhost:11434/v1')
+  assert.equal(processEnv.OPENAI_MODEL, 'llama3.1:8b')
+  assert.equal(Object.hasOwn(processEnv, 'OPENAI_API_KEY'), false)
+})
+
+test('buildStartupEnvFromProfile preserves plural-profile env when the legacy file is stale', async () => {
+  // Regression: a user saves a provider via /provider (plural system).
+  // addProviderProfile does NOT sync the legacy .openclaude-profile.json,
+  // so the legacy file retains whatever it had from an earlier setup (e.g.
+  // OpenAI defaults). At startup, applyActiveProviderProfileFromConfig()
+  // correctly applies the active plural profile (Moonshot) first, marking
+  // env with CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED=1. The legacy-file
+  // load must NOT overwrite that env — it previously did, surfacing as
+  // "banner shows the wrong provider / model".
+  const processEnv = {
+    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
+    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: 'saved_moonshot',
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_BASE_URL: 'https://api.moonshot.ai/v1',
+    OPENAI_MODEL: 'kimi-k2.6',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    // Stale legacy file — points at SambaNova, but user's active plural
+    // profile is Moonshot and was just applied.
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-stale',
       OPENAI_MODEL: 'Meta-Llama-3.1-70B-Instruct',
       OPENAI_BASE_URL: 'https://api.sambanova.ai/v1',
     }),
     processEnv,
   })
 
+  assert.equal(env, processEnv)
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.moonshot.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'kimi-k2.6')
+  // Plural markers are retained — downstream code uses them to verify the
+  // env still belongs to the profile it was applied from.
+  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED, '1')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, 'saved_moonshot')
+})
+
+test('buildStartupEnvFromProfile falls back to legacy file when plural system has not applied', async () => {
+  // Counter-example: first-run user with only the legacy file (no plural
+  // active profile yet). The legacy file is the correct source, so the
+  // load must proceed as before.
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '1',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-legacy',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv,
+  })
+
   assert.notEqual(env, processEnv)
-  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
-  assert.equal(env.OPENAI_API_KEY, 'sk-persisted')
-  assert.equal(env.OPENAI_MODEL, 'Meta-Llama-3.1-70B-Instruct')
-  assert.equal(env.OPENAI_BASE_URL, 'https://api.sambanova.ai/v1')
-  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED, undefined)
-  assert.equal(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID, undefined)
+  assert.equal(env.OPENAI_API_KEY, 'sk-legacy')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
 })
 
 test('buildStartupEnvFromProfile treats explicit falsey provider flags as user intent', async () => {
@@ -627,10 +804,17 @@ test('maskSecretForDisplay preserves only a short prefix and suffix', () => {
 
 test('redactSecretValueForDisplay masks poisoned display fields that equal configured secrets', () => {
   const apiKey = 'sk-secret-12345678'
+  const authHeaderValue = 'hicap-header-secret'
 
   assert.equal(
     redactSecretValueForDisplay(apiKey, { OPENAI_API_KEY: apiKey }),
     'sk-...678',
+  )
+  assert.equal(
+    redactSecretValueForDisplay(authHeaderValue, {
+      OPENAI_AUTH_HEADER_VALUE: authHeaderValue,
+    }),
+    'hic...ret',
   )
   assert.equal(
     redactSecretValueForDisplay('gpt-4o', { OPENAI_API_KEY: apiKey }),
@@ -669,6 +853,37 @@ test('openai profiles ignore codex shell transport hints', () => {
   })
 })
 
+test('openai profiles keep shell base and model when shell format is responses', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://shell.example/v1',
+      OPENAI_MODEL: 'shell-model',
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_API_KEY: 'sk-live',
+    },
+  })
+
+  assert.equal(env?.OPENAI_BASE_URL, 'https://shell.example/v1')
+  assert.equal(env?.OPENAI_MODEL, 'shell-model')
+  assert.equal(env?.OPENAI_API_KEY, 'sk-live')
+})
+
+test('openai profiles use the first model from a semicolon-separated list', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    apiKey: 'sk-live',
+    model: 'gpt-5.4; gpt-5.4-mini',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    OPENAI_MODEL: 'gpt-5.4',
+    OPENAI_API_KEY: 'sk-live',
+  })
+})
+
 test('openai profiles ignore poisoned shell model and base url values', () => {
   const env = buildOpenAIProfileEnv({
     goal: 'balanced',
@@ -687,6 +902,22 @@ test('openai profiles ignore poisoned shell model and base url values', () => {
   })
 })
 
+test('openai profiles normalize multi-model profile values to the primary model', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    apiKey: 'sk-live',
+    model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat',
+    baseUrl: 'https://api.deepseek.com/v1',
+    processEnv: {},
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
+    OPENAI_MODEL: 'deepseek-v4-flash',
+    OPENAI_API_KEY: 'sk-live',
+  })
+})
+
 test('startup env ignores poisoned persisted openai model and base url', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('openai', {
@@ -700,6 +931,22 @@ test('startup env ignores poisoned persisted openai model and base url', async (
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
   assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+})
+
+test('startup env normalizes a semicolon-separated persisted openai model list', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_API_KEY: 'sk-live',
+      OPENAI_MODEL: 'gpt-5.4; gpt-5.4-mini',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_API_KEY, 'sk-live')
+  assert.equal(env.OPENAI_MODEL, 'gpt-5.4')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
 })
 
