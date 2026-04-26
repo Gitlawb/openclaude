@@ -24,6 +24,7 @@ import {
 import {
   getProviderPresetUiMetadata,
   getRouteProviderTypeLabel,
+  getTransportKindForRoute,
   ORDERED_PROVIDER_PRESETS,
   routeSupportsCustomHeaders,
   resolveProfileRoute,
@@ -224,23 +225,26 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
 function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   const activeSuffix = isActive ? ' (active)' : ''
   const keyInfo = profile.apiKey ? 'key set' : 'no key'
-  const providerKind = getRouteProviderTypeLabel(
-    resolveProfileRoute(profile.provider).routeId,
-  )
+  const routeId = resolveProfileRoute(profile.provider).routeId
+  const providerKind = getRouteProviderTypeLabel(routeId)
   const models = parseModelList(profile.model)
   const modelDisplay =
     models.length <= 3
       ? models.join(', ')
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
-    profile.provider === 'openai'
+    supportsOpenAICompatibilityOptions(routeId)
       ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
       : ''
   const authInfo =
-    profile.provider === 'openai' && profile.authHeader
+    supportsOpenAICompatibilityOptions(routeId) && profile.authHeader
       ? ` · ${profile.authHeader} auth`
       : ''
   return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${authInfo} · ${keyInfo}${activeSuffix}`
+}
+
+function supportsOpenAICompatibilityOptions(routeId: string): boolean {
+  return getTransportKindForRoute(routeId) === 'openai-compatible'
 }
 
 function getGithubCredentialSourceFromEnv(
@@ -523,9 +527,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     () => {
       const routeId = resolveProfileRoute(draftProvider).routeId
       const supportsCustomHeaders = routeSupportsCustomHeaders(routeId)
+      const supportsOpenAIOptions = supportsOpenAICompatibilityOptions(routeId)
       return FORM_STEPS.filter(step => {
         if (
-          draftProvider !== 'openai' &&
+          !supportsOpenAIOptions &&
           (step.key === 'apiFormat' ||
             step.key === 'authHeader' ||
             step.key === 'authHeaderValue')
@@ -1097,6 +1102,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     const routeId = resolveProfileRoute(draftProvider).routeId
+    const supportsOpenAIOptions = supportsOpenAICompatibilityOptions(routeId)
     const payload: ProviderProfileInput = {
       provider: draftProvider,
       name: nextDraft.name,
@@ -1104,19 +1110,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
       apiFormat:
-        draftProvider === 'openai' && nextDraft.apiFormat === 'responses'
+        supportsOpenAIOptions && nextDraft.apiFormat === 'responses'
           ? 'responses'
           : 'chat_completions',
       authHeader:
-        draftProvider === 'openai' && nextDraft.authHeader
+        supportsOpenAIOptions && nextDraft.authHeader
           ? nextDraft.authHeader
           : undefined,
       authScheme:
-        draftProvider === 'openai' && nextDraft.authHeader
+        supportsOpenAIOptions && nextDraft.authHeader
           ? (nextDraft.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw')
           : undefined,
       authHeaderValue:
-        draftProvider === 'openai' && nextDraft.authHeaderValue
+        supportsOpenAIOptions && nextDraft.authHeaderValue
           ? nextDraft.authHeaderValue
           : undefined,
       customHeaders:

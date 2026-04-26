@@ -378,6 +378,25 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('custom OpenAI-compatible responses profile sets OPENAI_API_FORMAT', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'https://custom.example/v1',
+        model: 'custom-responses-model',
+        apiFormat: 'responses',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('custom-responses-model')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://custom.example/v1')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
   test('openai profile sets custom auth header name and value', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

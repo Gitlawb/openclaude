@@ -186,6 +186,16 @@ function mockProviderProfilesModule(options?: {
         }
       }
 
+      if (preset === 'custom') {
+        return {
+          provider: 'custom',
+          name: 'Custom OpenAI-compatible',
+          baseUrl: 'http://localhost:11434/v1',
+          model: 'custom-model',
+          apiKey: '',
+        }
+      }
+
       return {
         provider: 'openai',
         name: 'Mock provider',
@@ -521,6 +531,49 @@ test('ProviderManager avoids first-frame false negative while stored-token looku
 
   expect(syncRead).not.toHaveBeenCalled()
   expect(asyncRead).toHaveBeenCalled()
+})
+
+test('ProviderManager shows API mode picker for custom OpenAI-compatible providers', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined)
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'Custom')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') &&
+      frame.includes('Provider name'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Default model'),
+    )
+    mounted.stdin.write('\r')
+
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('API mode') && frame.includes('Chat Completions'),
+    )
+    expect(output).toContain('Responses')
+  } finally {
+    await mounted.dispose()
+  }
 })
 
 test('ProviderManager first-run Ollama preset auto-detects installed models', async () => {

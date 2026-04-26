@@ -29,6 +29,7 @@ import {
 import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
 import {
   getProviderPresetUiMetadata,
+  getTransportKindForRoute,
   routeSupportsCustomHeaders,
   resolveProfileRoute,
   type ResolvedProfileRoute,
@@ -138,6 +139,8 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const authScheme = sanitizeAuthScheme(profile.authScheme)
   const authHeaderValue = trimOrUndefined(profile.authHeaderValue)
   const route = resolveProfileRoute(provider)
+  const supportsOpenAICompatibilityOptions =
+    getTransportKindForRoute(route.routeId) === 'openai-compatible'
   const customHeaders = routeSupportsCustomHeaders(route.routeId)
     ? sanitizeProfileCustomHeaders(profile.customHeaders)
     : undefined
@@ -154,10 +157,10 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     model,
     apiKey: trimOrUndefined(profile.apiKey),
   }
-  if (provider === 'openai' && apiFormat) {
+  if (supportsOpenAICompatibilityOptions && apiFormat) {
     sanitized.apiFormat = apiFormat
   }
-  if (provider === 'openai' && authHeader) {
+  if (supportsOpenAICompatibilityOptions && authHeader) {
     sanitized.authHeader = authHeader
     sanitized.authScheme = authScheme ?? (
       authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
