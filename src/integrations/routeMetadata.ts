@@ -12,7 +12,6 @@ import {
   getVendor,
   resolveProfileRoute,
 } from './index.js'
-import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 
 export type RouteDescriptor = GatewayDescriptor | VendorDescriptor
@@ -72,6 +71,35 @@ function normalizeHost(
 function getAllRoutes(): RouteDescriptor[] {
   ensureIntegrationsLoaded()
   return [...getAllGateways(), ...getAllVendors()]
+}
+
+function resolveKnownLocalRouteIdFromBaseUrl(baseUrl?: string): string | null {
+  if (!baseUrl) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(baseUrl)
+    const host = parsed.host.toLowerCase()
+    const hostname = parsed.hostname.toLowerCase()
+    const path = parsed.pathname.toLowerCase()
+    const haystack = `${hostname} ${path}`
+
+    if (host.endsWith(':11434') || haystack.includes('ollama')) {
+      return 'ollama'
+    }
+    if (
+      host.endsWith(':1234') ||
+      haystack.includes('lmstudio') ||
+      haystack.includes('lm-studio')
+    ) {
+      return 'lmstudio'
+    }
+  } catch {
+    return null
+  }
+
+  return null
 }
 
 export function getRouteDescriptor(
@@ -174,12 +202,9 @@ export function resolveRouteIdFromBaseUrl(
     }
   }
 
-  const providerLabel = getLocalOpenAICompatibleProviderLabel(baseUrl)
-  if (providerLabel === 'Ollama') {
-    return 'ollama'
-  }
-  if (providerLabel === 'LM Studio') {
-    return 'lmstudio'
+  const localRouteId = resolveKnownLocalRouteIdFromBaseUrl(baseUrl)
+  if (localRouteId) {
+    return localRouteId
   }
 
   return null

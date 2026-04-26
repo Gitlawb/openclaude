@@ -15,6 +15,14 @@
 - [x] Preset defaults and `/usage` can read from descriptors
 - [x] Existing saved profiles still deserialize and activate
 
+### Post-Main-Merge Drift Review
+
+- [x] Reconciled upstream Z.AI provider support into the descriptor framework after merging `main`
+- [x] Removed the standalone Z.AI URL/model helper path from active code
+- [x] Moved Z.AI thinking/context/output metadata into the Z.AI route catalog
+- [x] Kept Z.AI shim behavior descriptor-backed through runtime route metadata
+- [x] Verified descriptor-backed labels and provider flag defaults after the merge
+
 ---
 
 ## Phase 1A: Registry Skeleton
@@ -44,7 +52,7 @@
 - [x] `src/integrations/vendors/deepseek.ts` — openai-compatible, static/hybrid catalog
 - [x] `src/integrations/vendors/minimax.ts` — usage supported
 - [x] `src/integrations/vendors/bankr.ts` — openai-compatible
-- [x] `src/integrations/vendors/zai.ts` — skipped (PR #896 not landed)
+- [x] `src/integrations/vendors/zai.ts` — descriptor added after upstream PR #896 landed during the main merge
 
 ### Gateways (hosted and local)
 - [x] `src/integrations/gateways/ollama.ts` — local, dynamic discovery

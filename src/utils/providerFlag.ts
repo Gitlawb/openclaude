@@ -99,6 +99,7 @@ function parseModelFlag(args: string[]): string | null {
 
 function getRouteDefaults(provider: string): {
   defaultBaseUrl?: string
+  defaultModel?: string
 } {
   ensureIntegrationsLoaded()
 
@@ -110,8 +111,11 @@ function getRouteDefaults(provider: string): {
     (route.gatewayId ? getGateway(route.gatewayId) : undefined) ??
     getGateway(route.routeId)
 
+  const defaultModel = gateway?.defaultModel ?? vendor?.defaultModel
+
   return {
     defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl,
+    defaultModel: Array.isArray(defaultModel) ? defaultModel[0] : defaultModel,
   }
 }
 
@@ -141,7 +145,7 @@ export function applyProviderFlag(
   delete process.env.CLAUDE_CODE_USE_VERTEX
 
   const model = parseModelFlag(args)
-  const { defaultBaseUrl } = getRouteDefaults(provider)
+  const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
 
   switch (provider) {
     case 'anthropic':
@@ -210,17 +214,13 @@ export function applyProviderFlag(
       }
       break
 
-    case 'zai':
-      process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.z.ai/api/coding/paas/v4'
-      process.env.OPENAI_MODEL ??= 'GLM-5.1'
-      if (model) process.env.OPENAI_MODEL = model
-      break
-
     default:
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       if (defaultBaseUrl) {
         process.env.OPENAI_BASE_URL ??= defaultBaseUrl
+      }
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
       }
       if (model) process.env.OPENAI_MODEL = model
       break
