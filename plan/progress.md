@@ -863,6 +863,55 @@ Notes:
 
 ---
 
+## Post-Phase Follow-Up: Profile-Owned Custom Headers
+
+**Status**: `IN PROGRESS`
+
+**Plan alignment**: closes the custom-provider/header rules in
+[`cheeky-cooking-moon.md`](./cheeky-cooking-moon.md):
+
+- optional custom headers are allowed only through descriptor-supported UI;
+- user-supplied custom headers are stored on provider profiles, not descriptors;
+- runtime merge order is descriptor static headers, profile custom headers,
+  request-specific headers;
+- unsafe header names are rejected or redacted and secret values are not logged;
+- OpenAI-compatible discovery uses route base URL and descriptor/profile-resolved
+  headers.
+
+### Task Breakdown
+
+- [ ] Extend persisted `ProviderProfile` shape with optional
+  `customHeaders: Record<string, string>` while preserving old profile
+  deserialization.
+- [ ] Add shared parser/sanitizer helpers for profile custom headers:
+  - accept compact profile-manager input such as `Header: value; Header-2: value`;
+  - trim empty entries;
+  - reject malformed header names;
+  - reject auth/internal/Anthropic-owned names such as `Authorization`,
+    `api-key`, `X-API-Key`, `x-anthropic-*`, `anthropic-*`, `x-claude-*`,
+    `x-app`, and `x-client-app`.
+- [ ] Update `/provider` profile create/edit UI to show the custom-header step
+  only when `routeSupportsCustomHeaders(routeId)` is true.
+- [ ] Store sanitized custom headers on the saved profile and preserve them
+  during profile edit/update.
+- [ ] Apply profile custom headers to active profile env through
+  `ANTHROPIC_CUSTOM_HEADERS`, scoped to supported routes only, so existing API
+  client header plumbing carries them into OpenAI-compatible requests.
+- [ ] Include profile custom headers in startup-profile fallback env so saved
+  profiles still work after restart.
+- [ ] Include profile custom headers in descriptor discovery refreshes and
+  bootstrap model discovery.
+- [ ] Add regression tests for:
+  - storing and sanitizing profile custom headers;
+  - rejecting unsafe header names;
+  - applying headers to process env for supported routes only;
+  - preserving descriptor/header merge order in requests;
+  - passing descriptor + profile headers into model discovery.
+- [ ] Re-run provider-profile, provider-manager, OpenAI shim, discovery, and
+  bootstrap-adjacent targeted suites.
+
+---
+
 ## Quick Reference: Files Created in Phase 1
 
 ```text
