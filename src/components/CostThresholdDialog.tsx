@@ -2,34 +2,28 @@ import React from 'react'
 import { Box, Link, Text } from '../ink.js'
 import { Select } from './CustomSelect/index.js'
 import { Dialog } from './design-system/Dialog.js'
-import { getAPIProvider } from '../utils/model/providers.js'
+import { getAPIProvider, type APIProvider } from '../utils/model/providers.js'
 
 type Props = {
   onDone: () => void
 }
 
-function getProviderLabel(): string {
+const COST_THRESHOLD_PROVIDER_LABELS: Partial<Record<APIProvider, string>> = {
+  firstParty: 'Anthropic API',
+  bedrock: 'AWS Bedrock',
+  vertex: 'Google Vertex',
+  foundry: 'Azure Foundry',
+  openai: 'OpenAI-compatible API',
+  gemini: 'Gemini API',
+}
+
+export function getCostThresholdProviderLabel(): string {
   const provider = getAPIProvider()
-  switch (provider) {
-    case 'firstParty':
-      return 'Anthropic API'
-    case 'bedrock':
-      return 'AWS Bedrock'
-    case 'vertex':
-      return 'Google Vertex'
-    case 'foundry':
-      return 'Azure Foundry'
-    case 'openai':
-      return 'OpenAI-compatible API'
-    case 'gemini':
-      return 'Gemini API'
-    default:
-      return 'API'
-  }
+  return COST_THRESHOLD_PROVIDER_LABELS[provider] ?? 'API'
 }
 
 export function CostThresholdDialog({ onDone }: Props): React.ReactNode {
-  const providerLabel = getProviderLabel()
+  const providerLabel = getCostThresholdProviderLabel()
   return (
     <Dialog
       title={`You've spent $5 on the ${providerLabel} this session.`}

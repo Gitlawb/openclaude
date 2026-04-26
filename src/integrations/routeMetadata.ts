@@ -17,6 +17,18 @@ import { isEnvTruthy } from '../utils/envUtils.js'
 
 export type RouteDescriptor = GatewayDescriptor | VendorDescriptor
 
+const TRANSPORT_KIND_PROVIDER_TYPE_LABELS: Partial<
+  Record<TransportKind, string>
+> = {
+  'anthropic-native': 'Anthropic native API',
+  'gemini-native': 'Gemini API',
+  bedrock: 'AWS Bedrock Claude API',
+  vertex: 'Google Vertex Claude API',
+  'anthropic-proxy': 'Anthropic-compatible API',
+  local: 'OpenAI-compatible API',
+  'openai-compatible': 'OpenAI-compatible API',
+}
+
 function getValidationRoutingHosts(
   descriptor: RouteDescriptor,
 ): string[] {
@@ -120,23 +132,10 @@ export function getRouteProviderTypeLabel(
   routeId: string,
 ): string {
   const kind = getRouteDescriptor(routeId)?.transportConfig.kind
-
-  switch (kind) {
-    case 'anthropic-native':
-      return 'Anthropic native API'
-    case 'gemini-native':
-      return 'Gemini API'
-    case 'bedrock':
-      return 'AWS Bedrock Claude API'
-    case 'vertex':
-      return 'Google Vertex Claude API'
-    case 'anthropic-proxy':
-      return 'Anthropic-compatible API'
-    case 'local':
-    case 'openai-compatible':
-    default:
-      return 'OpenAI-compatible API'
-  }
+  return (
+    (kind ? TRANSPORT_KIND_PROVIDER_TYPE_LABELS[kind] : undefined) ??
+    'OpenAI-compatible API'
+  )
 }
 
 export function resolveRouteIdFromBaseUrl(

@@ -11,7 +11,7 @@ import { getDisplayPath } from './file.js';
 import { formatNumber } from './format.js';
 import { getIdeClientName, type IDEExtensionInstallationStatus, isJetBrainsIde, toIDEDisplayName } from './ide.js';
 import { getClaudeAiUserDefaultModelDescription, modelDisplayString } from './model/model.js';
-import { getAPIProvider } from './model/providers.js';
+import { getAPIProvider, type APIProvider } from './model/providers.js';
 import { resolveProviderRequest } from '../services/api/providerConfig.js';
 import { getMTLSConfig } from './mtls.js';
 import { checkInstall } from './nativeInstaller/index.js';
@@ -27,6 +27,84 @@ export type Property = {
   value: React.ReactNode | Array<string>;
 };
 export type Diagnostic = React.ReactNode;
+
+const API_PROVIDER_LABELS: Partial<Record<APIProvider, string>> = {
+  bedrock: 'AWS Bedrock',
+  vertex: 'Google Vertex AI',
+  foundry: 'Microsoft Foundry',
+  openai: 'OpenAI-compatible',
+  codex: 'Codex',
+  gemini: 'Google Gemini',
+  github: 'GitHub Models',
+  'nvidia-nim': 'NVIDIA NIM',
+  minimax: 'MiniMax',
+  mistral: 'Mistral',
+};
+
+const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
+  Record<
+    APIProvider,
+    {
+      baseUrlLabel: string;
+      resolveModelMetadata?: boolean;
+    }
+  >
+> = {
+  openai: {
+    baseUrlLabel: 'OpenAI base URL',
+    resolveModelMetadata: true,
+  },
+  codex: {
+    baseUrlLabel: 'Codex base URL',
+    resolveModelMetadata: true,
+  },
+  'nvidia-nim': {
+    baseUrlLabel: 'NVIDIA NIM base URL',
+  },
+  minimax: {
+    baseUrlLabel: 'MiniMax base URL',
+  },
+};
+
+function formatOpenAICompatibleModelDisplay(
+  model: string,
+  resolveModelMetadata = false,
+): string {
+  if (!resolveModelMetadata) {
+    return model;
+  }
+
+  let modelDisplay = model;
+  const resolved = resolveProviderRequest({ model });
+  const resolvedModel = resolved.resolvedModel;
+  const reasoningEffort = resolved.reasoning?.effort;
+
+  if (resolvedModel && resolvedModel !== model.toLowerCase()) {
+    modelDisplay = resolvedModel;
+  }
+
+  if (reasoningEffort) {
+    modelDisplay = `${modelDisplay} (${reasoningEffort})`;
+  }
+
+  return modelDisplay;
+}
+
+function pushRedactedProperty(
+  properties: Property[],
+  label: string,
+  value: string | undefined,
+  secretSource: SecretValueSource,
+): void {
+  if (!value) {
+    return;
+  }
+
+  properties.push({
+    label,
+    value: redactSecretValueForDisplay(value, secretSource) ?? value
+  });
+}
 export function buildSandboxProperties(): Property[] {
   if (process.env.USER_TYPE !== 'ant') {
     return [];
@@ -251,18 +329,7 @@ export function buildAPIProviderProperties(): Property[] {
     MISTRAL_API_KEY: process.env.MISTRAL_API_KEY
   };
   if (apiProvider !== 'firstParty') {
-    const providerLabel = {
-      bedrock: 'AWS Bedrock',
-      vertex: 'Google Vertex AI',
-      foundry: 'Microsoft Foundry',
-      openai: 'OpenAI-compatible',
-      codex: 'Codex',
-      gemini: 'Google Gemini',
-      github: 'GitHub Models',
-      'nvidia-nim': 'NVIDIA NIM',
-      minimax: 'MiniMax',
-      mistral: 'Mistral',
-    }[apiProvider];
+    const providerLabel = API_PROVIDER_LABELS[apiProvider];
     properties.push({
       label: 'API provider',
       value: providerLabel
@@ -337,120 +404,38 @@ export function buildAPIProviderProperties(): Property[] {
         value: 'Microsoft Foundry auth skipped'
       });
     }
-  } else if (apiProvider === 'openai') {
-    const openaiBaseUrl = process.env.OPENAI_BASE_URL;
-    if (openaiBaseUrl) {
-      properties.push({
-        label: 'OpenAI base URL',
-        value: redactSecretValueForDisplay(openaiBaseUrl, secretSource) ?? openaiBaseUrl
-      });
-    }
+  } else if (apiProvider in OPENAI_COMPATIBLE_STATUS_METADATA) {
+    const metadata =
+      OPENAI_COMPATIBLE_STATUS_METADATA[apiProvider]!;
+    pushRedactedProperty(
+      properties,
+      metadata.baseUrlLabel,
+      process.env.OPENAI_BASE_URL,
+      secretSource,
+    );
     const openaiModel = process.env.OPENAI_MODEL;
     if (openaiModel) {
-      // Build display model string with resolved model + reasoning effort
-      let modelDisplay = openaiModel;
-      const resolved = resolveProviderRequest({ model: openaiModel });
-      const resolvedModel = resolved.resolvedModel;
-      const reasoningEffort = resolved.reasoning?.effort;
-      if (resolvedModel && resolvedModel !== openaiModel.toLowerCase()) {
-        // Show resolved model name
-        modelDisplay = resolvedModel;
-      }
-      if (reasoningEffort) {
-        modelDisplay = `${modelDisplay} (${reasoningEffort})`;
-      }
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(modelDisplay, secretSource) ?? modelDisplay
-      });
-    }
-  } else if (apiProvider === 'codex') {
-    const codexBaseUrl = process.env.OPENAI_BASE_URL;
-    if (codexBaseUrl) {
-      properties.push({
-        label: 'Codex base URL',
-        value: redactSecretValueForDisplay(codexBaseUrl, secretSource) ?? codexBaseUrl
-      });
-    }
-    const openaiModel = process.env.OPENAI_MODEL;
-    if (openaiModel) {
-      // Build display model string with resolved model + reasoning effort
-      let modelDisplay = openaiModel;
-      const resolved = resolveProviderRequest({ model: openaiModel });
-      const resolvedModel = resolved.resolvedModel;
-      const reasoningEffort = resolved.reasoning?.effort;
-      if (resolvedModel && resolvedModel !== openaiModel.toLowerCase()) {
-        // Show resolved model name
-        modelDisplay = resolvedModel;
-      }
-      if (reasoningEffort) {
-        modelDisplay = `${modelDisplay} (${reasoningEffort})`;
-      }
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(modelDisplay, secretSource) ?? modelDisplay
-      });
+      const modelDisplay = formatOpenAICompatibleModelDisplay(
+        openaiModel,
+        metadata.resolveModelMetadata,
+      );
+      pushRedactedProperty(
+        properties,
+        'Model',
+        modelDisplay,
+        secretSource,
+      );
     }
   } else if (apiProvider === 'gemini') {
     const geminiBaseUrl = process.env.GEMINI_BASE_URL;
-    if (geminiBaseUrl) {
-      properties.push({
-        label: 'Gemini base URL',
-        value: redactSecretValueForDisplay(geminiBaseUrl, secretSource) ?? geminiBaseUrl
-      });
-    }
+    pushRedactedProperty(properties, 'Gemini base URL', geminiBaseUrl, secretSource);
     const geminiModel = process.env.GEMINI_MODEL;
-    if (geminiModel) {
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(geminiModel, secretSource) ?? geminiModel
-      });
-    }
+    pushRedactedProperty(properties, 'Model', geminiModel, secretSource);
   } else if (apiProvider === 'mistral') {
     const mistralBaseUrl = process.env.MISTRAL_BASE_URL;
-    if (mistralBaseUrl) {
-      properties.push({
-        label: 'Mistral base URL',
-        value: redactSecretValueForDisplay(mistralBaseUrl, secretSource) ?? mistralBaseUrl
-      })
-    }
+    pushRedactedProperty(properties, 'Mistral base URL', mistralBaseUrl, secretSource);
     const mistralModel = process.env.MISTRAL_MODEL;
-    if (mistralModel) {
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(mistralModel, secretSource) ?? mistralModel
-      })
-    }
-  } else if (apiProvider === 'nvidia-nim') {
-    const nimBaseUrl = process.env.OPENAI_BASE_URL;
-    if (nimBaseUrl) {
-      properties.push({
-        label: 'NVIDIA NIM base URL',
-        value: redactSecretValueForDisplay(nimBaseUrl, secretSource) ?? nimBaseUrl
-      });
-    }
-    const nimModel = process.env.OPENAI_MODEL;
-    if (nimModel) {
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(nimModel, secretSource) ?? nimModel
-      });
-    }
-  } else if (apiProvider === 'minimax') {
-    const minimaxBaseUrl = process.env.OPENAI_BASE_URL;
-    if (minimaxBaseUrl) {
-      properties.push({
-        label: 'MiniMax base URL',
-        value: redactSecretValueForDisplay(minimaxBaseUrl, secretSource) ?? minimaxBaseUrl
-      });
-    }
-    const minimaxModel = process.env.OPENAI_MODEL;
-    if (minimaxModel) {
-      properties.push({
-        label: 'Model',
-        value: redactSecretValueForDisplay(minimaxModel, secretSource) ?? minimaxModel
-      });
-    }
+    pushRedactedProperty(properties, 'Model', mistralModel, secretSource);
   }
   const proxyUrl = getProxyUrl();
   if (proxyUrl) {

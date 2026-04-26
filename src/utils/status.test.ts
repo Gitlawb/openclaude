@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 
+import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
 import { buildAPIProviderProperties } from './status.js'
 
 const ORIGINAL_ENV = { ...process.env }
@@ -55,4 +56,17 @@ test('buildAPIProviderProperties labels MiniMax sessions', () => {
     'https://api.minimax.chat/v1',
   )
   expect(readPropertyValue('Model')).toBe('MiniMax-M2.5')
+})
+
+test('buildAPIProviderProperties keeps Codex-specific labels on the shared OpenAI-compatible path', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = DEFAULT_CODEX_BASE_URL
+  process.env.OPENAI_MODEL = 'codexplan'
+  process.env.CHATGPT_ACCOUNT_ID = 'acct_123'
+
+  expect(readPropertyValue('API provider')).toBe('Codex')
+  expect(readPropertyValue('Codex base URL')).toBe(
+    DEFAULT_CODEX_BASE_URL,
+  )
+  expect(readPropertyValue('Model')).toBe('gpt-5.5 (high)')
 })

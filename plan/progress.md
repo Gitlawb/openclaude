@@ -1,10 +1,10 @@
 # OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Current Phase**: Phase 3 — Cleanup Planning
+**Current Phase**: Phase 3 — Cleanup
 **Next Planned Phase**: Phase 3A — Dead Switch Removal
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 20:24
+**Last Updated**: 2026-04-25 20:58
 
 ---
 
@@ -398,7 +398,7 @@ Notes:
 
 ## Phase 3: Cleanup
 
-**Status**: `READY`
+**Status**: `IN_PROGRESS`
 
 **Goal**: Remove transitional duplication once descriptor-backed behavior is trusted.
 
@@ -417,6 +417,7 @@ Notes:
 Notes:
 - Phase 3 starts from the completed Phase 2 drift audit, not from the original migration assumptions.
 - Phase 3 planning was re-reviewed against `plan/cheeky-cooking-moon.md` on 2026-04-25 20:24 so the tracker sections below mirror the master-plan packet order, dependencies, and cleanup boundaries.
+- Active work resumed on 2026-04-25 20:39 with the first `3A` pass focused on removing duplicated provider-label/default branches from metadata-only surfaces before touching any compatibility or env-shaping bridges.
 - `src/utils/model/configs.ts` is currently a compatibility bridge for legacy `APIProvider` callers such as teammate fallback; Phase 3 is where we decide whether to keep, rename, or retire that bridge.
 - Provider surfaces already identified as transitional or likely Phase 3 cleanup candidates include:
   - legacy `APIProvider` compatibility mapping in `src/utils/model/providers.ts`
@@ -440,17 +441,44 @@ Notes:
 
 ## Phase 3A: Dead Switch Removal
 
-**Status**: `READY`
+**Status**: `IN_PROGRESS`
 
-- [ ] Identify every switch made redundant by descriptors
-- [ ] Remove only the switches proven obsolete by tests
+- [x] Identify every switch made redundant by descriptors
+- [x] Remove only the switches proven obsolete by tests
 - [ ] Keep a short migration note in commit/PR text for anything user-visible
+
+### Current Slice Checklist
+
+- [x] Audit the first metadata-only cleanup slice against `plan/phase-2e-drift-audit.md`
+- [x] Remove duplicated OpenAI-compatible status-display branches in `src/utils/status.tsx`
+- [x] Add focused regression coverage for the shared status-display path
+- [x] Review `/provider` summary helpers for the next safe 3A cleanup slice
+- [x] Remove the pure transport-kind label switch in `src/integrations/routeMetadata.ts`
+- [x] Remove the pure provider-label switch in `src/components/CostThresholdDialog.tsx`
+- [x] Add focused regression coverage for route-metadata and cost-threshold label paths
+- [x] Decide which remaining candidates stay in `3A` versus move to `3B` or `3C`
 
 Notes:
 - Start from the inventory already captured in `plan/phase-2e-drift-audit.md`.
 - Dependency from the master plan is already satisfied here because Phase 2 is complete on `cheeky-cooking-moon`.
 - Candidate removals should exclude switches already classified as intentional compatibility bridges, transport executors, or UI state machines.
 - Expected early-review candidates include older provider-label/default branches that are now fully descriptor-backed.
+- Current slice: collapse duplicated OpenAI-compatible provider display branches in `src/utils/status.tsx` first, then decide whether the same treatment is safe for any `/provider` summary helpers without crossing into env-contract cleanup.
+- Completed initial `3A` cleanup slice on 2026-04-25 20:46:
+  - collapsed duplicated OpenAI-compatible status-display branches in `src/utils/status.tsx` behind shared provider metadata for `openai`, `codex`, `nvidia-nim`, and `minimax`
+  - kept Bedrock, Vertex, Foundry, Gemini, and Mistral handling unchanged because those still rely on distinct env contracts or cloud/runtime details
+  - added focused Codex status regression coverage in `src/utils/status.test.ts`
+  - focused verification is green:
+    - `bun test src/utils/status.test.ts src/utils/swarm/teammateModel.test.ts src/utils/model/providers.test.ts`
+    - filtered `bun run typecheck` for `src/utils/status.tsx` and `src/utils/status.test.ts` returned `FILTER_CLEAN`
+- Completed follow-up `3A` sweep on 2026-04-25 20:58:
+  - reviewed `/provider` summary helpers and kept them out of `3A` because their remaining branches still reflect distinct saved-profile/env contracts rather than dead descriptor metadata
+  - replaced the pure transport-kind label switch in `src/integrations/routeMetadata.ts` with shared transport-kind label metadata and added `src/integrations/routeMetadata.test.ts`
+  - replaced the pure provider-label switch in `src/components/CostThresholdDialog.tsx` with a shared provider-label map and added `src/components/CostThresholdDialog.test.ts`
+  - re-swept the remaining obvious branch sites; the switches left in `discoveryService.ts`, `providerValidation.ts`, `provider.tsx`, and `model/providers.ts` remain classified as runtime executors, compatibility bridges, or env-contract handlers and therefore move to later packets instead of staying in `3A`
+  - focused verification is green:
+    - `bun test src/integrations/routeMetadata.test.ts src/utils/status.test.ts src/components/CostThresholdDialog.test.ts src/utils/model/providers.test.ts`
+    - filtered `bun run typecheck` for the touched `routeMetadata`, `status`, and `CostThresholdDialog` files returned `FILTER_CLEAN`
 
 ---
 
