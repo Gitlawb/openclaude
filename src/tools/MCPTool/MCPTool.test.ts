@@ -89,13 +89,13 @@ describe('MCPTool.mapToolResultToToolResultBlockParam', () => {
 
   test('handles undefined content gracefully', () => {
     const result = MCPTool.mapToolResultToToolResultBlockParam(undefined as any, 'tool-3')
-    expect(result.content).toBe('')
+    expect(result.content).toBe('[No content returned from MCP tool]')
     expect(result.tool_use_id).toBe('tool-3')
   })
 
   test('handles null content gracefully', () => {
     const result = MCPTool.mapToolResultToToolResultBlockParam(null as any, 'tool-4')
-    expect(result.content).toBe('')
+    expect(result.content).toBe('[No content returned from MCP tool]')
     expect(result.tool_use_id).toBe('tool-4')
   })
 })

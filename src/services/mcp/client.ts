@@ -55,6 +55,7 @@ import { type MCPProgress, MCPTool } from '../../tools/MCPTool/MCPTool.js'
 import { createMcpAuthTool } from '../../tools/McpAuthTool/McpAuthTool.js'
 import { ReadMcpResourceTool } from '../../tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
 import { createAbortController } from '../../utils/abortController.js'
+import { AbortError, isAbortError } from '../../utils/errors.js'
 import { count } from '../../utils/array.js'
 import {
   checkAndRefreshOAuthTokenIfNeeded,
@@ -3281,11 +3282,18 @@ async function callMCPTool({
       }
     }
 
-    // When the users hits esc, avoid logspew
-    if (!(e instanceof Error) || e.name !== 'AbortError') {
-      throw e
+    // When the user hits esc, convert to our AbortError class so the tool
+    // execution framework handles it properly (skips logging, creates
+    // is_error: true result with [Request interrupted by user for tool use]).
+    // Previously this returned { content: undefined }, which masked the
+    // cancellation and caused mapToolResultToToolResultBlockParam to send
+    // empty/undefined content to the API as if it were a successful result.
+    if (isAbortError(e)) {
+      throw new AbortError(
+        e instanceof Error ? e.message : 'Tool execution cancelled',
+      )
     }
-    return { content: undefined }
+    throw e
   } finally {
     // Always clear intervals
     if (progressInterval !== undefined) {

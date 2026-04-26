@@ -42,7 +42,9 @@ const ajv = new Ajv({ strict: false })
 
 // Cache compiled validators to avoid recompiling on every validateInput call.
 // AJV compilation is expensive — schemas don't change between calls.
-const compiledValidatorCache = new Map<object, ReturnType<typeof ajv.compile>>()
+// Uses WeakMap to allow garbage collection of schemas from disconnected/refreshed
+// MCP tools, preventing memory leaks from accumulating strong references.
+const compiledValidatorCache = new WeakMap<object, ReturnType<typeof ajv.compile>>()
 
 function getCompiledValidator(schema: object) {
   let validator = compiledValidatorCache.get(schema)
@@ -132,12 +134,14 @@ export const MCPTool = buildTool({
     return false
   },
   mapToolResultToToolResultBlockParam(content, toolUseID) {
-    // Guard against undefined/null content — MCP tools may return empty results
+    // Defensive guard: if content is undefined/null (shouldn't happen after
+    // the abort path fix in client.ts), return a clear indicator rather than
+    // sending undefined to the API which would cause an error.
     if (content === undefined || content === null) {
       return {
         tool_use_id: toolUseID,
         type: 'tool_result',
-        content: '',
+        content: '[No content returned from MCP tool]',
       }
     }
     return {
