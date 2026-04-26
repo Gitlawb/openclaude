@@ -14,6 +14,7 @@ export type APIProvider =
   | 'nvidia-nim'
   | 'minimax'
   | 'mistral'
+  | 'xai'
 
 export function getAPIProvider(): APIProvider {
   if (isEnvTruthy(process.env.NVIDIA_NIM)) {
@@ -26,6 +27,10 @@ export function getAPIProvider(): APIProvider {
   // the codebase unreachable. Presence check is the correct signal.
   if (typeof process.env.MINIMAX_API_KEY === 'string' && process.env.MINIMAX_API_KEY.trim() !== '') {
     return 'minimax'
+  }
+  // xAI is signalled by a real API key (same pattern as MiniMax)
+  if (typeof process.env.XAI_API_KEY === 'string' && process.env.XAI_API_KEY.trim() !== '') {
+    return 'xai'
   }
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     ? 'gemini'

@@ -39,6 +39,7 @@ export type ProviderPreset =
   | 'custom'
   | 'nvidia-nim'
   | 'minimax'
+  | 'xai'
   | 'zai'
   | 'bankr'
   | 'atomic-chat'
@@ -331,6 +332,15 @@ export function getProviderPresetDefaults(
         apiKey: process.env.NVIDIA_API_KEY ?? '',
         requiresApiKey: true,
       }
+    case 'xai':
+      return {
+        provider: 'openai',
+        name: 'xAI',
+        baseUrl: 'https://api.x.ai/v1',
+        model: 'grok-4',
+        apiKey: process.env.XAI_API_KEY ?? '',
+        requiresApiKey: true,
+      }
     case 'minimax':
       return {
         provider: 'openai',
@@ -559,6 +569,10 @@ function isProcessEnvAlignedWithProfile(
     (profile.baseUrl?.toLowerCase().includes('bankr')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.BNKR_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('x.ai')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
       : true)
   )
 }
@@ -619,6 +633,7 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.BANKR_BASE_URL
   delete processEnv.BNKR_API_KEY
   delete processEnv.BANKR_MODEL
+  delete processEnv.XAI_API_KEY
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -725,6 +740,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     }
     if (baseUrl.includes('bankr')) {
       process.env.BNKR_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('x.ai')) {
+      process.env.XAI_API_KEY = profile.apiKey
     }
   } else {
     delete process.env.OPENAI_API_KEY
@@ -998,6 +1016,9 @@ function buildOpenAICompatibleStartupEnv(
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('x.ai')) {
+      env.XAI_API_KEY = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY

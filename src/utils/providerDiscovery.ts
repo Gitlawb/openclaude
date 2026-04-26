@@ -206,6 +206,10 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (host.includes('bankr') || haystack.includes('bankr')) {
       return 'Bankr'
     }
+    // xAI Grok endpoint
+    if (host.includes('x.ai') || haystack.includes('x.ai')) {
+      return 'xAI'
+    }
     // Z.AI GLM Coding Plan
     if (isZaiBaseUrl(parsed.href)) {
       return 'Z.AI - GLM'
