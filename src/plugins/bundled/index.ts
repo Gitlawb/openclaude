@@ -10,8 +10,8 @@
  * claude-in-chrome), use src/skills/bundled/ instead.
  *
  * To add a new built-in plugin:
- * 1. Import registerBuiltinPlugin from '../builtinPlugins.js'
- * 2. Call registerBuiltinPlugin() with the plugin definition here
+ * 1. Import its registerXPlugin() helper from the plugin module here
+ * 2. Call that helper from initBuiltinPlugins()
  */
 
 import { registerKarpathyGuidelinesPlugin } from './karpathyGuidelines.js'
