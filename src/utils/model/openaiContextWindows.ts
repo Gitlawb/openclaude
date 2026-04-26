@@ -96,7 +96,13 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'o3-mini':                  200_000,
   'o4-mini':                  200_000,
 
-  // DeepSeek (V3: 128k context per official docs)
+  // DeepSeek V4 coding-agent models. DeepSeek's official coding-agent guide
+  // publishes V4 Pro at 1,048,576 context / 262,144 output; Flash is treated
+  // as the same family for local budgeting until a dedicated public model card
+  // lands.
+  'deepseek-v4-flash':      1_048_576,
+  'deepseek-v4-pro':        1_048_576,
+  // Legacy DeepSeek API aliases documented in the public pricing/model pages.
   'deepseek-chat':            128_000,
   'deepseek-reasoner':        128_000,
 
@@ -226,10 +232,20 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'kimi-k2.5':                262_144,
   'glm-5':                    202_752,
   'glm-4.7':                  202_752,
+  'glm-5.1':                  202_752,
+  'glm-5-turbo':              202_752,
+  'glm-4.5-air':              128_000,
+  // Z.AI Coding Plan models (uppercase variants)
+  'GLM-5.1':                  202_752,
+  'GLM-5-Turbo':              202_752,
+  'GLM-5':                    202_752,
+  'GLM-4.7':                  202_752,
+  'GLM-4.5-Air':              128_000,
 
   // Moonshot AI direct API (api.moonshot.ai/v1). Values from Moonshot's
   // published model card — all K2 tier share 256K context. Prefix matching
   // in lookupByKey catches variants like "kimi-k2.6-preview".
+  'kimi-for-coding':          262_144,
   'kimi-k2.6':                262_144,
   'kimi-k2':                  131_072,
   'kimi-k2-instruct':         131_072,
@@ -316,9 +332,12 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'o3-mini':                  100_000,
   'o4-mini':                  100_000,
 
-  // DeepSeek
+  // DeepSeek V4 coding-agent models. See context-window note above.
+  'deepseek-v4-flash':        262_144,
+  'deepseek-v4-pro':          262_144,
+  // Legacy DeepSeek API aliases documented in the public pricing/model pages.
   'deepseek-chat':              8_192,
-  'deepseek-reasoner':         32_768,
+  'deepseek-reasoner':         65_536,
 
   // Groq
   'llama-3.3-70b-versatile':  32_768,
@@ -410,10 +429,21 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'qwen3-max':                 32_768,
   'qwen3-max-2026-01-23':      32_768,
   'kimi-k2.5':                 32_768,
+  // GLM models — lowercase aliases stay on conservative DashScope-style
+  // limits; Z.AI Coding Plan's exact uppercase GLM-* IDs use higher limits.
   'glm-5':                     16_384,
   'glm-4.7':                   16_384,
+  'glm-5.1':                    16_384,
+  'glm-5-turbo':                16_384,
+  'glm-4.5-air':                16_384,
+  'GLM-5':                     131_072,
+  'GLM-5.1':                   131_072,
+  'GLM-5-Turbo':               131_072,
+  'GLM-4.7':                   131_072,
+  'GLM-4.5-Air':                65_536,
 
   // Moonshot AI direct API
+  'kimi-for-coding':           32_768,
   'kimi-k2.6':                 32_768,
   'kimi-k2':                   32_768,
   'kimi-k2-instruct':          32_768,

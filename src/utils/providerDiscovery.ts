@@ -1,5 +1,6 @@
 import type { OllamaModelDescriptor } from './providerRecommendation.ts'
 import { DEFAULT_OPENAI_BASE_URL } from '../services/api/providerConfig.js'
+import { isZaiBaseUrl } from './zaiProvider.js'
 
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434'
 export const DEFAULT_ATOMIC_CHAT_BASE_URL = 'http://127.0.0.1:1337'
@@ -197,9 +198,25 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (host.includes('minimax') || haystack.includes('minimax')) {
       return 'MiniMax'
     }
-    // Moonshot AI (Kimi) direct API
-    if (host.includes('moonshot') || haystack.includes('moonshot') || haystack.includes('kimi')) {
-      return 'Moonshot (Kimi)'
+    // Kimi Code subscription API
+    if (hostname === 'api.kimi.com' && path.includes('/coding')) {
+      return 'Moonshot AI - Kimi Code'
+    }
+    // Check for Bankr LLM gateway
+    if (host.includes('bankr') || haystack.includes('bankr')) {
+      return 'Bankr'
+    }
+    // Z.AI GLM Coding Plan
+    if (isZaiBaseUrl(parsed.href)) {
+      return 'Z.AI - GLM'
+    }
+    // Moonshot AI direct API
+    if (
+      host.includes('moonshot') ||
+      haystack.includes('moonshot') ||
+      haystack.includes('kimi')
+    ) {
+      return 'Moonshot AI - API'
     }
   } catch {
     // Fall back to the generic label when the base URL is malformed.
@@ -226,14 +243,16 @@ export async function listOpenAICompatibleModels(options?: {
 }): Promise<string[] | null> {
   const { signal, clear } = withTimeoutSignal(5000)
   try {
+    const baseUrl = getOpenAICompatibleModelsBaseUrl(options?.baseUrl)
+    const isBankr = baseUrl.toLowerCase().includes('bankr')
     const response = await fetch(
-      `${getOpenAICompatibleModelsBaseUrl(options?.baseUrl)}/models`,
+      `${baseUrl}/models`,
       {
         method: 'GET',
         headers: options?.apiKey
-          ? {
-              Authorization: `Bearer ${options.apiKey}`,
-            }
+          ? isBankr
+            ? { 'X-API-Key': options.apiKey }
+            : { Authorization: `Bearer ${options.apiKey}` }
           : undefined,
         signal,
       },

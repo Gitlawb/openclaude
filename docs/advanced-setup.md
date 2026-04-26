@@ -68,8 +68,10 @@ openclaude
 export CLAUDE_CODE_USE_OPENAI=1
 export OPENAI_API_KEY=sk-...
 export OPENAI_BASE_URL=https://api.deepseek.com/v1
-export OPENAI_MODEL=deepseek-chat
+export OPENAI_MODEL=deepseek-v4-flash
 ```
+
+Use `deepseek-v4-pro` when you want the stronger model. `deepseek-chat` and `deepseek-reasoner` remain available as DeepSeek's legacy API aliases.
 
 ### Google Gemini via OpenRouter
 
@@ -169,12 +171,13 @@ export OPENAI_MODEL=gpt-4o
 |----------|----------|-------------|
 | `CLAUDE_CODE_USE_OPENAI` | Yes | Set to `1` to enable the OpenAI provider |
 | `OPENAI_API_KEY` | Yes* | Your API key (`*` not needed for local models like Ollama or Atomic Chat) |
-| `OPENAI_MODEL` | Yes | Model name such as `gpt-4o`, `deepseek-chat`, or `llama3.3:70b` |
+| `OPENAI_MODEL` | Yes | Model name such as `gpt-4o`, `deepseek-v4-flash`, or `llama3.3:70b` |
 | `OPENAI_BASE_URL` | No | API endpoint, defaulting to `https://api.openai.com/v1` |
 | `CODEX_API_KEY` | Codex only | Codex or ChatGPT access token override |
 | `CODEX_AUTH_JSON_PATH` | Codex only | Path to a Codex CLI `auth.json` file |
 | `CODEX_HOME` | Codex only | Alternative Codex home directory |
 | `OPENCLAUDE_DISABLE_CO_AUTHORED_BY` | No | Suppress the default `Co-Authored-By` trailer in generated git commits |
+| `OPENCLAUDE_LOG_TOKEN_USAGE` | No | When truthy (e.g. `verbose`), emits one JSON line on stderr per API request with input/output/cache tokens and the resolved provider. **User-facing debug output** — complements the REPL display controlled by `/config showCacheStats`. Distinct from `CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT`, which is **model-facing** (injects context usage info into the prompt itself). Both can run together. |
 
 You can also use `ANTHROPIC_MODEL` to override the model name. `OPENAI_MODEL` takes priority.
 

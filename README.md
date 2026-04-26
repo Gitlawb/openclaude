@@ -175,7 +175,7 @@ Add to `~/.claude/settings.json`:
 ```json
 {
   "agentModels": {
-    "deepseek-chat": {
+    "deepseek-v4-flash": {
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-your-key"
     },
@@ -185,10 +185,10 @@ Add to `~/.claude/settings.json`:
     }
   },
   "agentRouting": {
-    "Explore": "deepseek-chat",
+    "Explore": "deepseek-v4-flash",
     "Plan": "gpt-4o",
     "general-purpose": "gpt-4o",
-    "frontend-dev": "deepseek-chat",
+    "frontend-dev": "deepseek-v4-flash",
     "default": "gpt-4o"
   }
 }

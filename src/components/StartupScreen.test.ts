@@ -14,6 +14,7 @@ const ENV_KEYS = [
   'GEMINI_MODEL',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
+  'CLAUDE_MODEL',
   'NVIDIA_NIM',
   'MINIMAX_API_KEY',
 ]
@@ -101,14 +102,24 @@ describe('detectProvider — direct vendor endpoints', () => {
     expect(detectProvider().name).toBe('DeepSeek')
   })
 
-  test('api.moonshot.cn labels as Moonshot (Kimi)', () => {
+  test('api.kimi.com labels as Moonshot AI - Kimi Code', () => {
+    setupOpenAIMode('https://api.kimi.com/coding/v1', 'kimi-for-coding')
+    expect(detectProvider().name).toBe('Moonshot AI - Kimi Code')
+  })
+
+  test('api.moonshot.cn labels as Moonshot AI - API', () => {
     setupOpenAIMode('https://api.moonshot.cn/v1', 'moonshot-v1-8k')
-    expect(detectProvider().name).toBe('Moonshot (Kimi)')
+    expect(detectProvider().name).toBe('Moonshot AI - API')
   })
 
   test('api.mistral.ai labels as Mistral', () => {
     setupOpenAIMode('https://api.mistral.ai/v1', 'mistral-large-latest')
     expect(detectProvider().name).toBe('Mistral')
+  })
+
+  test('api.z.ai labels as Z.AI GLM', () => {
+    setupOpenAIMode('https://api.z.ai/api/coding/paas/v4', 'GLM-5.1')
+    expect(detectProvider().name).toBe('Z.AI - GLM')
   })
 
   test('default OpenAI URL + gpt-4o labels as OpenAI', () => {
@@ -125,9 +136,14 @@ describe('detectProvider — rawModel fallback when URL is generic', () => {
     expect(detectProvider().name).toBe('DeepSeek')
   })
 
-  test('custom proxy + kimi-k2 falls back to Moonshot (Kimi)', () => {
+  test('custom proxy + kimi-for-coding falls back to Moonshot AI - Kimi Code', () => {
+    setupOpenAIMode('https://my-proxy.internal/v1', 'kimi-for-coding')
+    expect(detectProvider().name).toBe('Moonshot AI - Kimi Code')
+  })
+
+  test('custom proxy + kimi-k2 falls back to Moonshot AI - API', () => {
     setupOpenAIMode('https://my-proxy.internal/v1', 'kimi-k2-instruct')
-    expect(detectProvider().name).toBe('Moonshot (Kimi)')
+    expect(detectProvider().name).toBe('Moonshot AI - API')
   })
 
   test('custom proxy + llama-3.3 falls back to Meta Llama', () => {
@@ -138,6 +154,21 @@ describe('detectProvider — rawModel fallback when URL is generic', () => {
   test('custom proxy + mistral-large falls back to Mistral', () => {
     setupOpenAIMode('https://my-proxy.internal/v1', 'mistral-large-latest')
     expect(detectProvider().name).toBe('Mistral')
+  })
+
+  test('custom proxy + exact uppercase GLM ID falls back to Z.AI GLM', () => {
+    setupOpenAIMode('https://my-proxy.internal/v1', 'GLM-5.1')
+    expect(detectProvider().name).toBe('Z.AI - GLM')
+  })
+
+  test('custom proxy + lowercase glm ID stays generic OpenAI', () => {
+    setupOpenAIMode('https://my-proxy.internal/v1', 'glm-5.1')
+    expect(detectProvider().name).toBe('OpenAI')
+  })
+
+  test('DashScope lowercase glm ID is not mislabeled as Z.AI', () => {
+    setupOpenAIMode('https://dashscope.aliyuncs.com/compatible-mode/v1', 'glm-5.1')
+    expect(detectProvider().name).toBe('OpenAI')
   })
 })
 
@@ -154,5 +185,73 @@ describe('detectProvider — explicit dedicated-provider env flags', () => {
     setupOpenAIMode('https://openrouter.ai/api/v1', 'any-model')
     process.env.MINIMAX_API_KEY = 'test-key'
     expect(detectProvider().name).toBe('MiniMax')
+  })
+})
+
+// --- modelOverride from --model flag ---
+
+describe('detectProvider — modelOverride from --model flag', () => {
+  test('modelOverride overrides default Anthropic model', () => {
+    const result = detectProvider('claude-opus-4-6')
+    expect(result.name).toBe('Anthropic')
+    expect(result.model).toContain('opus')
+  })
+
+  test('modelOverride alias is resolved for Anthropic', () => {
+    const result = detectProvider('opus')
+    expect(result.name).toBe('Anthropic')
+    expect(result.model).toContain('opus')
+  })
+
+  test('modelOverride takes priority over ANTHROPIC_MODEL env var', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001'
+    const result = detectProvider('claude-opus-4-6')
+    expect(result.name).toBe('Anthropic')
+    expect(result.model).toContain('opus')
+  })
+
+  test('modelOverride takes priority over CLAUDE_MODEL env var', () => {
+    process.env.CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
+    const result = detectProvider('claude-opus-4-6')
+    expect(result.name).toBe('Anthropic')
+    expect(result.model).toContain('opus')
+  })
+
+  test('modelOverride works for OpenAI provider', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+    const result = detectProvider('gpt-4-turbo')
+    expect(result.model).toContain('gpt-4-turbo')
+  })
+
+  test('modelOverride works for Gemini provider', () => {
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+    const result = detectProvider('gemini-2.5-pro')
+    expect(result.model).toBe('gemini-2.5-pro')
+  })
+
+  test('modelOverride works for Mistral provider', () => {
+    process.env.CLAUDE_CODE_USE_MISTRAL = '1'
+    const result = detectProvider('mistral-large-latest')
+    expect(result.model).toBe('mistral-large-latest')
+  })
+
+  test('modelOverride works for GitHub provider', () => {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    const result = detectProvider('gpt-4o')
+    expect(result.model).toContain('gpt-4o')
+  })
+
+  test('undefined modelOverride preserves default behavior', () => {
+    const result = detectProvider(undefined)
+    expect(result.name).toBe('Anthropic')
+    expect(result.model).toContain('sonnet')
+  })
+
+  test('no argument preserves default behavior', () => {
+    const result = detectProvider()
+    expect(result.name).toBe('Anthropic')
+    expect(result.model).toContain('sonnet')
   })
 })
