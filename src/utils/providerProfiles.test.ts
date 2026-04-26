@@ -26,6 +26,10 @@ const RESTORED_KEYS = [
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_MODEL',
+  'OPENAI_API_FORMAT',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
@@ -236,6 +240,45 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_MODEL).toBe('glm-4.7')
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+  })
+
+  test('openai responses profile sets OPENAI_API_FORMAT', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        apiFormat: 'responses',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
+  test('openai profile sets custom auth header name and value', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.hicap.ai/v1',
+        model: 'claude-opus-4.6',
+        authHeader: 'api-key',
+        authScheme: 'raw',
+        authHeaderValue: 'hicap-header-value',
+      }),
+    )
+
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('api-key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('hicap-header-value')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
   test('anthropic profile with multi-model string sets only first model in ANTHROPIC_MODEL', async () => {

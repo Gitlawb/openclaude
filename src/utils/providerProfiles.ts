@@ -1,5 +1,8 @@
 import { randomBytes } from 'crypto'
-import { isCodexBaseUrl } from '../services/api/providerConfig.js'
+import {
+  isCodexBaseUrl,
+  parseOpenAICompatibleApiFormat,
+} from '../services/api/providerConfig.js'
 import {
   getGlobalConfig,
   saveGlobalConfig,
@@ -46,6 +49,10 @@ export type ProviderProfileInput = {
   baseUrl: string
   model: string
   apiKey?: string
+  apiFormat?: ProviderProfile['apiFormat']
+  authHeader?: ProviderProfile['authHeader']
+  authScheme?: ProviderProfile['authScheme']
+  authHeaderValue?: ProviderProfile['authHeaderValue']
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -67,6 +74,20 @@ function trimOrUndefined(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
+function sanitizeAuthHeader(value: string | undefined): string | undefined {
+  const trimmed = trimOrUndefined(value)
+  if (!trimmed) {
+    return undefined
+  }
+  return /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(trimmed)
+    ? trimmed
+    : undefined
+}
+
+function sanitizeAuthScheme(value: string | undefined): ProviderProfile['authScheme'] | undefined {
+  return value === 'raw' || value === 'bearer' ? value : undefined
+}
+
 function normalizeBaseUrl(value: string): string {
   return trimValue(value).replace(/\/+$/, '')
 }
@@ -84,12 +105,16 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
           : 'openai'
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
+  const apiFormat = parseOpenAICompatibleApiFormat(profile.apiFormat)
+  const authHeader = sanitizeAuthHeader(profile.authHeader)
+  const authScheme = sanitizeAuthScheme(profile.authScheme)
+  const authHeaderValue = trimOrUndefined(profile.authHeaderValue)
 
   if (!id || !name || !baseUrl || !model) {
     return null
   }
 
-  return {
+  const sanitized: ProviderProfile = {
     id,
     name,
     provider,
@@ -97,6 +122,17 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     model,
     apiKey: trimOrUndefined(profile.apiKey),
   }
+  if (provider === 'openai' && apiFormat) {
+    sanitized.apiFormat = apiFormat
+  }
+  if (provider === 'openai' && authHeader) {
+    sanitized.authHeader = authHeader
+    sanitized.authScheme = authScheme ?? (
+      authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
+    )
+    sanitized.authHeaderValue = authHeaderValue
+  }
+  return sanitized
 }
 
 function sanitizeProfiles(profiles: ProviderProfile[] | undefined): ProviderProfile[] {
@@ -130,6 +166,10 @@ function toProfile(
     baseUrl: input.baseUrl,
     model: input.model,
     apiKey: input.apiKey,
+    apiFormat: input.apiFormat,
+    authHeader: input.authHeader,
+    authScheme: input.authScheme,
+    authHeaderValue: input.authHeaderValue,
   })
 }
 
@@ -510,6 +550,10 @@ function isProcessEnvAlignedWithProfile(
     processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
     sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+    sameOptionalEnvValue(processEnv.OPENAI_API_FORMAT, profile.apiFormat) &&
+    sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
+    sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
+    sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER_VALUE, profile.authHeaderValue) &&
     (!includeApiKey ||
       sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
@@ -545,6 +589,10 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.OPENAI_BASE_URL
   delete processEnv.OPENAI_API_BASE
   delete processEnv.OPENAI_MODEL
+  delete processEnv.OPENAI_API_FORMAT
+  delete processEnv.OPENAI_AUTH_HEADER
+  delete processEnv.OPENAI_AUTH_SCHEME
+  delete processEnv.OPENAI_AUTH_HEADER_VALUE
   delete processEnv.OPENAI_API_KEY
 
   delete processEnv.ANTHROPIC_BASE_URL
@@ -591,6 +639,10 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
     delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
     delete process.env.OPENAI_API_KEY
     return
   }
@@ -609,6 +661,10 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
     return
   }
 
@@ -626,12 +682,36 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
     return
   }
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = profile.baseUrl
   process.env.OPENAI_MODEL = getPrimaryModel(profile.model)
+  if (profile.apiFormat) {
+    process.env.OPENAI_API_FORMAT = profile.apiFormat
+  } else {
+    delete process.env.OPENAI_API_FORMAT
+  }
+  if (profile.authHeader) {
+    process.env.OPENAI_AUTH_HEADER = profile.authHeader
+    process.env.OPENAI_AUTH_SCHEME = profile.authScheme ?? (
+      profile.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
+    )
+    if (profile.authHeaderValue) {
+      process.env.OPENAI_AUTH_HEADER_VALUE = profile.authHeaderValue
+    } else {
+      delete process.env.OPENAI_AUTH_HEADER_VALUE
+    }
+  } else {
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
+  }
 
   if (profile.apiKey) {
     process.env.OPENAI_API_KEY = profile.apiKey
@@ -887,6 +967,9 @@ function buildOpenAICompatibleStartupEnv(
       model: activeProfile.model,
       baseUrl: activeProfile.baseUrl,
       apiKey: activeProfile.apiKey,
+      authHeader: activeProfile.authHeader,
+      authScheme: activeProfile.authScheme,
+      authHeaderValue: activeProfile.authHeaderValue,
       processEnv: {},
     })
     if (strictEnv) {
@@ -897,6 +980,18 @@ function buildOpenAICompatibleStartupEnv(
   const env: ProfileEnv = {
     OPENAI_BASE_URL: activeProfile.baseUrl,
     OPENAI_MODEL: getPrimaryModel(activeProfile.model),
+  }
+  if (activeProfile.apiFormat) {
+    env.OPENAI_API_FORMAT = activeProfile.apiFormat
+  }
+  if (activeProfile.authHeader) {
+    env.OPENAI_AUTH_HEADER = activeProfile.authHeader
+    env.OPENAI_AUTH_SCHEME = activeProfile.authScheme ?? (
+      activeProfile.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
+    )
+    if (activeProfile.authHeaderValue) {
+      env.OPENAI_AUTH_HEADER_VALUE = activeProfile.authHeaderValue
+    }
   }
   if (activeProfile.apiKey) {
     env.OPENAI_API_KEY = activeProfile.apiKey
@@ -974,6 +1069,10 @@ export function setActiveProviderProfile(
                 model: getPrimaryModel(activeProfile.model),
                 baseUrl: activeProfile.baseUrl,
                 apiKey: activeProfile.apiKey,
+                apiFormat: activeProfile.apiFormat,
+                authHeader: activeProfile.authHeader,
+                authScheme: activeProfile.authScheme,
+                authHeaderValue: activeProfile.authHeaderValue,
                 processEnv: process.env,
               }) ?? null
             )
@@ -989,6 +1088,10 @@ export function setActiveProviderProfile(
             env: {
               OPENAI_BASE_URL: activeProfile.baseUrl,
               OPENAI_MODEL: getPrimaryModel(activeProfile.model),
+              OPENAI_API_FORMAT: activeProfile.apiFormat,
+              OPENAI_AUTH_HEADER: activeProfile.authHeader,
+              OPENAI_AUTH_SCHEME: activeProfile.authScheme,
+              OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue,
               OPENAI_API_KEY: activeProfile.apiKey,
             },
           } as const)
