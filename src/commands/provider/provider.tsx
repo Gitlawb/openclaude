@@ -2,7 +2,10 @@ import * as React from 'react'
 
 import type { LocalJSXCommandCall, LocalJSXCommandOnDone } from '../../types/command.js'
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js'
-import { ProviderManager } from '../../components/ProviderManager.js'
+import {
+  ProviderManager,
+  type ProviderManagerResult,
+} from '../../components/ProviderManager.js'
 import TextInput from '../../components/TextInput.js'
 import {
   Select,
@@ -69,6 +72,29 @@ import {
   probeOllamaGenerationReadiness,
   type OllamaGenerationReadiness,
 } from '../../utils/providerDiscovery.js'
+
+export function buildProviderManagerCompletion(result?: ProviderManagerResult): {
+  message: string
+  metaMessages?: string[]
+} {
+  const message =
+    result?.message ??
+    (result?.action === 'saved'
+      ? 'Provider profile updated'
+      : 'Provider manager closed')
+  const metaMessages =
+    result?.action === 'activated' && result.activeProviderName
+      ? [
+          `<system-reminder>Provider switched mid-session to ${result.activeProviderName}${
+            result.activeProviderModel
+              ? ` using model ${result.activeProviderModel}`
+              : ''
+          }. Use this provider/model for subsequent requests unless the user switches again.</system-reminder>`,
+        ]
+      : undefined
+
+  return { message, metaMessages }
+}
 
 function describeOllamaReadinessIssue(
   readiness: OllamaGenerationReadiness,
@@ -1703,13 +1729,8 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
     <ProviderManager
       mode="manage"
       onDone={result => {
-        const message =
-          result?.message ??
-          (result?.action === 'saved'
-            ? 'Provider profile updated'
-            : 'Provider manager closed')
-
-        onDone(message, { display: 'system' })
+        const { message, metaMessages } = buildProviderManagerCompletion(result)
+        onDone(message, { display: 'system', metaMessages })
       }}
     />
   )

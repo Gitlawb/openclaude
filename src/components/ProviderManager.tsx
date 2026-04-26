@@ -58,8 +58,10 @@ import TextInput from './TextInput.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
 
 export type ProviderManagerResult = {
-  action: 'saved' | 'cancelled'
+  action: 'saved' | 'cancelled' | 'activated'
   activeProfileId?: string
+  activeProviderName?: string
+  activeProviderModel?: string
   message?: string
 }
 
@@ -759,12 +761,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           mainLoopModelForSession: null,
         }))
         refreshProfiles()
-        setAppState(prev => ({
-          ...prev,
-          mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
-        }))
         setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
         setIsActivating(false)
+        onDone({
+          action: 'activated',
+          activeProviderName: GITHUB_PROVIDER_LABEL,
+          activeProviderModel: GITHUB_PROVIDER_DEFAULT_MODEL,
+          message: `Provider switched to ${GITHUB_PROVIDER_LABEL} (${GITHUB_PROVIDER_DEFAULT_MODEL})`,
+        })
         returnToMenu()
         return
       }
@@ -799,23 +803,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         : null
 
       refreshProfiles()
-      setStatusMessage(
-        isActiveCodexOAuth
-          ? buildCodexOAuthActivationMessage({
-              prefix: `Active provider: ${active.name}`,
+      const activationMessage = isActiveCodexOAuth
+        ? buildCodexOAuthActivationMessage({
+            prefix: `Active provider: ${active.name}`,
+            activationWarning,
+            warnings: [
               activationWarning,
-              warnings: [
-                activationWarning,
-                settingsOverrideError
-                  ? `could not clear startup provider override (${settingsOverrideError})`
-                  : null,
-              ].filter((warning): warning is string => Boolean(warning)),
-            })
-          : settingsOverrideError
-            ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
-            : `Active provider: ${active.name}`,
-      )
+              settingsOverrideError
+                ? `could not clear startup provider override (${settingsOverrideError})`
+                : null,
+            ].filter((warning): warning is string => Boolean(warning)),
+          })
+        : settingsOverrideError
+          ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+          : `Active provider: ${active.name}`
+      setStatusMessage(activationMessage)
       setIsActivating(false)
+      onDone({
+        action: 'activated',
+        activeProfileId: active.id,
+        activeProviderName: active.name,
+        activeProviderModel: newModel,
+        message: `Provider switched to ${active.name} (${newModel})`,
+      })
       returnToMenu()
     } catch (error) {
       refreshProfiles()
