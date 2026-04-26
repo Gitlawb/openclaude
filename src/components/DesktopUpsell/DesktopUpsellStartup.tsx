@@ -90,7 +90,7 @@ export function DesktopUpsellStartup(t0) {
   let t3;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
     t3 = {
-      label: "Open in Claude Code Desktop",
+      label: "Open in Claude desktop app",
       value: "try" as const
     };
     $[5] = t3;
@@ -120,7 +120,7 @@ export function DesktopUpsellStartup(t0) {
   const options = t5;
   let t6;
   if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = <Box marginBottom={1}><Text>Same Claude Code with visual diffs, live app preview, parallel sessions, and more.</Text></Box>;
+    t6 = <Box marginBottom={1}><Text>Use OpenClaude in the Claude desktop app for visual diffs, live app preview, parallel sessions, and more.</Text></Box>;
     $[8] = t6;
   } else {
     t6 = $[8];
@@ -135,7 +135,7 @@ export function DesktopUpsellStartup(t0) {
   }
   let t8;
   if ($[11] !== handleSelect || $[12] !== t7) {
-    t8 = <PermissionDialog title="Try Claude Code Desktop"><Box flexDirection="column" paddingX={2} paddingY={1}>{t6}<Select options={options} onChange={handleSelect} onCancel={t7} /></Box></PermissionDialog>;
+    t8 = <PermissionDialog title="Try the Claude desktop app"><Box flexDirection="column" paddingX={2} paddingY={1}>{t6}<Select options={options} onChange={handleSelect} onCancel={t7} /></Box></PermissionDialog>;
     $[11] = handleSelect;
     $[12] = t7;
     $[13] = t8;

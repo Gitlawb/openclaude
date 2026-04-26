@@ -262,7 +262,7 @@ export function ConsoleOAuthFlow({
           state: 'success'
         });
         void sendNotification({
-          message: 'Claude Code login successful',
+          message: 'OpenClaude login successful',
           notificationType: 'auth_success'
         }, terminal);
       }
@@ -384,7 +384,7 @@ function OAuthStatusMessage({
     case 'idle': {
       const promptText =
         startingMessage ||
-        'Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.'
+        'OpenClaude can be used with your Claude subscription or billed based on API usage through your Console account.'
 
       const loginOptions = [
         {
@@ -512,7 +512,7 @@ function OAuthStatusMessage({
         <Box flexDirection="column" gap={1}>
           <Box>
             <Spinner />
-            <Text>Creating API key for Claude Code…</Text>
+            <Text>Creating API key for OpenClaude…</Text>
           </Box>
         </Box>
       )
