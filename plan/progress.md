@@ -1,8 +1,8 @@
 # OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Current Phase**: Phase 3C — Env-Shaping Consolidation (complete on branch)
-**Next Planned Phase**: Phase 3D — Final Audit and Documentation Pass
+**Current Phase**: Phase 3D — Final Audit and Documentation Pass (complete on branch)
+**Next Planned Phase**: Phase 4A — Documentation Structure and Terminology
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
 **Last Updated**: 2026-04-25 21:19
 
@@ -548,16 +548,21 @@ Notes:
 
 ## Phase 3D: Final Audit and Documentation Pass
 
-**Status**: `READY`
+**Status**: `COMPLETE`
 
-- [ ] Inventory all provider-specific special cases still left in the repo
-- [ ] Classify them as intentional, temporary, or missed migration work
-- [ ] Update the architecture note with final constraints and known exceptions
+- [x] Inventory all provider-specific special cases still left in the repo
+- [x] Classify them as intentional, temporary, or missed migration work
+- [x] Update the architecture note with final constraints and known exceptions
 
 Notes:
 - This packet should build directly on the earlier `plan/phase-2e-drift-audit.md` inventory rather than restarting the audit from scratch.
 - Dependency from the master plan is `3A` through `3C`; do not mark this complete until those packets land or are explicitly waived.
 - The expected output is a tighter final exception list plus plan/docs updates that clearly distinguish intentional long-term exceptions from temporary cleanup leftovers.
+- Active work resumed on 2026-04-25 21:51 with a focused audit of the remaining provider-specific runtime branches after the Phase 3C commit, using `plan/phase-2e-drift-audit.md` as the starting inventory instead of reopening already-closed metadata cleanup.
+- Completed on 2026-04-25 22:02 with two branch-local artifacts:
+  - `plan/phase-3d-final-audit.md` — final inventory/classification of remaining provider-specific runtime branches
+  - `docs/architecture/integrations.md` — architecture note describing the descriptor-first system, the temporary compatibility bridges, and the intentional long-term runtime exceptions
+- The audit did not surface new missed runtime migration hotspots that needed Phase 3 code changes; the remaining items all fit into either intentional protocol differences or temporary env/config compatibility bridges.
 
 ---
 
@@ -565,8 +570,8 @@ Notes:
 
 - [x] **3A merged** — dead-switch cleanup landed in small safe packets
 - [x] **3B merged** — type/naming consolidation landed separately from runtime behavior changes
-- [ ] **3C merged** — env-shaping consolidation landed after targeted regression tests
-- [ ] **3D complete** — final audit/doc pass is green and Phase 4 can begin
+- [x] **3C merged** — env-shaping consolidation landed after targeted regression tests
+- [x] **3D complete** — final audit/doc pass is green and Phase 4 can begin
 
 Notes:
 - As with the earlier checkpoints, "merged" here means landed on `cheeky-cooking-moon`, not merged out to another branch.
