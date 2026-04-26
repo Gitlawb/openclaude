@@ -4,7 +4,7 @@
 **Current Phase**: Phase 3 — Cleanup Planning
 **Next Planned Phase**: Phase 3A — Dead Switch Removal
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 20:01
+**Last Updated**: 2026-04-25 20:24
 
 ---
 
@@ -416,12 +416,14 @@ Notes:
 
 Notes:
 - Phase 3 starts from the completed Phase 2 drift audit, not from the original migration assumptions.
+- Phase 3 planning was re-reviewed against `plan/cheeky-cooking-moon.md` on 2026-04-25 20:24 so the tracker sections below mirror the master-plan packet order, dependencies, and cleanup boundaries.
 - `src/utils/model/configs.ts` is currently a compatibility bridge for legacy `APIProvider` callers such as teammate fallback; Phase 3 is where we decide whether to keep, rename, or retire that bridge.
 - Provider surfaces already identified as transitional or likely Phase 3 cleanup candidates include:
   - legacy `APIProvider` compatibility mapping in `src/utils/model/providers.ts`
   - compatibility tables in `src/utils/model/configs.ts`
   - duplicated provider/env shaping spread across `src/utils/providerProfiles.ts`, `src/utils/providerProfile.ts`, and startup/runtime helpers
   - remaining explicit provider branches recorded in `plan/phase-2e-drift-audit.md`
+- Until the repo-wide typecheck-debt decision is explicit, keep each Phase 3 packet scoped tightly and do not treat unrelated baseline `bun run typecheck` noise as proof that the cleanup work itself is blocked.
 
 ### Phase 3 Recommended Sequence
 
@@ -429,6 +431,10 @@ Notes:
 - [ ] Consolidate overlapping type/name surfaces second
 - [ ] Consolidate env-shaping/runtime bridges third
 - [ ] Finish with one more audit and documentation pass
+
+Notes:
+- Keep these as separate branch-local checkpoints on `cheeky-cooking-moon`; Phase 3 cleanup should not be bundled into one large mixed packet.
+- If a candidate removal or rename depends on proving runtime parity first, defer it to the later packet instead of forcing it into `3A`.
 
 ---
 
@@ -442,6 +448,7 @@ Notes:
 
 Notes:
 - Start from the inventory already captured in `plan/phase-2e-drift-audit.md`.
+- Dependency from the master plan is already satisfied here because Phase 2 is complete on `cheeky-cooking-moon`.
 - Candidate removals should exclude switches already classified as intentional compatibility bridges, transport executors, or UI state machines.
 - Expected early-review candidates include older provider-label/default branches that are now fully descriptor-backed.
 
@@ -456,9 +463,11 @@ Notes:
 - [ ] Rename internal helpers where descriptor terminology is clearer
 
 Notes:
+- This packet is the place to make the long-term naming decision after Phase 2D, but it should stay behavior-light wherever possible.
 - This packet should explicitly decide the long-term role of `APIProvider` versus descriptor route ids.
 - `src/utils/model/configs.ts` and similar provider-keyed tables should either be renamed as explicit compatibility bridges or moved behind clearer descriptor-era helpers.
 - Any consolidation here must preserve the external caller contracts that still intentionally consume legacy provider categories.
+- Keep saved-profile formats, env var names, and user-facing route/provider wording stable unless a later packet explicitly migrates them.
 
 ---
 
@@ -475,8 +484,10 @@ Notes:
 
 Notes:
 - Phase 2D and 2E intentionally left some env shaping in place for compatibility; this is the cleanup packet that can reduce that duplication.
+- Dependency from the master plan is already satisfied here because Phase 2 is complete, but this packet should still remain isolated from pure naming cleanup where possible.
 - The known intentional exceptions from Phase 2E (`github`, `mistral`, `bedrock`, `vertex`, `foundry`, env-only MiniMax fallback, env-only NVIDIA NIM fallback) must be re-evaluated carefully rather than flattened by default.
 - `openaiShim.ts` should only lose branches that are already provably covered by descriptor/runtime metadata.
+- Keep the `reasoning_content` regression list above attached to this packet as a hard gate, not as optional follow-up.
 
 ---
 
@@ -490,6 +501,7 @@ Notes:
 
 Notes:
 - This packet should build directly on the earlier `plan/phase-2e-drift-audit.md` inventory rather than restarting the audit from scratch.
+- Dependency from the master plan is `3A` through `3C`; do not mark this complete until those packets land or are explicitly waived.
 - The expected output is a tighter final exception list plus plan/docs updates that clearly distinguish intentional long-term exceptions from temporary cleanup leftovers.
 
 ---
@@ -500,6 +512,9 @@ Notes:
 - [ ] **3B merged** — type/naming consolidation landed separately from runtime behavior changes
 - [ ] **3C merged** — env-shaping consolidation landed after targeted regression tests
 - [ ] **3D complete** — final audit/doc pass is green and Phase 4 can begin
+
+Notes:
+- As with the earlier checkpoints, "merged" here means landed on `cheeky-cooking-moon`, not merged out to another branch.
 
 ---
 
