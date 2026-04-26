@@ -650,6 +650,92 @@ test('ProviderManager preserves the Ollama readiness message when the probe is u
   await mounted.dispose()
 })
 
+test('ProviderManager first-run Atomic Chat preset auto-detects loaded models', async () => {
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const onDone = mock(() => {})
+  const addProviderProfile = mock((payload: {
+    provider: string
+    name: string
+    baseUrl: string
+    model: string
+    apiKey?: string
+  }) => ({
+    id: 'provider_atomic_chat',
+    provider: payload.provider,
+    name: payload.name,
+    baseUrl: payload.baseUrl,
+    model: payload.model,
+    apiKey: payload.apiKey,
+  }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      addProviderProfile,
+      probeRouteReadiness: async routeId => {
+        if (routeId === 'atomic-chat') {
+          return {
+            state: 'ready' as const,
+            models: ['Qwen3_5-4B_Q4_K_M', 'Llama-3.1-8B-Instruct'],
+          }
+        }
+
+        return null
+      },
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+    onDone,
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set up provider'),
+  )
+
+  await navigateToPreset(mounted.stdin, 'Atomic Chat')
+  mounted.stdin.write('\r')
+
+  const modelFrame = await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Choose an Atomic Chat model') &&
+      frame.includes('Qwen3_5-4B_Q4_K_M') &&
+      frame.includes('Llama-3.1-8B-Instruct'),
+  )
+
+  expect(modelFrame).toContain('Choose an Atomic Chat model')
+  expect(modelFrame).toContain('Qwen3_5-4B_Q4_K_M')
+
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => onDone.mock.calls.length > 0)
+
+  expect(addProviderProfile).toHaveBeenCalled()
+  expect(addProviderProfile.mock.calls[0]?.[0]).toMatchObject({
+    name: 'Atomic Chat',
+    baseUrl: 'http://127.0.0.1:1337/v1',
+    model: 'Qwen3_5-4B_Q4_K_M',
+  })
+  expect(onDone).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'saved',
+      message: 'Provider configured: Atomic Chat',
+    }),
+  )
+
+  await mounted.dispose()
+})
+
 test('ProviderManager first-run Codex OAuth switches the current session after login completes', async () => {
   delete process.env.CLAUDE_CODE_SIMPLE
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -1181,6 +1267,59 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
       ({ newState }) => newState.mainLoopModel === 'gpt-5.4; gpt-5.4-mini',
     ),
   ).toBe(false)
+
+  await mounted.dispose()
+})
+
+test('ProviderManager set-active list uses descriptor-backed provider type labels', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const geminiProfile = {
+    id: 'provider_gemini',
+    provider: 'gemini',
+    name: 'Gemini Work',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    model: 'gemini-2.5-pro',
+    apiKey: 'gm-test',
+  }
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [geminiProfile],
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('Set active provider'),
+  )
+
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  const output = await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Set active provider') &&
+      frame.includes('Gemini Work') &&
+      frame.includes('Gemini API'),
+  )
+
+  expect(output).toContain(
+    'Gemini API · https://generativelanguage.googleapis.com/v1beta/openai · gemini-2.5-pro',
+  )
 
   await mounted.dispose()
 })

@@ -1,10 +1,10 @@
 # OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Current Phase**: Phase 2 — Runtime Metadata Adoption
-**Next Planned Phase**: Phase 2E — Phase-2 Verification and Drift Audit
+**Current Phase**: Phase 2 — Runtime Metadata Adoption (complete on branch)
+**Next Planned Phase**: Phase 3 planning — follow-on cleanup after Phase 2 audit
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 18:53
+**Last Updated**: 2026-04-25 19:18
 
 ---
 
@@ -159,14 +159,14 @@ Notes:
 
 ## Phase 2: Runtime Metadata Adoption
 
-**Status**: `IN_PROGRESS`
+**Status**: `COMPLETE`
 
 **Goal**: Move decision-making logic onto descriptors so runtime surfaces stop duplicating provider rules.
 
 ### Phase 2 Exit Criteria
 
-- [ ] Validation, discovery hints, preset metadata, and runtime affordances are descriptor-backed
-- [ ] UI and command surfaces read shared metadata instead of bespoke switches
+- [x] Validation, discovery hints, preset metadata, and runtime affordances are descriptor-backed
+- [x] UI and command surfaces read shared metadata instead of bespoke switches
 
 ### Phase 2 Entry Blockers
 
@@ -348,17 +348,29 @@ Notes:
 
 ## Phase 2E: Phase-2 Verification and Drift Audit
 
-**Status**: `BLOCKED`
+**Status**: `COMPLETE`
 
-- [ ] Run `/provider` flows for representative providers
-- [ ] Verify validation errors still appear at the right times
-- [ ] Verify local discovery still works
-- [ ] Audit remaining switch statements
-- [ ] Document whether each remaining switch is intentional or stale
+- [x] Run `/provider` flows for representative providers
+- [x] Verify validation errors still appear at the right times
+- [x] Verify local discovery still works
+- [x] Audit remaining switch statements
+- [x] Document whether each remaining switch is intentional or stale
 
 Notes:
 - Unblock only after `2A` through `2D` are complete enough to audit as one behavior slice.
 - Treat this packet as the gate before any Phase 3 cleanup work starts.
+- Active work resumed on 2026-04-25 18:59. Focused representative-provider verification is running across `/provider`, `/model`, validation, discovery, runtime detection, and resume/shim coverage before the remaining switch inventory is classified.
+- Completed on 2026-04-25 19:09:
+  - added representative `/provider` verification for descriptor-backed OpenRouter labeling plus Gemini and Mistral current-provider summaries in `src/commands/provider/provider.test.tsx`
+  - added first-run Atomic Chat picker coverage in `src/components/ProviderManager.test.tsx` to confirm local discovery-backed provider setup still works
+  - recorded the remaining switch inventory and classification in `plan/phase-2e-drift-audit.md`
+- Follow-up hardening on 2026-04-25 19:18:
+  - expanded `plan/phase-2e-drift-audit.md` to include the remaining intentional non-switch provider branches in `routeMetadata.ts`, `openaiShim.ts`, `provider.tsx`, and `conversationRecovery.ts`
+  - replaced stale saved-profile picker wording in `src/components/ProviderManager.tsx` with the descriptor-backed route provider-type label and added focused regression coverage
+- Focused Phase 2E verification on 2026-04-25 is green:
+  - `bun test src/components/ProviderManager.test.tsx src/commands/provider/provider.test.tsx src/utils/providerValidation.test.ts src/integrations/discoveryService.test.ts src/commands/model/model.test.tsx`
+  - `bun test src/utils/providerDiscovery.test.ts src/utils/model/providers.test.ts src/services/api/openaiShim.test.ts src/utils/conversationRecovery.test.ts`
+- Filtered `bun run typecheck` for the audited runtime/provider files still reports the same pre-existing baseline noise in `src/services/api/openaiShim.ts` and `src/utils/conversationRecovery.ts`; no new 2E-specific typecheck failures were introduced by this packet.
 
 ---
 
@@ -369,7 +381,7 @@ Notes:
 - [ ] **2B merged** — discovery/readiness metadata checkpoint landed on `cheeky-cooking-moon`
 - [ ] **2C merged** — provider UI metadata checkpoint landed on `cheeky-cooking-moon`
 - [ ] **2D merged** — runtime provider detection checkpoint landed on `cheeky-cooking-moon`
-- [ ] **2E complete** — drift audit is green and Phase 3 can begin
+- [x] **2E complete** — drift audit is green and Phase 3 can begin
 
 ---
 
