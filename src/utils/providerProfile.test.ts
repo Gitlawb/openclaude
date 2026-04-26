@@ -171,6 +171,39 @@ test('openai launch ignores codex persisted transport hints', async () => {
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
 })
 
+test('openai launch preserves shell responses format and custom auth overrides', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://persisted.example/v1',
+      OPENAI_MODEL: 'persisted-model',
+      OPENAI_API_FORMAT: 'chat_completions',
+      OPENAI_AUTH_HEADER: 'X-Persisted-Key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'persisted-secret',
+      OPENAI_API_KEY: 'sk-persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://shell.example/v1',
+      OPENAI_MODEL: 'shell-model',
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_AUTH_HEADER: 'api-key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'shell-secret',
+      OPENAI_API_KEY: 'sk-live',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://shell.example/v1')
+  assert.equal(env.OPENAI_MODEL, 'shell-model')
+  assert.equal(env.OPENAI_API_FORMAT, 'responses')
+  assert.equal(env.OPENAI_AUTH_HEADER, 'api-key')
+  assert.equal(env.OPENAI_AUTH_SCHEME, 'raw')
+  assert.equal(env.OPENAI_AUTH_HEADER_VALUE, 'shell-secret')
+  assert.equal(env.OPENAI_API_KEY, 'sk-live')
+})
+
 test('matching persisted gemini env is reused for gemini launch', async () => {
   const env = await buildLaunchEnv({
     profile: 'gemini',
@@ -380,6 +413,32 @@ test('codex profiles require a chatgpt account id', () => {
   })
 
   assert.equal(env, null)
+})
+
+test('codex launch clears openai-compatible format and custom auth env', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'codex',
+    persisted: profile('codex', {
+      OPENAI_BASE_URL: 'https://chatgpt.com/backend-api/codex',
+      OPENAI_MODEL: 'codexspark',
+      CHATGPT_ACCOUNT_ID: 'acct_persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_AUTH_HEADER: 'api-key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'hicap-header-secret',
+      CODEX_API_KEY: 'codex-live',
+      CHATGPT_ACCOUNT_ID: 'acct_live',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_FORMAT, undefined)
+  assert.equal(env.OPENAI_AUTH_HEADER, undefined)
+  assert.equal(env.OPENAI_AUTH_SCHEME, undefined)
+  assert.equal(env.OPENAI_AUTH_HEADER_VALUE, undefined)
+  assert.equal(env.CODEX_API_KEY, 'codex-live')
 })
 
 test('gemini profiles accept google api key fallback', () => {
@@ -745,10 +804,17 @@ test('maskSecretForDisplay preserves only a short prefix and suffix', () => {
 
 test('redactSecretValueForDisplay masks poisoned display fields that equal configured secrets', () => {
   const apiKey = 'sk-secret-12345678'
+  const authHeaderValue = 'hicap-header-secret'
 
   assert.equal(
     redactSecretValueForDisplay(apiKey, { OPENAI_API_KEY: apiKey }),
     'sk-...678',
+  )
+  assert.equal(
+    redactSecretValueForDisplay(authHeaderValue, {
+      OPENAI_AUTH_HEADER_VALUE: authHeaderValue,
+    }),
+    'hic...ret',
   )
   assert.equal(
     redactSecretValueForDisplay('gpt-4o', { OPENAI_API_KEY: apiKey }),
@@ -785,6 +851,22 @@ test('openai profiles ignore codex shell transport hints', () => {
     OPENAI_MODEL: 'gpt-4o',
     OPENAI_API_KEY: 'sk-live',
   })
+})
+
+test('openai profiles keep shell base and model when shell format is responses', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://shell.example/v1',
+      OPENAI_MODEL: 'shell-model',
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_API_KEY: 'sk-live',
+    },
+  })
+
+  assert.equal(env?.OPENAI_BASE_URL, 'https://shell.example/v1')
+  assert.equal(env?.OPENAI_MODEL, 'shell-model')
+  assert.equal(env?.OPENAI_API_KEY, 'sk-live')
 })
 
 test('openai profiles use the first model from a semicolon-separated list', () => {

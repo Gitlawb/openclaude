@@ -1061,25 +1061,43 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
     mounted.getOutput,
     frame =>
       frame.includes('Edit provider profile') &&
-      frame.includes('Step 1 of 4'),
+      frame.includes('Step 1 of 7'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 2 of 4'),
+    frame => frame.includes('Step 2 of 7'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 3 of 4'),
+    frame => frame.includes('Step 3 of 7'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 4 of 4'),
+    frame => frame.includes('Step 4 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 5 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 6 of 7'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 7 of 7'),
   )
 
   mounted.stdin.write('\r')
