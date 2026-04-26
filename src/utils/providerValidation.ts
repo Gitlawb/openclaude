@@ -17,7 +17,7 @@ import { redactSecretValueForDisplay } from './providerSecrets.js'
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
   const normalized = value.trim().toLowerCase()
-  return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
+  return normalized === '1' || (normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no')
 }
 
 type GithubTokenStatus = 'valid' | 'expired' | 'invalid_format'

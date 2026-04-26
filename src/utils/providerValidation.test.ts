@@ -83,6 +83,8 @@ test('still errors when no Gemini credential source is available', async () => {
 
 test('openai missing key error includes recovery guidance and config locations', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_USE_GITHUB = '0'
+  process.env.CLAUDE_CODE_USE_GEMINI = '0'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   delete process.env.OPENAI_API_KEY
 

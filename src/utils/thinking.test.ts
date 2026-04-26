@@ -24,6 +24,17 @@ beforeEach(() => {
     originalEnv[key] = process.env[key]
     delete process.env[key]
   }
+  // Ensure a clean slate for every test - disable all possible providers
+  process.env.CLAUDE_CODE_USE_OPENAI = '0'
+  process.env.CLAUDE_CODE_USE_GEMINI = '0'
+  process.env.CLAUDE_CODE_USE_GITHUB = '0'
+  process.env.CLAUDE_CODE_USE_MISTRAL = '0'
+  process.env.CLAUDE_CODE_USE_BEDROCK = '0'
+  process.env.CLAUDE_CODE_USE_VERTEX = '0'
+  process.env.CLAUDE_CODE_USE_FOUNDRY = '0'
+  process.env.NVIDIA_NIM = ''
+  process.env.MINIMAX_API_KEY = ''
+  process.env.XAI_API_KEY = ''
 })
 
 afterEach(() => {
