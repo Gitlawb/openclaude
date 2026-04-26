@@ -253,20 +253,25 @@ export async function listOllamaModels(
 export async function listOpenAICompatibleModels(options?: {
   baseUrl?: string
   apiKey?: string
+  headers?: Record<string, string>
 }): Promise<string[] | null> {
   const { signal, clear } = withTimeoutSignal(5000)
   try {
     const baseUrl = getOpenAICompatibleModelsBaseUrl(options?.baseUrl)
     const isBankr = baseUrl.toLowerCase().includes('bankr')
+    const headers = {
+      ...(options?.headers ?? {}),
+      ...(options?.apiKey
+        ? isBankr
+          ? { 'X-API-Key': options.apiKey }
+          : { Authorization: `Bearer ${options.apiKey}` }
+        : {}),
+    }
     const response = await fetch(
       `${baseUrl}/models`,
       {
         method: 'GET',
-        headers: options?.apiKey
-          ? isBankr
-            ? { 'X-API-Key': options.apiKey }
-            : { Authorization: `Bearer ${options.apiKey}` }
-          : undefined,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         signal,
       },
     )

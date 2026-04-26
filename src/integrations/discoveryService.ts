@@ -91,6 +91,16 @@ function getRouteDiscoveryApiKey(
   })
 }
 
+function getRouteDiscoveryHeaders(routeId: string): Record<string, string> | undefined {
+  const transportConfig = getRouteDescriptor(routeId)?.transportConfig
+  const headers = {
+    ...(transportConfig?.headers ?? {}),
+    ...(transportConfig?.openaiShim?.headers ?? {}),
+  }
+
+  return Object.keys(headers).length > 0 ? headers : undefined
+}
+
 function toDiscoveredModelEntry(modelId: string): ModelCatalogEntry {
   return {
     id: modelId,
@@ -155,6 +165,7 @@ async function runDiscovery(
       const models = await listOpenAICompatibleModels({
         baseUrl: getRouteBaseUrl(routeId, options),
         apiKey: getRouteDiscoveryApiKey(routeId, options),
+        headers: getRouteDiscoveryHeaders(routeId),
       })
       return models?.map(model => toDiscoveredModelEntry(model)) ?? null
     }

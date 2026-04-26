@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { registerGateway } from '../../integrations/index.ts'
 import { createOpenAIShimClient } from './openaiShim.ts'
 
 type FetchType = typeof globalThis.fetch
@@ -239,6 +240,90 @@ test('strips canonical Anthropic headers from per-request shim headers too', asy
   expect(capturedHeaders?.get('anthropic-version')).toBeNull()
   expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+})
+
+test('applies descriptor static headers before client and request headers', async () => {
+  let capturedHeaders: Headers | undefined
+
+  registerGateway({
+    id: 'shim-header-test',
+    label: 'Shim Header Test',
+    category: 'hosted',
+    defaultBaseUrl: 'https://shim-header-test.example/v1',
+    defaultModel: 'shim-test-model',
+    setup: {
+      requiresAuth: true,
+      authMode: 'api-key',
+      credentialEnvVars: ['OPENAI_API_KEY'],
+    },
+    transportConfig: {
+      kind: 'openai-compatible',
+      openaiShim: {
+        headers: {
+          'x-static-header': 'from-descriptor',
+          'x-override-header': 'from-descriptor',
+        },
+      },
+    },
+  })
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://shim-header-test.example/v1'
+  process.env.OPENAI_MODEL = 'shim-test-model'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'shim-test-model',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {
+      'x-override-header': 'from-client',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'shim-test-model',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    {
+      headers: {
+        'x-override-header': 'from-request',
+      },
+    },
+  )
+
+  expect(capturedHeaders?.get('x-static-header')).toBe('from-descriptor')
+  expect(capturedHeaders?.get('x-override-header')).toBe('from-request')
 })
 
 test('strips Anthropic-specific headers on GitHub Codex transport requests', async () => {

@@ -391,7 +391,7 @@ test('gemini profiles accept google api key fallback', () => {
 
   assert.deepEqual(env, {
     GEMINI_AUTH_MODE: 'api-key',
-    GEMINI_MODEL: 'gemini-2.0-flash',
+    GEMINI_MODEL: 'gemini-3-flash-preview',
     GEMINI_API_KEY: 'gem-live',
   })
 })

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { registerGateway } from './index.js'
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -149,6 +150,59 @@ describe('discoverModelsForRoute', () => {
       'anthropic/claude-sonnet-4',
     ])
     expect(result?.models[0]?.label).toBe('GPT-5 Mini (via OpenRouter)')
+  })
+
+  test('openai-compatible discovery applies descriptor static headers with auth', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    registerGateway({
+      id: 'discovery-header-test',
+      label: 'Discovery Header Test',
+      category: 'hosted',
+      defaultBaseUrl: 'https://discovery-header-test.example/v1',
+      setup: {
+        requiresAuth: true,
+        authMode: 'api-key',
+        credentialEnvVars: ['DISCOVERY_HEADER_TEST_API_KEY'],
+      },
+      transportConfig: {
+        kind: 'openai-compatible',
+        openaiShim: {
+          headers: {
+            'X-Static-Client': 'openclaude',
+          },
+        },
+      },
+      catalog: {
+        source: 'dynamic',
+        discovery: {
+          kind: 'openai-compatible',
+        },
+      },
+    })
+
+    setMockFetch(mock((_input, init) => {
+      expect(init?.headers).toEqual({
+        'X-Static-Client': 'openclaude',
+        Authorization: 'Bearer discovery-key',
+      })
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'discovered-model' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('discovery-header-test', {
+      apiKey: 'discovery-key',
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('network')
+    expect(result?.models.map(model => model.apiName)).toEqual(['discovered-model'])
   })
 
   test('startup refresh mode performs discovery for startup routes and then reuses cache', async () => {
