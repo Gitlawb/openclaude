@@ -3,6 +3,10 @@ import { mock } from 'bun:test'
 
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
 import { saveGlobalConfig } from '../config.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from '../settings/settingsCache.js'
 
 async function importFreshModelOptionsModule() {
   mock.restore()
@@ -35,6 +39,7 @@ function restoreEnvValue(
 
 beforeEach(() => {
   mock.restore()
+  setSessionSettingsCache({ settings: {}, errors: [] })
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -49,6 +54,7 @@ beforeEach(() => {
 
 afterEach(() => {
   mock.restore()
+  resetSettingsCache()
   restoreEnvValue('CLAUDE_CODE_USE_GITHUB')
   restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
   restoreEnvValue('CLAUDE_CODE_USE_GEMINI')

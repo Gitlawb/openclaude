@@ -311,8 +311,10 @@ describe('discoverModelsForRoute', () => {
     const { refreshStartupDiscoveryForActiveRoute } =
       await loadDiscoveryServiceModule()
 
-    process.env.CLAUDE_CODE_USE_OPENAI = '1'
-    process.env.OPENAI_BASE_URL = 'http://localhost:1234/v1'
+    const startupEnv: NodeJS.ProcessEnv = {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'http://localhost:1234/v1',
+    }
 
     setMockFetch(mock(() =>
       Promise.resolve(
@@ -326,7 +328,7 @@ describe('discoverModelsForRoute', () => {
     ) as unknown as typeof globalThis.fetch)
 
     const result = await refreshStartupDiscoveryForActiveRoute({
-      processEnv: process.env,
+      processEnv: startupEnv,
     })
 
     expect(result?.routeId).toBe('lmstudio')
