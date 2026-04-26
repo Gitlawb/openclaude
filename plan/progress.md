@@ -1,10 +1,10 @@
 # OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Current Phase**: Phase 3 — Cleanup (complete on branch)
-**Next Planned Phase**: Phase 4A — Documentation Structure and Terminology
+**Current Phase**: Phase 4B — "How To Add a Vendor" and "How To Add a Gateway" Guides (complete on branch)
+**Next Planned Phase**: Phase 4C — "How To Add a Model" and "How To Add an Anthropic Proxy" Guides
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 22:02
+**Last Updated**: 2026-04-25 22:39
 
 ---
 
@@ -581,7 +581,7 @@ Notes:
 
 ## Phase 4: Documentation and Reference Samples
 
-**Status**: `PLANNED`
+**Status**: `IN_PROGRESS`
 
 **Goal**: Produce implementation-quality documentation for the descriptor system and give future contributors reliable reference examples for the most common integration patterns.
 
@@ -599,16 +599,17 @@ Notes:
 
 - [x] Phase 3 is complete on `cheeky-cooking-moon`
 - [x] `docs/architecture/integrations.md` exists from `3D` and can seed the architecture/terminology packet
-- [ ] Confirm the remaining Phase 4 doc structure and target file layout before authoring the new how-to/reference guides
+- [x] Confirm the remaining Phase 4 doc structure and target file layout before authoring the new how-to/reference guides
 
 Notes:
 - This phase should mirror the master-plan packet order (`4A` through `4E`) rather than mixing glossary, how-to, `/usage`, and reference-sample work together.
 - As with the earlier checkpoints, Phase 4 work stays branch-local on `cheeky-cooking-moon`; nothing in this tracker implies merging outside the branch.
 - Treat the existing `docs/architecture/integrations.md` note as the seed artifact for `4A`, not as a reason to skip the remaining glossary, terminology, and docs-structure work.
+- `4A` now defines the Phase 4 docs layout around `docs/architecture/` plus `docs/integrations/`, with future contributor guides living under `docs/integrations/how-to/`.
 
 ### Phase 4 Recommended Sequence
 
-- [ ] Document the architecture and terminology first
+- [x] Document the architecture and terminology first
 - [ ] Document add-a-new-integration workflows second
 - [ ] Add worked reference samples third
 - [ ] Add `/usage` integration guidance and review docs for accuracy last
@@ -617,23 +618,29 @@ Notes:
 
 ## Phase 4A: Documentation Structure and Terminology
 
-**Status**: `PLANNED`
+**Status**: `COMPLETE`
 
-- [ ] Ensure all new documentation lives under `/docs`
-- [ ] Ensure all documentation files are `.md`
-- [ ] Choose the target doc locations
+- [x] Ensure all new documentation lives under `/docs`
+- [x] Ensure all documentation files are `.md`
+- [x] Choose the target doc locations
 - [x] Add a top-level architecture document for descriptors and registry behavior
-- [ ] Define standard terminology for vendor, gateway, model, brand, and anthropic proxy
-- [ ] Document the boundary between descriptor metadata and transport implementation
-- [ ] Document that `transportConfig.kind` is the routing contract for gateways
-- [ ] Document that gateway `category` is optional display/grouping metadata and must not drive runtime routing
-- [ ] Document the descriptor authoring pattern using `defineVendor`, `defineGateway`, `defineCatalog`, `defineModel`, `defineBrand`, and `defineAnthropicProxy`
-- [ ] Document that loader-owned registration means contributors should not call registry functions directly in normal descriptor files
-- [ ] Document the compatibility layer and legacy naming expectations
+- [x] Define standard terminology for vendor, gateway, model, brand, and anthropic proxy
+- [x] Document the boundary between descriptor metadata and transport implementation
+- [x] Document that `transportConfig.kind` is the routing contract for gateways
+- [x] Document that gateway `category` is optional display/grouping metadata and must not drive runtime routing
+- [x] Document the descriptor authoring pattern using `defineVendor`, `defineGateway`, `defineCatalog`, `defineModel`, `defineBrand`, and `defineAnthropicProxy`
+- [x] Document that loader-owned registration means contributors should not call registry functions directly in normal descriptor files
+- [x] Document the compatibility layer and legacy naming expectations
 
 Notes:
 - Seed artifact already present from `3D`: `docs/architecture/integrations.md`.
-- `4A` still needs the docs-structure decision plus the overview/glossary follow-through before this packet should move to `IN_PROGRESS` or `COMPLETE`.
+- Completed on 2026-04-25 by expanding `docs/architecture/integrations.md` and adding:
+  - `docs/integrations/overview.md` — docs map, authoring rules, routing contract, loader-owned registration, and compatibility-layer guidance
+  - `docs/integrations/glossary.md` — standard terminology for routes, vendors, gateways, brands, models, and anthropic proxies
+- The chosen Phase 4 docs structure is:
+  - `docs/architecture/` for architecture notes
+  - `docs/integrations/` for overview/glossary/reference docs
+  - `docs/integrations/how-to/` for contributor how-to guides in later packets
 
 Suggested doc outputs:
 - `docs/architecture/integrations.md`
@@ -644,39 +651,39 @@ Suggested doc outputs:
 
 ## Phase 4B: "How To Add a Vendor" and "How To Add a Gateway" Guides
 
-**Status**: `PLANNED`
+**Status**: `COMPLETE`
 
-- [ ] Write a step-by-step guide for adding a new vendor
-- [ ] Write a step-by-step guide for adding a new gateway
-- [ ] Keep all vendor and gateway guides under `/docs` as Markdown files
-- [ ] Include a vendor example with direct OpenAI-compatible routing
-- [ ] Include a vendor example that acts as its own first-party model endpoint with a catalog, such as OpenAI or DeepSeek
-- [ ] Include a gateway example that is addable in one file
-- [ ] Include a gateway example that uses an optional `gateways/<id>.models.ts` companion file for a large manual catalog or discovery function
-- [ ] Ensure examples use `defineGateway` and `defineCatalog` rather than direct registry/type imports
-- [ ] Explicitly show default exports from descriptor files and catalog files
-- [ ] Explicitly avoid `registerGateway`, `registerVendor`, and direct `import type` boilerplate in contributor-facing examples
-- [ ] Show `transportConfig.kind: 'openai-compatible'` for hosted OpenAI-compatible gateways
-- [ ] Show `transportConfig.kind: 'local'` for local gateways such as Ollama or LM Studio
-- [ ] Show `transportConfig.kind: 'anthropic-proxy'` for Anthropic-compatible proxy gateways
-- [ ] Explain the difference between `max_tokens` and `max_completion_tokens` for OpenAI-compatible routes
-- [ ] Document when to set `openaiShim.maxTokensField: 'max_tokens'`
-- [ ] Document when to set `openaiShim.maxTokensField: 'max_completion_tokens'`
-- [ ] Include examples for strict OpenAI-compatible providers that reject the wrong max-token field, such as Z.AI-style routes
-- [ ] Explain `category: 'local' | 'hosted' | 'aggregating'` as optional grouping only
-- [ ] Include a gateway example that exposes only its own hosted models
-- [ ] Include a gateway example that hosts a mixed catalog of third-party brands/models
-- [ ] Include a gateway example with `catalog.source: 'dynamic'`
-- [ ] Include a gateway example with `catalog.source: 'hybrid'`
-- [ ] Include a gateway example with discovery implemented in `gateways/<id>.models.ts`, human-readable discovery cache TTL, refresh mode, and manual refresh enabled
-- [ ] Document `discoveryCacheTtl` with examples such as `30m`, `1h`, and `1d`
-- [ ] Document each `discoveryRefreshMode` option with when to use it
-- [ ] Include examples for `manual`, `on-open`, `background-if-stale`, and `startup`
-- [ ] Include a gateway example whose hosted models differ in reasoning/thinking support, context window, input limits, and output limits
-- [ ] Include a gateway example with required static custom headers
-- [ ] Include guidance for optional user-supplied custom headers
-- [ ] Avoid redundant gateway examples that use `targetVendorId` or `isOpenAICompatible`; use `transportConfig.kind` instead
-- [ ] Document how presets, compatibility mappings, and consumer surfaces should be updated
+- [x] Write a step-by-step guide for adding a new vendor
+- [x] Write a step-by-step guide for adding a new gateway
+- [x] Keep all vendor and gateway guides under `/docs` as Markdown files
+- [x] Include a vendor example with direct OpenAI-compatible routing
+- [x] Include a vendor example that acts as its own first-party model endpoint with a catalog, such as OpenAI or DeepSeek
+- [x] Include a gateway example that is addable in one file
+- [x] Include a gateway example that uses an optional `gateways/<id>.models.ts` companion file for a large manual catalog or discovery function
+- [x] Ensure examples use `defineGateway` and `defineCatalog` rather than direct registry/type imports
+- [x] Explicitly show default exports from descriptor files and catalog files
+- [x] Explicitly avoid `registerGateway`, `registerVendor`, and direct `import type` boilerplate in contributor-facing examples
+- [x] Show `transportConfig.kind: 'openai-compatible'` for hosted OpenAI-compatible gateways
+- [x] Show `transportConfig.kind: 'local'` for local gateways such as Ollama or LM Studio
+- [x] Show `transportConfig.kind: 'anthropic-proxy'` for Anthropic-compatible proxy gateways
+- [x] Explain the difference between `max_tokens` and `max_completion_tokens` for OpenAI-compatible routes
+- [x] Document when to set `openaiShim.maxTokensField: 'max_tokens'`
+- [x] Document when to set `openaiShim.maxTokensField: 'max_completion_tokens'`
+- [x] Include examples for strict OpenAI-compatible providers that reject the wrong max-token field, such as Z.AI-style routes
+- [x] Explain `category: 'local' | 'hosted' | 'aggregating'` as optional grouping only
+- [x] Include a gateway example that exposes only its own hosted models
+- [x] Include a gateway example that hosts a mixed catalog of third-party brands/models
+- [x] Include a gateway example with `catalog.source: 'dynamic'`
+- [x] Include a gateway example with `catalog.source: 'hybrid'`
+- [x] Include a gateway example with discovery implemented in `gateways/<id>.models.ts`, human-readable discovery cache TTL, refresh mode, and manual refresh enabled
+- [x] Document `discoveryCacheTtl` with examples such as `30m`, `1h`, and `1d`
+- [x] Document each `discoveryRefreshMode` option with when to use it
+- [x] Include examples for `manual`, `on-open`, `background-if-stale`, and `startup`
+- [x] Include a gateway example whose hosted models differ in reasoning/thinking support, context window, input limits, and output limits
+- [x] Include a gateway example with required static custom headers
+- [x] Include guidance for optional user-supplied custom headers
+- [x] Avoid redundant gateway examples that use `targetVendorId` or `isOpenAICompatible`; use `transportConfig.kind` instead
+- [x] Document how presets, compatibility mappings, and consumer surfaces should be updated
 
 Suggested doc outputs:
 - `docs/integrations/how-to/add-vendor.md`
@@ -700,6 +707,12 @@ Required sample patterns:
 - gateway whose models differ in reasoning/thinking behavior and context/input/output limits
 - gateway with custom header requirements
 - gateway examples must not use removed fields such as `targetVendorId`, `isOpenAICompatible`, or routing-oriented gateway `classification`
+
+Notes:
+- Completed on 2026-04-25 by adding:
+  - `docs/integrations/how-to/add-vendor.md` — vendor onboarding rules plus direct OpenAI-compatible, custom-static-header, and first-party-catalog examples
+  - `docs/integrations/how-to/add-gateway.md` — one-file and two-file gateway patterns, transport-family examples, discovery-cache guidance, token-field guidance, and compatibility-surface follow-through
+- The new gateway guide explicitly keeps `transportConfig.kind` as the routing contract and treats `category` as display/grouping metadata only.
 
 ---
 

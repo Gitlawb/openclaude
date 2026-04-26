@@ -14,6 +14,14 @@ OpenClaude's provider system is now descriptor-first:
 This note captures the post-Phase-3 architecture plus the remaining
 constraints and known exceptions that are still expected to exist.
 
+Companion docs:
+
+- `docs/integrations/overview.md`
+  Contributor-facing map of the integration docs set and the authoring rules.
+- `docs/integrations/glossary.md`
+  Standard terminology for vendors, gateways, routes, models, brands, and
+  anthropic proxies.
+
 ## Source of truth
 
 The primary source of truth now lives in these layers:
@@ -33,6 +41,112 @@ The primary source of truth now lives in these layers:
 In other words: descriptor metadata should decide which route exists and what
 it supports; runtime code should execute that metadata, not replace it with a
 parallel provider matrix.
+
+## Metadata, routing, and transport
+
+These concerns are related, but they are not interchangeable:
+
+- metadata
+  Descriptor files declare labels, defaults, catalogs, validation hints,
+  discovery policy, and capability flags.
+- routing
+  Route-resolution helpers decide which descriptor is active and which runtime
+  path should receive the request.
+- transport
+  Runtime code such as native Anthropic handlers, Gemini handling, and
+  `openaiShim.ts` performs the actual request shaping and execution.
+
+The rule of thumb is:
+
+- descriptors own what a route is and what it says it supports;
+- routing helpers own how current config/env state maps onto that route;
+- transport code owns how requests are executed for the active route.
+
+If a future change needs a new label, default model, setup hint, discovery
+policy, or request-shaping flag, it probably belongs in descriptor/runtime
+metadata. If it changes the actual HTTP/API contract, it probably belongs in
+transport code.
+
+## Gateway routing contract
+
+For gateway descriptors, `transportConfig.kind` is the routing contract.
+
+- use `transportConfig.kind` to decide whether a route is local,
+  OpenAI-compatible, Anthropic-proxy, Bedrock, Vertex, or another supported
+  transport family;
+- do not use gateway `category` to choose runtime routing behavior.
+
+Gateway `category` is optional display/grouping metadata only:
+
+- `local` helps group routes like Ollama or LM Studio in UI/docs;
+- `hosted` helps describe remote first-party or managed endpoints;
+- `aggregating` helps describe routes that expose mixed third-party catalogs.
+
+That category is useful for contributor understanding, but runtime selection
+must continue to key off `transportConfig.kind`.
+
+## Descriptor authoring pattern
+
+Normal descriptor files should follow the `define*` + default-export pattern:
+
+```ts
+import { defineGateway, defineCatalog } from '../define.js'
+
+const catalog = defineCatalog({
+  source: 'static',
+  models: [
+    {
+      id: 'acme-fast',
+      apiName: 'acme/fast',
+      default: true,
+    },
+  ],
+})
+
+export default defineGateway({
+  id: 'acme',
+  label: 'Acme AI',
+  category: 'hosted',
+  setup: {
+    requiresAuth: true,
+    authMode: 'api-key',
+    credentialEnvVars: ['ACME_API_KEY'],
+  },
+  transportConfig: {
+    kind: 'openai-compatible',
+  },
+  catalog,
+})
+```
+
+Contributors should not call `registerGateway`, `registerVendor`,
+`registerModel`, or other registry functions directly from normal descriptor
+files. Registration is loader-owned:
+
+- the descriptor file defines typed data;
+- `src/integrations/index.ts` loads and registers that data;
+- registry helpers expose the loaded data to the rest of the app.
+
+That keeps onboarding additive and prevents descriptor files from turning back
+into distributed registration logic.
+
+## Compatibility layer
+
+The repo still has a few intentionally named compatibility bridges because the
+public env/config contract is not descriptor-native yet:
+
+- `src/integrations/compatibility.ts`
+  maps legacy provider preset names onto descriptor-backed route ids;
+- `src/integrations/profileResolver.ts`
+  keeps stored/sanitized provider ids compatible with descriptor routes;
+- `src/utils/model/providers.ts`
+  preserves `APIProvider` / `LegacyAPIProvider` for older callers;
+- `src/utils/providerFlag.ts`
+  still writes the env-facing provider contract even though it now reads shared
+  descriptor metadata.
+
+When contributor docs say "compatibility layer," they mean these env/preset/
+legacy-name bridges rather than the descriptor registry itself.
 
 ## Current constraints
 
