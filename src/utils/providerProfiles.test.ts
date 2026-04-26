@@ -951,6 +951,45 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  test('persists anthropic profiles using a dedicated anthropic startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    process.chdir(tempDir)
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const anthropicProfile = buildProfile({
+        id: 'anthro_persisted_prof',
+        name: 'Anthropic Provider',
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        model: 'claude-sonnet-4-6',
+        apiKey: 'sk-ant-live',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [anthropicProfile],
+      }))
+
+      const result = setActiveProviderProfile('anthro_persisted_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('anthro_persisted_prof')
+      expect(persisted.profile).toBe('anthropic')
+      expect(persisted.env).toEqual({
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+        ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+        ANTHROPIC_API_KEY: 'sk-ant-live',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   test('sets ANTHROPIC_MODEL env var when switching to an anthropic-type provider', async () => {
     const { setActiveProviderProfile } =
       await importFreshProviderProfileModules()

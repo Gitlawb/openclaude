@@ -7,6 +7,8 @@ const originalFetch = globalThis.fetch
 const originalEnv = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
 }
 
 let tempDir: string
@@ -25,6 +27,8 @@ beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-discovery-service-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.OPENROUTER_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.CLAUDE_CODE_USE_OPENAI
   globalThis.fetch = originalFetch
 })
 
@@ -40,6 +44,16 @@ afterEach(() => {
     delete process.env.OPENROUTER_API_KEY
   } else {
     process.env.OPENROUTER_API_KEY = originalEnv.OPENROUTER_API_KEY
+  }
+  if (originalEnv.OPENAI_BASE_URL === undefined) {
+    delete process.env.OPENAI_BASE_URL
+  } else {
+    process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
+  }
+  if (originalEnv.CLAUDE_CODE_USE_OPENAI === undefined) {
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+  } else {
+    process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
   }
 })
 
@@ -135,6 +149,60 @@ describe('discoverModelsForRoute', () => {
       'anthropic/claude-sonnet-4',
     ])
     expect(result?.models[0]?.label).toBe('GPT-5 Mini (via OpenRouter)')
+  })
+
+  test('startup refresh mode performs discovery for startup routes and then reuses cache', async () => {
+    const { refreshStartupDiscoveryForRoute } = await loadDiscoveryServiceModule()
+
+    let callCount = 0
+    setMockFetch(mock((input: string | URL | Request) => {
+      callCount++
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      expect(url).toBe('http://localhost:1234/v1/models')
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'local-model' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const first = await refreshStartupDiscoveryForRoute('lmstudio')
+    const second = await refreshStartupDiscoveryForRoute('lmstudio')
+
+    expect(first?.source).toBe('network')
+    expect(first?.models.map(model => model.apiName)).toEqual(['local-model'])
+    expect(second?.source).toBe('cache')
+    expect(callCount).toBe(1)
+  })
+
+  test('refreshStartupDiscoveryForActiveRoute resolves the active startup route from env', async () => {
+    const { refreshStartupDiscoveryForActiveRoute } =
+      await loadDiscoveryServiceModule()
+
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:1234/v1'
+
+    setMockFetch(mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'local-model' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    ) as unknown as typeof globalThis.fetch)
+
+    const result = await refreshStartupDiscoveryForActiveRoute({
+      processEnv: process.env,
+    })
+
+    expect(result?.routeId).toBe('lmstudio')
+    expect(result?.source).toBe('network')
   })
 })
 

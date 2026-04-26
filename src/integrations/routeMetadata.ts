@@ -142,6 +142,95 @@ export function getRouteDefaultModel(
   return defaultEntry?.apiName
 }
 
+function uniqueEnvVars(envVars: Iterable<string>): string[] {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  for (const envVar of envVars) {
+    const trimmed = envVar.trim()
+    if (!trimmed || seen.has(trimmed)) {
+      continue
+    }
+
+    seen.add(trimmed)
+    normalized.push(trimmed)
+  }
+
+  return normalized
+}
+
+function readFirstNonEmptyEnvValue(
+  processEnv: NodeJS.ProcessEnv,
+  envVars: readonly string[],
+): string | undefined {
+  for (const envVar of envVars) {
+    const value = processEnv[envVar]?.trim()
+    if (value) {
+      return value
+    }
+  }
+
+  return undefined
+}
+
+export function getRouteCredentialEnvVars(
+  routeId: string,
+): string[] {
+  if (routeId === 'custom') {
+    return ['OPENAI_API_KEY']
+  }
+
+  const descriptor = getRouteDescriptor(routeId)
+  if (!descriptor) {
+    return []
+  }
+
+  const envVars = [...(descriptor.setup.credentialEnvVars ?? [])]
+  if (
+    (descriptor.transportConfig.kind === 'openai-compatible' ||
+      descriptor.transportConfig.kind === 'local') &&
+    !envVars.includes('OPENAI_API_KEY')
+  ) {
+    envVars.push('OPENAI_API_KEY')
+  }
+
+  return uniqueEnvVars(envVars)
+}
+
+export function getRouteCredentialValue(
+  routeId: string,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return readFirstNonEmptyEnvValue(
+    processEnv,
+    getRouteCredentialEnvVars(routeId),
+  )
+}
+
+export function resolveRouteCredentialValue(
+  options?: {
+    routeId?: string | null
+    baseUrl?: string
+    processEnv?: NodeJS.ProcessEnv
+    activeProfileProvider?: string
+  },
+): string | undefined {
+  const processEnv = options?.processEnv ?? process.env
+  const routeId =
+    options?.routeId ??
+    resolveActiveRouteIdFromEnv(processEnv, {
+      activeProfileProvider: options?.activeProfileProvider,
+    }) ??
+    resolveRouteIdFromBaseUrl(options?.baseUrl) ??
+    (options?.baseUrl ? 'custom' : null)
+
+  if (!routeId || routeId === 'anthropic') {
+    return undefined
+  }
+
+  return getRouteCredentialValue(routeId, processEnv)
+}
+
 export function routeSupportsCustomHeaders(
   routeId: string,
 ): boolean {

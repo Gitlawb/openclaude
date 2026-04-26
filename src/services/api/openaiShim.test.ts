@@ -22,6 +22,8 @@ const originalEnv = {
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
 }
 
 const originalFetch = globalThis.fetch
@@ -92,6 +94,8 @@ beforeEach(() => {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.NVIDIA_API_KEY
   delete process.env.NVIDIA_NIM
+  delete process.env.OPENROUTER_API_KEY
+  delete process.env.DEEPSEEK_API_KEY
 })
 
 afterEach(() => {
@@ -113,6 +117,8 @@ afterEach(() => {
   restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
   restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
   restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
+  restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
+  restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
   globalThis.fetch = originalFetch
 })
 
@@ -498,6 +504,56 @@ test('keeps max_completion_tokens for non-local non-github providers', async () 
     max_tokens: 64,
     stream: false,
   })
+})
+
+test('uses route-specific credential env vars for descriptor-backed openai-compatible routes', async () => {
+  let capturedHeaders: Headers | undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENROUTER_API_KEY = 'or-route-key'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'openai/gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 1,
+          total_tokens: 6,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-5-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer or-route-key')
 })
 
 test('preserves Gemini tool call extra_content in follow-up requests', async () => {

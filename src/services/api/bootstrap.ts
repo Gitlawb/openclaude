@@ -5,6 +5,7 @@ import {
   resolveDiscoveryRouteIdFromBaseUrl,
 } from '../../integrations/discoveryService.js'
 import { getGateway, getVendor } from '../../integrations/index.js'
+import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
 import {
   getAnthropicApiKey,
   getClaudeAIOAuthTokens,
@@ -152,11 +153,16 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     (routeId
       ? getGateway(routeId)?.label ?? getVendor(routeId)?.label
       : undefined) ?? getLocalOpenAICompatibleProviderLabel(baseUrl)
+  const apiKey = resolveRouteCredentialValue({
+    routeId: routeId ?? 'custom',
+    baseUrl,
+    processEnv: process.env,
+  })
 
   const discovered = routeId
     ? await discoverModelsForRoute(routeId, {
         baseUrl,
-        apiKey: process.env.OPENAI_API_KEY,
+        apiKey,
       })
     : null
   const models =
@@ -165,7 +171,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
       : null) ??
     (await listOpenAICompatibleModels({
       baseUrl,
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey,
     }))
 
   if (models === null) {

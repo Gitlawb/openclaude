@@ -642,6 +642,37 @@ test('legacy openai saved profiles still deserialize and rebuild startup env', a
   }
 })
 
+test('legacy anthropic saved profiles still deserialize and rebuild startup env', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+
+  try {
+    saveProfileFile(
+      profile('anthropic', {
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+        ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+        ANTHROPIC_API_KEY: 'sk-ant-live',
+      }),
+      { cwd: tempDir },
+    )
+
+    const persisted = loadProfileFile({ cwd: tempDir })
+    assert.notEqual(persisted, null)
+    assert.equal(persisted?.profile, 'anthropic')
+
+    const env = await buildStartupEnvFromProfile({
+      persisted,
+      processEnv: {},
+    })
+
+    assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+    assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.anthropic.com')
+    assert.equal(env.ANTHROPIC_MODEL, 'claude-sonnet-4-6')
+    assert.equal(env.ANTHROPIC_API_KEY, 'sk-ant-live')
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
 test('bedrock persisted profiles load and rebuild the dedicated startup env', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
 

@@ -32,7 +32,7 @@ export default defineGateway({
     source: 'dynamic',
     discovery: { kind: 'openai-compatible' },
     discoveryCacheTtl: '1d',
-    discoveryRefreshMode: 'background-if-stale',
+    discoveryRefreshMode: 'startup',
     allowManualRefresh: true,
   },
   usage: { supported: false },

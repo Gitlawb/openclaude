@@ -11,6 +11,13 @@ import type {
   VendorDescriptor,
 } from '../integrations/descriptors.js'
 import {
+  getRouteCredentialEnvVars,
+  getRouteCredentialValue,
+  getRouteDescriptor,
+  resolveActiveRouteIdFromEnv,
+  resolveRouteIdFromBaseUrl,
+} from '../integrations/routeMetadata.js'
+import {
   getGithubEndpointType,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
@@ -308,6 +315,56 @@ async function getDescriptorValidationError(
   }
 }
 
+function getGenericRouteCredentialValidationError(
+  env: NodeJS.ProcessEnv,
+  request: ReturnType<typeof resolveProviderRequest>,
+): { applicable: boolean; error: string | null } {
+  const routeId =
+    resolveRouteIdFromBaseUrl(request.baseUrl) ??
+    resolveActiveRouteIdFromEnv(env)
+  if (!routeId || routeId === 'anthropic' || routeId === 'custom') {
+    return { applicable: false, error: null }
+  }
+
+  const descriptor = getRouteDescriptor(routeId)
+  if (
+    !descriptor ||
+    descriptor.validation ||
+    !descriptor.setup.requiresAuth ||
+    !['openai-compatible', 'local'].includes(descriptor.transportConfig.kind)
+  ) {
+    return { applicable: false, error: null }
+  }
+
+  if (
+    descriptor.setup.authMode !== 'api-key' &&
+    descriptor.setup.authMode !== 'token'
+  ) {
+    return { applicable: false, error: null }
+  }
+
+  if (
+    descriptor.setup.authMode === 'api-key' &&
+    isLocalProviderUrl(request.baseUrl)
+  ) {
+    return { applicable: true, error: null }
+  }
+
+  if (getRouteCredentialValue(routeId, env)) {
+    return { applicable: true, error: null }
+  }
+
+  const credentialEnvVars = getRouteCredentialEnvVars(routeId)
+  if (credentialEnvVars.length === 0) {
+    return { applicable: false, error: null }
+  }
+
+  return {
+    applicable: true,
+    error: `${descriptor.label} auth is required. Set ${credentialEnvVars.join(' or ')}.`,
+  }
+}
+
 export async function getProviderValidationError(
   env: NodeJS.ProcessEnv = process.env,
   options?: {
@@ -335,6 +392,10 @@ export async function getProviderValidationError(
     model: env.OPENAI_MODEL,
     baseUrl: env.OPENAI_BASE_URL,
   })
+  const genericRouteValidation = getGenericRouteCredentialValidationError(
+    env,
+    request,
+  )
 
   // Codex auth depends on transport resolution plus local auth/account state,
   // so it intentionally stays procedural instead of moving into descriptors.
@@ -356,30 +417,44 @@ export async function getProviderValidationError(
     return null
   }
 
-  if (validationTarget) {
-    const descriptorValidationError = await getDescriptorValidationError(
-      validationTarget,
-      env,
-      {
-        request,
-        resolveGeminiCredential: options?.resolveGeminiCredential,
-      },
-    )
+  const activeRouteId = resolveActiveRouteIdFromEnv(env)
+  const shouldPreferGenericRouteValidation =
+    validationTarget?.kind === 'vendor' &&
+    validationTarget.descriptor.id === 'openai' &&
+    genericRouteValidation.applicable &&
+    activeRouteId !== 'openai' &&
+    activeRouteId !== 'custom'
 
-    if (descriptorValidationError) {
-      if (
-        validationTarget.kind === 'vendor' &&
-        validationTarget.descriptor.id === 'openai' &&
-        !env.OPENAI_API_KEY &&
-        !isLocalProviderUrl(request.baseUrl)
-      ) {
-        return getOpenAIMissingKeyMessage()
+  if (validationTarget) {
+    if (!shouldPreferGenericRouteValidation) {
+      const descriptorValidationError = await getDescriptorValidationError(
+        validationTarget,
+        env,
+        {
+          request,
+          resolveGeminiCredential: options?.resolveGeminiCredential,
+        },
+      )
+
+      if (descriptorValidationError) {
+        if (
+          validationTarget.kind === 'vendor' &&
+          validationTarget.descriptor.id === 'openai' &&
+          !env.OPENAI_API_KEY &&
+          !isLocalProviderUrl(request.baseUrl)
+        ) {
+          return getOpenAIMissingKeyMessage()
+        }
+
+        return descriptorValidationError
       }
 
-      return descriptorValidationError
+      return null
     }
+  }
 
-    return null
+  if (genericRouteValidation.applicable) {
+    return genericRouteValidation.error
   }
 
   if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {

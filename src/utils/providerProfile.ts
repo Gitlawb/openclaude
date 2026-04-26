@@ -101,6 +101,7 @@ const SECRET_ENV_KEYS = [
 ] as const
 
 export type ProviderProfile =
+  | 'anthropic'
   | 'openai'
   | 'ollama'
   | 'codex'
@@ -193,6 +194,7 @@ function normalizeProfileModel(
 
 export function isProviderProfile(value: unknown): value is ProviderProfile {
   return (
+    value === 'anthropic' ||
     value === 'openai' ||
     value === 'ollama' ||
     value === 'codex' ||
@@ -833,6 +835,32 @@ export async function buildLaunchEnv(options: {
         baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
       }),
     })
+  }
+
+  if (options.profile === 'anthropic') {
+    const anthropicBaseUrl =
+      sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL) ||
+      sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_BASE_URL)
+    const anthropicApiKey =
+      sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) ||
+      sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY)
+
+    return {
+      ...(anthropicBaseUrl
+        ? { ANTHROPIC_BASE_URL: anthropicBaseUrl }
+        : {}),
+      ANTHROPIC_MODEL:
+        normalizeProfileModel(
+          sanitizeProviderConfigValue(processEnv.ANTHROPIC_MODEL),
+        ) ||
+        normalizeProfileModel(
+          sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
+        ) ||
+        'claude-sonnet-4-6',
+      ...(anthropicApiKey
+        ? { ANTHROPIC_API_KEY: anthropicApiKey }
+        : {}),
+    }
   }
 
   if (options.profile === 'bedrock') {

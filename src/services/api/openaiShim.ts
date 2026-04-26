@@ -32,6 +32,7 @@ import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
+import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
 import {
   createThinkTagFilter,
   stripThinkTags,
@@ -411,6 +412,14 @@ function hydrateOpenAIShimCompatibilityEnv(
     processEnv.OPENAI_API_KEY ??=
       processEnv.GITHUB_TOKEN ?? processEnv.GH_TOKEN ?? ''
     return
+  }
+
+  const routeCredential = resolveRouteCredentialValue({
+    processEnv,
+    baseUrl: processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE,
+  })
+  if (routeCredential && !processEnv.OPENAI_API_KEY) {
+    processEnv.OPENAI_API_KEY = routeCredential
   }
 
   if (
@@ -1657,9 +1666,14 @@ class OpenAIShimMessages {
     const isNvidiaNim =
       runtimeShimContext.routeId === 'nvidia-nim' ||
       isEnvTruthy(process.env.NVIDIA_NIM)
+    const routeCredential = resolveRouteCredentialValue({
+      routeId: runtimeShimContext.routeId,
+      baseUrl: request.baseUrl,
+      processEnv: process.env,
+    })
     const apiKey =
       this.providerOverride?.apiKey ??
-      process.env.OPENAI_API_KEY ??
+      routeCredential ??
       (isNvidiaNim ? process.env.NVIDIA_API_KEY : undefined) ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via

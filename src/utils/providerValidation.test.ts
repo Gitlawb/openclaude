@@ -17,6 +17,9 @@ const originalEnv = {
   NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   BNKR_API_KEY: process.env.BNKR_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+  MOONSHOT_API_KEY: process.env.MOONSHOT_API_KEY,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
@@ -46,6 +49,9 @@ afterEach(() => {
   restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
   restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
   restoreEnv('BNKR_API_KEY', originalEnv.BNKR_API_KEY)
+  restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
+  restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
+  restoreEnv('MOONSHOT_API_KEY', originalEnv.MOONSHOT_API_KEY)
   restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
   restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
@@ -192,14 +198,31 @@ test('openai validation does not accept unrelated minimax credentials', async ()
   )
 })
 
-test('openai-compatible routes without custom validation fall back to openai validation', async () => {
+test('openrouter validation accepts OPENROUTER_API_KEY without OPENAI_API_KEY', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENROUTER_API_KEY = 'or-live-key'
   delete process.env.OPENAI_API_KEY
 
-  await expect(getProviderValidationError(process.env)).resolves.toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
-  )
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('deepseek validation accepts DEEPSEEK_API_KEY without OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.DEEPSEEK_API_KEY = 'deepseek-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('moonshot validation accepts MOONSHOT_API_KEY without OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.moonshot.ai/v1'
+  process.env.MOONSHOT_API_KEY = 'moonshot-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
 test('github validation stays descriptor-selected and reports missing auth', async () => {

@@ -23,12 +23,14 @@ import {
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
+import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
 import {
   getProviderPresetUiMetadata,
   resolveProfileRoute,
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
+import { logForDebugging } from './debug.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
 
@@ -776,11 +778,13 @@ function buildStartupProfileFromActiveProfile(
   switch (compatibilityMode) {
     case 'anthropic':
       return {
-        profile: 'openai',
+        profile: 'anthropic',
         env: {
-          OPENAI_BASE_URL: activeProfile.baseUrl,
-          OPENAI_MODEL: getPrimaryModel(activeProfile.model),
-          OPENAI_API_KEY: activeProfile.apiKey,
+          ANTHROPIC_BASE_URL: activeProfile.baseUrl,
+          ANTHROPIC_MODEL: getPrimaryModel(activeProfile.model),
+          ...(activeProfile.apiKey
+            ? { ANTHROPIC_API_KEY: activeProfile.apiKey }
+            : {}),
         },
       }
     case 'gemini': {
@@ -857,6 +861,25 @@ function buildStartupProfileFromActiveProfile(
   }
 }
 
+function triggerStartupDiscoveryRefreshForProfile(
+  profile: ProviderProfile,
+): void {
+  const route = resolveProfileRoute(profile.provider)
+  if (route.routeId === 'unknown-fallback') {
+    return
+  }
+
+  void refreshStartupDiscoveryForRoute(route.routeId, {
+    baseUrl: profile.baseUrl,
+    apiKey: profile.apiKey,
+  }).catch(error => {
+    const detail = error instanceof Error ? error.message : String(error)
+    logForDebugging(
+      `[providerProfiles] Startup discovery refresh failed for ${route.routeId}: ${detail}`,
+    )
+  })
+}
+
 export function setActiveProviderProfile(
   profileId: string,
 ): ProviderProfile | null {
@@ -885,6 +908,7 @@ export function setActiveProviderProfile(
   }))
 
   applyProviderProfileToProcessEnv(activeProfile)
+  triggerStartupDiscoveryRefreshForProfile(activeProfile)
 
   // Keep startup persisted provider profile in sync so initial startup
   // uses the selected provider/model.

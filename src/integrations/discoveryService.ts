@@ -11,7 +11,11 @@ import type {
   ReadinessProbeKind,
 } from './descriptors.js'
 import { resolveRouteIdFromBaseUrl } from './index.js'
-import { getRouteDescriptor } from './routeMetadata.js'
+import {
+  getRouteDescriptor,
+  resolveActiveRouteIdFromEnv,
+  resolveRouteCredentialValue,
+} from './routeMetadata.js'
 import type {
   AtomicChatReadiness,
   OllamaGenerationReadiness,
@@ -81,16 +85,10 @@ function getRouteDiscoveryApiKey(
     return options.apiKey.trim()
   }
 
-  const descriptor = getRouteDescriptor(routeId)
-  const envVars = descriptor?.setup.credentialEnvVars ?? []
-  for (const envVar of envVars) {
-    const value = process.env[envVar]?.trim()
-    if (value) {
-      return value
-    }
-  }
-
-  return undefined
+  return resolveRouteCredentialValue({
+    routeId,
+    processEnv: process.env,
+  })
 }
 
 function toDiscoveredModelEntry(modelId: string): ModelCatalogEntry {
@@ -246,6 +244,74 @@ export async function discoverModelsForRoute(
       source: 'error',
     }
   }
+}
+
+export async function refreshStartupDiscoveryForRoute(
+  routeId: string,
+  options?: {
+    baseUrl?: string
+    apiKey?: string
+  },
+): Promise<RouteDiscoveryResult | null> {
+  const catalog = getRouteCatalog(routeId)
+  if (!catalog?.discovery || catalog.discoveryRefreshMode !== 'startup') {
+    return null
+  }
+
+  const ttlMs = getDiscoveryCacheTtlMs(routeId)
+  if (ttlMs > 0) {
+    const cached = await getCachedModels(routeId, ttlMs)
+    if (cached) {
+      return {
+        routeId,
+        models: mergeCatalogEntries(getCatalogEntries(routeId), cached.models),
+        stale: false,
+        error: cached.error,
+        source: 'cache',
+      }
+    }
+  }
+
+  return discoverModelsForRoute(routeId, {
+    ...options,
+    forceRefresh: true,
+  })
+}
+
+export async function refreshStartupDiscoveryForActiveRoute(
+  options?: {
+    processEnv?: NodeJS.ProcessEnv
+    activeProfileProvider?: string
+    baseUrl?: string
+    apiKey?: string
+  },
+): Promise<RouteDiscoveryResult | null> {
+  const processEnv = options?.processEnv ?? process.env
+  const baseUrl =
+    options?.baseUrl ??
+    processEnv.OPENAI_BASE_URL ??
+    processEnv.OPENAI_API_BASE
+  const routeId =
+    resolveActiveRouteIdFromEnv(processEnv, {
+      activeProfileProvider: options?.activeProfileProvider,
+    }) ??
+    resolveRouteIdFromBaseUrl(baseUrl)
+
+  if (!routeId || routeId === 'anthropic' || routeId === 'custom') {
+    return null
+  }
+
+  return refreshStartupDiscoveryForRoute(routeId, {
+    baseUrl,
+    apiKey:
+      options?.apiKey ??
+      resolveRouteCredentialValue({
+        routeId,
+        baseUrl,
+        processEnv,
+        activeProfileProvider: options?.activeProfileProvider,
+      }),
+  })
 }
 
 function getReadinessProbeKind(routeId: string): ReadinessProbeKind | null {
