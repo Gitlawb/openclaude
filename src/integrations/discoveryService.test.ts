@@ -57,6 +57,7 @@ function clearProviderEnv(): void {
 }
 
 beforeEach(() => {
+  mock.restore()
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-discovery-service-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.OPENROUTER_API_KEY
@@ -65,6 +66,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  mock.restore()
   globalThis.fetch = originalFetch
   rmSync(tempDir, { recursive: true, force: true })
   restoreEnvValue('CLAUDE_CONFIG_DIR')
