@@ -382,6 +382,32 @@ test('codex profiles require a chatgpt account id', () => {
   assert.equal(env, null)
 })
 
+test('codex launch clears openai-compatible format and custom auth env', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'codex',
+    persisted: profile('codex', {
+      OPENAI_BASE_URL: 'https://chatgpt.com/backend-api/codex',
+      OPENAI_MODEL: 'codexspark',
+      CHATGPT_ACCOUNT_ID: 'acct_persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_AUTH_HEADER: 'api-key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'hicap-header-secret',
+      CODEX_API_KEY: 'codex-live',
+      CHATGPT_ACCOUNT_ID: 'acct_live',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_FORMAT, undefined)
+  assert.equal(env.OPENAI_AUTH_HEADER, undefined)
+  assert.equal(env.OPENAI_AUTH_SCHEME, undefined)
+  assert.equal(env.OPENAI_AUTH_HEADER_VALUE, undefined)
+  assert.equal(env.CODEX_API_KEY, 'codex-live')
+})
+
 test('gemini profiles accept google api key fallback', () => {
   const env = buildGeminiProfileEnv({
     processEnv: {
@@ -745,10 +771,17 @@ test('maskSecretForDisplay preserves only a short prefix and suffix', () => {
 
 test('redactSecretValueForDisplay masks poisoned display fields that equal configured secrets', () => {
   const apiKey = 'sk-secret-12345678'
+  const authHeaderValue = 'hicap-header-secret'
 
   assert.equal(
     redactSecretValueForDisplay(apiKey, { OPENAI_API_KEY: apiKey }),
     'sk-...678',
+  )
+  assert.equal(
+    redactSecretValueForDisplay(authHeaderValue, {
+      OPENAI_AUTH_HEADER_VALUE: authHeaderValue,
+    }),
+    'hic...ret',
   )
   assert.equal(
     redactSecretValueForDisplay('gpt-4o', { OPENAI_API_KEY: apiKey }),

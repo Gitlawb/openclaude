@@ -13,6 +13,8 @@
  *   OPENAI_API_KEY=sk-...             — API key (optional for local models)
  *   OPENAI_AUTH_HEADER=api-key        — optional custom auth header name
  *   OPENAI_AUTH_HEADER_VALUE=...      — optional custom auth header value
+ *   OPENAI_AUTH_SCHEME=bearer|raw     — auth scheme for Authorization/custom header handling
+ *   OPENAI_API_FORMAT=chat_completions|responses — request format for compatible APIs
  *   OPENAI_BASE_URL=http://...        — base URL (default: https://api.openai.com/v1)
  *   OPENAI_MODEL=gpt-4o              — default model override
  *   CODEX_API_KEY / ~/.codex/auth.json — Codex auth for codexplan/codexspark
@@ -1723,6 +1725,7 @@ class OpenAIShimMessages {
       process.env.OPENAI_API_KEY ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
     const configuredAuthHeaderValue = process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
+    const authValue = configuredAuthHeaderValue || apiKey
     // Detect Azure endpoints by hostname (not raw URL) to prevent bypass via
     // path segments like https://evil.com/cognitiveservices.azure.com/
     let isAzure = false
@@ -1737,26 +1740,25 @@ class OpenAIShimMessages {
       isBankr = request.baseUrl.toLowerCase().includes('bankr')
     } catch { /* malformed URL — not Bankr */ }
 
-    if (apiKey || configuredAuthHeaderValue) {
+    if (authValue) {
       const customAuthHeader = process.env.OPENAI_AUTH_HEADER?.trim()
       const customAuthScheme = process.env.OPENAI_AUTH_SCHEME === 'raw' ? 'raw' : 'bearer'
       if (
         customAuthHeader &&
         /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader)
       ) {
-        const authValue = configuredAuthHeaderValue || apiKey
         headers[customAuthHeader] =
           customAuthHeader.toLowerCase() === 'authorization' && customAuthScheme === 'bearer'
             ? `Bearer ${authValue}`
             : authValue
       } else if (isAzure) {
         // Azure uses api-key header instead of Bearer token
-        headers['api-key'] = apiKey
+        headers['api-key'] = authValue
       } else if (isBankr) {
         // Bankr uses X-API-Key header instead of Bearer token
-        headers['X-API-Key'] = apiKey
+        headers['X-API-Key'] = authValue
       } else {
-        headers.Authorization = `Bearer ${apiKey}`
+        headers.Authorization = `Bearer ${authValue}`
       }
     } else if (isGemini) {
       const geminiCredential = await resolveGeminiCredential(process.env)

@@ -277,6 +277,39 @@ test('uses custom OpenAI-compatible auth header value when configured', async ()
   expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
+test('uses custom auth header value as fallback credential when no custom header is configured', async () => {
+  delete process.env.OPENAI_API_KEY
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'gateway-header-value'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer gateway-header-value')
+})
+
 test('strips canonical Anthropic headers from per-request shim headers too', async () => {
   let capturedHeaders: Headers | undefined
 

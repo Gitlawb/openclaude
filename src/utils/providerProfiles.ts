@@ -967,6 +967,7 @@ function buildOpenAICompatibleStartupEnv(
       model: activeProfile.model,
       baseUrl: activeProfile.baseUrl,
       apiKey: activeProfile.apiKey,
+      apiFormat: activeProfile.apiFormat,
       authHeader: activeProfile.authHeader,
       authScheme: activeProfile.authScheme,
       authHeaderValue: activeProfile.authHeaderValue,

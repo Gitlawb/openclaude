@@ -909,6 +909,7 @@ export async function buildLaunchEnv(options: {
         : DEFAULT_CODEX_BASE_URL
     env.OPENAI_MODEL = persistedOpenAIModel || 'codexplan'
     delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_FORMAT
     delete env.OPENAI_AUTH_HEADER
     delete env.OPENAI_AUTH_SCHEME
     delete env.OPENAI_AUTH_HEADER_VALUE

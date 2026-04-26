@@ -763,6 +763,7 @@ describe('setActiveProviderProfile', () => {
         baseUrl: 'https://api.deepseek.com/v1',
         model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat',
         apiKey: 'sk-deepseek-live',
+        apiFormat: 'responses',
       })
 
       saveMockGlobalConfig(current => ({
@@ -780,6 +781,7 @@ describe('setActiveProviderProfile', () => {
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
         OPENAI_MODEL: 'deepseek-v4-flash',
+        OPENAI_API_FORMAT: 'responses',
         OPENAI_API_KEY: 'sk-deepseek-live',
       })
     } finally {
