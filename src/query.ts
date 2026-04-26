@@ -99,6 +99,7 @@ import { applyToolResultBudget } from './utils/toolResultStorage.js'
 import { recordContentReplacement } from './utils/sessionStorage.js'
 import { handleStopHooks } from './query/stopHooks.js'
 import { buildQueryConfig } from './query/config.js'
+import { getGlobalConfig } from './utils/config.js'
 import { productionDeps, type QueryDeps } from './query/deps.js'
 import type { Terminal, Continue } from './query/transitions.js'
 import { feature } from 'bun:bundle'
@@ -476,14 +477,27 @@ async function* queryLoop(
       messagesForQuery = collapseResult.messages
     }
 
-    const lastMessage = messagesForQuery[messagesForQuery.length - 1]
-    const userQueryText = lastMessage?.type === 'user' ? (typeof lastMessage.message.content === 'string' ? lastMessage.message.content : '') : ''
-
-    const { getArcSummary } = await import('./utils/conversationArc.js')
-    const arcSummary = getArcSummary(userQueryText)
+    // arcSummary must be a separate array element; concatenating it into a
+    // template string makes [...systemPrompt] spread chars, shredding the prompt.
+    let promptWithArc: readonly string[] = systemPrompt
+    if (feature('CONVERSATION_ARC')) {
+      if (getGlobalConfig().knowledgeGraphEnabled) {
+        const lastMessage = messagesForQuery[messagesForQuery.length - 1]
+        const userQueryText =
+          lastMessage?.type === 'user' &&
+          typeof lastMessage.message.content === 'string'
+            ? lastMessage.message.content
+            : ''
+        const { getArcSummary } = await import('./utils/conversationArc.js')
+        const arcSummary = getArcSummary(userQueryText)
+        if (arcSummary) {
+          promptWithArc = [...systemPrompt, arcSummary]
+        }
+      }
+    }
 
     const fullSystemPrompt = asSystemPrompt(
-      appendSystemContext(`${systemPrompt}\n\n${arcSummary}`, systemContext),
+      appendSystemContext(asSystemPrompt(promptWithArc), systemContext),
     )
 
     queryCheckpoint('query_autocompact_start')
@@ -1878,9 +1892,11 @@ async function* queryLoop(
     }
 
     queryCheckpoint('query_recursive_call')
-    
-    // Persist conversation progress to global project memory
-    if (getGlobalConfig().knowledgeGraphEnabled) {
+
+    if (
+      feature('CONVERSATION_ARC') &&
+      getGlobalConfig().knowledgeGraphEnabled
+    ) {
       const { finalizeArcTurn } = await import('./utils/conversationArc.js')
       finalizeArcTurn()
     }
