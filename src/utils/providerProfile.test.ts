@@ -135,6 +135,43 @@ test('openai launch omits api key when no key is resolved', async () => {
   assert.equal(Object.hasOwn(env, 'OPENAI_API_KEY'), false)
 })
 
+test('xai launch uses descriptor defaults and persisted xAI key', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      XAI_API_KEY: 'xai-persisted-key',
+    }),
+    goal: 'balanced',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.x.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'grok-4')
+  assert.equal(env.OPENAI_API_KEY, 'xai-persisted-key')
+  assert.equal(env.XAI_API_KEY, 'xai-persisted-key')
+})
+
+test('xai launch lets shell xAI key override persisted xAI key', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      XAI_API_KEY: 'xai-persisted-key',
+      OPENAI_MODEL: 'grok-3',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      XAI_API_KEY: 'xai-shell-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.x.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'grok-3')
+  assert.equal(env.OPENAI_API_KEY, 'xai-shell-key')
+  assert.equal(env.XAI_API_KEY, 'xai-shell-key')
+})
+
 test('openai launch ignores codex shell transport hints', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

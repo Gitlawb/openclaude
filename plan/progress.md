@@ -4,7 +4,7 @@
 **Current Phase**: Phase 3E — Descriptor-Native Onboarding Closure
 **Next Planned Phase**: None — Phase 3E closure and related docs cleanup landed on branch
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-26 00:10
+**Last Updated**: 2026-04-26 00:25
 
 ---
 
@@ -22,6 +22,8 @@
 - [x] Moved Z.AI thinking/context/output metadata into the Z.AI route catalog
 - [x] Kept Z.AI shim behavior descriptor-backed through runtime route metadata
 - [x] Verified descriptor-backed labels and provider flag defaults after the merge
+- [x] Recorded newer xAI descriptor/generated-artifact drift in the inventory after
+  merge review found `src/integrations/vendors/xai.ts` and generated outputs
 
 ---
 
@@ -53,6 +55,7 @@
 - [x] `src/integrations/vendors/minimax.ts` — usage supported
 - [x] `src/integrations/vendors/bankr.ts` — openai-compatible
 - [x] `src/integrations/vendors/zai.ts` — descriptor added after upstream PR #896 landed during the main merge
+- [x] `src/integrations/vendors/xai.ts` — descriptor and generated artifacts present in the current post-main branch state
 
 ### Gateways (hosted and local)
 - [x] `src/integrations/gateways/ollama.ts` — local, dynamic discovery
@@ -598,6 +601,9 @@ Notes:
 - Completed on 2026-04-26 with a generated-artifact workflow centered on `scripts/generate-integrations-artifacts.ts` and `src/integrations/generated/integrationArtifacts.generated.ts`.
 - `src/integrations/index.ts`, `src/integrations/compatibility.ts`, `src/integrations/providerUiMetadata.ts`, and the preset-id type now derive from generated artifacts rather than separate handwritten tables.
 - Preset participation is descriptor-owned via `preset` metadata, ordering is generated from preset descriptions with standard alphanumeric sorting, and `custom` is pinned last automatically.
+- Merge-review drift note: xAI is now present through `src/integrations/vendors/xai.ts`
+  and regenerated descriptor artifacts, so current descriptor inventory should treat
+  it as covered by the generated-artifact onboarding path.
 - Focused verification is green for registry/compatibility/profile/provider flows, plus generator tests that prove representative gateway and direct-vendor onboarding works from descriptor changes plus regeneration only.
 - Phase 4 gateway/vendor docs were cleaned up in the same pass so they no longer present manual loader/preset/UI edits as the normal workflow.
 
@@ -882,7 +888,8 @@ Notes:
 
 - [ ] Extend persisted `ProviderProfile` shape with optional
   `customHeaders: Record<string, string>` while preserving old profile
-  deserialization.
+  deserialization. Partial adjacent plumbing exists for auth/static headers, but
+  merge review has not confirmed profile-owned `customHeaders` persistence.
 - [ ] Add shared parser/sanitizer helpers for profile custom headers:
   - accept compact profile-manager input such as `Header: value; Header-2: value`;
   - trim empty entries;
@@ -896,7 +903,9 @@ Notes:
   during profile edit/update.
 - [ ] Apply profile custom headers to active profile env through
   `ANTHROPIC_CUSTOM_HEADERS`, scoped to supported routes only, so existing API
-  client header plumbing carries them into OpenAI-compatible requests.
+  client header plumbing carries them into OpenAI-compatible requests. Existing
+  auth-header/static-header plumbing is nearby, but it does not complete this
+  profile-owned custom-header task.
 - [ ] Include profile custom headers in startup-profile fallback env so saved
   profiles still work after restart.
 - [ ] Include profile custom headers in descriptor discovery refreshes and
@@ -908,7 +917,17 @@ Notes:
   - preserving descriptor/header merge order in requests;
   - passing descriptor + profile headers into model discovery.
 - [ ] Re-run provider-profile, provider-manager, OpenAI shim, discovery, and
-  bootstrap-adjacent targeted suites.
+  bootstrap-adjacent targeted suites. Merge-review initially found a
+  `client.test.ts` Gemini/OpenAI env leakage failure; the xAI follow-up pass
+  fixed that client isolation issue, but the broader custom-header verification
+  remains open.
+
+Notes:
+- Merge-review status on 2026-04-26: profile-owned custom headers remain mostly
+  open or partial. Adjacent auth-header/static-header code paths exist, but they
+  do not yet prove persisted profile `customHeaders`, route-scoped env
+  application, discovery/bootstrap propagation, or the required regression
+  coverage.
 
 ---
 

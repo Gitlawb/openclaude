@@ -28,6 +28,10 @@ import {
   getVertexRegionForModel,
   isEnvTruthy,
 } from '../../utils/envUtils.js'
+import {
+  getRouteDefaultBaseUrl,
+  getRouteDefaultModel,
+} from '../../integrations/routeMetadata.js'
 
 const importRuntimeModule = new Function(
   'specifier',
@@ -87,6 +91,33 @@ function createStderrLogger(): ClientOptions['logger'] {
     debug: (msg, ...args) =>
       // biome-ignore lint/suspicious/noConsole:: intentional console output -- SDK logger must use console
       console.error('[Anthropic SDK DEBUG]', msg, ...args),
+  }
+}
+
+function hasNonEmptyEnvValue(value: string | undefined): boolean {
+  return typeof value === 'string' && value.trim() !== ''
+}
+
+function hasXaiEnvOnlyProviderIntent(): boolean {
+  return (
+    hasNonEmptyEnvValue(process.env.XAI_API_KEY) &&
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) &&
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
+    !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+  )
+}
+
+function applyXaiOpenAICompatibleDefaults(): void {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  if (!hasNonEmptyEnvValue(process.env.OPENAI_BASE_URL)) {
+    process.env.OPENAI_BASE_URL = getRouteDefaultBaseUrl('xai')
+  }
+  if (!hasNonEmptyEnvValue(process.env.OPENAI_MODEL)) {
+    process.env.OPENAI_MODEL = getRouteDefaultModel('xai')
+  }
+  if (!hasNonEmptyEnvValue(process.env.OPENAI_API_KEY)) {
+    process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
   }
 }
 
@@ -194,7 +225,13 @@ export async function getAnthropicClient({
     }
     return new Anthropic(nativeArgs)
   }
+  const useXaiEnvOnlyProvider = hasXaiEnvOnlyProviderIntent()
+  if (useXaiEnvOnlyProvider) {
+    applyXaiOpenAICompatibleDefaults()
+  }
+
   if (
+    useXaiEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
