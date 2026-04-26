@@ -171,6 +171,39 @@ test('openai launch ignores codex persisted transport hints', async () => {
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
 })
 
+test('openai launch preserves shell responses format and custom auth overrides', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://persisted.example/v1',
+      OPENAI_MODEL: 'persisted-model',
+      OPENAI_API_FORMAT: 'chat_completions',
+      OPENAI_AUTH_HEADER: 'X-Persisted-Key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'persisted-secret',
+      OPENAI_API_KEY: 'sk-persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://shell.example/v1',
+      OPENAI_MODEL: 'shell-model',
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_AUTH_HEADER: 'api-key',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'shell-secret',
+      OPENAI_API_KEY: 'sk-live',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://shell.example/v1')
+  assert.equal(env.OPENAI_MODEL, 'shell-model')
+  assert.equal(env.OPENAI_API_FORMAT, 'responses')
+  assert.equal(env.OPENAI_AUTH_HEADER, 'api-key')
+  assert.equal(env.OPENAI_AUTH_SCHEME, 'raw')
+  assert.equal(env.OPENAI_AUTH_HEADER_VALUE, 'shell-secret')
+  assert.equal(env.OPENAI_API_KEY, 'sk-live')
+})
+
 test('matching persisted gemini env is reused for gemini launch', async () => {
   const env = await buildLaunchEnv({
     profile: 'gemini',
@@ -818,6 +851,22 @@ test('openai profiles ignore codex shell transport hints', () => {
     OPENAI_MODEL: 'gpt-4o',
     OPENAI_API_KEY: 'sk-live',
   })
+})
+
+test('openai profiles keep shell base and model when shell format is responses', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'balanced',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://shell.example/v1',
+      OPENAI_MODEL: 'shell-model',
+      OPENAI_API_FORMAT: 'responses',
+      OPENAI_API_KEY: 'sk-live',
+    },
+  })
+
+  assert.equal(env?.OPENAI_BASE_URL, 'https://shell.example/v1')
+  assert.equal(env?.OPENAI_MODEL, 'shell-model')
+  assert.equal(env?.OPENAI_API_KEY, 'sk-live')
 })
 
 test('openai profiles use the first model from a semicolon-separated list', () => {

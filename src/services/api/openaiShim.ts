@@ -1669,7 +1669,6 @@ class OpenAIShimMessages {
           }>,
         ),
         stream: params.stream ?? false,
-        store: false,
       }
 
       if (!Array.isArray(responsesBody.input) || responsesBody.input.length === 0) {
@@ -1748,7 +1747,7 @@ class OpenAIShimMessages {
         /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader)
       ) {
         headers[customAuthHeader] =
-          customAuthHeader.toLowerCase() === 'authorization' && customAuthScheme === 'bearer'
+          customAuthScheme === 'bearer'
             ? `Bearer ${authValue}`
             : authValue
       } else if (isAzure) {

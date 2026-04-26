@@ -232,6 +232,7 @@ test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses
   expect(capturedBody?.model).toBe('gpt-5.4')
   expect(capturedBody?.instructions).toBe('test system')
   expect(capturedBody?.max_output_tokens).toBe(64)
+  expect(capturedBody?.store).toBeUndefined()
   expect(capturedBody?.input).toEqual([
     {
       type: 'message',
@@ -274,6 +275,41 @@ test('uses custom OpenAI-compatible auth header value when configured', async ()
   })
 
   expect(capturedHeaders?.get('api-key')).toBe('hicap-header-value')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
+})
+
+test('honors bearer scheme for custom OpenAI-compatible auth headers', async () => {
+  process.env.OPENAI_API_KEY = 'custom-key'
+  process.env.OPENAI_AUTH_HEADER = 'X-Custom-Authorization'
+  process.env.OPENAI_AUTH_SCHEME = 'bearer'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('x-custom-authorization')).toBe('Bearer custom-key')
   expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 

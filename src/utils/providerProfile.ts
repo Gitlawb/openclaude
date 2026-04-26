@@ -364,8 +364,9 @@ export function buildOpenAIProfileEnv(options: {
     model: shellOpenAIModel,
     baseUrl: shellOpenAIBaseUrl,
     fallbackModel: defaultModel,
+    apiFormat: processEnv.OPENAI_API_FORMAT,
   })
-  const useShellOpenAIConfig = shellOpenAIRequest.transport === 'chat_completions'
+  const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
 
   return {
     OPENAI_BASE_URL:
@@ -945,16 +946,18 @@ export async function buildLaunchEnv(options: {
     model: shellOpenAIModel,
     baseUrl: shellOpenAIBaseUrl,
     fallbackModel: defaultOpenAIModel,
+    apiFormat: processEnv.OPENAI_API_FORMAT,
   })
   const persistedOpenAIRequest = resolveProviderRequest({
     model: persistedOpenAIModel,
     baseUrl: persistedOpenAIBaseUrl,
     fallbackModel: defaultOpenAIModel,
+    apiFormat: persistedOpenAIApiFormat,
   })
-  const useShellOpenAIConfig = shellOpenAIRequest.transport === 'chat_completions'
+  const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
   const usePersistedOpenAIConfig =
     (!persistedOpenAIModel && !persistedOpenAIBaseUrl) ||
-    persistedOpenAIRequest.transport === 'chat_completions'
+    persistedOpenAIRequest.transport !== 'codex_responses'
 
   env.OPENAI_BASE_URL =
     (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
@@ -964,23 +967,35 @@ export async function buildLaunchEnv(options: {
     (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
     (usePersistedOpenAIConfig ? persistedOpenAIModel : undefined) ||
     defaultOpenAIModel
-  if (persistedOpenAIApiFormat && usePersistedOpenAIConfig) {
-    env.OPENAI_API_FORMAT = persistedOpenAIApiFormat
+  const openAIApiFormat =
+    processEnv.OPENAI_API_FORMAT ||
+    (usePersistedOpenAIConfig ? persistedOpenAIApiFormat : undefined)
+  if (openAIApiFormat) {
+    env.OPENAI_API_FORMAT = openAIApiFormat
   } else {
     delete env.OPENAI_API_FORMAT
   }
-  if (persistedOpenAIAuthHeader && usePersistedOpenAIConfig) {
-    env.OPENAI_AUTH_HEADER = persistedOpenAIAuthHeader
+  const openAIAuthHeader =
+    processEnv.OPENAI_AUTH_HEADER ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthHeader : undefined)
+  if (openAIAuthHeader) {
+    env.OPENAI_AUTH_HEADER = openAIAuthHeader
   } else {
     delete env.OPENAI_AUTH_HEADER
   }
-  if (persistedOpenAIAuthScheme && usePersistedOpenAIConfig) {
-    env.OPENAI_AUTH_SCHEME = persistedOpenAIAuthScheme
+  const openAIAuthScheme =
+    processEnv.OPENAI_AUTH_SCHEME ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthScheme : undefined)
+  if (openAIAuthScheme) {
+    env.OPENAI_AUTH_SCHEME = openAIAuthScheme
   } else {
     delete env.OPENAI_AUTH_SCHEME
   }
-  if (persistedOpenAIAuthHeaderValue && usePersistedOpenAIConfig) {
-    env.OPENAI_AUTH_HEADER_VALUE = persistedOpenAIAuthHeaderValue
+  const openAIAuthHeaderValue =
+    sanitizeApiKey(processEnv.OPENAI_AUTH_HEADER_VALUE) ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthHeaderValue : undefined)
+  if (openAIAuthHeaderValue) {
+    env.OPENAI_AUTH_HEADER_VALUE = openAIAuthHeaderValue
   } else {
     delete env.OPENAI_AUTH_HEADER_VALUE
   }
