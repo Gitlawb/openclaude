@@ -26,6 +26,10 @@ const RESTORED_KEYS = [
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_MODEL',
+  'OPENAI_API_FORMAT',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
@@ -51,6 +55,7 @@ const RESTORED_KEYS = [
   'BANKR_BASE_URL',
   'BNKR_API_KEY',
   'BANKR_MODEL',
+  'XAI_API_KEY',
 ] as const
 
 type MockConfigState = {
@@ -145,6 +150,16 @@ function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
     provider: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     model: 'gemini-3-flash-preview',
+    ...overrides,
+  })
+}
+
+function buildXaiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'openai',
+    baseUrl: 'https://api.x.ai/v1',
+    model: 'grok-4',
+    apiKey: 'xai-test-key',
     ...overrides,
   })
 }
@@ -344,6 +359,45 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
   })
 
+  test('openai responses profile sets OPENAI_API_FORMAT', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5.4',
+        apiFormat: 'responses',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
+  test('openai profile sets custom auth header name and value', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.hicap.ai/v1',
+        model: 'claude-opus-4.6',
+        authHeader: 'api-key',
+        authScheme: 'raw',
+        authHeaderValue: 'hicap-header-value',
+      }),
+    )
+
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('api-key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('hicap-header-value')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
   test('anthropic profile with multi-model string sets only first model in ANTHROPIC_MODEL', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -386,6 +440,18 @@ describe('applyProviderProfileToProcessEnv', () => {
 
     expect(process.env.MISTRAL_MODEL).toBe('devstral-latest')
     expect(process.env.CLAUDE_CODE_USE_MISTRAL).toBe('1')
+  })
+
+  test('xai profile sets XAI_API_KEY and getAPIProvider returns xai', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(buildXaiProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+    expect(getFreshAPIProvider()).toBe('xai')
   })
 })
 
@@ -597,6 +663,44 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(applied).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
     expect(process.env.OPENAI_MODEL).toBe('github:copilot')
+  })
+
+  test('re-applies xai active profile when XAI_API_KEY is missing (env drift)', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const xaiProfile = buildXaiProfile({ id: 'saved_xai' })
+    applyProviderProfileToProcessEnv(xaiProfile)
+
+    // Simulate relaunch where the shell exported OPENAI vars but not XAI_API_KEY
+    delete process.env.XAI_API_KEY
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [xaiProfile],
+      activeProviderProfileId: 'saved_xai',
+    } as any)
+
+    expect(applied?.id).toBe('saved_xai')
+    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+  })
+
+  test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const xaiProfile = buildXaiProfile({ id: 'saved_xai' })
+    applyProviderProfileToProcessEnv(xaiProfile)
+
+    // XAI_API_KEY is already set and aligned
+    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+    expect(process.env.OPENAI_API_KEY).toBe('xai-test-key')
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [xaiProfile],
+      activeProviderProfileId: 'saved_xai',
+    } as any)
+
+    // Returns profile without re-applying since env is aligned
+    expect(applied?.id).toBe('saved_xai')
+    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
   })
 
   test('applies active profile when no explicit provider is selected', async () => {
@@ -850,6 +954,7 @@ describe('setActiveProviderProfile', () => {
         baseUrl: 'https://api.deepseek.com/v1',
         model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat',
         apiKey: 'sk-deepseek-live',
+        apiFormat: 'responses',
       })
 
       saveMockGlobalConfig(current => ({
@@ -867,6 +972,7 @@ describe('setActiveProviderProfile', () => {
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
         OPENAI_MODEL: 'deepseek-v4-flash',
+        OPENAI_API_FORMAT: 'responses',
         OPENAI_API_KEY: 'sk-deepseek-live',
       })
     } finally {

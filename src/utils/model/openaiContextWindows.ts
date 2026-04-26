@@ -242,6 +242,10 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'GLM-4.7':                  202_752,
   'GLM-4.5-Air':              128_000,
 
+  // xAI Grok
+  'grok-4':                 2_000_000,
+  'grok-3':                   131_072,
+
   // Moonshot AI direct API (api.moonshot.ai/v1). Values from Moonshot's
   // published model card — all K2 tier share 256K context. Prefix matching
   // in lookupByKey catches variants like "kimi-k2.6-preview".
@@ -441,6 +445,10 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'GLM-5-Turbo':               131_072,
   'GLM-4.7':                   131_072,
   'GLM-4.5-Air':                65_536,
+
+  // xAI Grok
+  'grok-4':                    32_768,
+  'grok-3':                    32_768,
 
   // Moonshot AI direct API
   'kimi-for-coding':           32_768,

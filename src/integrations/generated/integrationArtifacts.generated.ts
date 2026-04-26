@@ -9,6 +9,7 @@ import vendorGemini from '../vendors/gemini.js'
 import vendorMinimax from '../vendors/minimax.js'
 import vendorMoonshot from '../vendors/moonshot.js'
 import vendorOpenai from '../vendors/openai.js'
+import vendorXai from '../vendors/xai.js'
 import vendorZai from '../vendors/zai.js'
 import gatewayAtomicChat from '../gateways/atomic-chat.js'
 import gatewayAzureOpenai from '../gateways/azure-openai.js'
@@ -39,7 +40,7 @@ import modelKimi from '../models/kimi.js'
 import modelLlama from '../models/llama.js'
 import modelQwen from '../models/qwen.js'
 
-export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorZai] as const satisfies readonly VendorDescriptor[]
+export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorXai, vendorZai] as const satisfies readonly VendorDescriptor[]
 export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGroq, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
 export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGpt, brandKimi, brandLlama, brandQwen] as const satisfies readonly BrandDescriptor[]
@@ -262,6 +263,19 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "xai",
+    "routeKind": "vendor",
+    "routeId": "xai",
+    "vendorId": "xai",
+    "description": "xAI Grok OpenAI-compatible endpoint",
+    "apiKeyEnvVars": [
+      "XAI_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "zai",
     "routeKind": "vendor",
     "routeId": "zai",
@@ -319,6 +333,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "openai",
   "openrouter",
   "together",
+  "xai",
   "zai",
   "custom"
 ] as const

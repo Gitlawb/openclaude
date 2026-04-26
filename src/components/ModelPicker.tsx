@@ -226,7 +226,6 @@ export function ModelPicker({
 
     onSelect(value, selectedEffort)
   }
-
   const refreshHint = onRefresh ? (
     <ConfigurableShortcutHint
       action="modelPicker:refresh"

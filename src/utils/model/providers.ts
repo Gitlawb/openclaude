@@ -21,6 +21,7 @@ export type LegacyAPIProvider =
   | 'nvidia-nim'
   | 'minimax'
   | 'mistral'
+  | 'xai'
 
 // Backward-compatible public alias. Keep importing APIProvider where callers
 // intentionally consume the legacy category surface.
@@ -48,6 +49,8 @@ export function getAPIProvider(): LegacyAPIProvider {
       return 'nvidia-nim'
     case 'minimax':
       return 'minimax'
+    case 'xai':
+      return 'xai'
     case 'openai':
     case 'custom':
       if (isEnvTruthy(process.env.NVIDIA_NIM)) {
@@ -77,6 +80,13 @@ export function getAPIProvider(): LegacyAPIProvider {
         process.env.MINIMAX_API_KEY.trim() !== ''
       ) {
         return 'minimax'
+      }
+
+      if (
+        typeof process.env.XAI_API_KEY === 'string' &&
+        process.env.XAI_API_KEY.trim() !== ''
+      ) {
+        return 'xai'
       }
 
       return 'firstParty'

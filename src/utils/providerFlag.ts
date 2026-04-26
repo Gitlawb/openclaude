@@ -27,6 +27,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
   'bankr',
   'zai',
+  'xai',
   'openai',
   'gemini',
   'mistral',
@@ -226,6 +227,16 @@ export function applyProviderFlag(
         process.env.OPENAI_MODEL ??= defaultModel
       }
       if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'xai':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
+      process.env.OPENAI_MODEL ??= 'grok-4'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+      }
       break
   }
 

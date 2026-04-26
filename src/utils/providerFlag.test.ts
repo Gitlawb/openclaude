@@ -246,6 +246,42 @@ describe('applyProviderFlag - zai', () => {
   })
 })
 
+describe('applyProviderFlag - xai', () => {
+  test('sets CLAUDE_CODE_USE_OPENAI=1 with xAI defaults when unset', () => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_KEY
+
+    const result = applyProviderFlag('xai', [])
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('grok-4')
+  })
+
+  test('sets OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('xai', ['--model', 'grok-3'])
+    expect(process.env.OPENAI_MODEL).toBe('grok-3')
+  })
+
+  test('propagates XAI_API_KEY to OPENAI_API_KEY when only XAI_API_KEY is set', () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.XAI_API_KEY = 'xai-secret-key'
+
+    applyProviderFlag('xai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('xai-secret-key')
+  })
+
+  test('does not override existing OPENAI_API_KEY when both keys are set', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+    process.env.XAI_API_KEY = 'xai-secret-key'
+
+    applyProviderFlag('xai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('existing-openai-key')
+  })
+})
+
 describe('applyProviderFlag - invalid provider', () => {
   test('returns error for unknown provider', () => {
     const result = applyProviderFlag('unknown-provider', [])

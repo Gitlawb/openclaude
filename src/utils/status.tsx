@@ -39,6 +39,7 @@ const API_PROVIDER_LABELS: Partial<Record<APIProvider, string>> = {
   'nvidia-nim': 'NVIDIA NIM',
   minimax: 'MiniMax',
   mistral: 'Mistral',
+  xai: 'xAI',
 };
 
 const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
@@ -63,6 +64,10 @@ const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
   },
   minimax: {
     baseUrlLabel: 'MiniMax base URL',
+  },
+  xai: {
+    baseUrlLabel: 'xAI base URL',
+    resolveModelMetadata: true,
   },
 };
 

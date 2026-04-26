@@ -31,6 +31,9 @@ async function readPropertyValue(
   mock.restore()
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => provider,
+    getAPIProviderForStatsig: () => provider,
+    isFirstPartyAnthropicBaseUrl: () => true,
+    isGithubNativeAnthropicMode: () => false,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
   const { buildAPIProviderProperties } = await import(`./status.js?ts=${nonce}`)
