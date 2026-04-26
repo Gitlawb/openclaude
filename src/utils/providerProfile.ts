@@ -4,6 +4,7 @@ import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
   isCodexBaseUrl,
+  parseOpenAICompatibleApiFormat,
   resolveCodexApiCredentials,
   resolveProviderRequest,
 } from '../services/api/providerConfig.js'
@@ -54,6 +55,7 @@ const PROFILE_ENV_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_CUSTOM_HEADERS',
   'ANTHROPIC_BEDROCK_BASE_URL',
   'ANTHROPIC_VERTEX_BASE_URL',
   'OPENAI_BASE_URL',
@@ -130,6 +132,7 @@ export type ProfileEnv = {
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
   ANTHROPIC_API_KEY?: string
+  ANTHROPIC_CUSTOM_HEADERS?: string
   ANTHROPIC_BEDROCK_BASE_URL?: string
   ANTHROPIC_VERTEX_BASE_URL?: string
   OPENAI_BASE_URL?: string
@@ -845,6 +848,8 @@ export async function buildLaunchEnv(options: {
   const persistedOpenAIAuthHeaderValue = sanitizeApiKey(
     persistedEnv.OPENAI_AUTH_HEADER_VALUE,
   )
+  const persistedCustomHeaders = persistedEnv.ANTHROPIC_CUSTOM_HEADERS
+  const shellCustomHeaders = processEnv.ANTHROPIC_CUSTOM_HEADERS
   const shellOpenAIModel = normalizeProfileModel(
     sanitizeProviderConfigValue(
       processEnv.OPENAI_MODEL,
@@ -1073,15 +1078,21 @@ export async function buildLaunchEnv(options: {
       sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
       sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
 
+    const env = buildXaiProfileEnv({
+      model: shellOpenAIModel || persistedOpenAIModel,
+      baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
+      apiKey: xaiKey,
+      processEnv,
+    })
+    const customHeaders = shellCustomHeaders || persistedCustomHeaders
+    if (customHeaders) {
+      env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
+    }
+
     return buildCompatibilityProcessEnv({
       processEnv,
       compatibilityMode: 'openai',
-      profileEnv: buildXaiProfileEnv({
-        model: shellOpenAIModel || persistedOpenAIModel,
-        baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
-        apiKey: xaiKey,
-        processEnv,
-      }),
+      profileEnv: env,
     })
   }
 
@@ -1178,7 +1189,7 @@ export async function buildLaunchEnv(options: {
       defaultOpenAIModel,
   }
   const openAIApiFormat =
-    processEnv.OPENAI_API_FORMAT ||
+    parseOpenAICompatibleApiFormat(processEnv.OPENAI_API_FORMAT) ||
     (usePersistedOpenAIConfig ? persistedOpenAIApiFormat : undefined)
   if (openAIApiFormat) {
     env.OPENAI_API_FORMAT = openAIApiFormat
@@ -1194,7 +1205,10 @@ export async function buildLaunchEnv(options: {
     delete env.OPENAI_AUTH_HEADER
   }
   const openAIAuthScheme =
-    processEnv.OPENAI_AUTH_SCHEME ||
+    (processEnv.OPENAI_AUTH_SCHEME === 'bearer' ||
+    processEnv.OPENAI_AUTH_SCHEME === 'raw'
+      ? processEnv.OPENAI_AUTH_SCHEME
+      : undefined) ||
     (usePersistedOpenAIConfig ? persistedOpenAIAuthScheme : undefined)
   if (openAIAuthScheme) {
     env.OPENAI_AUTH_SCHEME = openAIAuthScheme
@@ -1212,6 +1226,10 @@ export async function buildLaunchEnv(options: {
   const openAIKey = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
   if (openAIKey) {
     env.OPENAI_API_KEY = openAIKey
+  }
+  const customHeaders = shellCustomHeaders || persistedCustomHeaders
+  if (customHeaders) {
+    env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
   }
 
   return buildCompatibilityProcessEnv({

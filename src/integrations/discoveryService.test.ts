@@ -183,7 +183,8 @@ describe('discoverModelsForRoute', () => {
 
     setMockFetch(mock((_input, init) => {
       expect(init?.headers).toEqual({
-        'X-Static-Client': 'openclaude',
+        'X-Static-Client': 'profile',
+        'X-Profile-Header': 'enabled',
         Authorization: 'Bearer discovery-key',
       })
       return Promise.resolve(
@@ -198,11 +199,15 @@ describe('discoverModelsForRoute', () => {
 
     const result = await discoverModelsForRoute('discovery-header-test', {
       apiKey: 'discovery-key',
+      headers: {
+        'X-Static-Client': 'profile',
+        'X-Profile-Header': 'enabled',
+      },
       forceRefresh: true,
     })
 
     expect(result?.source).toBe('network')
-    expect(result?.models.map(model => model.apiName)).toEqual(['discovered-model'])
+    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['discovered-model'])
   })
 
   test('startup refresh mode performs discovery for startup routes and then reuses cache', async () => {
@@ -228,7 +233,7 @@ describe('discoverModelsForRoute', () => {
     const second = await refreshStartupDiscoveryForRoute('lmstudio')
 
     expect(first?.source).toBe('network')
-    expect(first?.models.map(model => model.apiName)).toEqual(['local-model'])
+    expect(first?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['local-model'])
     expect(second?.source).toBe('cache')
     expect(callCount).toBe(1)
   })

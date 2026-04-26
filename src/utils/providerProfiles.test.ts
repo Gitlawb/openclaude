@@ -39,6 +39,7 @@ const RESTORED_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_CUSTOM_HEADERS',
   'ANTHROPIC_VERTEX_BASE_URL',
   'GEMINI_BASE_URL',
   'GEMINI_MODEL',
@@ -398,6 +399,41 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('supported routes apply sanitized profile custom headers to env', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'https://custom.example/v1',
+        customHeaders: {
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe('X-Team: devtools')
+  })
+
+  test('unsupported routes do not apply profile custom headers to env', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        customHeaders: {
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
   test('anthropic profile with multi-model string sets only first model in ANTHROPIC_MODEL', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -450,7 +486,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     const { getAPIProvider: getFreshAPIProvider } =
       await importFreshProvidersModule()
 
-    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+    expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
     expect(getFreshAPIProvider()).toBe('xai')
   })
 })
@@ -680,7 +716,7 @@ describe('applyActiveProviderProfileFromConfig', () => {
     } as any)
 
     expect(applied?.id).toBe('saved_xai')
-    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+    expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
   })
 
   test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {

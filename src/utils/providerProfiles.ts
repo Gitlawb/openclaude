@@ -29,11 +29,16 @@ import {
 import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
 import {
   getProviderPresetUiMetadata,
+  routeSupportsCustomHeaders,
   resolveProfileRoute,
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
 import { logForDebugging } from './debug.js'
+import {
+  sanitizeProfileCustomHeaders,
+  serializeProfileCustomHeaders,
+} from './providerCustomHeaders.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
 
@@ -47,6 +52,7 @@ export type ProviderProfileInput = {
   authHeader?: ProviderProfile['authHeader']
   authScheme?: ProviderProfile['authScheme']
   authHeaderValue?: ProviderProfile['authHeaderValue']
+  customHeaders?: ProviderProfile['customHeaders']
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -131,6 +137,10 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const authHeader = sanitizeAuthHeader(profile.authHeader)
   const authScheme = sanitizeAuthScheme(profile.authScheme)
   const authHeaderValue = trimOrUndefined(profile.authHeaderValue)
+  const route = resolveProfileRoute(provider)
+  const customHeaders = routeSupportsCustomHeaders(route.routeId)
+    ? sanitizeProfileCustomHeaders(profile.customHeaders)
+    : undefined
 
   if (!id || !name || !baseUrl || !model || !provider) {
     return null
@@ -153,6 +163,9 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
       authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
     )
     sanitized.authHeaderValue = authHeaderValue
+  }
+  if (customHeaders) {
+    sanitized.customHeaders = customHeaders
   }
   return sanitized
 }
@@ -192,7 +205,28 @@ function toProfile(
     authHeader: input.authHeader,
     authScheme: input.authScheme,
     authHeaderValue: input.authHeaderValue,
+    customHeaders: input.customHeaders,
   })
+}
+
+function getSupportedProfileCustomHeadersEnv(
+  profile: ProviderProfile,
+): string | undefined {
+  const route = resolveProfileRoute(profile.provider)
+  if (!routeSupportsCustomHeaders(route.routeId)) {
+    return undefined
+  }
+  return serializeProfileCustomHeaders(
+    sanitizeProfileCustomHeaders(profile.customHeaders),
+  )
+}
+
+function applySupportedProfileCustomHeaders(
+  profile: ProviderProfile,
+  env: ProfileEnv,
+): ProfileEnv {
+  const customHeaders = getSupportedProfileCustomHeadersEnv(profile)
+  return customHeaders ? { ...env, ANTHROPIC_CUSTOM_HEADERS: customHeaders } : env
 }
 
 function getModelCacheByProfile(
@@ -562,6 +596,8 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     profileEnv = openAIProfileEnv
   }
 
+  profileEnv = applySupportedProfileCustomHeaders(profile, profileEnv)
+
   const nextEnv = buildCompatibilityProcessEnv({
     processEnv: process.env,
     compatibilityMode,
@@ -817,7 +853,7 @@ function buildOpenAICompatibleStartupEnv(
       processEnv: {},
     })
     if (strictEnv) {
-      return strictEnv
+      return applySupportedProfileCustomHeaders(activeProfile, strictEnv)
     }
   }
 
@@ -848,7 +884,7 @@ function buildOpenAICompatibleStartupEnv(
   } else {
     delete env.OPENAI_API_KEY
   }
-  return env
+  return applySupportedProfileCustomHeaders(activeProfile, env)
 }
 
 function buildStartupProfileFromActiveProfile(
@@ -863,13 +899,13 @@ function buildStartupProfileFromActiveProfile(
     case 'anthropic':
       return {
         profile: 'anthropic',
-        env: {
+        env: applySupportedProfileCustomHeaders(activeProfile, {
           ANTHROPIC_BASE_URL: activeProfile.baseUrl,
           ANTHROPIC_MODEL: getPrimaryModel(activeProfile.model),
           ...(activeProfile.apiKey
             ? { ANTHROPIC_API_KEY: activeProfile.apiKey }
             : {}),
-        },
+        }),
       }
     case 'gemini': {
       const env =
@@ -880,7 +916,9 @@ function buildStartupProfileFromActiveProfile(
           authMode: 'api-key',
           processEnv: process.env,
         }) ?? null
-      return env ? { profile: 'gemini', env } : null
+      return env
+        ? { profile: 'gemini', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+        : null
     }
     case 'mistral': {
       const env =
@@ -890,31 +928,33 @@ function buildStartupProfileFromActiveProfile(
           apiKey: activeProfile.apiKey,
           processEnv: process.env,
         }) ?? null
-      return env ? { profile: 'mistral', env } : null
+      return env
+        ? { profile: 'mistral', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+        : null
     }
     case 'github':
       return {
         profile: 'github',
-        env: buildGithubProfileEnv({
+        env: applySupportedProfileCustomHeaders(activeProfile, buildGithubProfileEnv({
           model: getPrimaryModel(activeProfile.model),
           baseUrl: activeProfile.baseUrl,
-        }),
+        })),
       }
     case 'bedrock':
       return {
         profile: 'bedrock',
-        env: buildBedrockProfileEnv({
+        env: applySupportedProfileCustomHeaders(activeProfile, buildBedrockProfileEnv({
           model: getPrimaryModel(activeProfile.model),
           baseUrl: activeProfile.baseUrl,
-        }),
+        })),
       }
     case 'vertex':
       return {
         profile: 'vertex',
-        env: buildVertexProfileEnv({
+        env: applySupportedProfileCustomHeaders(activeProfile, buildVertexProfileEnv({
           model: getPrimaryModel(activeProfile.model),
           baseUrl: activeProfile.baseUrl,
-        }),
+        })),
       }
     case 'openai': {
       if (route.gatewayId === 'nvidia-nim') {
@@ -925,7 +965,9 @@ function buildStartupProfileFromActiveProfile(
             apiKey: activeProfile.apiKey,
             processEnv: process.env,
           }) ?? null
-        return env ? { profile: 'nvidia-nim', env } : null
+        return env
+          ? { profile: 'nvidia-nim', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
       }
 
       if (route.vendorId === 'minimax') {
@@ -936,7 +978,9 @@ function buildStartupProfileFromActiveProfile(
             apiKey: activeProfile.apiKey,
             processEnv: process.env,
           }) ?? null
-        return env ? { profile: 'minimax', env } : null
+        return env
+          ? { profile: 'minimax', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
       }
 
       const env = buildOpenAICompatibleStartupEnv(activeProfile)
@@ -956,6 +1000,7 @@ function triggerStartupDiscoveryRefreshForProfile(
   void refreshStartupDiscoveryForRoute(route.routeId, {
     baseUrl: profile.baseUrl,
     apiKey: profile.apiKey,
+    headers: sanitizeProfileCustomHeaders(profile.customHeaders),
   }).catch(error => {
     const detail = error instanceof Error ? error.message : String(error)
     logForDebugging(

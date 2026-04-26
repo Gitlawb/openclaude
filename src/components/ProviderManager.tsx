@@ -10,6 +10,10 @@ import {
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
+import {
+  parseProfileCustomHeadersInput,
+  serializeProfileCustomHeaders,
+} from '../utils/providerCustomHeaders.js'
 import { getPrimaryModel, hasMultipleModels, parseModelList } from '../utils/providerModels.js'
 import {
   applySavedProfileToCurrentSession,
@@ -95,6 +99,7 @@ type DraftField =
   | 'apiFormat'
   | 'authHeader'
   | 'authHeaderValue'
+  | 'customHeaders'
 
 type ProviderDraft = Record<DraftField, string>
 
@@ -171,6 +176,13 @@ const FORM_STEPS: Array<{
     helpText: 'Optional. Press Enter with empty value to skip.',
     optional: true,
   },
+  {
+    key: 'customHeaders',
+    label: 'Custom headers',
+    placeholder: 'e.g. X-Trace: enabled; X-Team: devtools',
+    helpText: 'Optional. Extra non-auth request headers for providers that support them.',
+    optional: true,
+  },
 ]
 
 const GITHUB_PROVIDER_ID = '__github_models__'
@@ -191,6 +203,7 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
     apiFormat: profile.apiFormat ?? 'chat_completions',
     authHeader: profile.authHeader ?? '',
     authHeaderValue: profile.authHeaderValue ?? '',
+    customHeaders: serializeProfileCustomHeaders(profile.customHeaders) ?? '',
   }
 }
 
@@ -204,6 +217,7 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
     apiFormat: 'chat_completions',
     authHeader: '',
     authHeaderValue: '',
+    customHeaders: '',
   }
 }
 
@@ -506,14 +520,24 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }, [])
 
   const formSteps = React.useMemo(
-    () =>
-      draftProvider === 'openai'
-        ? FORM_STEPS
-        : FORM_STEPS.filter(step =>
-            step.key !== 'apiFormat' &&
-            step.key !== 'authHeader' &&
-            step.key !== 'authHeaderValue'
-          ),
+    () => {
+      const routeId = resolveProfileRoute(draftProvider).routeId
+      const supportsCustomHeaders = routeSupportsCustomHeaders(routeId)
+      return FORM_STEPS.filter(step => {
+        if (
+          draftProvider !== 'openai' &&
+          (step.key === 'apiFormat' ||
+            step.key === 'authHeader' ||
+            step.key === 'authHeaderValue')
+        ) {
+          return false
+        }
+        if (step.key === 'customHeaders') {
+          return supportsCustomHeaders
+        }
+        return true
+      })
+    },
     [draftProvider],
   )
   const currentStep = formSteps[formStepIndex] ?? formSteps[0] ?? FORM_STEPS[0]
@@ -1023,6 +1047,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       apiFormat: 'chat_completions',
       authHeader: '',
       authHeaderValue: '',
+      customHeaders: '',
     }
     setEditingProfileId(null)
     setDraftProvider(defaults.provider ?? 'openai')
@@ -1063,6 +1088,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function persistDraft(nextDraft: ProviderDraft = draft): void {
+    const parsedCustomHeaders = parseProfileCustomHeadersInput(
+      nextDraft.customHeaders,
+    )
+    if (parsedCustomHeaders.error) {
+      setErrorMessage(parsedCustomHeaders.error)
+      return
+    }
+
+    const routeId = resolveProfileRoute(draftProvider).routeId
     const payload: ProviderProfileInput = {
       provider: draftProvider,
       name: nextDraft.name,
@@ -1084,6 +1118,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       authHeaderValue:
         draftProvider === 'openai' && nextDraft.authHeaderValue
           ? nextDraft.authHeaderValue
+          : undefined,
+      customHeaders:
+        routeSupportsCustomHeaders(routeId) &&
+        Object.keys(parsedCustomHeaders.headers).length > 0
+          ? parsedCustomHeaders.headers
           : undefined,
     }
 
@@ -1444,7 +1483,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             defaultFocusValue={
               currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
-            onChange={value => handleFormSubmit(value)}
+            onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
             visibleOptionCount={2}
           />

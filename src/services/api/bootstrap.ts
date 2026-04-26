@@ -26,6 +26,7 @@ import {
   listOpenAICompatibleModels,
 } from '../../utils/providerDiscovery.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
+import { parseCustomHeadersEnv } from '../../utils/providerCustomHeaders.js'
 import {
   getAdditionalModelOptionsCacheScope,
   resolveProviderRequest,
@@ -163,6 +164,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     ? await discoverModelsForRoute(routeId, {
         baseUrl,
         apiKey,
+        headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
       })
     : null
   const models =
@@ -172,6 +174,7 @@ async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | n
     (await listOpenAICompatibleModels({
       baseUrl,
       apiKey,
+      headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
     }))
 
   if (models === null) {

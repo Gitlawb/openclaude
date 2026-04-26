@@ -871,7 +871,7 @@ Notes:
 
 ## Post-Phase Follow-Up: Profile-Owned Custom Headers
 
-**Status**: `IN PROGRESS`
+**Status**: `COMPLETE`
 
 **Plan alignment**: closes the custom-provider/header rules in
 [`cheeky-cooking-moon.md`](./cheeky-cooking-moon.md):
@@ -886,37 +886,37 @@ Notes:
 
 ### Task Breakdown
 
-- [ ] Extend persisted `ProviderProfile` shape with optional
+- [x] Extend persisted `ProviderProfile` shape with optional
   `customHeaders: Record<string, string>` while preserving old profile
   deserialization. Partial adjacent plumbing exists for auth/static headers, but
   merge review has not confirmed profile-owned `customHeaders` persistence.
-- [ ] Add shared parser/sanitizer helpers for profile custom headers:
+- [x] Add shared parser/sanitizer helpers for profile custom headers:
   - accept compact profile-manager input such as `Header: value; Header-2: value`;
   - trim empty entries;
   - reject malformed header names;
   - reject auth/internal/Anthropic-owned names such as `Authorization`,
     `api-key`, `X-API-Key`, `x-anthropic-*`, `anthropic-*`, `x-claude-*`,
     `x-app`, and `x-client-app`.
-- [ ] Update `/provider` profile create/edit UI to show the custom-header step
+- [x] Update `/provider` profile create/edit UI to show the custom-header step
   only when `routeSupportsCustomHeaders(routeId)` is true.
-- [ ] Store sanitized custom headers on the saved profile and preserve them
+- [x] Store sanitized custom headers on the saved profile and preserve them
   during profile edit/update.
-- [ ] Apply profile custom headers to active profile env through
+- [x] Apply profile custom headers to active profile env through
   `ANTHROPIC_CUSTOM_HEADERS`, scoped to supported routes only, so existing API
   client header plumbing carries them into OpenAI-compatible requests. Existing
   auth-header/static-header plumbing is nearby, but it does not complete this
   profile-owned custom-header task.
-- [ ] Include profile custom headers in startup-profile fallback env so saved
+- [x] Include profile custom headers in startup-profile fallback env so saved
   profiles still work after restart.
-- [ ] Include profile custom headers in descriptor discovery refreshes and
+- [x] Include profile custom headers in descriptor discovery refreshes and
   bootstrap model discovery.
-- [ ] Add regression tests for:
+- [x] Add regression tests for:
   - storing and sanitizing profile custom headers;
   - rejecting unsafe header names;
   - applying headers to process env for supported routes only;
   - preserving descriptor/header merge order in requests;
   - passing descriptor + profile headers into model discovery.
-- [ ] Re-run provider-profile, provider-manager, OpenAI shim, discovery, and
+- [x] Re-run provider-profile, provider-manager, OpenAI shim, discovery, and
   bootstrap-adjacent targeted suites. Merge-review initially found a
   `client.test.ts` Gemini/OpenAI env leakage failure; the xAI follow-up pass
   fixed that client isolation issue, but the broader custom-header verification
@@ -928,6 +928,13 @@ Notes:
   do not yet prove persisted profile `customHeaders`, route-scoped env
   application, discovery/bootstrap propagation, or the required regression
   coverage.
+- Completed on 2026-04-26 by adding profile-owned `customHeaders`, shared
+  parser/sanitizer helpers, descriptor-scoped `/provider` UI entry, env/startup
+  propagation through `ANTHROPIC_CUSTOM_HEADERS`, discovery/bootstrap header
+  propagation, and focused regression coverage.
+- Focused verification on 2026-04-26 is green:
+  - `bun test src/utils/providerCustomHeaders.test.ts src/utils/providerProfiles.test.ts src/utils/providerProfile.test.ts src/utils/providerStartupOverrides.test.ts src/integrations/discoveryService.test.ts src/components/ProviderManager.test.tsx src/services/api/openaiShim.test.ts src/services/api/client.test.ts`
+  - filtered `bun run typecheck` for the touched custom-header/provider/discovery/bootstrap files only reports the known repo-wide `src/bootstrap/state.ts` baseline errors.
 
 ---
 
