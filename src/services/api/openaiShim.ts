@@ -64,6 +64,7 @@ import {
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
+import { isZaiBaseUrl } from '../../utils/zaiProvider.js'
 import {
   normalizeToolArguments,
   hasToolFieldMapping,
@@ -93,7 +94,6 @@ const KIMI_CODE_API_HOST = 'api.kimi.com'
 const DEEPSEEK_API_HOSTS = new Set([
   'api.deepseek.com',
 ])
-
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
   'Editor-Version': 'vscode/1.99.3',
@@ -1514,7 +1514,8 @@ class OpenAIShimMessages {
       // thinking block we captured on the inbound response.
       preserveReasoningContent:
         isMoonshotCompatibleBaseUrl(request.baseUrl) ||
-        isDeepSeekBaseUrl(request.baseUrl),
+        isDeepSeekBaseUrl(request.baseUrl) ||
+        isZaiBaseUrl(request.baseUrl),
     })
 
     const body: Record<string, unknown> = {
@@ -1553,8 +1554,19 @@ class OpenAIShimMessages {
 
     const isMoonshot = isMoonshotCompatibleBaseUrl(request.baseUrl)
     const isDeepSeek = isDeepSeekBaseUrl(request.baseUrl)
+    const isZai = isZaiBaseUrl(request.baseUrl)
 
-    if ((isGithub || isMistral || isLocal || isMoonshot || isDeepSeek) && body.max_completion_tokens !== undefined) {
+    if (
+      (
+        isGithub ||
+        isMistral ||
+        isLocal ||
+        isMoonshot ||
+        isDeepSeek ||
+        isZai
+      ) &&
+      body.max_completion_tokens !== undefined
+    ) {
       body.max_tokens = body.max_completion_tokens
       delete body.max_completion_tokens
     }
@@ -1562,10 +1574,10 @@ class OpenAIShimMessages {
     // mistral and gemini don't recognize body.store — Gemini returns 400
     // "Invalid JSON payload received. Unknown name 'store': Cannot find field."
     // Moonshot direct API, Kimi Code's OpenAI-compatible coding endpoint,
-    // and DeepSeek have not published support for the parameter either;
+    // DeepSeek, and Z.AI have not published support for the parameter either;
     // strip it preemptively to avoid the same class of error on strict-parse
     // providers.
-    if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek) {
+    if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek || isZai) {
       delete body.store
     }
 
@@ -1590,6 +1602,17 @@ class OpenAIShimMessages {
         if (effort) {
           body.reasoning_effort = normalizeDeepSeekReasoningEffort(effort)
         }
+      }
+    }
+
+    // Z.AI uses the same thinking format as DeepSeek: { type: "enabled" | "disabled" }
+    // with reasoning_content in responses.
+    if (isZai) {
+      const requestedThinkingType = (params.thinking as { type?: string } | undefined)?.type
+      if (requestedThinkingType && requestedThinkingType !== 'disabled') {
+        body.thinking = { type: 'enabled' }
+      } else if (requestedThinkingType === 'disabled') {
+        body.thinking = { type: 'disabled' }
       }
     }
 

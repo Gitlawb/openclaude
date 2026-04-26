@@ -3991,3 +3991,79 @@ test('preserves mixed text and image tool results as multipart content', async (
   expect(content[0].type).toBe('text')
   expect(content[1].type).toBe('image_url')
 })
+
+test('Z.AI: uses max_tokens (not max_completion_tokens) and strips store', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'GLM-5.1',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'GLM-5.1',
+    system: 'you are glm',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.max_tokens).toBe(256)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
+test('Z.AI: thinking mode enabled when requested', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'GLM-5.1',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              reasoning_content: 'Let me think...',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'GLM-5.1',
+    system: 'you are glm',
+    messages: [{ role: 'user', content: 'think hard' }],
+    max_tokens: 1024,
+    stream: false,
+    thinking: { type: 'enabled', budget_tokens: 1024 },
+  })
+
+  expect((requestBody?.thinking as Record<string, string>)?.type).toBe('enabled')
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.max_tokens).toBe(1024)
+})

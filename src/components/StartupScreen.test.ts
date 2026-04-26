@@ -116,6 +116,11 @@ describe('detectProvider — direct vendor endpoints', () => {
     expect(detectProvider().name).toBe('Mistral')
   })
 
+  test('api.z.ai labels as Z.AI GLM', () => {
+    setupOpenAIMode('https://api.z.ai/api/coding/paas/v4', 'GLM-5.1')
+    expect(detectProvider().name).toBe('Z.AI - GLM')
+  })
+
   test('default OpenAI URL + gpt-4o labels as OpenAI', () => {
     setupOpenAIMode('https://api.openai.com/v1', 'gpt-4o')
     expect(detectProvider().name).toBe('OpenAI')
@@ -148,6 +153,21 @@ describe('detectProvider — rawModel fallback when URL is generic', () => {
   test('custom proxy + mistral-large falls back to Mistral', () => {
     setupOpenAIMode('https://my-proxy.internal/v1', 'mistral-large-latest')
     expect(detectProvider().name).toBe('Mistral')
+  })
+
+  test('custom proxy + exact uppercase GLM ID falls back to Z.AI GLM', () => {
+    setupOpenAIMode('https://my-proxy.internal/v1', 'GLM-5.1')
+    expect(detectProvider().name).toBe('Z.AI - GLM')
+  })
+
+  test('custom proxy + lowercase glm ID stays generic OpenAI', () => {
+    setupOpenAIMode('https://my-proxy.internal/v1', 'glm-5.1')
+    expect(detectProvider().name).toBe('OpenAI')
+  })
+
+  test('DashScope lowercase glm ID is not mislabeled as Z.AI', () => {
+    setupOpenAIMode('https://dashscope.aliyuncs.com/compatible-mode/v1', 'glm-5.1')
+    expect(detectProvider().name).toBe('OpenAI')
   })
 })
 

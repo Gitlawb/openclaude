@@ -36,6 +36,7 @@ export type ProviderPreset =
   | 'custom'
   | 'nvidia-nim'
   | 'minimax'
+  | 'zai'
   | 'bankr'
   | 'atomic-chat'
 
@@ -315,6 +316,15 @@ export function getProviderPresetDefaults(
         baseUrl: 'https://llm.bankr.bot/v1',
         model: process.env.BANKR_MODEL ?? 'claude-opus-4.6',
         apiKey: process.env.BNKR_API_KEY ?? '',
+        requiresApiKey: true,
+      }
+    case 'zai':
+      return {
+        provider: 'openai',
+        name: 'Z.AI - GLM Coding Plan',
+        baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+        model: 'GLM-5.1, GLM-5-Turbo, GLM-4.7, GLM-4.5-Air',
+        apiKey: '',
         requiresApiKey: true,
       }
     case 'ollama':
