@@ -1,10 +1,10 @@
 # OpenClaude Descriptor Migration — Progress Tracker
 
 **Master Plan**: [`plan/cheeky-cooking-moon.md`](./cheeky-cooking-moon.md)
-**Current Phase**: Phase 4B — "How To Add a Vendor" and "How To Add a Gateway" Guides (complete on branch)
-**Next Planned Phase**: Phase 4C — "How To Add a Model" and "How To Add an Anthropic Proxy" Guides
+**Current Phase**: Phase 4E — Reference Sample Pack and Docs Review (complete on branch)
+**Next Planned Phase**: None — Phase 4 is complete on `cheeky-cooking-moon`
 **Goal**: Establish the descriptor system without regressing current behavior. Get all metadata into one place before deeper runtime migration starts.
-**Last Updated**: 2026-04-25 22:39
+**Last Updated**: 2026-04-25 23:20
 
 ---
 
@@ -128,7 +128,7 @@
 
 ## Phase 1F: Phase-1 Verification and Merge Pass
 
-**Status**: `IN_PROGRESS`
+**Status**: `COMPLETE`
 
 - [x] Registry unit and validation tests pass
 - [x] Compatibility mapping tests — every preset has valid descriptor mapping
@@ -581,19 +581,19 @@ Notes:
 
 ## Phase 4: Documentation and Reference Samples
 
-**Status**: `IN_PROGRESS`
+**Status**: `COMPLETE`
 
 **Goal**: Produce implementation-quality documentation for the descriptor system and give future contributors reliable reference examples for the most common integration patterns.
 
 ### Phase 4 Exit Criteria
 
-- [ ] Docs explain how to add each descriptor type
-- [ ] Docs include detailed worked samples for multiple gateway and vendor patterns
-- [ ] Docs explain when and how `/usage` should be attached to a vendor or gateway
-- [ ] Docs clearly call out the difference between metadata, routing, and transport behavior
-- [ ] All documentation lives under `/docs`
-- [ ] All documentation is written in `.md` format
-- [ ] Docs are organized into a clear, maintainable `/docs` structure
+- [x] Docs explain how to add each descriptor type
+- [x] Docs include detailed worked samples for multiple gateway and vendor patterns
+- [x] Docs explain when and how `/usage` should be attached to a vendor or gateway
+- [x] Docs clearly call out the difference between metadata, routing, and transport behavior
+- [x] All documentation lives under `/docs`
+- [x] All documentation is written in `.md` format
+- [x] Docs are organized into a clear, maintainable `/docs` structure
 
 ### Phase 4 Entry Blockers
 
@@ -610,9 +610,9 @@ Notes:
 ### Phase 4 Recommended Sequence
 
 - [x] Document the architecture and terminology first
-- [ ] Document add-a-new-integration workflows second
-- [ ] Add worked reference samples third
-- [ ] Add `/usage` integration guidance and review docs for accuracy last
+- [x] Document add-a-new-integration workflows second
+- [x] Add worked reference samples third
+- [x] Add `/usage` integration guidance and review docs for accuracy last
 
 ---
 
@@ -718,19 +718,19 @@ Notes:
 
 ## Phase 4C: "How To Add a Model" and "How To Add an Anthropic Proxy" Guides
 
-**Status**: `PLANNED`
+**Status**: `COMPLETE`
 
-- [ ] Write a step-by-step guide for adding a model descriptor
-- [ ] Keep all model and anthropic proxy guides under `/docs` as Markdown files
-- [ ] Ensure model and anthropic proxy examples use `defineModel` and `defineAnthropicProxy`
-- [ ] Explain that shared model descriptors act primarily as glossary/index metadata and optional route enrichment
-- [ ] Explain when to add a brand descriptor versus only a model descriptor
-- [ ] Document `providerModelMap` with concrete examples
-- [ ] Explain model lookup priority and fallback to `openaiContextWindows.ts`
-- [ ] Explain why adding a gateway or direct-vendor catalog should not normally require editing multiple shared model files
-- [ ] Write a step-by-step guide for adding an anthropic proxy descriptor
-- [ ] Document Anthropic-specific env var contracts and routing expectations
-- [ ] Explain how anthropic proxies differ from OpenAI-compatible gateways
+- [x] Write a step-by-step guide for adding a model descriptor
+- [x] Keep all model and anthropic proxy guides under `/docs` as Markdown files
+- [x] Ensure model and anthropic proxy examples use `defineModel` and `defineAnthropicProxy`
+- [x] Explain that shared model descriptors act primarily as glossary/index metadata and optional route enrichment
+- [x] Explain when to add a brand descriptor versus only a model descriptor
+- [x] Document `providerModelMap` with concrete examples
+- [x] Explain model lookup priority and fallback to `openaiContextWindows.ts`
+- [x] Explain why adding a gateway or direct-vendor catalog should not normally require editing multiple shared model files
+- [x] Write a step-by-step guide for adding an anthropic proxy descriptor
+- [x] Document Anthropic-specific env var contracts and routing expectations
+- [x] Explain how anthropic proxies differ from OpenAI-compatible gateways
 
 Suggested doc outputs:
 - `docs/integrations/how-to/add-model.md`
@@ -741,23 +741,29 @@ Required sample patterns:
 - model shared across multiple route catalogs using `providerModelMap`
 - anthropic proxy using Anthropic-native auth and base URL configuration
 
+Notes:
+- Completed on 2026-04-25 by adding:
+  - `docs/integrations/how-to/add-model.md` — shared model descriptor rules, brand-vs-model guidance, `providerModelMap`, and lookup/fallback guidance
+  - `docs/integrations/how-to/add-anthropic-proxy.md` — anthropic-proxy authoring rules, `envVarConfig`, Anthropic-native env contracts, and transport-boundary guidance
+- The model guide keeps route-owned catalogs as the source of truth for availability and treats shared model descriptors as glossary/index metadata plus optional route enrichment.
+
 ---
 
 ## Phase 4D: `/usage` Integration Guide for Vendors and Gateways
 
-**Status**: `PLANNED`
+**Status**: `COMPLETE`
 
-- [ ] Keep the `/usage` guide under `/docs` as a Markdown file
-- [ ] Document the `usage` field on vendor, gateway, and anthropic proxy descriptors
-- [ ] Explain when `/usage` belongs on the vendor descriptor
-- [ ] Explain when a gateway should delegate usage to a linked vendor
-- [ ] Explain when a gateway should define its own usage handling because it has its own usage API
-- [ ] Document required fetch/parse module structure for supported usage integrations
-- [ ] Document fallback behavior for unsupported providers
-- [ ] Include one worked vendor `/usage` example
-- [ ] Include one worked gateway `/usage` example
-- [ ] Include one worked unsupported-provider fallback example
-- [ ] Ensure `/usage` examples follow the `define*` authoring style and do not call registry functions directly
+- [x] Keep the `/usage` guide under `/docs` as a Markdown file
+- [x] Document the `usage` field on vendor, gateway, and anthropic proxy descriptors
+- [x] Explain when `/usage` belongs on the vendor descriptor
+- [x] Explain when a gateway should delegate usage to a linked vendor
+- [x] Explain when a gateway should define its own usage handling because it has its own usage API
+- [x] Document required fetch/parse module structure for supported usage integrations
+- [x] Document fallback behavior for unsupported providers
+- [x] Include one worked vendor `/usage` example
+- [x] Include one worked gateway `/usage` example
+- [x] Include one worked unsupported-provider fallback example
+- [x] Ensure `/usage` examples follow the `define*` authoring style and do not call registry functions directly
 
 Suggested doc outputs:
 - `docs/integrations/how-to/add-usage-support.md`
@@ -768,27 +774,39 @@ Required sample patterns:
 - gateway with its own usage API
 - unsupported provider with neutral fallback behavior
 
+Notes:
+- Completed on 2026-04-25 by adding `docs/integrations/how-to/add-usage-support.md`.
+- The guide documents the descriptor `usage` field, vendor-owned usage, gateway delegation, gateway-owned usage APIs, unsupported fallbacks, and the current implementation boundary where descriptor resolution is generic but concrete runtime/UI handlers still exist for Anthropic, MiniMax, and Codex.
+- The guide now also calls out that anthropic-proxy descriptors can declare `usage` metadata as part of the shared schema contract, while the active `/usage` resolver in this branch still routes vendor/gateway targets plus the `firstParty` compatibility id.
+
 ---
 
 ## Phase 4E: Reference Sample Pack and Docs Review
 
-**Status**: `PLANNED`
+**Status**: `COMPLETE`
 
-- [ ] Keep the sample pack and contributor notes under `/docs` as Markdown files
-- [ ] Gather the best sample snippets into one reference pack
-- [ ] Verify samples are internally consistent with descriptor interfaces
-- [ ] Verify samples use `define*` helpers and default exports rather than direct registry/type imports
-- [ ] Verify gateway samples use `transportConfig.kind` for routing and only use `category` for optional grouping
-- [ ] Verify no sample uses removed gateway fields such as `targetVendorId` or `isOpenAICompatible`
-- [ ] Verify samples explain `max_tokens` versus `max_completion_tokens` and use `openaiShim.maxTokensField` where needed
-- [ ] Verify samples use the correct repo paths and current command surfaces
-- [ ] Verify `/usage` examples reflect actual routing rules
-- [ ] Remove or mark any sample that is intentionally illustrative rather than copy-paste ready
-- [ ] Add a short "common pitfalls" section for contributors
+- [x] Keep the sample pack and contributor notes under `/docs` as Markdown files
+- [x] Gather the best sample snippets into one reference pack
+- [x] Verify samples are internally consistent with descriptor interfaces
+- [x] Verify samples use `define*` helpers and default exports rather than direct registry/type imports
+- [x] Verify gateway samples use `transportConfig.kind` for routing and only use `category` for optional grouping
+- [x] Verify no sample uses removed gateway fields such as `targetVendorId` or `isOpenAICompatible`
+- [x] Verify samples explain `max_tokens` versus `max_completion_tokens` and use `openaiShim.maxTokensField` where needed
+- [x] Verify samples use the correct repo paths and current command surfaces
+- [x] Verify `/usage` examples reflect actual routing rules
+- [x] Remove or mark any sample that is intentionally illustrative rather than copy-paste ready
+- [x] Add a short "common pitfalls" section for contributors
 
 Suggested doc outputs:
 - `docs/integrations/reference-samples.md`
 - `docs/integrations/common-pitfalls.md`
+
+Notes:
+- Completed on 2026-04-25 by adding:
+  - `docs/integrations/reference-samples.md` — a curated sample pack covering direct vendors, first-party vendor catalogs, local gateways, hybrid two-file gateways, shared model descriptors, anthropic proxies, and current `/usage` metadata patterns
+  - `docs/integrations/common-pitfalls.md` — a short pre-PR checklist for descriptor type choice, routing fields, discovery/catalog boundaries, max-token-field selection, `/usage` scope, and compatibility-layer follow-through
+- The 4E docs review re-checked the current repo paths and command/runtime surfaces referenced across the Phase 4 docs set, including `define.ts`, `descriptors.ts`, `profileResolver.ts`, `routeMetadata.ts`, `runtimeMetadata.ts`, `providerUiMetadata.ts`, `discoveryCache.ts`, `discoveryService.ts`, `src/commands/usage/index.ts`, and `src/components/Settings/Usage.tsx`.
+- Reference-pack samples are explicitly marked as illustrative where they are not meant to be copy-paste-ready production descriptors.
 
 ---
 
@@ -797,7 +815,7 @@ Suggested doc outputs:
 - [ ] **4A merged** — architecture/overview/glossary docs landed on `cheeky-cooking-moon`
 - [ ] **4B+4C merged** — vendor/gateway/model/proxy how-to guides landed on `cheeky-cooking-moon`
 - [ ] **4D merged** — `/usage` integration guide landed on `cheeky-cooking-moon`
-- [ ] **4E complete** — reference sample pack and docs-review pass are green
+- [x] **4E complete** — reference sample pack and docs-review pass are green
 
 Notes:
 - As with the earlier checkpoints, "merged" here means landed on `cheeky-cooking-moon`, not merged out to another branch.

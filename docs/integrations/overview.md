@@ -45,13 +45,21 @@ Current Phase 4B outputs:
 - `docs/integrations/how-to/add-vendor.md`
 - `docs/integrations/how-to/add-gateway.md`
 
-Planned later packets:
+Current Phase 4C outputs:
 
 - `docs/integrations/how-to/add-model.md`
 - `docs/integrations/how-to/add-anthropic-proxy.md`
+
+Current Phase 4D outputs:
+
 - `docs/integrations/how-to/add-usage-support.md`
+
+Current Phase 4E outputs:
+
 - `docs/integrations/reference-samples.md`
 - `docs/integrations/common-pitfalls.md`
+
+Phase 4 is currently fully staged on `cheeky-cooking-moon`.
 
 ## Reading Order
 
@@ -60,7 +68,8 @@ If you are onboarding to the integration system:
 1. Read `docs/architecture/integrations.md` for the system boundaries.
 2. Read `docs/integrations/glossary.md` for the shared vocabulary.
 3. Use the how-to guides for the specific descriptor type you are adding.
-4. Use the reference samples only after the architecture and glossary are clear.
+4. Use `docs/integrations/reference-samples.md` once the architecture and the relevant how-to guide are clear.
+5. Read `docs/integrations/common-pitfalls.md` before opening a docs or implementation PR for a new integration.
 
 ## Core Rules
 
