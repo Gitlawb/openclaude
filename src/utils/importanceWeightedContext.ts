@@ -40,16 +40,53 @@ function getContent(content: unknown): string {
     return content.map(c => {
       if (typeof c === 'string') return c
       if (typeof c === 'object' && c !== null) {
-        // Keep structured blocks for importance scoring
         if ('text' in c) return (c as any).text ?? ''
         if ('thinking' in c) return (c as any).thinking ?? ''
-        // Include tool_use, tool_result in content
-        if ('type' in c) return `[${(c as any).type}]`
+        if ('type' in c) {
+          const block = c as any
+          if (block.type === 'tool_use') {
+            return `[tool_use id=${block.id} name=${block.name}] ${JSON.stringify(block.input ?? {})}`
+          }
+          if (block.type === 'tool_result') {
+            const resultContent = typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
+            return `[tool_result tool_use_id=${block.tool_use_id} is_error=${block.is_error ?? false}] ${resultContent}`
+          }
+          return `[${block.type}]`
+        }
       }
       return ''
     }).join(' ')
   }
   return ''
+}
+
+function hasStructuredError(content: unknown): boolean {
+  if (!Array.isArray(content)) return false
+  for (const block of content) {
+    if (typeof block === 'object' && block !== null) {
+      if (block.type === 'tool_result' && 'is_error' in block && block.is_error === true) {
+        return true
+      }
+      if (block.type === 'tool_result' && 'content' in block) {
+        const resultContent = block.content
+        if (typeof resultContent === 'string') {
+          if (resultContent.includes('error') || resultContent.includes('fail') || resultContent.includes('exception')) {
+            return true
+          }
+        } else if (Array.isArray(resultContent)) {
+          for (const rc of resultContent) {
+            if (typeof rc === 'object' && rc !== null && 'text' in rc) {
+              const text = (rc as any).text
+              if (typeof text === 'string' && (text.includes('error') || text.includes('fail') || text.includes('exception'))) {
+                return true
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return false
 }
 
 export function calculateImportanceScores(
@@ -70,7 +107,7 @@ export function calculateImportanceScores(
       ? 0.9
       : 0
 
-    const errorContent = content.includes('error') || content.includes('fail') || content.includes('exception')
+    const errorContent = hasStructuredError(message.message?.content) || content.includes('error') || content.includes('fail') || content.includes('exception')
       ? 0.85
       : 0
 
@@ -113,13 +150,14 @@ export function selectWeightedMessages(
     sum + roughTokenCountEstimation(getContent(m.message?.content)), 0)
   
   if (recentTokens > cfg.maxTokens) {
-    // Return truncated recent within budget
+    // Return truncated recent within budget - keep newest messages first
     const truncated: Message[] = []
     let used = 0
-    for (const msg of recent) {
+    for (let i = recent.length - 1; i >= 0; i--) {
+      const msg = recent[i]!
       const tok = roughTokenCountEstimation(getContent(msg.message?.content))
       if (used + tok <= cfg.maxTokens) {
-        truncated.push(msg)
+        truncated.unshift(msg)
         used += tok
       }
     }

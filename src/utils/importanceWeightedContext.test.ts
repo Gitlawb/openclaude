@@ -94,4 +94,54 @@ describe('importanceWeightedContext', () => {
       expect(top.length).toBeLessThanOrEqual(2)
     })
   })
+
+  describe('structured content handling', () => {
+    it('counts tokens for tool_use with input', () => {
+      const messages = [
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu1', name: 'Read', input: { file: 'test.py', lines: '1-100' } },
+            ],
+            created_at: Date.now(),
+          },
+        },
+      ] as any[]
+
+      const selected = selectWeightedMessages(messages, { maxTokens: 10000, preserveRecent: 1 })
+      expect(selected.length).toBe(1)
+    })
+
+    it('detects tool_result is_error flag', () => {
+      const errorMessage = {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'tu1', content: 'File not found', is_error: true },
+          ],
+          created_at: Date.now(),
+        },
+      } as any
+
+      const scores = calculateImportanceScores([errorMessage], { maxTokens: 10000 })
+      const errorScore = scores.find(s => s.factors.errors > 0)
+      expect(errorScore?.factors.errors).toBeGreaterThan(0)
+    })
+
+    it('keeps newest messages when truncating over-budget recent', () => {
+      const messages = [
+        createMessage('user', 'Old message 1', 1000),
+        createMessage('user', 'Old message 2', 2000),
+        createMessage('user', 'New message 1', 3000),
+        createMessage('user', 'New message 2', 4000),
+      ]
+
+      const selected = selectWeightedMessages(messages, { maxTokens: 50, preserveRecent: 3 })
+      const newestMsg = selected.find(m => m.message?.created_at === 4000)
+      expect(newestMsg).toBeDefined()
+    })
+  })
 })

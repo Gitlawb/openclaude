@@ -110,14 +110,15 @@ export function createSlidingWindow(
   const selected: Message[] = []
   const recentTokens = recentMessages.reduce((sum, m) => sum + getMessageTokens(m), 0)
   
-  // If recent alone exceeds budget, return only recent within budget
+  // If recent alone exceeds budget, return only recent within budget - keep newest messages first
   if (recentTokens > cfg.maxTokens) {
     const truncated: Message[] = []
     let used = 0
-    for (const msg of recentMessages) {
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+      const msg = recentMessages[i]!
       const tok = getMessageTokens(msg)
       if (used + tok <= cfg.maxTokens) {
-        truncated.push(msg)
+        truncated.unshift(msg)
         used += tok
       }
     }
