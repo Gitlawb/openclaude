@@ -4,7 +4,7 @@ const command = {
   type: 'local',
   name: 'commit-message',
   description: 'Configure commit attribution text',
-  argumentHint: '[status|off|default|set <text>|co-author <name> <email>]',
+  argumentHint: '[status|off|default|set-attribution <text>|co-author <name> <email>]',
   supportsNonInteractive: true,
   load: () => import('./commit-message.js'),
 } satisfies Command

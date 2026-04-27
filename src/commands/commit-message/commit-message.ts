@@ -11,14 +11,16 @@ type ParsedCoAuthor = {
   email: string
 }
 
-const USAGE = [
+export const USAGE = [
   'Commit message attribution',
+  'Controls only the attribution text appended after /commit messages.',
+  'It does not set the commit title or summary.',
   '',
   'Usage:',
   '  /commit-message status',
   '  /commit-message off',
   '  /commit-message default',
-  '  /commit-message set <custom attribution text>',
+  '  /commit-message set-attribution <custom text appended after the commit message>',
   '  /commit-message co-author "Name" name@example.com',
 ].join('\n')
 
@@ -122,6 +124,7 @@ export const call: LocalCommandCall = async args => {
       }
     }
 
+    case 'set-attribution':
     case 'set':
     case 'custom': {
       const value = commandArg
@@ -130,7 +133,7 @@ export const call: LocalCommandCall = async args => {
       if (error) return { type: 'text', value: error }
       return {
         type: 'text',
-        value: `Commit attribution set to:\n${value}`,
+        value: `Commit attribution text appended by /commit set to:\n${value}`,
       }
     }
 
