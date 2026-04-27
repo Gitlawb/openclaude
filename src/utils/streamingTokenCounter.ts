@@ -42,15 +42,26 @@ export class StreamingTokenCounter {
    */
   private recountAtWordBoundary(): void {
     const content = this.accumulatedContent
-    const lastSpace = content.lastIndexOf(' ', this.lastCountedIndex)
-    
-    // Only recount if we have content past the last counted index
-    // and we're at a word boundary (or near end)
-    if (lastSpace > this.lastCountedIndex || content.length - this.lastCountedIndex > 50) {
-      const toCount = content.slice(0, lastSpace > 0 ? lastSpace : content.length)
-      this.cachedOutputTokens = roughTokenCountEstimation(toCount)
-      this.lastCountedIndex = lastSpace > 0 ? lastSpace : content.length
+    const unprocessedContent = content.slice(this.lastCountedIndex)
+    const nextSpaceIndex = unprocessedContent.indexOf(' ')
+
+    const shouldCount =
+      nextSpaceIndex > 0 ||
+      unprocessedContent.length > 50 ||
+      unprocessedContent.length === 0
+
+    let boundaryIndex: number
+    if (nextSpaceIndex > 0) {
+      boundaryIndex = this.lastCountedIndex + nextSpaceIndex
+    } else if (unprocessedContent.length > 50) {
+      boundaryIndex = content.length
+    } else {
+      return
     }
+
+    const toCount = content.slice(0, boundaryIndex)
+    this.cachedOutputTokens = roughTokenCountEstimation(toCount)
+    this.lastCountedIndex = boundaryIndex
   }
 
   /**
