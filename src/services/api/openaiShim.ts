@@ -539,9 +539,11 @@ function convertMessages(
         // (harmless) or strict-reject unknown fields (harmful).
         if (preserveReasoningContent) {
           const thinkingText = (thinkingBlock as { thinking?: string } | undefined)?.thinking
-          if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
-            assistantMsg.reasoning_content = thinkingText
-          }
+          // DeepSeek V4 (and similar reasoning providers) require reasoning_content
+          // to be present on every assistant message, even as empty string, when
+          // thinking mode is enabled. The field's presence satisfies the API contract;
+          // omitting it causes 400: "reasoning_content must be passed back to the API".
+          assistantMsg.reasoning_content = typeof thinkingText === 'string' ? thinkingText : ''
         }
 
         if (toolUses.length > 0) {
@@ -635,6 +637,12 @@ function convertMessages(
           })(),
         }
 
+        // Reasoning providers require reasoning_content on every assistant
+        // message when thinking mode is active (empty string is accepted).
+        if (preserveReasoningContent) {
+          assistantMsg.reasoning_content = ''
+        }
+
         if (assistantMsg.content) {
           result.push(assistantMsg)
         }
@@ -659,6 +667,7 @@ function convertMessages(
       coalesced.push({
         role: 'assistant',
         content: '[Tool execution interrupted by user]',
+        reasoning_content: '',
       })
     }
 
