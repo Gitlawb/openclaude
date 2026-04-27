@@ -102,7 +102,7 @@ export function detectProvider(): { name: string; model: string; baseUrl: string
   }
 
   if (useGithub) {
-    const rawModel = process.env.GITHUB_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'github:copilot'
+    const rawModel = process.env.OPENAI_MODEL?.trim() || 'github:copilot'
     const resolvedRequest = resolveProviderRequest({
       model: rawModel,
       baseUrl: process.env.OPENAI_BASE_URL,

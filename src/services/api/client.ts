@@ -16,10 +16,6 @@ import {
   isFirstPartyAnthropicBaseUrl,
   isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
-import {
-  isGithubModelUnsupported,
-  markGithubModelUnsupported,
-} from 'src/utils/model/githubModels.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
 import {
   getIsNonInteractiveSession,
@@ -439,30 +435,6 @@ function buildFetch(
     // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
     const headers = new Headers(init?.headers)
 
-    let modelId = ''
-    if (isGithub && init?.body) {
-      try {
-        const body = typeof init.body === 'string' ? JSON.parse(init.body) : {}
-        modelId = body.model || ''
-      } catch { /* ignore */ }
-    }
-
-    if (isGithub && modelId && isGithubModelUnsupported(modelId)) {
-      return new Response(
-        JSON.stringify({
-          error: {
-            message: `GitHub model ${modelId} is not supported by your current plan. Please select a different model.`,
-            type: 'invalid_request_error',
-            code: 'model_not_supported',
-          },
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      )
-    }
-
     // Generate a client-side request ID so timeouts (which return no server
     // request ID) can still be correlated with server logs by the API team.
     // Callers that want to track the ID themselves can pre-set the header.
@@ -480,18 +452,6 @@ function buildFetch(
       // never let logging crash the fetch
     }
     const response = await inner(input, { ...init, headers })
-
-    if (isGithub && response.status === 400 && modelId) {
-      const clone = response.clone()
-      const errorBody = await clone.text().catch(() => '')
-      const normalized = errorBody.toLowerCase()
-      if (
-        normalized.includes('model_not_supported') ||
-        normalized.includes('requested model is not supported')
-      ) {
-        markGithubModelUnsupported(modelId)
-      }
-    }
 
     return response
   }

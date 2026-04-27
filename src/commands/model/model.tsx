@@ -315,7 +315,7 @@ async function refreshGithubModelOptionsCache(): Promise<void> {
   try {
     await refreshGithubModelsCache()
   } catch {
-    // Keep /model usable even if endpoint discovery fails.
+    // Keep /model usable even if Copilot model discovery fails.
   }
 }
 

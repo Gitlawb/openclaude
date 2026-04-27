@@ -65,7 +65,7 @@ export function usesAnthropicAccountFlow(): boolean {
  */
 export function isGithubNativeAnthropicMode(resolvedModel?: string): boolean {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) return false
-  const model = resolvedModel?.trim() || process.env.GITHUB_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || ''
+  const model = resolvedModel?.trim() || process.env.OPENAI_MODEL?.trim() || ''
   return model.toLowerCase().includes('claude-')
 }
 function isCodexModel(): boolean {

@@ -35,8 +35,8 @@ import type { Root } from './ink.js';
 import { launchRepl } from './replLauncher.js';
 import { hasGrowthBookEnvOverride, initializeGrowthBook, refreshGrowthBookAfterAuthChange } from './services/analytics/growthbook.js';
 import { fetchBootstrapData } from './services/api/bootstrap.js';
-import { prefetchOllamaModels } from './utils/model/ollamaModels.js';
 import { prefetchGithubModels } from './utils/model/githubModels.js';
+import { prefetchOllamaModels } from './utils/model/ollamaModels.js';
 import { type DownloadResult, downloadSessionFiles, type FilesApiConfig, parseFileSpecs } from './services/api/filesApi.js';
 import { prefetchPassesEligibility } from './services/api/referral.js';
 import { prefetchOfficialMcpUrls } from './services/mcp/officialRegistry.js';
@@ -2334,7 +2334,7 @@ async function run(): Promise<CommanderCommand> {
     const bgRefreshThrottleMs = getFeatureValue_CACHED_MAY_BE_STALE('tengu_cicada_nap_ms', 0);
     const lastPrefetched = getGlobalConfig().startupPrefetchedAt ?? 0;
     const skipStartupPrefetches = isBareMode() || bgRefreshThrottleMs > 0 && Date.now() - lastPrefetched < bgRefreshThrottleMs;
-    // Always prefetch Ollama models (not gated by throttle — local server, fast & cheap)
+    // Always prefetch Ollama and GitHub models (not gated by throttle — local server or fast & cheap)
     prefetchOllamaModels();
     prefetchGithubModels();
 

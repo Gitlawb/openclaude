@@ -369,33 +369,32 @@ function getCodexModelOptions(): ModelOption[] {
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 
-import { getCachedGithubModelOptions, isGithubModelUnsupported } from './githubModels.js'
+import { getCachedGithubModelOptions } from './githubModels.js'
 
 function getCopilotModelOptions(): ModelOption[] {
-  const dynamicModels = getCachedGithubModelOptions()
-  if (dynamicModels.length > 0) {
-    return dynamicModels
-  }
-
-  // Avoid showing the static full catalog when plan-aware GitHub models
-  // have not been loaded yet; that list can include unavailable models.
-  const currentModel = getUserSpecifiedModelSetting()
-  if (currentModel != null && !isGithubModelUnsupported(currentModel)) {
-    return [
-      {
-        value: currentModel,
-        label: currentModel,
-        description: 'Currently configured GitHub model',
-      },
-    ]
-  }
-
-  return []
+  return getCachedGithubModelOptions()
 }
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {
   if (getAPIProvider() === 'github') {
-    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
+    const defaultOption = getDefaultOptionForUser(fastMode)
+    const githubModels = getCopilotModelOptions()
+    if (githubModels.length > 0) {
+      return [defaultOption, ...githubModels]
+    }
+    // Fallback: if models not yet fetched, show current model instead of "only Default"
+    const currentModel = getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
+    if (currentModel != null) {
+      return [
+        defaultOption,
+        {
+          value: currentModel,
+          label: currentModel,
+          description: 'Currently configured GitHub model',
+        },
+      ]
+    }
+    return [defaultOption]
   }
 
   // When using Ollama, show models from the Ollama server instead of Claude models

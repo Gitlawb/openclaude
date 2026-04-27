@@ -18,7 +18,6 @@
  * GitHub Copilot API (api.githubcopilot.com), OpenAI-compatible:
  *   CLAUDE_CODE_USE_GITHUB=1         — enable GitHub inference (no need for USE_OPENAI)
  *   GITHUB_TOKEN or GH_TOKEN         — Copilot API token (mapped to Bearer auth)
- *   OPENAI_MODEL                     — optional; use github:copilot or openai/gpt-4.1 style IDs
  */
 
 import { APIError } from '@anthropic-ai/sdk'
@@ -51,12 +50,10 @@ import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
   getLocalProviderRetryBaseUrls,
-  getGithubEndpointType,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
-  GITHUB_MODELS_AZURE_BASE_URL,
 } from './providerConfig.js'
 import {
   buildOpenAICompatibilityErrorMessage,
@@ -72,10 +69,6 @@ import {
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
 import { createStreamState, processStreamChunk, getStreamStats } from '../../utils/streamingOptimizer.js'
 import { updateGithubRateLimit } from '../../utils/githubRateLimit.js'
-import {
-  markGithubModelUnsupported,
-  isGithubModelUnsupported,
-} from '../../utils/model/githubModels.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -122,18 +115,6 @@ const SENSITIVE_URL_QUERY_PARAM_NAMES = [
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-}
-
-function isGithubModelNotSupportedError(errorBody: string): boolean {
-  const normalized = errorBody.toLowerCase()
-  const result = (
-    normalized.includes('model_not_supported') ||
-    normalized.includes('requested model is not supported')
-  )
-  if (result) {
-    console.log(`[openaiShim] Detected model_not_supported error in response body`)
-  }
-  return result
 }
 
 function isMistralMode(): boolean {
@@ -1363,20 +1344,7 @@ class OpenAIShimMessages {
     const promise = (async () => {
       const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
 
-      const githubEndpointType = getGithubEndpointType(request.baseUrl)
-      const isGithub = isGithubModelsMode() || githubEndpointType === 'copilot' || githubEndpointType === 'models'
-      console.log(`[openaiShim] create model=${params.model} resolved=${request.resolvedModel} isGithub=${isGithub}`)
-
-      if (isGithub && isGithubModelUnsupported(request.resolvedModel)) {
-        console.log(`[openaiShim] Blocking request for unsupported model: ${request.resolvedModel}`)
-        throw APIError.generate(
-          400,
-          undefined,
-          `GitHub model ${request.resolvedModel} is not supported by your current plan.`,
-          new Headers(),
-        )
-      }
-
+      const isGithub = isGithubModelsMode()
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
@@ -1455,7 +1423,6 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
-    const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
     const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
 
@@ -1581,12 +1548,10 @@ class OpenAIShimMessages {
       body.stream_options = { include_usage: true }
     }
 
-    const githubEndpointType = getGithubEndpointType(request.baseUrl)
-    const isGithub = isGithubModelsMode() || githubEndpointType === 'copilot' || githubEndpointType === 'models'
+    const isGithub = isGithubModelsMode()
     const isMistral = isMistralMode()
     const isLocal = isLocalProviderUrl(request.baseUrl)
-    const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
-    const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
+    const isGithubCopilot = isGithub
 
     const isMoonshot = isMoonshotCompatibleBaseUrl(request.baseUrl)
     const isDeepSeek = isDeepSeekBaseUrl(request.baseUrl)
@@ -1710,11 +1675,6 @@ class OpenAIShimMessages {
 
     if (isGithubCopilot) {
       Object.assign(headers, COPILOT_HEADERS)
-    } else if (isGithubModels) {
-      headers['Accept'] = 'application/vnd.github+json'
-      headers['X-GitHub-Api-Version'] = request.baseUrl === GITHUB_MODELS_AZURE_BASE_URL
-        ? '2026-03-10'
-        : '2022-11-28'
     }
 
     const buildChatCompletionsUrl = (baseUrl: string): string => {
@@ -1942,14 +1902,6 @@ class OpenAIShimMessages {
       const rateHint =
         isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
 
-      if (
-        isGithub &&
-        response.status === 400 &&
-        isGithubModelNotSupportedError(errorBody)
-      ) {
-        markGithubModelUnsupported(request.resolvedModel)
-      }
-
       // If GitHub Copilot returns error about /chat/completions,
       // try the /responses endpoint (needed for GPT-5+ models)
       if (isGithub && response.status === 400) {
@@ -2016,13 +1968,6 @@ class OpenAIShimMessages {
             return responsesResponse
           }
           const responsesErrorBody = await responsesResponse.text().catch(() => 'unknown error')
-          if (
-            isGithub &&
-            responsesResponse.status === 400 &&
-            isGithubModelNotSupportedError(responsesErrorBody)
-          ) {
-            markGithubModelUnsupported(request.resolvedModel)
-          }
           const responsesFailure = classifyOpenAIHttpFailure({
             status: responsesResponse.status,
             body: responsesErrorBody,
@@ -2261,9 +2206,6 @@ export function createOpenAIShimClient(options: {
     process.env.OPENAI_BASE_URL ??= GITHUB_COPILOT_BASE
     process.env.OPENAI_API_KEY ??=
       process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
-    if (process.env.GITHUB_MODEL && !process.env.OPENAI_MODEL) {
-      process.env.OPENAI_MODEL = process.env.GITHUB_MODEL
-    }
   }
 
   // Map Bankr env vars to OpenAI-compatible ones when present

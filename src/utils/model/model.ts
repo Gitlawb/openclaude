@@ -57,10 +57,6 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'codexspark'
   }
-  // For GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
-    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'gpt-4o'
-  }
   // NVIDIA NIM — OPENAI_MODEL carries the user's active NIM model; use a
   // small Meta Llama variant as the conservative fallback.
   if (getAPIProvider() === 'nvidia-nim') {
@@ -117,13 +113,11 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     const isOpenAIShimProvider =
       provider === 'openai' ||
       provider === 'codex' ||
-      provider === 'github' ||
       provider === 'nvidia-nim' ||
       provider === 'minimax'
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
-      (provider === 'github' ? process.env.GITHUB_MODEL : undefined) ||
       (isOpenAIShimProvider ? process.env.OPENAI_MODEL : undefined) ||
       (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
       setting ||
@@ -183,10 +177,6 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
-  // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
-    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'gpt-4o'
-  }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
     return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
@@ -225,10 +215,6 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
-  // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
-    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'gpt-4o'
-  }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
     return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
@@ -260,10 +246,6 @@ export function getDefaultHaikuModel(): ModelName {
   // Codex provider
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
-  }
-  // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
-    return process.env.GITHUB_MODEL || process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
@@ -326,9 +308,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     const settings = getSettings_DEPRECATED() || {}
     return (
       normalizeModelSetting(settings.model) ||
-      normalizeModelSetting(process.env.GITHUB_MODEL) ||
-      normalizeModelSetting(process.env.OPENAI_MODEL) ||
-      'gpt-4o'
+      'github:copilot'
     )
   }
   // Gemini provider: always use the configured Gemini model
