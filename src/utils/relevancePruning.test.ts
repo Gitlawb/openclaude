@@ -56,6 +56,29 @@ describe('relevancePruning', () => {
         expect(msg1Msgs.length).toBe(2)
       }
     })
+
+    it('preserves API-round groups (tool_use + tool_result) together', () => {
+      // Simulate tool_use + tool_result in same API round (same assistant message.id)
+      const messages = [
+        { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'Read' }], id: 'api-round-1', created_at: 1000 } },
+        { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'file contents' }], created_at: 1001 } },
+        { type: 'assistant', message: { role: 'assistant', content: 'Response 1', id: 'api-round-2', created_at: 2000 } },
+        { type: 'user', message: { role: 'user', content: 'User question', id: 'api-round-3', created_at: 3000 } },
+        { type: 'assistant', message: { role: 'assistant', content: 'Response 2', id: 'api-round-4', created_at: 4000 } },
+      ] as any[]
+
+      const result = pruneByRelevance(messages, { targetTokens: 200, preserveRecent: 1 })
+
+      const round1Msgs = result.filter(m => m.message?.id === 'api-round-1')
+      const toolResultForTu1 = result.filter(m => 
+        m.message?.content?.[0]?.type === 'tool_result' && m.message.content[0].tool_use_id === 'tu1'
+      )
+
+      // Both tool_use and its tool_result should be kept together or neither
+      if (round1Msgs.length > 0) {
+        expect(toolResultForTu1.length).toBe(1)
+      }
+    })
   })
 
   describe('hasToolCalls', () => {

@@ -116,57 +116,78 @@ export function calculateRelevance(
   return Math.min(1, score)
 }
 
+function groupMessagesByApiRound(messages: Message[]): Message[][] {
+  const groups: Message[][] = []
+  let current: Message[] = []
+  let lastAssistantId: string | undefined
+
+  for (const msg of messages) {
+    if (
+      msg.type === 'assistant' &&
+      msg.message.id !== lastAssistantId &&
+      current.length > 0
+    ) {
+      groups.push(current)
+      current = [msg]
+    } else {
+      current.push(msg)
+    }
+    if (msg.type === 'assistant') {
+      lastAssistantId = msg.message.id
+    }
+  }
+
+  if (current.length > 0) {
+    groups.push(current)
+  }
+  return groups
+}
+
 export function pruneByRelevance(
   messages: Message[],
   options: PruningOptions,
 ): Message[] {
   const targetTokens = options.targetTokens ?? 5000
-  const minRelevanceScore = options.minRelevanceScore ?? 0.3
   const preserveRecent = options.preserveRecent ?? 3
 
-  let totalTokens = 0
+  if (messages.length <= preserveRecent) {
+    return messages
+  }
+
   const recentMessages = messages.slice(-preserveRecent)
   const olderMessages = messages.slice(0, -preserveRecent)
 
-  // Group by message.id to preserve transcript pairs
-  const byId = new Map<string, Message[]>()
-  for (const msg of olderMessages) {
-    const id = msg.message?.id ?? `idx-${Math.random()}`
-    const existing = byId.get(id) ?? []
-    existing.push(msg)
-    byId.set(id, existing)
-  }
+  const olderGroups = groupMessagesByApiRound(olderMessages)
 
-  // Score each message ID group
-  const scored: Array<{ groupId: string; messages: Message[]; score: number }> = []
-  for (const [id, msgs] of byId) {
-    const avgScore = msgs.reduce((sum, m) => sum + calculateRelevance(m, options), 0) / msgs.length
-    scored.push({ groupId: id, messages: msgs, score: avgScore })
+  const scored: Array<{ group: Message[]; score: number }> = []
+  for (const group of olderGroups) {
+    const avgScore =
+      group.reduce((sum, m) => sum + calculateRelevance(m, options), 0) /
+      group.length
+    scored.push({ group, score: avgScore })
   }
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
-    const aTime = a.messages[0]?.message?.created_at ?? 0
-    const bTime = b.messages[0]?.message?.created_at ?? 0
+    const aTime = a.group[0]?.message?.created_at ?? 0
+    const bTime = b.group[0]?.message?.created_at ?? 0
     return bTime - aTime
   })
 
   const result: Message[] = [...recentMessages]
+  let totalTokens = 0
 
-  for (const { groupId, messages: groupMsgs } of scored) {
-    const content = groupMsgs.map(m => 
-      typeof m.message?.content === 'string' ? m.message.content : ''
-    ).join('')
+  for (const { group } of scored) {
+    const content = group
+      .map(m => (typeof m.message?.content === 'string' ? m.message.content : ''))
+      .join('')
     const tokens = roughTokenCountEstimation(content)
 
-    // Group must fit together
     if (totalTokens + tokens > targetTokens) {
       continue
     }
 
-    for (const msg of groupMsgs) {
-      result.push(msg)
-    }
+    result.push(...group)
     totalTokens += tokens
   }
 
