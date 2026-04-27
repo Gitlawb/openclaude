@@ -24,17 +24,22 @@ export interface CounterStats {
 }
 
 /**
- * Get a quick hash of message content for cache validation.
+ * Get a hash of full conversation history for cache validation.
+ * Hashes ALL messages with full content to prevent collisions.
  */
 function getMessageHash(messages: readonly Message[]): string {
   if (messages.length === 0) return 'empty'
-  const lastMsg = messages[messages.length - 1]
-  const content = typeof lastMsg.message?.content === 'string'
-    ? lastMsg.message.content
-    : Array.isArray(lastMsg.message?.content)
-      ? JSON.stringify(lastMsg.message.content.slice(0, 5))
-      : ''
-  return createHash('sha256').update(content).digest('hex').slice(0, 12)
+
+  const fullContent = messages.map(m => {
+    const c = typeof m.message?.content === 'string'
+      ? m.message.content
+      : Array.isArray(m.message?.content)
+        ? JSON.stringify(m.message.content)
+        : ''
+    return c
+  }).join('|')
+
+  return createHash('sha256').update(fullContent).digest('hex').slice(0, 16)
 }
 
 /**
@@ -80,16 +85,27 @@ export class IncrementalTokenCounter {
 
     // Cache miss - calculate
     this.stats.misses++
-    
-    if (messages.length > this.lastMessageCount && this.config.autoInvalidate) {
-      // Incremental: only count new messages
-      const newMessages = messages.slice(this.lastMessageCount)
-      const estimated = Math.round(
-        roughTokenCountEstimationForMessages(newMessages) * this.config.estimationMultiplier
-      )
-      this.lastTokenCount += estimated
+
+    const isIncrementalSafe =
+      messages.length > this.lastMessageCount &&
+      this.config.autoInvalidate &&
+      this.lastMessageCount > 0 &&
+      this.lastHash.length > 0
+
+    if (isIncrementalSafe) {
+      const prefixHash = getMessageHash(messages.slice(0, this.lastMessageCount))
+      const previousPrefixLength = this.lastHash.length
+
+      if (prefixHash.length === previousPrefixLength) {
+        const newMessages = messages.slice(this.lastMessageCount)
+        const estimated = Math.round(
+          roughTokenCountEstimationForMessages(newMessages) * this.config.estimationMultiplier
+        )
+        this.lastTokenCount += estimated
+      } else {
+        this.lastTokenCount = roughTokenCountEstimationForMessages(messages)
+      }
     } else {
-      // Full recalculation
       this.lastTokenCount = roughTokenCountEstimationForMessages(messages)
     }
 
