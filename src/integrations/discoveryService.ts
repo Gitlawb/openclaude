@@ -48,6 +48,13 @@ export type RouteReadinessResult =
   | AtomicChatReadiness
   | OpenAICompatibleReadiness
 
+function shouldSkipNonessentialDiscoveryTraffic(): boolean {
+  return (
+    isEssentialTrafficOnly() ||
+    Boolean(process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)
+  )
+}
+
 function getRouteCatalog(routeId: string): ModelCatalogConfig | null {
   return getRouteDescriptor(routeId)?.catalog ?? null
 }
@@ -277,7 +284,7 @@ export async function discoverModelsForRoute(
     }
   }
 
-  if (isEssentialTrafficOnly()) {
+  if (shouldSkipNonessentialDiscoveryTraffic()) {
     const staleEntry = await getCachedModels(cacheKey, ttlMs, {
       includeStale: true,
     })
