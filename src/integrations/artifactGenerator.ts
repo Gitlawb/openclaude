@@ -65,6 +65,10 @@ const ANTHROPIC_PROXY_DIR = 'anthropicProxies'
 const BRAND_DIR = 'brands'
 const MODEL_DIR = 'models'
 
+function normalizeLineEndings(content: string): string {
+  return content.replace(/\r\n/g, '\n')
+}
+
 function isDescriptorFile(fileName: string): boolean {
   return (
     fileName.endsWith('.ts') &&
@@ -441,7 +445,7 @@ export async function generatedIntegrationArtifactsAreCurrent(
 
   for (const artifact of artifacts) {
     const existing = await fs.readFile(artifact.path, 'utf8').catch(() => '')
-    if (existing !== artifact.content) {
+    if (normalizeLineEndings(existing) !== normalizeLineEndings(artifact.content)) {
       return false
     }
   }

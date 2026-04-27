@@ -34,6 +34,13 @@ export interface KnowledgeGraph {
 
 let projectGraph: KnowledgeGraph | null = null
 
+function attributesContainAll(
+  current: Record<string, string>,
+  next: Record<string, string>,
+): boolean {
+  return Object.entries(next).every(([key, value]) => current[key] === value)
+}
+
 export function getProjectGraphPath(cwd: string): string {
   const projectDir = join(getProjectsDir(), sanitizePath(cwd))
   return join(projectDir, 'knowledge_graph.json')
@@ -99,6 +106,10 @@ export function addGlobalEntity(
   )
 
   if (existingEntity) {
+    if (attributesContainAll(existingEntity.attributes, attributes)) {
+      return existingEntity
+    }
+
     existingEntity.attributes = { ...existingEntity.attributes, ...attributes }
     graph.lastUpdateTime = Date.now()
     saveProjectGraph(getFsImplementation().cwd())
