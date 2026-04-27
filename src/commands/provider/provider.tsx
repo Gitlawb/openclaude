@@ -30,6 +30,7 @@ import {
   applySavedProfileToCurrentSession as applySharedProfileToCurrentSession,
   buildCodexOAuthProfileEnv as buildSharedCodexOAuthProfileEnv,
   buildCodexProfileEnv,
+  buildDeepSeekProfileEnv,
   buildGeminiProfileEnv,
   buildMistralProfileEnv,
   buildOllamaProfileEnv,
@@ -39,6 +40,8 @@ import {
   DEFAULT_GEMINI_MODEL,
   DEFAULT_MISTRAL_BASE_URL,
   DEFAULT_MISTRAL_MODEL,
+  DEFAULT_DEEPSEEK_BASE_URL,
+  DEFAULT_DEEPSEEK_MODEL,
   deleteProfileFile,
   loadProfileFile,
   maskSecretForDisplay,
@@ -137,6 +140,8 @@ type Step =
   | { name: 'auto-goal' }
   | { name: 'auto-detect'; goal: RecommendationGoal }
   | { name: 'ollama-detect' }
+  | { name: 'deepseek-key' }
+  | { name: 'deepseek-model'; apiKey: string }
   | { name: 'openai-key'; defaultModel: string }
   | { name: 'openai-base'; apiKey: string; defaultModel: string }
   | {
@@ -315,6 +320,8 @@ export function buildCurrentProviderSummary(options?: {
       providerLabel = 'Codex'
     } else if (isLocalProviderUrl(request.baseUrl)) {
       providerLabel = getLocalOpenAICompatibleProviderLabel(request.baseUrl)
+    } else if (/api\.deepseek\.com/i.test(request.baseUrl)) {
+      providerLabel = 'DeepSeek V4'
     }
 
     return {
@@ -404,6 +411,25 @@ function buildSavedProfileSummary(
             ? 'configured'
             : undefined,
       }
+    case 'deepseek':
+      return {
+        providerLabel: 'DeepSeek V4',
+        modelLabel: getSafeDisplayValue(
+          env.OPENAI_MODEL ?? DEFAULT_DEEPSEEK_MODEL,
+          process.env,
+          env,
+        ),
+        endpointLabel: getSafeDisplayValue(
+          env.OPENAI_BASE_URL ?? DEFAULT_DEEPSEEK_BASE_URL,
+          process.env,
+          env,
+        ),
+        credentialLabel:
+          maskSecretForDisplay(env.OPENAI_API_KEY) !== undefined ||
+          maskSecretForDisplay(env.DEEPSEEK_API_KEY) !== undefined
+            ? 'configured'
+            : undefined,
+      }
     case 'ollama':
       return {
         providerLabel: 'Ollama',
@@ -482,8 +508,8 @@ export function buildProfileSaveMessage(
 function buildUsageText(): string {
   const summary = buildCurrentProviderSummary()
   const availableProviders = isBareMode()
-    ? 'Choose Auto, Ollama, OpenAI-compatible, Gemini, or Codex, then save a provider profile.'
-    : 'Choose Auto, Ollama, OpenAI-compatible, Gemini, Codex, or Codex OAuth, then save a provider profile.'
+    ? 'Choose Auto, Ollama, DeepSeek V4, OpenAI-compatible, Gemini, or Codex, then save a provider profile.'
+    : 'Choose Auto, Ollama, DeepSeek V4, OpenAI-compatible, Gemini, Codex, or Codex OAuth, then save a provider profile.'
   return [
     'Usage: /provider',
     '',
@@ -645,7 +671,12 @@ function ProviderChooser({
       label: 'OpenAI-compatible',
       value: 'openai',
       description:
-        'GPT-4o, DeepSeek, OpenRouter, Groq, LM Studio, and similar APIs',
+        'GPT-4o, OpenRouter, Groq, LM Studio, and similar APIs',
+    },
+    {
+      label: 'DeepSeek V4',
+      value: 'deepseek',
+      description: 'Use DeepSeek V4 Pro thinking mode with the official API',
     },
     {
       label: 'Gemini',
@@ -1252,6 +1283,8 @@ export function ProviderWizard({
                 name: 'openai-key',
                 defaultModel: defaults.openAIModel,
               })
+            } else if (value === 'deepseek') {
+              setStep({ name: 'deepseek-key' })
             } else if (value === 'gemini') {
               setStep({ name: 'gemini-auth-method' })
             } else if (value === 'mistral') {
@@ -1301,6 +1334,67 @@ export function ProviderWizard({
           onSave={(profile, env) => finishProfileSave(onDone, profile, env)}
           onBack={() => setStep({ name: 'choose' })}
           onCancel={() => onDone()}
+        />
+      )
+
+    case 'deepseek-key':
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title="DeepSeek V4 setup"
+          subtitle="Step 1 of 2"
+          description={
+            process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY
+              ? 'Enter a DeepSeek API key, or leave this blank to reuse the current DEEPSEEK_API_KEY/OPENAI_API_KEY from this session.'
+              : 'Enter your DeepSeek API key.'
+          }
+          initialValue=""
+          placeholder="sk-..."
+          mask="*"
+          allowEmpty={Boolean(process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY)}
+          validate={value => {
+            const candidate =
+              value.trim() ||
+              process.env.DEEPSEEK_API_KEY ||
+              process.env.OPENAI_API_KEY ||
+              ''
+            return sanitizeApiKey(candidate)
+              ? null
+              : 'Enter a real DeepSeek API key.'
+          }}
+          onSubmit={value => {
+            const apiKey =
+              value.trim() ||
+              process.env.DEEPSEEK_API_KEY ||
+              process.env.OPENAI_API_KEY ||
+              ''
+            setStep({ name: 'deepseek-model', apiKey })
+          }}
+          onCancel={() => setStep({ name: 'choose' })}
+        />
+      )
+
+    case 'deepseek-model':
+      return (
+        <TextEntryDialog
+          resetStateKey={step.name}
+          title="DeepSeek V4 setup"
+          subtitle="Step 2 of 2"
+          description={`Enter a model name. Leave blank for ${DEFAULT_DEEPSEEK_MODEL}.`}
+          initialValue={DEFAULT_DEEPSEEK_MODEL}
+          placeholder={DEFAULT_DEEPSEEK_MODEL}
+          allowEmpty
+          onSubmit={value => {
+            const env = buildDeepSeekProfileEnv({
+              apiKey: step.apiKey,
+              model: value.trim() || DEFAULT_DEEPSEEK_MODEL,
+              processEnv: {},
+            })
+            if (env) {
+              finishProfileSave(onDone, 'deepseek', env)
+            }
+          }}
+          onCancel={() => setStep({ name: 'deepseek-key' })}
         />
       )
 

@@ -10,6 +10,7 @@ import {
   buildStartupEnvFromProfile,
   buildAtomicChatProfileEnv,
   buildCodexProfileEnv,
+  buildDeepSeekProfileEnv,
   buildGeminiProfileEnv,
   buildLaunchEnv,
   buildOllamaProfileEnv,
@@ -916,6 +917,45 @@ test('openai profiles normalize multi-model profile values to the primary model'
     OPENAI_MODEL: 'deepseek-v4-flash',
     OPENAI_API_KEY: 'sk-live',
   })
+})
+
+test('deepseek profiles default to V4 Pro thinking mode without inheriting generic OpenAI shell routing', () => {
+  const env = buildDeepSeekProfileEnv({
+    apiKey: 'deepseek-test-key',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  assert.deepEqual(env, {
+    OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
+    OPENAI_MODEL: 'deepseek-v4-pro?reasoning=xhigh',
+    OPENAI_API_FORMAT: 'chat_completions',
+    OPENAI_API_KEY: 'deepseek-test-key',
+    DEEPSEEK_API_KEY: 'deepseek-test-key',
+  })
+})
+
+test('deepseek launch env reuses persisted V4 profile values', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'deepseek',
+    persisted: profile('deepseek', {
+      OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
+      OPENAI_MODEL: 'deepseek-v4-pro?reasoning=xhigh',
+      OPENAI_API_FORMAT: 'chat_completions',
+      OPENAI_API_KEY: 'deepseek-test-key',
+    }),
+    goal: 'balanced',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.deepseek.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'deepseek-v4-pro?reasoning=xhigh')
+  assert.equal(env.OPENAI_API_FORMAT, 'chat_completions')
+  assert.equal(env.OPENAI_API_KEY, 'deepseek-test-key')
+  assert.equal(env.DEEPSEEK_API_KEY, 'deepseek-test-key')
 })
 
 test('startup env ignores poisoned persisted openai model and base url', async () => {

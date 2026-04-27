@@ -3666,7 +3666,7 @@ test('Moonshot: echoes reasoning_content on assistant tool-call messages', async
 
 test('DeepSeek echoes reasoning_content on assistant tool-call messages', async () => {
   process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
-  process.env.OPENAI_API_KEY = 'sk-deepseek'
+  process.env.OPENAI_API_KEY = 'deepseek-test-key'
 
   let requestBody: Record<string, unknown> | undefined
   globalThis.fetch = (async (_input, init) => {
@@ -3720,6 +3720,143 @@ test('DeepSeek echoes reasoning_content on assistant tool-call messages', async 
   )
   expect(assistantWithToolCall).toBeDefined()
   expect(assistantWithToolCall?.reasoning_content).toBe('thought')
+})
+
+test('DeepSeek echoes reasoning_content when streaming split thinking and tool call blocks share a message id', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'deepseek-test-key'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-flash',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        message: {
+          id: 'msg_split_1',
+          role: 'assistant',
+          content: [{ type: 'thinking', thinking: 'split thought' }],
+        },
+      },
+      {
+        role: 'assistant',
+        message: {
+          id: 'msg_split_1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'running a command' }],
+        },
+      },
+      {
+        role: 'assistant',
+        message: {
+          id: 'msg_split_1',
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'call_1',
+              name: 'Bash',
+              input: { command: 'ls' },
+            },
+          ],
+        },
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.content).toBe('running a command')
+  expect(assistantWithToolCall?.reasoning_content).toBe('split thought')
+})
+
+test('DeepSeek synthesizes missing reasoning_content for legacy assistant tool-call history', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  process.env.OPENAI_API_KEY = 'deepseek-test-key'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek-v4-pro',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek-v4-pro',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'running a command' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'workspace' },
+        ],
+      },
+    ],
+    max_tokens: 32,
+    stream: false,
+    thinking: { type: 'enabled' },
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    m => m.role === 'assistant' && Array.isArray(m.tool_calls),
+  )
+  expect(assistantWithToolCall).toBeDefined()
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Reasoning content unavailable from prior client transcript.',
+  )
 })
 
 test('generic OpenAI-compatible providers do not echo reasoning_content on assistant tool-call messages', async () => {

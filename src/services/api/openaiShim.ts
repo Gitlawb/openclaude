@@ -259,6 +259,9 @@ interface OpenAIMessage {
   reasoning_content?: string
 }
 
+const MISSING_REASONING_CONTENT_FALLBACK =
+  'Reasoning content unavailable from prior client transcript.'
+
 interface OpenAITool {
   type: 'function'
   function: {
@@ -424,11 +427,17 @@ function convertMessages(
     content?: unknown
   }>,
   system: unknown,
-  options?: { preserveReasoningContent?: boolean },
+  options?: {
+    preserveReasoningContent?: boolean
+    synthesizeMissingReasoningContent?: boolean
+  },
 ): OpenAIMessage[] {
   const preserveReasoningContent = options?.preserveReasoningContent === true
+  const synthesizeMissingReasoningContent =
+    options?.synthesizeMissingReasoningContent === true
   const result: OpenAIMessage[] = []
   const knownToolCallIds = new Set<string>()
+  const pendingReasoningByAssistantMessageId = new Map<string, string>()
 
   // Pre-scan for all tool results in the history to identify valid tool calls
   const toolResultIds = new Set<string>()
@@ -505,6 +514,12 @@ function convertMessages(
         })
       }
     } else if (role === 'assistant') {
+      const assistantMessageId = (inner as { id?: unknown }).id
+      const assistantMessageKey =
+        typeof assistantMessageId === 'string' && assistantMessageId.length > 0
+          ? assistantMessageId
+          : undefined
+
       // Check for tool_use blocks
       if (Array.isArray(content)) {
         const toolUses = content.filter(
@@ -540,7 +555,22 @@ function convertMessages(
         if (preserveReasoningContent) {
           const thinkingText = (thinkingBlock as { thinking?: string } | undefined)?.thinking
           if (typeof thinkingText === 'string' && thinkingText.trim().length > 0) {
+            if (assistantMessageKey) {
+              pendingReasoningByAssistantMessageId.set(
+                assistantMessageKey,
+                thinkingText,
+              )
+            }
             assistantMsg.reasoning_content = thinkingText
+          } else if (toolUses.length > 0 && assistantMessageKey) {
+            const pendingThinking =
+              pendingReasoningByAssistantMessageId.get(assistantMessageKey)
+            if (
+              typeof pendingThinking === 'string' &&
+              pendingThinking.trim().length > 0
+            ) {
+              assistantMsg.reasoning_content = pendingThinking
+            }
           }
         }
 
@@ -614,6 +644,13 @@ function convertMessages(
 
           if (mappedToolCalls.length > 0) {
             assistantMsg.tool_calls = mappedToolCalls
+            if (
+              preserveReasoningContent &&
+              synthesizeMissingReasoningContent &&
+              !assistantMsg.reasoning_content
+            ) {
+              assistantMsg.reasoning_content = MISSING_REASONING_CONTENT_FALLBACK
+            }
           }
         }
 
@@ -701,6 +738,20 @@ function convertMessages(
           ...(lastAfterPossibleInjection.tool_calls ?? []),
           ...msg.tool_calls,
         ]
+      }
+      if (
+        msg.reasoning_content &&
+        !lastAfterPossibleInjection.reasoning_content
+      ) {
+        lastAfterPossibleInjection.reasoning_content = msg.reasoning_content
+      }
+      if (
+        synthesizeMissingReasoningContent &&
+        lastAfterPossibleInjection.tool_calls?.length &&
+        !lastAfterPossibleInjection.reasoning_content
+      ) {
+        lastAfterPossibleInjection.reasoning_content =
+          MISSING_REASONING_CONTENT_FALLBACK
       }
     } else {
       coalesced.push(msg)
@@ -1529,6 +1580,12 @@ class OpenAIShimMessages {
         isMoonshotCompatibleBaseUrl(request.baseUrl) ||
         isDeepSeekBaseUrl(request.baseUrl) ||
         isZaiBaseUrl(request.baseUrl),
+      // Older OpenClaude builds could persist DeepSeek assistant tool-call
+      // messages after stripping the reasoning_content source. DeepSeek's
+      // stateless validator rejects those histories in thinking mode. Prefer
+      // the real thinking text when present, but synthesize a tiny fallback so
+      // already-corrupted local transcripts can recover after upgrading.
+      synthesizeMissingReasoningContent: isDeepSeekBaseUrl(request.baseUrl),
     })
 
     const body: Record<string, unknown> = {

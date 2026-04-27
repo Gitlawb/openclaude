@@ -16,6 +16,8 @@ import {
   buildGeminiProfileEnv,
   buildMistralProfileEnv,
   buildOpenAIProfileEnv,
+  DEFAULT_DEEPSEEK_BASE_URL,
+  DEFAULT_DEEPSEEK_MODEL,
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
@@ -224,9 +226,9 @@ export function getProviderPresetDefaults(
     case 'deepseek':
       return {
         provider: 'openai',
-        name: 'DeepSeek',
-        baseUrl: 'https://api.deepseek.com/v1',
-        model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner',
+        name: 'DeepSeek V4',
+        baseUrl: DEFAULT_DEEPSEEK_BASE_URL,
+        model: `${DEFAULT_DEEPSEEK_MODEL}, deepseek-v4-flash, deepseek-chat, deepseek-reasoner`,
         apiKey: '',
         requiresApiKey: true,
       }

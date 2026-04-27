@@ -178,18 +178,70 @@ export type DeserializeResult = {
   turnInterruptionState: TurnInterruptionState
 }
 
+function isDeepSeekReasoningContinuityBaseUrl(
+  baseUrl: string | undefined,
+): boolean {
+  if (!baseUrl) return false
+  try {
+    return new URL(baseUrl).hostname.toLowerCase() === 'api.deepseek.com'
+  } catch {
+    return false
+  }
+}
+
+function getAssistantMessageIdsWithToolUse(
+  messages: NormalizedMessage[],
+): Set<string> {
+  const ids = new Set<string>()
+  for (const msg of messages) {
+    if (msg.type !== 'assistant' || !Array.isArray(msg.message?.content)) {
+      continue
+    }
+    if (
+      msg.message.id &&
+      msg.message.content.some((block: { type?: string }) => block.type === 'tool_use')
+    ) {
+      ids.add(msg.message.id)
+    }
+  }
+  return ids
+}
+
 /**
  * Remove thinking/redacted_thinking content blocks from assistant messages.
  * Messages that become empty after stripping are removed entirely.
+ *
+ * DeepSeek thinking mode is the exception: assistant messages that performed
+ * tool calls must replay their reasoning_content in later requests. We preserve
+ * the matching thinking block so the OpenAI shim can round-trip it.
  */
-function stripThinkingBlocks(messages: NormalizedMessage[]): NormalizedMessage[] {
+function stripThinkingBlocks(
+  messages: NormalizedMessage[],
+  options?: { preserveToolUseThinking?: boolean },
+): NormalizedMessage[] {
+  const toolUseMessageIds = options?.preserveToolUseThinking
+    ? getAssistantMessageIdsWithToolUse(messages)
+    : new Set<string>()
+
   return messages.reduce<NormalizedMessage[]>((acc, msg) => {
     if (msg.type !== 'assistant' || !Array.isArray(msg.message?.content)) {
       acc.push(msg)
       return acc
     }
     const filtered = msg.message.content.filter(
-      (block: { type?: string }) => block.type !== 'thinking' && block.type !== 'redacted_thinking',
+      (block: { type?: string }) => {
+        if (block.type === 'redacted_thinking') {
+          return false
+        }
+        if (block.type !== 'thinking') {
+          return true
+        }
+        return Boolean(
+          options?.preserveToolUseThinking &&
+            msg.message.id &&
+            toolUseMessageIds.has(msg.message.id),
+        )
+      },
     )
     if (filtered.length === 0) return acc
     acc.push({ ...msg, message: { ...msg.message, content: filtered } })
@@ -252,8 +304,11 @@ export function deserializeMessagesWithInterruptDetection(
     // 400 errors or context corruption on OpenAI-compatible providers (issue #248 finding 5).
     const provider = getAPIProvider()
     const isThirdPartyProvider = provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex' && provider !== 'foundry'
+    const preserveToolUseThinking =
+      isThirdPartyProvider &&
+      isDeepSeekReasoningContinuityBaseUrl(process.env.OPENAI_BASE_URL)
     const thinkingStripped = isThirdPartyProvider
-      ? stripThinkingBlocks(filteredThinking)
+      ? stripThinkingBlocks(filteredThinking, { preserveToolUseThinking })
       : filteredThinking
 
     // Filter out assistant messages with only whitespace text content.

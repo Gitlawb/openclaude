@@ -13,8 +13,10 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'OPENAI_BASE_URL',
+  'OPENAI_API_FORMAT',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'DEEPSEEK_API_KEY',
   'GEMINI_MODEL',
 ]
 
@@ -34,8 +36,10 @@ const RESET_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'OPENAI_BASE_URL',
+  'OPENAI_API_FORMAT',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
+  'DEEPSEEK_API_KEY',
   'GEMINI_MODEL',
 ] as const
 
@@ -104,6 +108,31 @@ describe('applyProviderFlag - openai', () => {
   test('sets OPENAI_MODEL when --model is provided', () => {
     applyProviderFlag('openai', ['--model', 'gpt-4o'])
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+  })
+})
+
+describe('applyProviderFlag - deepseek', () => {
+  test('sets DeepSeek V4 defaults when unset', () => {
+    const result = applyProviderFlag('deepseek', [])
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.deepseek.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-pro?reasoning=xhigh')
+    expect(process.env.OPENAI_API_FORMAT).toBe('chat_completions')
+  })
+
+  test('sets OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('deepseek', ['--model', 'deepseek-v4-flash'])
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-flash')
+  })
+
+  test('propagates DEEPSEEK_API_KEY to OPENAI_API_KEY when only DEEPSEEK_API_KEY is set', () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.DEEPSEEK_API_KEY = 'deepseek-test-key'
+
+    applyProviderFlag('deepseek', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('deepseek-test-key')
   })
 })
 

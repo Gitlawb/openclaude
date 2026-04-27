@@ -112,7 +112,7 @@ const PRESET_ORDER = [
   'Azure OpenAI',
   'Bankr',
   'Codex OAuth',
-  'DeepSeek',
+  'DeepSeek V4',
   'Google Gemini',
   'Groq',
   'LM Studio',

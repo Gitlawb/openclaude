@@ -40,6 +40,8 @@ export const DEFAULT_GEMINI_BASE_URL =
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
+export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
+export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro?reasoning=xhigh'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -56,6 +58,7 @@ const PROFILE_ENV_KEYS = [
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
+  'DEEPSEEK_API_KEY',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
   'CHATGPT_ACCOUNT_ID',
@@ -83,6 +86,7 @@ const PROFILE_ENV_KEYS = [
 
 const SECRET_ENV_KEYS = [
   'OPENAI_API_KEY',
+  'DEEPSEEK_API_KEY',
   'OPENAI_AUTH_HEADER_VALUE',
   'CODEX_API_KEY',
   'GEMINI_API_KEY',
@@ -94,7 +98,7 @@ const SECRET_ENV_KEYS = [
   'XAI_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'xai'
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'deepseek' | 'xai'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
@@ -104,6 +108,7 @@ export type ProfileEnv = {
   OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
   OPENAI_AUTH_HEADER_VALUE?: string
   OPENAI_API_KEY?: string
+  DEEPSEEK_API_KEY?: string
   CODEX_API_KEY?: string
   CODEX_CREDENTIAL_SOURCE?: 'oauth' | 'existing'
   CHATGPT_ACCOUNT_ID?: string
@@ -136,6 +141,7 @@ export type ProfileFile = {
 type SecretValueSource = Partial<
   Record<
     | 'OPENAI_API_KEY'
+    | 'DEEPSEEK_API_KEY'
     | 'OPENAI_AUTH_HEADER_VALUE'
     | 'CODEX_API_KEY'
     | 'GEMINI_API_KEY'
@@ -183,6 +189,7 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'nvidia-nim' ||
     value === 'minimax' ||
     value === 'mistral' ||
+    value === 'deepseek' ||
     value === 'xai'
   )
 }
@@ -387,6 +394,40 @@ export function buildOpenAIProfileEnv(options: {
     ...(options.authScheme ? { OPENAI_AUTH_SCHEME: options.authScheme } : {}),
     ...(authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: authHeaderValue } : {}),
     ...(key ? { OPENAI_API_KEY: key } : {}),
+  }
+}
+
+export function buildDeepSeekProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(
+    options.apiKey ?? processEnv.DEEPSEEK_API_KEY ?? processEnv.OPENAI_API_KEY,
+  )
+  if (!key) {
+    return null
+  }
+
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    DEEPSEEK_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      DEFAULT_DEEPSEEK_BASE_URL,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      DEFAULT_DEEPSEEK_MODEL,
+    OPENAI_API_FORMAT: 'chat_completions',
+    OPENAI_API_KEY: key,
+    DEEPSEEK_API_KEY: key,
   }
 }
 
@@ -940,6 +981,34 @@ export async function buildLaunchEnv(options: {
       delete env.CHATGPT_ACCOUNT_ID
     }
     delete env.CODEX_ACCOUNT_ID
+
+    return env
+  }
+
+  if (options.profile === 'deepseek') {
+    env.OPENAI_BASE_URL = persistedOpenAIBaseUrl || DEFAULT_DEEPSEEK_BASE_URL
+    env.OPENAI_MODEL = persistedOpenAIModel || DEFAULT_DEEPSEEK_MODEL
+    env.OPENAI_API_FORMAT = 'chat_completions'
+
+    const deepSeekKey =
+      sanitizeApiKey(processEnv.DEEPSEEK_API_KEY) ||
+      sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
+      sanitizeApiKey(persistedEnv.DEEPSEEK_API_KEY) ||
+      sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
+    if (deepSeekKey) {
+      env.OPENAI_API_KEY = deepSeekKey
+      env.DEEPSEEK_API_KEY = deepSeekKey
+    } else {
+      delete env.OPENAI_API_KEY
+      delete env.DEEPSEEK_API_KEY
+    }
+
+    delete env.CODEX_API_KEY
+    delete env.CHATGPT_ACCOUNT_ID
+    delete env.CODEX_ACCOUNT_ID
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
 
     return env
   }
