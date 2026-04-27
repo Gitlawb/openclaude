@@ -124,6 +124,7 @@ const PRESET_ORDER = [
   'Ollama',
   'OpenAI',
   'OpenRouter',
+  'Qiniu',
   'Together AI',
   'xAI',
   'Z.AI - GLM Coding Plan',

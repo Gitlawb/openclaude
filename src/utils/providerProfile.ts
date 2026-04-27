@@ -79,6 +79,7 @@ const PROFILE_ENV_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'QINIU_API_KEY',
 ] as const
 
 const SECRET_ENV_KEYS = [
@@ -92,9 +93,10 @@ const SECRET_ENV_KEYS = [
   'MISTRAL_API_KEY',
   'BNKR_API_KEY',
   'XAI_API_KEY',
+  'QINIU_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'xai'
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'xai' | 'qiniu'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
@@ -125,6 +127,7 @@ export type ProfileEnv = {
   BNKR_API_KEY?: string
   BANKR_MODEL?: string
   XAI_API_KEY?: string
+  QINIU_API_KEY?: string
 }
 
 export type ProfileFile = {
@@ -143,7 +146,8 @@ type SecretValueSource = Partial<
     | 'NVIDIA_API_KEY'
     | 'MINIMAX_API_KEY'
     | 'MISTRAL_API_KEY'
-    | 'BNKR_API_KEY',
+    | 'BNKR_API_KEY'
+    | 'QINIU_API_KEY',
     string | undefined
   >
 >
@@ -183,7 +187,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'nvidia-nim' ||
     value === 'minimax' ||
     value === 'mistral' ||
-    value === 'xai'
+    value === 'xai' ||
+    value === 'qiniu'
   )
 }
 

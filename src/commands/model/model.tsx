@@ -15,6 +15,7 @@ import { MODEL_ALIASES } from '../../utils/model/aliases.js';
 import { checkOpus1mAccess, checkSonnet1mAccess } from '../../utils/model/check1mAccess.js';
 import type { ModelOption } from '../../utils/model/modelOptions.js';
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js';
+import { discoverQiniuModelOptions, isQiniuProvider } from '../../utils/model/qiniuModels.js';
 import { getAPIProvider } from '../../utils/model/providers.js';
 import { getActiveOpenAIModelOptionsCache, setActiveOpenAIModelOptionsCache } from '../../utils/providerProfiles.js';
 import { getDefaultMainLoopModelSetting, isOpus1mMergeEnabled, renderDefaultModelSetting } from '../../utils/model/model.js';
@@ -288,7 +289,9 @@ async function refreshOpenAIModelOptionsCache(): Promise<void> {
     return;
   }
   try {
-    const discoveredOptions = await discoverOpenAICompatibleModelOptions();
+    const discoveredOptions = isQiniuProvider()
+      ? await discoverQiniuModelOptions()
+      : await discoverOpenAICompatibleModelOptions();
     if (discoveredOptions.length === 0) {
       return;
     }
@@ -320,6 +323,9 @@ export const call: LocalJSXCommandCall = async (onDone, _context, args) => {
       args: args as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
     return <SetModelAndClose args={args} onDone={onDone} />;
+  }
+  if (isQiniuProvider()) {
+    await discoverQiniuModelOptions();
   }
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
     void refreshOpenAIModelOptionsCache();

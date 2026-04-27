@@ -1423,6 +1423,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'OpenRouter OpenAI-compatible endpoint',
       },
       {
+        value: 'qiniu',
+        label: 'Qiniu',
+        description: 'Qiniu OpenAI-compatible endpoint',
+      },
+      {
         value: 'together',
         label: 'Together AI',
         description: 'Together chat/completions endpoint',

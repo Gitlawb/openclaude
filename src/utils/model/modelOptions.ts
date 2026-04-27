@@ -41,6 +41,7 @@ import {
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
 import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import { getCachedQiniuModelOptions, isQiniuProvider } from './qiniuModels.js'
 import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
@@ -422,6 +423,16 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const minimaxModels = getCachedMiniMaxModelOptions()
     if (minimaxModels.length > 0) {
       return [defaultOption, ...minimaxModels]
+    }
+    return [defaultOption]
+  }
+
+  // When using qiniu, show models from the qiniu catalog
+  if (isQiniuProvider()) {
+    const defaultOption = getDefaultOptionForUser(fastMode)
+    const qiniuModels = getCachedQiniuModelOptions()
+    if (qiniuModels.length > 0) {
+      return [defaultOption, ...qiniuModels]
     }
     return [defaultOption]
   }

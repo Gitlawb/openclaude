@@ -42,6 +42,7 @@ export type ProviderPreset =
   | 'xai'
   | 'zai'
   | 'bankr'
+  | 'qiniu'
   | 'atomic-chat'
 
 export type ProviderProfileInput = {
@@ -368,6 +369,15 @@ export function getProviderPresetDefaults(
         apiKey: process.env.BNKR_API_KEY ?? '',
         requiresApiKey: true,
       }
+    case 'qiniu':
+      return {
+        provider: 'openai',
+        name: 'Qiniu',
+        baseUrl: 'https://api.qnaigc.com/v1',
+        model: 'deepseek-v3',
+        apiKey: process.env.QINIU_API_KEY ?? '',
+        requiresApiKey: true,
+      }
     case 'zai':
       return {
         provider: 'openai',
@@ -573,6 +583,10 @@ function isProcessEnvAlignedWithProfile(
     (profile.baseUrl?.toLowerCase().includes('x.ai')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('qnaigc.com')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.QINIU_API_KEY, profile.apiKey)
       : true)
   )
 }
@@ -634,6 +648,7 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.BNKR_API_KEY
   delete processEnv.BANKR_MODEL
   delete processEnv.XAI_API_KEY
+  delete processEnv.QINIU_API_KEY
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -743,6 +758,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     }
     if (baseUrl.includes('x.ai')) {
       process.env.XAI_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('qnaigc.com')) {
+      process.env.QINIU_API_KEY = profile.apiKey
     }
   } else {
     delete process.env.OPENAI_API_KEY
@@ -1019,6 +1037,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('x.ai')) {
       env.XAI_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('qnaigc.com')) {
+      env.QINIU_API_KEY = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY

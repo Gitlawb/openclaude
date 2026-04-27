@@ -13,6 +13,7 @@ import { getModelStrings } from './modelStrings.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
 import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import { getCachedQiniuModelOptions, isQiniuProvider } from './qiniuModels.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -80,6 +81,23 @@ export async function validateModel(
       const shown = names.slice(0, MAX_SHOWN).join(', ')
       const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
       return { valid: false, error: `Model '${normalizedModel}' not found in MiniMax catalog. Available: ${shown}${suffix}` }
+    }
+  }
+
+  // For qiniu provider, validate against cached model list
+  if (isQiniuProvider()) {
+    const qiniuModels = getCachedQiniuModelOptions()
+    const found = qiniuModels.some(m => m.value === normalizedModel)
+    if (found) {
+      validModelCache.set(normalizedModel, true)
+      return { valid: true }
+    }
+    if (qiniuModels.length > 0) {
+      const MAX_SHOWN = 5
+      const names = qiniuModels.map(m => m.value)
+      const shown = names.slice(0, MAX_SHOWN).join(', ')
+      const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
+      return { valid: false, error: `Model '${normalizedModel}' not found in qiniu catalog. Available: ${shown}${suffix}` }
     }
   }
 

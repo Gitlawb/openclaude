@@ -84,6 +84,7 @@ type SecretValueSource = Partial<{
   GOOGLE_API_KEY: string
   GEMINI_ACCESS_TOKEN: string
   MISTRAL_API_KEY: string
+  QINIU_API_KEY: string
 }>
 
 const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
@@ -1724,10 +1725,15 @@ class OpenAIShimMessages {
 
     const isGemini = isGeminiMode()
     const isMiniMax = !!process.env.MINIMAX_API_KEY
+    const isQiniu =
+      !!process.env.QINIU_API_KEY ||
+      request.baseUrl.toLowerCase().includes('qnaigc.com')
     const apiKey =
       this.providerOverride?.apiKey ??
       process.env.OPENAI_API_KEY ??
-      (isMiniMax ? process.env.MINIMAX_API_KEY : '')
+      (isMiniMax
+        ? process.env.MINIMAX_API_KEY
+        : (isQiniu ? process.env.QINIU_API_KEY : ''))
     const configuredAuthHeaderValue = process.env.OPENAI_AUTH_HEADER_VALUE?.trim()
     const customAuthHeader = process.env.OPENAI_AUTH_HEADER?.trim()
     const hasCustomAuthHeader = Boolean(
@@ -1947,6 +1953,7 @@ class OpenAIShimMessages {
     let response: Response | undefined
     const provider = request.baseUrl.includes('nvidia') ? 'nvidia-nim'
       : request.baseUrl.includes('minimax') ? 'minimax'
+      : request.baseUrl.includes('qnaigc.com') ? 'qiniu'
       : request.baseUrl.includes('localhost:11434') || request.baseUrl.includes('localhost:11435') ? 'ollama'
       : request.baseUrl.includes('anthropic') ? 'anthropic'
       : 'openai'
@@ -2298,6 +2305,9 @@ export function createOpenAIShimClient(options: {
   }
   if (process.env.BANKR_MODEL && !process.env.OPENAI_MODEL) {
     process.env.OPENAI_MODEL = process.env.BANKR_MODEL
+  }
+  if (process.env.QINIU_API_KEY && !process.env.OPENAI_API_KEY) {
+    process.env.OPENAI_API_KEY = process.env.QINIU_API_KEY
   }
 
   const beta = new OpenAIShimBeta({

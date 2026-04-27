@@ -15,6 +15,7 @@
 export const VALID_PROVIDERS = [
   'anthropic',
   'bankr',
+  'qiniu',
   'zai',
   'xai',
   'openai',
@@ -159,6 +160,16 @@ export function applyProviderFlag(
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
+      }
+      break
+
+    case 'qiniu':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.qnaigc.com/v1'
+      process.env.OPENAI_MODEL ??= 'deepseek-v3'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.QINIU_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.QINIU_API_KEY
       }
       break
 

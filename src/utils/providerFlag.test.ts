@@ -16,6 +16,7 @@ const ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
+  'QINIU_API_KEY',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -37,6 +38,7 @@ const RESET_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
+  'QINIU_API_KEY',
 ] as const
 
 beforeEach(() => {
@@ -211,6 +213,28 @@ describe('applyProviderFlag - xai', () => {
     applyProviderFlag('xai', [])
 
     expect(process.env.OPENAI_API_KEY).toBe('existing-openai-key')
+  })
+})
+
+describe('applyProviderFlag - qiniu', () => {
+  test('sets CLAUDE_CODE_USE_OPENAI=1 with qiniu defaults when unset', () => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_KEY
+
+    const result = applyProviderFlag('qiniu', [])
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.qnaigc.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v3')
+  })
+
+  test('propagates QINIU_API_KEY to OPENAI_API_KEY when only QINIU_API_KEY is set', () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.QINIU_API_KEY = 'qiniu-secret-key'
+
+    applyProviderFlag('qiniu', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('qiniu-secret-key')
   })
 })
 

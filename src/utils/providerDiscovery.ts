@@ -206,6 +206,10 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (host.includes('bankr') || haystack.includes('bankr')) {
       return 'Bankr'
     }
+    // qiniu OpenAI-compatible gateway
+    if (host.includes('qnaigc.com') || haystack.includes('qnaigc.com')) {
+      return 'Qiniu'
+    }
     // xAI Grok endpoint
     if (host.includes('x.ai') || haystack.includes('x.ai')) {
       return 'xAI'
