@@ -294,6 +294,7 @@ describe('discoverModelsForRoute', () => {
     }) as unknown as typeof globalThis.fetch)
 
     const result = await discoverModelsForRoute('openrouter', {
+      apiKey: 'privacy-test-key',
       forceRefresh: true,
     })
 
