@@ -150,33 +150,23 @@ export async function fetchLatestEvents(
 ): Promise<HistoryPage | null> {
   const sessionId = extractSessionId(ctx.baseUrl)
 
-  // Check cache first - return cached immediately for offline/restart behavior
-  const cached = await loadCachedSession(sessionId)
-  if (cached && cached.length > 0) {
-    // Return cached immediately (offline support)
-    const result: HistoryPage = {
-      events: cached,
-      firstId: cached[0]?.message?.id ?? null,
-      hasMore: true,
-    }
-    
-    // Then fetch fresh in background to update cache
-    fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
-      .then(async page => {
-        if (page && page.events.length > 0) {
-          await cacheSession(sessionId, page.events)
-        }
-      })
-      .catch(() => {}) // Ignore background errors
-    
-    return result
-  }
-
+  // Try to fetch fresh data first - always return current data when API is reachable
   const page = await fetchPage(ctx, { limit, anchor_to_latest: true }, 'fetchLatestEvents')
 
   if (page && page.events.length > 0) {
     // Cache and persist the fetched events
     await cacheSession(sessionId, page.events)
+    return page
+  }
+
+  // If API fetch failed or returned empty, fall back to cached data if available
+  const cached = await loadCachedSession(sessionId)
+  if (cached && cached.length > 0) {
+    return {
+      events: cached,
+      firstId: cached[0]?.id ?? null,
+      hasMore: true,
+    }
   }
 
   return page
