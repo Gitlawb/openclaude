@@ -13,6 +13,7 @@ import type { CacheSafeParams } from '../../utils/forkedAgent.js'
 import { logError } from '../../utils/log.js'
 import { tokenCountWithEstimation } from '../../utils/tokens.js'
 import { createSlidingWindow } from '../../utils/slidingContextWindow.js'
+import { selectWeightedMessages } from '../../utils/importanceWeightedContext.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { getMaxOutputTokensForModel } from '../api/claude.js'
 import { notifyCompaction } from '../api/promptCacheBreakDetection.js'
@@ -307,6 +308,19 @@ export async function autoCompactIfNeeded(
     return {
       wasCompacted: true,
       compactionResult: sessionMemoryResult,
+    }
+  }
+
+  // Lightweight pruning using importance-weighted selection
+  const autoCompactThreshold = getAutoCompactThreshold(model)
+  const messagesTokenCount = tokenCountWithEstimation(messages)
+  if (messagesTokenCount > autoCompactThreshold * 0.8) {
+    const prunedMessages = selectWeightedMessages(messages, {
+      maxTokens: Math.floor(autoCompactThreshold * 0.85),
+      preserveRecent: 5,
+    })
+    if (prunedMessages.length > 0 && prunedMessages.length < messages.length) {
+      messages = prunedMessages
     }
   }
 
