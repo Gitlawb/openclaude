@@ -285,10 +285,10 @@ describe('discoverModelsForRoute', () => {
   })
 
   test('skips descriptor network discovery when nonessential traffic is disabled', async () => {
-    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
-
     process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
     process.env.OPENROUTER_API_KEY = 'or-key'
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
     setMockFetch(mock(() => {
       throw new Error('unexpected model discovery request')
     }) as unknown as typeof globalThis.fetch)
