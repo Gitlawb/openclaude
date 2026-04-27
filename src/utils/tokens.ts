@@ -23,6 +23,33 @@ function cachedTokenCount(content: string): number {
   return getCrossSessionTokenCache().getTokenCount(content)
 }
 
+function getMessageContentString(message: Message): string {
+  const content = message.message?.content
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content.map(c => {
+      if (typeof c === 'string') return c
+      if (typeof c === 'object' && c !== null) {
+        if ('text' in c) return (c as any).text ?? ''
+        if ('type' in c) return JSON.stringify(c)
+      }
+      return ''
+    }).join('\n')
+  }
+  return ''
+}
+
+function cachedRoughTokenCountForMessages(messages: readonly Message[]): number {
+  let total = 0
+  for (const msg of messages) {
+    const content = getMessageContentString(msg)
+    if (content) {
+      total += cachedTokenCount(content)
+    }
+  }
+  return total
+}
+
 export function getTokenUsage(message: Message): Usage | undefined {
   if (
     message?.type === 'assistant' &&
@@ -271,10 +298,10 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
       }
       return (
         getTokenCountFromUsage(usage) +
-        roughTokenCountEstimationForMessages(messages.slice(i + 1))
+        cachedRoughTokenCountForMessages(messages.slice(i + 1))
       )
     }
     i--
   }
-  return roughTokenCountEstimationForMessages(messages)
+  return cachedRoughTokenCountForMessages(messages)
 }

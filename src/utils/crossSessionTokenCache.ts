@@ -1,8 +1,9 @@
 /**
- * Cross-Session Token Cache - Reusable token context across sessions
- * 
- * Stores tokenized content that can be shared across sessions
- * to avoid re-processing common content.
+ * In-Memory Token Cache - Caches token counts within a process
+ *
+ * Stores tokenized content in module-level memory to avoid
+ * re-estimating identical content within the same process.
+ * Does not persist to disk - not cross-session.
  */
 
 import { createHash } from 'crypto'
@@ -72,20 +73,41 @@ export class CrossSessionTokenCache {
     return this.cache.has(this.hashContent(content))
   }
 
-  /**
-   * Estimate with bounds (cross-session aware)
-   */
   estimateWithBounds(content: string): {
     estimate: number
-    min: number
-    max: number
+    lowerBound: number
+    upperBound: number
+    confidence: 'high' | 'medium' | 'low'
     cached: boolean
   } {
     const entry = this.getOrCreate(content)
+    const baseEstimate = entry.tokenCount
+
+    const confidence = entry.useCount > 2 ? 'high' : entry.useCount > 1 ? 'medium' : 'low'
+
+    let lowerBound: number
+    let upperBound: number
+    switch (confidence) {
+      case 'high':
+        lowerBound = Math.round(baseEstimate * 0.95)
+        upperBound = Math.round(baseEstimate * 1.05)
+        break
+      case 'medium':
+        lowerBound = Math.round(baseEstimate * 0.9)
+        upperBound = Math.round(baseEstimate * 1.1)
+        break
+      case 'low':
+      default:
+        lowerBound = Math.round(baseEstimate * 0.8)
+        upperBound = Math.round(baseEstimate * 1.2)
+        break
+    }
+
     return {
-      estimate: entry.tokenCount,
-      min: Math.round(entry.tokenCount * 0.8),
-      max: Math.round(entry.tokenCount * 1.2),
+      estimate: baseEstimate,
+      lowerBound,
+      upperBound,
+      confidence,
       cached: entry.useCount > 1,
     }
   }
@@ -152,6 +174,6 @@ export class CrossSessionTokenCache {
   }
 
   private hashContent(content: string): string {
-    return createHash('sha256').update(content.slice(0, 1024)).digest('hex').slice(0, 16)
+    return createHash('sha256').update(content).digest('hex').slice(0, 16)
   }
 }
