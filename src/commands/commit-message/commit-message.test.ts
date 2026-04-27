@@ -28,11 +28,13 @@ describe('commit-message command helpers', () => {
     ).toBe('Co-Authored-By: OpenClaude gpt <noreply@openclaude.dev>')
   })
 
-  it('makes set-attribution scope explicit in usage text', () => {
+  it('makes set scope explicit with example text', () => {
     expect(USAGE).toContain(
       'Controls only the attribution text appended after /commit messages.',
     )
-    expect(USAGE).toContain('/commit-message set-attribution')
-    expect(USAGE).not.toContain('/commit-message set <')
+    expect(USAGE).toContain(
+      '/commit-message set "Generated with OpenClaude using GPT-5.5"',
+    )
+    expect(USAGE).not.toContain('/commit-message set-attribution')
   })
 })

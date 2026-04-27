@@ -79,6 +79,12 @@ export function getDefaultCommitCoAuthorName({
   return sanitizedModel ? `OpenClaude (${sanitizedModel})` : 'OpenClaude'
 }
 
+export function getDefaultCommitCoAuthorEmail(apiProvider: string): string {
+  return apiProvider === 'firstParty'
+    ? 'noreply@anthropic.com'
+    : 'openclaude@gitlawb.com'
+}
+
 /**
  * Returns attribution text for commits and PRs based on user settings.
  * Handles:
@@ -116,13 +122,12 @@ export function getAttributionTexts(): AttributionTexts {
   })
   const defaultAttribution =
     '🤖 Generated with [OpenClaude](https://github.com/Gitlawb/openclaude)'
-  const coAuthorDomain =
-    apiProvider === 'firstParty' ? 'anthropic.com' : 'openclaude.dev'
+  const coAuthorEmail = getDefaultCommitCoAuthorEmail(apiProvider)
   const defaultCommit = isEnvTruthy(
     process.env.OPENCLAUDE_DISABLE_CO_AUTHORED_BY,
   )
     ? ''
-    : `Co-Authored-By: ${modelName} <noreply@${coAuthorDomain}>`
+    : `Co-Authored-By: ${modelName} <${coAuthorEmail}>`
 
   const settings = getInitialSettings()
 

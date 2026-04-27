@@ -20,7 +20,7 @@ export const USAGE = [
   '  /commit-message status',
   '  /commit-message off',
   '  /commit-message default',
-  '  /commit-message set-attribution <custom text appended after the commit message>',
+  '  /commit-message set "Generated with OpenClaude using GPT-5.5"',
   '  /commit-message co-author "Name" name@example.com',
 ].join('\n')
 

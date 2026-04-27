@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { getDefaultCommitCoAuthorName } from './attribution.js'
+import {
+  getDefaultCommitCoAuthorEmail,
+  getDefaultCommitCoAuthorName,
+} from './attribution.js'
 
 describe('getDefaultCommitCoAuthorName', () => {
   it('does not label unknown non-Claude provider models as Opus', () => {
@@ -20,5 +23,11 @@ describe('getDefaultCommitCoAuthorName', () => {
         isInternalRepo: false,
       }),
     ).toBe('Claude Opus 4.6')
+  })
+
+  it('uses the OpenClaude email for non-first-party commit attribution', () => {
+    expect(getDefaultCommitCoAuthorEmail('openai')).toBe(
+      'openclaude@gitlawb.com',
+    )
   })
 })
