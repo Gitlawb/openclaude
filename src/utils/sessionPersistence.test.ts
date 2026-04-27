@@ -11,13 +11,11 @@ import { unlink } from 'node:fs/promises'
 import { mkdirSync, rmSync } from 'fs'
 
 describe('sessionPersistence', () => {
-  // Use temp test directory to avoid touching real state
   const testSessionDir = join(process.env.TEMP_DIR ?? '/tmp', 'openclaude-test-sessions')
-  
+
   beforeEach(async () => {
-    // Ensure test directory exists
+    process.env.OPENCLAUDE_TEST_SESSIONS_DIR = testSessionDir
     mkdirSync(testSessionDir, { recursive: true })
-    // Clean up any existing test sessions
     try {
       const sessions = await listSessions()
       for (const s of sessions) {
@@ -26,6 +24,10 @@ describe('sessionPersistence', () => {
         }
       }
     } catch {}
+  })
+
+  afterEach(() => {
+    delete process.env.OPENCLAUDE_TEST_SESSIONS_DIR
   })
 
   describe('createSession', () => {

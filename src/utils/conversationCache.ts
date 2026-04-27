@@ -140,6 +140,8 @@ export class ConversationCache {
 export interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string
+  /** True if original message content was a structured array, not a string */
+  contentIsArray?: boolean
   tool_calls?: unknown[]
   tool_use_id?: string
   timestamp?: number
@@ -154,6 +156,12 @@ export interface Message {
 }
 
 export type CacheMessage = Message
+
+export interface SessionCacheMetadata {
+  hasMore: boolean
+  lastId: string | null
+  cachedAt: number
+}
 
 export function createConversationCache(
   config?: ConversationCacheConfig,
