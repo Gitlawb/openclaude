@@ -124,4 +124,58 @@ describe('hybridContextStrategy', () => {
       expect(stats.totalTokens).toBeGreaterThan(0)
     })
   })
+
+  describe('tool_use/tool_result pairing', () => {
+    it('preserves tool_use and tool_result together', () => {
+      const toolUseId = 'tool-use-123'
+      const messages = [
+        {
+          type: 'assistant',
+          uuid: 'uuid-1',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: toolUseId, name: 'Read' }],
+            id: 'msg-1',
+            created_at: 1000,
+          },
+        },
+        {
+          type: 'user',
+          uuid: 'uuid-2',
+          message: {
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'file content' }],
+            id: 'msg-2',
+            created_at: 2000,
+          },
+        },
+        {
+          type: 'assistant',
+          uuid: 'uuid-3',
+          message: {
+            role: 'assistant',
+            content: 'Response after tool',
+            id: 'msg-3',
+            created_at: 3000,
+          },
+        },
+      ] as any[]
+
+      const result = applyHybridStrategy(messages, {
+        cacheWeight: 0.5,
+        freshWeight: 0.5,
+        maxTotalTokens: 10000,
+      })
+
+      const hasToolUse = result.selectedMessages.some(
+        m => Array.isArray(m.message?.content) && m.message.content.some((b: any) => b.type === 'tool_use')
+      )
+      const hasToolResult = result.selectedMessages.some(
+        m => Array.isArray(m.message?.content) && m.message.content.some((b: any) => b.type === 'tool_result')
+      )
+
+      expect(hasToolUse).toBe(true)
+      expect(hasToolResult).toBe(true)
+    })
+  })
 })

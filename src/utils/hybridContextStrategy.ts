@@ -40,41 +40,63 @@ const DEFAULT_CONFIG: Required<HybridConfig> = {
 // Keep enough for: tool_use -> tool_result -> assistant -> user -> next
 const MIN_TAILMessages = 5
 
-// Preserve message chains (tool_use + tool_result pairs)
 function getMessageChain(
   messages: Message[],
 ): { chains: Message[][]; orphans: Message[] } {
-  const byId = new Map<string, Message[]>()
-  const idsWithResult = new Set<string>()
+  const toolUseIds = new Set<string>()
+  const toolUseMessages = new Map<string, Message[]>()
+  const allMessagesByUuid = new Map<string, Message[]>()
 
-  // Find tool_results and their parent IDs
   for (const msg of messages) {
+    const uuid = msg.uuid ?? ''
+    if (uuid) {
+      const existing = allMessagesByUuid.get(uuid) ?? []
+      existing.push(msg)
+      allMessagesByUuid.set(uuid, existing)
+    }
+
     const content = msg.message?.content
     if (Array.isArray(content)) {
       for (const block of content) {
-        if (block?.type === 'tool_result' && block?.tool_use_id) {
-          idsWithResult.add(block.tool_use_id)
+        if (block?.type === 'tool_use' && block?.id) {
+          toolUseIds.add(block.id)
+          const existing = toolUseMessages.get(block.id) ?? []
+          existing.push(msg)
+          toolUseMessages.set(block.id, existing)
         }
       }
     }
   }
 
-  // Group by ID
-  for (const msg of messages) {
-    const id = msg.message?.id ?? ''
-    if (!id) continue
-    const existing = byId.get(id) ?? []
-    existing.push(msg)
-    byId.set(id, existing)
-  }
-
   const chains: Message[][] = []
   const orphans: Message[] = []
 
-  for (const [id, msgs] of byId) {
-    if (idsWithResult.has(id) || msgs.length > 1) {
-      chains.push(msgs)
-    } else {
+  for (const [toolUseId, msgs] of toolUseMessages) {
+    const chainMessages: Message[] = [...msgs]
+
+    for (const msg of messages) {
+      const content = msg.message?.content
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block?.type === 'tool_result' && block?.tool_use_id === toolUseId) {
+            chainMessages.push(msg)
+          }
+        }
+      }
+    }
+
+    chains.push(chainMessages)
+  }
+
+  const chainMessageUuids = new Set<string>()
+  for (const chain of chains) {
+    for (const msg of chain) {
+      if (msg.uuid) chainMessageUuids.add(msg.uuid)
+    }
+  }
+
+  for (const [uuid, msgs] of allMessagesByUuid) {
+    if (!chainMessageUuids.has(uuid)) {
       orphans.push(...msgs)
     }
   }
@@ -86,6 +108,30 @@ function getCacheAge(message: Message): number {
   const created = message.message?.created_at ?? 0
   if (created === 0) return 1000
   return (Date.now() - created) / (1000 * 60 * 60)
+}
+
+function getMessageTokenCount(message: Message): number {
+  const content = message.message?.content
+  if (typeof content === 'string') {
+    return roughTokenCountEstimation(content)
+  }
+  if (Array.isArray(content)) {
+    const textContent = content
+      .filter(b => b.type === 'text')
+      .map(b => (b as { text: string }).text)
+      .join('\n')
+    let tokens = roughTokenCountEstimation(textContent)
+    for (const block of content) {
+      if (block.type === 'tool_use' || block.type === 'tool_result') {
+        tokens += 50
+      }
+      if (block.type === 'thinking') {
+        tokens += 100
+      }
+    }
+    return tokens
+  }
+  return 0
 }
 
 function calculateCacheValue(message: Message): number {
@@ -128,9 +174,7 @@ export function splitContext(
   const freshTarget = Math.floor(cfg.maxTotalTokens * cfg.freshWeight)
 
   for (const msg of sorted) {
-    const tokens = roughTokenCountEstimation(
-      typeof msg.message?.content === 'string' ? msg.message.content : ''
-    )
+    const tokens = getMessageTokenCount(msg)
     const age = getCacheAge(msg)
 
     if (age > 24 && cachedTokens < cacheTarget) {
@@ -178,19 +222,31 @@ export function applyHybridStrategy(
     strategy = 'fresh_heavy'
   }
 
-  // Preserve chains + tail + split result
-  const selectedMessages = [
+  const allSelected = [
     ...chains.flat(),
-    ...split.cached, 
-    ...split.fresh, 
+    ...split.cached,
+    ...split.fresh,
     ...tailMessages
-  ].sort(
+  ]
+
+  const seenUuids = new Set<string>()
+  const selectedMessages: Message[] = []
+  for (const msg of allSelected) {
+    const uuid = msg.uuid ?? msg.message?.id ?? ''
+    if (!seenUuids.has(uuid)) {
+      seenUuids.add(uuid)
+      selectedMessages.push(msg)
+    }
+  }
+
+  selectedMessages.sort(
     (a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0)
   )
 
-  const totalTokens = roughTokenCountEstimation(
-    selectedMessages.map(m => typeof m.message?.content === 'string' ? m.message.content : '').join('\n')
-  )
+  let totalTokens = 0
+  for (const msg of selectedMessages) {
+    totalTokens += getMessageTokenCount(msg)
+  }
 
   const estimatedCost = totalTokens * 0.000001 * 0.5
 
