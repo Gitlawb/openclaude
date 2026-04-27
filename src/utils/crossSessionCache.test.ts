@@ -57,9 +57,10 @@ describe('CrossSessionTokenCache', () => {
     const content = 'Bounds test content here'
     const result = cache.estimateWithBounds(content)
 
-    expect(result.min).toBeLessThanOrEqual(result.estimate)
-    expect(result.max).toBeGreaterThanOrEqual(result.estimate)
-    expect(result.min).toBeLessThan(result.max)
+    expect(result.lowerBound).toBeLessThanOrEqual(result.estimate)
+    expect(result.upperBound).toBeGreaterThanOrEqual(result.estimate)
+    expect(result.lowerBound).toBeLessThan(result.upperBound)
+    expect(['high', 'medium', 'low']).toContain(result.confidence)
   })
 
   it('tracks reuse statistics', () => {
