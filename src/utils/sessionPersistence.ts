@@ -21,6 +21,10 @@ export interface Session {
   createdAt: number
   updatedAt: number
   deviceId?: string
+  pagination?: {
+    hasMore: boolean
+    lastId: string | null
+  }
 }
 
 export interface SessionMessage {

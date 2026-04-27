@@ -212,6 +212,7 @@ export async function cacheSession(
       { model: process.env.OPENAI_MODEL },
     )
     session.id = sessionId
+    session.pagination = { hasMore, lastId }
     await saveSession(session)
   }
 }
@@ -230,6 +231,14 @@ export async function loadCachedSession(
     if (session) {
       const events = session.messages as CacheMessage[]
       cache.set(sessionId, events)
+
+      if (session.pagination) {
+        sessionMetadataCache.set(sessionId, {
+          hasMore: session.pagination.hasMore,
+          lastId: session.pagination.lastId,
+        })
+      }
+
       return deserializeFromCacheMessage(events)
     }
   } catch {
