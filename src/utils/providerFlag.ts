@@ -138,12 +138,29 @@ export function applyProviderFlag(
     }
   }
 
+  const copiedOpenAIKeyProvider =
+    process.env.OPENAI_API_KEY !== undefined &&
+    process.env.OPENAI_API_KEY === process.env.NVIDIA_API_KEY &&
+    process.env.NVIDIA_NIM === '1'
+      ? 'nvidia-nim'
+      : process.env.OPENAI_API_KEY !== undefined &&
+          process.env.OPENAI_API_KEY === process.env.BNKR_API_KEY
+        ? 'bankr'
+        : process.env.OPENAI_API_KEY !== undefined &&
+            process.env.OPENAI_API_KEY === process.env.XAI_API_KEY
+          ? 'xai'
+          : null
+
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_MISTRAL
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.NVIDIA_NIM
+  if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
+    delete process.env.OPENAI_API_KEY
+  }
 
   const model = parseModelFlag(args)
   const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)

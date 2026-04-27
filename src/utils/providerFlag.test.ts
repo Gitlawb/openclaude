@@ -18,6 +18,8 @@ const ENV_KEYS = [
   'GEMINI_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
+  'BNKR_API_KEY',
+  'XAI_API_KEY',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -41,6 +43,8 @@ const RESET_KEYS = [
   'GEMINI_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
+  'BNKR_API_KEY',
+  'XAI_API_KEY',
 ] as const
 
 beforeEach(() => {
@@ -206,6 +210,63 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears stale NVIDIA_NIM marker when switching to another OpenAI-compatible route', () => {
+    process.env.NVIDIA_NIM = '1'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.NVIDIA_NIM).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears NVIDIA_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.NVIDIA_API_KEY = 'nvidia-live-key'
+
+    const nvidiaResult = applyProviderFlag('nvidia-nim', [])
+    expect(nvidiaResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('nvidia-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.NVIDIA_NIM).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears BNKR_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.BNKR_API_KEY = 'bankr-live-key'
+
+    const bankrResult = applyProviderFlag('bankr', [])
+    expect(bankrResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('bankr-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears XAI_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.XAI_API_KEY = 'xai-live-key'
+
+    const xaiResult = applyProviderFlag('xai', [])
+    expect(xaiResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('xai-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 })

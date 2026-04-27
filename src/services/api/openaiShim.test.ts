@@ -27,6 +27,10 @@ const originalEnv = {
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
+  MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  BNKR_API_KEY: process.env.BNKR_API_KEY,
+  BANKR_BASE_URL: process.env.BANKR_BASE_URL,
+  BANKR_MODEL: process.env.BANKR_MODEL,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
 }
@@ -103,6 +107,10 @@ beforeEach(() => {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.NVIDIA_API_KEY
   delete process.env.NVIDIA_NIM
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.BNKR_API_KEY
+  delete process.env.BANKR_BASE_URL
+  delete process.env.BANKR_MODEL
   delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
 })
@@ -130,6 +138,10 @@ afterEach(() => {
   restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
   restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
   restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
+  restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
+  restoreEnv('BNKR_API_KEY', originalEnv.BNKR_API_KEY)
+  restoreEnv('BANKR_BASE_URL', originalEnv.BANKR_BASE_URL)
+  restoreEnv('BANKR_MODEL', originalEnv.BANKR_MODEL)
   restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
   restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
   globalThis.fetch = originalFetch
@@ -1411,6 +1423,154 @@ test('uses NVIDIA_API_KEY for NVIDIA NIM requests without OPENAI_API_KEY', async
   })
 
   expect(capturedAuthorization).toBe('Bearer nvidia-live-key')
+})
+
+test('does not use stale NVIDIA_API_KEY for non-NVIDIA OpenAI-compatible routes', async () => {
+  let capturedAuthorization: string | null = null
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.NVIDIA_NIM = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'openai/gpt-5-mini'
+  process.env.NVIDIA_API_KEY = 'nvidia-live-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openrouter',
+        model: 'openai/gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-5-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedAuthorization).toBeNull()
+})
+
+test('does not use MINIMAX_API_KEY for non-MiniMax OpenAI-compatible routes', async () => {
+  let capturedAuthorization: string | null = null
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'openai/gpt-5-mini'
+  process.env.MINIMAX_API_KEY = 'minimax-live-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openrouter',
+        model: 'openai/gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-5-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedAuthorization).toBeNull()
+})
+
+test('does not use BNKR_API_KEY for non-Bankr OpenAI-compatible routes', async () => {
+  let capturedAuthorization: string | null = null
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'openai/gpt-5-mini'
+  process.env.BNKR_API_KEY = 'bankr-live-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openrouter',
+        model: 'openai/gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-5-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedAuthorization).toBeNull()
 })
 
 test('preserves Gemini tool call extra_content from streaming chunks', async () => {
