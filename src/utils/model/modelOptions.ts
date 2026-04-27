@@ -298,9 +298,9 @@ function getOpusPlanOption(): ModelOption {
 
 function getCodexPlanOption(): ModelOption {
   return {
-    value: 'gpt-5.4',
-    label: 'gpt-5.4',
-    description: 'GPT-5.4 on the Codex backend with high reasoning',
+    value: 'gpt-5.5',
+    label: 'gpt-5.5',
+    description: 'GPT-5.5 on the Codex backend with high reasoning',
   }
 }
 
@@ -314,6 +314,11 @@ function getCodexSparkOption(): ModelOption {
 
 function getCodexModelOptions(): ModelOption[] {
   return [
+    {
+      value: 'gpt-5.5',
+      label: 'gpt-5.5',
+      description: 'GPT-5.5 with high reasoning',
+    },
     {
       value: 'gpt-5.4',
       label: 'gpt-5.4',
@@ -348,6 +353,11 @@ function getCodexModelOptions(): ModelOption[] {
       value: 'gpt-5.1-codex-mini',
       label: 'gpt-5.1-codex-mini',
       description: 'GPT-5.1 Codex Mini - faster, cheaper',
+    },
+    {
+      value: 'gpt-5.5-mini',
+      label: 'gpt-5.5-mini',
+      description: 'GPT-5.5 Mini - faster, cheaper',
     },
     {
       value: 'gpt-5.4-mini',
@@ -690,7 +700,7 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     return filterModelOptionsByAllowlist(options)
   } else if (customModel === 'opusplan') {
     return filterModelOptionsByAllowlist([...options, getOpusPlanOption()])
-  } else if (customModel === 'gpt-5.4') {
+  } else if (customModel === 'gpt-5.5') {
     return filterModelOptionsByAllowlist([...options, getCodexPlanOption()])
   } else if (customModel === 'gpt-5.3-codex-spark') {
     return filterModelOptionsByAllowlist([...options, getCodexSparkOption()])

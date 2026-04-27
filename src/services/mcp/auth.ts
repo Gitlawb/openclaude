@@ -1209,7 +1209,7 @@ export async function performMCPOAuthFlow(
 
           res.writeHead(200, { 'Content-Type': 'text/html' })
           res.end(
-            `<h1>Authentication Successful</h1><p>You can close this window. Return to Claude Code.</p>`,
+            `<h1>Authentication Successful</h1><p>You can close this window. Return to OpenClaude.</p>`,
           )
           cleanup()
           resolveOnce(result.code)

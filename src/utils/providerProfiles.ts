@@ -1,5 +1,9 @@
 import { randomBytes } from 'crypto'
 import {
+  isCodexBaseUrl,
+  parseOpenAICompatibleApiFormat,
+} from '../services/api/providerConfig.js'
+import {
   getGlobalConfig,
   saveGlobalConfig,
   type ProviderProfile,
@@ -12,6 +16,7 @@ import {
   buildGeminiProfileEnv,
   buildMistralProfileEnv,
   buildOpenAIProfileEnv,
+  type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
 } from './providerProfile.js'
 
@@ -19,6 +24,7 @@ export type ProviderPreset =
   | 'anthropic'
   | 'ollama'
   | 'openai'
+  | 'kimi-code'
   | 'moonshotai'
   | 'deepseek'
   | 'gemini'
@@ -34,6 +40,9 @@ export type ProviderPreset =
   | 'nvidia-nim'
   | 'minimax'
   | 'spark'
+  | 'xai'
+  | 'zai'
+  | 'bankr'
   | 'atomic-chat'
 
 export type ProviderProfileInput = {
@@ -42,6 +51,10 @@ export type ProviderProfileInput = {
   baseUrl: string
   model: string
   apiKey?: string
+  apiFormat?: ProviderProfile['apiFormat']
+  authHeader?: ProviderProfile['authHeader']
+  authScheme?: ProviderProfile['authScheme']
+  authHeaderValue?: ProviderProfile['authHeaderValue']
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -63,6 +76,20 @@ function trimOrUndefined(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
+function sanitizeAuthHeader(value: string | undefined): string | undefined {
+  const trimmed = trimOrUndefined(value)
+  if (!trimmed) {
+    return undefined
+  }
+  return /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(trimmed)
+    ? trimmed
+    : undefined
+}
+
+function sanitizeAuthScheme(value: string | undefined): ProviderProfile['authScheme'] | undefined {
+  return value === 'raw' || value === 'bearer' ? value : undefined
+}
+
 function normalizeBaseUrl(value: string): string {
   return trimValue(value).replace(/\/+$/, '')
 }
@@ -82,12 +109,16 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
             : 'openai'
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
+  const apiFormat = parseOpenAICompatibleApiFormat(profile.apiFormat)
+  const authHeader = sanitizeAuthHeader(profile.authHeader)
+  const authScheme = sanitizeAuthScheme(profile.authScheme)
+  const authHeaderValue = trimOrUndefined(profile.authHeaderValue)
 
   if (!id || !name || !baseUrl || !model) {
     return null
   }
 
-  return {
+  const sanitized: ProviderProfile = {
     id,
     name,
     provider,
@@ -95,6 +126,17 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     model,
     apiKey: trimOrUndefined(profile.apiKey),
   }
+  if (provider === 'openai' && apiFormat) {
+    sanitized.apiFormat = apiFormat
+  }
+  if (provider === 'openai' && authHeader) {
+    sanitized.authHeader = authHeader
+    sanitized.authScheme = authScheme ?? (
+      authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
+    )
+    sanitized.authHeaderValue = authHeaderValue
+  }
+  return sanitized
 }
 
 function sanitizeProfiles(profiles: ProviderProfile[] | undefined): ProviderProfile[] {
@@ -128,6 +170,10 @@ function toProfile(
     baseUrl: input.baseUrl,
     model: input.model,
     apiKey: input.apiKey,
+    apiFormat: input.apiFormat,
+    authHeader: input.authHeader,
+    authScheme: input.authScheme,
+    authHeaderValue: input.authHeaderValue,
   })
 }
 
@@ -156,14 +202,23 @@ export function getProviderPresetDefaults(
         provider: 'openai',
         name: 'OpenAI',
         baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-5.3-codex',
+        model: 'gpt-5.4',
+        apiKey: '',
+        requiresApiKey: true,
+      }
+    case 'kimi-code':
+      return {
+        provider: 'openai',
+        name: 'Moonshot AI - Kimi Code',
+        baseUrl: 'https://api.kimi.com/coding/v1',
+        model: 'kimi-for-coding',
         apiKey: '',
         requiresApiKey: true,
       }
     case 'moonshotai':
       return {
         provider: 'openai',
-        name: 'Moonshot AI',
+        name: 'Moonshot AI - API',
         baseUrl: 'https://api.moonshot.ai/v1',
         model: 'kimi-k2.5',
         apiKey: '',
@@ -174,7 +229,7 @@ export function getProviderPresetDefaults(
         provider: 'openai',
         name: 'DeepSeek',
         baseUrl: 'https://api.deepseek.com/v1',
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner',
         apiKey: '',
         requiresApiKey: true,
       }
@@ -280,6 +335,15 @@ export function getProviderPresetDefaults(
         apiKey: process.env.NVIDIA_API_KEY ?? '',
         requiresApiKey: true,
       }
+    case 'xai':
+      return {
+        provider: 'openai',
+        name: 'xAI',
+        baseUrl: 'https://api.x.ai/v1',
+        model: 'grok-4',
+        apiKey: process.env.XAI_API_KEY ?? '',
+        requiresApiKey: true,
+      }
     case 'minimax':
       return {
         provider: 'openai',
@@ -306,6 +370,24 @@ export function getProviderPresetDefaults(
         model: process.env.OPENAI_MODEL ?? 'local-model',
         apiKey: '',
         requiresApiKey: false,
+      }
+    case 'bankr':
+      return {
+        provider: 'openai',
+        name: 'Bankr',
+        baseUrl: 'https://llm.bankr.bot/v1',
+        model: process.env.BANKR_MODEL ?? 'claude-opus-4.6',
+        apiKey: process.env.BNKR_API_KEY ?? '',
+        requiresApiKey: true,
+      }
+    case 'zai':
+      return {
+        provider: 'openai',
+        name: 'Z.AI - GLM Coding Plan',
+        baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+        model: 'GLM-5.1, GLM-5-Turbo, GLM-4.7, GLM-4.5-Air',
+        apiKey: '',
+        requiresApiKey: true,
       }
     case 'ollama':
     default:
@@ -460,7 +542,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.MISTRAL_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, profile.model) &&
+      sameOptionalEnvValue(processEnv.MISTRAL_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.MISTRAL_API_KEY, profile.apiKey))
     )
@@ -476,7 +558,7 @@ function isProcessEnvAlignedWithProfile(
       processEnv.CLAUDE_CODE_USE_VERTEX === undefined &&
       processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
       sameOptionalEnvValue(processEnv.GEMINI_BASE_URL, profile.baseUrl) &&
-      sameOptionalEnvValue(processEnv.GEMINI_MODEL, profile.model) &&
+      sameOptionalEnvValue(processEnv.GEMINI_MODEL, getPrimaryModel(profile.model)) &&
       (!includeApiKey ||
         sameOptionalEnvValue(processEnv.GEMINI_API_KEY, profile.apiKey))
     )
@@ -509,8 +591,20 @@ function isProcessEnvAlignedWithProfile(
     processEnv.CLAUDE_CODE_USE_FOUNDRY === undefined &&
     sameOptionalEnvValue(processEnv.OPENAI_BASE_URL, profile.baseUrl) &&
     sameOptionalEnvValue(processEnv.OPENAI_MODEL, getPrimaryModel(profile.model)) &&
+    sameOptionalEnvValue(processEnv.OPENAI_API_FORMAT, profile.apiFormat) &&
+    sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER, profile.authHeader) &&
+    sameOptionalEnvValue(processEnv.OPENAI_AUTH_SCHEME, profile.authScheme) &&
+    sameOptionalEnvValue(processEnv.OPENAI_AUTH_HEADER_VALUE, profile.authHeaderValue) &&
     (!includeApiKey ||
-      sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey))
+      sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
+    (profile.baseUrl?.toLowerCase().includes('bankr')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.BNKR_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('x.ai')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
+      : true)
   )
 }
 
@@ -541,6 +635,10 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.OPENAI_BASE_URL
   delete processEnv.OPENAI_API_BASE
   delete processEnv.OPENAI_MODEL
+  delete processEnv.OPENAI_API_FORMAT
+  delete processEnv.OPENAI_AUTH_HEADER
+  delete processEnv.OPENAI_AUTH_SCHEME
+  delete processEnv.OPENAI_AUTH_HEADER_VALUE
   delete processEnv.OPENAI_API_KEY
 
   delete processEnv.ANTHROPIC_BASE_URL
@@ -567,6 +665,10 @@ export function clearProviderProfileEnvFromProcessEnv(
   delete processEnv.SPARK_API_KEY
   delete processEnv.SPARK_MODEL
   delete processEnv.SPARK_BASE_URL
+  delete processEnv.BANKR_BASE_URL
+  delete processEnv.BNKR_API_KEY
+  delete processEnv.BANKR_MODEL
+  delete processEnv.XAI_API_KEY
 }
 
 export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void {
@@ -587,6 +689,10 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_BASE
     delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
     delete process.env.OPENAI_API_KEY
     return
   }
@@ -594,7 +700,7 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   if (profile.provider === 'mistral') {
     process.env.CLAUDE_CODE_USE_MISTRAL = '1'
     process.env.MISTRAL_BASE_URL = profile.baseUrl
-    process.env.MISTRAL_MODEL = profile.model
+    process.env.MISTRAL_MODEL = getPrimaryModel(profile.model)
 
     if (profile.apiKey) {
       process.env.MISTRAL_API_KEY = profile.apiKey
@@ -605,13 +711,17 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
     return
   }
 
   if (profile.provider === 'gemini') {
     process.env.CLAUDE_CODE_USE_GEMINI = '1'
     process.env.GEMINI_BASE_URL = profile.baseUrl
-    process.env.GEMINI_MODEL = profile.model
+    process.env.GEMINI_MODEL = getPrimaryModel(profile.model)
 
     if (profile.apiKey) {
       process.env.GEMINI_API_KEY = profile.apiKey
@@ -622,6 +732,10 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     delete process.env.OPENAI_BASE_URL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
     return
   }
 
@@ -645,6 +759,26 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = profile.baseUrl
   process.env.OPENAI_MODEL = getPrimaryModel(profile.model)
+  if (profile.apiFormat) {
+    process.env.OPENAI_API_FORMAT = profile.apiFormat
+  } else {
+    delete process.env.OPENAI_API_FORMAT
+  }
+  if (profile.authHeader) {
+    process.env.OPENAI_AUTH_HEADER = profile.authHeader
+    process.env.OPENAI_AUTH_SCHEME = profile.authScheme ?? (
+      profile.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
+    )
+    if (profile.authHeaderValue) {
+      process.env.OPENAI_AUTH_HEADER_VALUE = profile.authHeaderValue
+    } else {
+      delete process.env.OPENAI_AUTH_HEADER_VALUE
+    }
+  } else {
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
+  }
 
   if (profile.apiKey) {
     process.env.OPENAI_API_KEY = profile.apiKey
@@ -655,6 +789,12 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
     }
     if (baseUrl.includes('nvidia') || baseUrl.includes('integrate.api.nvidia')) {
       process.env.NVIDIA_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('bankr')) {
+      process.env.BNKR_API_KEY = profile.apiKey
+    }
+    if (baseUrl.includes('x.ai')) {
+      process.env.XAI_API_KEY = profile.apiKey
     }
   } else {
     delete process.env.OPENAI_API_KEY
@@ -869,7 +1009,7 @@ export function persistActiveProviderProfileModel(
 
 /**
  * Generate model options from a provider profile's model field.
- * Each comma-separated model becomes a separate option in the picker.
+ * Each parsed model becomes a separate option in the picker.
  */
 export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] {
   const models = parseModelList(profile.model)
@@ -882,6 +1022,60 @@ export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] 
     label: model,
     description: `Provider: ${profile.name}`,
   }))
+}
+
+function buildOpenAICompatibleStartupEnv(
+  activeProfile: ProviderProfile,
+): ProfileEnv | null {
+  if (isCodexBaseUrl(activeProfile.baseUrl)) {
+    return null
+  }
+
+  if (activeProfile.apiKey) {
+    const strictEnv = buildOpenAIProfileEnv({
+      goal: 'balanced',
+      model: activeProfile.model,
+      baseUrl: activeProfile.baseUrl,
+      apiKey: activeProfile.apiKey,
+      apiFormat: activeProfile.apiFormat,
+      authHeader: activeProfile.authHeader,
+      authScheme: activeProfile.authScheme,
+      authHeaderValue: activeProfile.authHeaderValue,
+      processEnv: {},
+    })
+    if (strictEnv) {
+      return strictEnv
+    }
+  }
+
+  const env: ProfileEnv = {
+    OPENAI_BASE_URL: activeProfile.baseUrl,
+    OPENAI_MODEL: getPrimaryModel(activeProfile.model),
+  }
+  if (activeProfile.apiFormat) {
+    env.OPENAI_API_FORMAT = activeProfile.apiFormat
+  }
+  if (activeProfile.authHeader) {
+    env.OPENAI_AUTH_HEADER = activeProfile.authHeader
+    env.OPENAI_AUTH_SCHEME = activeProfile.authScheme ?? (
+      activeProfile.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
+    )
+    if (activeProfile.authHeaderValue) {
+      env.OPENAI_AUTH_HEADER_VALUE = activeProfile.authHeaderValue
+    }
+  }
+  if (activeProfile.apiKey) {
+    env.OPENAI_API_KEY = activeProfile.apiKey
+    if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
+      env.BNKR_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('x.ai')) {
+      env.XAI_API_KEY = activeProfile.apiKey
+    }
+  } else {
+    delete env.OPENAI_API_KEY
+  }
+  return env
 }
 
 export function setActiveProviderProfile(
@@ -930,7 +1124,7 @@ export function setActiveProviderProfile(
       case 'gemini':
         return (
           buildGeminiProfileEnv({
-            model: activeProfile.model,
+            model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
             authMode: 'api-key',
@@ -940,22 +1134,28 @@ export function setActiveProviderProfile(
       case 'mistral':
         return (
           buildMistralProfileEnv({
-            model: activeProfile.model,
+            model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
             processEnv: process.env,
           }) ?? null
         )
       default:
-        // anthropic and all openai-compatible providers
-        return (
-          buildOpenAIProfileEnv({
-            model: activeProfile.model,
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        )
+        return activeProfile.provider === 'anthropic'
+          ? (
+              buildOpenAIProfileEnv({
+                goal: 'balanced',
+                model: getPrimaryModel(activeProfile.model),
+                baseUrl: activeProfile.baseUrl,
+                apiKey: activeProfile.apiKey,
+                apiFormat: activeProfile.apiFormat,
+                authHeader: activeProfile.authHeader,
+                authScheme: activeProfile.authScheme,
+                authHeaderValue: activeProfile.authHeaderValue,
+                processEnv: process.env,
+              }) ?? null
+            )
+          : buildOpenAICompatibleStartupEnv(activeProfile)
     }
   })()
 
@@ -966,7 +1166,11 @@ export function setActiveProviderProfile(
             profile: 'openai' as ProviderProfileStartup,
             env: {
               OPENAI_BASE_URL: activeProfile.baseUrl,
-              OPENAI_MODEL: activeProfile.model,
+              OPENAI_MODEL: getPrimaryModel(activeProfile.model),
+              OPENAI_API_FORMAT: activeProfile.apiFormat,
+              OPENAI_AUTH_HEADER: activeProfile.authHeader,
+              OPENAI_AUTH_SCHEME: activeProfile.authScheme,
+              OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue,
               OPENAI_API_KEY: activeProfile.apiKey,
             },
           } as const)

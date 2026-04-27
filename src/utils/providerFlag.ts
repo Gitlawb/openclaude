@@ -14,6 +14,9 @@
 
 export const VALID_PROVIDERS = [
   'anthropic',
+  'bankr',
+  'zai',
+  'xai',
   'openai',
   'gemini',
   'mistral',
@@ -154,6 +157,33 @@ export function applyProviderFlag(
       process.env.CLAUDE_CODE_USE_SPARK = '1'
       process.env.SPARK_MODEL ??= 'generalv4.0'
       if (model) process.env.SPARK_MODEL = model
+      break
+
+    case 'bankr':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://llm.bankr.bot/v1'
+      process.env.OPENAI_MODEL ??= 'claude-opus-4.6'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
+      }
+      break
+
+    case 'zai':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.z.ai/api/coding/paas/v4'
+      process.env.OPENAI_MODEL ??= 'GLM-5.1'
+      if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'xai':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
+      process.env.OPENAI_MODEL ??= 'grok-4'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+      }
       break
   }
 

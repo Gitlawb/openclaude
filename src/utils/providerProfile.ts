@@ -15,6 +15,7 @@ import {
 } from './providerRecommendation.js'
 import { readGeminiAccessToken } from './geminiCredentials.js'
 import { getOllamaChatBaseUrl } from './providerDiscovery.js'
+import { getPrimaryModel } from './providerModels.js'
 import { getProviderValidationError } from './providerValidation.js'
 import {
   maskSecretForDisplay,
@@ -42,6 +43,7 @@ export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
@@ -50,6 +52,10 @@ const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_SPARK',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'OPENAI_API_FORMAT',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
@@ -73,24 +79,35 @@ const PROFILE_ENV_KEYS = [
   'SPARK_API_KEY',
   'SPARK_MODEL',
   'SPARK_BASE_URL',
+  'BANKR_BASE_URL',
+  'BNKR_API_KEY',
+  'BANKR_MODEL',
+  'XAI_API_KEY',
 ] as const
 
 const SECRET_ENV_KEYS = [
   'OPENAI_API_KEY',
+  'OPENAI_AUTH_HEADER_VALUE',
   'CODEX_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
   'NVIDIA_API_KEY',
   'MINIMAX_API_KEY',
   'MISTRAL_API_KEY',
+  'BNKR_API_KEY',
+  'XAI_API_KEY',
   'SPARK_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'spark'
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'xai' | 'spark'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
   OPENAI_MODEL?: string
+  OPENAI_API_FORMAT?: 'chat_completions' | 'responses'
+  OPENAI_AUTH_HEADER?: string
+  OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
+  OPENAI_AUTH_HEADER_VALUE?: string
   OPENAI_API_KEY?: string
   CODEX_API_KEY?: string
   CODEX_CREDENTIAL_SOURCE?: 'oauth' | 'existing'
@@ -112,6 +129,10 @@ export type ProfileEnv = {
   SPARK_API_KEY?: string
   SPARK_MODEL?: string
   SPARK_BASE_URL?: string
+  BANKR_BASE_URL?: string
+  BNKR_API_KEY?: string
+  BANKR_MODEL?: string
+  XAI_API_KEY?: string
 }
 
 export type ProfileFile = {
@@ -123,12 +144,14 @@ export type ProfileFile = {
 type SecretValueSource = Partial<
   Record<
     | 'OPENAI_API_KEY'
+    | 'OPENAI_AUTH_HEADER_VALUE'
     | 'CODEX_API_KEY'
     | 'GEMINI_API_KEY'
     | 'GOOGLE_API_KEY'
     | 'NVIDIA_API_KEY'
     | 'MINIMAX_API_KEY'
-    | 'MISTRAL_API_KEY',
+    | 'MISTRAL_API_KEY'
+    | 'BNKR_API_KEY',
     string | undefined
   >
 >
@@ -146,6 +169,18 @@ function resolveProfileFilePath(options?: ProfileFileLocation): string {
   return resolve(options?.cwd ?? process.cwd(), PROFILE_FILE_NAME)
 }
 
+function normalizeProfileModel(
+  value: string | undefined | null,
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  const primary = getPrimaryModel(trimmed)
+  return primary.length > 0 ? primary : undefined
+}
+
 export function isProviderProfile(value: unknown): value is ProviderProfile {
   return (
     value === 'openai' ||
@@ -156,7 +191,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'nvidia-nim' ||
     value === 'minimax' ||
     value === 'mistral' ||
-    value === 'spark'
+    value === 'spark' ||
+    value === 'xai'
   )
 }
 
@@ -207,8 +243,12 @@ export function buildNvidiaNimProfileEnv(options: {
       sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
       defaultBaseUrl,
     OPENAI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
       'nvidia/llama-3.1-nemotron-70b-instruct',
     OPENAI_API_KEY: key,
     NVIDIA_NIM: '1',
@@ -237,8 +277,12 @@ export function buildMiniMaxProfileEnv(options: {
       sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
       defaultBaseUrl,
     OPENAI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
       defaultModel,
     OPENAI_API_KEY: key,
     MINIMAX_API_KEY: key,
@@ -270,8 +314,12 @@ export function buildGeminiProfileEnv(options: {
   const env: ProfileEnv = {
     GEMINI_AUTH_MODE: authMode,
     GEMINI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.GEMINI_MODEL, secretSource),
+      ) ||
       DEFAULT_GEMINI_MODEL,
   }
 
@@ -294,19 +342,31 @@ export function buildOpenAIProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
+  apiFormat?: 'chat_completions' | 'responses' | null
+  authHeader?: string | null
+  authScheme?: 'bearer' | 'raw' | null
+  authHeaderValue?: string | null
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
   const key = sanitizeApiKey(options.apiKey ?? processEnv.OPENAI_API_KEY)
-  if (!key) {
+  const authHeaderValue = sanitizeApiKey(
+    options.authHeaderValue ?? processEnv.OPENAI_AUTH_HEADER_VALUE,
+  )
+  if (!key && !authHeaderValue) {
     return null
   }
 
   const defaultModel = getGoalDefaultOpenAIModel(options.goal)
-  const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
-  const shellOpenAIModel = sanitizeProviderConfigValue(
-    processEnv.OPENAI_MODEL,
-    secretSource,
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    OPENAI_AUTH_HEADER_VALUE: authHeaderValue,
+  }
+  const shellOpenAIModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      processEnv.OPENAI_MODEL,
+      secretSource,
+    ),
   )
   const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
     processEnv.OPENAI_BASE_URL,
@@ -316,8 +376,9 @@ export function buildOpenAIProfileEnv(options: {
     model: shellOpenAIModel,
     baseUrl: shellOpenAIBaseUrl,
     fallbackModel: defaultModel,
+    apiFormat: processEnv.OPENAI_API_FORMAT,
   })
-  const useShellOpenAIConfig = shellOpenAIRequest.transport === 'chat_completions'
+  const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
 
   return {
     OPENAI_BASE_URL:
@@ -325,10 +386,16 @@ export function buildOpenAIProfileEnv(options: {
       (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
       DEFAULT_OPENAI_BASE_URL,
     OPENAI_MODEL:
-      sanitizeProviderConfigValue(options.model, secretSource) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
       (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
       defaultModel,
-    OPENAI_API_KEY: key,
+    ...(options.apiFormat ? { OPENAI_API_FORMAT: options.apiFormat } : {}),
+    ...(options.authHeader ? { OPENAI_AUTH_HEADER: options.authHeader } : {}),
+    ...(options.authScheme ? { OPENAI_AUTH_SCHEME: options.authScheme } : {}),
+    ...(authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: authHeaderValue } : {}),
+    ...(key ? { OPENAI_API_KEY: key } : {}),
   }
 }
 
@@ -382,10 +449,14 @@ export function buildMistralProfileEnv(options: {
   const env: ProfileEnv = {
     MISTRAL_API_KEY: key,
     MISTRAL_MODEL:
-      sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }) ||
-      sanitizeProviderConfigValue(
-        processEnv.MISTRAL_MODEL,
-        { MISTRAL_API_KEY: key },
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, { MISTRAL_API_KEY: key }),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(
+          processEnv.MISTRAL_MODEL,
+          { MISTRAL_API_KEY: key },
+        ),
       ) ||
       DEFAULT_MISTRAL_MODEL,
   }
@@ -398,6 +469,42 @@ export function buildMistralProfileEnv(options: {
     )
   if (baseUrl) {
     env.MISTRAL_BASE_URL = baseUrl
+  }
+
+  return env
+}
+
+export function buildBankrProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.BNKR_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const env: ProfileEnv = {
+    BNKR_API_KEY: key,
+    BANKR_MODEL:
+      sanitizeProviderConfigValue(options.model, { BNKR_API_KEY: key }) ||
+      sanitizeProviderConfigValue(
+        processEnv.BANKR_MODEL,
+        { BNKR_API_KEY: key },
+      ) ||
+      'claude-opus-4.6',
+  }
+
+  const baseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, { BNKR_API_KEY: key }) ||
+    sanitizeProviderConfigValue(
+      processEnv.BANKR_BASE_URL,
+      { BNKR_API_KEY: key },
+    )
+  if (baseUrl) {
+    env.BANKR_BASE_URL = baseUrl
   }
 
   return env
@@ -543,33 +650,47 @@ export async function buildLaunchEnv(options: {
     options.persisted?.profile === options.profile
       ? options.persisted.env ?? {}
       : {}
-  const persistedOpenAIModel = sanitizeProviderConfigValue(
-    persistedEnv.OPENAI_MODEL,
-    persistedEnv,
+  const persistedOpenAIModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      persistedEnv.OPENAI_MODEL,
+      persistedEnv,
+    ),
   )
   const persistedOpenAIBaseUrl = sanitizeProviderConfigValue(
     persistedEnv.OPENAI_BASE_URL,
     persistedEnv,
   )
-  const shellOpenAIModel = sanitizeProviderConfigValue(
-    processEnv.OPENAI_MODEL,
-    processEnv as SecretValueSource,
+  const persistedOpenAIApiFormat = persistedEnv.OPENAI_API_FORMAT
+  const persistedOpenAIAuthHeader = persistedEnv.OPENAI_AUTH_HEADER
+  const persistedOpenAIAuthScheme = persistedEnv.OPENAI_AUTH_SCHEME
+  const persistedOpenAIAuthHeaderValue = sanitizeApiKey(
+    persistedEnv.OPENAI_AUTH_HEADER_VALUE,
+  )
+  const shellOpenAIModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      processEnv.OPENAI_MODEL,
+      processEnv as SecretValueSource,
+    ),
   )
   const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
     processEnv.OPENAI_BASE_URL,
     processEnv as SecretValueSource,
   )
-  const persistedGeminiModel = sanitizeProviderConfigValue(
-    persistedEnv.GEMINI_MODEL,
-    persistedEnv,
+  const persistedGeminiModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      persistedEnv.GEMINI_MODEL,
+      persistedEnv,
+    ),
   )
   const persistedGeminiBaseUrl = sanitizeProviderConfigValue(
     persistedEnv.GEMINI_BASE_URL,
     persistedEnv,
   )
-  const shellGeminiModel = sanitizeProviderConfigValue(
-    processEnv.GEMINI_MODEL,
-    processEnv as SecretValueSource,
+  const shellGeminiModel = normalizeProfileModel(
+    sanitizeProviderConfigValue(
+      processEnv.GEMINI_MODEL,
+      processEnv as SecretValueSource,
+    ),
   )
   const shellGeminiBaseUrl = sanitizeProviderConfigValue(
     processEnv.GEMINI_BASE_URL,
@@ -646,6 +767,10 @@ export async function buildLaunchEnv(options: {
     delete env.GOOGLE_API_KEY
     delete env.OPENAI_BASE_URL
     delete env.OPENAI_MODEL
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
     delete env.OPENAI_API_KEY
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
@@ -667,11 +792,15 @@ export async function buildLaunchEnv(options: {
     delete env.CLAUDE_CODE_USE_VERTEX
     delete env.CLAUDE_CODE_USE_FOUNDRY
 
-    const shellMistralModel = sanitizeProviderConfigValue(
-      processEnv.MISTRAL_MODEL,
+    const shellMistralModel = normalizeProfileModel(
+      sanitizeProviderConfigValue(
+        processEnv.MISTRAL_MODEL,
+      ),
     )
-    const persistedMistralModel = sanitizeProviderConfigValue(
-      persistedEnv.MISTRAL_MODEL,
+    const persistedMistralModel = normalizeProfileModel(
+      sanitizeProviderConfigValue(
+        persistedEnv.MISTRAL_MODEL,
+      ),
     )
     const shellMistralBaseUrl = sanitizeProviderConfigValue(
       processEnv.MISTRAL_BASE_URL,
@@ -709,6 +838,10 @@ export async function buildLaunchEnv(options: {
     delete env.GOOGLE_API_KEY
     delete env.OPENAI_BASE_URL
     delete env.OPENAI_MODEL
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
     delete env.OPENAI_API_KEY
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
@@ -748,6 +881,10 @@ export async function buildLaunchEnv(options: {
       (await resolveOllamaModel(options.goal))
 
     delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
     delete env.CODEX_ACCOUNT_ID
@@ -768,6 +905,10 @@ export async function buildLaunchEnv(options: {
       ''
 
     delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
     delete env.CODEX_ACCOUNT_ID
@@ -782,6 +923,10 @@ export async function buildLaunchEnv(options: {
         : DEFAULT_CODEX_BASE_URL
     env.OPENAI_MODEL = persistedOpenAIModel || 'codexplan'
     delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
 
     const codexKey =
       sanitizeApiKey(processEnv.CODEX_API_KEY) ||
@@ -864,16 +1009,18 @@ export async function buildLaunchEnv(options: {
     model: shellOpenAIModel,
     baseUrl: shellOpenAIBaseUrl,
     fallbackModel: defaultOpenAIModel,
+    apiFormat: processEnv.OPENAI_API_FORMAT,
   })
   const persistedOpenAIRequest = resolveProviderRequest({
     model: persistedOpenAIModel,
     baseUrl: persistedOpenAIBaseUrl,
     fallbackModel: defaultOpenAIModel,
+    apiFormat: persistedOpenAIApiFormat,
   })
-  const useShellOpenAIConfig = shellOpenAIRequest.transport === 'chat_completions'
+  const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
   const usePersistedOpenAIConfig =
     (!persistedOpenAIModel && !persistedOpenAIBaseUrl) ||
-    persistedOpenAIRequest.transport === 'chat_completions'
+    persistedOpenAIRequest.transport !== 'codex_responses'
 
   env.OPENAI_BASE_URL =
     (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
@@ -883,7 +1030,44 @@ export async function buildLaunchEnv(options: {
     (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
     (usePersistedOpenAIConfig ? persistedOpenAIModel : undefined) ||
     defaultOpenAIModel
-  env.OPENAI_API_KEY = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
+  const openAIApiFormat =
+    processEnv.OPENAI_API_FORMAT ||
+    (usePersistedOpenAIConfig ? persistedOpenAIApiFormat : undefined)
+  if (openAIApiFormat) {
+    env.OPENAI_API_FORMAT = openAIApiFormat
+  } else {
+    delete env.OPENAI_API_FORMAT
+  }
+  const openAIAuthHeader =
+    processEnv.OPENAI_AUTH_HEADER ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthHeader : undefined)
+  if (openAIAuthHeader) {
+    env.OPENAI_AUTH_HEADER = openAIAuthHeader
+  } else {
+    delete env.OPENAI_AUTH_HEADER
+  }
+  const openAIAuthScheme =
+    processEnv.OPENAI_AUTH_SCHEME ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthScheme : undefined)
+  if (openAIAuthScheme) {
+    env.OPENAI_AUTH_SCHEME = openAIAuthScheme
+  } else {
+    delete env.OPENAI_AUTH_SCHEME
+  }
+  const openAIAuthHeaderValue =
+    sanitizeApiKey(processEnv.OPENAI_AUTH_HEADER_VALUE) ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthHeaderValue : undefined)
+  if (openAIAuthHeaderValue) {
+    env.OPENAI_AUTH_HEADER_VALUE = openAIAuthHeaderValue
+  } else {
+    delete env.OPENAI_AUTH_HEADER_VALUE
+  }
+  const openAIKey = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
+  if (openAIKey) {
+    env.OPENAI_API_KEY = openAIKey
+  } else {
+    delete env.OPENAI_API_KEY
+  }
   delete env.CODEX_API_KEY
   delete env.CHATGPT_ACCOUNT_ID
   delete env.CODEX_ACCOUNT_ID
@@ -916,6 +1100,10 @@ export async function buildStartupEnvFromProfile(options?: {
   // "banner shows gpt-4o / api.openai.com even though my saved profile is
   // Moonshot" bug.
   if (profileManagedEnv) {
+    return processEnv
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return processEnv
   }
 
