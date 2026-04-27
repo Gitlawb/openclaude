@@ -15,6 +15,7 @@ const ENV_KEYS = [
   'NVIDIA_NIM',
   'MINIMAX_API_KEY',
   'USER_TYPE',
+  'XAI_API_KEY',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}

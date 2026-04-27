@@ -15,6 +15,7 @@ const originalEnv = {
   GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
   GEMINI_AUTH_MODE: process.env.GEMINI_AUTH_MODE,
   GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -38,6 +39,7 @@ afterEach(() => {
     'GOOGLE_APPLICATION_CREDENTIALS',
     originalEnv.GOOGLE_APPLICATION_CREDENTIALS,
   )
+  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
 })
 
 test('accepts GEMINI_ACCESS_TOKEN as valid Gemini auth', async () => {
