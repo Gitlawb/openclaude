@@ -99,6 +99,11 @@ const KIMI_CODE_API_HOST = 'api.kimi.com'
 const DEEPSEEK_API_HOSTS = new Set([
   'api.deepseek.com',
 ])
+
+/** API hosts that run reasoning models requiring `reasoning_content` echo-back. */
+const REASONING_API_HOSTS = new Set([
+  'integrate.api.nvidia.com',
+])
 const COPILOT_HEADERS: Record<string, string> = {
   'User-Agent': 'GitHubCopilotChat/0.26.7',
   'Editor-Version': 'vscode/1.99.3',
@@ -187,6 +192,54 @@ function isDeepSeekBaseUrl(baseUrl: string | undefined): boolean {
   }
 }
 
+function isReasoningApiHost(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+  try {
+    return REASONING_API_HOSTS.has(new URL(baseUrl).hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Combined check: returns true when the provider is recognized as one capable
+ * of emitting `reasoning_content` on assistant messages.
+ *
+ * Uses a two-tier approach:
+ *   1. Explicit host allowlist — fast path for known reasoning providers
+ *      (DeepSeek, Moonshot, Z.AI, NVIDIA).
+ *   2. History-based heuristic — when the host is unknown but there's already
+ *      a `thinking` block in the conversation. This handles edge cases where
+ *      a reasoning model is served behind an unlisted host, while avoiding
+ *      false positives for providers that never return reasoning content
+ *      (specifically api.openai.com).
+ */
+function providerSupportsReasoning(
+  baseUrl: string | undefined,
+  messages: Array<{
+    role: string
+    message?: { role?: string; content?: unknown }
+    content?: unknown
+  }>,
+): boolean {
+  if (
+    isMoonshotCompatibleBaseUrl(baseUrl) ||
+    isDeepSeekBaseUrl(baseUrl) ||
+    isZaiBaseUrl(baseUrl) ||
+    isReasoningApiHost(baseUrl)
+  ) {
+    return true
+  }
+  if (!baseUrl) return false
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase()
+    if (host === 'api.openai.com') return false
+  } catch {
+    return false
+  }
+  return hasThinkingBlockInHistory(messages)
+}
+
 function normalizeDeepSeekReasoningEffort(
   effort: 'low' | 'medium' | 'high' | 'xhigh',
 ): 'high' | 'max' {
@@ -228,6 +281,33 @@ function redactUrlForDiagnostics(url: string): string {
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * Check whether the conversation history contains any assistant message with a
+ * `thinking` block — meaning a prior turn already received reasoning content
+ * from the API. When combined with `tool_use` blocks, the outgoing request
+ * must echo `reasoning_content` on those assistant messages for providers
+ * (like DeepSeek, Kimi, Moonshot, NVIDIA-hosted reasoning models) that
+ * require continuity of reasoning content across tool-call rounds.
+ */
+function hasThinkingBlockInHistory(
+  messages: Array<{
+    role: string
+    message?: { role?: string; content?: unknown }
+    content?: unknown
+  }>,
+): boolean {
+  for (const msg of messages) {
+    const content = msg.content ?? msg.message?.content
+    if (!Array.isArray(content)) continue
+
+    const types = content.map(c => (c as Record<string, unknown>).type).filter(Boolean)
+    if (types.includes('thinking') || types.includes('redacted_thinking')) {
+      return true
+    }
+  }
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,10 +1605,10 @@ class OpenAIShimMessages {
       // reasoning_content when its thinking feature is active. DeepSeek does
       // the same for tool-call turns in thinking mode. Echo it back from the
       // thinking block we captured on the inbound response.
-      preserveReasoningContent:
-        isMoonshotCompatibleBaseUrl(request.baseUrl) ||
-        isDeepSeekBaseUrl(request.baseUrl) ||
-        isZaiBaseUrl(request.baseUrl),
+      preserveReasoningContent: providerSupportsReasoning(
+        request.baseUrl,
+        compressedMessages,
+      ),
     })
 
     const body: Record<string, unknown> = {
