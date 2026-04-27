@@ -11,13 +11,16 @@ const execFileNoThrowMock = mock(
   async () => ({ code: 0, stdout: '', stderr: '' }),
 )
 
-mock.module('../../utils/execFileNoThrow.js', () => ({
-  execFileNoThrow: execFileNoThrowMock,
-}))
+function installOscMocks(): void {
+  mock.module('../../utils/execFileNoThrow.js', () => ({
+    execFileNoThrow: execFileNoThrowMock,
+    execFileNoThrowWithCwd: execFileNoThrowMock,
+  }))
 
-mock.module('../../utils/tempfile.js', () => ({
-  generateTempFilePath: generateTempFilePathMock,
-}))
+  mock.module('../../utils/tempfile.js', () => ({
+    generateTempFilePath: generateTempFilePathMock,
+  }))
+}
 
 async function importFreshOscModule() {
   return import(`./osc.ts?ts=${Date.now()}-${Math.random()}`)
@@ -27,8 +30,24 @@ async function flushClipboardCopy(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0))
 }
 
+async function waitForExecCall(
+  command: string,
+  attempts = 20,
+): Promise<(typeof execFileNoThrowMock.mock.calls)[number] | undefined> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const call = execFileNoThrowMock.mock.calls.find(([cmd]) => cmd === command)
+    if (call) {
+      return call
+    }
+    await flushClipboardCopy()
+  }
+
+  return undefined
+}
+
 describe('Windows clipboard fallback', () => {
   beforeEach(() => {
+    installOscMocks()
     execFileNoThrowMock.mockClear()
     generateTempFilePathMock.mockClear()
     process.env = { ...originalEnv }
@@ -46,14 +65,12 @@ describe('Windows clipboard fallback', () => {
     const { setClipboard } = await importFreshOscModule()
 
     await setClipboard('Привет мир')
-    await flushClipboardCopy()
+    const windowsCall = await waitForExecCall('powershell')
 
     expect(execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'clip')).toBe(
       false,
     )
-    expect(
-      execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'powershell'),
-    ).toBe(true)
+    expect(windowsCall).toBeDefined()
   })
 
   test('passes Windows clipboard text through a UTF-8 temp file instead of stdin', async () => {
@@ -62,9 +79,7 @@ describe('Windows clipboard fallback', () => {
     await setClipboard('Привет мир')
     await flushClipboardCopy()
 
-    const windowsCall = execFileNoThrowMock.mock.calls.find(
-      ([cmd]) => cmd === 'powershell',
-    )
+    const windowsCall = await waitForExecCall('powershell')
 
     expect(windowsCall?.[2]).toMatchObject({
       stdin: 'ignore',
@@ -83,6 +98,7 @@ describe('Windows clipboard fallback', () => {
 
 describe('clipboard path behavior remains stable', () => {
   beforeEach(() => {
+    installOscMocks()
     execFileNoThrowMock.mockClear()
     process.env = { ...originalEnv }
     delete process.env['SSH_CONNECTION']

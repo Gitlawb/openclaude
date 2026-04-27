@@ -1,17 +1,12 @@
 import { execFileSync } from 'child_process'
 import { diffLines } from 'diff'
-import { constants as fsConstants } from 'fs'
 import {
-  copyFile,
   mkdir,
-  mkdtemp,
   readdir,
   readFile,
-  rm,
   unlink,
   writeFile,
 } from 'fs/promises'
-import { tmpdir } from 'os'
 import { extname, join } from 'path'
 import type { Command } from '../commands.js'
 import { queryWithModel } from '../services/api/claude.js'
@@ -22,7 +17,6 @@ import {
 import type { LogOption } from '../types/logs.js'
 import { getClaudeConfigHomeDir } from '../utils/envUtils.js'
 import { toError } from '../utils/errors.js'
-import { execFileNoThrow } from '../utils/execFileNoThrow.js'
 import { logError } from '../utils/log.js'
 import { extractTextContent } from '../utils/messages.js'
 import { getDefaultOpusModel } from '../utils/model/model.js'
@@ -46,180 +40,6 @@ function getAnalysisModel(): string {
 function getInsightsModel(): string {
   return getDefaultOpusModel()
 }
-
-// ============================================================================
-// Homespace Data Collection
-// ============================================================================
-
-type RemoteHostInfo = {
-  name: string
-  sessionCount: number
-}
-
-/* eslint-disable custom-rules/no-process-env-top-level */
-const getRunningRemoteHosts: () => Promise<string[]> =
-  process.env.USER_TYPE === 'ant'
-    ? async () => {
-        const { stdout, code } = await execFileNoThrow(
-          'coder',
-          ['list', '-o', 'json'],
-          { timeout: 30000 },
-        )
-        if (code !== 0) return []
-        try {
-          const workspaces = jsonParse(stdout) as Array<{
-            name: string
-            latest_build?: { status?: string }
-          }>
-          return workspaces
-            .filter(w => w.latest_build?.status === 'running')
-            .map(w => w.name)
-        } catch {
-          return []
-        }
-      }
-    : async () => []
-
-const getRemoteHostSessionCount: (hs: string) => Promise<number> =
-  process.env.USER_TYPE === 'ant'
-    ? async (homespace: string) => {
-        const { stdout, code } = await execFileNoThrow(
-          'ssh',
-          [
-            `${homespace}.coder`,
-            'find /root/.claude/projects -name "*.jsonl" 2>/dev/null | wc -l',
-          ],
-          { timeout: 30000 },
-        )
-        if (code !== 0) return 0
-        return parseInt(stdout.trim(), 10) || 0
-      }
-    : async () => 0
-
-const collectFromRemoteHost: (
-  hs: string,
-  destDir: string,
-) => Promise<{ copied: number; skipped: number }> =
-  process.env.USER_TYPE === 'ant'
-    ? async (homespace: string, destDir: string) => {
-        const result = { copied: 0, skipped: 0 }
-
-        // Create temp directory
-        const tempDir = await mkdtemp(join(tmpdir(), 'claude-hs-'))
-
-        try {
-          // SCP the projects folder
-          const scpResult = await execFileNoThrow(
-            'scp',
-            ['-rq', `${homespace}.coder:/root/.claude/projects/`, tempDir],
-            { timeout: 300000 },
-          )
-          if (scpResult.code !== 0) {
-            // SCP failed
-            return result
-          }
-
-          const projectsDir = join(tempDir, 'projects')
-          let projectDirents: Awaited<ReturnType<typeof readdir>>
-          try {
-            projectDirents = await readdir(projectsDir, { withFileTypes: true })
-          } catch {
-            return result
-          }
-
-          // Merge into destination (parallel per project directory)
-          await Promise.all(
-            projectDirents.map(async dirent => {
-              const projectName = dirent.name
-              const projectPath = join(projectsDir, projectName)
-
-              // Skip if not a directory
-              if (!dirent.isDirectory()) return
-
-              const destProjectName = `${projectName}__${homespace}`
-              const destProjectPath = join(destDir, destProjectName)
-
-              try {
-                await mkdir(destProjectPath, { recursive: true })
-              } catch {
-                // Directory may already exist
-              }
-
-              // Copy session files (skip existing)
-              let files: Awaited<ReturnType<typeof readdir>>
-              try {
-                files = await readdir(projectPath, { withFileTypes: true })
-              } catch {
-                return
-              }
-              await Promise.all(
-                files.map(async fileDirent => {
-                  const fileName = fileDirent.name
-                  if (!fileName.endsWith('.jsonl')) return
-
-                  const srcFile = join(projectPath, fileName)
-                  const destFile = join(destProjectPath, fileName)
-
-                  try {
-                    await copyFile(srcFile, destFile, fsConstants.COPYFILE_EXCL)
-                    result.copied++
-                  } catch {
-                    // EEXIST from COPYFILE_EXCL means dest already exists
-                    result.skipped++
-                  }
-                }),
-              )
-            }),
-          )
-        } finally {
-          try {
-            await rm(tempDir, { recursive: true, force: true })
-          } catch {
-            // Ignore cleanup errors
-          }
-        }
-
-        return result
-      }
-    : async () => ({ copied: 0, skipped: 0 })
-
-const collectAllRemoteHostData: (destDir: string) => Promise<{
-  hosts: RemoteHostInfo[]
-  totalCopied: number
-  totalSkipped: number
-}> =
-  process.env.USER_TYPE === 'ant'
-    ? async (destDir: string) => {
-        const rHosts = await getRunningRemoteHosts()
-        const result: RemoteHostInfo[] = []
-        let totalCopied = 0
-        let totalSkipped = 0
-
-        // Collect from all hosts in parallel (SCP per host can take seconds)
-        const hostResults = await Promise.all(
-          rHosts.map(async hs => {
-            const sessionCount = await getRemoteHostSessionCount(hs)
-            if (sessionCount > 0) {
-              const { copied, skipped } = await collectFromRemoteHost(
-                hs,
-                destDir,
-              )
-              return { name: hs, sessionCount, copied, skipped }
-            }
-            return { name: hs, sessionCount, copied: 0, skipped: 0 }
-          }),
-        )
-
-        for (const hr of hostResults) {
-          result.push({ name: hr.name, sessionCount: hr.sessionCount })
-          totalCopied += hr.copied
-          totalSkipped += hr.skipped
-        }
-
-        return { hosts: result, totalCopied, totalSkipped }
-      }
-    : async () => ({ hosts: [], totalCopied: 0, totalSkipped: 0 })
-/* eslint-enable custom-rules/no-process-env-top-level */
 
 // ============================================================================
 // Types
@@ -427,7 +247,7 @@ function getSessionMetaDir(): string {
   return join(getDataDir(), 'session-meta')
 }
 
-const FACET_EXTRACTION_PROMPT = `Analyze this Claude Code session and extract structured facets.
+const FACET_EXTRACTION_PROMPT = `Analyze this OpenClaude session and extract structured facets.
 
 CRITICAL GUIDELINES:
 
@@ -867,7 +687,7 @@ function formatTranscriptForFacets(log: LogOption): string {
   return lines.join('\n')
 }
 
-const SUMMARIZE_CHUNK_PROMPT = `Summarize this portion of a Claude Code session transcript. Focus on:
+const SUMMARIZE_CHUNK_PROMPT = `Summarize this portion of a OpenClaude session transcript. Focus on:
 1. What the user asked for
 2. What Claude did (tools used, files modified)
 3. Any friction or issues
@@ -1336,12 +1156,12 @@ type InsightSection = {
 const INSIGHT_SECTIONS: InsightSection[] = [
   {
     name: 'project_areas',
-    prompt: `Analyze this Claude Code usage data and identify project areas.
+    prompt: `Analyze this OpenClaude usage data and identify project areas.
 
 RESPOND WITH ONLY A VALID JSON OBJECT:
 {
   "areas": [
-    {"name": "Area name", "session_count": N, "description": "2-3 sentences about what was worked on and how Claude Code was used."}
+    {"name": "Area name", "session_count": N, "description": "2-3 sentences about what was worked on and how OpenClaude was used."}
   ]
 }
 
@@ -1350,18 +1170,18 @@ Include 4-5 areas. Skip internal CC operations.`,
   },
   {
     name: 'interaction_style',
-    prompt: `Analyze this Claude Code usage data and describe the user's interaction style.
+    prompt: `Analyze this OpenClaude usage data and describe the user's interaction style.
 
 RESPOND WITH ONLY A VALID JSON OBJECT:
 {
-  "narrative": "2-3 paragraphs analyzing HOW the user interacts with Claude Code. Use second person 'you'. Describe patterns: iterate quickly vs detailed upfront specs? Interrupt often or let Claude run? Include specific examples. Use **bold** for key insights.",
+  "narrative": "2-3 paragraphs analyzing HOW the user interacts with OpenClaude. Use second person 'you'. Describe patterns: iterate quickly vs detailed upfront specs? Interrupt often or let Claude run? Include specific examples. Use **bold** for key insights.",
   "key_pattern": "One sentence summary of most distinctive interaction style"
 }`,
     maxTokens: 8192,
   },
   {
     name: 'what_works',
-    prompt: `Analyze this Claude Code usage data and identify what's working well for this user. Use second person ("you").
+    prompt: `Analyze this OpenClaude usage data and identify what's working well for this user. Use second person ("you").
 
 RESPOND WITH ONLY A VALID JSON OBJECT:
 {
@@ -1376,7 +1196,7 @@ Include 3 impressive workflows.`,
   },
   {
     name: 'friction_analysis',
-    prompt: `Analyze this Claude Code usage data and identify friction points for this user. Use second person ("you").
+    prompt: `Analyze this OpenClaude usage data and identify friction points for this user. Use second person ("you").
 
 RESPOND WITH ONLY A VALID JSON OBJECT:
 {
@@ -1391,7 +1211,7 @@ Include 3 friction categories with 2 examples each.`,
   },
   {
     name: 'suggestions',
-    prompt: `Analyze this Claude Code usage data and suggest improvements.
+    prompt: `Analyze this OpenClaude usage data and suggest improvements.
 
 ## CC FEATURES REFERENCE (pick from these for features_to_try):
 1. **MCP Servers**: Connect Claude to external tools, databases, and APIs via Model Context Protocol.
@@ -1434,7 +1254,7 @@ IMPORTANT for features_to_try: Pick 2-3 from the CC FEATURES REFERENCE above. In
   },
   {
     name: 'on_the_horizon',
-    prompt: `Analyze this Claude Code usage data and identify future opportunities.
+    prompt: `Analyze this OpenClaude usage data and identify future opportunities.
 
 RESPOND WITH ONLY A VALID JSON OBJECT:
 {
@@ -1451,7 +1271,7 @@ Include 3 opportunities. Think BIG - autonomous workflows, parallel agents, iter
     ? [
         {
           name: 'cc_team_improvements',
-          prompt: `Analyze this Claude Code usage data and suggest product improvements for the CC team.
+          prompt: `Analyze this OpenClaude usage data and suggest product improvements for the CC team.
 
 RESPOND WITH ONLY A VALID JSON OBJECT:
 {
@@ -1465,7 +1285,7 @@ Include 2-3 improvements based on friction patterns observed.`,
         },
         {
           name: 'model_behavior_improvements',
-          prompt: `Analyze this Claude Code usage data and suggest model behavior improvements.
+          prompt: `Analyze this OpenClaude usage data and suggest model behavior improvements.
 
 RESPOND WITH ONLY A VALID JSON OBJECT:
 {
@@ -1481,7 +1301,7 @@ Include 2-3 improvements based on friction patterns observed.`,
     : []),
   {
     name: 'fun_ending',
-    prompt: `Analyze this Claude Code usage data and find a memorable moment.
+    prompt: `Analyze this OpenClaude usage data and find a memorable moment.
 
 RESPOND WITH ONLY A VALID JSON OBJECT:
 {
@@ -1735,7 +1555,7 @@ async function generateParallelInsights(
       .join('\n') || ''
 
   // Now generate "At a Glance" with access to other sections' outputs
-  const atAGlancePrompt = `You're writing an "At a Glance" summary for a Claude Code usage insights report for Claude Code users. The goal is to help them understand their usage and improve how they can use Claude better, especially as models improve.
+  const atAGlancePrompt = `You're writing an "At a Glance" summary for a OpenClaude usage insights report for OpenClaude users. The goal is to help them understand their usage and improve how they can use Claude better, especially as models improve.
 
 Use this 4-part structure:
 
@@ -1743,7 +1563,7 @@ Use this 4-part structure:
 
 2. **What's hindering you** - Split into (a) Claude's fault (misunderstandings, wrong approaches, bugs) and (b) user-side friction (not providing enough context, environment issues -- ideally more general than just one project). Be honest but constructive.
 
-3. **Quick wins to try** - Specific Claude Code features they could try from the examples below, or a workflow technique if you think it's really compelling. (Avoid stuff like "Ask Claude to confirm before taking actions" or "Type out more context up front" which are less compelling.)
+3. **Quick wins to try** - Specific OpenClaude features they could try from the examples below, or a workflow technique if you think it's really compelling. (Avoid stuff like "Ask Claude to confirm before taking actions" or "Type out more context up front" which are less compelling.)
 
 4. **Ambitious workflows for better models** - As we move to much more capable models over the next 3-6 months, what should they prepare for? What workflows that seem impossible now will become possible? Draw from the appropriate section below.
 
@@ -2006,7 +1826,7 @@ function generateHtmlReport(
   const interactionStyle = insights.interaction_style
   const interactionHtml = interactionStyle?.narrative
     ? `
-    <h2 id="section-usage">How You Use Claude Code</h2>
+    <h2 id="section-usage">How You Use OpenClaude</h2>
     <div class="narrative">
       ${markdownToHtml(interactionStyle.narrative)}
       ${interactionStyle.key_pattern ? `<div class="key-insight"><strong>Key pattern:</strong> ${escapeHtml(interactionStyle.key_pattern)}</div>` : ''}
@@ -2070,7 +1890,7 @@ function generateHtmlReport(
     <h2 id="section-features">Existing CC Features to Try</h2>
     <div class="claude-md-section">
       <h3>Suggested CLAUDE.md Additions</h3>
-      <p style="font-size: 12px; color: #64748b; margin-bottom: 12px;">Just copy this into Claude Code to add it to your CLAUDE.md.</p>
+      <p style="font-size: 12px; color: #64748b; margin-bottom: 12px;">Just copy this into OpenClaude to add it to your CLAUDE.md.</p>
       <div class="claude-md-actions">
         <button class="copy-all-btn" onclick="copyAllCheckedClaudeMd()">Copy All Checked</button>
       </div>
@@ -2095,7 +1915,7 @@ function generateHtmlReport(
     ${
       suggestions.features_to_try && suggestions.features_to_try.length > 0
         ? `
-    <p style="font-size: 13px; color: #64748b; margin-bottom: 12px;">Just copy this into Claude Code and it'll set it up for you.</p>
+    <p style="font-size: 13px; color: #64748b; margin-bottom: 12px;">Just copy this into OpenClaude and it'll set it up for you.</p>
     <div class="features-section">
       ${suggestions.features_to_try
         .map(
@@ -2129,8 +1949,8 @@ function generateHtmlReport(
     ${
       suggestions.usage_patterns && suggestions.usage_patterns.length > 0
         ? `
-    <h2 id="section-patterns">New Ways to Use Claude Code</h2>
-    <p style="font-size: 13px; color: #64748b; margin-bottom: 12px;">Just copy this into Claude Code and it'll walk you through it.</p>
+    <h2 id="section-patterns">New Ways to Use OpenClaude</h2>
+    <p style="font-size: 13px; color: #64748b; margin-bottom: 12px;">Just copy this into OpenClaude and it'll walk you through it.</p>
     <div class="patterns-section">
       ${suggestions.usage_patterns
         .map(
@@ -2143,7 +1963,7 @@ function generateHtmlReport(
             pat.copyable_prompt
               ? `
           <div class="copyable-prompt-section">
-            <div class="prompt-label">Paste into Claude Code:</div>
+            <div class="prompt-label">Paste into OpenClaude:</div>
             <div class="copyable-prompt-row">
               <code class="copyable-prompt">${escapeHtml(pat.copyable_prompt)}</code>
               <button class="copy-btn" onclick="copyText(this)">Copy</button>
@@ -2178,7 +1998,7 @@ function generateHtmlReport(
           <div class="horizon-title">${escapeHtml(opp.title || '')}</div>
           <div class="horizon-possible">${escapeHtml(opp.whats_possible || '')}</div>
           ${opp.how_to_try ? `<div class="horizon-tip"><strong>Getting started:</strong> ${escapeHtml(opp.how_to_try)}</div>` : ''}
-          ${opp.copyable_prompt ? `<div class="pattern-prompt"><div class="prompt-label">Paste into Claude Code:</div><code>${escapeHtml(opp.copyable_prompt)}</code><button class="copy-btn" onclick="copyText(this)">Copy</button></div>` : ''}
+          ${opp.copyable_prompt ? `<div class="pattern-prompt"><div class="prompt-label">Paste into OpenClaude:</div><code>${escapeHtml(opp.copyable_prompt)}</code><button class="copy-btn" onclick="copyText(this)">Copy</button></div>` : ''}
         </div>
       `,
         )
@@ -2485,13 +2305,13 @@ function generateHtmlReport(
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Claude Code Insights</title>
+  <title>OpenClaude Insights</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>${css}</style>
 </head>
 <body>
   <div class="container">
-    <h1>Claude Code Insights</h1>
+    <h1>OpenClaude Insights</h1>
     <p class="subtitle">${data.total_messages.toLocaleString()} messages across ${data.total_sessions} sessions${data.total_sessions_scanned && data.total_sessions_scanned > data.total_sessions ? ` (${data.total_sessions_scanned.toLocaleString()} total)` : ''} | ${data.date_range.start} to ${data.date_range.end}</p>
 
     ${atAGlanceHtml}
@@ -2557,7 +2377,7 @@ function generateHtmlReport(
         data.multi_clauding.overlap_events === 0
           ? `
         <p style="font-size: 14px; color: #64748b; padding: 8px 0;">
-          No parallel session usage detected. You typically work with one Claude Code session at a time.
+          No parallel session usage detected. You typically work with one OpenClaude session at a time.
         </p>
       `
           : `
@@ -2576,7 +2396,7 @@ function generateHtmlReport(
           </div>
         </div>
         <p style="font-size: 13px; color: #475569; margin-top: 12px;">
-          You run multiple Claude Code sessions simultaneously. Multi-clauding is detected when sessions
+          You run multiple OpenClaude sessions simultaneously. Multi-clauding is detected when sessions
           overlap in time, suggesting parallel workflows.
         </p>
       `
@@ -2659,7 +2479,6 @@ export type InsightsExport = {
     claude_code_version: string
     date_range: { start: string; end: string }
     session_count: number
-    remote_hosts_collected?: string[]
   }
   aggregated_data: AggregatedData
   insights: InsightResults
@@ -2680,13 +2499,8 @@ export function buildExportData(
   data: AggregatedData,
   insights: InsightResults,
   facets: Map<string, SessionFacets>,
-  remoteStats?: { hosts: RemoteHostInfo[]; totalCopied: number },
 ): InsightsExport {
   const version = typeof MACRO !== 'undefined' ? MACRO.VERSION : 'unknown'
-
-  const remote_hosts_collected = remoteStats?.hosts
-    .filter(h => h.sessionCount > 0)
-    .map(h => h.name)
 
   const facets_summary = {
     total: facets.size,
@@ -2725,10 +2539,6 @@ export function buildExportData(
       claude_code_version: version,
       date_range: data.date_range,
       session_count: data.total_sessions,
-      ...(remote_hosts_collected &&
-        remote_hosts_collected.length > 0 && {
-          remote_hosts_collected,
-        }),
     },
     aggregated_data: data,
     insights,
@@ -2793,24 +2603,12 @@ async function scanAllSessions(): Promise<LiteSessionInfo[]> {
 // Main Function
 // ============================================================================
 
-export async function generateUsageReport(options?: {
-  collectRemote?: boolean
-}): Promise<{
+export async function generateUsageReport(): Promise<{
   insights: InsightResults
   htmlPath: string
   data: AggregatedData
-  remoteStats?: { hosts: RemoteHostInfo[]; totalCopied: number }
   facets: Map<string, SessionFacets>
 }> {
-  let remoteStats: { hosts: RemoteHostInfo[]; totalCopied: number } | undefined
-
-  // Optionally collect data from remote hosts first (internal-only)
-  if (process.env.USER_TYPE === 'ant' && options?.collectRemote) {
-    const destDir = join(getClaudeConfigHomeDir(), 'projects')
-    const { hosts, totalCopied } = await collectAllRemoteHostData(destDir)
-    remoteStats = { hosts, totalCopied }
-  }
-
   // Phase 1: Lite scan — filesystem metadata only (no JSONL parsing)
   const allScannedSessions = await scanAllSessions()
   const totalSessionsScanned = allScannedSessions.length
@@ -3017,7 +2815,6 @@ export async function generateUsageReport(options?: {
     insights,
     htmlPath,
     data: aggregated,
-    remoteStats,
     facets: substantiveFacets,
   }
 }
@@ -3039,35 +2836,12 @@ function safeKeys(obj: Record<string, unknown> | undefined | null): string[] {
 const usageReport: Command = {
   type: 'prompt',
   name: 'insights',
-  description: 'Generate a report analyzing your Claude Code sessions',
+  description: 'Generate a report analyzing your OpenClaude sessions',
   contentLength: 0, // Dynamic content
   progressMessage: 'analyzing your sessions',
   source: 'builtin',
-  async getPromptForCommand(args) {
-    let collectRemote = false
-    let remoteHosts: string[] = []
-    let hasRemoteHosts = false
-
-    if (process.env.USER_TYPE === 'ant') {
-      // Parse --homespaces flag
-      collectRemote = args?.includes('--homespaces') ?? false
-
-      // Check for available remote hosts
-      remoteHosts = await getRunningRemoteHosts()
-      hasRemoteHosts = remoteHosts.length > 0
-
-      // Show collection message if collecting
-      if (collectRemote && hasRemoteHosts) {
-        // biome-ignore lint/suspicious/noConsole: intentional
-        console.error(
-          `Collecting sessions from ${remoteHosts.length} homespace(s): ${remoteHosts.join(', ')}...`,
-        )
-      }
-    }
-
-    const { insights, htmlPath, data, remoteStats } = await generateUsageReport(
-      { collectRemote },
-    )
+  async getPromptForCommand(_args) {
+    const { insights, htmlPath, data } = await generateUsageReport()
 
     let reportUrl = `file://${htmlPath}`
     let uploadHint = ''
@@ -3085,20 +2859,6 @@ const usageReport: Command = {
       `${data.git_commits} commits`,
     ].join(' · ')
 
-    // Build remote host info (internal-only)
-    let remoteInfo = ''
-    if (process.env.USER_TYPE === 'ant') {
-      if (remoteStats && remoteStats.totalCopied > 0) {
-        const hsNames = remoteStats.hosts
-          .filter(h => h.sessionCount > 0)
-          .map(h => h.name)
-          .join(', ')
-        remoteInfo = `\n_Collected ${remoteStats.totalCopied} new sessions from: ${hsNames}_\n`
-      } else if (!collectRemote && hasRemoteHosts) {
-        // Suggest using --homespaces if they have remote hosts but didn't use the flag
-        remoteInfo = `\n_Tip: Run \`/insights --homespaces\` to include sessions from your ${remoteHosts.length} running homespace(s)_\n`
-      }
-    }
 
     // Build markdown summary from insights
     const atAGlance = insights.at_a_glance
@@ -3114,11 +2874,10 @@ ${atAGlance.quick_wins ? `**Quick wins to try:** ${atAGlance.quick_wins} See _Fe
 ${atAGlance.ambitious_workflows ? `**Ambitious workflows:** ${atAGlance.ambitious_workflows} See _On the Horizon_.` : ''}`
       : '_No insights generated_'
 
-    const header = `# Claude Code Insights
+    const header = `# OpenClaude Insights
 
 ${stats}
 ${data.date_range.start} to ${data.date_range.end}
-${remoteInfo}
 `
 
     const userSummary = `${header}${summaryText}
@@ -3129,7 +2888,7 @@ Your full shareable insights report is ready: ${reportUrl}${uploadHint}`
     return [
       {
         type: 'text',
-        text: `The user just ran /insights to generate a usage report analyzing their Claude Code sessions.
+        text: `The user just ran /insights to generate a usage report analyzing their OpenClaude sessions.
 
 Here is the full insights data:
 ${jsonStringify(insights, null, 2)}

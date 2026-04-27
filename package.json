@@ -1,7 +1,7 @@
 {
   "name": "@gitlawb/openclaude",
-  "version": "0.1.8",
-  "description": "Claude Code opened to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
+  "version": "0.7.0",
+  "description": "OpenClaude opens coding-agent workflows to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
     "openclaude": "./bin/openclaude"
@@ -76,7 +76,7 @@
     "@opentelemetry/semantic-conventions": "1.40.0",
     "ajv": "8.18.0",
     "auto-bind": "5.0.1",
-    "axios": "1.14.0",
+    "axios": "1.15.0",
     "bidi-js": "1.0.3",
     "chalk": "5.6.2",
     "chokidar": "4.0.3",
@@ -140,7 +140,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitlawb.com/z6MkqDnb7Siv3Cwj7pGJq4T5EsUisECqR8KpnDLwcaZq5TPr/openclaude"
+    "url": "https://github.com/Gitlawb/openclaude.git"
   },
   "keywords": [
     "claude-code",

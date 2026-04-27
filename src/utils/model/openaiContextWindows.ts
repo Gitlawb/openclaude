@@ -12,7 +12,72 @@
  */
 
 const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
+  // GitHub Copilot — values from https://api.githubcopilot.com/models (2026-04-09)
+  // Namespaced so they don't collide with bare model names from other providers.
+  'github:copilot':                           128_000,
+  // Claude
+  'github:copilot:claude-sonnet-4':           216_000,
+  'github:copilot:claude-haiku-4':            200_000,
+  'github:copilot:claude-haiku-4.5':          144_000,
+  'github:copilot:claude-sonnet-4.5':         200_000,
+  'github:copilot:claude-sonnet-4.6':         200_000,
+  'github:copilot:claude-opus-4':             200_000,
+  'github:copilot:claude-opus-4.6':           200_000,
+  // GPT
+  'github:copilot:gpt-3.5-turbo':             16_384,
+  'github:copilot:gpt-4':                     32_768,
+  'github:copilot:gpt-4-0125-preview':       128_000,
+  'github:copilot:gpt-4-o-preview':          128_000,
+  'github:copilot:gpt-4.1':                  128_000,
+  'github:copilot:gpt-4o':                   128_000,
+  'github:copilot:gpt-4o-2024-08-06':        128_000,
+  'github:copilot:gpt-4o-2024-11-20':        128_000,
+  'github:copilot:gpt-4o-mini':              128_000,
+  'github:copilot:gpt-5-mini':               264_000,
+  'github:copilot:gpt-5.1':                  264_000,
+  'github:copilot:gpt-5.2':                  400_000,
+  'github:copilot:gpt-5.2-codex':            400_000,
+  'github:copilot:gpt-5.3-codex':            400_000,
+  'github:copilot:gpt-5.5':                  400_000,
+  'github:copilot:gpt-5.5-mini':             400_000,
+  'github:copilot:gpt-5.4':                  400_000,
+  'github:copilot:gpt-5.4-mini':             400_000,
+  // Gemini
+  'github:copilot:gemini-2.5-pro':           128_000,
+  'github:copilot:gemini-3-flash-preview':   128_000,
+  'github:copilot:gemini-3.1-pro-preview':   200_000,
+  // Grok
+  'github:copilot:grok-code-fast-1':         256_000,
+
+  // LiteLLM format — when OpenClaude talks to a LiteLLM proxy, Copilot models
+  // keep their "<provider>/<model>" naming convention (standard LiteLLM routing)
+  // instead of the "github:copilot:<model>" namespaced form used by /onboard-github.
+  // Entries below cover the aliases currently exposed by LiteLLM's github_copilot
+  // provider — this is a curated subset, not an exhaustive mirror of the
+  // namespaced entries above. Values are sourced from copilotModels.ts to stay
+  // consistent with the /onboard-github path.
+  'github_copilot/claude-sonnet-4.6':        200_000,
+  'github_copilot/claude-opus-4.6':          200_000,
+  'github_copilot/claude-haiku-4.5':         144_000,
+  'github_copilot/gpt-4.1':                  128_000,
+  'github_copilot/gpt-4o':                   128_000,
+  'github_copilot/gpt-5-mini':               264_000,
+  'github_copilot/gpt-5.5':                  400_000,
+  'github_copilot/gpt-5.5-mini':             400_000,
+  'github_copilot/gpt-5.4':                  400_000,
+  'github_copilot/gpt-5.4-mini':             400_000,
+  'github_copilot/gemini-2.5-pro':           128_000,
+  'github_copilot/gemini-3-flash':           128_000,
+  'github_copilot/grok-code-fast-1':         256_000,
+
+  // NOTE: bare Claude model names (e.g. 'claude-sonnet-4') are intentionally
+  // omitted. Different OpenAI-compatible providers may impose different context
+  // limits for the same model name, so we cannot safely hardcode values here.
+
   // OpenAI
+  'gpt-5.5':               1_050_000,
+  'gpt-5.5-mini':            400_000,
+  'gpt-5.5-nano':            400_000,
   'gpt-5.4':               1_050_000,
   'gpt-5.4-mini':            400_000,
   'gpt-5.4-nano':            400_000,
@@ -31,7 +96,13 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'o3-mini':                  200_000,
   'o4-mini':                  200_000,
 
-  // DeepSeek (V3: 128k context per official docs)
+  // DeepSeek V4 coding-agent models. DeepSeek's official coding-agent guide
+  // publishes V4 Pro at 1,048,576 context / 262,144 output; Flash is treated
+  // as the same family for local budgeting until a dedicated public model card
+  // lands.
+  'deepseek-v4-flash':      1_048_576,
+  'deepseek-v4-pro':        1_048_576,
+  // Legacy DeepSeek API aliases documented in the public pricing/model pages.
   'deepseek-chat':            128_000,
   'deepseek-reasoner':        128_000,
 
@@ -41,17 +112,93 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'mixtral-8x7b-32768':        32_768,
 
   // Mistral
-  'mistral-large-latest':     131_072,
-  'mistral-small-latest':     131_072,
+  'mistral-large-latest':     256_000,
+  'mistral-small-latest':     256_000,
+  'devstral-latest':          256_000,
+  'ministral-3b-latest':      256_000,
+
+  // NVIDIA NIM - popular models
+  'nvidia/llama-3.1-nemotron-70b-instruct': 128_000,
+  'nvidia/llama-3.1-nemotron-ultra-253b-v1': 128_000,
+  'nvidia/nemotron-mini-4b-instruct': 32_768,
+  'meta/llama-3.1-405b-instruct': 128_000,
+  'meta/llama-3.1-70b-instruct': 128_000,
+  'meta/llama-3.1-8b-instruct': 128_000,
+  'meta/llama-3.2-90b-instruct': 128_000,
+  'meta/llama-3.2-1b-instruct': 128_000,
+  'meta/llama-3.2-3b-instruct': 128_000,
+  'meta/llama-3.3-70b-instruct': 128_000,
+  // Google Gemma via NVIDIA NIM
+  'google/gemma-2-27b-it': 8_192,
+  'google/gemma-2-9b-it': 8_192,
+  'google/gemma-3-27b-it': 131_072,
+  'google/gemma-3-12b-it': 131_072,
+  'google/gemma-3-4b-it': 131_072,
+  // DeepSeek via NVIDIA NIM
+  'deepseek-ai/deepseek-r1': 128_000,
+  'deepseek-ai/deepseek-v3': 128_000,
+  'deepseek-ai/deepseek-v3.2': 128_000,
+  // Qwen via NVIDIA NIM
+  'qwen/qwen3-32b': 128_000,
+  'qwen/qwen3-8b': 128_000,
+  'qwen/qwen2.5-7b-instruct': 32_768,
+  // Mistral via NVIDIA NIM
+  'mistralai/mistral-large-3-675b-instruct-2512': 256_000,
+  'mistralai/mistral-large-2-instruct': 256_000,
+  'mistralai/mistral-small-3.1-24b-instruct-2503': 32_768,
+  'mistralai/mixtral-8x7b-instruct-v0.1': 32_768,
+  // Microsoft Phi via NVIDIA NIM
+  'microsoft/phi-4-mini-instruct': 16_384,
+  'microsoft/phi-3.5-mini-instruct': 16_384,
+  'microsoft/phi-3-mini-128k-instruct': 128_000,
+  // IBM Granite via NVIDIA NIM
+  'ibm/granite-3.3-8b-instruct': 8_192,
+  'ibm/granite-8b-code-instruct': 8_192,
+  // GLM models via NVIDIA NIM
+  'z-ai/glm5': 200_000,
+  'z-ai/glm4.7': 128_000,
+  // Kimi models via NVIDIA NIM
+  'moonshotai/kimi-k2.5': 200_000,
+  'moonshotai/kimi-k2-instruct': 128_000,
+  // DBRX via NVIDIA NIM
+  'databricks/dbrx-instruct': 131_072,
+  // Jamba via NVIDIA NIM
+  'ai21labs/jamba-1.5-large-instruct': 256_000,
+  'ai21labs/jamba-1.5-mini-instruct': 256_000,
+  // Yi via NVIDIA NIM
+  '01-ai/yi-large': 32_768,
+
+  // MiniMax (all M2.x variants share 204,800 context, 131,072 max output)
+  'MiniMax-M2.7':             204_800,
+  'MiniMax-M2.7-highspeed':   204_800,
+  'MiniMax-M2.5':             204_800,
+  'MiniMax-M2.5-highspeed':   204_800,
+  'MiniMax-M2.1':             204_800,
+  'MiniMax-M2.1-highspeed':   204_800,
+  'minimax-m2.7':             204_800,
+  'minimax-m2.7-highspeed':   204_800,
+  'minimax-m2.5':             204_800,
+  'minimax-m2.5-highspeed':   204_800,
+  'minimax-m2.1':             204_800,
+  'minimax-m2.1-highspeed':   204_800,
+
+  // MiniMax new models
+  'MiniMax-Text-01':          524_288,
+  'MiniMax-Text-01-Preview':  262_144,
+  'MiniMax-Vision-01':        32_768,
+  'MiniMax-Vision-01-Fast':   16_384,
+  'MiniMax-M2':               204_800,
 
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':1_048_576,
   'google/gemini-2.5-pro':  1_048_576,
 
   // Google (native via CLAUDE_CODE_USE_GEMINI)
-  'gemini-2.0-flash':       1_048_576,
-  'gemini-2.5-pro':         1_048_576,
-  'gemini-2.5-flash':       1_048_576,
+  'gemini-2.0-flash':              1_048_576,
+  'gemini-2.5-pro':                1_048_576,
+  'gemini-2.5-flash':              1_048_576,
+  'gemini-3.1-pro':                1_048_576,
+  'gemini-3.1-flash-lite-preview': 1_048_576,
 
   // Ollama local models
   // Llama 3.1+ models support 128k context natively (Meta official specs).
@@ -70,6 +217,46 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'llama3.2:1b':              128_000,
   'qwen3:8b':                 128_000,
   'codestral':                 32_768,
+
+  // Alibaba DashScope (Coding Plan)
+  // Model context windows from DashScope API /models endpoint (April 2026).
+  // Values sourced from: qwen3.5-plus/qwen3-coder-plus (1M), qwen3-coder-next/max (256K),
+  // kimi-k2.5 (256K), glm-5/glm-4.7 (198K).
+  // Max output tokens: Qwen variants (64K/32K), GLM (16K).
+  'qwen3.6-plus':           1_000_000,
+  'qwen3.5-plus':           1_000_000,
+  'qwen3-coder-plus':       1_000_000,
+  'qwen3-coder-next':         262_144,
+  'qwen3-max':                262_144,
+  'qwen3-max-2026-01-23':     262_144,
+  'kimi-k2.5':                262_144,
+  'glm-5':                    202_752,
+  'glm-4.7':                  202_752,
+  'glm-5.1':                  202_752,
+  'glm-5-turbo':              202_752,
+  'glm-4.5-air':              128_000,
+  // Z.AI Coding Plan models (uppercase variants)
+  'GLM-5.1':                  202_752,
+  'GLM-5-Turbo':              202_752,
+  'GLM-5':                    202_752,
+  'GLM-4.7':                  202_752,
+  'GLM-4.5-Air':              128_000,
+
+  // xAI Grok
+  'grok-4':                 2_000_000,
+  'grok-3':                   131_072,
+
+  // Moonshot AI direct API (api.moonshot.ai/v1). Values from Moonshot's
+  // published model card — all K2 tier share 256K context. Prefix matching
+  // in lookupByKey catches variants like "kimi-k2.6-preview".
+  'kimi-for-coding':          262_144,
+  'kimi-k2.6':                262_144,
+  'kimi-k2':                  131_072,
+  'kimi-k2-instruct':         131_072,
+  'kimi-k2-thinking':         262_144,
+  'moonshot-v1-8k':             8_192,
+  'moonshot-v1-32k':           32_768,
+  'moonshot-v1-128k':         131_072,
 }
 
 /**
@@ -78,7 +265,59 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
  * Fixes: 400 error "max_tokens is too large" when default 32k exceeds model limit.
  */
 const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  // GitHub Copilot — values from https://api.githubcopilot.com/models (2026-04-09)
+  'github:copilot':                            16_384,
+  // Claude
+  'github:copilot:claude-sonnet-4':            16_000,
+  'github:copilot:claude-haiku-4':             64_000,
+  'github:copilot:claude-haiku-4.5':           32_768,
+  'github:copilot:claude-sonnet-4.5':          32_000,
+  'github:copilot:claude-sonnet-4.6':          32_000,
+  'github:copilot:claude-opus-4':              32_000,
+  'github:copilot:claude-opus-4.6':            32_000,
+  // GPT
+  'github:copilot:gpt-3.5-turbo':              4_096,
+  'github:copilot:gpt-4':                      4_096,
+  'github:copilot:gpt-4-0125-preview':         4_096,
+  'github:copilot:gpt-4-o-preview':            4_096,
+  'github:copilot:gpt-4.1':                   16_384,
+  'github:copilot:gpt-4o':                     4_096,
+  'github:copilot:gpt-4o-2024-08-06':         16_384,
+  'github:copilot:gpt-4o-2024-11-20':         16_384,
+  'github:copilot:gpt-4o-mini':                4_096,
+  'github:copilot:gpt-5-mini':                64_000,
+  'github:copilot:gpt-5.1':                   64_000,
+  'github:copilot:gpt-5.2':                  128_000,
+  'github:copilot:gpt-5.2-codex':            128_000,
+  'github:copilot:gpt-5.3-codex':            128_000,
+  'github:copilot:gpt-5.4':                  128_000,
+  'github:copilot:gpt-5.4-mini':             128_000,
+  // Gemini
+  'github:copilot:gemini-2.5-pro':            64_000,
+  'github:copilot:gemini-3-flash-preview':    64_000,
+  'github:copilot:gemini-3.1-pro-preview':    64_000,
+  // Grok
+  'github:copilot:grok-code-fast-1':          64_000,
+
+  // LiteLLM format — see note on context windows above.
+  'github_copilot/claude-sonnet-4.6':         32_000,
+  'github_copilot/claude-opus-4.6':           32_000,
+  'github_copilot/claude-haiku-4.5':          32_768,
+  'github_copilot/gpt-4.1':                   16_384,
+  'github_copilot/gpt-4o':                     4_096,
+  'github_copilot/gpt-5-mini':                64_000,
+  'github_copilot/gpt-5.4':                  128_000,
+  'github_copilot/gpt-5.4-mini':             128_000,
+  'github_copilot/gemini-2.5-pro':            64_000,
+  'github_copilot/gemini-3-flash':            64_000,
+  'github_copilot/grok-code-fast-1':          64_000,
+
+  // NOTE: bare Claude model names omitted — see context windows comment above.
+
   // OpenAI
+  'gpt-5.5':                 128_000,
+  'gpt-5.5-mini':            128_000,
+  'gpt-5.5-nano':            128_000,
   'gpt-5.4':                 128_000,
   'gpt-5.4-mini':            128_000,
   'gpt-5.4-nano':            128_000,
@@ -97,9 +336,12 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'o3-mini':                  100_000,
   'o4-mini':                  100_000,
 
-  // DeepSeek
+  // DeepSeek V4 coding-agent models. See context-window note above.
+  'deepseek-v4-flash':        262_144,
+  'deepseek-v4-pro':          262_144,
+  // Legacy DeepSeek API aliases documented in the public pricing/model pages.
   'deepseek-chat':              8_192,
-  'deepseek-reasoner':         32_768,
+  'deepseek-reasoner':         65_536,
 
   // Groq
   'llama-3.3-70b-versatile':  32_768,
@@ -110,14 +352,36 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'mistral-large-latest':     32_768,
   'mistral-small-latest':     32_768,
 
+  // MiniMax (all M2.x variants share 131,072 max output)
+  'MiniMax-M2.7':            131_072,
+  'MiniMax-M2.7-highspeed':  131_072,
+  'MiniMax-M2.5':            131_072,
+  'MiniMax-M2.5-highspeed':  131_072,
+  'MiniMax-M2.1':            131_072,
+  'MiniMax-M2.1-highspeed':  131_072,
+  'minimax-m2.7':            131_072,
+  'minimax-m2.7-highspeed':  131_072,
+  'minimax-m2.5':            131_072,
+  'minimax-m2.5-highspeed':  131_072,
+  'minimax-m2.1':            131_072,
+  'minimax-m2.1-highspeed':  131_072,
+  // New MiniMax models
+  'MiniMax-M2':              131_072,
+  'MiniMax-Text-01':          65_536,
+  'MiniMax-Text-01-Preview':  65_536,
+  'MiniMax-Vision-01':        16_384,
+  'MiniMax-Vision-01-Fast':    16_384,
+
   // Google (via OpenRouter)
   'google/gemini-2.0-flash':   8_192,
   'google/gemini-2.5-pro':    65_536,
 
   // Google (native via CLAUDE_CODE_USE_GEMINI)
-  'gemini-2.0-flash':          8_192,
-  'gemini-2.5-pro':           65_536,
-  'gemini-2.5-flash':         65_536,
+  'gemini-2.0-flash':              8_192,
+  'gemini-2.5-pro':                65_536,
+  'gemini-2.5-flash':              65_536,
+  'gemini-3.1-pro':                65_536,
+  'gemini-3.1-flash-lite-preview': 65_536,
 
   // Ollama local models (conservative safe defaults)
   'llama3.3:70b':               4_096,
@@ -134,9 +398,118 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'llama3.2:1b':                4_096,
   'qwen3:8b':                   8_192,
   'codestral':                   8_192,
+
+  // NVIDIA NIM models
+  'nvidia/llama-3.1-nemotron-70b-instruct': 32_768,
+  'nvidia/nemotron-mini-4b-instruct': 8_192,
+  'meta/llama-3.1-405b-instruct': 32_768,
+  'meta/llama-3.1-70b-instruct': 32_768,
+  'meta/llama-3.2-90b-instruct': 32_768,
+  'meta/llama-3.3-70b-instruct': 32_768,
+  'google/gemma-2-27b-it': 4_096,
+  'google/gemma-3-27b-it': 16_384,
+  'google/gemma-3-12b-it': 16_384,
+  'deepseek-ai/deepseek-r1': 32_768,
+  'deepseek-ai/deepseek-v3': 32_768,
+  'deepseek-ai/deepseek-v3.2': 32_768,
+  'qwen/qwen3-32b': 32_768,
+  'qwen/qwen2.5-7b-instruct': 8_192,
+  'mistralai/mistral-large-3-675b-instruct-2512': 32_768,
+  'mistralai/mixtral-8x7b-instruct-v0.1': 8_192,
+  'microsoft/phi-4-mini-instruct': 4_096,
+  'microsoft/phi-3.5-mini-instruct': 4_096,
+  'ibm/granite-3.3-8b-instruct': 4_096,
+  'z-ai/glm5': 32_768,
+  'moonshotai/kimi-k2.5': 32_768,
+  'databricks/dbrx-instruct': 32_768,
+  'ai21labs/jamba-1.5-large-instruct': 32_768,
+  '01-ai/yi-large': 8_192,
+
+  // Alibaba DashScope (Coding Plan)
+  'qwen3.6-plus':              65_536,
+  'qwen3.5-plus':              65_536,
+  'qwen3-coder-plus':          65_536,
+  'qwen3-coder-next':          65_536,
+  'qwen3-max':                 32_768,
+  'qwen3-max-2026-01-23':      32_768,
+  'kimi-k2.5':                 32_768,
+  // GLM models — lowercase aliases stay on conservative DashScope-style
+  // limits; Z.AI Coding Plan's exact uppercase GLM-* IDs use higher limits.
+  'glm-5':                     16_384,
+  'glm-4.7':                   16_384,
+  'glm-5.1':                    16_384,
+  'glm-5-turbo':                16_384,
+  'glm-4.5-air':                16_384,
+  'GLM-5':                     131_072,
+  'GLM-5.1':                   131_072,
+  'GLM-5-Turbo':               131_072,
+  'GLM-4.7':                   131_072,
+  'GLM-4.5-Air':                65_536,
+
+  // xAI Grok
+  'grok-4':                    32_768,
+  'grok-3':                    32_768,
+
+  // Moonshot AI direct API
+  'kimi-for-coding':           32_768,
+  'kimi-k2.6':                 32_768,
+  'kimi-k2':                   32_768,
+  'kimi-k2-instruct':          32_768,
+  'kimi-k2-thinking':          32_768,
+  'moonshot-v1-8k':             4_096,
+  'moonshot-v1-32k':           16_384,
+  'moonshot-v1-128k':          32_768,
 }
 
-function lookupByModel<T>(table: Record<string, T>, model: string): T | undefined {
+// External context-window overrides loaded once at startup.
+// Set CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS to a JSON object mapping model name
+// → context-window token count to add or override entries without editing
+// this file.  Example:
+//   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS='{"my-corp/llm-v2":200000}'
+const OPENAI_EXTERNAL_CONTEXT_WINDOWS: Record<string, number> = (() => {
+  try {
+    const raw = process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, number>
+    }
+  } catch { /* ignore malformed JSON */ }
+  return {}
+})()
+
+// External max-output-token overrides.
+// Set CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS to a JSON object mapping model name
+// → max output token count.
+const OPENAI_EXTERNAL_MAX_OUTPUT_TOKENS: Record<string, number> = (() => {
+  try {
+    const raw = process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, number>
+    }
+  } catch { /* ignore malformed JSON */ }
+  return {}
+})()
+
+function lookupByModel<T>(table: Record<string, T>, externalTable: Record<string, T>, model: string): T | undefined {
+  // Try provider-qualified key first: "{OPENAI_MODEL}:{model}" so that
+  // e.g. "github:copilot:claude-haiku-4.5" can have different limits than
+  // a bare "claude-haiku-4.5" served by another provider.
+  const providerModel = process.env.OPENAI_MODEL?.trim()
+  if (providerModel && providerModel !== model) {
+    const qualified = `${providerModel}:${model}`
+    // External table takes precedence over the built-in table.
+    const externalQualified = lookupByKey(externalTable, qualified)
+    if (externalQualified !== undefined) return externalQualified
+    const qualifiedResult = lookupByKey(table, qualified)
+    if (qualifiedResult !== undefined) return qualifiedResult
+  }
+  const externalResult = lookupByKey(externalTable, model)
+  if (externalResult !== undefined) return externalResult
+  return lookupByKey(table, model)
+}
+
+function lookupByKey<T>(table: Record<string, T>, model: string): T | undefined {
   if (table[model] !== undefined) return table[model]
   // Sort keys by length descending so the most specific prefix wins.
   // Without this, 'gpt-4-turbo-preview' could match 'gpt-4' (8k) instead
@@ -156,7 +529,7 @@ function lookupByModel<T>(table: Record<string, T>, model: string): T | undefine
  * "gpt-4o-2024-11-20" resolve to the base "gpt-4o" entry.
  */
 export function getOpenAIContextWindow(model: string): number | undefined {
-  return lookupByModel(OPENAI_CONTEXT_WINDOWS, model)
+  return lookupByModel(OPENAI_CONTEXT_WINDOWS, OPENAI_EXTERNAL_CONTEXT_WINDOWS, model)
 }
 
 /**
@@ -164,5 +537,5 @@ export function getOpenAIContextWindow(model: string): number | undefined {
  * Returns undefined if the model is not in the table.
  */
 export function getOpenAIMaxOutputTokens(model: string): number | undefined {
-  return lookupByModel(OPENAI_MAX_OUTPUT_TOKENS, model)
+  return lookupByModel(OPENAI_MAX_OUTPUT_TOKENS, OPENAI_EXTERNAL_MAX_OUTPUT_TOKENS, model)
 }

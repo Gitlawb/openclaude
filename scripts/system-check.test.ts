@@ -20,6 +20,23 @@ describe('formatReachabilityFailureDetail', () => {
     )
   })
 
+  test('redacts credentials and sensitive query parameters in endpoint details', () => {
+    const detail = formatReachabilityFailureDetail(
+      'http://user:pass@localhost:11434/v1/models?token=abc123&mode=test',
+      502,
+      'bad gateway',
+      {
+        transport: 'chat_completions',
+        requestedModel: 'llama3.1:8b',
+        resolvedModel: 'llama3.1:8b',
+      },
+    )
+
+    expect(detail).toBe(
+      'Unexpected status 502 from http://redacted:redacted@localhost:11434/v1/models?token=redacted&mode=test. Body: bad gateway',
+    )
+  })
+
   test('adds alias/entitlement hint for codex model support 400s', () => {
     const detail = formatReachabilityFailureDetail(
       'https://chatgpt.com/backend-api/codex/responses',

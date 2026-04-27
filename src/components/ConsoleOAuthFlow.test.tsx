@@ -103,7 +103,7 @@ test('login picker shows the third-party platform option', async () => {
   expect(output).toContain('3rd-party platform')
 })
 
-test('third-party provider branch opens the provider wizard', async () => {
+test('third-party provider branch opens the first-run provider manager', async () => {
   const output = await renderFrame(
     <ConsoleOAuthFlow
       initialStatus={{ state: 'platform_setup' }}
@@ -111,7 +111,11 @@ test('third-party provider branch opens the provider wizard', async () => {
     />,
   )
 
-  expect(output).toContain('Set up a provider profile')
-  expect(output).toContain('OpenAI-compatible')
-  expect(output).toContain('Ollama')
+  expect(output).toContain('Set up provider')
+  // Use alphabetically-early sentinels so they remain visible in the
+  // 13-row test frame after the provider list was sorted A→Z.
+  expect(output).toContain('Anthropic')
+  expect(output).toContain('Azure OpenAI')
+  expect(output).toContain('DeepSeek')
+  expect(output).toContain('Google Gemini')
 })

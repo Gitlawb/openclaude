@@ -33,8 +33,15 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
-import { getActiveOpenAIModelOptionsCache } from '../providerProfiles.js'
+import {
+  getActiveOpenAIModelOptionsCache,
+  getActiveProviderProfile,
+  getProfileModelOptions,
+} from '../providerProfiles.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
+import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
+import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -290,9 +297,9 @@ function getOpusPlanOption(): ModelOption {
 
 function getCodexPlanOption(): ModelOption {
   return {
-    value: 'gpt-5.4',
-    label: 'gpt-5.4',
-    description: 'GPT-5.4 on the Codex backend with high reasoning',
+    value: 'gpt-5.5',
+    label: 'gpt-5.5',
+    description: 'GPT-5.5 on the Codex backend with high reasoning',
   }
 }
 
@@ -306,6 +313,11 @@ function getCodexSparkOption(): ModelOption {
 
 function getCodexModelOptions(): ModelOption[] {
   return [
+    {
+      value: 'gpt-5.5',
+      label: 'gpt-5.5',
+      description: 'GPT-5.5 with high reasoning',
+    },
     {
       value: 'gpt-5.4',
       label: 'gpt-5.4',
@@ -342,6 +354,11 @@ function getCodexModelOptions(): ModelOption[] {
       description: 'GPT-5.1 Codex Mini - faster, cheaper',
     },
     {
+      value: 'gpt-5.5-mini',
+      label: 'gpt-5.5-mini',
+      description: 'GPT-5.5 Mini - faster, cheaper',
+    },
+    {
       value: 'gpt-5.4-mini',
       label: 'gpt-5.4-mini',
       description: 'GPT-5.4 Mini - faster, cheaper',
@@ -351,7 +368,22 @@ function getCodexModelOptions(): ModelOption[] {
 
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
+
+import { getAllCopilotModels } from './copilotModels.js'
+
+function getCopilotModelOptions(): ModelOption[] {
+  return getAllCopilotModels().map(m => ({
+    value: m.id,
+    label: m.name,
+    description: `${m.family}${m.reasoning ? ' · Reasoning' : ''}${m.tool_call ? ' · Tool call' : ''} · ${Math.round(m.limit.context / 1000)}K context`,
+  }))
+}
+
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  if (getAPIProvider() === 'github') {
+    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
+  }
+
   // When using Ollama, show models from the Ollama server instead of Claude models
   if (getAPIProvider() === 'openai' && isOllamaProvider()) {
     const defaultOption = getDefaultOptionForUser(fastMode)
@@ -370,6 +402,26 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
           description: 'Currently configured Ollama model',
         },
       ]
+    }
+    return [defaultOption]
+  }
+
+  // When using NVIDIA NIM, show models from the NVIDIA catalog
+  if (isNvidiaNimProvider()) {
+    const defaultOption = getDefaultOptionForUser(fastMode)
+    const nvidiaModels = getCachedNvidiaNimModelOptions()
+    if (nvidiaModels.length > 0) {
+      return [defaultOption, ...nvidiaModels]
+    }
+    return [defaultOption]
+  }
+
+  // When using MiniMax, show models from the MiniMax catalog
+  if (isMiniMaxProvider()) {
+    const defaultOption = getDefaultOptionForUser(fastMode)
+    const minimaxModels = getCachedMiniMaxModelOptions()
+    if (minimaxModels.length > 0) {
+      return [defaultOption, ...minimaxModels]
     }
     return [defaultOption]
   }
@@ -438,6 +490,20 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     ]
   }
 
+  // When a provider profile's env is applied, collect its models so they
+  // can be appended to the standard picker options below.
+  // We check PROFILE_ENV_APPLIED to avoid the ?? profiles[0] fallback in
+  // getActiveProviderProfile which would affect users with inactive profiles.
+  const profileEnvApplied = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  const profileModelOptions: ModelOption[] = []
+  if (profileEnvApplied) {
+    const activeProfile = getActiveProviderProfile()
+    if (activeProfile) {
+      const models = getProfileModelOptions(activeProfile)
+      profileModelOptions.push(...models)
+    }
+  }
+
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.6 + Opus 1M + Haiku
   if (getAPIProvider() === 'firstParty') {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
@@ -453,6 +519,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       }
     }
     payg1POptions.push(getHaiku45Option())
+    payg1POptions.push(...profileModelOptions)
     return payg1POptions
   }
 
@@ -492,6 +559,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   } else {
     payg3pOptions.push(getHaikuOption())
   }
+  payg3pOptions.push(...profileModelOptions)
   return payg3pOptions
 }
 
@@ -579,6 +647,10 @@ function getKnownModelOption(model: string): ModelOption | null {
 }
 
 export function getModelOptions(fastMode = false): ModelOption[] {
+  if (getAPIProvider() === 'github') {
+    return filterModelOptionsByAllowlist(getModelOptionsBase(fastMode))
+  }
+
   const options = getModelOptionsBase(fastMode)
 
   // Add the custom model from the ANTHROPIC_CUSTOM_MODEL_OPTION env var
@@ -617,7 +689,7 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     return filterModelOptionsByAllowlist(options)
   } else if (customModel === 'opusplan') {
     return filterModelOptionsByAllowlist([...options, getOpusPlanOption()])
-  } else if (customModel === 'gpt-5.4') {
+  } else if (customModel === 'gpt-5.5') {
     return filterModelOptionsByAllowlist([...options, getCodexPlanOption()])
   } else if (customModel === 'gpt-5.3-codex-spark') {
     return filterModelOptionsByAllowlist([...options, getCodexSparkOption()])

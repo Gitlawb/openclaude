@@ -2194,14 +2194,10 @@ export async function bridgeMain(args: string[]): Promise<void> {
 
   // Session ingress URL for WebSocket connections. In production this is the
   // same as baseUrl (Envoy routes /v1/session_ingress/* to session-ingress).
-  // Locally, session-ingress runs on a different port (9413) than the
-  // contain-provide-api (8211), so CLAUDE_BRIDGE_SESSION_INGRESS_URL must be
-  // set explicitly. Ant-only, matching CLAUDE_BRIDGE_BASE_URL.
+  // Locally, session-ingress may run on a different port, so
+  // CLAUDE_BRIDGE_SESSION_INGRESS_URL can override the default.
   const sessionIngressUrl =
-    process.env.USER_TYPE === 'ant' &&
-    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      ? process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      : baseUrl
+    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL || baseUrl
 
   const { getBranch, getRemoteUrl, findGitRoot } = await import(
     '../utils/git.js'
@@ -2252,7 +2248,7 @@ export async function bridgeMain(args: string[]): Promise<void> {
     })
     // biome-ignore lint/suspicious/noConsole: intentional dialog output
     console.log(
-      `\nClaude Remote Control is launching in spawn mode which lets you create new sessions in this project from Claude Code on Web or your Mobile app. Learn more here: https://code.claude.com/docs/en/remote-control\n\n` +
+      `\nClaude Remote Control is launching in spawn mode which lets you create new sessions in this project from OpenClaude on the web or your mobile app. Learn more here: https://code.claude.com/docs/en/remote-control\n\n` +
         `Spawn mode for this project:\n` +
         `  [1] same-dir \u2014 sessions share the current directory (default)\n` +
         `  [2] worktree \u2014 each session gets an isolated git worktree\n\n` +
@@ -2851,10 +2847,7 @@ export async function runBridgeHeadless(
     )
   }
   const sessionIngressUrl =
-    process.env.USER_TYPE === 'ant' &&
-    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      ? process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      : baseUrl
+    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL || baseUrl
 
   const { getBranch, getRemoteUrl, findGitRoot } = await import(
     '../utils/git.js'

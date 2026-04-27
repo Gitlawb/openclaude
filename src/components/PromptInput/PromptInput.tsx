@@ -252,14 +252,24 @@ function PromptInput({
     show: false
   });
   const [cursorOffset, setCursorOffset] = useState<number>(input.length);
-  // Track the last input value set via internal handlers so we can detect
-  // external input changes (e.g. speech-to-text injection) and move cursor to end.
+  // Track the last input value set via internal handlers so external updates
+  // (for example speech-to-text injection) can still move the cursor to end
+  // without clobbering a pending internal keystroke during render.
   const lastInternalInputRef = React.useRef(input);
-  if (input !== lastInternalInputRef.current) {
-    // Input changed externally (not through any internal handler) — move cursor to end
-    setCursorOffset(input.length);
+  const lastPropInputRef = React.useRef(input);
+  React.useLayoutEffect(() => {
+    if (input === lastPropInputRef.current) {
+      return;
+    }
+
+    lastPropInputRef.current = input;
+    if (input === lastInternalInputRef.current) {
+      return;
+    }
+
     lastInternalInputRef.current = input;
-  }
+    setCursorOffset(prev => prev === input.length ? prev : input.length);
+  }, [input]);
   // Wrap onInputChange to track internal changes before they trigger re-render
   const trackAndSetInput = React.useCallback((value: string) => {
     lastInternalInputRef.current = value;
@@ -763,7 +773,7 @@ function PromptInput({
     if (feature('ULTRAPLAN') && ultraplanTriggers.length) {
       addNotification({
         key: 'ultraplan-active',
-        text: 'This prompt will launch an ultraplan session in Claude Code on the web',
+        text: 'This prompt will launch an ultraplan session in OpenClaude on the web',
         priority: 'immediate',
         timeoutMs: 5000
       });
@@ -2201,7 +2211,7 @@ function PromptInput({
     multiline: true,
     onSubmit,
     onChange,
-    value: historyMatch ? getValueFromInput(typeof historyMatch === 'string' ? historyMatch : historyMatch.display) : input,
+    value: isSearchingHistory && historyMatch ? getValueFromInput(typeof historyMatch === 'string' ? historyMatch : historyMatch.display) : input,
     // History navigation is handled via TextInput props (onHistoryUp/onHistoryDown),
     // NOT via useKeybindings. This allows useTextInput's upOrHistoryUp/downOrHistoryDown
     // to try cursor movement first and only fall through to history navigation when the

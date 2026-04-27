@@ -11,10 +11,32 @@ export type APIProvider =
   | 'gemini'
   | 'github'
   | 'codex'
+  | 'nvidia-nim'
+  | 'minimax'
+  | 'mistral'
+  | 'xai'
 
 export function getAPIProvider(): APIProvider {
+  if (isEnvTruthy(process.env.NVIDIA_NIM)) {
+    return 'nvidia-nim'
+  }
+  // MiniMax is signalled by a real API key, not a '1'/'true' flag. Using
+  // isEnvTruthy() here silently treated every MiniMax user as 'firstParty'
+  // (or 'openai' once they set CLAUDE_CODE_USE_OPENAI via the profile),
+  // making every provider-kind-specific branch for 'minimax' elsewhere in
+  // the codebase unreachable. Presence check is the correct signal.
+  if (typeof process.env.MINIMAX_API_KEY === 'string' && process.env.MINIMAX_API_KEY.trim() !== '') {
+    return 'minimax'
+  }
+  // xAI is signalled by a real API key (same pattern as MiniMax)
+  if (typeof process.env.XAI_API_KEY === 'string' && process.env.XAI_API_KEY.trim() !== '') {
+    return 'xai'
+  }
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
     ? 'gemini'
+    :
+    isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+    ? 'mistral'
     : isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
       ? 'github'
       : isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
@@ -32,6 +54,24 @@ export function getAPIProvider(): APIProvider {
 
 export function usesAnthropicAccountFlow(): boolean {
   return getAPIProvider() === 'firstParty'
+}
+
+/**
+ * Returns true when the GitHub provider should use Anthropic's native API
+ * format instead of the OpenAI-compatible shim.
+ *
+ * Enabled when CLAUDE_CODE_USE_GITHUB=1 and the model string contains "claude-"
+ * anywhere (handles bare names like "claude-sonnet-4" and compound formats like
+ * "github:copilot:claude-sonnet-4" or any future provider-prefixed variants).
+ *
+ * api.githubcopilot.com supports Anthropic native format for Claude models,
+ * enabling prompt caching via cache_control blocks which significantly reduces
+ * per-turn token costs by caching the system prompt and tool definitions.
+ */
+export function isGithubNativeAnthropicMode(resolvedModel?: string): boolean {
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) return false
+  const model = resolvedModel?.trim() || process.env.OPENAI_MODEL?.trim() || ''
+  return model.toLowerCase().includes('claude-')
 }
 function isCodexModel(): boolean {
   return shouldUseCodexTransport(

@@ -1,34 +1,23 @@
 /**
- * Swarm Permission Poller Hook
+ * Swarm Permission Callback Registry
  *
- * This hook polls for permission responses from the team leader when running
- * as a worker agent in a swarm. When a response is received, it calls the
- * appropriate callback (onAllow/onReject) to continue execution.
+ * Manages callback registrations for permission requests and responses
+ * in agent swarms. Responses are delivered exclusively via the mailbox
+ * system (useInboxPoller → processMailboxPermissionResponse).
  *
- * This hook should be used in conjunction with the worker-side integration
- * in useCanUseTool.ts, which creates pending requests that this hook monitors.
+ * The legacy file-based polling (resolved/ directory) has been removed
+ * because it created an unauthenticated attack surface — any local process
+ * could forge approval files. The mailbox path is the sole active channel.
  */
 
-import { useCallback, useEffect, useRef } from 'react'
-import { useInterval } from 'usehooks-ts'
 import { logForDebugging } from '../utils/debug.js'
-import { errorMessage } from '../utils/errors.js'
 import {
   type PermissionUpdate,
   permissionUpdateSchema,
 } from '../utils/permissions/PermissionUpdateSchema.js'
-import {
-  isSwarmWorker,
-  type PermissionResponse,
-  pollForResponse,
-  removeWorkerResponse,
-} from '../utils/swarm/permissionSync.js'
-import { getAgentName, getTeamName } from '../utils/teammate.js'
-
-const POLL_INTERVAL_MS = 500
 
 /**
- * Validate permissionUpdates from external sources (mailbox IPC, disk polling).
+ * Validate permissionUpdates from external sources (mailbox IPC).
  * Malformed entries from buggy/old teammate processes are filtered out rather
  * than propagated unchecked into callback.onAllow().
  */
@@ -225,106 +214,9 @@ export function processSandboxPermissionResponse(params: {
   return true
 }
 
-/**
- * Process a permission response by invoking the registered callback
- */
-function processResponse(response: PermissionResponse): boolean {
-  const callback = pendingCallbacks.get(response.requestId)
-
-  if (!callback) {
-    logForDebugging(
-      `[SwarmPermissionPoller] No callback registered for request ${response.requestId}`,
-    )
-    return false
-  }
-
-  logForDebugging(
-    `[SwarmPermissionPoller] Processing response for request ${response.requestId}: ${response.decision}`,
-  )
-
-  // Remove from registry before invoking callback
-  pendingCallbacks.delete(response.requestId)
-
-  if (response.decision === 'approved') {
-    const permissionUpdates = parsePermissionUpdates(response.permissionUpdates)
-    const updatedInput = response.updatedInput
-    callback.onAllow(updatedInput, permissionUpdates)
-  } else {
-    callback.onReject(response.feedback)
-  }
-
-  return true
-}
-
-/**
- * Hook that polls for permission responses when running as a swarm worker.
- *
- * This hook:
- * 1. Only activates when isSwarmWorker() returns true
- * 2. Polls every 500ms for responses
- * 3. When a response is found, invokes the registered callback
- * 4. Cleans up the response file after processing
- */
-export function useSwarmPermissionPoller(): void {
-  const isProcessingRef = useRef(false)
-
-  const poll = useCallback(async () => {
-    // Don't poll if not a swarm worker
-    if (!isSwarmWorker()) {
-      return
-    }
-
-    // Prevent concurrent polling
-    if (isProcessingRef.current) {
-      return
-    }
-
-    // Don't poll if no callbacks are registered
-    if (pendingCallbacks.size === 0) {
-      return
-    }
-
-    isProcessingRef.current = true
-
-    try {
-      const agentName = getAgentName()
-      const teamName = getTeamName()
-
-      if (!agentName || !teamName) {
-        return
-      }
-
-      // Check each pending request for a response
-      for (const [requestId, _callback] of pendingCallbacks) {
-        const response = await pollForResponse(requestId, agentName, teamName)
-
-        if (response) {
-          // Process the response
-          const processed = processResponse(response)
-
-          if (processed) {
-            // Clean up the response from the worker's inbox
-            await removeWorkerResponse(requestId, agentName, teamName)
-          }
-        }
-      }
-    } catch (error) {
-      logForDebugging(
-        `[SwarmPermissionPoller] Error during poll: ${errorMessage(error)}`,
-      )
-    } finally {
-      isProcessingRef.current = false
-    }
-  }, [])
-
-  // Only poll if we're a swarm worker
-  const shouldPoll = isSwarmWorker()
-  useInterval(() => void poll(), shouldPoll ? POLL_INTERVAL_MS : null)
-
-  // Initial poll on mount
-  useEffect(() => {
-    if (isSwarmWorker()) {
-      void poll()
-    }
-  }, [poll])
-}
+// Legacy file-based polling (useSwarmPermissionPoller, processResponse)
+// has been removed. Permission responses are now delivered exclusively
+// via the mailbox system:
+//   Leader: sendPermissionResponseViaMailbox() → writeToMailbox()
+//   Worker: useInboxPoller → processMailboxPermissionResponse()
+// See: fix(security) — remove unauthenticated file-based permission channel

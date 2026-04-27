@@ -32,7 +32,7 @@ export class DiagnosticTrackingService {
   private baseline: Map<string, Diagnostic[]> = new Map()
 
   private initialized = false
-  private mcpClient: MCPServerConnection | undefined
+  private currentMcpClients: MCPServerConnection[] = []
 
   // Track when files were last processed/fetched
   private lastProcessedTimestamps: Map<string, number> = new Map()
@@ -48,18 +48,17 @@ export class DiagnosticTrackingService {
     return DiagnosticTrackingService.instance
   }
 
-  initialize(mcpClient: MCPServerConnection) {
+  initialize() {
     if (this.initialized) {
       return
     }
 
-    // TODO: Do not cache the connected mcpClient since it can change.
-    this.mcpClient = mcpClient
     this.initialized = true
   }
 
   async shutdown(): Promise<void> {
     this.initialized = false
+    this.currentMcpClients = []
     this.baseline.clear()
     this.rightFileDiagnosticsState.clear()
     this.lastProcessedTimestamps.clear()
@@ -73,6 +72,46 @@ export class DiagnosticTrackingService {
     this.baseline.clear()
     this.rightFileDiagnosticsState.clear()
     this.lastProcessedTimestamps.clear()
+  }
+
+  /**
+   * Get the current IDE client from stored MCP clients
+   */
+  private getCurrentIdeClient(): MCPServerConnection | undefined {
+    return getConnectedIdeClient(this.currentMcpClients)
+  }
+
+  /**
+   * Backward-compatible method that uses stored IDE client
+   */
+  async beforeFileEditedCompat(filePath: string): Promise<void> {
+    const ideClient = this.getCurrentIdeClient()
+    if (!ideClient) {
+      return
+    }
+    return await this.beforeFileEdited(filePath, ideClient)
+  }
+
+  /**
+   * Backward-compatible method that uses stored IDE client
+   */
+  async getNewDiagnosticsCompat(): Promise<DiagnosticFile[]> {
+    const ideClient = this.getCurrentIdeClient()
+    if (!ideClient) {
+      return []
+    }
+    return await this.getNewDiagnostics(ideClient)
+  }
+
+  /**
+   * Backward-compatible method that uses stored IDE client
+   */
+  async ensureFileOpenedCompat(fileUri: string): Promise<void> {
+    const ideClient = this.getCurrentIdeClient()
+    if (!ideClient) {
+      return
+    }
+    return await this.ensureFileOpened(fileUri, ideClient)
   }
 
   private normalizeFileUri(fileUri: string): string {
@@ -100,11 +139,11 @@ export class DiagnosticTrackingService {
    * Ensure a file is opened in the IDE before processing.
    * This is important for language services like diagnostics to work properly.
    */
-  async ensureFileOpened(fileUri: string): Promise<void> {
+  async ensureFileOpened(fileUri: string, mcpClient: MCPServerConnection): Promise<void> {
     if (
       !this.initialized ||
-      !this.mcpClient ||
-      this.mcpClient.type !== 'connected'
+      !mcpClient ||
+      mcpClient.type !== 'connected'
     ) {
       return
     }
@@ -121,7 +160,7 @@ export class DiagnosticTrackingService {
           selectToEndOfLine: false,
           makeFrontmost: false,
         },
-        this.mcpClient,
+        mcpClient,
       )
     } catch (error) {
       logError(error as Error)
@@ -132,11 +171,11 @@ export class DiagnosticTrackingService {
    * Capture baseline diagnostics for a specific file before editing.
    * This is called before editing a file to ensure we have a baseline to compare against.
    */
-  async beforeFileEdited(filePath: string): Promise<void> {
+  async beforeFileEdited(filePath: string, mcpClient: MCPServerConnection): Promise<void> {
     if (
       !this.initialized ||
-      !this.mcpClient ||
-      this.mcpClient.type !== 'connected'
+      !mcpClient ||
+      mcpClient.type !== 'connected'
     ) {
       return
     }
@@ -147,7 +186,7 @@ export class DiagnosticTrackingService {
       const result = await callIdeRpc(
         'getDiagnostics',
         { uri: `file://${filePath}` },
-        this.mcpClient,
+        mcpClient,
       )
       const diagnosticFile = this.parseDiagnosticResult(result)[0]
       if (diagnosticFile) {
@@ -185,11 +224,11 @@ export class DiagnosticTrackingService {
    * Get new diagnostics from file://, _claude_fs_right, and _claude_fs_ URIs that aren't in the baseline.
    * Only processes diagnostics for files that have been edited.
    */
-  async getNewDiagnostics(): Promise<DiagnosticFile[]> {
+  async getNewDiagnostics(mcpClient: MCPServerConnection): Promise<DiagnosticFile[]> {
     if (
       !this.initialized ||
-      !this.mcpClient ||
-      this.mcpClient.type !== 'connected'
+      !mcpClient ||
+      mcpClient.type !== 'connected'
     ) {
       return []
     }
@@ -200,7 +239,7 @@ export class DiagnosticTrackingService {
       const result = await callIdeRpc(
         'getDiagnostics',
         {}, // Empty params fetches all diagnostics
-        this.mcpClient,
+        mcpClient,
       )
       allDiagnosticFiles = this.parseDiagnosticResult(result)
     } catch (_error) {
@@ -328,13 +367,16 @@ export class DiagnosticTrackingService {
    * @param shouldQuery Whether a query is actually being made (not just a command)
    */
   async handleQueryStart(clients: MCPServerConnection[]): Promise<void> {
+    // Store the current MCP clients for later use
+    this.currentMcpClients = clients
+
     // Only proceed if we should query and have clients
     if (!this.initialized) {
       // Find the connected IDE client
       const connectedIdeClient = getConnectedIdeClient(clients)
 
       if (connectedIdeClient) {
-        this.initialize(connectedIdeClient)
+        this.initialize()
       }
     } else {
       // Reset diagnostic tracking for new query loops

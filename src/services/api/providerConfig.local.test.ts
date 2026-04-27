@@ -2,20 +2,32 @@ import { afterEach, expect, test } from 'bun:test'
 
 import {
   getAdditionalModelOptionsCacheScope,
+  getLocalProviderRetryBaseUrls,
   isLocalProviderUrl,
   resolveProviderRequest,
+  shouldAttemptLocalToollessRetry,
 } from './providerConfig.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = value
+  }
 }
 
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
+  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
 })
 
 test('treats localhost endpoints as local', () => {
@@ -76,10 +88,77 @@ test('keeps codex alias models on chat completions for local openai-compatible p
   )
 })
 
+test('uses responses transport when OpenAI-compatible API format requests responses', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.openai.com/v1',
+  })
+})
+
+test('keeps Codex backend on Codex responses transport even when API format is set', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+  process.env.OPENAI_MODEL = 'codexplan'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'codex_responses',
+    requestedModel: 'codexplan',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+  })
+})
+
 test('skips local model cache scope for remote openai-compatible providers', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   process.env.OPENAI_MODEL = 'gpt-4o'
 
   expect(getAdditionalModelOptionsCacheScope()).toBeNull()
+})
+
+test('derives local retry base URLs with /v1 and loopback fallback candidates', () => {
+  expect(getLocalProviderRetryBaseUrls('http://localhost:11434')).toEqual([
+    'http://localhost:11434/v1',
+    'http://127.0.0.1:11434',
+    'http://127.0.0.1:11434/v1',
+  ])
+})
+
+test('does not derive local retry base URLs for remote providers', () => {
+  expect(getLocalProviderRetryBaseUrls('https://api.openai.com/v1')).toEqual([])
+})
+
+test('enables local toolless retry for likely Ollama endpoints with tools', () => {
+  expect(
+    shouldAttemptLocalToollessRetry({
+      baseUrl: 'http://localhost:11434/v1',
+      hasTools: true,
+    }),
+  ).toBe(true)
+})
+
+test('disables local toolless retry when no tools are present', () => {
+  expect(
+    shouldAttemptLocalToollessRetry({
+      baseUrl: 'http://localhost:11434/v1',
+      hasTools: false,
+    }),
+  ).toBe(false)
+})
+
+test('disables local toolless retry for non-Ollama local endpoints', () => {
+  expect(
+    shouldAttemptLocalToollessRetry({
+      baseUrl: 'http://localhost:1234/v1',
+      hasTools: true,
+    }),
+  ).toBe(false)
 })

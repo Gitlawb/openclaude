@@ -112,7 +112,7 @@ export function HelpV2(t0) {
     }
     tabs.push(t6);
     if (false && antOnlyCommands.length > 0) {
-      let t7;
+    let t7;
       if ($[26] !== antOnlyCommands || $[27] !== close || $[28] !== columns || $[29] !== maxHeight) {
         t7 = <Tab key="internal-only" title="[internal-only]"><Commands commands={antOnlyCommands} maxHeight={maxHeight} columns={columns} title="Browse internal-only commands:" onCancel={close} /></Tab>;
         $[26] = antOnlyCommands;
@@ -138,7 +138,7 @@ export function HelpV2(t0) {
   const t5 = insideModal ? undefined : maxHeight;
   let t6;
   if ($[31] !== tabs) {
-    t6 = <Tabs title={false ? "/help" : `Claude Code v${MACRO.VERSION}`} color="professionalBlue" defaultTab="general">{tabs}</Tabs>;
+    t6 = <Tabs title={false ? "/help" : `OpenClaude v${MACRO.VERSION}`} color="professionalBlue" defaultTab="general">{tabs}</Tabs>;
     $[31] = tabs;
     $[32] = t6;
   } else {
@@ -146,7 +146,7 @@ export function HelpV2(t0) {
   }
   let t7;
   if ($[33] === Symbol.for("react.memo_cache_sentinel")) {
-    t7 = <Box marginTop={1}><Text>For more help:{" "}<Link url="https://code.claude.com/docs/en/overview" /></Text></Box>;
+    t7 = <Box marginTop={1}><Text>For more help:{" "}<Link url="https://github.com/Gitlawb/openclaude" /></Text></Box>;
     $[33] = t7;
   } else {
     t7 = $[33];

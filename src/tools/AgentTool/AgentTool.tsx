@@ -1042,10 +1042,12 @@ export const AgentTool = buildTool({
                     });
                   } finally {
                     stopBackgroundedSummarization?.();
-                    clearInvokedSkillsForAgent(syncAgentId);
-                    clearDumpState(syncAgentId);
-                    // Note: worktree cleanup is done before enqueueAgentNotification
-                    // in both try and catch paths so we can include worktree info
+                    // Defensive cleanup: wrap each call so one failure doesn't
+                    // prevent the other from running. Without this, if
+                    // clearInvokedSkillsForAgent throws, clearDumpState is
+                    // skipped and dump state leaks.
+                    try { clearInvokedSkillsForAgent(syncAgentId); } catch { /* cleanup best-effort */ }
+                    try { clearDumpState(syncAgentId); } catch { /* cleanup best-effort */ }
                   }
                 });
 

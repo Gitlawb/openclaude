@@ -422,7 +422,7 @@ export const FileEditTool = buildTool({
       activateConditionalSkillsForPaths([absoluteFilePath], cwd)
     }
 
-    await diagnosticTracker.beforeFileEdited(absoluteFilePath)
+    await diagnosticTracker.beforeFileEditedCompat(absoluteFilePath)
 
     // Ensure parent directory exists before the atomic read-modify-write section.
     // These awaits must stay OUTSIDE the critical section below — a yield between
@@ -525,7 +525,10 @@ export const FileEditTool = buildTool({
     })
 
     // 7. Log events
-    if (absoluteFilePath.endsWith(`${sep}CLAUDE.md`)) {
+    if (
+      absoluteFilePath.endsWith(`${sep}AGENTS.md`) ||
+      absoluteFilePath.endsWith(`${sep}CLAUDE.md`)
+    ) {
       logEvent('tengu_write_claudemd', {})
     }
     countLinesChanged(patch)

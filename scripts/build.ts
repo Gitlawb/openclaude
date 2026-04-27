@@ -8,7 +8,8 @@
  * - src/ path aliases
  */
 
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
@@ -18,30 +19,105 @@ const version = pkg.version
 // Most Anthropic-internal features stay off; open-build features can be
 // selectively enabled here when their full source exists in the mirror.
 const featureFlags: Record<string, boolean> = {
-  VOICE_MODE: false,
-  PROACTIVE: false,
-  KAIROS: false,
-  BRIDGE_MODE: false,
-  DAEMON: false,
-  AGENT_TRIGGERS: false,
-  MONITOR_TOOL: false,
-  ABLATION_BASELINE: false,
-  DUMP_SYSTEM_PROMPT: false,
-  CACHED_MICROCOMPACT: false,
-  COORDINATOR_MODE: false,
-  CONTEXT_COLLAPSE: false,
-  COMMIT_ATTRIBUTION: false,
-  TEAMMEM: false,
-  UDS_INBOX: false,
-  BG_SESSIONS: false,
-  AWAY_SUMMARY: false,
-  TRANSCRIPT_CLASSIFIER: false,
-  WEB_BROWSER_TOOL: false,
-  MESSAGE_ACTIONS: false,
-  BUDDY: true,
-  CHICAGO_MCP: false,
-  COWORKER_TYPE_TELEMETRY: false,
+  // ── Disabled: require Anthropic infrastructure or missing source ─────
+  VOICE_MODE: false,              // Push-to-talk STT via claude.ai OAuth endpoint
+  PROACTIVE: false,               // Autonomous agent mode (missing proactive/ module)
+  KAIROS: false,                  // Persistent assistant/session mode (cloud backend)
+  BRIDGE_MODE: false,             // Remote desktop bridge via CCR infrastructure
+  DAEMON: false,                  // Background daemon process (stubbed in open build)
+  AGENT_TRIGGERS: false,          // Scheduled remote agent triggers
+  ABLATION_BASELINE: false,       // A/B testing harness for eval experiments
+  CONTEXT_COLLAPSE: false,        // Context collapsing optimization (stubbed)
+  COMMIT_ATTRIBUTION: false,      // Co-Authored-By metadata in git commits
+  UDS_INBOX: false,               // Unix Domain Socket inter-session messaging
+  BG_SESSIONS: false,             // Background sessions via tmux (stubbed)
+  WEB_BROWSER_TOOL: false,        // Built-in browser automation (source not mirrored)
+  CHICAGO_MCP: false,             // Computer-use MCP (native Swift modules stubbed)
+  COWORKER_TYPE_TELEMETRY: false, // Telemetry for agent/coworker type classification
+  MCP_SKILLS: false,              // Dynamic MCP skill discovery (src/skills/mcpSkills.ts not mirrored; enabling this causes "fetchMcpSkillsForClient is not a function" when MCP servers with resources connect — see #856)
+
+  // ── Enabled: upstream defaults ──────────────────────────────────────
+  COORDINATOR_MODE: true,             // Multi-agent coordinator with worker delegation
+  BUILTIN_EXPLORE_PLAN_AGENTS: true,  // Built-in Explore/Plan specialized subagents
+  BUDDY: true,                        // Buddy mode for paired programming
+  MONITOR_TOOL: true,                 // MCP server monitoring/streaming tool
+  TEAMMEM: true,                      // Team memory management
+  MESSAGE_ACTIONS: true,              // Message action buttons in the UI
+
+  // ── Enabled: new activations ────────────────────────────────────────
+  DUMP_SYSTEM_PROMPT: true,           // --dump-system-prompt CLI flag for debugging
+  CACHED_MICROCOMPACT: true,          // Cache-aware tool result truncation optimization
+  AWAY_SUMMARY: true,                 // "While you were away" recap after 5min blur
+  TRANSCRIPT_CLASSIFIER: true,        // Auto-approval classifier for safe tool uses
+  ULTRATHINK: true,                   // Deep thinking mode — type "ultrathink" to boost reasoning
+  TOKEN_BUDGET: true,                 // Token budget tracking with usage warnings
+  HISTORY_PICKER: true,               // Enhanced interactive prompt history picker
+  QUICK_SEARCH: true,                 // Ctrl+G quick search across prompts
+  SHOT_STATS: true,                   // Shot distribution stats in session summary
+  EXTRACT_MEMORIES: true,             // Auto-extract durable memories from conversations
+  FORK_SUBAGENT: true,                // Implicit context-forking when omitting subagent_type
+  VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
+  PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
+  HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts
 }
+
+// ── Pre-process: replace feature() calls with boolean literals ──────
+// Bun v1.3.9+ resolves `import { feature } from 'bun:bundle'` natively
+// before plugins can intercept it via onResolve. The bun: namespace is
+// handled by Bun's C++ resolver which runs before the JS plugin phase,
+// so the previous onResolve/onLoad shim was silently ineffective — ALL
+// feature() calls evaluated to false regardless of the featureFlags map.
+//
+// Fix: pre-process source files to strip the bun:bundle import and
+// replace feature('FLAG') calls with their boolean literal. Files are
+// modified in-place before Bun.build() and restored in a finally block.
+
+// Match feature('FLAG') calls, including multi-line: feature(\n  'FLAG',\n)
+const featureCallRe = /\bfeature\(\s*['"](\w+)['"][,\s]*\)/gs
+const featureImportRe = /import\s*\{[^}]*\bfeature\b[^}]*\}\s*from\s*['"]bun:bundle['"];?\s*\n?/g
+const modifiedFiles = new Map<string, string>() // path → original content
+
+function preProcessFeatureFlags(dir: string) {
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, ent.name)
+    if (ent.isDirectory()) { preProcessFeatureFlags(full); continue }
+    if (!/\.(ts|tsx)$/.test(ent.name)) continue
+
+    const raw = readFileSync(full, 'utf-8')
+    if (!raw.includes('feature(')) continue
+
+    let contents = raw
+    contents = contents.replace(featureImportRe, '')
+    contents = contents.replace(featureCallRe, (_match, name) =>
+      String((featureFlags as Record<string, boolean>)[name] ?? false),
+    )
+
+    if (contents !== raw) {
+      modifiedFiles.set(full, raw)
+      writeFileSync(full, contents)
+    }
+  }
+}
+
+function restoreModifiedFiles() {
+  for (const [path, original] of modifiedFiles) {
+    writeFileSync(path, original)
+  }
+  modifiedFiles.clear()
+}
+
+preProcessFeatureFlags(join(import.meta.dir, '..', 'src'))
+const numModified = modifiedFiles.size
+
+// Restore source files on abrupt termination (Ctrl+C, kill, etc.)
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    restoreModifiedFiles()
+    process.exit(signal === 'SIGINT' ? 130 : 143)
+  })
+}
+
+try {
 
 const result = await Bun.build({
   entrypoints: ['./src/entrypoints/cli.tsx'],
@@ -103,18 +179,11 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           ],
         ] as const)
 
-        // Resolve `import { feature } from 'bun:bundle'` to a shim
-        build.onResolve({ filter: /^bun:bundle$/ }, () => ({
-          path: 'bun:bundle',
-          namespace: 'bun-bundle-shim',
-        }))
-        build.onLoad(
-          { filter: /.*/, namespace: 'bun-bundle-shim' },
-          () => ({
-            contents: `const featureFlags = ${JSON.stringify(featureFlags)};\nexport function feature(name) { return featureFlags[name] ?? false; }`,
-            loader: 'js',
-          }),
-        )
+        // bun:bundle feature() replacement is handled by the source
+        // pre-processing step above (see preProcessFeatureFlags).
+        // The previous onResolve/onLoad shim was ineffective in Bun
+        // v1.3.9+ because the bun: namespace is resolved natively
+        // before the JS plugin phase runs.
 
         build.onResolve(
           { filter: /^\.\.\/(daemon\/workerRegistry|daemon\/main|cli\/bg|cli\/handlers\/templateJobs|environment-runner\/main|self-hosted-runner\/main)\.js$/ },
@@ -274,16 +343,7 @@ export const SeverityNumber = {};
 
         // Scan source to find imports that can't resolve
         function scanForMissingImports() {
-          function walk(dir: string) {
-            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-              const full = pathMod.join(dir, ent.name)
-              if (ent.isDirectory()) { walk(full); continue }
-              if (!/\.(ts|tsx)$/.test(ent.name)) continue
-              const code: string = fs.readFileSync(full, 'utf-8')
-              // Collect all imports
-              for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
-                const specifier = m[4]
-                const namedPart = m[1] || m[3] || ''
+          function checkAndRegister(specifier: string, fileDir: string, namedPart: string) {
                 const names = namedPart.split(',')
                   .map((s: string) => s.trim().replace(/^type\s+/, ''))
                   .filter((s: string) => s && !s.startsWith('type '))
@@ -303,8 +363,7 @@ export const SeverityNumber = {};
                 }
                 // Check relative .js imports
                 else if (specifier.endsWith('.js') && (specifier.startsWith('./') || specifier.startsWith('../'))) {
-                  const dir2 = pathMod.dirname(full)
-                  const resolved = pathMod.resolve(dir2, specifier)
+                  const resolved = pathMod.resolve(fileDir, specifier)
                   const tsVariant = resolved.replace(/\.js$/, '.ts')
                   const tsxVariant = resolved.replace(/\.js$/, '.tsx')
                   if (!fs.existsSync(resolved) && !fs.existsSync(tsVariant) && !fs.existsSync(tsxVariant)) {
@@ -317,6 +376,38 @@ export const SeverityNumber = {};
                   if (!missingModuleExports.has(specifier)) missingModuleExports.set(specifier, new Set())
                   for (const n of names) missingModuleExports.get(specifier)!.add(n)
                 }
+          }
+
+          function walk(dir: string) {
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = pathMod.join(dir, ent.name)
+              if (ent.isDirectory()) { walk(full); continue }
+              if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const rawCode: string = fs.readFileSync(full, 'utf-8')
+              const fileDir = pathMod.dirname(full)
+
+              // Strip comments before scanning for imports/requires.
+              // The regex scanner matches require()/import() patterns
+              // inside JSDoc comments, causing false-positive missing
+              // module detection that breaks the build with noop stubs.
+              const code = rawCode
+                .replace(/\/\*[\s\S]*?\*\//g, '')  // block comments
+                .replace(/\/\/.*$/gm, '')           // line comments
+
+              // Collect static imports: import { X } from '...'
+              for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
+                checkAndRegister(m[4], fileDir, m[1] || m[3] || '')
+              }
+
+              // Collect dynamic requires: require('...') — these are used
+              // behind feature() gates and become live when flags are enabled.
+              for (const m of code.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
+                checkAndRegister(m[1], fileDir, '')
+              }
+
+              // Collect dynamic imports: import('...')
+              for (const m of code.matchAll(/import\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
+                checkAndRegister(m[1], fileDir, '')
               }
             }
           }
@@ -389,7 +480,13 @@ if (!result.success) {
   for (const log of result.logs) {
     console.error(log)
   }
-  process.exit(1)
+  process.exitCode = 1
+} else {
+  console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
 }
 
-console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
+} finally {
+  // Always restore source files, even if Bun.build() throws
+  restoreModifiedFiles()
+  console.log(`  🔄 feature-flags: pre-processed ${numModified} files (restored)`)
+}

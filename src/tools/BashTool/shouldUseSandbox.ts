@@ -13,40 +13,50 @@ import {
 type SandboxInput = {
   command?: string
   dangerouslyDisableSandbox?: boolean
+  _dangerouslyDisableSandboxApproved?: boolean
 }
 
 // NOTE: excludedCommands is a user-facing convenience feature, not a security boundary.
 // It is not a security bug to be able to bypass excludedCommands — the sandbox permission
 // system (which prompts users) is the actual security control.
 function containsExcludedCommand(command: string): boolean {
-  // Check dynamic config for disabled commands and substrings (only for ants)
-  if (process.env.USER_TYPE === 'ant') {
-    const disabledCommands = getFeatureValue_CACHED_MAY_BE_STALE<{
-      commands: string[]
-      substrings: string[]
-    }>('tengu_sandbox_disabled_commands', { commands: [], substrings: [] })
+  // Check dynamic config for disabled commands and substrings
+  const raw = getFeatureValue_CACHED_MAY_BE_STALE<{
+    commands: string[]
+    substrings: string[]
+  }>('tengu_sandbox_disabled_commands', { commands: [], substrings: [] })
 
-    // Check if command contains any disabled substrings
-    for (const substring of disabledCommands.substrings) {
-      if (command.includes(substring)) {
+  const disabledCommands =
+    typeof raw === 'object' && raw !== null
+      ? raw
+      : { commands: [], substrings: [] }
+  const substrings = Array.isArray(disabledCommands.substrings)
+    ? disabledCommands.substrings
+    : []
+  const commands = Array.isArray(disabledCommands.commands)
+    ? disabledCommands.commands
+    : []
+
+  // Check if command contains any disabled substrings
+  for (const substring of substrings) {
+    if (command.includes(substring)) {
+      return true
+    }
+  }
+
+  // Check if command starts with any disabled commands
+  try {
+    const commandParts = splitCommand_DEPRECATED(command)
+    for (const part of commandParts) {
+      const baseCommand = part.trim().split(' ')[0]
+      if (baseCommand && commands.includes(baseCommand)) {
         return true
       }
     }
-
-    // Check if command starts with any disabled commands
-    try {
-      const commandParts = splitCommand_DEPRECATED(command)
-      for (const part of commandParts) {
-        const baseCommand = part.trim().split(' ')[0]
-        if (baseCommand && disabledCommands.commands.includes(baseCommand)) {
-          return true
-        }
-      }
-    } catch {
-      // If we can't parse the command (e.g., malformed bash syntax),
-      // treat it as not excluded to allow other validation checks to handle it
-      // This prevents crashes when rendering tool use messages
-    }
+  } catch {
+    // If we can't parse the command (e.g., malformed bash syntax),
+    // treat it as not excluded to allow other validation checks to handle it
+    // This prevents crashes when rendering tool use messages
   }
 
   // Check user-configured excluded commands from settings
@@ -132,9 +142,13 @@ export function shouldUseSandbox(input: Partial<SandboxInput>): boolean {
     return false
   }
 
-  // Don't sandbox if explicitly overridden AND unsandboxed commands are allowed by policy
+  // Only trusted internal callers may request an unsandboxed command. The
+  // model-facing Bash schema omits _dangerouslyDisableSandboxApproved, so a
+  // tool_use payload cannot disable the sandbox by setting
+  // dangerouslyDisableSandbox directly.
   if (
     input.dangerouslyDisableSandbox &&
+    input._dangerouslyDisableSandboxApproved &&
     SandboxManager.areUnsandboxedCommandsAllowed()
   ) {
     return false

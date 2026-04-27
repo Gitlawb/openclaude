@@ -35,15 +35,20 @@ export async function update() {
   // binary (without it).
   if (getAPIProvider() !== 'firstParty') {
     writeToStdout(
-      chalk.yellow('Auto-update is not available for third-party provider builds.\n') +
-      'To update, pull the latest source from the repository and rebuild:\n' +
-      '  git pull && bun install && bun run build\n',
+      chalk.yellow(
+        `Auto-update is not available for third-party provider builds.\n`,
+      ) +
+        `Current version: ${MACRO.DISPLAY_VERSION}\n\n` +
+        `To update, reinstall from npm:\n` +
+        chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n\n' +
+        `Or, if you built from source, pull and rebuild:\n` +
+        chalk.bold('  git pull && bun install && bun run build') + '\n',
     )
-    return
+    await gracefulShutdown(0)
   }
 
   logEvent('tengu_update_check', {})
-  writeToStdout(`Current version: ${MACRO.VERSION}\n`)
+  writeToStdout(`Current version: ${MACRO.DISPLAY_VERSION}\n`)
 
   const channel = getInitialSettings()?.autoUpdatesChannel ?? 'latest'
   writeToStdout(`Checking for updates to ${channel} version...\n`)
@@ -123,9 +128,14 @@ export async function update() {
   if (diagnostic.installationType === 'development') {
     writeToStdout('\n')
     writeToStdout(
-      chalk.yellow('Warning: Cannot update development build') + '\n',
+      chalk.yellow('You are running a development build — auto-update is unavailable.') + '\n',
     )
-    await gracefulShutdown(1)
+    writeToStdout('To update, pull the latest source and rebuild:\n')
+    writeToStdout(chalk.bold('  git pull && bun install && bun run build') + '\n')
+    writeToStdout('\n')
+    writeToStdout('Or reinstall from npm:\n')
+    writeToStdout(chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n')
+    await gracefulShutdown(0)
   }
 
   // Check if running from a package manager
@@ -136,8 +146,8 @@ export async function update() {
     if (packageManager === 'homebrew') {
       writeToStdout('Claude is managed by Homebrew.\n')
       const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
+      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
+        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(chalk.bold('  brew upgrade claude-code') + '\n')
@@ -147,8 +157,8 @@ export async function update() {
     } else if (packageManager === 'winget') {
       writeToStdout('Claude is managed by winget.\n')
       const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
+      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
+        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(
@@ -160,8 +170,8 @@ export async function update() {
     } else if (packageManager === 'apk') {
       writeToStdout('Claude is managed by apk.\n')
       const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.VERSION} → ${latest}\n`)
+      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
+        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
         writeToStdout('\n')
         writeToStdout('To update, run:\n')
         writeToStdout(chalk.bold('  apk upgrade claude-code') + '\n')
@@ -250,14 +260,14 @@ export async function update() {
         await gracefulShutdown(1)
       }
 
-      if (result.latestVersion === MACRO.VERSION) {
+      if (result.latestVersion === MACRO.DISPLAY_VERSION) {
         writeToStdout(
-          chalk.green(`Claude Code is up to date (${MACRO.VERSION})`) + '\n',
+          chalk.green(`OpenClaude is up to date (${MACRO.DISPLAY_VERSION})`) + '\n',
         )
       } else {
         writeToStdout(
           chalk.green(
-            `Successfully updated from ${MACRO.VERSION} to version ${result.latestVersion}`,
+            `Successfully updated from ${MACRO.DISPLAY_VERSION} to version ${result.latestVersion}`,
           ) + '\n',
         )
         await regenerateCompletionCache()
@@ -266,7 +276,7 @@ export async function update() {
     } catch (error) {
       process.stderr.write('Error: Failed to install native update\n')
       process.stderr.write(String(error) + '\n')
-      process.stderr.write('Try running "claude doctor" for diagnostics\n')
+      process.stderr.write('Try running "openclaude doctor" for diagnostics\n')
       await gracefulShutdown(1)
     }
   }
@@ -320,15 +330,15 @@ export async function update() {
   }
 
   // Check if versions match exactly, including any build metadata (like SHA)
-  if (latestVersion === MACRO.VERSION) {
+  if (latestVersion === MACRO.DISPLAY_VERSION) {
     writeToStdout(
-      chalk.green(`Claude Code is up to date (${MACRO.VERSION})`) + '\n',
+      chalk.green(`OpenClaude is up to date (${MACRO.DISPLAY_VERSION})`) + '\n',
     )
     await gracefulShutdown(0)
   }
 
   writeToStdout(
-    `New version available: ${latestVersion} (current: ${MACRO.VERSION})\n`,
+    `New version available: ${latestVersion} (current: ${MACRO.DISPLAY_VERSION})\n`,
   )
   writeToStdout('Installing update...\n')
 
@@ -388,7 +398,7 @@ export async function update() {
     case 'success':
       writeToStdout(
         chalk.green(
-          `Successfully updated from ${MACRO.VERSION} to version ${latestVersion}`,
+          `Successfully updated from ${MACRO.DISPLAY_VERSION} to version ${latestVersion}`,
         ) + '\n',
       )
       await regenerateCompletionCache()
@@ -400,12 +410,12 @@ export async function update() {
       if (useLocalUpdate) {
         process.stderr.write('Try manually updating with:\n')
         process.stderr.write(
-          `  cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}\n`,
+          `  cd ~/.openclaude/local && npm update ${MACRO.PACKAGE_URL}\n`,
         )
       } else {
         process.stderr.write('Try running with sudo or fix npm permissions\n')
         process.stderr.write(
-          'Or consider using native installation with: claude install\n',
+          'Or consider using native installation with: openclaude install\n',
         )
       }
       await gracefulShutdown(1)
@@ -415,11 +425,11 @@ export async function update() {
       if (useLocalUpdate) {
         process.stderr.write('Try manually updating with:\n')
         process.stderr.write(
-          `  cd ~/.claude/local && npm update ${MACRO.PACKAGE_URL}\n`,
+          `  cd ~/.openclaude/local && npm update ${MACRO.PACKAGE_URL}\n`,
         )
       } else {
         process.stderr.write(
-          'Or consider using native installation with: claude install\n',
+          'Or consider using native installation with: openclaude install\n',
         )
       }
       await gracefulShutdown(1)

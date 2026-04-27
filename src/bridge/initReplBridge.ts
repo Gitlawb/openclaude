@@ -415,7 +415,7 @@ export async function initReplBridge(
         `[bridge:repl] Skipping: ${versionError}`,
         true,
       )
-      onStateChange?.('failed', 'run `claude update` to upgrade')
+      onStateChange?.('failed', 'run `openclaude update` to upgrade')
       return null
     }
     logForDebugging(
@@ -456,7 +456,7 @@ export async function initReplBridge(
   const versionError = checkBridgeMinVersion()
   if (versionError) {
     logBridgeSkip('version_too_old', `[bridge:repl] Skipping: ${versionError}`)
-    onStateChange?.('failed', 'run `claude update` to upgrade')
+    onStateChange?.('failed', 'run `openclaude update` to upgrade')
     return null
   }
 
@@ -465,10 +465,7 @@ export async function initReplBridge(
   const branch = await getBranch()
   const gitRepoUrl = await getRemoteUrl()
   const sessionIngressUrl =
-    process.env.USER_TYPE === 'ant' &&
-    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      ? process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL
-      : baseUrl
+    process.env.CLAUDE_BRIDGE_SESSION_INGRESS_URL || baseUrl
 
   // Assistant-mode sessions advertise a distinct worker_type so the web UI
   // can filter them into a dedicated picker. KAIROS guard keeps the

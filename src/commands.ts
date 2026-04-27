@@ -21,6 +21,7 @@ import dream from './commands/dream/index.js'
 import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
 import onboardGithub from './commands/onboard-github/index.js'
+import knowledge from './commands/knowledge/index.js'
 import memory from './commands/memory/index.js'
 import help from './commands/help/index.js'
 import ide from './commands/ide/index.js'
@@ -32,6 +33,8 @@ import logout from './commands/logout/index.js'
 import installGitHubApp from './commands/install-github-app/index.js'
 import installSlackApp from './commands/install-slack-app/index.js'
 import breakCache from './commands/break-cache/index.js'
+import cacheProbe from './commands/cache-probe/index.js'
+import cacheStats from './commands/cacheStats/index.js'
 import mcp from './commands/mcp/index.js'
 import mobile from './commands/mobile/index.js'
 import onboarding from './commands/onboarding/index.js'
@@ -136,6 +139,7 @@ import hooks from './commands/hooks/index.js'
 import files from './commands/files/index.js'
 import branch from './commands/branch/index.js'
 import agents from './commands/agents/index.js'
+import autoFix from './commands/auto-fix.js'
 import plugin from './commands/plugin/index.js'
 import reloadPlugins from './commands/reload-plugins/index.js'
 import rewind from './commands/rewind/index.js'
@@ -143,6 +147,7 @@ import heapDump from './commands/heapdump/index.js'
 import mockLimits from './commands/mock-limits/index.js'
 import bridgeKick from './commands/bridge-kick.js'
 import version from './commands/version.js'
+import wiki from './commands/wiki/index.js'
 import summary from './commands/summary/index.js'
 import {
   resetLimits,
@@ -194,7 +199,7 @@ import stats from './commands/stats/index.js'
 const usageReport: Command = {
   type: 'prompt',
   name: 'insights',
-  description: 'Generate a report analyzing your Claude Code sessions',
+  description: 'Generate a report analyzing your OpenClaude sessions',
   contentLength: 0,
   progressMessage: 'analyzing your sessions',
   source: 'builtin',
@@ -263,8 +268,11 @@ const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
   agents,
+  autoFix,
   branch,
   btw,
+  cacheProbe,
+  cacheStats,
   chrome,
   clear,
   color,
@@ -287,6 +295,7 @@ const COMMANDS = memoize((): Command[] => [
   ide,
   init,
   keybindings,
+  knowledge,
   installGitHubApp,
   installSlackApp,
   mcp,
@@ -324,6 +333,7 @@ const COMMANDS = memoize((): Command[] => [
   usage,
   usageReport,
   vim,
+  wiki,
   ...(webCmd ? [webCmd] : []),
   ...(forkCmd ? [forkCmd] : []),
   ...(buddy ? [buddy] : []),
@@ -734,23 +744,23 @@ export function getCommand(commandName: string, commands: Command[]): Command {
  */
 export function formatDescriptionWithSource(cmd: Command): string {
   if (cmd.type !== 'prompt') {
-    return cmd.description
+    return cmd.description ?? ''
   }
 
   if (cmd.kind === 'workflow') {
-    return `${cmd.description} (workflow)`
+    return `${cmd.description ?? ''} (workflow)`
   }
 
   if (cmd.source === 'plugin') {
     const pluginName = cmd.pluginInfo?.pluginManifest.name
     if (pluginName) {
-      return `(${pluginName}) ${cmd.description}`
+      return `(${pluginName}) ${cmd.description ?? ''}`
     }
-    return `${cmd.description} (plugin)`
+    return `${cmd.description ?? ''} (plugin)`
   }
 
   if (cmd.source === 'builtin' || cmd.source === 'mcp') {
-    return cmd.description
+    return cmd.description ?? ''
   }
 
   if (cmd.source === 'bundled') {

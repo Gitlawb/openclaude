@@ -11,10 +11,11 @@ import {
   type InstallMethod,
 } from './config.js'
 import { getCwd } from './cwd.js'
-import { isEnvTruthy } from './envUtils.js'
+import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { execFileNoThrow } from './execFileNoThrow.js'
 import { getFsImplementation } from './fsOperations.js'
 import {
+  getDetectedLocalInstallDir,
   getShellType,
   isRunningFromLocalInstallation,
   localInstallationExists,
@@ -42,6 +43,16 @@ import {
 } from './shellConfig.js'
 import { jsonParse } from './slowOperations.js'
 import { which } from './which.js'
+
+function getCliBinaryName(): string {
+  return MACRO.PACKAGE_URL === '@anthropic-ai/claude-code'
+    ? 'claude'
+    : 'openclaude'
+}
+
+function getNativeDataDirName(): string {
+  return getCliBinaryName()
+}
 
 export type InstallationType =
   | 'npm-global'
@@ -162,7 +173,7 @@ async function getInstallationPath(): Promise<string> {
     }
 
     try {
-      const path = await which('claude')
+      const path = await which(getCliBinaryName())
       if (path) {
         return path
       }
@@ -172,8 +183,14 @@ async function getInstallationPath(): Promise<string> {
 
     // If we can't find it, check common locations
     try {
-      await getFsImplementation().stat(join(homedir(), '.local/bin/claude'))
-      return join(homedir(), '.local/bin/claude')
+      const nativeBinaryPath = join(
+        homedir(),
+        '.local',
+        'bin',
+        getCliBinaryName(),
+      )
+      await getFsImplementation().stat(nativeBinaryPath)
+      return nativeBinaryPath
     } catch {
       // Not found
     }
@@ -209,8 +226,8 @@ async function detectMultipleInstallations(): Promise<
   const installations: Array<{ type: string; path: string }> = []
 
   // Check for local installation
-  const localPath = join(homedir(), '.claude', 'local')
-  if (await localInstallationExists()) {
+  const localPath = await getDetectedLocalInstallDir()
+  if (localPath) {
     installations.push({ type: 'npm-local', path: localPath })
   }
 
@@ -233,8 +250,8 @@ async function detectMultipleInstallations(): Promise<
     // Linux / macOS have prefix/bin/claude and prefix/lib/node_modules
     // Windows has prefix/claude and prefix/node_modules
     const globalBinPath = isWindows
-      ? join(npmPrefix, 'claude')
-      : join(npmPrefix, 'bin', 'claude')
+      ? join(npmPrefix, getCliBinaryName())
+      : join(npmPrefix, 'bin', getCliBinaryName())
 
     let globalBinExists = false
     try {
@@ -289,7 +306,7 @@ async function detectMultipleInstallations(): Promise<
   // Check for native installation
 
   // Check common native installation paths
-  const nativeBinPath = join(homedir(), '.local', 'bin', 'claude')
+  const nativeBinPath = join(homedir(), '.local', 'bin', getCliBinaryName())
   try {
     await fs.stat(nativeBinPath)
     installations.push({ type: 'native', path: nativeBinPath })
@@ -300,7 +317,12 @@ async function detectMultipleInstallations(): Promise<
   // Also check if config indicates native installation
   const config = getGlobalConfig()
   if (config.installMethod === 'native') {
-    const nativeDataPath = join(homedir(), '.local', 'share', 'claude')
+    const nativeDataPath = join(
+      homedir(),
+      '.local',
+      'share',
+      getNativeDataDirName(),
+    )
     try {
       await fs.stat(nativeDataPath)
       if (!installations.some(i => i.type === 'native')) {
@@ -435,14 +457,14 @@ async function detectConfigurationIssues(
     if (type === 'npm-local' && config.installMethod !== 'local') {
       warnings.push({
         issue: `Running from local installation but config install method is '${config.installMethod}'`,
-        fix: 'Consider using native installation: claude install',
+        fix: `Consider using native installation: ${getCliBinaryName()} install`,
       })
     }
 
     if (type === 'native' && config.installMethod !== 'native') {
       warnings.push({
         issue: `Running native installation but config install method is '${config.installMethod}'`,
-        fix: 'Run claude install to update configuration',
+        fix: `Run ${getCliBinaryName()} install to update configuration`,
       })
     }
   }
@@ -450,7 +472,7 @@ async function detectConfigurationIssues(
   if (type === 'npm-global' && (await localInstallationExists())) {
     warnings.push({
       issue: 'Local installation exists but not being used',
-      fix: 'Consider using native installation: claude install',
+      fix: `Consider using native installation: ${getCliBinaryName()} install`,
     })
   }
 
@@ -460,7 +482,7 @@ async function detectConfigurationIssues(
   // Check if running local installation but it's not in PATH
   if (type === 'npm-local') {
     // Check if claude is already accessible via PATH
-    const whichResult = await which('claude')
+    const whichResult = await which(getCliBinaryName())
     const claudeInPath = !!whichResult
 
     // Only show warning if claude is NOT in PATH AND no valid alias exists
@@ -469,13 +491,13 @@ async function detectConfigurationIssues(
         // Alias exists but points to invalid target
         warnings.push({
           issue: 'Local installation not accessible',
-          fix: `Alias exists but points to invalid target: ${existingAlias}. Update alias: alias claude="~/.claude/local/claude"`,
+          fix: `Alias exists but points to invalid target: ${existingAlias}. Update alias: alias ${getCliBinaryName()}="~/.openclaude/local/${getCliBinaryName()}"`,
         })
       } else {
         // No alias exists and not in PATH
         warnings.push({
           issue: 'Local installation not accessible',
-          fix: 'Create alias: alias claude="~/.claude/local/claude"',
+          fix: `Create alias: alias ${getCliBinaryName()}="~/.openclaude/local/${getCliBinaryName()}"`,
         })
       }
     }
@@ -580,7 +602,7 @@ export async function getDoctorDiagnostic(): Promise<DiagnosticInfo> {
     if (!hasUpdatePermissions && !getAutoUpdaterDisabledReason()) {
       warnings.push({
         issue: 'Insufficient permissions for auto-updates',
-        fix: 'Do one of: (1) Re-install node without sudo, or (2) Use `claude install` for native installation',
+        fix: `Do one of: (1) Re-install node without sudo, or (2) Use \`${getCliBinaryName()} install\` for native installation`,
       })
     }
   }

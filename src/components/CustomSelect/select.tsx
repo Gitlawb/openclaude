@@ -285,7 +285,7 @@ export function Select(t0) {
       onChange,
       onCancel,
       onFocus,
-      focusValue: defaultFocusValue
+      defaultFocusValue,
     };
     $[7] = defaultFocusValue;
     $[8] = defaultValue;

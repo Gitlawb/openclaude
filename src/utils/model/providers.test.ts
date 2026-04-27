@@ -10,6 +10,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  XAI_API_KEY: process.env.XAI_API_KEY,
 }
 
 afterEach(() => {
@@ -22,6 +23,7 @@ afterEach(() => {
   process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
   process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
   process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
+  process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
 })
 
 async function importFreshProvidersModule() {
@@ -38,6 +40,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
+  delete process.env.XAI_API_KEY
 }
 
 test('first-party provider keeps Anthropic account setup flow enabled', () => {
@@ -98,6 +101,17 @@ test('codex aliases still resolve to the codex provider without a non-codex base
   expect(getAPIProvider()).toBe('codex')
 })
 
+test('XAI_API_KEY resolves to the xai provider', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.XAI_API_KEY = 'xai-test-key'
+  process.env.OPENAI_BASE_URL = 'https://api.x.ai/v1'
+  process.env.OPENAI_MODEL = 'grok-4'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('xai')
+})
+
 test('official OpenAI base URLs now keep provider detection on openai for aliases', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -106,4 +120,61 @@ test('official OpenAI base URLs now keep provider detection on openai for aliase
 
   const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('openai')
+})
+
+// isGithubNativeAnthropicMode
+
+test('isGithubNativeAnthropicMode: false when CLAUDE_CODE_USE_GITHUB is not set', async () => {
+  clearProviderEnv()
+  process.env.OPENAI_MODEL = 'claude-sonnet-4-5'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(false)
+})
+
+test('isGithubNativeAnthropicMode: true for bare claude- model via OPENAI_MODEL', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'claude-sonnet-4-5'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(true)
+})
+
+test('isGithubNativeAnthropicMode: true for github:copilot:claude- compound format', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot:claude-sonnet-4'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(true)
+})
+
+test('isGithubNativeAnthropicMode: true when resolvedModel is a claude- model', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode('claude-haiku-4-5')).toBe(true)
+})
+
+test('isGithubNativeAnthropicMode: false for generic github:copilot alias', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(false)
+})
+
+test('isGithubNativeAnthropicMode: false for non-Claude model', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(false)
+})
+
+test('isGithubNativeAnthropicMode: false for github:copilot:gpt- model', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'github:copilot:gpt-4o'
+  const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
+  expect(isGithubNativeAnthropicMode()).toBe(false)
 })

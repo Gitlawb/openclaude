@@ -7,6 +7,11 @@ import {
   resolveProviderRequest,
   isLocalProviderUrl as isProviderLocalUrl,
 } from '../src/services/api/providerConfig.js'
+import {
+  getLocalOpenAICompatibleProviderLabel,
+  probeOllamaGenerationReadiness,
+} from '../src/utils/providerDiscovery.js'
+import { redactUrlForDisplay } from '../src/utils/urlRedaction.js'
 
 type CheckResult = {
   ok: boolean
@@ -69,7 +74,7 @@ export function formatReachabilityFailureDetail(
   },
 ): string {
   const compactBody = responseBody.trim().replace(/\s+/g, ' ').slice(0, 240)
-  const base = `Unexpected status ${status} from ${endpoint}.`
+  const base = `Unexpected status ${status} from ${redactUrlForDisplay(endpoint)}.`
   const bodySuffix = compactBody ? ` Body: ${compactBody}` : ''
 
   if (request.transport !== 'codex_responses' || status !== 400) {
@@ -118,14 +123,18 @@ function isLocalBaseUrl(baseUrl: string): boolean {
 }
 
 const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
-const GITHUB_MODELS_DEFAULT_BASE = 'https://models.github.ai/inference'
+const MISTRAL_DEFAULT_BASE_URL = 'https://api.mistral.ai/v1'
+const GITHUB_COPILOT_BASE = 'https://api.githubcopilot.com'
 
 function currentBaseUrl(): string {
   if (isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
     return process.env.GEMINI_BASE_URL ?? GEMINI_DEFAULT_BASE_URL
   }
+  if (isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
+    return process.env.MISTRAL_BASE_URL ?? MISTRAL_DEFAULT_BASE_URL
+  }
   if (isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {
-    return process.env.OPENAI_BASE_URL ?? GITHUB_MODELS_DEFAULT_BASE
+    return process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE
   }
   return process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
 }
@@ -155,9 +164,34 @@ function checkGeminiEnv(): CheckResult[] {
   return results
 }
 
+function checkMistralEnv(): CheckResult[] {
+  const results: CheckResult[] = []
+  const model = process.env.MISTRAL_MODEL
+  const key = process.env.MISTRAL_API_KEY
+  const baseUrl = process.env.MISTRAL_BASE_URL ?? MISTRAL_DEFAULT_BASE_URL
+
+  results.push(pass('Provider mode', 'Mistral provider enabled.'))
+
+  if (!model) {
+    results.push(pass('MISTRAL_MODEL', 'Not set. Default will be used at runtime.'))
+  } else {
+    results.push(pass('MISTRAL_MODEL', model))
+  }
+
+  results.push(pass('MISTRAL_BASE_URL', baseUrl))
+
+  if (!key) {
+    results.push(fail('MISTRAL_API_KEY', 'Missing. Set MISTRAL_API_KEY.'))
+  } else {
+    results.push(pass('MISTRAL_API_KEY', 'Configured.'))
+  }
+
+  return results
+}
+
 function checkGithubEnv(): CheckResult[] {
   const results: CheckResult[] = []
-  const baseUrl = process.env.OPENAI_BASE_URL ?? GITHUB_MODELS_DEFAULT_BASE
+  const baseUrl = process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE
   results.push(pass('Provider mode', 'GitHub Models provider enabled.'))
 
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
@@ -186,10 +220,15 @@ function checkOpenAIEnv(): CheckResult[] {
   const results: CheckResult[] = []
   const useGemini = isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
   const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+  const useMistral = isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
 
   if (useGemini) {
     return checkGeminiEnv()
+  }
+
+  if (useMistral) {
+    return checkMistralEnv()
   }
 
   if (useGithub && !useOpenAI) {
@@ -221,7 +260,7 @@ function checkOpenAIEnv(): CheckResult[] {
     results.push(pass('OPENAI_MODEL', process.env.OPENAI_MODEL))
   }
 
-  results.push(pass('OPENAI_BASE_URL', request.baseUrl))
+  results.push(pass('OPENAI_BASE_URL', redactUrlForDisplay(request.baseUrl)))
 
   if (request.transport === 'codex_responses') {
     const credentials = resolveCodexApiCredentials(process.env)
@@ -268,12 +307,13 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
   const useGemini = isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
   const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
   const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+  const useMistral = isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
 
-  if (!useGemini && !useOpenAI && !useGithub) {
+  if (!useGemini && !useOpenAI && !useGithub && !useMistral) {
     return pass('Provider reachability', 'Skipped (OpenAI-compatible mode disabled).')
   }
 
-  if (useGithub) {
+  if (useGithub && !useOpenAI) {
     return pass(
       'Provider reachability',
       'Skipped for GitHub Models (inference endpoint differs from OpenAI /models probe).',
@@ -291,6 +331,7 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
   const endpoint = request.transport === 'codex_responses'
     ? `${request.baseUrl}/responses`
     : `${request.baseUrl}/models`
+  const redactedEndpoint = redactUrlForDisplay(endpoint)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 4000)
@@ -326,6 +367,8 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
       })
     } else if (useGemini && (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY)) {
       headers.Authorization = `Bearer ${process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY}`
+    } else if (useMistral && process.env.MISTRAL_API_KEY) {
+      headers.Authorization = `Bearer ${process.env.MISTRAL_API_KEY}`
     } else if (process.env.OPENAI_API_KEY) {
       headers.Authorization = `Bearer ${process.env.OPENAI_API_KEY}`
     }
@@ -338,7 +381,10 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
     })
 
     if (response.status === 200 || response.status === 401 || response.status === 403) {
-      return pass('Provider reachability', `Reached ${endpoint} (status ${response.status}).`)
+      return pass(
+        'Provider reachability',
+        `Reached ${redactedEndpoint} (status ${response.status}).`,
+      )
     }
 
     const responseBody = await response.text().catch(() => '')
@@ -354,10 +400,98 @@ async function checkBaseUrlReachability(): Promise<CheckResult> {
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return fail('Provider reachability', `Failed to reach ${endpoint}: ${message}`)
+    return fail(
+      'Provider reachability',
+      `Failed to reach ${redactedEndpoint}: ${message}`,
+    )
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function checkProviderGenerationReadiness(): Promise<CheckResult> {
+  const useGemini = isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)
+  const useOpenAI = isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
+  const useGithub = isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+  const useMistral = isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
+
+  if (!useGemini && !useOpenAI && !useGithub && !useMistral) {
+    return pass('Provider generation readiness', 'Skipped (OpenAI-compatible mode disabled).')
+  }
+
+  if (useGithub && !useOpenAI) {
+    return pass(
+      'Provider generation readiness',
+      'Skipped for GitHub Models (runtime generation uses a different endpoint flow).',
+    )
+  }
+
+  if (useGemini || useMistral) {
+    return pass(
+      'Provider generation readiness',
+      'Skipped for managed provider mode.',
+    )
+  }
+
+  if (!useOpenAI) {
+    return pass('Provider generation readiness', 'Skipped (OpenAI-compatible mode disabled).')
+  }
+
+  const request = resolveProviderRequest({
+    model: process.env.OPENAI_MODEL,
+    baseUrl: process.env.OPENAI_BASE_URL,
+  })
+
+  if (request.transport === 'codex_responses') {
+    return pass(
+      'Provider generation readiness',
+      'Skipped for Codex responses (reachability probe already performs a lightweight generation request).',
+    )
+  }
+
+  if (!isLocalBaseUrl(request.baseUrl)) {
+    return pass('Provider generation readiness', 'Skipped for non-local provider URL.')
+  }
+
+  const localProviderLabel = getLocalOpenAICompatibleProviderLabel(request.baseUrl)
+  if (localProviderLabel !== 'Ollama') {
+    return pass(
+      'Provider generation readiness',
+      `Skipped for ${localProviderLabel} (no provider-specific generation probe).`,
+    )
+  }
+
+  const readiness = await probeOllamaGenerationReadiness({
+    baseUrl: request.baseUrl,
+    model: request.requestedModel,
+  })
+
+  if (readiness.state === 'ready') {
+    return pass(
+      'Provider generation readiness',
+      `Generated a test response with ${readiness.probeModel ?? request.requestedModel}.`,
+    )
+  }
+
+  if (readiness.state === 'unreachable') {
+    return fail(
+      'Provider generation readiness',
+      `Could not reach Ollama at ${redactUrlForDisplay(request.baseUrl)}.`,
+    )
+  }
+
+  if (readiness.state === 'no_models') {
+    return fail(
+      'Provider generation readiness',
+      'Ollama is reachable, but no installed models were found. Pull a model first (for example: ollama pull qwen2.5-coder:7b).',
+    )
+  }
+
+  const detailSuffix = readiness.detail ? ` Detail: ${readiness.detail}.` : ''
+  return fail(
+    'Provider generation readiness',
+    `Ollama is reachable, but generation failed for ${readiness.probeModel ?? request.requestedModel}.${detailSuffix}`,
+  )
 }
 
 function isAtomicChatUrl(baseUrl: string): boolean {
@@ -373,7 +507,8 @@ function checkOllamaProcessorMode(): CheckResult {
   if (
     !isTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+    isTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
+    isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
   ) {
     return pass('Ollama processor mode', 'Skipped (OpenAI-compatible mode disabled).')
   }
@@ -425,6 +560,14 @@ function serializeSafeEnvSummary(): Record<string, string | boolean> {
       GEMINI_API_KEY_SET: Boolean(process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY),
     }
   }
+  if (isTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)) {
+    return {
+      CLAUDE_CODE_USE_MISTRAL: true,
+      MISTRAL_MODEL: process.env.MISTRAL_MODEL ?? '(unset, default: devstral-latest)',
+      MISTRAL_BASE_URL: process.env.MISTRAL_BASE_URL ?? 'https://api.mistral.ai/v1',
+      MISTRAL_API_KEY_SET: Boolean(process.env.MISTRAL_API_KEY),
+    }
+  }
   if (
     isTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
     !isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
@@ -435,7 +578,7 @@ function serializeSafeEnvSummary(): Record<string, string | boolean> {
         process.env.OPENAI_MODEL ??
         '(unset, default: github:copilot → openai/gpt-4.1)',
       OPENAI_BASE_URL:
-        process.env.OPENAI_BASE_URL ?? GITHUB_MODELS_DEFAULT_BASE,
+        process.env.OPENAI_BASE_URL ?? GITHUB_COPILOT_BASE,
       GITHUB_TOKEN_SET: Boolean(
         process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN,
       ),
@@ -521,6 +664,7 @@ async function main(): Promise<void> {
   results.push(checkBuildArtifacts())
   results.push(...checkOpenAIEnv())
   results.push(await checkBaseUrlReachability())
+  results.push(await checkProviderGenerationReadiness())
   results.push(checkOllamaProcessorMode())
 
   if (!options.json) {

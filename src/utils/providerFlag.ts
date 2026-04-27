@@ -7,18 +7,25 @@
  * Usage:
  *   openclaude --provider openai --model gpt-4o
  *   openclaude --provider gemini --model gemini-2.0-flash
+ *   openclaude --provider mistral --model ministral-3b-latest
  *   openclaude --provider ollama --model llama3.2
  *   openclaude --provider anthropic   (default, no-op)
  */
 
 export const VALID_PROVIDERS = [
   'anthropic',
+  'bankr',
+  'zai',
+  'xai',
   'openai',
   'gemini',
+  'mistral',
   'github',
   'bedrock',
   'vertex',
   'ollama',
+  'nvidia-nim',
+  'minimax',
 ] as const
 
 export type ProviderFlagName = (typeof VALID_PROVIDERS)[number]
@@ -77,6 +84,13 @@ export function applyProviderFlag(
     }
   }
 
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+
   const model = parseModelFlag(args)
 
   switch (provider as ProviderFlagName) {
@@ -86,17 +100,22 @@ export function applyProviderFlag(
 
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      if (model) process.env.OPENAI_MODEL ??= model
+      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'gemini':
       process.env.CLAUDE_CODE_USE_GEMINI = '1'
-      if (model) process.env.GEMINI_MODEL ??= model
+      if (model) process.env.GEMINI_MODEL = model
+      break
+
+    case 'mistral':
+      process.env.CLAUDE_CODE_USE_MISTRAL = '1'
+      if (model) process.env.MISTRAL_MODEL = model
       break
 
     case 'github':
       process.env.CLAUDE_CODE_USE_GITHUB = '1'
-      if (model) process.env.OPENAI_MODEL ??= model
+      if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'bedrock':
@@ -109,9 +128,55 @@ export function applyProviderFlag(
 
     case 'ollama':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= 'http://localhost:11434/v1'
-      process.env.OPENAI_API_KEY ??= 'ollama'
-      if (model) process.env.OPENAI_MODEL ??= model
+      if (!process.env.OPENAI_BASE_URL) {
+        process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+      }
+      if (!process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = 'ollama'
+      }
+      if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'nvidia-nim':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://integrate.api.nvidia.com/v1'
+      process.env.NVIDIA_NIM = '1'
+      process.env.OPENAI_MODEL ??= 'nvidia/llama-3.1-nemotron-70b-instruct'
+      if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'minimax':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.minimax.io/v1'
+      process.env.OPENAI_MODEL ??= 'MiniMax-M2.5'
+      if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'bankr':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://llm.bankr.bot/v1'
+      process.env.OPENAI_MODEL ??= 'claude-opus-4.6'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
+      }
+      break
+
+    case 'zai':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.z.ai/api/coding/paas/v4'
+      process.env.OPENAI_MODEL ??= 'GLM-5.1'
+      if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'xai':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
+      process.env.OPENAI_MODEL ??= 'grok-4'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+      }
       break
   }
 
