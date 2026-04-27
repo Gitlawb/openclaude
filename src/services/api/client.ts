@@ -16,6 +16,10 @@ import {
   isFirstPartyAnthropicBaseUrl,
   isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
+import {
+  isGithubModelUnsupported,
+  markGithubModelUnsupported,
+} from 'src/utils/model/githubModels.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
 import {
   getIsNonInteractiveSession,
@@ -426,11 +430,39 @@ function buildFetch(
   const inner = fetchOverride ?? globalThis.fetch
   // Only send to the first-party API — Bedrock/Vertex/Foundry don't log it
   // and unknown headers risk rejection by strict proxies (inc-4029 class).
+  const apiProvider = getAPIProvider()
   const injectClientRequestId =
-    getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
-  return (input, init) => {
+    apiProvider === 'firstParty' && isFirstPartyAnthropicBaseUrl()
+  const isGithub = apiProvider === 'github'
+
+  return async (input, init) => {
     // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
     const headers = new Headers(init?.headers)
+
+    let modelId = ''
+    if (isGithub && init?.body) {
+      try {
+        const body = typeof init.body === 'string' ? JSON.parse(init.body) : {}
+        modelId = body.model || ''
+      } catch { /* ignore */ }
+    }
+
+    if (isGithub && modelId && isGithubModelUnsupported(modelId)) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: `GitHub model ${modelId} is not supported by your current plan. Please select a different model.`,
+            type: 'invalid_request_error',
+            code: 'model_not_supported',
+          },
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+    }
+
     // Generate a client-side request ID so timeouts (which return no server
     // request ID) can still be correlated with server logs by the API team.
     // Callers that want to track the ID themselves can pre-set the header.
@@ -447,6 +479,20 @@ function buildFetch(
     } catch {
       // never let logging crash the fetch
     }
-    return inner(input, { ...init, headers })
+    const response = await inner(input, { ...init, headers })
+
+    if (isGithub && response.status === 400 && modelId) {
+      const clone = response.clone()
+      const errorBody = await clone.text().catch(() => '')
+      const normalized = errorBody.toLowerCase()
+      if (
+        normalized.includes('model_not_supported') ||
+        normalized.includes('requested model is not supported')
+      ) {
+        markGithubModelUnsupported(modelId)
+      }
+    }
+
+    return response
   }
 }

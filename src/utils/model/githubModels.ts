@@ -116,5 +116,31 @@ export function prefetchGithubModels(): void {
 }
 
 export function getCachedGithubModelOptions(): ModelOption[] {
-  return cachedGithubOptions ?? []
+  const options = cachedGithubOptions ?? []
+  return options.filter(opt => !isGithubModelUnsupported(opt.value))
+}
+
+const unsupportedGithubModels = new Set<string>()
+
+/**
+ * Mark a model as unsupported for the current session (e.g. after a 400 model_not_supported).
+ * NOTE: This is a runtime workaround because the GitHub /models endpoint doesn't always
+ * accurately reflect plan-specific model restrictions.
+ */
+export function markGithubModelUnsupported(model: string): void {
+  const normalized = model.toLowerCase()
+  console.log(`[githubModels] Marking model as unsupported: ${normalized}`)
+  unsupportedGithubModels.add(normalized)
+}
+
+/**
+ * Check if a model has been marked as unsupported for the current session.
+ */
+export function isGithubModelUnsupported(model: string): boolean {
+  const normalized = model.toLowerCase()
+  const result = unsupportedGithubModels.has(normalized)
+  if (result) {
+    console.log(`[githubModels] Model ${normalized} is marked as unsupported`)
+  }
+  return result
 }

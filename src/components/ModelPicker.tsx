@@ -11,6 +11,7 @@ import { useAppState, useSetAppState } from '../state/AppState.js';
 import { convertEffortValueToLevel, type EffortLevel, getDefaultEffortForModel, modelSupportsEffort, modelSupportsMaxEffort, resolvePickerEffortPersistence, toPersistableEffort } from '../utils/effort.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
 import { getModelOptions } from '../utils/model/modelOptions.js';
+import { isGithubModelUnsupported } from '../utils/model/githubModels.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
@@ -76,7 +77,7 @@ export function ModelPicker(t0) {
   const modelOptions = t3;
   let t4;
   bb0: {
-    if (initial !== null && !modelOptions.some(opt => opt.value === initial)) {
+    if (initial !== null && !modelOptions.some(opt => opt.value === initial) && !isGithubModelUnsupported(initial)) {
       let t5;
       if ($[4] !== initial) {
         t5 = modelDisplayString(initial);

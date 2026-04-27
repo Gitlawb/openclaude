@@ -56,6 +56,7 @@ import {
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  GITHUB_MODELS_AZURE_BASE_URL,
 } from './providerConfig.js'
 import {
   buildOpenAICompatibilityErrorMessage,
@@ -71,7 +72,10 @@ import {
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
 import { createStreamState, processStreamChunk, getStreamStats } from '../../utils/streamingOptimizer.js'
 import { updateGithubRateLimit } from '../../utils/githubRateLimit.js'
-import { markGithubModelUnsupported } from '../../utils/model/githubModels.js'
+import {
+  markGithubModelUnsupported,
+  isGithubModelUnsupported,
+} from '../../utils/model/githubModels.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -122,10 +126,14 @@ function isGithubModelsMode(): boolean {
 
 function isGithubModelNotSupportedError(errorBody: string): boolean {
   const normalized = errorBody.toLowerCase()
-  return (
+  const result = (
     normalized.includes('model_not_supported') ||
     normalized.includes('requested model is not supported')
   )
+  if (result) {
+    console.log(`[openaiShim] Detected model_not_supported error in response body`)
+  }
+  return result
 }
 
 function isMistralMode(): boolean {
@@ -1354,6 +1362,21 @@ class OpenAIShimMessages {
 
     const promise = (async () => {
       const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
+
+      const githubEndpointType = getGithubEndpointType(request.baseUrl)
+      const isGithub = isGithubModelsMode() || githubEndpointType === 'copilot' || githubEndpointType === 'models'
+      console.log(`[openaiShim] create model=${params.model} resolved=${request.resolvedModel} isGithub=${isGithub}`)
+
+      if (isGithub && isGithubModelUnsupported(request.resolvedModel)) {
+        console.log(`[openaiShim] Blocking request for unsupported model: ${request.resolvedModel}`)
+        throw APIError.generate(
+          400,
+          undefined,
+          `GitHub model ${request.resolvedModel} is not supported by your current plan.`,
+          new Headers(),
+        )
+      }
+
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
@@ -1558,11 +1581,10 @@ class OpenAIShimMessages {
       body.stream_options = { include_usage: true }
     }
 
-    const isGithub = isGithubModelsMode()
+    const githubEndpointType = getGithubEndpointType(request.baseUrl)
+    const isGithub = isGithubModelsMode() || githubEndpointType === 'copilot' || githubEndpointType === 'models'
     const isMistral = isMistralMode()
     const isLocal = isLocalProviderUrl(request.baseUrl)
-
-    const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
 
@@ -1644,7 +1666,7 @@ class OpenAIShimMessages {
 
     const isGemini = isGeminiMode()
     const isMiniMax = !!process.env.MINIMAX_API_KEY
-    const apiKey =
+    let apiKey =
       this.providerOverride?.apiKey ??
       process.env.OPENAI_API_KEY ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
@@ -1661,6 +1683,10 @@ class OpenAIShimMessages {
     try {
       isBankr = request.baseUrl.toLowerCase().includes('bankr')
     } catch { /* malformed URL — not Bankr */ }
+
+    if (!apiKey && isGithub) {
+      apiKey = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
+    }
 
     if (apiKey) {
       if (isAzure) {
@@ -1686,7 +1712,9 @@ class OpenAIShimMessages {
       Object.assign(headers, COPILOT_HEADERS)
     } else if (isGithubModels) {
       headers['Accept'] = 'application/vnd.github+json'
-      headers['X-GitHub-Api-Version'] = '2022-11-28'
+      headers['X-GitHub-Api-Version'] = request.baseUrl === GITHUB_MODELS_AZURE_BASE_URL
+        ? '2026-03-10'
+        : '2022-11-28'
     }
 
     const buildChatCompletionsUrl = (baseUrl: string): string => {

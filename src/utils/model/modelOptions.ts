@@ -369,7 +369,7 @@ function getCodexModelOptions(): ModelOption[] {
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 
-import { getCachedGithubModelOptions } from './githubModels.js'
+import { getCachedGithubModelOptions, isGithubModelUnsupported } from './githubModels.js'
 
 function getCopilotModelOptions(): ModelOption[] {
   const dynamicModels = getCachedGithubModelOptions()
@@ -380,7 +380,7 @@ function getCopilotModelOptions(): ModelOption[] {
   // Avoid showing the static full catalog when plan-aware GitHub models
   // have not been loaded yet; that list can include unavailable models.
   const currentModel = getUserSpecifiedModelSetting()
-  if (currentModel != null) {
+  if (currentModel != null && !isGithubModelUnsupported(currentModel)) {
     return [
       {
         value: currentModel,

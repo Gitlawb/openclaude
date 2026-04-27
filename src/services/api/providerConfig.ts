@@ -462,6 +462,23 @@ export function normalizeGithubModelsApiModel(requestedModel: string): string {
 
 export const GITHUB_COPILOT_BASE_URL = 'https://api.githubcopilot.com'
 export const GITHUB_MODELS_BASE_URL = 'https://models.github.ai/inference'
+export const GITHUB_MODELS_AZURE_BASE_URL = 'https://models.inference.ai.azure.com/v1'
+
+/**
+ * Returns true if the model should be routed to the new GitHub Models (Azure) endpoint.
+ * New models: openai/*, gpt-5*, codex.
+ */
+export function isGithubNewEndpointModel(model: string): boolean {
+  const noQuery = model.split('?', 1)[0] ?? model
+  const segment =
+    noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
+  const normalized = segment.toLowerCase()
+  return (
+    normalized.startsWith('openai/') ||
+    normalized.startsWith('gpt-5') ||
+    normalized.includes('codex')
+  )
+}
 
 export function getGithubEndpointType(
   baseUrl: string | undefined,
@@ -472,7 +489,7 @@ export function getGithubEndpointType(
     if (hostname === 'api.githubcopilot.com') {
       return 'copilot'
     }
-    if (hostname === 'models.github.ai' || hostname.endsWith('.github.ai')) {
+    if (hostname === 'models.github.ai' || hostname.endsWith('.github.ai') || hostname === 'models.inference.ai.azure.com') {
       return 'models'
     }
     return 'custom'
@@ -517,8 +534,8 @@ export function resolveProviderRequest(options?: {
   const primaryEnvBaseUrl = isMistralMode
     ? normalizedMistralEnvBaseUrl
     : isGeminiMode
-    ? normalizedGeminiEnvBaseUrl
-    : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
+      ? normalizedGeminiEnvBaseUrl
+      : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
 
   // In Mistral mode, a literal "undefined" MISTRAL_BASE_URL is treated as
   // misconfiguration and falls back to OPENAI_API_BASE, then
@@ -528,12 +545,12 @@ export function resolveProviderRequest(options?: {
       ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_MISTRAL_BASE_URL
       : undefined)
     : isGeminiMode
-    ? (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
-      : undefined)
-    : (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
-      : undefined)
+      ? (primaryEnvBaseUrl === undefined
+        ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
+        : undefined)
+      : (primaryEnvBaseUrl === undefined
+        ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
+        : undefined)
 
   const envBaseUrlRaw =
     explicitBaseUrl ??
@@ -565,9 +582,15 @@ export function resolveProviderRequest(options?: {
       ? DEFAULT_CODEX_BASE_URL
       : rawBaseUrl
 
-  const githubEndpointType = isGithubMode
+  const githubEndpointTypeRaw = isGithubMode
     ? getGithubEndpointType(rawBaseUrl)
     : 'custom'
+
+  // If in GitHub mode and no base URL set, decide based on model name
+  const githubEndpointType = (isGithubMode && !rawBaseUrl)
+    ? (isGithubNewEndpointModel(descriptor.baseModel) ? 'models' : 'copilot')
+    : githubEndpointTypeRaw
+
   const isGithubCopilot = isGithubMode && githubEndpointType === 'copilot'
   const isGithubModels = isGithubMode && githubEndpointType === 'models'
   const isGithubCustom = isGithubMode && githubEndpointType === 'custom'
@@ -604,9 +627,11 @@ export function resolveProviderRequest(options?: {
       (finalBaseUrl ??
         (isGithubCopilot && transport === 'codex_responses'
           ? GITHUB_COPILOT_BASE_URL
-          : (isGithubMode
-            ? GITHUB_COPILOT_BASE_URL
-            : DEFAULT_OPENAI_BASE_URL))
+          : isGithubMode
+            ? isGithubNewEndpointModel(resolvedModel)
+              ? GITHUB_MODELS_AZURE_BASE_URL
+              : GITHUB_COPILOT_BASE_URL
+            : DEFAULT_OPENAI_BASE_URL)
       ).replace(/\/+$/, ''),
     reasoning,
   }
@@ -615,11 +640,11 @@ export function resolveProviderRequest(options?: {
 export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
     if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
       return 'firstParty'
     }
     return null
@@ -806,7 +831,7 @@ export function resolveRuntimeCodexCredentials(options?: {
   )
   const hasStoredCredentialsOption = Boolean(
     options &&
-      Object.prototype.hasOwnProperty.call(options, 'storedCredentials'),
+    Object.prototype.hasOwnProperty.call(options, 'storedCredentials'),
   )
 
   if (

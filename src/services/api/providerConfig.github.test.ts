@@ -112,3 +112,21 @@ test('default model resolves to auto on Copilot API when no env vars set', () =>
   expect(r.resolvedModel).toBe('auto')
 })
 
+test('resolveProviderRequest routes NEW models to Azure endpoint', () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  const newModels = ['openai/gpt-4o', 'gpt-5-mini', 'gpt-5.3-codex', 'github:openai/o1']
+  for (const model of newModels) {
+    const r = resolveProviderRequest({ model })
+    expect(r.baseUrl).toBe('https://models.inference.ai.azure.com/v1')
+  }
+})
+
+test('resolveProviderRequest routes LEGACY models to Copilot endpoint', () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  const legacyModels = ['claude-3.5-sonnet', 'gpt-4o', 'github:copilot', 'auto']
+  for (const model of legacyModels) {
+    const r = resolveProviderRequest({ model })
+    expect(r.baseUrl).toBe('https://api.githubcopilot.com')
+  }
+})
+
