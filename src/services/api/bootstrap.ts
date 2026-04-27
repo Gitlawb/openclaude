@@ -143,6 +143,11 @@ async function fetchBootstrapAPI(): Promise<BootstrapResponse | null> {
 }
 
 async function fetchLocalOpenAIModelOptions(): Promise<BootstrapCachePayload | null> {
+  if (isEssentialTrafficOnly()) {
+    logForDebugging('[Bootstrap] Skipped local model discovery: Nonessential traffic disabled')
+    return null
+  }
+
   const scope = getAdditionalModelOptionsCacheScope()
   if (!scope?.startsWith('openai:')) {
     return null

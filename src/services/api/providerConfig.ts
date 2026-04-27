@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -114,6 +115,17 @@ type ModelDescriptor = {
 }
 
 const LOCALHOST_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
+
+function hashCacheScopePartition(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+function normalizeCacheScopeHeaderValue(value: string | undefined): string {
+  return value?.trim() ?? ''
+}
 
 function isPrivateIpv4Address(hostname: string): boolean {
   const octets = hostname.split('.').map(part => Number.parseInt(part, 10))
@@ -664,7 +676,15 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
     return null
   }
 
-  return `openai:${request.baseUrl.toLowerCase()}`
+  const partition = hashCacheScopePartition({
+    apiKey: normalizeCacheScopeHeaderValue(process.env.OPENAI_API_KEY),
+    authHeader: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_HEADER).toLowerCase(),
+    authScheme: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_SCHEME).toLowerCase(),
+    authHeaderValue: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_HEADER_VALUE),
+    customHeaders: normalizeCacheScopeHeaderValue(process.env.ANTHROPIC_CUSTOM_HEADERS),
+  })
+
+  return `openai:${request.baseUrl.toLowerCase()}:${partition}`
 }
 
 export function resolveCodexAuthPath(

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   getCachedModels,
+  isCacheStale,
   parseDurationString,
   recordDiscoveryError,
   setCachedModels,
@@ -27,6 +28,7 @@ import {
   probeAtomicChatReadiness,
   probeOllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
+import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 
 export type RouteDiscoveryResult = {
   routeId: string
@@ -104,7 +106,7 @@ function hashDiscoveryCachePartition(value: unknown): string {
     .slice(0, 16)
 }
 
-function getDiscoveryCacheKey(
+export function getDiscoveryCacheKey(
   routeId: string,
   options?: {
     baseUrl?: string
@@ -272,6 +274,31 @@ export async function discoverModelsForRoute(
         error: cached.error,
         source: 'cache',
       }
+    }
+  }
+
+  if (isEssentialTrafficOnly()) {
+    const staleEntry = await getCachedModels(cacheKey, ttlMs, {
+      includeStale: true,
+    })
+
+    if (staleEntry) {
+      const stale = await isCacheStale(cacheKey, ttlMs)
+      return {
+        routeId,
+        models: mergeCatalogEntries(staticEntries, staleEntry.models),
+        stale,
+        error: staleEntry.error,
+        source: stale ? 'stale-cache' : 'cache',
+      }
+    }
+
+    return {
+      routeId,
+      models: staticEntries,
+      stale: false,
+      error: null,
+      source: 'static',
     }
   }
 

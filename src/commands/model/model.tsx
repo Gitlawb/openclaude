@@ -13,9 +13,13 @@ import {
   parseDurationString,
 } from '../../integrations/discoveryCache.js'
 import type { ModelCatalogConfig } from '../../integrations/descriptors.js'
-import { discoverModelsForRoute } from '../../integrations/discoveryService.js'
+import {
+  discoverModelsForRoute,
+  getDiscoveryCacheKey,
+} from '../../integrations/discoveryService.js'
 import {
   getRouteDescriptor,
+  resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
 } from '../../integrations/routeMetadata.js'
 import {
@@ -53,6 +57,8 @@ import {
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js'
 import { validateModel } from '../../utils/model/validateModel.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../../utils/providerDiscovery.js'
+import { isEssentialTrafficOnly } from '../../utils/privacyLevel.js'
+import { parseCustomHeadersEnv } from '../../utils/providerCustomHeaders.js'
 import {
   getActiveOpenAIModelOptionsCache,
   getActiveProviderProfile,
@@ -72,7 +78,7 @@ type ModelDiscoveryContext =
   | {
       kind: 'legacy-openai'
       autoRefresh: boolean
-      canRefresh: true
+      canRefresh: boolean
       discoveryState?: ModelPickerDiscoveryState
       routeLabel: string
     }
@@ -108,9 +114,10 @@ function getActiveRouteId(): string | null {
   })
 }
 
-function getOpenAIDiscoveryRequestOptions(): {
+function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
   apiKey?: string
   baseUrl?: string
+  headers?: Record<string, string>
 } {
   const request = resolveProviderRequest({
     model: process.env.OPENAI_MODEL,
@@ -118,8 +125,13 @@ function getOpenAIDiscoveryRequestOptions(): {
   })
 
   return {
-    apiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
+    apiKey: resolveRouteCredentialValue({
+      routeId,
+      baseUrl: request.baseUrl,
+      processEnv: process.env,
+    }),
     baseUrl: request.baseUrl,
+    headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
   }
 }
 
@@ -160,7 +172,10 @@ async function loadDescriptorDiscoveryContext(
 
   const routeLabel = descriptor.label
   const staticEntries = catalog.models ?? []
-  const canRefresh = Boolean(catalog.discovery && catalog.allowManualRefresh)
+  const trafficRestricted = isEssentialTrafficOnly()
+  const canRefresh = Boolean(
+    catalog.discovery && catalog.allowManualRefresh && !trafficRestricted,
+  )
 
   if (!catalog.discovery) {
     if (staticEntries.length === 0) {
@@ -178,14 +193,16 @@ async function loadDescriptorDiscoveryContext(
   }
 
   const ttlMs = parseDurationString(catalog.discoveryCacheTtl ?? 0)
-  const cached = await getCachedModels(routeId, ttlMs, { includeStale: true })
-  const stale = await isCacheStale(routeId, ttlMs)
+  const discoveryOptions = getOpenAIDiscoveryRequestOptions(routeId)
+  const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
+  const cached = await getCachedModels(cacheKey, ttlMs, { includeStale: true })
+  const stale = await isCacheStale(cacheKey, ttlMs)
   const autoRefresh = shouldAutoRefreshRouteCatalog({
     catalog,
     hasCachedModels: cached !== null,
     staticEntryCount: staticEntries.length,
     stale,
-  })
+  }) && !trafficRestricted
   const mergedEntries = mergeRouteCatalogEntries(
     staticEntries,
     cached?.models ?? [],
@@ -229,8 +246,8 @@ async function loadModelDiscoveryContext(): Promise<ModelDiscoveryContext | null
     const { baseUrl } = getOpenAIDiscoveryRequestOptions()
     return {
       kind: 'legacy-openai',
-      autoRefresh: true,
-      canRefresh: true,
+      autoRefresh: !isEssentialTrafficOnly(),
+      canRefresh: !isEssentialTrafficOnly(),
       routeLabel: getLocalOpenAICompatibleProviderLabel(baseUrl),
     }
   }
@@ -415,13 +432,18 @@ function ModelPickerWrapper({
 
     if (discoveryContext.kind === 'descriptor') {
       if (manual) {
-        await clearDiscoveryCache(discoveryContext.routeId)
+        await clearDiscoveryCache(
+          getDiscoveryCacheKey(
+            discoveryContext.routeId,
+            getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+          ),
+        )
       }
 
       const result = await discoverModelsForRoute(
         discoveryContext.routeId,
         {
-          ...getOpenAIDiscoveryRequestOptions(),
+          ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
           forceRefresh: true,
         },
       )
@@ -681,14 +703,21 @@ async function refreshModelsAndSummarize(): Promise<string> {
     return 'The active provider does not support runtime model discovery refresh.'
   }
 
-  if (discoveryContext.kind === 'descriptor') {
-    if (!discoveryContext.canRefresh) {
-      return `${discoveryContext.routeLabel} uses a static model catalog; no refresh is needed.`
-    }
+  if (!discoveryContext.canRefresh) {
+    return isEssentialTrafficOnly()
+      ? 'Model discovery refresh is disabled while nonessential traffic is disabled.'
+      : `${discoveryContext.routeLabel} uses a static model catalog; no refresh is needed.`
+  }
 
-    await clearDiscoveryCache(discoveryContext.routeId)
+  if (discoveryContext.kind === 'descriptor') {
+    await clearDiscoveryCache(
+      getDiscoveryCacheKey(
+        discoveryContext.routeId,
+        getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+      ),
+    )
     const result = await discoverModelsForRoute(discoveryContext.routeId, {
-      ...getOpenAIDiscoveryRequestOptions(),
+      ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
       forceRefresh: true,
     })
     const nextOptions = buildRouteCatalogModelOptions(

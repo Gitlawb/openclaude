@@ -18,6 +18,8 @@ const originalEnv = {
   CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
   CLAUDE_CODE_USE_VERTEX: process.env.CLAUDE_CODE_USE_VERTEX,
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:
+    process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
 }
 
 let tempDir: string
@@ -81,6 +83,7 @@ afterEach(() => {
   restoreEnvValue('CLAUDE_CODE_USE_BEDROCK')
   restoreEnvValue('CLAUDE_CODE_USE_VERTEX')
   restoreEnvValue('CLAUDE_CODE_USE_FOUNDRY')
+  restoreEnvValue('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')
 })
 
 describe('discoverModelsForRoute', () => {
@@ -279,6 +282,26 @@ describe('discoverModelsForRoute', () => {
 
     expect(result?.source).toBe('network')
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['discovered-model'])
+  })
+
+  test('skips descriptor network discovery when nonessential traffic is disabled', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+    process.env.OPENROUTER_API_KEY = 'or-key'
+    setMockFetch(mock(() => {
+      throw new Error('unexpected model discovery request')
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('openrouter', {
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('static')
+    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
+      'openai/gpt-5-mini',
+    ])
+    expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
   test('startup refresh mode performs discovery for startup routes and then reuses cache', async () => {
