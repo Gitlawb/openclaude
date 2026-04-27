@@ -25,10 +25,42 @@ function installCommonMocks(options?: {
   }))
 
   mock.module('src/services/analytics/growthbook.js', () => ({
+    onGrowthBookRefresh: () => () => {},
+    hasGrowthBookEnvOverride: () => false,
+    getAllGrowthBookFeatures: () => ({}),
+    getGrowthBookConfigOverrides: () => ({}),
+    setGrowthBookConfigOverride: () => {},
+    clearGrowthBookConfigOverrides: () => {},
+    getApiBaseUrlHost: () => undefined,
+    initializeGrowthBook: async () => null,
+    checkStatsigFeatureGate_CACHED_MAY_BE_STALE: () => false,
     getFeatureValue_CACHED_MAY_BE_STALE: (
       name: string,
       defaultValue: unknown,
     ) => (name === 'tengu_penguins_off' ? false : defaultValue),
+    getFeatureValue_CACHED_WITH_REFRESH: (
+      name: string,
+      defaultValue: unknown,
+    ) => (name === 'tengu_penguins_off' ? false : defaultValue),
+    getDynamicConfig_CACHED_MAY_BE_STALE: (
+      _name: string,
+      defaultValue: unknown,
+    ) => defaultValue,
+    checkGate_CACHED_OR_BLOCKING: async () => false,
+    checkSecurityRestrictionGate: async () => false,
+    getFeatureValue_DEPRECATED: async (
+      _name: string,
+      defaultValue: unknown,
+    ) => defaultValue,
+    refreshGrowthBookAfterAuthChange: () => {},
+    resetGrowthBook: () => {},
+    refreshGrowthBookFeatures: async () => {},
+    setupPeriodicGrowthBookRefresh: () => {},
+    stopPeriodicGrowthBookRefresh: () => {},
+    getDynamicConfig_BLOCKS_ON_INIT: async (
+      _name: string,
+      defaultValue: unknown,
+    ) => defaultValue,
   }))
 
   mock.module('src/constants/oauth.js', () => ({
@@ -122,6 +154,10 @@ function installCommonMocks(options?: {
 
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'firstParty',
+    getAPIProviderForStatsig: () => 'firstParty',
+    isFirstPartyAnthropicBaseUrl: () => true,
+    isGithubNativeAnthropicMode: () => false,
+    usesAnthropicAccountFlow: () => true,
   }))
 }
 
