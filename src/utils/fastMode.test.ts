@@ -24,6 +24,13 @@ function installCommonMocks(options?: {
     },
   }))
 
+  mock.module('src/services/analytics/growthbook.js', () => ({
+    getFeatureValue_CACHED_MAY_BE_STALE: (
+      name: string,
+      defaultValue: unknown,
+    ) => (name === 'tengu_penguins_off' ? false : defaultValue),
+  }))
+
   mock.module('src/constants/oauth.js', () => ({
     fileSuffixForOauthConfig: () => '',
     CLAUDE_AI_INFERENCE_SCOPE: 'user:inference',
@@ -115,12 +122,7 @@ function installCommonMocks(options?: {
 
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'firstParty',
-    usesAnthropicAccountFlow: () => true,
-    isGithubNativeAnthropicMode: () => false,
-    getAPIProviderForStatsig: () => 'firstParty',
-    isFirstPartyAnthropicBaseUrl: () => true,
   }))
-
 }
 
 async function prepareFastModeTestState(): Promise<void> {
@@ -132,6 +134,22 @@ async function prepareFastModeTestState(): Promise<void> {
     ...DEFAULT_GLOBAL_CONFIG,
     penguinModeOrgEnabled: false,
   })
+}
+
+function forceFirstPartyProviderEnv(): void {
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.NVIDIA_NIM
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.XAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_MODEL
 }
 
 afterEach(async () => {
@@ -146,6 +164,7 @@ afterEach(async () => {
 describe('fastMode ant-only fallback cleanup', () => {
   test('resolveFastModeStatusFromCache does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'
+    forceFirstPartyProviderEnv()
     installCommonMocks({ cachedEnabled: false })
 
     const {
@@ -163,6 +182,7 @@ describe('fastMode ant-only fallback cleanup', () => {
 
   test('prefetchFastModeStatus without auth does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'
+    forceFirstPartyProviderEnv()
     installCommonMocks({ cachedEnabled: false, apiKey: null, oauthToken: null })
 
     const {
@@ -180,6 +200,7 @@ describe('fastMode ant-only fallback cleanup', () => {
 
   test('prefetchFastModeStatus network failure does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'
+    forceFirstPartyProviderEnv()
     installCommonMocks({
       cachedEnabled: false,
       apiKey: 'test-key',
