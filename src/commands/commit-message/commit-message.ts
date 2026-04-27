@@ -20,7 +20,6 @@ const USAGE = [
   '  /commit-message default',
   '  /commit-message set <custom attribution text>',
   '  /commit-message co-author "Name" name@example.com',
-  '  /commit-message co-author "Name" <name@example.com>',
 ].join('\n')
 
 function sanitizeSingleLine(value: string): string {
