@@ -31,6 +31,17 @@ function sanitizeSingleLine(value: string): string {
     .trim()
 }
 
+export function stripMatchingQuotes(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length < 2) return trimmed
+  const first = trimmed[0]
+  const last = trimmed[trimmed.length - 1]
+  if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
 export function formatCoAuthorTrailer(name: string, email: string): string {
   const cleanName = sanitizeSingleLine(name).replace(/[<>]/g, '')
   const cleanEmail = sanitizeSingleLine(email).replace(/[<>]/g, '')
@@ -43,11 +54,14 @@ export function parseCoAuthor(value: string): ParsedCoAuthor | null {
     /^(?:"([^"]+)"|'([^']+)'|(.+?))\s*<([^<>\s]+@[^<>\s]+)>$/,
   )
   if (angleMatch) {
+    const name = sanitizeSingleLine(
+      angleMatch[1] ?? angleMatch[2] ?? angleMatch[3] ?? '',
+    )
+    const email = sanitizeSingleLine(angleMatch[4] ?? '')
+    if (!name || !email) return null
     return {
-      name: sanitizeSingleLine(
-        angleMatch[1] ?? angleMatch[2] ?? angleMatch[3] ?? '',
-      ),
-      email: sanitizeSingleLine(angleMatch[4] ?? ''),
+      name,
+      email,
     }
   }
 
@@ -56,11 +70,15 @@ export function parseCoAuthor(value: string): ParsedCoAuthor | null {
   )
   if (!plainMatch) return null
 
+  const name = sanitizeSingleLine(
+    plainMatch[1] ?? plainMatch[2] ?? plainMatch[3] ?? '',
+  )
+  const email = sanitizeSingleLine(plainMatch[4] ?? '')
+  if (!name || !email) return null
+
   return {
-    name: sanitizeSingleLine(
-      plainMatch[1] ?? plainMatch[2] ?? plainMatch[3] ?? '',
-    ),
-    email: sanitizeSingleLine(plainMatch[4] ?? ''),
+    name,
+    email,
   }
 }
 
@@ -127,7 +145,7 @@ export const call: LocalCommandCall = async args => {
     case 'set-attribution':
     case 'set':
     case 'custom': {
-      const value = commandArg
+      const value = stripMatchingQuotes(commandArg)
       if (!value) return { type: 'text', value: USAGE }
       const error = saveCommitAttribution(value)
       if (error) return { type: 'text', value: error }

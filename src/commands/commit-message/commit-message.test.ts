@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   formatCoAuthorTrailer,
   parseCoAuthor,
+  stripMatchingQuotes,
   USAGE,
 } from './commit-message.js'
 
@@ -19,6 +20,23 @@ describe('commit-message command helpers', () => {
         name: 'OpenClaude (gpt-5.5)',
         email: 'noreply@openclaude.dev',
       },
+    )
+  })
+
+  it('rejects co-author trailers with empty sanitized names', () => {
+    expect(parseCoAuthor('"  " noreply@openclaude.dev')).toBeNull()
+    expect(parseCoAuthor('"  " <noreply@openclaude.dev>')).toBeNull()
+  })
+
+  it('strips one pair of matching quotes from custom attribution text', () => {
+    expect(stripMatchingQuotes('"Generated with OpenClaude"')).toBe(
+      'Generated with OpenClaude',
+    )
+    expect(stripMatchingQuotes("'Generated with OpenClaude'")).toBe(
+      'Generated with OpenClaude',
+    )
+    expect(stripMatchingQuotes('"Generated with OpenClaude')).toBe(
+      '"Generated with OpenClaude',
     )
   })
 

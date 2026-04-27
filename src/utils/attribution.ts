@@ -46,6 +46,14 @@ function sanitizeCoAuthorNamePart(value: string): string {
     .trim()
 }
 
+function formatClaudeCoAuthorName(model: string): string {
+  const publicName = getPublicModelDisplayName(model)
+  if (!publicName) {
+    return getPublicModelName(model)
+  }
+  return publicName.startsWith('Claude ') ? publicName : `Claude ${publicName}`
+}
+
 export function getDefaultCommitCoAuthorName({
   model,
   apiProvider,
@@ -65,7 +73,7 @@ export function getDefaultCommitCoAuthorName({
     normalizedModel.includes('claude')
 
   if (isInternalRepo || (isClaudeProvider && isKnownPublicModel)) {
-    return getPublicModelName(model)
+    return formatClaudeCoAuthorName(model)
   }
 
   // Unknown first-party models may be unreleased Claude codenames, so keep the

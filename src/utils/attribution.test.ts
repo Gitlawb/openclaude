@@ -25,6 +25,16 @@ describe('getDefaultCommitCoAuthorName', () => {
     ).toBe('Claude Opus 4.6')
   })
 
+  it('does not duplicate the Claude prefix for Claude model names', () => {
+    expect(
+      getDefaultCommitCoAuthorName({
+        model: 'claude-opus-4-6',
+        apiProvider: 'firstParty',
+        isInternalRepo: false,
+      }),
+    ).toBe('Claude Opus 4.6')
+  })
+
   it('uses the OpenClaude email for non-first-party commit attribution', () => {
     expect(getDefaultCommitCoAuthorEmail('openai')).toBe(
       'openclaude@gitlawb.com',
