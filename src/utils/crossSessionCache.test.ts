@@ -1,11 +1,11 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
-import { CrossSessionTokenCache } from './crossSessionTokenCache.js'
+import { InMemoryTokenCache } from './crossSessionTokenCache.js'
 
-describe('CrossSessionTokenCache', () => {
-  let cache: CrossSessionTokenCache
+describe('InMemoryTokenCache', () => {
+  let cache: InMemoryTokenCache
 
   beforeEach(() => {
-    cache = new CrossSessionTokenCache(10, 1000)
+    cache = new InMemoryTokenCache(10, 1000)
   })
 
   it('caches content and returns token count', () => {
@@ -61,6 +61,32 @@ describe('CrossSessionTokenCache', () => {
     expect(result.upperBound).toBeGreaterThanOrEqual(result.estimate)
     expect(result.lowerBound).toBeLessThan(result.upperBound)
     expect(['high', 'medium', 'low']).toContain(result.confidence)
+  })
+
+  it('confidence increases with reuse count', () => {
+    const content = 'Confidence test content'
+
+    const result1 = cache.estimateWithBounds(content)
+    expect(result1.confidence).toBe('low')
+
+    const result2 = cache.estimateWithBounds(content)
+    expect(result2.confidence).toBe('medium')
+
+    const result3 = cache.estimateWithBounds(content)
+    expect(result3.confidence).toBe('high')
+  })
+
+  it('higher confidence gives tighter bounds', () => {
+    const content = 'Tight bounds test'
+    cache.getTokenCount(content)
+    cache.getTokenCount(content)
+    cache.getTokenCount(content)
+
+    const result = cache.estimateWithBounds(content)
+    const spread = result.upperBound - result.lowerBound
+    const estimate = result.estimate
+
+    expect(spread / estimate).toBeLessThan(0.15)
   })
 
   it('tracks reuse statistics', () => {

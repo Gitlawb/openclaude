@@ -3,24 +3,24 @@ import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from 
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
-import { CrossSessionTokenCache } from './crossSessionTokenCache.js'
+import { InMemoryTokenCache } from './crossSessionTokenCache.js'
 
-let _crossSessionTokenCache: CrossSessionTokenCache | undefined
+let _inMemoryTokenCache: InMemoryTokenCache | undefined
 
-export function getCrossSessionTokenCache(): CrossSessionTokenCache {
-  if (!_crossSessionTokenCache) {
-    _crossSessionTokenCache = new CrossSessionTokenCache(200, 48 * 60 * 60 * 1000)
+export function getInMemoryTokenCache(): InMemoryTokenCache {
+  if (!_inMemoryTokenCache) {
+    _inMemoryTokenCache = new InMemoryTokenCache(200, 48 * 60 * 60 * 1000)
   }
-  return _crossSessionTokenCache
+  return _inMemoryTokenCache
 }
 
-export const crossSessionTokenCache = { get cache() { return getCrossSessionTokenCache() } }
+export const inMemoryTokenCache = { get cache() { return getInMemoryTokenCache() } }
 
 function cachedTokenCount(content: string): number {
   if (content.length < 20) {
     return roughTokenCountEstimation(content)
   }
-  return getCrossSessionTokenCache().getTokenCount(content)
+  return getInMemoryTokenCache().getTokenCount(content)
 }
 
 function getMessageContentString(message: Message): string {

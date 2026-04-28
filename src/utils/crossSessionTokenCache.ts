@@ -9,7 +9,7 @@
 import { createHash } from 'crypto'
 import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
 
-export interface CrossSessionCacheEntry {
+export interface InMemoryCacheEntry {
   contentHash: string
   contentPreview: string
   tokenCount: number
@@ -17,15 +17,15 @@ export interface CrossSessionCacheEntry {
   useCount: number
 }
 
-export interface CrossSessionCacheStats {
+export interface InMemoryCacheStats {
   size: number
   totalUses: number
   reusedEntries: number
   reuseRate: number
 }
 
-export class CrossSessionTokenCache {
-  private cache = new Map<string, CrossSessionCacheEntry>()
+export class InMemoryTokenCache {
+  private cache = new Map<string, InMemoryCacheEntry>()
   private readonly maxEntries: number
   private readonly maxAge: number
 
@@ -37,7 +37,7 @@ export class CrossSessionTokenCache {
   /**
    * Get or create cache entry for content
    */
-  getOrCreate(content: string): CrossSessionCacheEntry {
+  getOrCreate(content: string): InMemoryCacheEntry {
     const hash = this.hashContent(content)
     const existing = this.cache.get(hash)
     if (existing) {
@@ -46,7 +46,7 @@ export class CrossSessionTokenCache {
       return existing
     }
 
-    const entry: CrossSessionCacheEntry = {
+    const entry: InMemoryCacheEntry = {
       contentHash: hash,
       contentPreview: content.slice(0, 50),
       tokenCount: roughTokenCountEstimation(content),
@@ -149,7 +149,7 @@ export class CrossSessionTokenCache {
   /**
    * Get cache statistics
    */
-  getStats(): CrossSessionCacheStats {
+  getStats(): InMemoryCacheStats {
     let totalUses = 0
     let reused = 0
     
