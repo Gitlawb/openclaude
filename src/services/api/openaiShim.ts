@@ -75,7 +75,12 @@ import {
   hasToolFieldMapping,
 } from './toolArgumentNormalization.js'
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
-import { createStreamState, processStreamChunk, getStreamStats } from '../../utils/streamingOptimizer.js'
+import {
+  createStreamState,
+  processStreamChunk,
+  getStreamStats,
+} from '../../utils/streamingOptimizer.js'
+import { stableStringify } from '../../utils/stableStringify.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -1855,12 +1860,17 @@ class OpenAIShimMessages {
       return false
     }
 
-    let serializedBody = JSON.stringify(
+    // WHY: byte-identity required for implicit prefix caching in
+    // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
+    // depth so spurious insertion-order differences across rebuilds of
+    // `body` (spread-merge, conditional assignments above) don't bust
+    // the provider's prefix hash.
+    let serializedBody = stableStringify(
       request.transport === 'responses' ? buildResponsesBody() : body,
     )
 
     const refreshSerializedBody = (): void => {
-      serializedBody = JSON.stringify(
+      serializedBody = stableStringify(
         request.transport === 'responses' ? buildResponsesBody() : body,
       )
     }
@@ -2039,7 +2049,7 @@ class OpenAIShimMessages {
             responsesResponse = await fetchWithProxyRetry(responsesUrl, {
               method: 'POST',
               headers,
-              body: JSON.stringify(responsesBody),
+              body: stableStringify(responsesBody),
               signal: options?.signal,
             })
           } catch (error) {

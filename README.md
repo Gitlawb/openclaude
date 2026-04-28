@@ -25,12 +25,18 @@ OpenClaude is also mirrored to GitLawb:
   <a href="https://bankr.bot">
     <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="96">
   </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/">
+    <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="96">
+  </a>
 </p>
 
 <p align="center">
   <a href="https://gitlawb.com"><strong>GitLawb</strong></a>
   &nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/"><strong>Atomic Chat</strong></a>
 </p>
 
 ## Star History
@@ -170,7 +176,7 @@ For best results, use models with strong tool/function calling support.
 
 OpenClaude can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.
 
-Add to `~/.claude/settings.json`:
+Add to `~/.openclaude.json`:
 
 ```json
 {
