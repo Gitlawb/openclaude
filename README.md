@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/gitlawb-openclaude-badge.png)](https://mseep.ai/app/gitlawb-openclaude)
+
 # OpenClaude
 
 OpenClaude is an open-source coding-agent CLI for cloud and local model providers.
