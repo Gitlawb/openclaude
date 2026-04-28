@@ -1,4 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+mock.module('../utils/settings/settings.js', () => ({
+  getSettings_DEPRECATED: () => ({}),
+}))
+
 import { detectProvider } from './StartupScreen.js'
 
 const ENV_KEYS = [
@@ -14,6 +18,7 @@ const ENV_KEYS = [
   'GEMINI_MODEL',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
+  'ANTHROPIC_BASE_URL',
   'CLAUDE_MODEL',
   'NVIDIA_NIM',
   'MINIMAX_API_KEY',
@@ -244,12 +249,14 @@ describe('detectProvider — modelOverride from --model flag', () => {
   })
 
   test('undefined modelOverride preserves default behavior', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
     const result = detectProvider(undefined)
     expect(result.name).toBe('Anthropic')
     expect(result.model).toContain('sonnet')
   })
 
   test('no argument preserves default behavior', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
     const result = detectProvider()
     expect(result.name).toBe('Anthropic')
     expect(result.model).toContain('sonnet')

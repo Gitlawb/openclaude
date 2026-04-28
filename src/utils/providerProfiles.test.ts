@@ -2,9 +2,9 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
-import type { ProviderProfile } from './config.js'
+import type { ModelOption } from './model/modelOptions.js'
 
 async function importFreshProvidersModule() {
   return import(`./model/providers.ts?ts=${Date.now()}-${Math.random()}`)
@@ -44,16 +44,35 @@ const RESTORED_KEYS = [
   'MISTRAL_MODEL',
   'MISTRAL_API_KEY',
   'XAI_API_KEY',
+  'CODEX_API_KEY',
+  'CODEX_ACCOUNT_ID',
+  'CHATGPT_ACCOUNT_ID',
+  'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
 ] as const
 
-type MockConfigState = {
-  providerProfiles: ProviderProfile[]
+type TestProviderProfile = {
+  id: string
+  name: string
+  provider: 'anthropic' | 'openai' | 'gemini' | 'mistral'
+  baseUrl: string
+  model: string
+  apiKey?: string
+  apiFormat?: 'chat_completions' | 'responses'
+  authHeader?: string
+  authScheme?: 'bearer' | 'raw'
+  authHeaderValue?: string
+}
+
+type TestConfigState = {
+  providerProfiles: TestProviderProfile[]
   activeProviderProfileId?: string
-  openaiAdditionalModelOptionsCache: unknown[]
-  openaiAdditionalModelOptionsCacheByProfile: Record<string, unknown[]>
-  additionalModelOptionsCache?: unknown[]
+  openaiAdditionalModelOptionsCache: ModelOption[]
+  openaiAdditionalModelOptionsCacheByProfile: Record<string, ModelOption[]>
+  additionalModelOptionsCache?: ModelOption[]
   additionalModelOptionsCacheScope?: string
 }
+
+type MockConfigState = TestConfigState & Record<string, unknown>
 
 function createMockConfigState(): MockConfigState {
   return {
@@ -67,6 +86,12 @@ function createMockConfigState(): MockConfigState {
 }
 
 let mockConfigState: MockConfigState = createMockConfigState()
+
+beforeEach(() => {
+  for (const key of RESTORED_KEYS) {
+    delete process.env[key]
+  }
+})
 
 function saveMockGlobalConfig(
   updater: (current: MockConfigState) => MockConfigState,
@@ -90,7 +115,9 @@ afterEach(() => {
 
 async function importFreshProviderProfileModules() {
   mock.restore()
+  const actualConfig = await import(`./config.js?actual=${Date.now()}-${Math.random()}`)
   mock.module('./config.js', () => ({
+    ...actualConfig,
     getGlobalConfig: () => mockConfigState,
     saveGlobalConfig: (
       updater: (current: MockConfigState) => MockConfigState,
@@ -108,7 +135,7 @@ async function importFreshProviderProfileModules() {
   }
 }
 
-function buildProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildProfile(overrides: Partial<TestProviderProfile> = {}): TestProviderProfile {
   return {
     id: 'provider_test',
     name: 'Test Provider',
@@ -119,7 +146,7 @@ function buildProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile
   }
 }
 
-function buildMistralProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildMistralProfile(overrides: Partial<TestProviderProfile> = {}): TestProviderProfile {
   return buildProfile({
     provider: 'mistral',
     baseUrl: 'https://api.mistral.ai/v1',
@@ -128,7 +155,7 @@ function buildMistralProfile(overrides: Partial<ProviderProfile> = {}): Provider
   })
 }
 
-function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildGeminiProfile(overrides: Partial<TestProviderProfile> = {}): TestProviderProfile {
   return buildProfile({
     provider: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -137,7 +164,7 @@ function buildGeminiProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
   })
 }
 
-function buildXaiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+function buildXaiProfile(overrides: Partial<TestProviderProfile> = {}): TestProviderProfile {
   return buildProfile({
     provider: 'openai',
     baseUrl: 'https://api.x.ai/v1',
@@ -399,8 +426,8 @@ describe('applyActiveProviderProfileFromConfig', () => {
     } as any)
 
     expect(applied?.id).toBe('saved_moonshot')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.moonshot.ai/v1')
-    expect(process.env.OPENAI_MODEL).toBe('kimi-k2.6')
+    expect(String(process.env.OPENAI_BASE_URL)).toBe('https://api.moonshot.ai/v1')
+    expect(String(process.env.OPENAI_MODEL)).toBe('kimi-k2.6')
   })
 
   test('still respects complete shell selection with USE flag + BASE_URL', async () => {
@@ -550,7 +577,7 @@ describe('applyActiveProviderProfileFromConfig', () => {
     } as any)
 
     expect(applied?.id).toBe('saved_xai')
-    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+    expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
   })
 
   test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {
@@ -636,7 +663,7 @@ describe('persistActiveProviderProfileModel', () => {
     )
 
     const saved = getProviderProfiles().find(
-      (profile: ProviderProfile) => profile.id === activeProfile.id,
+      (profile: TestProviderProfile) => profile.id === activeProfile.id,
     )
     expect(saved?.model).toBe('minimax-m2.5:cloud')
   })
@@ -666,7 +693,7 @@ describe('persistActiveProviderProfileModel', () => {
 
     expect(process.env.OPENAI_MODEL).toBe('cli-model')
     const saved = getProviderProfiles().find(
-      (profile: ProviderProfile) => profile.id === activeProfile.id,
+      (profile: TestProviderProfile) => profile.id === activeProfile.id,
     )
     expect(saved?.model).toBe('minimax-m2.5:cloud')
   })
@@ -1145,7 +1172,7 @@ describe('setActiveProviderProfile model cache', () => {
     setActiveProviderProfile('multi_provider')
 
     const cache = getActiveOpenAIModelOptionsCache()
-    const cacheValues = cache.map(opt => opt.value)
+    const cacheValues = cache.map((opt: ModelOption) => opt.value)
     expect(cacheValues).toContain('glm-4.7')
     expect(cacheValues).toContain('glm-4.7-flash')
     expect(cacheValues).toContain('glm-4.7-plus')

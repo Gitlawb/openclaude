@@ -3,12 +3,19 @@ import { afterEach, expect, test } from 'bun:test'
 import {
   getProviderValidationError,
   shouldExitForStartupProviderValidationError,
-} from './providerValidation.ts'
+} from './providerValidation.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CODEX_API_KEY: process.env.CODEX_API_KEY,
+  CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
+  CODEX_ACCOUNT_ID: process.env.CODEX_ACCOUNT_ID,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+  GH_TOKEN: process.env.GH_TOKEN,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
@@ -29,6 +36,13 @@ afterEach(() => {
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('CODEX_API_KEY', originalEnv.CODEX_API_KEY)
+  restoreEnv('CHATGPT_ACCOUNT_ID', originalEnv.CHATGPT_ACCOUNT_ID)
+  restoreEnv('CODEX_ACCOUNT_ID', originalEnv.CODEX_ACCOUNT_ID)
+  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
+  restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
+  restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
   restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
@@ -85,6 +99,11 @@ test('openai missing key error includes recovery guidance and config locations',
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CODEX_API_KEY
+  delete process.env.CHATGPT_ACCOUNT_ID
+  delete process.env.CODEX_ACCOUNT_ID
 
   const message = await getProviderValidationError(process.env)
   expect(message).toContain(
