@@ -5,6 +5,7 @@ export default defineGateway({
   label: 'OpenRouter',
   category: 'aggregating',
   defaultBaseUrl: 'https://openrouter.ai/api/v1',
+  defaultModel: 'openai/gpt-5-mini',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -17,7 +18,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
     },
   },
   preset: {
@@ -33,7 +34,7 @@ export default defineGateway({
     discoveryRefreshMode: 'background-if-stale',
     allowManualRefresh: true,
     models: [
-      { id: 'openrouter-gpt-5-mini', apiName: 'openai/gpt-5-mini', label: 'GPT-5 Mini (via OpenRouter)', default: true },
+      { id: 'openrouter-gpt-5-mini', apiName: 'openai/gpt-5-mini', label: 'GPT-5 Mini (via OpenRouter)', modelDescriptorId: 'gpt-5-mini' },
     ],
   },
   usage: { supported: false },

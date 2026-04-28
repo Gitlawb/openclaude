@@ -5,6 +5,7 @@ export default defineGateway({
   label: 'Azure OpenAI',
   category: 'hosted',
   defaultBaseUrl: 'https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1',
+  defaultModel: 'YOUR-DEPLOYMENT-NAME',
   supportsModelRouting: false,
   setup: {
     requiresAuth: true,
@@ -14,7 +15,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
     },
   },
   preset: {
@@ -26,7 +27,7 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'azure-deployment', apiName: 'YOUR-DEPLOYMENT-NAME', label: 'Azure Deployment', default: true },
+      { id: 'azure-deployment', apiName: 'YOUR-DEPLOYMENT-NAME', label: 'Azure Deployment' },
     ],
   },
   usage: { supported: false },

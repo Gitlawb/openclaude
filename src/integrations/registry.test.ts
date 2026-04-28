@@ -265,6 +265,25 @@ describe('validateIntegrationRegistry', () => {
     expect(result.errors.some(e => e.includes('Duplicate catalog entry id'))).toBe(true)
   })
 
+  test('catches catalog default flags when route defaultModel is set', () => {
+    registerGateway(
+      makeGateway('gw-duplicate-default', {
+        defaultModel: 'model-1',
+        catalog: {
+          source: 'static',
+          models: [{ id: 'e1', apiName: 'model-1', default: true }],
+        },
+      }),
+    )
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(
+      result.errors.some(error =>
+        error.includes('must not set default because the route defines defaultModel'),
+      ),
+    ).toBe(true)
+  })
+
   test('catches openaiShim overrides on non-openai-compatible route', () => {
     registerGateway(
       makeGateway('gw-native', {

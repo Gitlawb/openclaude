@@ -24,7 +24,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
       maxTokensField: 'max_tokens',
     },
   },
@@ -44,8 +44,8 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'github-claude-sonnet', apiName: 'claude-sonnet-4-6', label: 'Claude Sonnet (GitHub)' },
-      { id: 'github-gpt-4o', apiName: 'gpt-4o', label: 'GPT-4o (GitHub)' },
+      { id: 'github-claude-sonnet', apiName: 'claude-sonnet-4-6', label: 'Claude Sonnet (GitHub)', modelDescriptorId: 'claude-sonnet-4-6' },
+      { id: 'github-gpt-4o', apiName: 'gpt-4o', label: 'GPT-4o (GitHub)', modelDescriptorId: 'gpt-4o' },
     ],
   },
   usage: { supported: false },

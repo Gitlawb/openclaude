@@ -14,5 +14,10 @@ export default defineBrand({
   },
   modelIds: [
     'qwen3.6-plus',
+    'qwen3.5-plus',
+    'qwen3-coder-plus',
+    'qwen3-coder-next',
+    'qwen3-max',
+    'Qwen/Qwen3.5-9B',
   ],
 })

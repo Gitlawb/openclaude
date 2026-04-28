@@ -5,6 +5,7 @@ export default defineGateway({
   label: 'Moonshot AI - Kimi Code',
   category: 'hosted',
   defaultBaseUrl: 'https://api.kimi.com/coding/v1',
+  defaultModel: 'kimi-for-coding',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -14,7 +15,8 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
       preserveReasoningContent: true,
       requireReasoningContentOnAssistantMessages: true,
       reasoningContentFallback: '',
@@ -31,7 +33,7 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'kimi-for-coding', apiName: 'kimi-for-coding', label: 'Kimi for Coding', default: true },
+      { id: 'kimi-for-coding', apiName: 'kimi-for-coding', label: 'Kimi for Coding', modelDescriptorId: 'kimi-for-coding' },
     ],
   },
   usage: { supported: false },

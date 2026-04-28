@@ -20,6 +20,7 @@ const ENV_KEYS = [
   'NVIDIA_NIM',
   'BNKR_API_KEY',
   'XAI_API_KEY',
+  'MINIMAX_API_KEY',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -45,6 +46,7 @@ const RESET_KEYS = [
   'NVIDIA_NIM',
   'BNKR_API_KEY',
   'XAI_API_KEY',
+  'MINIMAX_API_KEY',
 ] as const
 
 beforeEach(() => {
@@ -203,6 +205,7 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.deepseek.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-pro')
   })
 
   test('openrouter applies gateway defaults from descriptors', () => {
@@ -269,6 +272,18 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
+
+  test('clears MINIMAX_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.MINIMAX_API_KEY = 'minimax-live-key'
+    process.env.OPENAI_API_KEY = 'minimax-live-key'
+    process.env.XAI_API_KEY = 'xai-live-key'
+
+    const xaiResult = applyProviderFlag('xai', [])
+
+    expect(xaiResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('xai-live-key')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+  })
 })
 
 describe('applyProviderFlag - minimax', () => {
@@ -278,7 +293,7 @@ describe('applyProviderFlag - minimax', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.io/v1')
-    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.5')
+    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
   })
 })
 

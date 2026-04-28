@@ -4,16 +4,17 @@ import type { ModelOption } from './modelOptions.js'
 function toDescription(
   entry: ModelCatalogEntry,
   routeLabel: string,
+  routeDefaultModel?: string,
 ): string {
   const parts: string[] = []
+  const isRecommended =
+    entry.default ||
+    (routeDefaultModel !== undefined &&
+      entry.apiName.trim().toLowerCase() === routeDefaultModel.trim().toLowerCase())
 
-  if (entry.default) {
-    parts.push('Default')
-  }
-  if (entry.recommended) {
+  if (isRecommended) {
     parts.push('Recommended')
   }
-
   parts.push(`Provider: ${routeLabel}`)
 
   return parts.join(' · ')
@@ -43,6 +44,7 @@ export function mergeRouteCatalogEntries(
 export function buildRouteCatalogModelOptions(
   routeLabel: string,
   entries: ModelCatalogEntry[],
+  routeDefaultModel?: string,
 ): ModelOption[] {
   const seen = new Set<string>()
   const options: ModelOption[] = []
@@ -55,7 +57,7 @@ export function buildRouteCatalogModelOptions(
 
     seen.add(value.toLowerCase())
     const label = entry.label?.trim() || value
-    const description = toDescription(entry, routeLabel)
+    const description = toDescription(entry, routeLabel, routeDefaultModel)
 
     options.push({
       value,

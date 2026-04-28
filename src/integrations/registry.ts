@@ -254,9 +254,7 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
     const hasDefaultModel =
       typeof defaultModelValue === 'string'
         ? defaultModelValue.trim().length > 0
-        : Array.isArray(defaultModelValue)
-          ? defaultModelValue.length > 0
-          : hasCatalogDefaultModel
+        : hasCatalogDefaultModel
     if (!hasDefaultModel && !preset.fallbackModel) {
       errors.push(
         `Preset route "${route.id}" must provide a defaultModel or preset.fallbackModel`,
@@ -288,6 +286,11 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
     const catalog = route.catalog
     const entryIds = new Set<string>()
     let defaultCount = 0
+    const routeDescriptor = _gateways.get(route.id) ?? _vendors.get(route.id)
+    const explicitDefaultModel =
+      routeDescriptor &&
+      'defaultModel' in routeDescriptor &&
+      routeDescriptor.defaultModel !== undefined
 
     for (const entry of catalog.models ?? []) {
       // Duplicate entry ids within route
@@ -306,6 +309,11 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
       // Count defaults
       if (entry.default) {
         defaultCount++
+        if (explicitDefaultModel) {
+          errors.push(
+            `Catalog entry "${entry.id}" in route "${route.id}" must not set default because the route defines defaultModel`,
+          )
+        }
       }
     }
 
@@ -324,7 +332,6 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
     }
 
     // Unsupported transport/config combinations
-    const routeDescriptor = _gateways.get(route.id) ?? _vendors.get(route.id)
     if (routeDescriptor?.transportConfig.kind !== 'openai-compatible') {
       for (const entry of catalog.models ?? []) {
         if (entry.transportOverrides?.openaiShim) {

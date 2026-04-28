@@ -319,12 +319,18 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
     const hasDefaultModel =
       typeof defaultModelValue === 'string'
         ? defaultModelValue.trim().length > 0
-        : Array.isArray(defaultModelValue)
-          ? defaultModelValue.length > 0
-          : hasCatalogDefaultModel
+        : hasCatalogDefaultModel
     if (!hasDefaultModel && !preset.fallbackModel) {
       throw new Error(
         `Preset route "${descriptor.id}" must provide a defaultModel or preset.fallbackModel.`,
+      )
+    }
+    if (
+      defaultModelValue !== undefined &&
+      descriptor.catalog?.models?.some(model => model.default)
+    ) {
+      throw new Error(
+        `Preset route "${descriptor.id}" must use defaultModel instead of catalog default flags.`,
       )
     }
 

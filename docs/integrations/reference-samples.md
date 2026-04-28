@@ -59,6 +59,10 @@ export default defineVendor({
   },
   transportConfig: {
     kind: 'openai-compatible',
+    openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
+    },
   },
   usage: {
     supported: false,
@@ -70,6 +74,7 @@ Why this is safe:
 
 - it uses `defineVendor` plus a default export;
 - it keeps routing on `transportConfig.kind`;
+- it makes `/provider` API mode and auth/header editing behavior explicit;
 - it does not call registry mutation helpers directly.
 
 ## Sample 2: Direct vendor with a first-party catalog
@@ -80,7 +85,8 @@ Use when:
 
 - the vendor directly serves multiple models;
 - the route should own its offered subset;
-- the route needs model-specific runtime metadata.
+- the route should point entries at shared model descriptors for model-specific
+  runtime metadata.
 
 ```ts
 import { defineCatalog, defineVendor } from '../define.js'
@@ -92,20 +98,16 @@ const catalog = defineCatalog({
       id: 'acme-fast',
       apiName: 'acme-fast',
       label: 'Acme Fast',
-      default: true,
-      contextWindow: 128_000,
-      maxOutputTokens: 8_192,
+      modelDescriptorId: 'acme-fast',
     },
     {
       id: 'acme-reasoner',
       apiName: 'acme-reasoner',
       label: 'Acme Reasoner',
-      recommended: true,
+      modelDescriptorId: 'acme-reasoner',
       capabilities: {
         supportsReasoning: true,
       },
-      contextWindow: 256_000,
-      maxOutputTokens: 16_384,
       transportOverrides: {
         openaiShim: {
           preserveReasoningContent: true,
@@ -131,6 +133,8 @@ export default defineVendor({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
       maxTokensField: 'max_completion_tokens',
     },
   },
@@ -143,7 +147,9 @@ export default defineVendor({
 
 Note:
 Use `openaiShim.maxTokensField: 'max_completion_tokens'` when the route should
-follow the newer hosted OpenAI-style contract.
+follow the newer hosted OpenAI-style contract. The route's `defaultModel`
+selects the default; catalog entries should not add separate `default` or
+`recommended` flags.
 
 ## Sample 3: Local gateway with dynamic discovery
 
@@ -177,6 +183,8 @@ export default defineGateway({
   transportConfig: {
     kind: 'local',
     openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: true,
       maxTokensField: 'max_tokens',
     },
   },
@@ -225,20 +233,16 @@ export default defineCatalog({
       id: 'galaxy-curated-default',
       apiName: 'galaxy/gpt-5-mini',
       label: 'GPT-5 Mini (via Galaxy)',
-      default: true,
       modelDescriptorId: 'gpt-5-mini',
     },
     {
       id: 'galaxy-curated-reasoner',
       apiName: 'galaxy/deepseek-r1',
       label: 'DeepSeek R1 (via Galaxy)',
-      recommended: true,
       modelDescriptorId: 'deepseek-reasoner',
       capabilities: {
         supportsReasoning: true,
       },
-      contextWindow: 256_000,
-      maxOutputTokens: 32_768,
       transportOverrides: {
         openaiShim: {
           preserveReasoningContent: true,
@@ -262,6 +266,7 @@ export default defineGateway({
   label: 'Galaxy Gateway',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.galaxy.example/v1',
+  defaultModel: 'galaxy/gpt-5-mini',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -274,6 +279,8 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: true,
       maxTokensField: 'max_completion_tokens',
     },
   },
@@ -403,6 +410,10 @@ export default defineVendor({
   },
   transportConfig: {
     kind: 'openai-compatible',
+    openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
+    },
   },
   usage: {
     supported: true,
@@ -422,6 +433,7 @@ export default defineGateway({
   label: 'Acme Gateway',
   category: 'hosted',
   defaultBaseUrl: 'https://gateway.acme.example/v1',
+  defaultModel: 'acme-chat',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -430,6 +442,10 @@ export default defineGateway({
   },
   transportConfig: {
     kind: 'openai-compatible',
+    openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: true,
+    },
   },
   usage: {
     supported: true,
@@ -456,6 +472,10 @@ export default defineVendor({
   },
   transportConfig: {
     kind: 'openai-compatible',
+    openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
+    },
   },
   usage: {
     supported: false,
@@ -477,6 +497,9 @@ Before promoting any sample from this file into a real descriptor:
 - keep `transportConfig.kind` as the routing contract;
 - keep `category` descriptive only;
 - keep route-owned availability in the route catalog;
+- set `openaiShim.supportsApiFormatSelection` and
+  `openaiShim.supportsAuthHeaders` explicitly for OpenAI-compatible route
+  templates;
 - add `openaiShim.maxTokensField` when the provider is strict about
   `max_tokens` versus `max_completion_tokens`;
 - keep `/usage` metadata honest about current runtime support;

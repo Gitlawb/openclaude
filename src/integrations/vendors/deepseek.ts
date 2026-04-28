@@ -5,7 +5,7 @@ export default defineVendor({
   label: 'DeepSeek',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.deepseek.com/v1',
-  defaultModel: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'],
+  defaultModel: 'deepseek-v4-pro',
   requiredEnvVars: ['DEEPSEEK_API_KEY'],
   setup: {
     requiresAuth: true,
@@ -21,6 +21,8 @@ export default defineVendor({
       thinkingRequestFormat: 'deepseek-compatible',
       maxTokensField: 'max_tokens',
       removeBodyFields: ['store'],
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
     },
   },
   preset: {
@@ -31,10 +33,22 @@ export default defineVendor({
   catalog: {
     source: 'static',
     models: [
-      { id: 'deepseek-chat', apiName: 'deepseek-chat', label: 'DeepSeek Chat', default: true },
-      { id: 'deepseek-reasoner', apiName: 'deepseek-reasoner', label: 'DeepSeek Reasoner', recommended: true },
-      { id: 'deepseek-v4-flash', apiName: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
-      { id: 'deepseek-v4-pro', apiName: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
+      { id: 'deepseek-chat', apiName: 'deepseek-chat', label: 'DeepSeek Chat', modelDescriptorId: 'deepseek-chat' },
+      { id: 'deepseek-reasoner', apiName: 'deepseek-reasoner', label: 'DeepSeek Reasoner', modelDescriptorId: 'deepseek-reasoner' },
+      {
+        id: 'deepseek-v4-flash',
+        apiName: 'deepseek-v4-flash',
+        label: 'DeepSeek V4 Flash',
+        modelDescriptorId: 'deepseek-v4-flash',
+        maxOutputTokens: 393_216,
+      },
+      {
+        id: 'deepseek-v4-pro',
+        apiName: 'deepseek-v4-pro',
+        label: 'DeepSeek V4 Pro',
+        modelDescriptorId: 'deepseek-v4-pro',
+        maxOutputTokens: 393_216,
+      },
     ],
   },
   usage: { supported: false },

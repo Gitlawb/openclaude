@@ -73,6 +73,7 @@ type ModelDiscoveryContext =
       discoveryState?: ModelPickerDiscoveryState
       optionsOverride: ModelOption[]
       routeId: string
+      routeDefaultModel?: string
       routeLabel: string
     }
   | {
@@ -171,6 +172,8 @@ async function loadDescriptorDiscoveryContext(
   }
 
   const routeLabel = descriptor.label
+  const routeDefaultModel =
+    'defaultModel' in descriptor ? descriptor.defaultModel : undefined
   const staticEntries = catalog.models ?? []
   const trafficRestricted = isEssentialTrafficOnly()
   const canRefresh = Boolean(
@@ -186,8 +189,13 @@ async function loadDescriptorDiscoveryContext(
       kind: 'descriptor',
       autoRefresh: false,
       canRefresh,
-      optionsOverride: buildRouteCatalogModelOptions(routeLabel, staticEntries),
+      optionsOverride: buildRouteCatalogModelOptions(
+        routeLabel,
+        staticEntries,
+        routeDefaultModel,
+      ),
       routeId,
+      routeDefaultModel,
       routeLabel,
     }
   }
@@ -227,8 +235,13 @@ async function loadDescriptorDiscoveryContext(
     autoRefresh,
     canRefresh,
     discoveryState,
-    optionsOverride: buildRouteCatalogModelOptions(routeLabel, mergedEntries),
+    optionsOverride: buildRouteCatalogModelOptions(
+      routeLabel,
+      mergedEntries,
+      routeDefaultModel,
+    ),
     routeId,
+    routeDefaultModel,
     routeLabel,
   }
 }
@@ -451,6 +464,7 @@ function ModelPickerWrapper({
       const nextOptions = buildRouteCatalogModelOptions(
         discoveryContext.routeLabel,
         result?.models ?? [],
+        discoveryContext.routeDefaultModel,
       )
       const changed = !haveSameModelOptions(optionsOverride ?? [], nextOptions)
 
@@ -723,6 +737,7 @@ async function refreshModelsAndSummarize(): Promise<string> {
     const nextOptions = buildRouteCatalogModelOptions(
       discoveryContext.routeLabel,
       result?.models ?? [],
+      discoveryContext.routeDefaultModel,
     )
     const changed = !haveSameModelOptions(
       discoveryContext.optionsOverride,

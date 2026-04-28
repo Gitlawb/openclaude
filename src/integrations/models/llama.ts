@@ -1,9 +1,24 @@
 import { defineModel } from '../define.js'
 
-// Unknown models fall back to src/utils/model/openaiContextWindows.ts
-// Gateway onboarding should not require editing this file.
-
 export default [
+  defineModel({
+    id: 'llama-3.3-70b-versatile',
+    label: 'Llama 3.3 70B Versatile',
+    brandId: 'llama',
+    vendorId: 'openai',
+    classification: ['chat'],
+    defaultModel: 'llama-3.3-70b-versatile',
+    capabilities: {
+      supportsVision: false,
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: false,
+      supportsPreciseTokenCount: false,
+    },
+    contextWindow: 128_000,
+    maxOutputTokens: 32_768,
+  }),
   defineModel({
     id: 'llama-3.3-70b',
     label: 'Llama 3.3 70B',
@@ -23,6 +38,24 @@ export default [
     maxOutputTokens: 4096,
   }),
   defineModel({
+    id: 'llama-3.1-8b-instant',
+    label: 'Llama 3.1 8B Instant',
+    brandId: 'llama',
+    vendorId: 'openai',
+    classification: ['chat'],
+    defaultModel: 'llama-3.1-8b-instant',
+    capabilities: {
+      supportsVision: false,
+      supportsStreaming: true,
+      supportsFunctionCalling: true,
+      supportsJsonMode: true,
+      supportsReasoning: false,
+      supportsPreciseTokenCount: false,
+    },
+    contextWindow: 128_000,
+    maxOutputTokens: 8_192,
+  }),
+  defineModel({
     id: 'llama-3.1-8b',
     label: 'Llama 3.1 8B',
     brandId: 'llama',
@@ -40,4 +73,36 @@ export default [
     contextWindow: 128_000,
     maxOutputTokens: 4096,
   }),
+  ...[
+    ['llama3.3:70b', 'Llama 3.3 70B', 128_000, 4_096],
+    ['llama3.2:3b', 'Llama 3.2 3B', 128_000, 4_096],
+    ['llama3.2:1b', 'Llama 3.2 1B', 128_000, 4_096],
+    ['llama3.1:8b', 'Llama 3.1 8B', 128_000, 4_096],
+    ['meta/llama-3.1-405b-instruct', 'Meta Llama 3.1 405B Instruct', 128_000, 32_768],
+    ['meta/llama-3.1-70b-instruct', 'Meta Llama 3.1 70B Instruct', 128_000, 32_768],
+    ['meta/llama-3.1-8b-instruct', 'Meta Llama 3.1 8B Instruct', 128_000, 32_768],
+    ['meta/llama-3.2-90b-instruct', 'Meta Llama 3.2 90B Instruct', 128_000, 32_768],
+    ['meta/llama-3.2-3b-instruct', 'Meta Llama 3.2 3B Instruct', 128_000, 4_096],
+    ['meta/llama-3.2-1b-instruct', 'Meta Llama 3.2 1B Instruct', 128_000, 4_096],
+    ['meta/llama-3.3-70b-instruct', 'Meta Llama 3.3 70B Instruct', 128_000, 32_768],
+  ].map(([id, label, contextWindow, maxOutputTokens]) =>
+    defineModel({
+      id: id as string,
+      label: label as string,
+      brandId: 'llama',
+      vendorId: 'openai',
+      classification: ['chat'],
+      defaultModel: id as string,
+      capabilities: {
+        supportsVision: false,
+        supportsStreaming: true,
+        supportsFunctionCalling: true,
+        supportsJsonMode: true,
+        supportsReasoning: false,
+        supportsPreciseTokenCount: false,
+      },
+      contextWindow: contextWindow as number,
+      maxOutputTokens: maxOutputTokens as number,
+    }),
+  ),
 ]

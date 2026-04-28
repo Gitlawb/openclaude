@@ -5,6 +5,7 @@ export default defineGateway({
   label: 'Alibaba Coding Plan (China)',
   category: 'hosted',
   defaultBaseUrl: 'https://coding.dashscope.aliyuncs.com/v1',
+  defaultModel: 'qwen3.6-plus',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -14,7 +15,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
     },
   },
   preset: {
@@ -26,7 +27,7 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'qwen-cn-3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen 3.6 Plus', default: true },
+      { id: 'qwen-cn-3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen 3.6 Plus', modelDescriptorId: 'qwen3.6-plus' },
     ],
   },
   usage: { supported: false },

@@ -1,8 +1,5 @@
 import { defineModel } from '../define.js'
 
-// Unknown models fall back to src/utils/model/openaiContextWindows.ts
-// Gateway onboarding should not require editing this file.
-
 export default [
   defineModel({
     id: 'deepseek-chat',
@@ -20,7 +17,7 @@ export default [
       supportsPreciseTokenCount: false,
     },
     contextWindow: 128_000,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 8_192,
   }),
   defineModel({
     id: 'deepseek-reasoner',
@@ -38,7 +35,7 @@ export default [
       supportsPreciseTokenCount: false,
     },
     contextWindow: 128_000,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 65_536,
   }),
   defineModel({
     id: 'deepseek-v4-flash',
@@ -55,8 +52,8 @@ export default [
       supportsReasoning: false,
       supportsPreciseTokenCount: false,
     },
-    contextWindow: 128_000,
-    maxOutputTokens: 8192,
+    contextWindow: 1_048_576,
+    maxOutputTokens: 65_536,
   }),
   defineModel({
     id: 'deepseek-v4-pro',
@@ -73,7 +70,7 @@ export default [
       supportsReasoning: true,
       supportsPreciseTokenCount: false,
     },
-    contextWindow: 128_000,
-    maxOutputTokens: 8192,
+    contextWindow: 1_048_576,
+    maxOutputTokens: 65_536,
   }),
 ]

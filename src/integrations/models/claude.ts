@@ -1,8 +1,5 @@
 import { defineModel } from '../define.js'
 
-// Unknown models fall back to src/utils/model/openaiContextWindows.ts
-// Gateway onboarding should not require editing this file.
-
 export default [
   defineModel({
     id: 'claude-sonnet-4-6',

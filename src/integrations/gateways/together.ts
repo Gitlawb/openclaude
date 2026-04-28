@@ -5,6 +5,7 @@ export default defineGateway({
   label: 'Together AI',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.together.xyz/v1',
+  defaultModel: 'Qwen/Qwen3.5-9B',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -14,7 +15,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
     },
   },
   preset: {
@@ -26,7 +27,7 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'together-qwen-3.5-9b', apiName: 'Qwen/Qwen3.5-9B', label: 'Qwen 3.5 9B', default: true },
+      { id: 'together-qwen-3.5-9b', apiName: 'Qwen/Qwen3.5-9B', label: 'Qwen 3.5 9B', modelDescriptorId: 'Qwen/Qwen3.5-9B' },
     ],
   },
   usage: { supported: false },

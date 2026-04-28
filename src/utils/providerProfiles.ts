@@ -29,9 +29,11 @@ import {
 import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
 import {
   getProviderPresetUiMetadata,
-  getTransportKindForRoute,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
   routeSupportsCustomHeaders,
   resolveProfileRoute,
+  resolveRouteIdFromBaseUrl,
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
@@ -128,6 +130,16 @@ function normalizeBaseUrl(value: string): string {
   return trimValue(value).replace(/\/+$/, '')
 }
 
+function resolveProfileCapabilityRouteId(
+  provider: string,
+  baseUrl?: string,
+): string {
+  return (
+    resolveRouteIdFromBaseUrl(baseUrl) ??
+    resolveProfileRoute(provider).routeId
+  )
+}
+
 function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const id = trimValue(profile.id)
   const name = trimValue(profile.name)
@@ -138,10 +150,10 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const authHeader = sanitizeAuthHeader(profile.authHeader)
   const authScheme = sanitizeAuthScheme(profile.authScheme)
   const authHeaderValue = trimOrUndefined(profile.authHeaderValue)
-  const route = resolveProfileRoute(provider)
-  const supportsOpenAICompatibilityOptions =
-    getTransportKindForRoute(route.routeId) === 'openai-compatible'
-  const customHeaders = routeSupportsCustomHeaders(route.routeId)
+  const capabilityRouteId = resolveProfileCapabilityRouteId(provider, baseUrl)
+  const supportsApiFormat = routeSupportsApiFormatSelection(capabilityRouteId)
+  const supportsAuthHeaders = routeSupportsAuthHeaders(capabilityRouteId)
+  const customHeaders = routeSupportsCustomHeaders(capabilityRouteId)
     ? sanitizeProfileCustomHeaders(profile.customHeaders)
     : undefined
 
@@ -157,10 +169,10 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     model,
     apiKey: trimOrUndefined(profile.apiKey),
   }
-  if (supportsOpenAICompatibilityOptions && apiFormat) {
+  if (supportsApiFormat && apiFormat) {
     sanitized.apiFormat = apiFormat
   }
-  if (supportsOpenAICompatibilityOptions && authHeader) {
+  if (supportsAuthHeaders && authHeader) {
     sanitized.authHeader = authHeader
     sanitized.authScheme = authScheme ?? (
       authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
@@ -215,8 +227,11 @@ function toProfile(
 function getSupportedProfileCustomHeadersEnv(
   profile: ProviderProfile,
 ): string | undefined {
-  const route = resolveProfileRoute(profile.provider)
-  if (!routeSupportsCustomHeaders(route.routeId)) {
+  const routeId = resolveProfileCapabilityRouteId(
+    profile.provider,
+    profile.baseUrl,
+  )
+  if (!routeSupportsCustomHeaders(routeId)) {
     return undefined
   }
   return serializeProfileCustomHeaders(
@@ -554,14 +569,20 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       baseUrl: profile.baseUrl,
     })
   } else {
+    const capabilityRouteId = resolveProfileCapabilityRouteId(
+      profile.provider,
+      profile.baseUrl,
+    )
+    const supportsApiFormat = routeSupportsApiFormatSelection(capabilityRouteId)
+    const supportsAuthHeaders = routeSupportsAuthHeaders(capabilityRouteId)
     const openAIProfileEnv: ProfileEnv = {
       OPENAI_BASE_URL: profile.baseUrl,
       OPENAI_MODEL: primaryModel,
     }
-    if (profile.apiFormat) {
+    if (supportsApiFormat && profile.apiFormat) {
       openAIProfileEnv.OPENAI_API_FORMAT = profile.apiFormat
     }
-    if (profile.authHeader) {
+    if (supportsAuthHeaders && profile.authHeader) {
       openAIProfileEnv.OPENAI_AUTH_HEADER = profile.authHeader
       openAIProfileEnv.OPENAI_AUTH_SCHEME =
         profile.authScheme ??

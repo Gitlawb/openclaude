@@ -118,6 +118,25 @@ test('XAI_API_KEY resolves to the xai provider', async () => {
   expect(getAPIProvider()).toBe('xai')
 })
 
+test('env-only XAI_API_KEY resolves to the xai provider', async () => {
+  clearProviderEnv()
+  process.env.XAI_API_KEY = 'xai-test-key'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('xai')
+})
+
+test('conflicting OpenAI base prevents env-only xAI provider label', async () => {
+  clearProviderEnv()
+  process.env.XAI_API_KEY = 'xai-test-key'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+  const { getAPIProvider, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('firstParty')
+  expect(usesAnthropicAccountFlow()).toBe(true)
+})
+
 test('official OpenAI base URLs now keep provider detection on openai for aliases', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -136,6 +155,25 @@ test('descriptor-backed MiniMax routes keep the legacy minimax provider category
 
   const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('minimax')
+})
+
+test('env-only MiniMax API key resolves to the minimax provider', async () => {
+  clearProviderEnv()
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('minimax')
+})
+
+test('conflicting OpenAI base prevents env-only MiniMax provider label', async () => {
+  clearProviderEnv()
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+  const { getAPIProvider, usesAnthropicAccountFlow } =
+    await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('firstParty')
+  expect(usesAnthropicAccountFlow()).toBe(true)
 })
 
 test('NVIDIA_NIM env preserves the legacy nvidia-nim provider category for custom endpoints', async () => {

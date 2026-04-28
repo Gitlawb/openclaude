@@ -360,8 +360,11 @@ export function buildMiniMaxProfileEnv(options: {
     return null
   }
 
-  const defaultBaseUrl = 'https://api.minimax.io/v1'
-  const defaultModel = 'MiniMax-M2.5'
+  const defaultBaseUrl = getRouteDefaultBaseUrl('minimax')
+  const defaultModel = getRouteDefaultModel('minimax')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('MiniMax route defaults are missing from integration metadata.')
+  }
   const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
 
   return {

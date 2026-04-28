@@ -18,7 +18,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'local',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
       maxTokensField: 'max_tokens',
     },
   },

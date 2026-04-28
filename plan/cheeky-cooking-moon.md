@@ -230,7 +230,7 @@ export type OpenAIShimTokenField = 'max_tokens' | 'max_completion_tokens'
 
 export interface OpenAIShimTransportConfig {
   headers?: Record<string, string>
-  supportsUserCustomHeaders?: boolean
+  supportsAuthHeaders?: boolean
   preserveReasoningContent?: boolean
   requireReasoningContentOnAssistantMessages?: boolean
   reasoningContentFallback?: '' | 'omit'
@@ -252,7 +252,7 @@ export interface CapabilityFlags {
 export interface TransportConfig {
   kind: TransportKind
   headers?: Record<string, string>
-  supportsUserCustomHeaders?: boolean
+  supportsAuthHeaders?: boolean
   openaiShim?: OpenAIShimTransportConfig
 }
 
@@ -460,7 +460,7 @@ export const acmeGateway: GatewayDescriptor = {
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
     },
   },
   catalog: {

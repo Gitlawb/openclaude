@@ -17,7 +17,8 @@ export type OpenAIShimTokenField = 'max_tokens' | 'max_completion_tokens'
 
 export interface OpenAIShimTransportConfig {
   headers?: Record<string, string>
-  supportsUserCustomHeaders?: boolean
+  supportsApiFormatSelection?: boolean
+  supportsAuthHeaders?: boolean
   preserveReasoningContent?: boolean
   requireReasoningContentOnAssistantMessages?: boolean
   reasoningContentFallback?: '' | 'omit'
@@ -39,7 +40,6 @@ export interface CapabilityFlags {
 export interface TransportConfig {
   kind: TransportKind
   headers?: Record<string, string>
-  supportsUserCustomHeaders?: boolean
   openaiShim?: OpenAIShimTransportConfig
 }
 
@@ -63,7 +63,6 @@ export interface ModelCatalogEntry {
   apiName: string
   label?: string
   default?: boolean
-  recommended?: boolean
   hidden?: boolean
   modelDescriptorId?: string
   capabilities?: CapabilityFlags
@@ -193,7 +192,7 @@ export interface VendorDescriptor {
   label: string
   classification: 'anthropic' | 'openai-compatible' | 'native'
   defaultBaseUrl: string
-  defaultModel: string | string[]
+  defaultModel: string
   requiredEnvVars?: string[]
   validate?: (env: NodeJS.ProcessEnv) => string | null
   setup: SetupMetadata
@@ -211,7 +210,7 @@ export interface GatewayDescriptor {
   label: string
   category?: 'local' | 'hosted' | 'aggregating'
   defaultBaseUrl?: string
-  defaultModel?: string | string[]
+  defaultModel?: string
   supportsModelRouting?: boolean
   setup: SetupMetadata
   startup?: StartupMetadata
@@ -227,7 +226,7 @@ export interface AnthropicProxyDescriptor {
   label: string
   classification: 'anthropic-proxy'
   defaultBaseUrl: string
-  defaultModel: string | string[]
+  defaultModel: string
   requiredEnvVars?: string[]
   validate?: (env: NodeJS.ProcessEnv) => string | null
   setup: SetupMetadata

@@ -9,13 +9,16 @@ descriptors stay organized.
 ## Catalog
 
 The route-owned list of models that a vendor route or gateway route actually
-offers. A catalog can be:
+offers. Catalog entries should name the route-facing API model and may point at
+shared model metadata with `modelDescriptorId`. A catalog can be:
 
 - `static`
 - `dynamic`
 - `hybrid`
 
-Catalog ownership lives with the route, not with the global model index.
+Catalog ownership lives with the route, not with the global model index. Route
+defaults live on the descriptor's `defaultModel`, not as per-entry default or
+recommended flags.
 
 ## Category
 
@@ -89,9 +92,13 @@ Metadata answers what a route is and what it supports.
 
 ## Model Descriptor
 
-A shared model metadata record. Model descriptors act primarily as glossary/
-index metadata and optional route enrichment, not as the default place to say
-which route supports which models.
+A shared model metadata record under `src/integrations/models/`. Model
+descriptors own reusable model identity, family metadata, capabilities, context
+windows, output limits, cache behavior, and route-specific API aliases through
+`providerModelMap`.
+
+Model descriptors do not declare route availability by themselves. Routes still
+declare their offered subset in their catalogs.
 
 ## Provider
 

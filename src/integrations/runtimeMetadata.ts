@@ -2,8 +2,16 @@ import type {
   ModelCatalogEntry,
   OpenAIShimTransportConfig,
 } from './descriptors.js'
+import {
+  getOpenAIContextWindow,
+  getOpenAIMaxOutputTokens,
+} from '../utils/model/openaiContextWindows.js'
 import { ensureIntegrationsLoaded } from './index.js'
-import { getCatalogEntriesForRoute, getModel } from './registry.js'
+import {
+  getAllModels,
+  getCatalogEntriesForRoute,
+  getModel,
+} from './registry.js'
 import {
   getRouteDescriptor,
   resolveActiveRouteIdFromEnv,
@@ -135,6 +143,11 @@ export type OpenAIShimRuntimeContext = {
   openaiShimConfig: OpenAIShimTransportConfig
 }
 
+export type ModelRuntimeLimits = {
+  contextWindow?: number
+  maxOutputTokens?: number
+}
+
 export function resolveOpenAIShimRuntimeContext(options?: {
   processEnv?: NodeJS.ProcessEnv
   baseUrl?: string
@@ -188,6 +201,122 @@ export function resolveOpenAIShimRuntimeContext(options?: {
       catalogEntry?.transportOverrides?.openaiShim,
       inferredConfig,
     ),
+  }
+}
+
+function getModelDescriptorForCatalogEntry(entry: ModelCatalogEntry | null) {
+  if (!entry?.modelDescriptorId) {
+    return null
+  }
+
+  return getModel(entry.modelDescriptorId) ?? null
+}
+
+function findModelDescriptorForApiName(
+  routeId: string | null,
+  modelApiName: string | undefined,
+) {
+  const trimmedModel = modelApiName?.trim()
+  if (!trimmedModel) {
+    return null
+  }
+  const normalizedModel = trimmedModel.toLowerCase()
+
+  ensureIntegrationsLoaded()
+  const models = getAllModels()
+    .map(model => {
+      const routeMappedModel = routeId
+        ? model.providerModelMap?.[routeId]
+        : undefined
+      return {
+        model,
+        names: [
+          model.id,
+          model.defaultModel,
+          routeMappedModel,
+        ].filter((value): value is string => Boolean(value?.trim())),
+      }
+    })
+    .sort((left, right) => {
+      const leftLongest = Math.max(...left.names.map(name => name.length))
+      const rightLongest = Math.max(...right.names.map(name => name.length))
+      return rightLongest - leftLongest
+    })
+
+  for (const candidate of models) {
+    if (candidate.names.some(name => trimmedModel === name.trim())) {
+      return candidate.model
+    }
+  }
+
+  for (const candidate of models) {
+    if (candidate.names.some(name => trimmedModel.startsWith(name.trim()))) {
+      return candidate.model
+    }
+  }
+
+  for (const candidate of models) {
+    if (
+      candidate.names.some(name => {
+        const normalizedName = name.trim().toLowerCase()
+        return (
+          normalizedModel === normalizedName ||
+          normalizedModel.startsWith(normalizedName)
+        )
+      })
+    ) {
+      return candidate.model
+    }
+  }
+
+  return null
+}
+
+function findCatalogEntryForApiName(
+  routeId: string | null,
+  modelApiName: string | undefined,
+): ModelCatalogEntry | null {
+  if (!routeId || routeId === 'anthropic') {
+    return null
+  }
+
+  return getCatalogEntryForModel(routeId, modelApiName)
+}
+
+export function resolveModelRuntimeLimits(options: {
+  model: string
+  processEnv?: NodeJS.ProcessEnv
+  baseUrl?: string
+  activeProfileProvider?: string
+}): ModelRuntimeLimits {
+  const processEnv = options.processEnv ?? process.env
+  const runtimeEnv: NodeJS.ProcessEnv = { ...processEnv }
+  if (options.baseUrl !== undefined) {
+    runtimeEnv.OPENAI_BASE_URL = options.baseUrl
+  }
+
+  const routeId = resolveActiveRouteIdFromEnv(runtimeEnv, {
+    activeProfileProvider: options.activeProfileProvider,
+  })
+  const catalogEntry = findCatalogEntryForApiName(routeId, options.model)
+  const modelDescriptor =
+    getModelDescriptorForCatalogEntry(catalogEntry) ??
+    findModelDescriptorForApiName(routeId, options.model)
+  const externalContextWindow = getOpenAIContextWindow(options.model, runtimeEnv)
+  const externalMaxOutputTokens = getOpenAIMaxOutputTokens(
+    options.model,
+    runtimeEnv,
+  )
+
+  return {
+    contextWindow:
+      externalContextWindow ??
+      catalogEntry?.contextWindow ??
+      modelDescriptor?.contextWindow,
+    maxOutputTokens:
+      externalMaxOutputTokens ??
+      catalogEntry?.maxOutputTokens ??
+      modelDescriptor?.maxOutputTokens,
   }
 }
 

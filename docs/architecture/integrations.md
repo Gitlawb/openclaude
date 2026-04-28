@@ -98,7 +98,7 @@ const catalog = defineCatalog({
     {
       id: 'acme-fast',
       apiName: 'acme/fast',
-      default: true,
+      modelDescriptorId: 'acme-fast',
     },
   ],
 })
@@ -107,6 +107,8 @@ export default defineGateway({
   id: 'acme',
   label: 'Acme AI',
   category: 'hosted',
+  defaultBaseUrl: 'https://api.acme.example/v1',
+  defaultModel: 'acme/fast',
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
@@ -114,6 +116,10 @@ export default defineGateway({
   },
   transportConfig: {
     kind: 'openai-compatible',
+    openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: true,
+    },
   },
   catalog,
 })

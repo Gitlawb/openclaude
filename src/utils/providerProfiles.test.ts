@@ -418,6 +418,67 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('minimax profile ignores advanced OpenAI-compatible auth settings', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'minimax',
+        baseUrl: 'https://api.minimax.io/v1',
+        model: 'MiniMax-M2.7',
+        apiKey: 'minimax-live-key',
+        apiFormat: 'responses',
+        authHeader: 'api-key',
+        authScheme: 'raw',
+        authHeaderValue: 'minimax-header-value',
+        customHeaders: {
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.io/v1')
+    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.OPENAI_API_KEY).toBe('minimax-live-key')
+    expect(process.env.MINIMAX_API_KEY).toBe('minimax-live-key')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.kimi.com/coding/v1',
+        model: 'kimi-for-coding',
+        apiKey: 'kimi-live-key',
+        apiFormat: 'responses',
+        authHeader: 'api-key',
+        authScheme: 'raw',
+        authHeaderValue: 'kimi-header-value',
+        customHeaders: {
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.kimi.com/coding/v1')
+    expect(process.env.OPENAI_MODEL).toBe('kimi-for-coding')
+    expect(process.env.OPENAI_API_KEY).toBe('kimi-live-key')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
   test('supported routes apply sanitized profile custom headers to env', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -923,7 +984,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('https://api.moonshot.ai/v1')
     expect(defaults.model).toBe('kimi-k2.5')
   })
-  test('deepseek preset defaults to DeepSeek V4 flash and exposes flash/pro aliases', async () => {
+  test('deepseek preset defaults to DeepSeek V4 Pro', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('deepseek')
@@ -931,9 +992,19 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('deepseek')
     expect(defaults.name).toBe('DeepSeek')
     expect(defaults.baseUrl).toBe('https://api.deepseek.com/v1')
-    expect(defaults.model).toBe(
-      'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner',
-    )
+    expect(defaults.model).toBe('deepseek-v4-pro')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('minimax preset defaults to MiniMax M2.7', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('minimax')
+
+    expect(defaults.provider).toBe('minimax')
+    expect(defaults.name).toBe('MiniMax')
+    expect(defaults.baseUrl).toBe('https://api.minimax.io/v1')
+    expect(defaults.model).toBe('MiniMax-M2.7')
     expect(defaults.requiresApiKey).toBe(true)
   })
 
@@ -945,7 +1016,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('zai')
     expect(defaults.name).toBe('Z.AI - GLM Coding Plan')
     expect(defaults.baseUrl).toBe('https://api.z.ai/api/coding/paas/v4')
-    expect(defaults.model).toBe('GLM-5.1, GLM-5-Turbo, GLM-4.7, GLM-4.5-Air')
+    expect(defaults.model).toBe('GLM-5.1')
     expect(defaults.requiresApiKey).toBe(true)
   })
 })
@@ -1049,7 +1120,6 @@ describe('setActiveProviderProfile', () => {
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
         OPENAI_MODEL: 'deepseek-v4-flash',
-        OPENAI_API_FORMAT: 'responses',
         OPENAI_API_KEY: 'sk-deepseek-live',
       })
     } finally {

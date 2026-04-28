@@ -103,10 +103,17 @@ Examples:
 
 - `maxTokensField`
 - `headers`
-- `supportsUserCustomHeaders`
+- `supportsApiFormatSelection`
+- `supportsAuthHeaders`
 
 That matches the current runtime metadata flow in
 `src/integrations/runtimeMetadata.ts`.
+
+`supportsApiFormatSelection` and `supportsAuthHeaders` also control the
+advanced `/provider add` and `/provider edit` fields for OpenAI-compatible
+routes. Fixed direct vendors usually set both to `false`; broad custom routes
+or gateways that intentionally accept user-supplied auth/header details set the
+relevant flag to `true`.
 
 ## Descriptor Authoring Pattern
 
@@ -116,7 +123,9 @@ Normal descriptor files should:
 - default-export the descriptor object or model list;
 - keep registration out of the descriptor file;
 - keep route-owned catalogs with the route unless shared model metadata is
-  genuinely useful.
+  genuinely useful;
+- put built-in model limits and capabilities in `src/integrations/models/`,
+  not in env-override compatibility helpers.
 
 Typical helper usage:
 

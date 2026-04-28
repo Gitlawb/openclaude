@@ -28,14 +28,19 @@ aggregates models behind a separate endpoint contract.
 4. Set the route defaults.
    Add `defaultBaseUrl`, `defaultModel`, and any required env vars or
    validation metadata.
-5. Add a catalog if the vendor exposes models directly.
-   Put the vendor's offered model subset on the vendor descriptor itself.
-6. Add usage metadata if the vendor has real `/usage` support.
+5. For OpenAI-compatible vendors, set the `/provider` UI capability flags in
+   `transportConfig.openaiShim`.
+   Use `supportsApiFormatSelection` for API mode editing and
+   `supportsAuthHeaders` for auth/header editing.
+6. Add a catalog if the vendor exposes models directly.
+   Put the vendor's offered model subset on the vendor descriptor itself. Use
+   `modelDescriptorId` when an entry should inherit shared model metadata.
+7. Add usage metadata if the vendor has real `/usage` support.
    If `/usage` is still unsupported, keep that explicit with
    `usage: { supported: false }`.
-7. If the vendor should appear in preset-driven `/provider` flows, add a
+8. If the vendor should appear in preset-driven `/provider` flows, add a
    `preset` block on the descriptor.
-8. Run `bun run integrations:generate` so the generated loader and preset
+9. Run `bun run integrations:generate` so the generated loader and preset
    manifest stay in sync.
 
 ## Authoring rules
@@ -82,7 +87,7 @@ const catalog = defineCatalog({
       id: 'acme-chat',
       apiName: 'acme-chat',
       label: 'Acme Chat',
-      default: true,
+      modelDescriptorId: 'acme-chat',
     },
   ],
 })
@@ -102,6 +107,10 @@ export default defineVendor({
   },
   transportConfig: {
     kind: 'openai-compatible',
+    openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
+    },
   },
   preset: {
     id: 'acme',
@@ -119,7 +128,12 @@ Why this is the right shape:
 
 - the route is first-party and direct, so it is a vendor, not a gateway;
 - `transportConfig.kind` owns the transport choice;
+- `supportsApiFormatSelection: false` means `/provider` should not expose API
+  mode editing for this fixed direct-vendor route;
+- `supportsAuthHeaders: false` means `/provider` should only ask for the API
+  key, not custom auth-header fields;
 - the vendor owns its own catalog because it exposes models directly;
+- `defaultModel` on the vendor selects the default catalog entry;
 - the file default-exports one typed descriptor and leaves registration to the
   loader.
 
@@ -151,6 +165,8 @@ export default defineVendor({
         'X-Acme-Client': 'openclaude',
         'X-Acme-Protocol': 'labs-v1',
       },
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
       maxTokensField: 'max_completion_tokens',
     },
   },
@@ -164,7 +180,9 @@ Use this pattern when:
 
 - the provider requires fixed non-secret headers on every request;
 - the route still speaks an OpenAI-compatible body shape;
-- the token-field contract needs to be explicit.
+- the token-field contract needs to be explicit;
+- users should not edit API mode or auth/header fields for this fixed vendor
+  route.
 
 ## Example: vendor that owns a first-party model catalog
 
@@ -181,20 +199,16 @@ const catalog = defineCatalog({
       id: 'acme-fast',
       apiName: 'acme-fast',
       label: 'Acme Fast',
-      default: true,
-      contextWindow: 128_000,
-      maxOutputTokens: 8_192,
+      modelDescriptorId: 'acme-fast',
     },
     {
       id: 'acme-reasoner',
       apiName: 'acme-reasoner',
       label: 'Acme Reasoner',
-      recommended: true,
+      modelDescriptorId: 'acme-reasoner',
       capabilities: {
         supportsReasoning: true,
       },
-      contextWindow: 256_000,
-      maxOutputTokens: 16_384,
       transportOverrides: {
         openaiShim: {
           preserveReasoningContent: true,
@@ -219,6 +233,10 @@ export default defineVendor({
   },
   transportConfig: {
     kind: 'openai-compatible',
+    openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
+    },
   },
   catalog,
   usage: {
@@ -228,7 +246,28 @@ export default defineVendor({
 ```
 
 Use this when the vendor really is the route that serves the models. Do not
-move route availability into the shared model index by default.
+move route availability into the shared model index by default. Put reusable
+context windows, output limits, and cross-route capability metadata in
+`src/integrations/models/`, then point catalog entries at those descriptors
+with `modelDescriptorId`.
+
+## OpenAI-compatible UI capability flags
+
+For OpenAI-compatible vendors, be explicit about the provider editor surface:
+
+- `supportsApiFormatSelection: false`
+  for fixed vendor APIs where OpenClaude should choose the API surface.
+- `supportsApiFormatSelection: true`
+  only when users should choose between compatible API modes such as chat
+  completions and responses.
+- `supportsAuthHeaders: false`
+  when the route should only collect the configured credential env var/API key.
+- `supportsAuthHeaders: true`
+  only when users should be able to edit custom auth/header fields in
+  `/provider add` and `/provider edit`.
+
+Most direct vendors should set both flags to `false`. Broad custom routes are
+the usual place where both are `true`.
 
 ## Presets and user-facing vendor onboarding
 
@@ -275,7 +314,10 @@ Before calling the vendor guide complete:
 - the file lives under `src/integrations/vendors/`;
 - the descriptor default-exports a `defineVendor(...)` result;
 - any direct model-serving route owns the subset of models it actually exposes;
+- the route default is declared once through `defaultModel`;
 - the transport family is expressed through `transportConfig.kind`;
+- OpenAI-compatible `/provider` UI capabilities are explicit through
+  `openaiShim.supportsApiFormatSelection` and `openaiShim.supportsAuthHeaders`;
 - auth/setup metadata and validation routing are explicit;
 - user-facing preset participation is expressed through descriptor `preset`
   metadata and regenerated artifacts rather than handwritten follow-through.

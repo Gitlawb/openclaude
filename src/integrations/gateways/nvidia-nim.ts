@@ -5,6 +5,7 @@ export default defineGateway({
   label: 'NVIDIA NIM',
   category: 'hosted',
   defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
+  defaultModel: 'nvidia/llama-3.1-nemotron-70b-instruct',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -14,7 +15,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
     },
   },
   preset: {
@@ -36,7 +37,7 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'nvidia-llama-3.1-nemotron-70b', apiName: 'nvidia/llama-3.1-nemotron-70b-instruct', label: 'Llama 3.1 Nemotron 70B', default: true },
+      { id: 'nvidia-llama-3.1-nemotron-70b', apiName: 'nvidia/llama-3.1-nemotron-70b-instruct', label: 'Llama 3.1 Nemotron 70B', modelDescriptorId: 'nvidia/llama-3.1-nemotron-70b-instruct' },
     ],
   },
   usage: { supported: false },

@@ -20,6 +20,8 @@ export default defineVendor({
       reasoningContentFallback: '',
       maxTokensField: 'max_tokens',
       removeBodyFields: ['store'],
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: false,
     },
   },
   preset: {
@@ -32,7 +34,7 @@ export default defineVendor({
   catalog: {
     source: 'static',
     models: [
-      { id: 'kimi-k2.5', apiName: 'kimi-k2.5', label: 'Kimi K2.5', default: true },
+      { id: 'kimi-k2.5', apiName: 'kimi-k2.5', label: 'Kimi K2.5' },
       { id: 'kimi-k2.6', apiName: 'kimi-k2.6', label: 'Kimi K2.6' },
     ],
   },

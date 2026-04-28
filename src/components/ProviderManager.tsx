@@ -24,10 +24,12 @@ import {
 import {
   getProviderPresetUiMetadata,
   getRouteProviderTypeLabel,
-  getTransportKindForRoute,
   ORDERED_PROVIDER_PRESETS,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
   routeSupportsCustomHeaders,
   resolveProfileRoute,
+  resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
@@ -233,18 +235,14 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
       ? models.join(', ')
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
-    supportsOpenAICompatibilityOptions(routeId)
+    routeSupportsApiFormatSelection(routeId)
       ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
       : ''
   const authInfo =
-    supportsOpenAICompatibilityOptions(routeId) && profile.authHeader
+    routeSupportsAuthHeaders(routeId) && profile.authHeader
       ? ` · ${profile.authHeader} auth`
       : ''
   return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${authInfo} · ${keyInfo}${activeSuffix}`
-}
-
-function supportsOpenAICompatibilityOptions(routeId: string): boolean {
-  return getTransportKindForRoute(routeId) === 'openai-compatible'
 }
 
 function getGithubCredentialSourceFromEnv(
@@ -254,6 +252,18 @@ function getGithubCredentialSourceFromEnv(
     return 'env'
   }
   return 'none'
+}
+
+function resolveProviderEditorRouteId(
+  provider: ProviderProfile['provider'],
+  baseUrl?: string,
+): string {
+  const route = resolveProfileRoute(provider).routeId
+  if (route !== 'openai') {
+    return route
+  }
+
+  return resolveRouteIdFromBaseUrl(baseUrl) ?? route
 }
 
 async function resolveGithubCredentialSource(
@@ -525,17 +535,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   const formSteps = React.useMemo(
     () => {
-      const routeId = resolveProfileRoute(draftProvider).routeId
+      const routeId = resolveProviderEditorRouteId(draftProvider, draft.baseUrl)
       const supportsCustomHeaders = routeSupportsCustomHeaders(routeId)
-      const supportsOpenAIOptions = supportsOpenAICompatibilityOptions(routeId)
       return FORM_STEPS.filter(step => {
-        if (
-          !supportsOpenAIOptions &&
-          (step.key === 'apiFormat' ||
-            step.key === 'authHeader' ||
-            step.key === 'authHeaderValue')
-        ) {
-          return false
+        if (step.key === 'apiFormat') {
+          return routeSupportsApiFormatSelection(routeId)
+        }
+        if (step.key === 'authHeader' || step.key === 'authHeaderValue') {
+          return routeSupportsAuthHeaders(routeId)
         }
         if (step.key === 'customHeaders') {
           return supportsCustomHeaders
@@ -543,7 +550,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         return true
       })
     },
-    [draftProvider],
+    [draft.baseUrl, draftProvider],
   )
   const currentStep = formSteps[formStepIndex] ?? formSteps[0] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
@@ -1101,8 +1108,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    const routeId = resolveProfileRoute(draftProvider).routeId
-    const supportsOpenAIOptions = supportsOpenAICompatibilityOptions(routeId)
+    const routeId = resolveProviderEditorRouteId(draftProvider, nextDraft.baseUrl)
+    const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
+    const supportsAuthHeaders = routeSupportsAuthHeaders(routeId)
     const payload: ProviderProfileInput = {
       provider: draftProvider,
       name: nextDraft.name,
@@ -1110,19 +1118,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
       apiFormat:
-        supportsOpenAIOptions && nextDraft.apiFormat === 'responses'
+        supportsApiFormat && nextDraft.apiFormat === 'responses'
           ? 'responses'
           : 'chat_completions',
       authHeader:
-        supportsOpenAIOptions && nextDraft.authHeader
+        supportsAuthHeaders && nextDraft.authHeader
           ? nextDraft.authHeader
           : undefined,
       authScheme:
-        supportsOpenAIOptions && nextDraft.authHeader
+        supportsAuthHeaders && nextDraft.authHeader
           ? (nextDraft.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw')
           : undefined,
       authHeaderValue:
-        supportsOpenAIOptions && nextDraft.authHeaderValue
+        supportsAuthHeaders && nextDraft.authHeaderValue
           ? nextDraft.authHeaderValue
           : undefined,
       customHeaders:

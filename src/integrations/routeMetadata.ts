@@ -130,9 +130,7 @@ export function getRouteDefaultModel(
   }
 
   if ('defaultModel' in descriptor && descriptor.defaultModel) {
-    return Array.isArray(descriptor.defaultModel)
-      ? descriptor.defaultModel.join(', ')
-      : descriptor.defaultModel
+    return descriptor.defaultModel
   }
 
   const catalogModels = descriptor.catalog?.models ?? []
@@ -171,6 +169,134 @@ function readFirstNonEmptyEnvValue(
   }
 
   return undefined
+}
+
+function hasNonEmptyEnvValue(value: string | undefined): boolean {
+  const trimmed = value?.trim().toLowerCase()
+  return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
+}
+
+export function isMiniMaxBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const hostname = new URL(trimmed).hostname.toLowerCase()
+    return hostname === 'api.minimax.io' || hostname === 'api.minimax.chat'
+  } catch {
+    return false
+  }
+}
+
+export function isXaiBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'api.x.ai'
+  } catch {
+    return false
+  }
+}
+
+export function getMiniMaxBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isMiniMaxBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isMiniMaxBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
+}
+
+export function getXaiBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isXaiBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isXaiBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
+}
+
+function hasConflictingOpenAIBaseUrlForRoute(
+  processEnv: NodeJS.ProcessEnv,
+  isRouteBaseUrl: (value: string | undefined) => boolean,
+): boolean {
+  if (hasNonEmptyEnvValue(processEnv.OPENAI_BASE_URL)) {
+    return !isRouteBaseUrl(processEnv.OPENAI_BASE_URL)
+  }
+
+  return (
+    hasNonEmptyEnvValue(processEnv.OPENAI_API_BASE) &&
+    !isRouteBaseUrl(processEnv.OPENAI_API_BASE)
+  )
+}
+
+function hasNoExplicitNonOpenAICompatibleProvider(
+  processEnv: NodeJS.ProcessEnv,
+): boolean {
+  return (
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  )
+}
+
+export function hasXaiEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXaiBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
+export function hasMiniMaxEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isMiniMaxBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
+export function resolveEnvOnlyProviderRouteId(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): 'xai' | 'minimax' | null {
+  if (hasXaiEnvOnlyProviderIntent(processEnv)) {
+    return 'xai'
+  }
+
+  if (hasMiniMaxEnvOnlyProviderIntent(processEnv)) {
+    return 'minimax'
+  }
+
+  return null
 }
 
 export function getRouteCredentialEnvVars(
@@ -239,10 +365,27 @@ export function routeSupportsCustomHeaders(
     return false
   }
 
-  return Boolean(
-    descriptor.transportConfig.supportsUserCustomHeaders ??
-      descriptor.transportConfig.openaiShim?.supportsUserCustomHeaders,
-  )
+  return descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true
+}
+
+function routeSupportsOpenAIShimOption(
+  routeId: string,
+  option: 'supportsApiFormatSelection' | 'supportsAuthHeaders',
+): boolean {
+  const descriptor = getRouteDescriptor(routeId)
+  if (!descriptor || descriptor.transportConfig.kind !== 'openai-compatible') {
+    return false
+  }
+
+  return descriptor.transportConfig.openaiShim?.[option] === true
+}
+
+export function routeSupportsApiFormatSelection(routeId: string): boolean {
+  return routeSupportsOpenAIShimOption(routeId, 'supportsApiFormatSelection')
+}
+
+export function routeSupportsAuthHeaders(routeId: string): boolean {
+  return routeSupportsOpenAIShimOption(routeId, 'supportsAuthHeaders')
 }
 
 export function getRouteProviderTypeLabel(
@@ -350,6 +493,9 @@ export function resolveActiveRouteIdFromEnv(
 
     return 'custom'
   }
+
+  const envOnlyRouteId = resolveEnvOnlyProviderRouteId(processEnv)
+  if (envOnlyRouteId) return envOnlyRouteId
 
   return 'anthropic'
 }

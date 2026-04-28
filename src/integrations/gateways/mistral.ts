@@ -14,6 +14,7 @@ export default defineGateway({
   label: 'Mistral AI',
   category: 'hosted',
   defaultBaseUrl: 'https://api.mistral.ai/v1',
+  defaultModel: 'devstral-latest',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -23,7 +24,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
       maxTokensField: 'max_tokens',
       removeBodyFields: ['store'],
     },
@@ -46,7 +47,7 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'mistral-devstral', apiName: 'devstral-latest', label: 'Devstral Latest', default: true },
+      { id: 'mistral-devstral', apiName: 'devstral-latest', label: 'Devstral Latest', modelDescriptorId: 'devstral-latest' },
     ],
   },
   usage: { supported: false },

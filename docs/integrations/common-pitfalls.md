@@ -61,7 +61,17 @@ Safer rule:
 Shared model descriptors answer what a model is. Route-owned catalogs answer
 where it is offered.
 
-## Pitfall 6: Forgetting `providerModelMap` boundaries
+## Pitfall 6: Duplicating model defaults in catalog entries
+
+Common mistake:
+Marking catalog entries with per-model `default` or `recommended` flags after
+the route already declares `defaultModel`.
+
+Safer rule:
+Declare the route's default once with `defaultModel`. UI recommendation labels
+derive from that route default.
+
+## Pitfall 7: Forgetting `providerModelMap` boundaries
 
 Common mistake:
 Assuming `providerModelMap` enables a route automatically.
@@ -71,7 +81,7 @@ Use `providerModelMap` only to record route-specific API names for the same
 conceptual model. The route catalog still decides whether that route exposes
 the model.
 
-## Pitfall 7: Omitting `openaiShim.maxTokensField` on strict routes
+## Pitfall 8: Omitting `openaiShim.maxTokensField` on strict routes
 
 Common mistake:
 Assuming every OpenAI-compatible route accepts the same max-token field.
@@ -84,7 +94,7 @@ Safer rule:
 - keep the choice explicit in `transportConfig.openaiShim.maxTokensField` when
   the route is strict.
 
-## Pitfall 8: Flattening real protocol differences
+## Pitfall 9: Flattening real protocol differences
 
 Common mistake:
 Treating Bedrock, Vertex, Gemini, GitHub native Claude mode, or Mistral as if
@@ -94,7 +104,7 @@ Safer rule:
 If the external API contract is genuinely different, keep that difference
 explicit. Descriptor-first does not mean protocol differences should be hidden.
 
-## Pitfall 9: Overstating `/usage` support
+## Pitfall 10: Overstating `/usage` support
 
 Common mistake:
 Declaring usage support because the descriptor schema allows it, without
@@ -110,7 +120,7 @@ Safer rule:
   vendor/gateway-focused, with the current settings UI still concrete for
   Anthropic, MiniMax, and Codex.
 
-## Pitfall 10: Hiding discovery complexity in the descriptor file
+## Pitfall 11: Hiding discovery complexity in the descriptor file
 
 Common mistake:
 Packing a large hybrid catalog or complex discovery rules inline in
@@ -120,7 +130,19 @@ Safer rule:
 Move large catalog or discovery-specific logic into a companion
 `gateways/<id>.models.ts` file and keep the descriptor file small.
 
-## Pitfall 11: Forgetting the compatibility layer
+## Pitfall 12: Rebuilding the old OpenAI context table
+
+Common mistake:
+Adding built-in context or output limits to
+`src/utils/model/openaiContextWindows.ts`.
+
+Safer rule:
+Put built-in model metadata in `src/integrations/models/`. Keep
+`openaiContextWindows.ts` focused on documented env overrides such as
+`CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` and
+`CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`.
+
+## Pitfall 13: Forgetting the compatibility layer
 
 Common mistake:
 Changing descriptor metadata and assuming every public surface is already
@@ -144,7 +166,7 @@ Do not hand-edit:
 Only touch remaining env-facing compatibility surfaces when the route truly
 needs them.
 
-## Pitfall 12: Using stale repo paths in docs
+## Pitfall 14: Using stale repo paths in docs
 
 Common mistake:
 Pointing contributors at outdated files or command entrypoints.
@@ -167,6 +189,8 @@ Before opening or landing integration docs or descriptor changes:
 - confirm `transportConfig.kind` is doing the routing work;
 - confirm examples use `define*` helpers plus default exports;
 - confirm route catalogs own availability;
+- confirm route defaults are declared once through `defaultModel`;
+- confirm built-in model limits live in `src/integrations/models/`;
 - confirm strict OpenAI-compatible routes specify the correct max-token field;
 - confirm `/usage` docs match the actual current resolver/UI behavior;
 - confirm any illustrative sample is clearly marked as illustrative.

@@ -75,7 +75,7 @@ describe('integration artifact generator', () => {
   },
   catalog: {
     source: 'static',
-    models: [{ id: 'acme-fast', apiName: 'acme-fast', default: true }],
+    models: [{ id: 'acme-fast', apiName: 'acme-fast' }],
   },
   usage: { supported: false },
 }
@@ -110,7 +110,7 @@ describe('integration artifact generator', () => {
   },
   catalog: {
     source: 'static',
-    models: [{ id: 'acme-fast', apiName: 'acme-fast', default: true }],
+    models: [{ id: 'acme-fast', apiName: 'acme-fast' }],
   },
   usage: { supported: false },
 }

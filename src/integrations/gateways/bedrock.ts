@@ -22,7 +22,7 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'bedrock-claude-opus', apiName: 'us.anthropic.claude-opus-4-6-v1', label: 'Claude Opus (Bedrock)' },
+      { id: 'bedrock-claude-opus', apiName: 'us.anthropic.claude-opus-4-6-v1', label: 'Claude Opus (Bedrock)', modelDescriptorId: 'claude-opus-4-6' },
     ],
   },
   usage: { supported: false },

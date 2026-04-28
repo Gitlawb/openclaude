@@ -31,8 +31,9 @@ Typical gateway cases:
 6. Decide whether the gateway needs discovery cache TTL, refresh mode, and
    manual refresh.
 7. For OpenAI-compatible or local routes, add any required static headers and
-   decide whether users may add custom headers through
-   `transportConfig.openaiShim`.
+   decide whether users may edit API mode and auth/header fields through
+   `transportConfig.openaiShim.supportsApiFormatSelection` and
+   `transportConfig.openaiShim.supportsAuthHeaders`.
 8. If the gateway should appear in preset-driven `/provider` flows, add a
    `preset` block on the descriptor.
 9. Run `bun run integrations:generate` so the generated loader and preset
@@ -84,19 +85,16 @@ const catalog = defineCatalog({
       id: 'acme-hosted-fast',
       apiName: 'acme-hosted-fast',
       label: 'Acme Hosted Fast',
-      default: true,
-      contextWindow: 128_000,
-      maxOutputTokens: 8_192,
+      modelDescriptorId: 'acme-hosted-fast',
     },
     {
       id: 'acme-hosted-pro',
       apiName: 'acme-hosted-pro',
       label: 'Acme Hosted Pro',
+      modelDescriptorId: 'acme-hosted-pro',
       capabilities: {
         supportsReasoning: true,
       },
-      contextWindow: 256_000,
-      maxOutputTokens: 16_384,
       notes: 'Practical input limit is lower than the full context window.',
     },
   ],
@@ -107,6 +105,7 @@ export default defineGateway({
   label: 'Acme Hosted',
   category: 'hosted',
   defaultBaseUrl: 'https://gateway.acme.example/v1',
+  defaultModel: 'acme-hosted-fast',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -119,7 +118,8 @@ export default defineGateway({
       headers: {
         'X-Acme-Client': 'openclaude',
       },
-      supportsUserCustomHeaders: true,
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: true,
       maxTokensField: 'max_completion_tokens',
     },
   },
@@ -141,10 +141,12 @@ What this example covers:
 - one-file descriptor authoring;
 - hosted OpenAI-compatible routing;
 - required static custom headers;
-- optional user-supplied custom headers;
+- API mode editing disabled for a fixed hosted gateway;
+- optional user-supplied auth/header fields enabled;
 - a static catalog;
 - a gateway with only its own hosted models;
-- different reasoning/context/input/output behavior across models.
+- different reasoning/context/input/output behavior across models;
+- route defaults declared once through `defaultModel`.
 
 ## Transport family examples
 
@@ -156,6 +158,10 @@ OpenAI-compatible request/response contract.
 ```ts
 transportConfig: {
   kind: 'openai-compatible',
+  openaiShim: {
+    supportsApiFormatSelection: false,
+    supportsAuthHeaders: false,
+  },
 }
 ```
 
@@ -167,6 +173,8 @@ Use `transportConfig.kind: 'local'` for routes such as Ollama or LM Studio.
 transportConfig: {
   kind: 'local',
   openaiShim: {
+    supportsApiFormatSelection: false,
+    supportsAuthHeaders: true,
     maxTokensField: 'max_tokens',
   },
 }
@@ -213,6 +221,8 @@ export default defineGateway({
   transportConfig: {
     kind: 'local',
     openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: true,
       maxTokensField: 'max_tokens',
     },
   },
@@ -262,20 +272,16 @@ export default defineCatalog({
       id: 'galaxy-curated-default',
       apiName: 'galaxy/gpt-5-mini',
       label: 'GPT-5 Mini (via Galaxy)',
-      default: true,
       modelDescriptorId: 'gpt-5-mini',
     },
     {
       id: 'galaxy-curated-reasoner',
       apiName: 'galaxy/deepseek-r1',
       label: 'DeepSeek R1 (via Galaxy)',
-      recommended: true,
       modelDescriptorId: 'deepseek-reasoner',
       capabilities: {
         supportsReasoning: true,
       },
-      contextWindow: 256_000,
-      maxOutputTokens: 32_768,
       notes: 'Practical input limit is 192k tokens on this route.',
       transportOverrides: {
         openaiShim: {
@@ -300,6 +306,7 @@ export default defineGateway({
   label: 'Galaxy Gateway',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.galaxy.example/v1',
+  defaultModel: 'galaxy/gpt-5-mini',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -312,6 +319,8 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
+      supportsApiFormatSelection: false,
+      supportsAuthHeaders: true,
       maxTokensField: 'max_completion_tokens',
     },
   },
@@ -438,6 +447,8 @@ Strict-route example:
 transportConfig: {
   kind: 'openai-compatible',
   openaiShim: {
+    supportsApiFormatSelection: false,
+    supportsAuthHeaders: false,
     maxTokensField: 'max_tokens',
   },
 }
@@ -449,6 +460,8 @@ Hosted modern-route example:
 transportConfig: {
   kind: 'openai-compatible',
   openaiShim: {
+    supportsApiFormatSelection: false,
+    supportsAuthHeaders: false,
     maxTokensField: 'max_completion_tokens',
   },
 }
@@ -459,8 +472,8 @@ transportConfig: {
 For OpenAI-compatible or local routes, required static headers belong in
 `transportConfig.openaiShim.headers`.
 
-Optional user-supplied custom headers should be allowed only when the route
-really supports them:
+Optional user-editable API mode and auth/header fields should be allowed only
+when the route really supports them:
 
 ```ts
 transportConfig: {
@@ -469,12 +482,29 @@ transportConfig: {
     headers: {
       'X-Acme-Client': 'openclaude',
     },
-    supportsUserCustomHeaders: true,
+    supportsApiFormatSelection: false,
+    supportsAuthHeaders: true,
   },
 }
 ```
 
 Do not use custom headers as a substitute for transport-family selection.
+Set these flags explicitly. When `supportsAuthHeaders` is false, `/provider
+add` and `/provider edit` should only expose the route's normal credential
+fields. When `supportsApiFormatSelection` is false, `/provider add` and
+`/provider edit` should not expose the API mode picker.
+
+Use:
+
+- `supportsApiFormatSelection: true`
+  for broad custom gateways where users may need to choose the API surface.
+- `supportsApiFormatSelection: false`
+  for fixed hosted or local routes where the descriptor owns the API contract.
+- `supportsAuthHeaders: true`
+  for gateways that support user-provided custom auth/header fields.
+- `supportsAuthHeaders: false`
+  for gateways that require a fixed auth contract and should only collect the
+  configured credential.
 
 ## Presets and user-facing gateway onboarding
 
@@ -522,10 +552,11 @@ Before calling the gateway guide complete:
 - the descriptor lives under `src/integrations/gateways/`;
 - one-file and two-file patterns are both covered where useful;
 - the gateway declares only the model subset it actually offers;
+- the route default is declared once through `defaultModel`;
 - `transportConfig.kind` is the routing contract;
 - `category` is treated as grouping/display metadata only;
 - any discovery route includes the right cache TTL, refresh mode, and manual
   refresh behavior;
-- custom headers and token-field behavior are explicit where required;
+- API mode, auth/header, and token-field behavior are explicit where required;
 - user-facing preset participation is expressed through descriptor `preset`
   metadata and regenerated artifacts rather than handwritten follow-through.

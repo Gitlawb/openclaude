@@ -13,7 +13,8 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsApiFormatSelection: true,
+      supportsAuthHeaders: true,
     },
   },
   preset: {

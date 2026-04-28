@@ -116,7 +116,7 @@ function getRouteDefaults(provider: string): {
 
   return {
     defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl,
-    defaultModel: Array.isArray(defaultModel) ? defaultModel[0] : defaultModel,
+    defaultModel,
   }
 }
 
@@ -149,7 +149,10 @@ export function applyProviderFlag(
         : process.env.OPENAI_API_KEY !== undefined &&
             process.env.OPENAI_API_KEY === process.env.XAI_API_KEY
           ? 'xai'
-          : null
+          : process.env.OPENAI_API_KEY !== undefined &&
+              process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
+            ? 'minimax'
+            : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -215,13 +218,6 @@ export function applyProviderFlag(
         process.env.OPENAI_API_KEY = process.env.NVIDIA_API_KEY
       }
       process.env.OPENAI_MODEL ??= 'nvidia/llama-3.1-nemotron-70b-instruct'
-      if (model) process.env.OPENAI_MODEL = model
-      break
-
-    case 'minimax':
-      process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.minimax.io/v1'
-      process.env.OPENAI_MODEL ??= 'MiniMax-M2.5'
       if (model) process.env.OPENAI_MODEL = model
       break
 

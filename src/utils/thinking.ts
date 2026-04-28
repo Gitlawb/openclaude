@@ -4,6 +4,7 @@ import { feature } from 'bun:bundle'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import {
   getCatalogEntriesForRoute,
+  getModel,
   resolveActiveRouteIdFromEnv,
 } from '../integrations/index.js'
 import { getCanonicalName } from './model/model.js'
@@ -94,7 +95,13 @@ function routeCatalogSupportsThinking(model: string): boolean | undefined {
     catalogEntry.id.trim().toLowerCase() === normalizedModel,
   )
 
-  return entry?.capabilities?.supportsReasoning
+  if (entry?.capabilities?.supportsReasoning !== undefined) {
+    return entry.capabilities.supportsReasoning
+  }
+
+  return entry?.modelDescriptorId
+    ? getModel(entry.modelDescriptorId)?.capabilities.supportsReasoning
+    : undefined
 }
 
 export function getRainbowColor(

@@ -33,7 +33,7 @@ export default defineVendor({
   catalog: {
     source: 'static',
     models: [
-      { id: 'claude-opus-4.6', apiName: 'claude-opus-4.6', label: 'Claude Opus 4.6', default: true },
+      { id: 'claude-opus-4.6', apiName: 'claude-opus-4.6', label: 'Claude Opus 4.6' },
     ],
   },
   usage: { supported: false },

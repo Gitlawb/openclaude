@@ -29,8 +29,11 @@ import {
   isEnvTruthy,
 } from '../../utils/envUtils.js'
 import {
+  getMiniMaxBaseUrlOverride,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  getXaiBaseUrlOverride,
+  resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
 
 const importRuntimeModule = new Function(
@@ -94,35 +97,60 @@ function createStderrLogger(): ClientOptions['logger'] {
   }
 }
 
-function hasNonEmptyEnvValue(value: string | undefined): boolean {
-  const trimmed = value?.trim().toLowerCase()
-  return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
-}
-
-function hasXaiEnvOnlyProviderIntent(): boolean {
-  return (
-    hasNonEmptyEnvValue(process.env.XAI_API_KEY) &&
-    !isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) &&
-    !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
-    !isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
-    !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
-    !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-    !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-    !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
+function isMiniMaxModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(
+    normalized &&
+      (normalized.startsWith('minimax-') || normalized.startsWith('minimax/')),
   )
 }
 
-function applyXaiOpenAICompatibleDefaults(): void {
+function isXaiModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(
+    normalized &&
+      (normalized.startsWith('grok-') || normalized.startsWith('xai/')),
+  )
+}
+
+function applyMiniMaxEnvOnlyDefaults(): void {
+  const baseUrlOverride = getMiniMaxBaseUrlOverride()
+  const hasMiniMaxBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  if (!hasNonEmptyEnvValue(process.env.OPENAI_BASE_URL)) {
-    process.env.OPENAI_BASE_URL = getRouteDefaultBaseUrl('xai')
-  }
-  if (!hasNonEmptyEnvValue(process.env.OPENAI_MODEL)) {
-    process.env.OPENAI_MODEL = getRouteDefaultModel('xai')
-  }
-  if (!hasNonEmptyEnvValue(process.env.OPENAI_API_KEY)) {
-    process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
-  }
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('minimax')
+  process.env.OPENAI_MODEL =
+    (hasMiniMaxBaseOverride || isMiniMaxModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('minimax')
+  process.env.OPENAI_API_KEY = process.env.MINIMAX_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
+function applyXaiEnvOnlyDefaults(): void {
+  const baseUrlOverride = getXaiBaseUrlOverride()
+  const hasXaiBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('xai')
+  process.env.OPENAI_MODEL =
+    (hasXaiBaseOverride || isXaiModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('xai')
+  process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
 export async function getAnthropicClient({
@@ -229,12 +257,18 @@ export async function getAnthropicClient({
     }
     return new Anthropic(nativeArgs)
   }
-  const useXaiEnvOnlyProvider = hasXaiEnvOnlyProviderIntent()
+  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
+  const useXaiEnvOnlyProvider = envOnlyProviderRouteId === 'xai'
+  const useMiniMaxEnvOnlyProvider = envOnlyProviderRouteId === 'minimax'
+  if (useMiniMaxEnvOnlyProvider) {
+    applyMiniMaxEnvOnlyDefaults()
+  }
   if (useXaiEnvOnlyProvider) {
-    applyXaiOpenAICompatibleDefaults()
+    applyXaiEnvOnlyDefaults()
   }
 
   if (
+    useMiniMaxEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||

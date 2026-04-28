@@ -1,79 +1,53 @@
 import { defineModel } from '../define.js'
 
-// Unknown models fall back to src/utils/model/openaiContextWindows.ts
-// Gateway onboarding should not require editing this file.
+const gptCapabilities = {
+  supportsVision: true,
+  supportsStreaming: true,
+  supportsFunctionCalling: true,
+  supportsJsonMode: true,
+  supportsReasoning: false,
+  supportsPreciseTokenCount: true,
+}
 
-export default [
-  defineModel({
-    id: 'gpt-5.4',
-    label: 'GPT-5.4',
+function gptModel(
+  id: string,
+  label: string,
+  contextWindow: number,
+  maxOutputTokens: number,
+) {
+  return defineModel({
+    id,
+    label,
     brandId: 'gpt',
     vendorId: 'openai',
     classification: ['chat', 'vision', 'coding'],
-    defaultModel: 'gpt-5.4',
-    capabilities: {
-      supportsVision: true,
-      supportsStreaming: true,
-      supportsFunctionCalling: true,
-      supportsJsonMode: true,
-      supportsReasoning: false,
-      supportsPreciseTokenCount: true,
-    },
-    contextWindow: 400_000,
-    maxOutputTokens: 16_384,
-  }),
-  defineModel({
-    id: 'gpt-5-mini',
-    label: 'GPT-5 Mini',
-    brandId: 'gpt',
-    vendorId: 'openai',
-    classification: ['chat', 'vision'],
-    defaultModel: 'gpt-5-mini',
-    capabilities: {
-      supportsVision: true,
-      supportsStreaming: true,
-      supportsFunctionCalling: true,
-      supportsJsonMode: true,
-      supportsReasoning: false,
-      supportsPreciseTokenCount: true,
-    },
-    contextWindow: 400_000,
-    maxOutputTokens: 16_384,
-  }),
-  defineModel({
-    id: 'gpt-4o',
-    label: 'GPT-4o',
-    brandId: 'gpt',
-    vendorId: 'openai',
-    classification: ['chat', 'vision'],
-    defaultModel: 'gpt-4o',
-    capabilities: {
-      supportsVision: true,
-      supportsStreaming: true,
-      supportsFunctionCalling: true,
-      supportsJsonMode: true,
-      supportsReasoning: false,
-      supportsPreciseTokenCount: true,
-    },
-    contextWindow: 128_000,
-    maxOutputTokens: 16_384,
-  }),
-  defineModel({
-    id: 'gpt-4o-mini',
-    label: 'GPT-4o Mini',
-    brandId: 'gpt',
-    vendorId: 'openai',
-    classification: ['chat', 'vision'],
-    defaultModel: 'gpt-4o-mini',
-    capabilities: {
-      supportsVision: true,
-      supportsStreaming: true,
-      supportsFunctionCalling: true,
-      supportsJsonMode: true,
-      supportsReasoning: false,
-      supportsPreciseTokenCount: true,
-    },
-    contextWindow: 128_000,
-    maxOutputTokens: 16_384,
-  }),
+    defaultModel: id,
+    capabilities: gptCapabilities,
+    contextWindow,
+    maxOutputTokens,
+  })
+}
+
+export default [
+  gptModel('gpt-5.5', 'GPT-5.5', 1_050_000, 128_000),
+  gptModel('gpt-5.5-mini', 'GPT-5.5 Mini', 400_000, 128_000),
+  gptModel('gpt-5.5-nano', 'GPT-5.5 Nano', 400_000, 128_000),
+  gptModel('gpt-5.4', 'GPT-5.4', 1_050_000, 128_000),
+  gptModel('gpt-5.4-mini', 'GPT-5.4 Mini', 400_000, 128_000),
+  gptModel('gpt-5.4-nano', 'GPT-5.4 Nano', 400_000, 128_000),
+  gptModel('gpt-5-mini', 'GPT-5 Mini', 400_000, 64_000),
+  gptModel('gpt-4.1', 'GPT-4.1', 1_047_576, 32_768),
+  gptModel('gpt-4.1-mini', 'GPT-4.1 Mini', 1_047_576, 32_768),
+  gptModel('gpt-4.1-nano', 'GPT-4.1 Nano', 1_047_576, 32_768),
+  gptModel('gpt-4o', 'GPT-4o', 128_000, 16_384),
+  gptModel('gpt-4o-mini', 'GPT-4o Mini', 128_000, 16_384),
+  gptModel('gpt-4-turbo', 'GPT-4 Turbo', 128_000, 4_096),
+  gptModel('gpt-4', 'GPT-4', 8_192, 4_096),
+  gptModel('o1-preview', 'o1 Preview', 128_000, 32_768),
+  gptModel('o1-mini', 'o1 Mini', 128_000, 65_536),
+  gptModel('o1-pro', 'o1 Pro', 200_000, 100_000),
+  gptModel('o1', 'o1', 200_000, 100_000),
+  gptModel('o3-mini', 'o3 Mini', 200_000, 100_000),
+  gptModel('o3', 'o3', 200_000, 100_000),
+  gptModel('o4-mini', 'o4 Mini', 200_000, 100_000),
 ]

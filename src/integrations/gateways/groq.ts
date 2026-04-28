@@ -5,6 +5,7 @@ export default defineGateway({
   label: 'Groq',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.groq.com/openai/v1',
+  defaultModel: 'llama-3.3-70b-versatile',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -14,7 +15,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
-      supportsUserCustomHeaders: true,
+      supportsAuthHeaders: true,
     },
   },
   preset: {
@@ -26,7 +27,7 @@ export default defineGateway({
   catalog: {
     source: 'static',
     models: [
-      { id: 'groq-llama-3.3-70b', apiName: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', default: true },
+      { id: 'groq-llama-3.3-70b', apiName: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', modelDescriptorId: 'llama-3.3-70b-versatile' },
     ],
   },
   usage: { supported: false },

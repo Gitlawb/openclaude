@@ -13,8 +13,10 @@ Good reasons to add a model descriptor:
 - you want `providerModelMap` to document route-specific API names for the same
   conceptual model.
 
-Do not add a shared model descriptor just because one route exposes one model.
-Route-owned catalogs are still the source of truth for route availability.
+Do add or update a shared model descriptor when the model's context window,
+output limit, or capabilities need to be available to runtime model lookup. Do
+not use model descriptors as route availability lists. Route-owned catalogs are
+still the source of truth for where a model is offered.
 
 ## Step-by-step
 
@@ -164,11 +166,15 @@ Model lookup should prefer:
 1. route-owned catalog metadata;
 2. shared model-descriptor enrichment when a catalog entry references
    `modelDescriptorId`;
-3. fallback tables such as `src/utils/model/openaiContextWindows.ts` for
-   models that are not yet fully modeled in the shared index.
+3. global shared model descriptors under `src/integrations/models/` for legacy
+   and custom OpenAI-compatible model names;
+4. documented env overrides from `src/utils/model/openaiContextWindows.ts`
+   (`CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` and
+   `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`).
 
-That fallback is intentional. It keeps the repo working while the shared model
-index stays selective instead of pretending to cover every possible model name.
+`openaiContextWindows.ts` is compatibility glue for user-provided env
+overrides. It should not grow a second built-in model table. Built-in model
+limits belong in model descriptor files.
 
 ## What not to do
 
@@ -180,6 +186,8 @@ Avoid these patterns:
 - using `providerModelMap` as a substitute for route catalogs;
 - adding a brand descriptor when no shared family metadata is actually useful;
 - calling `registerModel(...)` from contributor-authored examples.
+- adding built-in model limits to `src/utils/model/openaiContextWindows.ts`
+  instead of `src/integrations/models/`.
 
 ## Verification checklist
 
@@ -190,7 +198,7 @@ Before calling a model doc update complete:
   metadata plus optional route enrichment;
 - `providerModelMap` is shown only as a route-name mapping tool;
 - the doc explains when a brand descriptor is useful;
-- the doc explains the lookup/fallback path to
-  `src/utils/model/openaiContextWindows.ts`;
+- the doc explains that global lookup reads `src/integrations/models/`, while
+  `src/utils/model/openaiContextWindows.ts` only preserves env overrides;
 - the doc explains why normal gateway/direct-vendor onboarding should not
   require editing multiple shared model files.

@@ -1,25 +1,38 @@
 import { defineModel } from '../define.js'
 
-// Unknown models fall back to src/utils/model/openaiContextWindows.ts
-// Gateway onboarding should not require editing this file.
+const qwenCapabilities = {
+  supportsVision: true,
+  supportsStreaming: true,
+  supportsFunctionCalling: true,
+  supportsJsonMode: true,
+  supportsReasoning: true,
+  supportsPreciseTokenCount: false,
+}
 
-export default [
-  defineModel({
-    id: 'qwen3.6-plus',
-    label: 'Qwen 3.6 Plus',
+function qwenModel(
+  id: string,
+  label: string,
+  contextWindow: number,
+  maxOutputTokens: number,
+) {
+  return defineModel({
+    id,
+    label,
     brandId: 'qwen',
     vendorId: 'openai',
     classification: ['chat', 'reasoning', 'vision', 'coding'],
-    defaultModel: 'qwen3.6-plus',
-    capabilities: {
-      supportsVision: true,
-      supportsStreaming: true,
-      supportsFunctionCalling: true,
-      supportsJsonMode: true,
-      supportsReasoning: true,
-      supportsPreciseTokenCount: false,
-    },
-    contextWindow: 128_000,
-    maxOutputTokens: 8192,
-  }),
+    defaultModel: id,
+    capabilities: qwenCapabilities,
+    contextWindow,
+    maxOutputTokens,
+  })
+}
+
+export default [
+  qwenModel('qwen3.6-plus', 'Qwen 3.6 Plus', 1_000_000, 65_536),
+  qwenModel('qwen3.5-plus', 'Qwen 3.5 Plus', 1_000_000, 65_536),
+  qwenModel('qwen3-coder-plus', 'Qwen 3 Coder Plus', 1_000_000, 65_536),
+  qwenModel('qwen3-coder-next', 'Qwen 3 Coder Next', 262_144, 65_536),
+  qwenModel('qwen3-max', 'Qwen 3 Max', 262_144, 32_768),
+  qwenModel('Qwen/Qwen3.5-9B', 'Qwen 3.5 9B', 128_000, 32_768),
 ]

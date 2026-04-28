@@ -115,6 +115,8 @@ export {
   getTransportKindForRoute,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
   routeSupportsCustomHeaders,
 } from './routeMetadata.js'
 export {
