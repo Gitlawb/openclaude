@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach, afterAll } from 'bun:test'
 import {
   addGlobalEntity,
   addGlobalRelation,
@@ -9,20 +9,35 @@ import {
   resetGlobalGraph,
   saveProjectGraph
 } from './knowledgeGraph.js'
-import { rmSync, existsSync } from 'fs'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { getFsImplementation } from './fsOperations.js'
 
 describe('KnowledgeGraph Global Persistence & RAG', () => {
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-knowledge-graph-'))
+  process.env.CLAUDE_CONFIG_DIR = configDir
   const cwd = getFsImplementation().cwd()
   const graphPath = getProjectGraphPath(cwd)
 
   beforeEach(() => {
     resetGlobalGraph()
-    if (existsSync(graphPath)) rmSync(graphPath)
+    rmSync(graphPath, { force: true })
   })
 
   afterEach(() => {
-    if (existsSync(graphPath)) rmSync(graphPath)
+    rmSync(graphPath, { force: true })
+  })
+
+  afterAll(() => {
+    resetGlobalGraph()
+    if (originalConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+    }
+    rmSync(configDir, { recursive: true, force: true })
   })
 
   it('persists entities across loads', () => {
