@@ -1,7 +1,17 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-mock.module('../utils/settings/settings.js', () => ({
-  getSettings_DEPRECATED: () => ({}),
-}))
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+
+const actualSettings = await import('../utils/settings/settings.js')
+
+beforeAll(() => {
+  mock.module('../utils/settings/settings.js', () => ({
+    ...actualSettings,
+    getSettings_DEPRECATED: () => ({}),
+  }))
+})
+
+afterAll(() => {
+  mock.restore()
+})
 
 import { detectProvider } from './StartupScreen.js'
 
