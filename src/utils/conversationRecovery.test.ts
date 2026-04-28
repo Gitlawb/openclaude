@@ -11,8 +11,19 @@ import {
 
 const tempDirs: string[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
-const originalGithub = process.env.CLAUDE_CODE_USE_GITHUB
-const originalOpenAIModel = process.env.OPENAI_MODEL
+const providerEnvKeys = [
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'OPENAI_MODEL',
+] as const
+const originalProviderEnv = Object.fromEntries(
+  providerEnvKeys.map(key => [key, process.env[key]]),
+) as Record<(typeof providerEnvKeys)[number], string | undefined>
 const sessionId = '00000000-0000-4000-8000-000000001999'
 const ts = '2026-04-02T00:00:00.000Z'
 
@@ -50,10 +61,22 @@ async function writeJsonl(entry: unknown): Promise<string> {
 
 afterEach(async () => {
   process.env.CLAUDE_CODE_SIMPLE = originalSimple
-  process.env.CLAUDE_CODE_USE_GITHUB = originalGithub
-  process.env.OPENAI_MODEL = originalOpenAIModel
+  for (const key of providerEnvKeys) {
+    const value = originalProviderEnv[key]
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
+
+function clearProviderEnv(): void {
+  for (const key of providerEnvKeys) {
+    delete process.env[key]
+  }
+}
 
 test('loadConversationForResume accepts a small transcript from jsonl path', async () => {
   process.env.CLAUDE_CODE_SIMPLE = '1'
@@ -84,6 +107,7 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
 })
 
 test('deserializeMessages preserves thinking blocks for GitHub native Claude transport', () => {
+  clearProviderEnv()
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_MODEL = 'claude-sonnet-4-6'
 
