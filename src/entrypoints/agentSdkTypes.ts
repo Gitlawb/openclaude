@@ -442,7 +442,84 @@ export async function connectRemoteControl(
   throw new Error('not implemented')
 }
 
-// add exit reason types for removing the error within gracefulShutdown file 
+// add exit reason types for removing the error within gracefulShutdown file
 export type ExitReason = {
-  
+
 }
+
+// ============================================================================
+// Stub re-exports — types not included in source snapshot.
+//
+// The upstream Anthropic SDK defines these in sub-files (sdk/coreTypes,
+// sdk/runtimeTypes, sdk/controlTypes, sdk/toolTypes) that are stubbed
+// in this open repo. Until the real definitions are restored, alias the
+// names to `any` so callers can resolve their imports and `tsc` becomes
+// actionable. See issue #473 for the typecheck-foundation effort.
+// ============================================================================
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+export type AnyZodRawShape = any
+export type ApiKeySource = any
+export type AsyncHookJSONOutput = any
+export type ConfigChangeHookInput = any
+export type CwdChangedHookInput = any
+export type ElicitationHookInput = any
+export type ElicitationResultHookInput = any
+export type FileChangedHookInput = any
+export type ForkSessionOptions = any
+export type ForkSessionResult = any
+export type GetSessionInfoOptions = any
+export type GetSessionMessagesOptions = any
+export type HookEvent = any
+export type HookInput = any
+export type HookJSONOutput = any
+export type InferShape<_T> = any
+export type InstructionsLoadedHookInput = any
+export type InternalOptions = any
+export type InternalQuery = any
+export type ListSessionsOptions = any
+export type McpSdkServerConfigWithInstance = any
+export type McpServerConfigForProcessTransport = any
+export type McpServerStatus = any
+export type ModelInfo = any
+export type ModelUsage = any
+export type NotificationHookInput = any
+export type Options = any
+export type PermissionDeniedHookInput = any
+export type PermissionMode = any
+export type PermissionRequestHookInput = any
+export type PermissionResult = any
+export type PermissionUpdate = any
+export type PostCompactHookInput = any
+export type PostToolUseFailureHookInput = any
+export type PostToolUseHookInput = any
+export type PreCompactHookInput = any
+export type PreToolUseHookInput = any
+export type Query = any
+export type RewindFilesResult = any
+export type SDKAssistantMessage = any
+export type SDKAssistantMessageError = any
+export type SDKCompactBoundaryMessage = any
+export type SdkMcpToolDefinition = any
+export type SDKPartialAssistantMessage = any
+export type SDKPermissionDenial = any
+export type SDKRateLimitInfo = any
+export type SDKStatus = any
+export type SDKStatusMessage = any
+export type SDKSystemMessage = any
+export type SDKToolProgressMessage = any
+export type SDKUserMessageReplay = any
+export type SessionEndHookInput = any
+export type SessionMessage = any
+export type SessionMutationOptions = any
+export type SessionStartHookInput = any
+export type SetupHookInput = any
+export type StopFailureHookInput = any
+export type StopHookInput = any
+export type SubagentStartHookInput = any
+export type SubagentStopHookInput = any
+export type SyncHookJSONOutput = any
+export type TaskCompletedHookInput = any
+export type TaskCreatedHookInput = any
+export type TeammateIdleHookInput = any
+export type UserPromptSubmitHookInput = any
