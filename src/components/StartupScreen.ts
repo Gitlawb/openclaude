@@ -7,8 +7,8 @@
 
 import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/providerConfig.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
-import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
-import { parseUserSpecifiedModel } from '../utils/model/model.js'
+import { getSettingsForSource } from '../utils/settings/settings.js'
+import { parseUserSpecifiedModel, getPublicModelDisplayName } from '../utils/model/model.js'
 import { containsExactZaiGlmModelId, isZaiBaseUrl } from '../utils/zaiProvider.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
@@ -91,25 +91,28 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   const useMistral = process.env.CLAUDE_CODE_USE_MISTRAL === '1' || process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
 
   if (useGemini) {
-    const model = modelOverride || process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    const settings = getSettingsForSource('userSettings') || {}
+    const model = modelOverride || settings.model || process.env.GEMINI_MODEL || 'gemini-2.0-flash'
     const baseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
     return { name: 'Google Gemini', model, baseUrl, isLocal: false }
   }
 
   if (useMistral) {
-    const model = modelOverride || process.env.MISTRAL_MODEL || 'devstral-latest'
+    const settings = getSettingsForSource('userSettings') || {}
+    const model = modelOverride || settings.model || process.env.MISTRAL_MODEL || 'devstral-latest'
     const baseUrl = process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1'
     return { name: 'Mistral', model, baseUrl, isLocal: false }
   }
 
   if (useGithub) {
-    const rawModel = process.env.OPENAI_MODEL?.trim() || 'github:copilot'
+    const settings = getSettingsForSource('userSettings') || {}
+    const rawModel = modelOverride || settings.model || process.env.OPENAI_MODEL?.trim() || 'github:copilot'
     const resolvedRequest = resolveProviderRequest({
       model: rawModel,
       baseUrl: process.env.OPENAI_BASE_URL,
     })
     const baseUrl = resolvedRequest.baseUrl
-    let displayModel = resolvedRequest.resolvedModel
+    let displayModel = getPublicModelDisplayName(resolvedRequest.resolvedModel as any) || resolvedRequest.resolvedModel
     if (resolvedRequest.reasoning?.effort) {
       displayModel = `${displayModel} (${resolvedRequest.reasoning.effort})`
     }
@@ -117,7 +120,8 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   if (useOpenAI) {
-    const rawModel = modelOverride || process.env.OPENAI_MODEL || 'gpt-4o'
+    const settings = getSettingsForSource('userSettings') || {}
+    const rawModel = modelOverride || settings.model || process.env.OPENAI_MODEL || 'gpt-4o'
     const resolvedRequest = resolveProviderRequest({
       model: rawModel,
       baseUrl: process.env.OPENAI_BASE_URL,
@@ -165,7 +169,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     else if (isLocal) name = getLocalOpenAICompatibleProviderLabel(baseUrl)
     
     // Resolve model alias to actual model name + reasoning effort
-    let displayModel = resolvedRequest.resolvedModel
+    let displayModel = getPublicModelDisplayName(resolvedRequest.resolvedModel as any) || resolvedRequest.resolvedModel
     if (resolvedRequest.reasoning?.effort) {
       displayModel = `${displayModel} (${resolvedRequest.reasoning.effort})`
     }
@@ -174,7 +178,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   // Default: Anthropic - check settings.model first, then env vars
-  const settings = getSettings_DEPRECATED() || {}
+  const settings = getSettingsForSource('userSettings') || {}
   const modelSetting = modelOverride || settings.model || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
