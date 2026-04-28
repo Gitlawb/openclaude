@@ -1,13 +1,7 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, mock, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
-import {
-  deserializeMessages,
-  loadConversationForResume,
-  ResumeTranscriptTooLargeError,
-} from './conversationRecovery.ts'
 
 const tempDirs: string[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
@@ -20,6 +14,12 @@ const providerEnvKeys = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_FOUNDRY',
   'OPENAI_MODEL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'NVIDIA_NIM',
+  'MINIMAX_API_KEY',
+  'XAI_API_KEY',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
 ] as const
 const originalProviderEnv = Object.fromEntries(
   providerEnvKeys.map(key => [key, process.env[key]]),
@@ -60,6 +60,7 @@ async function writeJsonl(entry: unknown): Promise<string> {
 }
 
 afterEach(async () => {
+  mock.restore()
   process.env.CLAUDE_CODE_SIMPLE = originalSimple
   for (const key of providerEnvKeys) {
     const value = originalProviderEnv[key]
@@ -72,6 +73,12 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
+async function importFreshConversationRecovery() {
+  mock.restore()
+  const nonce = `${Date.now()}-${Math.random()}`
+  return import(`./conversationRecovery.ts?conversationRecoveryTest=${nonce}`)
+}
+
 function clearProviderEnv(): void {
   for (const key of providerEnvKeys) {
     delete process.env[key]
@@ -81,6 +88,7 @@ function clearProviderEnv(): void {
 test('loadConversationForResume accepts a small transcript from jsonl path', async () => {
   process.env.CLAUDE_CODE_SIMPLE = '1'
   const path = await writeJsonl(user(id(1), 'hello'))
+  const { loadConversationForResume } = await importFreshConversationRecovery()
 
   const result = await loadConversationForResume('fixture', path)
   expect(result).not.toBeNull()
@@ -92,6 +100,10 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
   process.env.CLAUDE_CODE_SIMPLE = '1'
   const hugeContent = 'x'.repeat(8 * 1024 * 1024 + 32 * 1024)
   const path = await writeJsonl(user(id(2), hugeContent))
+  const {
+    loadConversationForResume,
+    ResumeTranscriptTooLargeError,
+  } = await importFreshConversationRecovery()
 
   let caught: unknown
   try {
@@ -106,10 +118,11 @@ test('loadConversationForResume rejects oversized reconstructed transcripts', as
   )
 })
 
-test('deserializeMessages preserves thinking blocks for GitHub native Claude transport', () => {
+test('deserializeMessages preserves thinking blocks for GitHub native Claude transport', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_MODEL = 'claude-sonnet-4-6'
+  const { deserializeMessages } = await importFreshConversationRecovery()
 
   const deserialized = deserializeMessages([
     {
