@@ -7,6 +7,7 @@ import {
   loadProjectGraph,
   getProjectGraphPath,
   resetGlobalGraph,
+  clearMemoryOnly,
   saveProjectGraph
 } from './knowledgeGraph.js'
 import { mkdtempSync, rmSync } from 'fs'
@@ -45,7 +46,7 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
     saveProjectGraph(cwd)
 
     // Reset singleton and reload
-    resetGlobalGraph()
+    clearMemoryOnly()
     const graph = loadProjectGraph(cwd)
     const entity = Object.values(graph.entities).find(e => e.name === 'prod-1')
     expect(entity).toBeDefined()
