@@ -252,6 +252,7 @@ export function buildAPIProviderProperties(): Property[] {
       gemini: 'Google Gemini',
       github: 'GitHub Models',
       mistral: 'Mistral',
+      xai: 'xAI',
     }[apiProvider];
     properties.push({
       label: 'API provider',
@@ -410,6 +411,31 @@ export function buildAPIProviderProperties(): Property[] {
         label: 'Model',
         value: redactSecretValueForDisplay(mistralModel, process.env) ?? mistralModel
       })
+    }
+  } else if (apiProvider === 'xai') {
+    const xaiBaseUrl = process.env.OPENAI_BASE_URL;
+    if (xaiBaseUrl) {
+      properties.push({
+        label: 'xAI base URL',
+        value: redactSecretValueForDisplay(xaiBaseUrl, process.env) ?? xaiBaseUrl
+      })
+    }
+    const openaiModel = process.env.OPENAI_MODEL;
+    if (openaiModel) {
+      let modelDisplay = openaiModel;
+      const resolved = resolveProviderRequest({ model: openaiModel });
+      const resolvedModel = resolved.resolvedModel;
+      const reasoningEffort = resolved.reasoning?.effort;
+      if (resolvedModel && resolvedModel !== openaiModel.toLowerCase()) {
+        modelDisplay = resolvedModel;
+      }
+      if (reasoningEffort) {
+        modelDisplay = `${modelDisplay} (${reasoningEffort})`;
+      }
+      properties.push({
+        label: 'Model',
+        value: redactSecretValueForDisplay(modelDisplay, process.env) ?? modelDisplay
+      });
     }
   }
   const proxyUrl = getProxyUrl();

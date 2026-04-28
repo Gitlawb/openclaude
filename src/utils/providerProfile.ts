@@ -23,7 +23,6 @@ import {
   sanitizeApiKey,
   sanitizeProviderConfigValue,
 } from './providerSecrets.js'
-import { getPrimaryModel } from './providerModels.js'
 
 export {
   maskSecretForDisplay,
@@ -52,6 +51,10 @@ const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_FOUNDRY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'OPENAI_API_FORMAT',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
   'CODEX_API_KEY',
   'CODEX_CREDENTIAL_SOURCE',
@@ -75,10 +78,12 @@ const PROFILE_ENV_KEYS = [
   'BANKR_BASE_URL',
   'BNKR_API_KEY',
   'BANKR_MODEL',
+  'XAI_API_KEY',
 ] as const
 
 const SECRET_ENV_KEYS = [
   'OPENAI_API_KEY',
+  'OPENAI_AUTH_HEADER_VALUE',
   'CODEX_API_KEY',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
@@ -86,13 +91,18 @@ const SECRET_ENV_KEYS = [
   'MINIMAX_API_KEY',
   'MISTRAL_API_KEY',
   'BNKR_API_KEY',
+  'XAI_API_KEY',
 ] as const
 
-export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral'
+export type ProviderProfile = 'openai' | 'ollama' | 'codex' | 'gemini' | 'atomic-chat' | 'nvidia-nim' | 'minimax' | 'mistral' | 'xai'
 
 export type ProfileEnv = {
   OPENAI_BASE_URL?: string
   OPENAI_MODEL?: string
+  OPENAI_API_FORMAT?: 'chat_completions' | 'responses'
+  OPENAI_AUTH_HEADER?: string
+  OPENAI_AUTH_SCHEME?: 'bearer' | 'raw'
+  OPENAI_AUTH_HEADER_VALUE?: string
   OPENAI_API_KEY?: string
   CODEX_API_KEY?: string
   CODEX_CREDENTIAL_SOURCE?: 'oauth' | 'existing'
@@ -114,6 +124,7 @@ export type ProfileEnv = {
   BANKR_BASE_URL?: string
   BNKR_API_KEY?: string
   BANKR_MODEL?: string
+  XAI_API_KEY?: string
 }
 
 export type ProfileFile = {
@@ -125,6 +136,7 @@ export type ProfileFile = {
 type SecretValueSource = Partial<
   Record<
     | 'OPENAI_API_KEY'
+    | 'OPENAI_AUTH_HEADER_VALUE'
     | 'CODEX_API_KEY'
     | 'GEMINI_API_KEY'
     | 'GOOGLE_API_KEY'
@@ -170,7 +182,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'atomic-chat' ||
     value === 'nvidia-nim' ||
     value === 'minimax' ||
-    value === 'mistral'
+    value === 'mistral' ||
+    value === 'xai'
   )
 }
 
@@ -320,16 +333,26 @@ export function buildOpenAIProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
+  apiFormat?: 'chat_completions' | 'responses' | null
+  authHeader?: string | null
+  authScheme?: 'bearer' | 'raw' | null
+  authHeaderValue?: string | null
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
   const key = sanitizeApiKey(options.apiKey ?? processEnv.OPENAI_API_KEY)
-  if (!key) {
+  const authHeaderValue = sanitizeApiKey(
+    options.authHeaderValue ?? processEnv.OPENAI_AUTH_HEADER_VALUE,
+  )
+  if (!key && !authHeaderValue) {
     return null
   }
 
   const defaultModel = getGoalDefaultOpenAIModel(options.goal)
-  const secretSource: SecretValueSource = { OPENAI_API_KEY: key }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    OPENAI_AUTH_HEADER_VALUE: authHeaderValue,
+  }
   const shellOpenAIModel = normalizeProfileModel(
     sanitizeProviderConfigValue(
       processEnv.OPENAI_MODEL,
@@ -344,8 +367,9 @@ export function buildOpenAIProfileEnv(options: {
     model: shellOpenAIModel,
     baseUrl: shellOpenAIBaseUrl,
     fallbackModel: defaultModel,
+    apiFormat: processEnv.OPENAI_API_FORMAT,
   })
-  const useShellOpenAIConfig = shellOpenAIRequest.transport === 'chat_completions'
+  const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
 
   return {
     OPENAI_BASE_URL:
@@ -358,7 +382,11 @@ export function buildOpenAIProfileEnv(options: {
       ) ||
       (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
       defaultModel,
-    OPENAI_API_KEY: key,
+    ...(options.apiFormat ? { OPENAI_API_FORMAT: options.apiFormat } : {}),
+    ...(options.authHeader ? { OPENAI_AUTH_HEADER: options.authHeader } : {}),
+    ...(options.authScheme ? { OPENAI_AUTH_SCHEME: options.authScheme } : {}),
+    ...(authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: authHeaderValue } : {}),
+    ...(key ? { OPENAI_API_KEY: key } : {}),
   }
 }
 
@@ -622,6 +650,12 @@ export async function buildLaunchEnv(options: {
     persistedEnv.OPENAI_BASE_URL,
     persistedEnv,
   )
+  const persistedOpenAIApiFormat = persistedEnv.OPENAI_API_FORMAT
+  const persistedOpenAIAuthHeader = persistedEnv.OPENAI_AUTH_HEADER
+  const persistedOpenAIAuthScheme = persistedEnv.OPENAI_AUTH_SCHEME
+  const persistedOpenAIAuthHeaderValue = sanitizeApiKey(
+    persistedEnv.OPENAI_AUTH_HEADER_VALUE,
+  )
   const shellOpenAIModel = normalizeProfileModel(
     sanitizeProviderConfigValue(
       processEnv.OPENAI_MODEL,
@@ -723,6 +757,10 @@ export async function buildLaunchEnv(options: {
     delete env.GOOGLE_API_KEY
     delete env.OPENAI_BASE_URL
     delete env.OPENAI_MODEL
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
     delete env.OPENAI_API_KEY
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
@@ -790,6 +828,10 @@ export async function buildLaunchEnv(options: {
     delete env.GOOGLE_API_KEY
     delete env.OPENAI_BASE_URL
     delete env.OPENAI_MODEL
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
     delete env.OPENAI_API_KEY
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
@@ -829,6 +871,10 @@ export async function buildLaunchEnv(options: {
       (await resolveOllamaModel(options.goal))
 
     delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
     delete env.CODEX_ACCOUNT_ID
@@ -849,6 +895,10 @@ export async function buildLaunchEnv(options: {
       ''
 
     delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
     delete env.CODEX_API_KEY
     delete env.CHATGPT_ACCOUNT_ID
     delete env.CODEX_ACCOUNT_ID
@@ -863,6 +913,10 @@ export async function buildLaunchEnv(options: {
         : DEFAULT_CODEX_BASE_URL
     env.OPENAI_MODEL = persistedOpenAIModel || 'codexplan'
     delete env.OPENAI_API_KEY
+    delete env.OPENAI_API_FORMAT
+    delete env.OPENAI_AUTH_HEADER
+    delete env.OPENAI_AUTH_SCHEME
+    delete env.OPENAI_AUTH_HEADER_VALUE
 
     const codexKey =
       sanitizeApiKey(processEnv.CODEX_API_KEY) ||
@@ -895,16 +949,18 @@ export async function buildLaunchEnv(options: {
     model: shellOpenAIModel,
     baseUrl: shellOpenAIBaseUrl,
     fallbackModel: defaultOpenAIModel,
+    apiFormat: processEnv.OPENAI_API_FORMAT,
   })
   const persistedOpenAIRequest = resolveProviderRequest({
     model: persistedOpenAIModel,
     baseUrl: persistedOpenAIBaseUrl,
     fallbackModel: defaultOpenAIModel,
+    apiFormat: persistedOpenAIApiFormat,
   })
-  const useShellOpenAIConfig = shellOpenAIRequest.transport === 'chat_completions'
+  const useShellOpenAIConfig = shellOpenAIRequest.transport !== 'codex_responses'
   const usePersistedOpenAIConfig =
     (!persistedOpenAIModel && !persistedOpenAIBaseUrl) ||
-    persistedOpenAIRequest.transport === 'chat_completions'
+    persistedOpenAIRequest.transport !== 'codex_responses'
 
   env.OPENAI_BASE_URL =
     (useShellOpenAIConfig ? shellOpenAIBaseUrl : undefined) ||
@@ -914,6 +970,38 @@ export async function buildLaunchEnv(options: {
     (useShellOpenAIConfig ? shellOpenAIModel : undefined) ||
     (usePersistedOpenAIConfig ? persistedOpenAIModel : undefined) ||
     defaultOpenAIModel
+  const openAIApiFormat =
+    processEnv.OPENAI_API_FORMAT ||
+    (usePersistedOpenAIConfig ? persistedOpenAIApiFormat : undefined)
+  if (openAIApiFormat) {
+    env.OPENAI_API_FORMAT = openAIApiFormat
+  } else {
+    delete env.OPENAI_API_FORMAT
+  }
+  const openAIAuthHeader =
+    processEnv.OPENAI_AUTH_HEADER ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthHeader : undefined)
+  if (openAIAuthHeader) {
+    env.OPENAI_AUTH_HEADER = openAIAuthHeader
+  } else {
+    delete env.OPENAI_AUTH_HEADER
+  }
+  const openAIAuthScheme =
+    processEnv.OPENAI_AUTH_SCHEME ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthScheme : undefined)
+  if (openAIAuthScheme) {
+    env.OPENAI_AUTH_SCHEME = openAIAuthScheme
+  } else {
+    delete env.OPENAI_AUTH_SCHEME
+  }
+  const openAIAuthHeaderValue =
+    sanitizeApiKey(processEnv.OPENAI_AUTH_HEADER_VALUE) ||
+    (usePersistedOpenAIConfig ? persistedOpenAIAuthHeaderValue : undefined)
+  if (openAIAuthHeaderValue) {
+    env.OPENAI_AUTH_HEADER_VALUE = openAIAuthHeaderValue
+  } else {
+    delete env.OPENAI_AUTH_HEADER_VALUE
+  }
   const openAIKey = processEnv.OPENAI_API_KEY || persistedEnv.OPENAI_API_KEY
   if (openAIKey) {
     env.OPENAI_API_KEY = openAIKey

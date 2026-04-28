@@ -1,5 +1,6 @@
 import type { OllamaModelDescriptor } from './providerRecommendation.ts'
 import { DEFAULT_OPENAI_BASE_URL } from '../services/api/providerConfig.js'
+import { isZaiBaseUrl } from './zaiProvider.js'
 
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434'
 export const DEFAULT_ATOMIC_CHAT_BASE_URL = 'http://127.0.0.1:1337'
@@ -204,6 +205,14 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     // Check for Bankr LLM gateway
     if (host.includes('bankr') || haystack.includes('bankr')) {
       return 'Bankr'
+    }
+    // xAI Grok endpoint
+    if (host.includes('x.ai') || haystack.includes('x.ai')) {
+      return 'xAI'
+    }
+    // Z.AI GLM Coding Plan
+    if (isZaiBaseUrl(parsed.href)) {
+      return 'Z.AI - GLM'
     }
     // Moonshot AI direct API
     if (

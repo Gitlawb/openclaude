@@ -59,8 +59,10 @@ import TextInput from './TextInput.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
 
 export type ProviderManagerResult = {
-  action: 'saved' | 'cancelled'
+  action: 'saved' | 'cancelled' | 'activated'
   activeProfileId?: string
+  activeProviderName?: string
+  activeProviderModel?: string
   message?: string
 }
 
@@ -80,7 +82,14 @@ type Screen =
   | 'select-edit'
   | 'select-delete'
 
-type DraftField = 'name' | 'baseUrl' | 'model' | 'apiKey'
+type DraftField =
+  | 'name'
+  | 'baseUrl'
+  | 'model'
+  | 'apiKey'
+  | 'apiFormat'
+  | 'authHeader'
+  | 'authHeaderValue'
 
 type ProviderDraft = Record<DraftField, string>
 
@@ -130,6 +139,27 @@ const FORM_STEPS: Array<{
     helpText: 'Model name(s) to use. Separate multiple with ";" or ","; first is default.',
   },
   {
+    key: 'apiFormat',
+    label: 'API mode',
+    placeholder: 'chat_completions',
+    helpText: 'Choose the OpenAI-compatible API surface for this provider.',
+    optional: true,
+  },
+  {
+    key: 'authHeader',
+    label: 'Auth header',
+    placeholder: 'e.g. api-key or X-API-Key',
+    helpText: 'Optional. Header name used for a custom provider key.',
+    optional: true,
+  },
+  {
+    key: 'authHeaderValue',
+    label: 'Auth header value',
+    placeholder: 'Leave empty to use the API key value',
+    helpText: 'Optional. Value sent in the custom auth header.',
+    optional: true,
+  },
+  {
     key: 'apiKey',
     label: 'API key',
     placeholder: 'Leave empty if your provider does not require one',
@@ -152,6 +182,9 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
     baseUrl: profile.baseUrl,
     model: profile.model,
     apiKey: profile.apiKey ?? '',
+    apiFormat: profile.apiFormat ?? 'chat_completions',
+    authHeader: profile.authHeader ?? '',
+    authHeaderValue: profile.authHeaderValue ?? '',
   }
 }
 
@@ -162,6 +195,9 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
     baseUrl: defaults.baseUrl,
     model: defaults.model,
     apiKey: defaults.apiKey ?? '',
+    apiFormat: 'chat_completions',
+    authHeader: '',
+    authHeaderValue: '',
   }
 }
 
@@ -175,7 +211,15 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
     models.length <= 3
       ? models.join(', ')
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
-  return `${providerKind} · ${profile.baseUrl} · ${modelDisplay} · ${keyInfo}${activeSuffix}`
+  const modeInfo =
+    profile.provider === 'openai'
+      ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
+      : ''
+  const authInfo =
+    profile.provider === 'openai' && profile.authHeader
+      ? ` · ${profile.authHeader} auth`
+      : ''
+  return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${authInfo} · ${keyInfo}${activeSuffix}`
 }
 
 function getGithubCredentialSourceFromEnv(
@@ -455,7 +499,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })
   }, [])
 
-  const currentStep = FORM_STEPS[formStepIndex] ?? FORM_STEPS[0]
+  const formSteps = React.useMemo(
+    () =>
+      draftProvider === 'openai'
+        ? FORM_STEPS
+        : FORM_STEPS.filter(step =>
+            step.key !== 'apiFormat' &&
+            step.key !== 'authHeader' &&
+            step.key !== 'authHeaderValue'
+          ),
+    [draftProvider],
+  )
+  const currentStep = formSteps[formStepIndex] ?? formSteps[0] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
   const currentValue = draft[currentStepKey]
 
@@ -774,6 +829,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         refreshProfiles()
         setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
         setIsActivating(false)
+        onDone({
+          action: 'activated',
+          activeProviderName: GITHUB_PROVIDER_LABEL,
+          activeProviderModel: GITHUB_PROVIDER_DEFAULT_MODEL,
+          message: `Provider switched to ${GITHUB_PROVIDER_LABEL} (${GITHUB_PROVIDER_DEFAULT_MODEL})`,
+        })
         returnToMenu()
         return
       }
@@ -808,23 +869,29 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         : null
 
       refreshProfiles()
-      setStatusMessage(
-        isActiveCodexOAuth
-          ? buildCodexOAuthActivationMessage({
-              prefix: `Active provider: ${active.name}`,
+      const activationMessage = isActiveCodexOAuth
+        ? buildCodexOAuthActivationMessage({
+            prefix: `Active provider: ${active.name}`,
+            activationWarning,
+            warnings: [
               activationWarning,
-              warnings: [
-                activationWarning,
-                settingsOverrideError
-                  ? `could not clear startup provider override (${settingsOverrideError})`
-                  : null,
-              ].filter((warning): warning is string => Boolean(warning)),
-            })
-          : settingsOverrideError
-            ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
-            : `Active provider: ${active.name}`,
-      )
+              settingsOverrideError
+                ? `could not clear startup provider override (${settingsOverrideError})`
+                : null,
+            ].filter((warning): warning is string => Boolean(warning)),
+          })
+        : settingsOverrideError
+          ? `Active provider: ${active.name}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+          : `Active provider: ${active.name}`
+      setStatusMessage(activationMessage)
       setIsActivating(false)
+      onDone({
+        action: 'activated',
+        activeProfileId: active.id,
+        activeProviderName: active.name,
+        activeProviderModel: newModel,
+        message: `Provider switched to ${active.name} (${newModel})`,
+      })
       returnToMenu()
     } catch (error) {
       refreshProfiles()
@@ -935,6 +1002,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       baseUrl: defaults.baseUrl,
       model: defaults.model,
       apiKey: defaults.apiKey ?? '',
+      apiFormat: 'chat_completions',
+      authHeader: '',
+      authHeaderValue: '',
     }
     setEditingProfileId(null)
     setDraftProvider(defaults.provider ?? 'openai')
@@ -981,6 +1051,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
+      apiFormat:
+        draftProvider === 'openai' && nextDraft.apiFormat === 'responses'
+          ? 'responses'
+          : 'chat_completions',
+      authHeader:
+        draftProvider === 'openai' && nextDraft.authHeader
+          ? nextDraft.authHeader
+          : undefined,
+      authScheme:
+        draftProvider === 'openai' && nextDraft.authHeader
+          ? (nextDraft.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw')
+          : undefined,
+      authHeaderValue:
+        draftProvider === 'openai' && nextDraft.authHeaderValue
+          ? nextDraft.authHeaderValue
+          : undefined,
     }
 
     const saved = editingProfileId
@@ -1203,9 +1289,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setDraft(nextDraft)
     setErrorMessage(undefined)
 
-    if (formStepIndex < FORM_STEPS.length - 1) {
+    if (formStepIndex < formSteps.length - 1) {
       const nextIndex = formStepIndex + 1
-      const nextKey = FORM_STEPS[nextIndex]?.key ?? 'name'
+      const nextKey = formSteps[nextIndex]?.key ?? 'name'
       setFormStepIndex(nextIndex)
       setCursorOffset(nextDraft[nextKey].length)
       return
@@ -1219,7 +1305,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     if (formStepIndex > 0) {
       const nextIndex = formStepIndex - 1
-      const nextKey = FORM_STEPS[nextIndex]?.key ?? 'name'
+      const nextKey = formSteps[nextIndex]?.key ?? 'name'
       setFormStepIndex(nextIndex)
       setCursorOffset(draft[nextKey].length)
       return
@@ -1351,6 +1437,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description: 'Together chat/completions endpoint',
       },
       {
+        value: 'xai',
+        label: 'xAI',
+        description: 'xAI Grok OpenAI-compatible endpoint',
+      },
+      {
+        value: 'zai',
+        label: 'Z.AI - GLM Coding Plan',
+        description: 'Z.AI GLM coding subscription endpoint',
+      },
+      {
         value: 'custom',
         label: 'Custom',
         description: 'Any OpenAI-compatible provider',
@@ -1414,28 +1510,59 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             : 'OpenAI-compatible API'}
         </Text>
         <Text dimColor>
-          Step {formStepIndex + 1} of {FORM_STEPS.length}: {currentStep.label}
+          Step {formStepIndex + 1} of {formSteps.length}: {currentStep.label}
         </Text>
-        <Box flexDirection="row" gap={1}>
-          <Text>{figures.pointer}</Text>
-          <TextInput
-            value={currentValue}
-            onChange={value =>
-              setDraft(prev => ({
-                ...prev,
-                [currentStepKey]: value,
-              }))
+        {currentStepKey === 'apiFormat' ? (
+          <Select
+            options={[
+              {
+                value: 'chat_completions',
+                label: 'Chat Completions',
+                description: 'Use /chat/completions for broad OpenAI-compatible support',
+              },
+              {
+                value: 'responses',
+                label: 'Responses',
+                description: 'Use /responses for providers that support the Responses API',
+              },
+            ]}
+            defaultValue={
+              currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
-            onSubmit={handleFormSubmit}
-            focus={true}
-            showCursor={true}
-            placeholder={`${currentStep.placeholder}${figures.ellipsis}`}
-            mask={currentStepKey === 'apiKey' ? '*' : undefined}
-            columns={80}
-            cursorOffset={cursorOffset}
-            onChangeCursorOffset={setCursorOffset}
+            defaultFocusValue={
+              currentValue === 'responses' ? 'responses' : 'chat_completions'
+            }
+            onChange={value => handleFormSubmit(value)}
+            onCancel={handleBackFromForm}
+            visibleOptionCount={2}
           />
-        </Box>
+        ) : (
+          <Box flexDirection="row" gap={1}>
+            <Text>{figures.pointer}</Text>
+            <TextInput
+              value={currentValue}
+              onChange={value =>
+                setDraft(prev => ({
+                  ...prev,
+                  [currentStepKey]: value,
+                }))
+              }
+              onSubmit={handleFormSubmit}
+              focus={true}
+              showCursor={true}
+              placeholder={`${currentStep.placeholder}${figures.ellipsis}`}
+              mask={
+                currentStepKey === 'apiKey' ||
+                currentStepKey === 'authHeaderValue'
+                  ? '*'
+                  : undefined
+              }
+              columns={80}
+              cursorOffset={cursorOffset}
+              onChangeCursorOffset={setCursorOffset}
+            />
+          </Box>
+        )}
         {errorMessage && <Text color="error">{errorMessage}</Text>}
         <Text dimColor>
           Press Enter to continue. Press Esc to go back.

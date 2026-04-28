@@ -6,6 +6,7 @@ import { getCanonicalName } from './model/model.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAPIProvider } from './model/providers.js'
 import { getSettingsWithErrors } from './settings/settings.js'
+import { isZaiBaseUrl, isZaiGlmModel } from './zaiProvider.js'
 
 export type ThinkingConfig =
   | { type: 'adaptive' }
@@ -111,6 +112,13 @@ export function modelSupportsThinking(model: string): boolean {
   ) {
     return true
   }
+  if (
+    provider === 'openai' &&
+    isZaiBaseUrl(process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE) &&
+    isZaiGlmModel(canonical)
+  ) {
+    return true
+  }
   // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
   return canonical.includes('sonnet-4') || canonical.includes('opus-4')
 }
@@ -123,7 +131,7 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   }
   const canonical = getCanonicalName(model)
   // Supported by a subset of Claude 4 models
-  if (canonical.includes('opus-4-6') || canonical.includes('sonnet-4-6')) {
+  if (canonical.includes('opus-4-7') || canonical.includes('opus-4-6') || canonical.includes('sonnet-4-6')) {
     return true
   }
   // Exclude any other known legacy models (allowlist above catches 4-6 variants first)

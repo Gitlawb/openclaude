@@ -12,12 +12,22 @@ const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = value
+  }
 }
 
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
+  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
+  restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+  restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
 })
 
 test('treats localhost endpoints as local', () => {
@@ -76,6 +86,34 @@ test('keeps codex alias models on chat completions for local openai-compatible p
   expect(getAdditionalModelOptionsCacheScope()).toBe(
     'openai:http://127.0.0.1:8080/v1',
   )
+})
+
+test('uses responses transport when OpenAI-compatible API format requests responses', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.openai.com/v1',
+  })
+})
+
+test('keeps Codex backend on Codex responses transport even when API format is set', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+  process.env.OPENAI_MODEL = 'codexplan'
+  process.env.OPENAI_API_FORMAT = 'chat_completions'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'codex_responses',
+    requestedModel: 'codexplan',
+    resolvedModel: 'gpt-5.5',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+  })
 })
 
 test('skips local model cache scope for remote openai-compatible providers', () => {

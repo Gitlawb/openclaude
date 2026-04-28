@@ -185,6 +185,8 @@ export const SHOW_CACHE_STATS_MODES = ['off', 'compact', 'full'] as const satisf
 export type OutputStyle = string
 
 export type Providers = typeof PROVIDERS[number]
+export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses'
+export type OpenAICompatibleAuthScheme = 'bearer' | 'raw'
 
 export type ProviderProfile = {
   id: string
@@ -193,6 +195,10 @@ export type ProviderProfile = {
   baseUrl: string
   model: string
   apiKey?: string
+  apiFormat?: OpenAICompatibleApiFormat
+  authHeader?: string
+  authScheme?: OpenAICompatibleAuthScheme
+  authHeaderValue?: string
 }
 
 export type GlobalConfig = {
