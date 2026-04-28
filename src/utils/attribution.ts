@@ -87,10 +87,8 @@ export function getDefaultCommitCoAuthorName({
   return sanitizedModel ? `OpenClaude (${sanitizedModel})` : 'OpenClaude'
 }
 
-export function getDefaultCommitCoAuthorEmail(apiProvider: string): string {
-  return apiProvider === 'firstParty'
-    ? 'noreply@anthropic.com'
-    : 'openclaude@gitlawb.com'
+export function getDefaultCommitCoAuthorEmail(_apiProvider: string): string {
+  return 'openclaude@gitlawb.com'
 }
 
 /**

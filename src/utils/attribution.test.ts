@@ -35,8 +35,11 @@ describe('getDefaultCommitCoAuthorName', () => {
     ).toBe('Claude Opus 4.6')
   })
 
-  it('uses the OpenClaude email for non-first-party commit attribution', () => {
+  it('uses the OpenClaude email for commit attribution across providers', () => {
     expect(getDefaultCommitCoAuthorEmail('openai')).toBe(
+      'openclaude@gitlawb.com',
+    )
+    expect(getDefaultCommitCoAuthorEmail('firstParty')).toBe(
       'openclaude@gitlawb.com',
     )
   })
