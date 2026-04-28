@@ -177,5 +177,54 @@ describe('hybridContextStrategy', () => {
       expect(hasToolUse).toBe(true)
       expect(hasToolResult).toBe(true)
     })
+
+    it('accounts for large tool_use input in token counting', () => {
+      const largeInput = 'x'.repeat(5000)
+      const messages = [
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'tu1', name: 'Edit', input: { path: 'test.js', content: largeInput } },
+            ],
+            created_at: 1000,
+          },
+        },
+      ] as any[]
+
+      const result = applyHybridStrategy(messages, {
+        cacheWeight: 0.5,
+        freshWeight: 0.5,
+        maxTotalTokens: 20000,
+      })
+
+      expect(result.totalTokens).toBeGreaterThan(1000)
+    })
+
+    it('accounts for large thinking blocks in token counting', () => {
+      const longThinking = 'Thinking '.repeat(1000)
+      const messages = [
+        {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: longThinking },
+              { type: 'text', text: 'Final response' },
+            ],
+            created_at: 1000,
+          },
+        },
+      ] as any[]
+
+      const result = applyHybridStrategy(messages, {
+        cacheWeight: 0.5,
+        freshWeight: 0.5,
+        maxTotalTokens: 20000,
+      })
+
+      expect(result.totalTokens).toBeGreaterThan(500)
+    })
   })
 })

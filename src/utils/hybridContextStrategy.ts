@@ -116,17 +116,32 @@ function getMessageTokenCount(message: Message): number {
     return roughTokenCountEstimation(content)
   }
   if (Array.isArray(content)) {
-    const textContent = content
-      .filter(b => b.type === 'text')
-      .map(b => (b as { text: string }).text)
-      .join('\n')
-    let tokens = roughTokenCountEstimation(textContent)
+    let tokens = 0
     for (const block of content) {
-      if (block.type === 'tool_use' || block.type === 'tool_result') {
-        tokens += 50
-      }
-      if (block.type === 'thinking') {
-        tokens += 100
+      if (typeof block !== 'object' || block === null) continue
+
+      const b = block as Record<string, unknown>
+
+      if (b.type === 'text' && typeof b.text === 'string') {
+        tokens += roughTokenCountEstimation(b.text)
+      } else if (b.type === 'tool_use') {
+        const inputSize = JSON.stringify(b.input ?? {}).length
+        tokens += Math.ceil(inputSize / 4) + 20
+      } else if (b.type === 'tool_result') {
+        if (typeof b.content === 'string') {
+          tokens += roughTokenCountEstimation(b.content)
+        } else if (Array.isArray(b.content)) {
+          for (const rc of b.content) {
+            if (typeof rc === 'object' && rc !== null && 'text' in rc) {
+              tokens += roughTokenCountEstimation((rc as { text: string }).text)
+            }
+          }
+        } else {
+          tokens += 50
+        }
+        if (b.is_error === true) tokens += 10
+      } else if (b.type === 'thinking' && typeof b.thinking === 'string') {
+        tokens += roughTokenCountEstimation(b.thinking)
       }
     }
     return tokens
