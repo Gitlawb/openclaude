@@ -75,6 +75,16 @@ afterEach(async () => {
 
 async function importFreshConversationRecovery() {
   mock.restore()
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => {
+      if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
+      if (process.env.CLAUDE_CODE_USE_OPENAI) return 'openai'
+      if (process.env.CLAUDE_CODE_USE_BEDROCK) return 'bedrock'
+      if (process.env.CLAUDE_CODE_USE_VERTEX) return 'vertex'
+      if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
+      return 'firstParty'
+    },
+  }))
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./conversationRecovery.ts?conversationRecoveryTest=${nonce}`)
 }
