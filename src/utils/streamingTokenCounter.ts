@@ -43,7 +43,9 @@ export class StreamingTokenCounter {
   private recountAtWordBoundary(): void {
     const content = this.accumulatedContent
     const unprocessedContent = content.slice(this.lastCountedIndex)
-    const nextSpaceIndex = unprocessedContent.indexOf(' ')
+
+    const searchStart = unprocessedContent[0] === ' ' ? 1 : 0
+    const nextSpaceIndex = unprocessedContent.indexOf(' ', searchStart)
 
     const shouldCount =
       nextSpaceIndex > 0 ||

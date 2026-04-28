@@ -39,9 +39,26 @@ describe('StreamingTokenCounter', () => {
       const counter = new StreamingTokenCounter()
       counter.start(100)
       counter.addChunk('Hello ')
-      expect(counter.output).toBeGreaterThan(0)
+      const afterFirst = counter.output
+      expect(afterFirst).toBeGreaterThan(0)
       counter.addChunk('world ')
-      expect(counter.output).toBeGreaterThan(0)
+      const afterSecond = counter.output
+      expect(afterSecond).toBeGreaterThan(afterFirst)
+    })
+
+    it('advances count past space after word boundary', () => {
+      const counter = new StreamingTokenCounter()
+      counter.start()
+      counter.addChunk('Hello ') // counts Hello
+      const count1 = counter.output
+
+      counter.addChunk('world') // short chunk, no space - shouldn't advance
+      const count2 = counter.output
+      expect(count2).toBe(count1)
+
+      counter.addChunk(' ') // space triggers count
+      const count3 = counter.output
+      expect(count3).toBeGreaterThan(count2)
     })
   })
 
