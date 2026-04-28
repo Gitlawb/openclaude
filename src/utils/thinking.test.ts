@@ -1,5 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { modelSupportsThinking } from './thinking.js'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { resetSettingsCache } from './settings/settingsCache.js'
+
+mock.module('./model/providers.js', () => ({
+  getAPIProvider: () =>
+    process.env.CLAUDE_CODE_USE_OPENAI === '1' ? 'openai' : 'firstParty',
+}))
+
+const { modelSupportsThinking } = await import('./thinking.js')
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -14,6 +21,13 @@ const ENV_KEYS = [
   'OPENAI_MODEL',
   'NVIDIA_NIM',
   'MINIMAX_API_KEY',
+  'XAI_API_KEY',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
   'USER_TYPE',
 ]
 
@@ -24,6 +38,7 @@ beforeEach(() => {
     originalEnv[key] = process.env[key]
     delete process.env[key]
   }
+  resetSettingsCache()
 })
 
 afterEach(() => {
@@ -34,6 +49,7 @@ afterEach(() => {
       process.env[key] = originalEnv[key]
     }
   }
+  resetSettingsCache()
 })
 
 describe('modelSupportsThinking — Z.AI GLM', () => {
@@ -60,5 +76,20 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 
     expect(modelSupportsThinking('glm-50')).toBe(false)
+  })
+
+  test('does not reuse stale capability overrides after env changes', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'GLM-5.1'
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES = ''
+
+    expect(modelSupportsThinking('GLM-5.1')).toBe(false)
+
+    delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+    delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES
+    process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+
+    expect(modelSupportsThinking('GLM-5.1')).toBe(true)
   })
 })
