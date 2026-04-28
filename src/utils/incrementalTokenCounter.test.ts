@@ -212,6 +212,40 @@ describe('IncrementalTokenCounter', () => {
       expect(counter.cachedCount).toBeGreaterThan(0)
     })
   })
+
+  describe('prefix mutation + append invalidation', () => {
+    it('recalculates when prefix is mutated and new message appended', () => {
+      const counter = new IncrementalTokenCounter({ autoInvalidate: true })
+
+      const msg1 = createMessage('First message content here')
+      const msg2 = createMessage('Second message content')
+
+      const count1 = counter.getCount([msg1, msg2])
+      expect(count1).toBeGreaterThan(0)
+
+      const mutatedMsg1 = createMessage('Mutated first message content changed')
+      const msg3 = createMessage('Third message appended')
+
+      const count2 = counter.getCount([mutatedMsg1, msg2, msg3])
+
+      const fullCount = counter.invalidate([mutatedMsg1, msg2, msg3])
+      expect(count2).toBe(fullCount)
+    })
+
+    it('uses incremental when prefix unchanged and new message appended', () => {
+      const counter = new IncrementalTokenCounter({ autoInvalidate: true })
+
+      const msg1 = createMessage('First message')
+      const msg2 = createMessage('Second message')
+
+      const count1 = counter.getCount([msg1, msg2])
+
+      const msg3 = createMessage('Third message new')
+
+      const count2 = counter.getCount([msg1, msg2, msg3])
+      expect(count2).toBeGreaterThan(count1)
+    })
+  })
 })
 
 describe('CounterFactory', () => {

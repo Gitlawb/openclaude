@@ -48,7 +48,8 @@ function getMessageHash(messages: readonly Message[]): string {
 export class IncrementalTokenCounter {
   private lastMessageCount = 0
   private lastTokenCount = 0
-  private lastHash = ''
+  private lastFullHash = ''
+  private lastPrefixHash = ''
   private config: Required<IncrementalCounterConfig>
   private stats = {
     hits: 0,
@@ -77,7 +78,7 @@ export class IncrementalTokenCounter {
     const hash = getMessageHash(messages)
 
     // Cache hit only if both count AND content match
-    if (messages.length === this.lastMessageCount && hash === this.lastHash) {
+    if (messages.length === this.lastMessageCount && hash === this.lastFullHash) {
       this.stats.hits++
       this.stats.totalTokens += this.lastTokenCount
       return this.lastTokenCount
@@ -90,13 +91,12 @@ export class IncrementalTokenCounter {
       messages.length > this.lastMessageCount &&
       this.config.autoInvalidate &&
       this.lastMessageCount > 0 &&
-      this.lastHash.length > 0
+      this.lastFullHash.length > 0
 
     if (isIncrementalSafe) {
-      const prefixHash = getMessageHash(messages.slice(0, this.lastMessageCount))
-      const previousPrefixLength = this.lastHash.length
+      const currentPrefixHash = getMessageHash(messages.slice(0, this.lastMessageCount))
 
-      if (prefixHash.length === previousPrefixLength) {
+      if (currentPrefixHash === this.lastPrefixHash) {
         const newMessages = messages.slice(this.lastMessageCount)
         const estimated = Math.round(
           roughTokenCountEstimationForMessages(newMessages) * this.config.estimationMultiplier
@@ -110,7 +110,8 @@ export class IncrementalTokenCounter {
     }
 
     this.lastMessageCount = messages.length
-    this.lastHash = hash
+    this.lastFullHash = hash
+    this.lastPrefixHash = getMessageHash(messages.slice(0, messages.length))
     this.stats.totalTokens += this.lastTokenCount
     
     return this.lastTokenCount
@@ -122,8 +123,9 @@ export class IncrementalTokenCounter {
    */
   invalidate(messages: readonly Message[]): number {
     this.lastMessageCount = messages.length
-    this.lastHash = getMessageHash(messages)
-    
+    this.lastFullHash = getMessageHash(messages)
+    this.lastPrefixHash = messages.length > 0 ? getMessageHash(messages) : ''
+
     if (messages.length === 0) {
       this.lastTokenCount = 0
     } else {
