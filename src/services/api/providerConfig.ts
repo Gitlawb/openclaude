@@ -550,7 +550,7 @@ export function resolveProviderRequest(options?: {
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl)
       ? 'codex_responses'
-      : requestedApiFormat === 'responses'
+      : options?.apiFormat === 'responses'
         ? 'responses'
         : 'chat_completions'
 
