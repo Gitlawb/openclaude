@@ -43,15 +43,20 @@ function sanitizeCoAuthorNamePart(value: string): string {
   return value
     .replace(/[\r\n<>]/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
     .trim()
 }
 
 function formatClaudeCoAuthorName(model: string): string {
   const publicName = getPublicModelDisplayName(model)
   if (!publicName) {
-    return getPublicModelName(model)
+    return sanitizeCoAuthorNamePart(getPublicModelName(model))
   }
-  return publicName.startsWith('Claude ') ? publicName : `Claude ${publicName}`
+  const coAuthorName = publicName.startsWith('Claude ')
+    ? publicName
+    : `Claude ${publicName}`
+  return sanitizeCoAuthorNamePart(coAuthorName)
 }
 
 export function getDefaultCommitCoAuthorName({
@@ -72,7 +77,7 @@ export function getDefaultCommitCoAuthorName({
     apiProvider === 'foundry' ||
     normalizedModel.includes('claude')
 
-  if (isInternalRepo || (isClaudeProvider && isKnownPublicModel)) {
+  if (isClaudeProvider && (isInternalRepo || isKnownPublicModel)) {
     return formatClaudeCoAuthorName(model)
   }
 
@@ -80,6 +85,7 @@ export function getDefaultCommitCoAuthorName({
   // historical public fallback. OpenAI-compatible providers should identify the
   // actual configured model instead of claiming Claude Opus.
   if (apiProvider === 'firstParty') {
+    // @[MODEL LAUNCH]: Update this fallback when the default public Claude model changes.
     return 'Claude Opus 4.6'
   }
 
