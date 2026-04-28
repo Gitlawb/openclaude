@@ -454,9 +454,10 @@ export function resolveProviderRequest(options?: {
       ? process.env.MISTRAL_MODEL?.trim()
       : isGeminiMode
         ? process.env.GEMINI_MODEL?.trim()
-        : !isGithubMode
-          ? process.env.OPENAI_MODEL?.trim()
-          : undefined) ||
+        : isGithubMode  
+          ? process.env.GITHUB_MODEL?.trim() ||  
+            process.env.OPENAI_MODEL?.trim()  
+          : process.env.OPENAI_MODEL?.trim()) ||  
     options?.fallbackModel?.trim() ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)

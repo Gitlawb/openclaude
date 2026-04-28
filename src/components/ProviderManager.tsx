@@ -768,6 +768,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
         setAppState(prev => ({
           ...prev,
+          mainLoopModel: 'github:copilot',  
           mainLoopModelForSession: null,
         }))
         refreshProfiles()

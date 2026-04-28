@@ -67,7 +67,18 @@ export async function refreshGithubModelsCache(): Promise<ModelOption[]> {
 }
 
 export function prefetchGithubModels(): void {
-  void refreshGithubModelsCache()
+  void resolveGithubToken()
+    .then(token => {
+      if (!token) {
+        return
+      }
+      return refreshGithubModelsCache().catch(() => {
+        // Prefetch is best-effort; suppress background discovery failures.
+      })
+    })
+    .catch(() => {
+      // Prefetch is best-effort; suppress token resolution failures.
+    })
 }
 
 export function getCachedGithubModelOptions(): ModelOption[] {

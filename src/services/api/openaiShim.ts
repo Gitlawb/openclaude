@@ -1673,7 +1673,35 @@ class OpenAIShimMessages {
       }
     }
 
-    if (isGithubCopilot) {
+        const getGithubEndpointType = (baseUrl: string): 'copilot' | 'models' | 'other' => {  
+      try {  
+        const hostname = new URL(baseUrl).hostname.toLowerCase()  
+        if (  
+          hostname === 'models.github.ai' ||  
+          hostname.endsWith('.github.ai') ||  
+          hostname === 'models.inference.ai.azure.com'  
+        ) {  
+          return 'models'  
+        }  
+      } catch {  
+        const normalizedBaseUrl = baseUrl.toLowerCase()  
+        if (  
+          normalizedBaseUrl.includes('models.github.ai') ||  
+          normalizedBaseUrl.includes('.github.ai') ||  
+          normalizedBaseUrl.includes('models.inference.ai.azure.com')  
+        ) {  
+          return 'models'  
+        }  
+      }  
+
+      return isGithubCopilot ? 'copilot' : 'other'  
+    }  
+
+    const githubEndpointType = isGithub ? getGithubEndpointType(request.baseUrl) : 'other'  
+    if (githubEndpointType === 'models') {  
+      headers.Accept = 'application/vnd.github+json'  
+      headers['X-GitHub-Api-Version'] = '2022-11-28'  
+    } else if (githubEndpointType === 'copilot') {  
       Object.assign(headers, COPILOT_HEADERS)
     }
 

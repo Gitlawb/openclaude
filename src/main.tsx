@@ -2334,9 +2334,13 @@ async function run(): Promise<CommanderCommand> {
     const bgRefreshThrottleMs = getFeatureValue_CACHED_MAY_BE_STALE('tengu_cicada_nap_ms', 0);
     const lastPrefetched = getGlobalConfig().startupPrefetchedAt ?? 0;
     const skipStartupPrefetches = isBareMode() || bgRefreshThrottleMs > 0 && Date.now() - lastPrefetched < bgRefreshThrottleMs;
-    // Always prefetch Ollama and GitHub models (not gated by throttle — local server or fast & cheap)
-    prefetchOllamaModels();
-    prefetchGithubModels();
+    // Always prefetch Ollama models (not gated by throttle — local server).  
+    prefetchOllamaModels();  
+    if (isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)) {  
+      void Promise.resolve()  
+        .then(() => prefetchGithubModels())  
+        .catch(() => {});  
+    }  
 
     if (!skipStartupPrefetches) {
       const lastPrefetchedInfo = lastPrefetched > 0 ? ` last ran ${Math.round((Date.now() - lastPrefetched) / 1000)}s ago` : '';
