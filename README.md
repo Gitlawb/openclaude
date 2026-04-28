@@ -25,12 +25,18 @@ OpenClaude is also mirrored to GitLawb:
   <a href="https://bankr.bot">
     <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="96">
   </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/">
+    <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="96">
+  </a>
 </p>
 
 <p align="center">
   <a href="https://gitlawb.com"><strong>GitLawb</strong></a>
   &nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/"><strong>Atomic Chat</strong></a>
 </p>
 
 ## Star History
