@@ -3,6 +3,39 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
+/**
+ * Resolves the override env value for the config home directory.
+ * `OPENCLAUDE_CONFIG_DIR` is preferred — `CLAUDE_CONFIG_DIR` is the legacy
+ * Anthropic name kept working for backward compatibility. When both are set
+ * and disagree, `OPENCLAUDE_CONFIG_DIR` wins and we warn once so the user
+ * can clean up. Exported for tests.
+ */
+let warnedAboutConflictingConfigDirEnvs = false
+
+export function resolveConfigDirEnv(options?: {
+  openClaudeConfigDir?: string
+  legacyConfigDir?: string
+  warn?: (message: string) => void
+}): string | undefined {
+  const open = options?.openClaudeConfigDir
+  const legacy = options?.legacyConfigDir
+  if (open && legacy && open !== legacy && !warnedAboutConflictingConfigDirEnvs) {
+    warnedAboutConflictingConfigDirEnvs = true
+    options?.warn?.(
+      `Both OPENCLAUDE_CONFIG_DIR and CLAUDE_CONFIG_DIR are set to different values. Using OPENCLAUDE_CONFIG_DIR=${open}; ignoring CLAUDE_CONFIG_DIR=${legacy}.`,
+    )
+  }
+  return open || legacy || undefined
+}
+
+/**
+ * Test-only escape hatch — resets the once-per-process conflict warning so
+ * unit tests can re-trigger it.
+ */
+export function __resetConfigDirEnvWarningForTesting(): void {
+  warnedAboutConflictingConfigDirEnvs = false
+}
+
 export function resolveClaudeConfigHomeDir(options?: {
   configDirEnv?: string
   homeDir?: string
@@ -30,13 +63,21 @@ export function resolveClaudeConfigHomeDir(options?: {
   return openClaudeDir.normalize('NFC')
 }
 
-// Memoized: 150+ callers, many on hot paths. Keyed off CLAUDE_CONFIG_DIR so
-// tests that change the env var get a fresh value without explicit cache.clear.
+// Memoized: 150+ callers, many on hot paths. Keyed off both override env
+// vars so tests that change either get a fresh value without explicit
+// cache.clear.
 export const getClaudeConfigHomeDir = memoize(
   (): string => resolveClaudeConfigHomeDir({
-    configDirEnv: process.env.CLAUDE_CONFIG_DIR,
+    configDirEnv: resolveConfigDirEnv({
+      openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
+      legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
+      warn: message => {
+        // eslint-disable-next-line no-console
+        console.warn(`[openclaude] ${message}`)
+      },
+    }),
   }),
-  () => process.env.CLAUDE_CONFIG_DIR,
+  () => `${process.env.OPENCLAUDE_CONFIG_DIR ?? ''}|${process.env.CLAUDE_CONFIG_DIR ?? ''}`,
 )
 
 export function getTeamsDir(): string {
