@@ -547,6 +547,10 @@ export function resolveProviderRequest(options?: {
       ? DEFAULT_CODEX_BASE_URL
       : rawBaseUrl
 
+  const requestedApiFormat = parseOpenAICompatibleApiFormat(
+    options?.apiFormat ?? process.env.OPENAI_API_FORMAT,
+  )
+
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl)
       ? 'codex_responses'
