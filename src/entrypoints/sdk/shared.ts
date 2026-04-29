@@ -94,7 +94,16 @@ export async function acquireEnvMutex(options?: MutexAcquireOptions): Promise<Mu
 export function releaseEnvMutex(): void {
   if (envMutationQueue.length > 0) {
     const next = envMutationQueue.shift()
-    if (next) next()
+    if (next) {
+      try {
+        next()
+      } catch {
+        // If callback throws, ensure mutex is unlocked so next caller can acquire
+        // The error is intentionally not propagated - callback errors should not
+        // block the mutex system. Callers should handle their own errors.
+        envMutationLocked = false
+      }
+    }
   } else {
     envMutationLocked = false
   }
@@ -156,15 +165,29 @@ export type SDKUserMessage = GeneratedSDKUserMessage
  * Map an internal Message object to an SDKMessage.
  * Internal messages have a different shape from SDK types — this function
  * performs the conversion instead of relying on unsafe casts.
+ *
+ * Validates that the message is a non-null object and has a valid type field.
+ * Returns a message with type='unknown' if type is missing or invalid.
  */
 export function mapMessageToSDK(msg: Record<string, unknown>): SDKMessage {
+  // Validate input is a non-null object
+  if (msg === null || typeof msg !== 'object') {
+    throw new TypeError('mapMessageToSDK: expected non-null object')
+  }
+
+  // Validate type field is a string (if present)
+  const typeValue = msg.type
+  if (typeValue !== undefined && typeof typeValue !== 'string') {
+    throw new TypeError(`mapMessageToSDK: 'type' field must be string, got ${typeof typeValue}`)
+  }
+
   // Internal messages from QueryEngine already use the SDK field naming
   // convention (snake_case: parent_tool_use_id, session_id, etc.).
   // We spread all fields through and let the discriminated-union type
   // narrow via the `type` field.
   return {
     ...msg,
-    type: (msg.type as string) ?? 'unknown',
+    type: (typeValue as string) ?? 'unknown',
   } as SDKMessage
 }
 

@@ -24,6 +24,13 @@ import type {
 } from './shared.js'
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/** Default timeout for permission prompts (30 seconds). Reasonable for human response time. */
+export const DEFAULT_PERMISSION_TIMEOUT_MS = 30000
+
+// ============================================================================
 // Once-only resolve wrapper
 // ============================================================================
 
@@ -45,11 +52,51 @@ export function createOnceOnlyResolve<T>(
 }
 
 // ============================================================================
+// Permission target factory (for race condition safety)
+// ============================================================================
+
+/**
+ * Factory for creating a permissionTarget with proper race condition handling.
+ * The once-only resolve wrapper is applied at registration time, ensuring
+ * both timeout handler and host response use the same wrapped resolve.
+ *
+ * Usage:
+ * ```typescript
+ * const permissionTarget = createPermissionTarget()
+ * const canUseTool = createExternalCanUseTool(
+ *   undefined,
+ *   fallback,
+ *   permissionTarget,
+ *   onPermissionRequest,
+ *   onTimeout
+ * )
+ * ```
+ */
+export function createPermissionTarget() {
+  const pendingPermissionPrompts = new Map<string, { resolve: (decision: PermissionResolveDecision) => void }>()
+
+  const registerPendingPermission = (toolUseId: string): Promise<PermissionResolveDecision> => {
+    return new Promise(resolve => {
+      // Apply onceOnlyResolve at registration time - this ensures both
+      // timeout handler and host response use the same wrapped resolve,
+      // preventing "promise already resolved" errors
+      const wrappedResolve = createOnceOnlyResolve(resolve)
+      pendingPermissionPrompts.set(toolUseId, { resolve: wrappedResolve })
+    })
+  }
+
+  return {
+    registerPendingPermission,
+    pendingPermissionPrompts,
+  }
+}
+
+// ============================================================================
 // Permission resolve decision type
 // ============================================================================
 
 export type PermissionResolveDecision =
-  | { behavior: 'allow'; updatedInput?: any }
+  | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
   | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
 
 // ============================================================================
@@ -131,7 +178,8 @@ export function createExternalCanUseTool(
   },
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void,
   onTimeout?: (message: SDKPermissionTimeoutMessage) => void,
-  timeoutMs: number = 30000,
+  // Default 30 second timeout for permission prompts - reasonable for human response time
+  timeoutMs: number = DEFAULT_PERMISSION_TIMEOUT_MS,
 ): CanUseToolFn {
   return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
     // If a forced decision was passed in, honor it
@@ -209,10 +257,11 @@ export function createExternalCanUseTool(
       )
       const pending = permissionTarget.pendingPermissionPrompts.get(toolUseID)
       if (pending) {
-        // Use once-only resolve wrapper to prevent double-resolve race condition
-        // when timeout and host response happen simultaneously
-        const onceOnlyResolve = createOnceOnlyResolve(pending.resolve)
-        onceOnlyResolve({ behavior: 'deny', message: 'Permission resolution timed out' })
+        // Resolve the pending promise with denial.
+        // NOTE: For race condition safety, use createPermissionTarget() which wraps
+        // the resolve at registration time. If using a custom permissionTarget,
+        // callers should apply createOnceOnlyResolve in their registerPendingPermission.
+        pending.resolve({ behavior: 'deny', message: 'Permission resolution timed out' })
         permissionTarget.pendingPermissionPrompts.delete(toolUseID)
       }
     }
@@ -247,6 +296,19 @@ export async function connectSdkMcpServers(
   // Connect to each server in parallel
   const results = await Promise.allSettled(
     Object.entries(mcpServers).map(async ([name, config]) => {
+      // Validate config is a non-null object before spreading (arrays are objects but invalid for config)
+      if (config === null || typeof config !== 'object' || Array.isArray(config)) {
+        return {
+          client: {
+            type: 'failed' as const,
+            name,
+            config: { scope: 'session' as const } as ScopedMcpServerConfig,
+            error: `Invalid MCP server config for '${name}': expected object, got ${config === null ? 'null' : Array.isArray(config) ? 'array' : typeof config}`,
+          },
+          tools: [],
+        }
+      }
+
       // Convert SDK config to ScopedMcpServerConfig format
       const scopedConfig: ScopedMcpServerConfig = {
         ...(config as Record<string, unknown>),
@@ -273,13 +335,16 @@ export async function connectSdkMcpServers(
         // Return failed/pending client with no tools
         return { client, tools: [] }
       } catch (error) {
-        // Connection failed, return failed client
+        // Connection failed, return failed client with full error context
+        const errorMessage = error instanceof Error
+          ? `${error.message}${error.stack ? `\nStack: ${error.stack}` : ''}`
+          : 'Unknown error'
         return {
           client: {
             type: 'failed' as const,
             name,
             config: scopedConfig,
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: errorMessage,
           },
           tools: [],
         }

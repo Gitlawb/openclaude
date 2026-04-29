@@ -744,28 +744,30 @@ export function getCommand(commandName: string, commands: Command[]): Command {
  */
 export function formatDescriptionWithSource(cmd: Command): string {
   if (cmd.type !== 'prompt') {
-    return cmd.description
+    return cmd.description ?? ''
   }
 
+  const desc = cmd.description ?? ''
+
   if (cmd.kind === 'workflow') {
-    return `${cmd.description} (workflow)`
+    return `${desc} (workflow)`
   }
 
   if (cmd.source === 'plugin') {
     const pluginName = cmd.pluginInfo?.pluginManifest.name
     if (pluginName) {
-      return `(${pluginName}) ${cmd.description}`
+      return `(${pluginName}) ${desc}`
     }
-    return `${cmd.description} (plugin)`
+    return `${desc} (plugin)`
   }
 
   if (cmd.source === 'builtin' || cmd.source === 'mcp') {
-    return cmd.description
+    return desc
   }
 
   if (cmd.source === 'bundled') {
-    return `${cmd.description} (bundled)`
+    return `${desc} (bundled)`
   }
 
-  return `${cmd.description} (${getSettingSourceName(cmd.source)})`
+  return `${desc} (${getSettingSourceName(cmd.source)})`
 }

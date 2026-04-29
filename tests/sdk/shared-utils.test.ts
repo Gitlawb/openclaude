@@ -65,6 +65,21 @@ describe('mapMessageToSDK', () => {
     const result = mapMessageToSDK(msg)
     expect((result as any).message.content[0].text).toBe('Hello world')
   })
+
+  test('throws TypeError for null input', () => {
+    expect(() => mapMessageToSDK(null as any)).toThrow(TypeError)
+    expect(() => mapMessageToSDK(null as any)).toThrow('expected non-null object')
+  })
+
+  test('throws TypeError for non-object input', () => {
+    expect(() => mapMessageToSDK('string' as any)).toThrow(TypeError)
+    expect(() => mapMessageToSDK(42 as any)).toThrow(TypeError)
+  })
+
+  test('throws TypeError for invalid type field', () => {
+    expect(() => mapMessageToSDK({ type: 123 })).toThrow(TypeError)
+    expect(() => mapMessageToSDK({ type: 123 })).toThrow("'type' field must be string")
+  })
 })
 
 describe.serial('env mutex timeout', () => {

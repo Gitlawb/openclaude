@@ -5,6 +5,7 @@ import {
   createDefaultCanUseTool,
   createExternalCanUseTool,
   createOnceOnlyResolve,
+  createPermissionTarget,
 } from '../../src/entrypoints/sdk/permissions.js'
 import type { PermissionResolveDecision } from '../../src/entrypoints/sdk/permissions.js'
 import { getEmptyToolPermissionContext } from '../../src/Tool.js'
@@ -107,18 +108,8 @@ describe('createDefaultCanUseTool', () => {
 
 describe('createExternalCanUseTool race condition', () => {
   test('handles simultaneous timeout and response correctly', async () => {
-    const pendingPermissionPrompts = new Map<string, { resolve: (decision: PermissionResolveDecision) => void }>()
-
-    const registerPendingPermission = (toolUseId: string): Promise<PermissionResolveDecision> => {
-      return new Promise(resolve => {
-        pendingPermissionPrompts.set(toolUseId, { resolve })
-      })
-    }
-
-    const permissionTarget = {
-      registerPendingPermission,
-      pendingPermissionPrompts,
-    }
+    // Use createPermissionTarget which applies onceOnlyResolve at registration
+    const permissionTarget = createPermissionTarget()
 
     const onPermissionRequest = vi.fn()
     const onTimeout = vi.fn()
@@ -150,10 +141,10 @@ describe('createExternalCanUseTool race condition', () => {
 
     // Simulate host responding right at timeout threshold
     // This creates the race condition scenario where both timeout and host
-    // try to resolve the same promise
+    // try to resolve the same promise - but onceOnlyResolve ensures only one wins
     await new Promise(r => setTimeout(r, 25))
 
-    const pending = pendingPermissionPrompts.get(toolUseID)
+    const pending = permissionTarget.pendingPermissionPrompts.get(toolUseID)
     if (pending) {
       // This will race with the timeout handler's resolve call
       pending.resolve({ behavior: 'allow' as const })
@@ -178,18 +169,8 @@ describe('createExternalCanUseTool race condition', () => {
   })
 
   test('once-only resolve wrapper prevents double resolution', async () => {
-    const pendingPermissionPrompts = new Map<string, { resolve: (decision: PermissionResolveDecision) => void }>()
-
-    const registerPendingPermission = (toolUseId: string): Promise<PermissionResolveDecision> => {
-      return new Promise(resolve => {
-        pendingPermissionPrompts.set(toolUseId, { resolve })
-      })
-    }
-
-    const permissionTarget = {
-      registerPendingPermission,
-      pendingPermissionPrompts,
-    }
+    // Use createPermissionTarget which applies onceOnlyResolve at registration
+    const permissionTarget = createPermissionTarget()
 
     const onPermissionRequest = vi.fn()
     const onTimeout = vi.fn()
@@ -217,7 +198,7 @@ describe('createExternalCanUseTool race condition', () => {
 
     // Respond immediately after starting to simulate very fast host response
     // This tests that the first response wins, not the timeout
-    const pending = pendingPermissionPrompts.get(toolUseID)
+    const pending = permissionTarget.pendingPermissionPrompts.get(toolUseID)
     if (pending) {
       pending.resolve({ behavior: 'allow' as const, updatedInput: { test: true } })
     }
@@ -296,6 +277,34 @@ describe('createOnceOnlyResolve', () => {
   })
 })
 
+describe('createPermissionTarget', () => {
+  test('creates permission target with wrapped resolve', () => {
+    const target = createPermissionTarget()
+    expect(target.pendingPermissionPrompts).toBeDefined()
+    expect(target.registerPendingPermission).toBeDefined()
+  })
+
+  test('registerPendingPermission stores wrapped resolve', async () => {
+    const target = createPermissionTarget()
+    const toolUseId = 'test-id'
+
+    // Register should create a promise
+    const promise = target.registerPendingPermission(toolUseId)
+
+    // The resolve should be stored in the map
+    const pending = target.pendingPermissionPrompts.get(toolUseId)
+    expect(pending).toBeDefined()
+
+    // Calling resolve twice should only resolve once (onceOnlyResolve behavior)
+    pending!.resolve({ behavior: 'allow' as const })
+    pending!.resolve({ behavior: 'deny' as const, message: 'should not happen', decisionReason: { type: 'mode', mode: 'default' } })
+
+    // Promise should resolve with 'allow' (first call)
+    const result = await promise
+    expect(result.behavior).toBe('allow')
+  })
+})
+
 describe('createExternalCanUseTool error handling', () => {
   test('includes original error message in denial', async () => {
     const userFn = async () => {
@@ -329,18 +338,8 @@ describe('createExternalCanUseTool error handling', () => {
 
 describe('createExternalCanUseTool timeout scenarios', () => {
   test('emits timeout message when host does not respond', async () => {
-    const pendingPermissionPrompts = new Map<string, { resolve: (decision: PermissionResolveDecision) => void }>()
-
-    const registerPendingPermission = (toolUseId: string): Promise<PermissionResolveDecision> => {
-      return new Promise(resolve => {
-        pendingPermissionPrompts.set(toolUseId, { resolve })
-      })
-    }
-
-    const permissionTarget = {
-      registerPendingPermission,
-      pendingPermissionPrompts,
-    }
+    // Use createPermissionTarget which applies onceOnlyResolve at registration
+    const permissionTarget = createPermissionTarget()
 
     const onPermissionRequest = vi.fn()
     const onTimeout = vi.fn()
@@ -373,10 +372,7 @@ describe('createExternalCanUseTool timeout scenarios', () => {
   })
 
   test('fallback is used when no onPermissionRequest callback', async () => {
-    const permissionTarget = {
-      registerPendingPermission: async () => ({ behavior: 'deny' as const }),
-      pendingPermissionPrompts: new Map(),
-    }
+    const permissionTarget = createPermissionTarget()
 
     const canUseTool = createExternalCanUseTool(
       undefined,
