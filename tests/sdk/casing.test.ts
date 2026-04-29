@@ -21,6 +21,18 @@ describe('snakeToCamel', () => {
   test('handles empty string', () => {
     expect(snakeToCamel('')).toBe('')
   })
+
+  test('handles consecutive underscores correctly', () => {
+    // __proto__ should become Proto (both underscores removed before letter)
+    expect(snakeToCamel('__proto__')).toBe('Proto')
+    expect(snakeToCamel('__typename')).toBe('Typename')
+    expect(snakeToCamel('a__b_c')).toBe('aB_c')
+  })
+
+  test('preserves trailing underscores', () => {
+    expect(snakeToCamel('test_')).toBe('test_')
+    expect(snakeToCamel('test__')).toBe('test__')
+  })
 })
 
 describe('camelToSnake', () => {
