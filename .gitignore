@@ -12,3 +12,4 @@ package-lock.json
 /.claude
 coverage/
 agent.log
+plan/
