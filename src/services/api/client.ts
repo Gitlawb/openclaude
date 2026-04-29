@@ -13,7 +13,6 @@ import { getUserAgent } from 'src/utils/http.js'
 import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
-  isFirstPartyAnthropicBaseUrl,
   isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
@@ -28,6 +27,10 @@ import {
   getVertexRegionForModel,
   isEnvTruthy,
 } from '../../utils/envUtils.js'
+import {
+  type ProviderOverride,
+  shouldUseFirstPartyAnthropicAuth,
+} from './authRouting.js'
 
 const importRuntimeModule = new Function(
   'specifier',
@@ -103,7 +106,7 @@ export async function getAnthropicClient({
   model?: string
   fetchOverride?: ClientOptions['fetch']
   source?: string
-  providerOverride?: { model: string; baseURL: string; apiKey: string }
+  providerOverride?: ProviderOverride
 }): Promise<Anthropic> {
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
@@ -135,21 +138,19 @@ export async function getAnthropicClient({
     defaultHeaders['x-anthropic-additional-protection'] = 'true'
   }
 
-  const shouldUseFirstPartyAnthropicAuth =
-    !providerOverride &&
-    getAPIProvider() === 'firstParty' &&
-    isFirstPartyAnthropicBaseUrl()
+  const shouldUseFirstPartyAuth =
+    shouldUseFirstPartyAnthropicAuth(providerOverride)
 
-  if (shouldUseFirstPartyAnthropicAuth) {
+  if (shouldUseFirstPartyAuth) {
     logForDebugging('[API:auth] OAuth token check starting')
     await checkAndRefreshOAuthTokenIfNeeded()
     logForDebugging('[API:auth] OAuth token check complete')
   }
 
   const isClaudeAiSubscriber =
-    shouldUseFirstPartyAnthropicAuth && isClaudeAISubscriber()
+    shouldUseFirstPartyAuth && isClaudeAISubscriber()
 
-  if (shouldUseFirstPartyAnthropicAuth && !isClaudeAiSubscriber) {
+  if (shouldUseFirstPartyAuth && !isClaudeAiSubscriber) {
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
   }
 

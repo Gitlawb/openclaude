@@ -458,6 +458,18 @@ function hasCompleteOAuthAccountInfo(): boolean {
   )
 }
 
+export function shouldRefreshOAuthAccountInfo({
+  hasCompleteAccountInfo,
+  isClaudeAiSubscriber,
+  hasProfileScope,
+}: {
+  hasCompleteAccountInfo: boolean
+  isClaudeAiSubscriber: boolean
+  hasProfileScope: boolean
+}): boolean {
+  return !hasCompleteAccountInfo && isClaudeAiSubscriber && hasProfileScope
+}
+
 export async function populateOAuthAccountInfoIfNeeded(): Promise<boolean> {
   // Check env vars first (synchronous, no network call needed).
   // SDK callers like Cowork can provide account info directly, which also
@@ -481,9 +493,11 @@ export async function populateOAuthAccountInfoIfNeeded(): Promise<boolean> {
   }
 
   if (
-    hasCompleteOAuthAccountInfo() ||
-    !isClaudeAISubscriber() ||
-    !hasProfileScope()
+    !shouldRefreshOAuthAccountInfo({
+      hasCompleteAccountInfo: hasCompleteOAuthAccountInfo(),
+      isClaudeAiSubscriber: isClaudeAISubscriber(),
+      hasProfileScope: hasProfileScope(),
+    })
   ) {
     return false
   }
