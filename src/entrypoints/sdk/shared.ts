@@ -65,21 +65,29 @@ export async function acquireEnvMutex(options?: MutexAcquireOptions): Promise<Mu
   // With timeout - race between queue and timeout
   return new Promise(resolve => {
     let resolved = false
+    let callback: () => void
 
     const timeoutId = setTimeout(() => {
       if (!resolved) {
         resolved = true
+        // Remove ourselves from the queue to prevent orphaned callback
+        const index = envMutationQueue.indexOf(callback)
+        if (index !== -1) {
+          envMutationQueue.splice(index, 1)
+        }
         resolve({ acquired: false, reason: 'timeout' })
       }
     }, options.timeoutMs)
 
-    envMutationQueue.push(() => {
+    callback = () => {
       if (!resolved) {
         resolved = true
         clearTimeout(timeoutId)
         resolve({ acquired: true })
       }
-    })
+    }
+
+    envMutationQueue.push(callback)
   })
 }
 

@@ -115,4 +115,22 @@ describe.serial('env mutex timeout', () => {
 
     releaseEnvMutex()
   })
+
+  test('mutex remains functional after timeout', async () => {
+    // First acquire locks it
+    await acquireEnvMutex()
+
+    // Second acquire with timeout fails
+    const result2 = await acquireEnvMutex({ timeoutMs: 50 })
+    expect(result2.acquired).toBe(false)
+
+    // Release the first
+    releaseEnvMutex()
+
+    // Third acquire should succeed (mutex not permanently locked)
+    const result3 = await acquireEnvMutex({ timeoutMs: 100 })
+    expect(result3.acquired).toBe(true)
+
+    releaseEnvMutex()
+  })
 })
