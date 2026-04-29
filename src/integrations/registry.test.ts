@@ -1,6 +1,7 @@
 // src/integrations/registry.test.ts
 
-import { describe, expect, test, beforeEach } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
+import { ensureIntegrationsLoaded } from './index.js'
 import {
   _clearRegistryForTesting,
   getAllAnthropicProxies,
@@ -24,6 +25,11 @@ import {
 
 beforeEach(() => {
   _clearRegistryForTesting()
+})
+
+afterAll(() => {
+  _clearRegistryForTesting()
+  ensureIntegrationsLoaded()
 })
 
 // ---------------------------------------------------------------------------
