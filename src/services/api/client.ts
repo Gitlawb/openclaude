@@ -135,11 +135,21 @@ export async function getAnthropicClient({
     defaultHeaders['x-anthropic-additional-protection'] = 'true'
   }
 
-  logForDebugging('[API:auth] OAuth token check starting')
-  await checkAndRefreshOAuthTokenIfNeeded()
-  logForDebugging('[API:auth] OAuth token check complete')
+  const shouldUseFirstPartyAnthropicAuth =
+    !providerOverride &&
+    getAPIProvider() === 'firstParty' &&
+    isFirstPartyAnthropicBaseUrl()
 
-  if (!isClaudeAISubscriber()) {
+  if (shouldUseFirstPartyAnthropicAuth) {
+    logForDebugging('[API:auth] OAuth token check starting')
+    await checkAndRefreshOAuthTokenIfNeeded()
+    logForDebugging('[API:auth] OAuth token check complete')
+  }
+
+  const isClaudeAiSubscriber =
+    shouldUseFirstPartyAnthropicAuth && isClaudeAISubscriber()
+
+  if (shouldUseFirstPartyAnthropicAuth && !isClaudeAiSubscriber) {
     await configureApiKeyHeaders(defaultHeaders, getIsNonInteractiveSession())
   }
 
@@ -362,8 +372,8 @@ export async function getAnthropicClient({
 
   // Determine authentication method based on available tokens
   const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-    apiKey: isClaudeAISubscriber() ? null : apiKey || getAnthropicApiKey(),
-    authToken: isClaudeAISubscriber()
+    apiKey: isClaudeAiSubscriber ? null : apiKey || getAnthropicApiKey(),
+    authToken: isClaudeAiSubscriber
       ? getClaudeAIOAuthTokens()?.accessToken
       : undefined,
     // Set baseURL from OAuth config when using staging OAuth

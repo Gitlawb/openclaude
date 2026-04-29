@@ -448,6 +448,16 @@ export async function getOrganizationUUID(): Promise<string | null> {
  * Populate the OAuth account info if it has not already been cached in config.
  * @returns Whether or not the oauth account info was populated.
  */
+function hasCompleteOAuthAccountInfo(): boolean {
+  const oauthAccount = getGlobalConfig().oauthAccount
+  return Boolean(
+    oauthAccount &&
+      oauthAccount.billingType !== undefined &&
+      oauthAccount.accountCreatedAt !== undefined &&
+      oauthAccount.subscriptionCreatedAt !== undefined,
+  )
+}
+
 export async function populateOAuthAccountInfoIfNeeded(): Promise<boolean> {
   // Check env vars first (synchronous, no network call needed).
   // SDK callers like Cowork can provide account info directly, which also
@@ -470,19 +480,18 @@ export async function populateOAuthAccountInfoIfNeeded(): Promise<boolean> {
     }
   }
 
-  // Wait for any in-flight token refresh to complete first, since
-  // refreshOAuthToken already fetches and stores profile info
-  await checkAndRefreshOAuthTokenIfNeeded()
-
-  const config = getGlobalConfig()
   if (
-    (config.oauthAccount &&
-      config.oauthAccount.billingType !== undefined &&
-      config.oauthAccount.accountCreatedAt !== undefined &&
-      config.oauthAccount.subscriptionCreatedAt !== undefined) ||
+    hasCompleteOAuthAccountInfo() ||
     !isClaudeAISubscriber() ||
     !hasProfileScope()
   ) {
+    return false
+  }
+
+  // Wait for any in-flight token refresh to complete first, since
+  // refreshOAuthToken already fetches and stores profile info.
+  await checkAndRefreshOAuthTokenIfNeeded()
+  if (hasCompleteOAuthAccountInfo()) {
     return false
   }
 
