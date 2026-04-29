@@ -149,10 +149,11 @@ export function createExternalCanUseTool(
           message: result.message ?? `Tool ${tool.name} denied by canUseTool callback`,
           decisionReason: { type: 'mode' as const, mode: 'default' },
         }
-      } catch {
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown callback error'
         return {
           behavior: 'deny' as const,
-          message: `Tool ${tool.name} denied (callback error)`,
+          message: `Tool ${tool.name} denied (callback error: ${errorMessage})`,
           decisionReason: { type: 'mode' as const, mode: 'default' },
         }
       }

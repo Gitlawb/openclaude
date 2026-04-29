@@ -294,3 +294,34 @@ describe('createOnceOnlyResolve', () => {
     expect(resolvedValue).toBeUndefined() // Still undefined
   })
 })
+
+describe('createExternalCanUseTool error handling', () => {
+  test('includes original error message in denial', async () => {
+    const userFn = async () => {
+      throw new Error('Custom error from callback')
+    }
+
+    const permissionTarget = {
+      registerPendingPermission: async () => ({ behavior: 'deny' as const }),
+      pendingPermissionPrompts: new Map(),
+    }
+
+    const canUseTool = createExternalCanUseTool(
+      userFn,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('deny')
+    expect(result.message).toContain('Custom error from callback')
+  })
+})
