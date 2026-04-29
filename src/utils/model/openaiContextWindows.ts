@@ -210,6 +210,10 @@ const OPENAI_CONTEXT_WINDOWS: Record<string, number> = {
   'qwen2.5-coder:7b':         32_768,
   'deepseek-coder-v2:16b':    163_840,
   'deepseek-r1:14b':           65_536,
+  // Ollama cloud variants of DeepSeek V4 (proxies to remote infra; same
+  // context as the OpenAI-shaped API entries above).
+  'deepseek-v4-flash:cloud': 1_048_576,
+  'deepseek-v4-pro:cloud':   1_048_576,
   'mistral:7b':                32_768,
   'phi4:14b':                  16_384,
   'gemma2:27b':                 8_192,
@@ -391,6 +395,13 @@ const OPENAI_MAX_OUTPUT_TOKENS: Record<string, number> = {
   'qwen2.5-coder:7b':          8_192,
   'deepseek-coder-v2:16b':     8_192,
   'deepseek-r1:14b':            8_192,
+  // Ollama cloud variants cap output at 65536 (verified against
+  // deepseek-v4-pro:cloud's "max_tokens (262144) exceeds model's maximum
+  // output tokens (65536)" 400 — issue #917). Without these explicit
+  // entries, prefix matching resolves to 'deepseek-v4-pro' (262144) and
+  // every request 400s.
+  'deepseek-v4-flash:cloud':  65_536,
+  'deepseek-v4-pro:cloud':    65_536,
   'mistral:7b':                 4_096,
   'phi4:14b':                   4_096,
   'gemma2:27b':                 4_096,
