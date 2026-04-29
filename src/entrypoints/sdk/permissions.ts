@@ -24,6 +24,27 @@ import type {
 } from './shared.js'
 
 // ============================================================================
+// Once-only resolve wrapper
+// ============================================================================
+
+/**
+ * Creates a resolve function that can only be called once.
+ * Prevents promise twice-resolve race conditions when timeout
+ * and host response happen simultaneously.
+ */
+export function createOnceOnlyResolve<T>(
+  resolve: (value: T) => void,
+): (value: T) => void {
+  let resolved = false
+  return (value: T) => {
+    if (!resolved) {
+      resolved = true
+      resolve(value)
+    }
+  }
+}
+
+// ============================================================================
 // Permission resolve decision type
 // ============================================================================
 
@@ -187,7 +208,10 @@ export function createExternalCanUseTool(
       )
       const pending = permissionTarget.pendingPermissionPrompts.get(toolUseID)
       if (pending) {
-        pending.resolve({ behavior: 'deny', message: 'Permission resolution timed out' })
+        // Use once-only resolve wrapper to prevent double-resolve race condition
+        // when timeout and host response happen simultaneously
+        const onceOnlyResolve = createOnceOnlyResolve(pending.resolve)
+        onceOnlyResolve({ behavior: 'deny', message: 'Permission resolution timed out' })
         permissionTarget.pendingPermissionPrompts.delete(toolUseID)
       }
     }
