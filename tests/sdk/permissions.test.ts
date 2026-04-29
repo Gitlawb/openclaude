@@ -1,6 +1,7 @@
 import { describe, test, expect, vi } from 'bun:test'
 import {
   buildPermissionContext,
+  connectSdkMcpServers,
   createDefaultCanUseTool,
   createExternalCanUseTool,
   createOnceOnlyResolve,
@@ -323,5 +324,93 @@ describe('createExternalCanUseTool error handling', () => {
 
     expect(result.behavior).toBe('deny')
     expect(result.message).toContain('Custom error from callback')
+  })
+})
+
+describe('createExternalCanUseTool timeout scenarios', () => {
+  test('emits timeout message when host does not respond', async () => {
+    const pendingPermissionPrompts = new Map<string, { resolve: (decision: PermissionResolveDecision) => void }>()
+
+    const registerPendingPermission = (toolUseId: string): Promise<PermissionResolveDecision> => {
+      return new Promise(resolve => {
+        pendingPermissionPrompts.set(toolUseId, { resolve })
+      })
+    }
+
+    const permissionTarget = {
+      registerPendingPermission,
+      pendingPermissionPrompts,
+    }
+
+    const onPermissionRequest = vi.fn()
+    const onTimeout = vi.fn()
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      onTimeout,
+      50, // 50ms timeout for fast test
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('deny')
+    // When timeout occurs, the implementation calls onTimeout and falls through to fallback
+    expect(result.message).toBe('fallback')
+    expect(onTimeout).toHaveBeenCalled()
+    expect(onTimeout.mock.calls[0][0].type).toBe('permission_timeout')
+    expect(onTimeout.mock.calls[0][0].tool_name).toBe('TestTool')
+    expect(onTimeout.mock.calls[0][0].timed_out_after_ms).toBe(50)
+  })
+
+  test('fallback is used when no onPermissionRequest callback', async () => {
+    const permissionTarget = {
+      registerPendingPermission: async () => ({ behavior: 'deny' as const }),
+      pendingPermissionPrompts: new Map(),
+    }
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback denial' }),
+      permissionTarget,
+      // No onPermissionRequest callback
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'test-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('deny')
+    expect(result.message).toBe('fallback denial')
+  })
+})
+
+describe('connectSdkMcpServers error handling', () => {
+  test('returns empty arrays for undefined config', async () => {
+    const result = await connectSdkMcpServers(undefined)
+
+    expect(result.clients).toEqual([])
+    expect(result.tools).toEqual([])
+  })
+
+  test('returns empty arrays for empty config', async () => {
+    const result = await connectSdkMcpServers({})
+
+    expect(result.clients).toEqual([])
+    expect(result.tools).toEqual([])
   })
 })
