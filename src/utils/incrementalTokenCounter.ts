@@ -7,8 +7,8 @@ import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from 
 import type { Message } from '../types/message.js'
 
 export interface IncrementalCounterConfig {
-  /** Maximum cache size */
-  maxCacheSize?: number
+  /** Token budget for context limit decisions (e.g., model context window) */
+  tokenBudget?: number
   /** Enable auto-invalidation on size change */
   autoInvalidate?: boolean
   /** Custom estimation multiplier */
@@ -59,7 +59,7 @@ export class IncrementalTokenCounter {
 
   constructor(config: IncrementalCounterConfig = {}) {
     this.config = {
-      maxCacheSize: config.maxCacheSize ?? 1000,
+      tokenBudget: config.tokenBudget ?? 100000,
       autoInvalidate: config.autoInvalidate ?? true,
       estimationMultiplier: config.estimationMultiplier ?? 1,
     }
@@ -183,7 +183,7 @@ export class IncrementalTokenCounter {
    */
   isApproachingLimit(messages: readonly Message[], threshold: number = 0.8): boolean {
     return this.lastMessageCount > 0 && 
-           (this.lastTokenCount / this.config.maxCacheSize) > threshold
+           (this.lastTokenCount / this.config.tokenBudget) > threshold
   }
 
   /** Reset all state */
@@ -220,7 +220,7 @@ export class IncrementalTokenCounter {
     this.config = {
       ...this.config,
       ...config,
-      maxCacheSize: config.maxCacheSize ?? this.config.maxCacheSize,
+      tokenBudget: config.tokenBudget ?? this.config.tokenBudget,
       autoInvalidate: config.autoInvalidate ?? this.config.autoInvalidate,
       estimationMultiplier: config.estimationMultiplier ?? this.config.estimationMultiplier,
     }
@@ -231,34 +231,25 @@ export class IncrementalTokenCounter {
  * Factory for creating pre-configured counters.
  */
 export const CounterFactory = {
-  /**
-   * Create a high-performance counter for real-time use.
-   */
   realtime(): IncrementalTokenCounter {
     return new IncrementalTokenCounter({
-      maxCacheSize: 500,
+      tokenBudget: 50000,
       autoInvalidate: true,
       estimationMultiplier: 1.1,
     })
   },
 
-  /**
-   * Create a conservative counter for batch processing.
-   */
   batch(): IncrementalTokenCounter {
     return new IncrementalTokenCounter({
-      maxCacheSize: 10000,
+      tokenBudget: 200000,
       autoInvalidate: false,
       estimationMultiplier: 1.0,
     })
   },
 
-  /**
-   * Create a memory-efficient counter.
-   */
   lightweight(): IncrementalTokenCounter {
     return new IncrementalTokenCounter({
-      maxCacheSize: 100,
+      tokenBudget: 10000,
       autoInvalidate: true,
       estimationMultiplier: 1.2,
     })
