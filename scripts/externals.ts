@@ -37,6 +37,11 @@ export const COMMON_EXTERNALS: string[] = [
   '@aws-sdk/credential-providers',
   '@azure/identity',
   'google-auth-library',
+  // @vscode/ripgrep ships a platform-specific binary alongside its
+  // index.js and resolves the path via __dirname at runtime. Bundling
+  // would freeze the build host's absolute path into dist/cli.mjs, so we
+  // keep it external and rely on the npm package being installed.
+  '@vscode/ripgrep',
 ]
 
 // Additional packages external only in the SDK bundle (TUI + heavy deps)

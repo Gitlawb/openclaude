@@ -112,6 +112,13 @@ describe('detectProviderFromEnv — priority order', () => {
     })
   })
 
+  test('XAI_API_KEY detected', () => {
+    expect(scan({ XAI_API_KEY: 'xai-x' })).toEqual({
+      kind: 'xai',
+      source: 'XAI_API_KEY set',
+    })
+  })
+
   test('empty-string values are ignored', () => {
     expect(
       scan({

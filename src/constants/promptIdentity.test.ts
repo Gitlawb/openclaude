@@ -11,6 +11,7 @@ import { afterEach, expect, test } from 'bun:test'
   NATIVE_PACKAGE_URL: undefined,
 }
 
+import { clearSystemPromptSections } from './systemPromptSections.js'
 import { getSystemPrompt, DEFAULT_AGENT_PROMPT } from './prompts.js'
 import { CLI_SYSPROMPT_PREFIXES, getCLISyspromptPrefix } from './system.js'
 import { CLAUDE_CODE_GUIDE_AGENT } from '../tools/AgentTool/built-in/claudeCodeGuideAgent.js'
@@ -23,6 +24,7 @@ const originalSimpleEnv = process.env.CLAUDE_CODE_SIMPLE
 
 afterEach(() => {
   process.env.CLAUDE_CODE_SIMPLE = originalSimpleEnv
+  clearSystemPromptSections()
 })
 
 test('CLI identity prefixes describe OpenClaude instead of Claude Code', () => {
@@ -45,6 +47,21 @@ test('simple mode identity describes OpenClaude instead of Claude Code', async (
   expect(prompt[0]).toContain('OpenClaude')
   expect(prompt[0]).not.toContain('Claude Code')
   expect(prompt[0]).not.toContain("Anthropic's official CLI for Claude")
+})
+
+test('system prompt model identity updates when model changes mid-session', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  clearSystemPromptSections()
+
+  const firstPrompt = await getSystemPrompt([], 'old-test-model')
+  const secondPrompt = await getSystemPrompt([], 'new-test-model')
+
+  const firstText = firstPrompt.join('\n')
+  const secondText = secondPrompt.join('\n')
+
+  expect(firstText).toContain('You are powered by the model old-test-model.')
+  expect(secondText).toContain('You are powered by the model new-test-model.')
+  expect(secondText).not.toContain('You are powered by the model old-test-model.')
 })
 
 test('built-in agent prompts describe OpenClaude instead of Claude Code', () => {
