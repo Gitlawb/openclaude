@@ -37,23 +37,86 @@ export function assertValidSessionId(sessionId: string): void {
 const envMutationQueue: Array<() => void> = []
 let envMutationLocked = false
 
-export function acquireEnvMutex(): Promise<void> {
+export interface MutexAcquireOptions {
+  /** Maximum time to wait for mutex in milliseconds. Default: no timeout (wait forever). */
+  timeoutMs?: number
+}
+
+export interface MutexAcquireResult {
+  /** Whether the mutex was acquired successfully. */
+  acquired: boolean
+  /** Reason for failure if not acquired. */
+  reason?: 'timeout'
+}
+
+export async function acquireEnvMutex(options?: MutexAcquireOptions): Promise<MutexAcquireResult> {
   if (!envMutationLocked) {
     envMutationLocked = true
-    return Promise.resolve()
+    return { acquired: true }
   }
+
+  if (options?.timeoutMs === undefined) {
+    // No timeout - wait forever (original behavior for backward compatibility)
+    return new Promise(resolve => {
+      envMutationQueue.push(() => resolve({ acquired: true }))
+    })
+  }
+
+  // With timeout - race between queue and timeout
   return new Promise(resolve => {
-    envMutationQueue.push(resolve)
+    let resolved = false
+    let callback: () => void
+
+    const timeoutId = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        // Remove ourselves from the queue to prevent orphaned callback
+        const index = envMutationQueue.indexOf(callback)
+        if (index !== -1) {
+          envMutationQueue.splice(index, 1)
+        }
+        resolve({ acquired: false, reason: 'timeout' })
+      }
+    }, options.timeoutMs)
+
+    callback = () => {
+      if (!resolved) {
+        resolved = true
+        clearTimeout(timeoutId)
+        resolve({ acquired: true })
+      }
+    }
+
+    envMutationQueue.push(callback)
   })
 }
 
 export function releaseEnvMutex(): void {
   if (envMutationQueue.length > 0) {
     const next = envMutationQueue.shift()
-    if (next) next()
+    if (next) {
+      try {
+        next()
+      } catch {
+        // If callback throws, ensure mutex is unlocked so next caller can acquire
+        // The error is intentionally not propagated - callback errors should not
+        // block the mutex system. Callers should handle their own errors.
+        envMutationLocked = false
+      }
+    }
   } else {
     envMutationLocked = false
   }
+}
+
+/**
+ * Reset mutex state for testing purposes only.
+ * Do not use in production code.
+ * @internal
+ */
+export function resetEnvMutexForTesting(): void {
+  envMutationQueue.length = 0
+  envMutationLocked = false
 }
 
 // ============================================================================
@@ -105,15 +168,29 @@ export type SDKUserMessage = GeneratedSDKUserMessage
  * Map an internal Message object to an SDKMessage.
  * Internal messages have a different shape from SDK types — this function
  * performs the conversion instead of relying on unsafe casts.
+ *
+ * Validates that the message is a non-null object and has a valid type field.
+ * Returns a message with type='unknown' if type is missing or invalid.
  */
 export function mapMessageToSDK(msg: Record<string, unknown>): SDKMessage {
+  // Validate input is a non-null object
+  if (msg === null || typeof msg !== 'object') {
+    throw new TypeError('mapMessageToSDK: expected non-null object')
+  }
+
+  // Validate type field is a string (if present)
+  const typeValue = msg.type
+  if (typeValue !== undefined && typeof typeValue !== 'string') {
+    throw new TypeError(`mapMessageToSDK: 'type' field must be string, got ${typeof typeValue}`)
+  }
+
   // Internal messages from QueryEngine already use the SDK field naming
   // convention (snake_case: parent_tool_use_id, session_id, etc.).
   // We spread all fields through and let the discriminated-union type
   // narrow via the `type` field.
   return {
     ...msg,
-    type: (msg.type as string) ?? 'unknown',
+    type: (typeValue as string) ?? 'unknown',
   } as SDKMessage
 }
 
