@@ -189,7 +189,7 @@ export async function get(
 
     const remote = new Map(
       allModels
-        .filter(model => model.policy?.state !== 'disabled' && model.model_picker_enabled === true)
+        .filter(model => model.policy?.state !== 'disabled')
         .map(model => [model.id, model] as const),
     )
 
