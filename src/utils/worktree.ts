@@ -252,6 +252,26 @@ export function worktreeBranchName(slug: string): string {
   return `worktree-${flattenSlug(slug)}`
 }
 
+/**
+ * Builds a human-readable message for `git rev-parse <baseBranch>` failures
+ * during worktree creation. Surfaces git's stderr so users can distinguish
+ * empty repos ("unknown revision or path"), detached HEADs pointing at
+ * missing objects, and a missing git binary — each previously surfaced as
+ * the same useless `git rev-parse failed`. See #690.
+ */
+export function buildRevParseFailureMessage(
+  baseBranch: string,
+  stderr: string,
+  exitCode: number,
+): string {
+  const detail = stderr.trim() || `exit code ${exitCode}`
+  const hint =
+    baseBranch === 'HEAD'
+      ? ' (HEAD has no resolvable commit — make at least one commit, or check whether git is installed and on PATH)'
+      : ''
+  return `Failed to resolve base branch "${baseBranch}": ${detail}${hint}`
+}
+
 function worktreePathFor(repoRoot: string, slug: string): string {
   return join(worktreesDir(repoRoot), flattenSlug(slug))
 }
@@ -346,14 +366,14 @@ async function getOrCreateWorktree(
     // For the fetch/PR-fetch paths we still need the SHA — the fs-only resolveRef
     // above only covers the "origin/<branch> already exists locally" case.
     if (!baseSha) {
-      const { stdout, code: shaCode } = await execFileNoThrowWithCwd(
+      const { stdout, stderr, code: shaCode } = await execFileNoThrowWithCwd(
         gitExe(),
         ['rev-parse', baseBranch],
         { cwd: repoRoot },
       )
       if (shaCode !== 0) {
         throw new Error(
-          `Failed to resolve base branch "${baseBranch}": git rev-parse failed`,
+          buildRevParseFailureMessage(baseBranch, stderr, shaCode),
         )
       }
       baseSha = stdout.trim()
