@@ -37,13 +37,49 @@ export function assertValidSessionId(sessionId: string): void {
 const envMutationQueue: Array<() => void> = []
 let envMutationLocked = false
 
-export function acquireEnvMutex(): Promise<void> {
+export interface MutexAcquireOptions {
+  /** Maximum time to wait for mutex in milliseconds. Default: no timeout (wait forever). */
+  timeoutMs?: number
+}
+
+export interface MutexAcquireResult {
+  /** Whether the mutex was acquired successfully. */
+  acquired: boolean
+  /** Reason for failure if not acquired. */
+  reason?: 'timeout'
+}
+
+export async function acquireEnvMutex(options?: MutexAcquireOptions): Promise<MutexAcquireResult> {
   if (!envMutationLocked) {
     envMutationLocked = true
-    return Promise.resolve()
+    return { acquired: true }
   }
+
+  if (options?.timeoutMs === undefined) {
+    // No timeout - wait forever (original behavior for backward compatibility)
+    return new Promise(resolve => {
+      envMutationQueue.push(() => resolve({ acquired: true }))
+    })
+  }
+
+  // With timeout - race between queue and timeout
   return new Promise(resolve => {
-    envMutationQueue.push(resolve)
+    let resolved = false
+
+    const timeoutId = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        resolve({ acquired: false, reason: 'timeout' })
+      }
+    }, options.timeoutMs)
+
+    envMutationQueue.push(() => {
+      if (!resolved) {
+        resolved = true
+        clearTimeout(timeoutId)
+        resolve({ acquired: true })
+      }
+    })
   })
 }
 
@@ -54,6 +90,16 @@ export function releaseEnvMutex(): void {
   } else {
     envMutationLocked = false
   }
+}
+
+/**
+ * Reset mutex state for testing purposes only.
+ * Do not use in production code.
+ * @internal
+ */
+export function resetEnvMutexForTesting(): void {
+  envMutationQueue.length = 0
+  envMutationLocked = false
 }
 
 // ============================================================================
