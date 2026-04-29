@@ -12,7 +12,12 @@ export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
 // Fallback context window for unknown 3P models. Must be large enough that
 // the effective context (this minus output token reservation) stays positive,
 // otherwise auto-compact fires on every message (issue #635).
-export const OPENAI_FALLBACK_CONTEXT_WINDOW = 128_000
+// Override via CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW env var to avoid
+// hardcoding when deploying models not yet in openaiContextWindows.ts.
+export const OPENAI_FALLBACK_CONTEXT_WINDOW = (() => {
+  const v = parseInt(process.env.CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW ?? '', 10)
+  return !isNaN(v) && v > 0 ? v : 128_000
+})()
 
 // Maximum output tokens for compact operations
 export const COMPACT_MAX_OUTPUT_TOKENS = 20_000

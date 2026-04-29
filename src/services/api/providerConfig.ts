@@ -31,7 +31,11 @@ const CODEX_ALIAS_MODELS: Record<
   }
 > = {
   codexplan: {
-    model: 'gpt-5.4',
+    model: 'gpt-5.5',
+    reasoningEffort: 'high',
+  },
+  'gpt-5.5': {
+    model: 'gpt-5.5',
     reasoningEffort: 'high',
   },
   'gpt-5.4': {
@@ -59,6 +63,10 @@ const CODEX_ALIAS_MODELS: Record<
   'gpt-5.1-codex-mini': {
     model: 'gpt-5.1-codex-mini',
   },
+  'gpt-5.5-mini': {
+    model: 'gpt-5.5-mini',
+    reasoningEffort: 'medium',
+  },
   'gpt-5.4-mini': {
     model: 'gpt-5.4-mini',
     reasoningEffort: 'medium',
@@ -74,7 +82,8 @@ type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
 const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
 
-export type ProviderTransport = 'chat_completions' | 'codex_responses'
+export type ProviderTransport = 'chat_completions' | 'responses' | 'codex_responses'
+export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses'
 
 export type ResolvedProviderRequest = {
   transport: ProviderTransport
@@ -188,6 +197,30 @@ function parseReasoningEffort(value: string | undefined): ReasoningEffort | unde
   const normalized = value.trim().toLowerCase()
   if (normalized === 'low' || normalized === 'medium' || normalized === 'high' || normalized === 'xhigh') {
     return normalized
+  }
+  return undefined
+}
+
+export function parseOpenAICompatibleApiFormat(
+  value: string | undefined,
+): OpenAICompatibleApiFormat | undefined {
+  if (!value) return undefined
+  const normalized = value.trim().toLowerCase().replace(/[- ]+/g, '_')
+  if (
+    normalized === 'responses' ||
+    normalized === 'response' ||
+    normalized === 'responses_api'
+  ) {
+    return 'responses'
+  }
+  if (
+    normalized === 'chat_completions' ||
+    normalized === 'chat_completion' ||
+    normalized === 'completions' ||
+    normalized === 'completion' ||
+    normalized === 'chat'
+  ) {
+    return 'chat_completions'
   }
   return undefined
 }
@@ -474,6 +507,7 @@ export function resolveProviderRequest(options?: {
   baseUrl?: string
   fallbackModel?: string
   reasoningEffortOverride?: ReasoningEffort
+  apiFormat?: OpenAICompatibleApiFormat | string
 }): ResolvedProviderRequest {
   const isGithubMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
   const isMistralMode = isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL)
@@ -563,11 +597,16 @@ export function resolveProviderRequest(options?: {
     ? normalizeGithubModelsApiModel(requestedModel)
     : requestedModel
 
+  const requestedApiFormat =
+    parseOpenAICompatibleApiFormat(options?.apiFormat) ??
+    parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
-      : 'chat_completions'
+      : requestedApiFormat === 'responses'
+        ? 'responses'
+        : 'chat_completions'
 
   // For GitHub Copilot API, normalize to real model ID (e.g., "github:copilot" -> "gpt-4o")
   // For GitHub Models/custom endpoints:

@@ -13,7 +13,31 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, A
 OpenClaude is also mirrored to GitLawb:
 [gitlawb.com/node/repos/z6MkqDnb/openclaude](https://gitlawb.com/node/repos/z6MkqDnb/openclaude)
 
-[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
+[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Sponsors](#sponsors) | [Community](#community)
+
+## Sponsors
+
+<p align="center">
+  <a href="https://gitlawb.com">
+    <img src="https://gitlawb.com/logo.png" alt="GitLawb logo" width="96">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://bankr.bot">
+    <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="96">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/">
+    <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="96">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://gitlawb.com"><strong>GitLawb</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/"><strong>Atomic Chat</strong></a>
+</p>
 
 ## Star History
 
@@ -152,12 +176,12 @@ For best results, use models with strong tool/function calling support.
 
 OpenClaude can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.
 
-Add to `~/.claude/settings.json`:
+Add to `~/.openclaude.json`:
 
 ```json
 {
   "agentModels": {
-    "deepseek-chat": {
+    "deepseek-v4-flash": {
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-your-key"
     },
@@ -167,10 +191,10 @@ Add to `~/.claude/settings.json`:
     }
   },
   "agentRouting": {
-    "Explore": "deepseek-chat",
+    "Explore": "deepseek-v4-flash",
     "Plan": "gpt-4o",
     "general-purpose": "gpt-4o",
-    "frontend-dev": "deepseek-chat",
+    "frontend-dev": "deepseek-v4-flash",
     "default": "gpt-4o"
   }
 }

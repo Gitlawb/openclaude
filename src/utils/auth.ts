@@ -130,10 +130,18 @@ export function isAnthropicAuthEnabled(): boolean {
     apiKeyHelper ||
     process.env.CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR
 
-  // Check if API key is from an external source (not managed by /login)
-  const { source: apiKeySource } = getAnthropicApiKeyWithSource({
-    skipRetrievingKeyFromApiKeyHelper: true,
-  })
+  // Check if API key is from an external source (not managed by /login).
+  // Predicate must not throw: getAnthropicApiKeyWithSource throws under
+  // CI/NODE_ENV=test when no key is configured, but here we just want to
+  // know the source — "no key" is a valid answer.
+  let apiKeySource: ApiKeySource
+  try {
+    ;({ source: apiKeySource } = getAnthropicApiKeyWithSource({
+      skipRetrievingKeyFromApiKeyHelper: true,
+    }))
+  } catch {
+    apiKeySource = 'none'
+  }
   const hasExternalApiKey =
     apiKeySource === 'ANTHROPIC_API_KEY' || apiKeySource === 'apiKeyHelper'
 
@@ -221,10 +229,17 @@ export function getAnthropicApiKey(): null | string {
 }
 
 export function hasAnthropicApiKeyAuth(): boolean {
-  const { key, source } = getAnthropicApiKeyWithSource({
-    skipRetrievingKeyFromApiKeyHelper: true,
-  })
-  return key !== null && source !== 'none'
+  // Predicate: never throw. getAnthropicApiKeyWithSource throws under
+  // CI/NODE_ENV=test when no key is configured — but "do we have auth?" is
+  // exactly the question that has to answer cleanly in that state.
+  try {
+    const { key, source } = getAnthropicApiKeyWithSource({
+      skipRetrievingKeyFromApiKeyHelper: true,
+    })
+    return key !== null && source !== 'none'
+  } catch {
+    return false
+  }
 }
 
 export function getAnthropicApiKeyWithSource(
@@ -1974,8 +1989,8 @@ export async function validateForceLoginOrg(): Promise<OrgValidationResult> {
         `Unable to verify organization for the current authentication token.\n` +
         `This machine requires organization ${requiredOrgUuid} but the profile could not be fetched.\n` +
         `This may be a network error, or the token may lack the user:profile scope required for\n` +
-        `verification (tokens from 'claude setup-token' do not include this scope).\n` +
-        `Try again, or obtain a full-scope token via 'claude auth login'.`,
+        `verification (tokens from 'openclaude setup-token' do not include this scope).\n` +
+        `Try again, or obtain a full-scope token via 'openclaude auth login'.`,
     }
   }
 
@@ -2005,7 +2020,7 @@ export async function validateForceLoginOrg(): Promise<OrgValidationResult> {
     message:
       `Your authentication token belongs to organization ${tokenOrgUuid},\n` +
       `but this machine requires organization ${requiredOrgUuid}.\n\n` +
-      `Please log in with the correct organization: claude auth login`,
+      `Please log in with the correct organization: openclaude auth login`,
   }
 }
 
