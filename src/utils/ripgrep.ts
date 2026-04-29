@@ -5,7 +5,6 @@ import memoize from 'lodash-es/memoize.js'
 import { homedir } from 'os'
 import * as path from 'path'
 import { logEvent } from 'src/services/analytics/index.js'
-import { fileURLToPath } from 'url'
 import { isInBundledMode } from './bundledMode.js'
 import { logForDebugging } from './debug.js'
 import { isEnvDefinedFalsy } from './envUtils.js'
@@ -14,13 +13,6 @@ import { findExecutable } from './findExecutable.js'
 import { logError } from './log.js'
 import { getPlatform } from './platform.js'
 import { countCharInString } from './stringUtils.js'
-
-const __filename = fileURLToPath(import.meta.url)
-// we use node:path.join instead of node:url.resolve because the former doesn't encode spaces
-const __dirname = path.join(
-  __filename,
-  process.env.NODE_ENV === 'test' ? '../../../' : '../',
-)
 
 type RipgrepConfig = {
   mode: 'system' | 'builtin' | 'embedded'
@@ -35,11 +27,31 @@ function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error
 }
 
+/**
+ * Returns the ripgrep binary path provided by the @vscode/ripgrep package.
+ * The package downloads a platform/arch-specific binary at npm install time
+ * (cached under the package's bin/ directory). Returns null when the package
+ * cannot be resolved — for example when running as a Bun-compiled standalone
+ * executable that doesn't ship node_modules.
+ */
+function resolveBuiltinRgPath(): string | null {
+  try {
+    // Lazy require so the resolution failure path stays graceful at import
+    // time. The package only exports `rgPath`, so we do not need the rest.
+    const mod = require('@vscode/ripgrep') as { rgPath?: string }
+    if (mod.rgPath && existsSync(mod.rgPath)) {
+      return mod.rgPath
+    }
+  } catch {
+    // Falls through to null — caller decides the fallback.
+  }
+  return null
+}
+
 type ResolveRipgrepConfigArgs = {
   userWantsSystemRipgrep: boolean
   bundledMode: boolean
-  builtinCommand: string
-  builtinExists: boolean
+  builtinCommand: string | null
   systemExecutablePath: string
   processExecPath?: string
 }
@@ -48,7 +60,6 @@ export function resolveRipgrepConfig({
   userWantsSystemRipgrep,
   bundledMode,
   builtinCommand,
-  builtinExists,
   systemExecutablePath,
   processExecPath = process.execPath,
 }: ResolveRipgrepConfigArgs): RipgrepConfig {
@@ -66,7 +77,7 @@ export function resolveRipgrepConfig({
     }
   }
 
-  if (builtinExists) {
+  if (builtinCommand) {
     return { mode: 'builtin', command: builtinCommand, args: [] }
   }
 
@@ -74,7 +85,9 @@ export function resolveRipgrepConfig({
     return { mode: 'system', command: 'rg', args: [] }
   }
 
-  return { mode: 'builtin', command: builtinCommand, args: [] }
+  // Last resort — leaves error reporting to the executor when no binary
+  // can be located. wrapRipgrepUnavailableError() surfaces an install hint.
+  return { mode: 'system', command: 'rg', args: [] }
 }
 
 const getRipgrepConfig = memoize((): RipgrepConfig => {
@@ -82,19 +95,13 @@ const getRipgrepConfig = memoize((): RipgrepConfig => {
     process.env.USE_BUILTIN_RIPGREP,
   )
   const bundledMode = isInBundledMode()
-  const rgRoot = path.resolve(__dirname, 'vendor', 'ripgrep')
-  const builtinCommand =
-    process.platform === 'win32'
-      ? path.resolve(rgRoot, `${process.arch}-win32`, 'rg.exe')
-      : path.resolve(rgRoot, `${process.arch}-${process.platform}`, 'rg')
-  const builtinExists = existsSync(builtinCommand)
+  const builtinCommand = resolveBuiltinRgPath()
   const { cmd: systemExecutablePath } = findExecutable('rg', [])
 
   return resolveRipgrepConfig({
     userWantsSystemRipgrep,
     bundledMode,
     builtinCommand,
-    builtinExists,
     systemExecutablePath,
   })
 })
