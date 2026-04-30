@@ -1,4 +1,5 @@
-import { extname } from 'path'
+import { readdir, stat } from 'fs/promises'
+import { extname, join, resolve } from 'path'
 import { getAllLspServers } from '../../services/lsp/config.js'
 import {
   getInitializationStatus,
@@ -72,6 +73,42 @@ const DEFAULT_DEPS: LspCommandDeps = {
   waitForInitialization,
   discoverWorkspaceExtensions,
 }
+
+const DISCOVERED_EXTENSION_IGNORE_SET = new Set([
+  '.eot',
+  '.gif',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.lock',
+  '.map',
+  '.otf',
+  '.png',
+  '.svg',
+  '.ttf',
+  '.webp',
+  '.woff',
+  '.woff2',
+])
+
+const DISCOVERY_DIRECTORY_IGNORE_SET = new Set([
+  '.cache',
+  '.git',
+  '.hg',
+  '.next',
+  '.openclaude',
+  '.svn',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+  'out',
+  'target',
+  'vendor',
+])
+
+const MAX_DISCOVERY_FILES = 5_000
+const MAX_DISCOVERY_DEPTH = 8
 
 type BinaryInstallHint = {
   install?: {
@@ -538,7 +575,9 @@ async function resolveRecommendationExtensions(
 ): Promise<string[]> {
   const trimmed = target.trim()
   if (!trimmed) {
-    return deps.discoverWorkspaceExtensions()
+    return filterDiscoveredRecommendationExtensions(
+      await deps.discoverWorkspaceExtensions(),
+    )
   }
 
   if (isExtensionLiteral(trimmed)) {
@@ -550,7 +589,7 @@ async function resolveRecommendationExtensions(
 
   const pathExtensions = await deps.discoverWorkspaceExtensions(trimmed)
   if (pathExtensions.length > 0) {
-    return pathExtensions
+    return filterDiscoveredRecommendationExtensions(pathExtensions)
   }
 
   if (/^[a-z0-9_+-]+$/i.test(trimmed)) {
@@ -584,15 +623,28 @@ function getCandidateMatchedExtensions(
   return Array.from(matched)
 }
 
-export async function discoverWorkspaceExtensions(pathspec?: string): Promise<string[]> {
+function filterDiscoveredRecommendationExtensions(
+  extensions: string[],
+): string[] {
+  return extensions.filter(ext => !DISCOVERED_EXTENSION_IGNORE_SET.has(ext))
+}
+
+export async function discoverWorkspaceExtensions(
+  pathspec?: string,
+  cwd = getCwd(),
+): Promise<string[]> {
   const args = pathspec ? ['ls-files', '--', pathspec] : ['ls-files']
   const result = await execFileNoThrowWithCwd(gitExe(), args, {
-    cwd: getCwd(),
+    cwd,
     timeout: 5_000,
     maxBuffer: 2 * 1024 * 1024,
   })
-  if (result.code !== 0) return []
-  return rankFileExtensions(result.stdout.split('\n'))
+  if (result.code === 0) {
+    const extensions = rankFileExtensions(result.stdout.split('\n'))
+    if (extensions.length > 0) return extensions
+  }
+
+  return discoverFilesystemExtensions(cwd, pathspec)
 }
 
 function rankFileExtensions(files: string[]): string[] {
@@ -600,6 +652,7 @@ function rankFileExtensions(files: string[]): string[] {
   for (const file of files) {
     const ext = extname(file.trim()).toLowerCase()
     if (!ext) continue
+    if (DISCOVERED_EXTENSION_IGNORE_SET.has(ext)) continue
     counts.set(ext, (counts.get(ext) ?? 0) + 1)
   }
 
@@ -607,4 +660,64 @@ function rankFileExtensions(files: string[]): string[] {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 12)
     .map(([ext]) => ext)
+}
+
+async function discoverFilesystemExtensions(
+  cwd: string,
+  pathspec?: string,
+): Promise<string[]> {
+  const root = resolve(cwd, pathspec || '.')
+  let rootStat
+  try {
+    rootStat = await stat(root)
+  } catch {
+    return []
+  }
+
+  if (rootStat.isFile()) {
+    return rankFileExtensions([root])
+  }
+  if (!rootStat.isDirectory()) {
+    return []
+  }
+
+  const files: string[] = []
+  await collectFiles(root, files, 0)
+  return rankFileExtensions(files)
+}
+
+async function collectFiles(
+  directory: string,
+  files: string[],
+  depth: number,
+): Promise<void> {
+  if (files.length >= MAX_DISCOVERY_FILES || depth > MAX_DISCOVERY_DEPTH) {
+    return
+  }
+
+  let entries
+  try {
+    entries = await readdir(directory, { withFileTypes: true })
+  } catch {
+    return
+  }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name))
+  for (const entry of entries) {
+    if (files.length >= MAX_DISCOVERY_FILES) {
+      return
+    }
+
+    const entryPath = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      if (!DISCOVERY_DIRECTORY_IGNORE_SET.has(entry.name)) {
+        await collectFiles(entryPath, files, depth + 1)
+      }
+      continue
+    }
+
+    if (entry.isFile()) {
+      files.push(entryPath)
+    }
+  }
 }

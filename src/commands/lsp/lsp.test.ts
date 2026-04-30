@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 type InitializationStatus =
   | { status: 'not-started' }
@@ -73,7 +76,8 @@ const discoverWorkspaceExtensions = async (pathspec?: string) =>
       ? []
       : ['.ts']
 
-const { runLspCommand } = await import('./lsp.js')
+const { discoverWorkspaceExtensions: discoverRealWorkspaceExtensions, runLspCommand } =
+  await import('./lsp.js')
 
 const EMPTY_CONTEXT = {
   setAppState: () => {},
@@ -305,6 +309,53 @@ describe('/lsp recommend', () => {
 
     expect(output).toContain('No file extensions found for ".".')
     expect(output).not.toContain('for ..')
+  })
+
+  test('filters noisy workspace extensions and reports matched candidate extensions', async () => {
+    deps.discoverWorkspaceExtensions = async () => [
+      '.ts',
+      '.png',
+      '.woff2',
+    ]
+    candidates = [
+      {
+        pluginId: 'typescript-lsp@claude-plugins-official',
+        pluginName: 'typescript-lsp',
+        marketplaceName: 'claude-plugins-official',
+        isOfficial: true,
+        extensions: ['.ts', '.tsx'],
+        command: 'typescript-language-server',
+        binaryInstalled: true,
+        installed: false,
+      },
+    ]
+
+    const output = await run('recommend')
+
+    expect(output).toContain('LSP recommendations for .ts')
+    expect(output).not.toContain('.png')
+    expect(output).not.toContain('.woff2')
+    expect(candidateCallOptions).toContainEqual(
+      expect.objectContaining({ extensions: ['.ts'] }),
+    )
+  })
+
+  test('falls back to filesystem scanning when git cannot enumerate workspace files', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'openclaude-lsp-'))
+    try {
+      await mkdir(join(tempDir, 'src'), { recursive: true })
+      await writeFile(join(tempDir, 'src', 'main.ts'), 'export const x = 1\n')
+      await writeFile(join(tempDir, 'src', 'style.css'), '.root {}\n')
+      await writeFile(join(tempDir, 'logo.png'), '')
+
+      const extensions = await discoverRealWorkspaceExtensions(undefined, tempDir)
+
+      expect(extensions).toContain('.ts')
+      expect(extensions).toContain('.css')
+      expect(extensions).not.toContain('.png')
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
   })
 
 })
