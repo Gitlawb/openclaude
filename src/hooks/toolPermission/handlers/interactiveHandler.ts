@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { randomUUID } from 'crypto'
 import { logForDebugging } from 'src/utils/debug.js'
@@ -84,7 +83,7 @@ function handleInteractivePermission(
   const displayInput = result.updatedInput ?? ctx.input
 
   function clearClassifierIndicator(): void {
-    if (feature('BASH_CLASSIFIER')) {
+    if (false) {
       ctx.updateQueueItem({ classifierCheckInProgress: false })
     }
   }
@@ -98,7 +97,7 @@ function handleInteractivePermission(
     toolUseID: ctx.toolUseID,
     permissionResult: result,
     permissionPromptStartTimeMs,
-    ...(feature('BASH_CLASSIFIER')
+    ...(false
       ? {
           classifierCheckInProgress:
             !!result.pendingClassifierCheck &&
@@ -314,7 +313,7 @@ function handleInteractivePermission(
   // the subscription never fires and another racer wins. Graceful degradation
   // — the local dialog is always there as the floor.
   if (
-    (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+    (false || false) &&
     channelCallbacks &&
     !ctx.tool.requiresUserInteraction?.()
   ) {
@@ -432,7 +431,7 @@ function handleInteractivePermission(
 
   // Execute bash classifier check asynchronously (if applicable)
   if (
-    feature('BASH_CLASSIFIER') &&
+    false &&
     result.pendingClassifierCheck &&
     ctx.tool.name === BASH_TOOL_NAME &&
     !awaitAutomatedChecksBeforeDialog
@@ -467,7 +466,7 @@ function handleInteractivePermission(
               : undefined
 
           // Show auto-approved transition with dimmed options
-          if (feature('TRANSCRIPT_CLASSIFIER')) {
+          if (true) {
             ctx.updateQueueItem({
               classifierCheckInProgress: false,
               classifierAutoApproved: true,
@@ -476,7 +475,7 @@ function handleInteractivePermission(
           }
 
           if (
-            feature('TRANSCRIPT_CLASSIFIER') &&
+            true &&
             decisionReason.type === 'classifier'
           ) {
             if (decisionReason.classifier === 'auto-mode') {

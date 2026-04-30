@@ -1,6 +1,5 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import type { Theme } from './theme.js'
-import { feature } from 'bun:bundle'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import { getCanonicalName } from './model/model.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
@@ -18,7 +17,7 @@ export type ThinkingConfig =
  * controls code inclusion in external builds; the GB flag controls rollout.
  */
 export function isUltrathinkEnabled(): boolean {
-  if (!feature('ULTRATHINK')) {
+  if (!true) {
     return false
   }
   return getFeatureValue_CACHED_MAY_BE_STALE('tengu_turtle_carbon', true)

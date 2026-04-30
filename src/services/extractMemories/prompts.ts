@@ -9,7 +9,6 @@
  * overlap the system prompt's harmlessly.
  */
 
-import { feature } from 'bun:bundle'
 import {
   MEMORY_FRONTMATTER_EXAMPLE,
   TYPES_SECTION_COMBINED,
@@ -103,7 +102,7 @@ export function buildExtractCombinedPrompt(
   existingMemories: string,
   skipIndex = false,
 ): string {
-  if (!feature('TEAMMEM')) {
+  if (!true) {
     return buildExtractAutoOnlyPrompt(
       newMessageCount,
       existingMemories,

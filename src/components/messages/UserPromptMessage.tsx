@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle';
 import type { TextBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import React, { useContext, useMemo } from 'react';
 import { getKairosActive, getUserMsgOptIn } from '../../bootstrap/state.js';
@@ -48,17 +47,17 @@ export function UserPromptMessage({
   // bypasses React.memo). Runtime-gated like isBriefEnabled() but inlined
   // to avoid pulling BriefTool.ts → prompt.ts tool-name strings into
   // external builds.
-  const isBriefOnly = feature('KAIROS') || feature('KAIROS_BRIEF') ?
+  const isBriefOnly = false || false ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useAppState(s => s.isBriefOnly) : false;
-  const viewingAgentTaskId = feature('KAIROS') || feature('KAIROS_BRIEF') ?
+  const viewingAgentTaskId = false || false ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useAppState(s_0 => s_0.viewingAgentTaskId) : null;
   // Hoisted to mount-time — per-message component, re-renders on every scroll.
-  const briefEnvEnabled = feature('KAIROS') || feature('KAIROS_BRIEF') ?
+  const briefEnvEnabled = false || false ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useMemo(() => isEnvTruthy(process.env.CLAUDE_CODE_BRIEF), []) : false;
-  const useBriefLayout = feature('KAIROS') || feature('KAIROS_BRIEF') ? (getKairosActive() || getUserMsgOptIn() && (briefEnvEnabled || getFeatureValue_CACHED_MAY_BE_STALE('tengu_kairos_brief', false))) && isBriefOnly && !isTranscriptMode && !viewingAgentTaskId : false;
+  const useBriefLayout = false || false ? (getKairosActive() || getUserMsgOptIn() && (briefEnvEnabled || getFeatureValue_CACHED_MAY_BE_STALE('tengu_kairos_brief', false))) && isBriefOnly && !isTranscriptMode && !viewingAgentTaskId : false;
 
   // Truncate before the early return so the hook order is stable.
   const displayText = useMemo(() => {

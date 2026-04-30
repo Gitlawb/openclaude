@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
 import chalk from 'chalk';
 import figures from 'figures';
 import React, { useMemo } from 'react';
@@ -21,7 +20,7 @@ type PermissionDecisionInfoItemProps = {
 function decisionReasonDisplayString(decisionReason: PermissionDecisionReason & {
   type: Exclude<PermissionDecisionReason['type'], 'subcommandResults'>;
 }): string {
-  if ((feature('BASH_CLASSIFIER') || feature('TRANSCRIPT_CLASSIFIER')) && decisionReason.type === 'classifier') {
+  if ((false || true) && decisionReason.type === 'classifier') {
     return `${chalk.bold(decisionReason.classifier)} classifier: ${decisionReason.reason}`;
   }
   switch (decisionReason.type) {

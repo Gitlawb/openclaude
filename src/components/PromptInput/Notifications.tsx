@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
 import * as React from 'react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { type Notification, useNotifications } from 'src/context/notifications.js';
@@ -34,7 +33,7 @@ import { TokenWarning } from '../TokenWarning.js';
 import { SandboxPromptFooterHint } from './SandboxPromptFooterHint.js';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const VoiceIndicator: typeof import('./VoiceIndicator.js').VoiceIndicator = feature('VOICE_MODE') ? require('./VoiceIndicator.js').VoiceIndicator : () => null;
+const VoiceIndicator: typeof import('./VoiceIndicator.js').VoiceIndicator = false ? require('./VoiceIndicator.js').VoiceIndicator : () => null;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 export const FOOTER_TEMPORARY_STATUS_TIMEOUT = 5000;
@@ -266,21 +265,21 @@ function NotificationContent({
   }, []);
 
   // Voice state (VOICE_MODE builds only, runtime-gated by GrowthBook)
-  const voiceState = feature('VOICE_MODE') ?
+  const voiceState = false ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useVoiceState(s => s.voiceState) : 'idle' as const;
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
-  const voiceEnabled = feature('VOICE_MODE') ? useVoiceEnabled() : false;
-  const voiceError = feature('VOICE_MODE') ?
+  const voiceEnabled = false ? useVoiceEnabled() : false;
+  const voiceError = false ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useVoiceState(s_0 => s_0.voiceError) : null;
-  const isBriefOnly = feature('KAIROS') || feature('KAIROS_BRIEF') ?
+  const isBriefOnly = false || false ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useAppState(s_1 => s_1.isBriefOnly) : false;
 
   // When voice is actively recording or processing, replace all
   // notifications with just the voice indicator.
-  if (feature('VOICE_MODE') && voiceEnabled && (voiceState === 'recording' || voiceState === 'processing')) {
+  if (false && voiceEnabled && (voiceState === 'recording' || voiceState === 'processing')) {
     return <VoiceIndicator voiceState={voiceState} />;
   }
   return <>
@@ -320,7 +319,7 @@ function NotificationContent({
         </Box>}
       {!isBriefOnly && <TokenWarning tokenUsage={tokenUsage} model={mainLoopModel} />}
       {shouldShowAutoUpdater && <AutoUpdaterWrapper verbose={verbose} onAutoUpdaterResult={onAutoUpdaterResult} autoUpdaterResult={autoUpdaterResult} isUpdating={isAutoUpdating} onChangeIsUpdating={onChangeIsUpdating} showSuccessMessage={!isShowingCompactMessage} />}
-      {feature('VOICE_MODE') ? voiceEnabled && voiceError && <Box>
+      {false ? voiceEnabled && voiceError && <Box>
               <Text color="error" wrap="truncate">
                 {voiceError}
               </Text>

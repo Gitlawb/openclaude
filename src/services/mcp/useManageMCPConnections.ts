@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { basename } from 'path'
 import { useCallback, useEffect, useRef } from 'react'
 import { getSessionId } from '../../bootstrap/state.js'
@@ -19,12 +18,12 @@ import type {
 } from './types.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const fetchMcpSkillsForClient = feature('MCP_SKILLS')
+const fetchMcpSkillsForClient = false
   ? (
       require('../../skills/mcpSkills.js') as typeof import('../../skills/mcpSkills.js')
     ).fetchMcpSkillsForClient
   : null
-const clearSkillIndexCache = feature('EXPERIMENTAL_SKILL_SEARCH')
+const clearSkillIndexCache = false
   ? (
       require('../skillSearch/localSearch.js') as typeof import('../skillSearch/localSearch.js')
     ).clearSkillIndexCache
@@ -169,7 +168,7 @@ export function useManageMCPConnections(
     null,
   )
   if (
-    (feature('KAIROS') || feature('KAIROS_CHANNELS')) &&
+    (false || false) &&
     channelPermCallbacksRef.current === null
   ) {
     channelPermCallbacksRef.current = createChannelPermissionCallbacks()
@@ -177,7 +176,7 @@ export function useManageMCPConnections(
   // Store callbacks in AppState so interactiveHandler.ts can reach them via
   // ctx.toolUseContext.getAppState(). One-time set — the ref is stable.
   useEffect(() => {
-    if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
+    if (false || false) {
       const callbacks = channelPermCallbacksRef.current
       if (!callbacks) return
       // GrowthBook runtime gate — separate from channels so channels can
@@ -470,7 +469,7 @@ export function useManageMCPConnections(
           // Channel push: notifications/claude/channel → enqueue().
           // Gate decides whether to register the handler; connection stays
           // up either way (allowedMcpServers controls that).
-          if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
+          if (false || false) {
             const gate = gateChannelServer(
               client.name,
               client.capabilities,
@@ -681,7 +680,7 @@ export function useManageMCPConnections(
                   fetchCommandsForClient.cache.delete(client.name)
                   const [mcpPrompts, mcpSkills] = await Promise.all([
                     fetchCommandsForClient(client),
-                    feature('MCP_SKILLS')
+                    false
                       ? fetchMcpSkillsForClient!(client)
                       : Promise.resolve([]),
                   ])
@@ -715,7 +714,7 @@ export function useManageMCPConnections(
                 })
                 try {
                   fetchResourcesForClient.cache.delete(client.name)
-                  if (feature('MCP_SKILLS')) {
+                  if (false) {
                     // Skills are discovered from resources, so refresh them too.
                     // Invalidate prompts cache as well: we write commands here,
                     // and a concurrent prompts/list_changed could otherwise have

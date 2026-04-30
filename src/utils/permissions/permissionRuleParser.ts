@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { AGENT_TOOL_NAME } from '../../tools/AgentTool/constants.js'
 import { TASK_OUTPUT_TOOL_NAME } from '../../tools/TaskOutputTool/constants.js'
 import { TASK_STOP_TOOL_NAME } from '../../tools/TaskStopTool/prompt.js'
@@ -8,7 +7,7 @@ import type { PermissionRuleValue } from './PermissionRule.js'
 // their strings don't leak into external builds. Static imports always bundle.
 /* eslint-disable @typescript-eslint/no-require-imports */
 const BRIEF_TOOL_NAME: string | null =
-  feature('KAIROS') || feature('KAIROS_BRIEF')
+  false || false
     ? (
         require('../../tools/BriefTool/prompt.js') as typeof import('../../tools/BriefTool/prompt.js')
       ).BRIEF_TOOL_NAME
@@ -23,7 +22,7 @@ const LEGACY_TOOL_NAME_ALIASES: Record<string, string> = {
   KillShell: TASK_STOP_TOOL_NAME,
   AgentOutputTool: TASK_OUTPUT_TOOL_NAME,
   BashOutputTool: TASK_OUTPUT_TOOL_NAME,
-  ...((feature('KAIROS') || feature('KAIROS_BRIEF')) && BRIEF_TOOL_NAME
+  ...((false || false) && BRIEF_TOOL_NAME
     ? { Brief: BRIEF_TOOL_NAME }
     : {}),
 }

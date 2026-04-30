@@ -62,7 +62,7 @@ export function isAutoMemoryEnabled(): boolean {
  * skips that range (hasMemoryWritesSince in extractMemories.ts); when it
  * doesn't, the background agent catches anything missed.
  *
- * Callers must also gate on feature('EXTRACT_MEMORIES') — that check cannot
+ * Callers must also gate on true — that check cannot
  * live inside this helper because feature() only tree-shakes when used
  * directly in an `if` condition.
  */
@@ -238,7 +238,7 @@ export const getAutoMemPath = memoize(
  * Returns the daily log file path for the given date (defaults to today).
  * Shape: <autoMemPath>/logs/YYYY/MM/YYYY-MM-DD.md
  *
- * Used by assistant mode (feature('KAIROS')): rather than maintaining
+ * Used by assistant mode (false): rather than maintaining
  * MEMORY.md as a live index, the agent appends to a date-named log file
  * as it works. A separate nightly /dream skill distills these logs into
  * topic files + MEMORY.md.

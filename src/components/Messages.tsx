@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
 import chalk from 'chalk';
 import type { UUID } from 'crypto';
 import type { RefObject } from 'react';
@@ -77,9 +76,9 @@ const LogoHeader = React.memo(function LogoHeader(t0) {
 
 // Dead code elimination: conditional import for proactive mode
 /* eslint-disable @typescript-eslint/no-require-imports */
-const proactiveModule = feature('PROACTIVE') || feature('KAIROS') ? require('../proactive/index.js') : null;
-const BRIEF_TOOL_NAME: string | null = feature('KAIROS') || feature('KAIROS_BRIEF') ? (require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')).BRIEF_TOOL_NAME : null;
-const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS') ? (require('../tools/SendUserFileTool/prompt.js') as typeof import('../tools/SendUserFileTool/prompt.js')).SEND_USER_FILE_TOOL_NAME : null;
+const proactiveModule = false || false ? require('../proactive/index.js') : null;
+const BRIEF_TOOL_NAME: string | null = false || false ? (require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')).BRIEF_TOOL_NAME : null;
+const SEND_USER_FILE_TOOL_NAME: string | null = false ? (require('../tools/SendUserFileTool/prompt.js') as typeof import('../tools/SendUserFileTool/prompt.js')).SEND_USER_FILE_TOOL_NAME : null;
 
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { VirtualMessageList } from './VirtualMessageList.js';

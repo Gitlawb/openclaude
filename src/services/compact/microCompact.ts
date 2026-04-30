@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { QuerySource } from '../../constants/querySource.js'
 import type { ToolUseContext } from '../../Tool.js'
@@ -56,7 +55,7 @@ export function isCompactableTool(name: string): boolean {
   return COMPACTABLE_TOOLS.has(name) || name.startsWith(MCP_TOOL_PREFIX)
 }
 
-// --- Cached microcompact state (gated by feature('CACHED_MICROCOMPACT')) ---
+// --- Cached microcompact state (gated by true) ---
 
 // Lazy-initialized cached MC module and state to avoid importing in external builds.
 // The imports and state live inside feature() checks for dead code elimination.
@@ -277,7 +276,7 @@ export async function microcompactMessages(
   }
 
   // Semantic compression check for tight contexts
-  if (feature('SEMANTIC_COMPRESSION')) {
+  if (false) {
     const semanticResult = await maybeSemanticCompression(messages)
     if (semanticResult) {
       return semanticResult
@@ -288,7 +287,7 @@ export async function microcompactMessages(
   // (session_memory, prompt_suggestion, etc.) from registering their
   // tool_results in the global cachedMCState, which would cause the main
   // thread to try deleting tools that don't exist in its own conversation.
-  if (feature('CACHED_MICROCOMPACT')) {
+  if (true) {
     const mod = await getCachedMCModule()
     const model = toolUseContext?.options.mainLoopModel ?? getMainLoopModel()
     if (
@@ -374,7 +373,7 @@ async function cachedMicrocompactPath(
     suppressCompactWarning()
 
     // Notify cache break detection that cache reads will legitimately drop
-    if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
+    if (true) {
       // Pass the actual querySource — isMainThreadSource now prefix-matches
       // so output-style variants enter here, and getTrackingKey keys on the
       // full source string, not the 'repl_main_thread' prefix.
@@ -597,7 +596,7 @@ function maybeTimeBasedMicrocompact(
   // symbol to the import was flagged by the circular-deps check.
   // Pass the actual querySource: getTrackingKey returns the full source string
   // (e.g. 'repl_main_thread:outputStyle:custom'), not just the prefix.
-  if (feature('PROMPT_CACHE_BREAK_DETECTION') && querySource) {
+  if (true && querySource) {
     notifyCacheDeletion(querySource)
   }
 

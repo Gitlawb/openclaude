@@ -1,10 +1,9 @@
-import { feature } from 'bun:bundle'
 import type { PartialCompactDirection } from '../../types/message.js'
 
 // Dead code elimination: conditional import for proactive mode
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactiveModule =
-  feature('PROACTIVE') || feature('KAIROS')
+  false || false
     ? (require('../../proactive/index.js') as typeof import('../../proactive/index.js'))
     : null
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -359,7 +358,7 @@ ${formattedSummary}`
 Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.`
 
     if (
-      (feature('PROACTIVE') || feature('KAIROS')) &&
+      (false || false) &&
       proactiveModule?.isProactiveActive()
     ) {
       continuation += `

@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { useEffect, useRef } from 'react'
 import { useNotifications } from 'src/context/notifications.js'
 import { getIsRemoteMode } from '../../bootstrap/state.js'
@@ -29,7 +28,7 @@ export function useAutoModeUnavailableNotification(): void {
     const prevMode = prevModeRef.current
     prevModeRef.current = mode
 
-    if (!feature('TRANSCRIPT_CLASSIFIER')) return
+    if (!true) return
     if (getIsRemoteMode()) return
     if (shownRef.current) return
 

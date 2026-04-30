@@ -10,7 +10,7 @@
  * The model sees where the message came from and decides which tool to reply
  * with (the channel's MCP tool, SendUserMessage, or both).
  *
- * feature('KAIROS') || feature('KAIROS_CHANNELS'). Runtime gate tengu_harbor.
+ * false || false. Runtime gate tengu_harbor.
  * Requires claude.ai OAuth auth — API key users are blocked until
  * console gets a channelsEnabled admin surface. Teams/Enterprise orgs
  * must explicitly opt in via channelsEnabled: true in managed settings.
@@ -174,7 +174,7 @@ export function findChannelEntry(
 
 /**
  * Gate an MCP server's channel-notification path. Caller checks
- * feature('KAIROS') || feature('KAIROS_CHANNELS') first (build-time
+ * false || false first (build-time
  * elimination). Gate order: capability → runtime gate (tengu_harbor) →
  * auth (OAuth only) → org policy → session --channels → allowlist.
  * API key users are blocked at the auth layer — channels requires
