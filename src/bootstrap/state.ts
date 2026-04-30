@@ -441,6 +441,7 @@ type SdkContext = {
   sessionProjectDir: string | null
   cwd: string
   originalCwd: string
+  parentSessionId?: SessionId
 }
 
 import { AsyncLocalStorage } from 'async_hooks'
@@ -475,7 +476,11 @@ export function regenerateSessionId(
   const ctx = getSdkContext()
   const currentSessionId = ctx?.sessionId ?? STATE.sessionId
   if (options.setCurrentAsParent) {
-    STATE.parentSessionId = currentSessionId
+    if (ctx) {
+      ctx.parentSessionId = currentSessionId
+    } else {
+      STATE.parentSessionId = currentSessionId
+    }
   }
   // Drop the outgoing session's plan-slug entry so the Map doesn't
   // accumulate stale keys. Callers that need to carry the slug across
@@ -495,6 +500,10 @@ export function regenerateSessionId(
 }
 
 export function getParentSessionId(): SessionId | undefined {
+  const ctx = getSdkContext()
+  if (ctx) {
+    return ctx.parentSessionId
+  }
   return STATE.parentSessionId
 }
 

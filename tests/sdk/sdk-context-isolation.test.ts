@@ -9,6 +9,7 @@ import {
   setCwdState,
   getOriginalCwd,
   setOriginalCwd,
+  getParentSessionId,
 } from '../../src/bootstrap/state.js'
 import type { SessionId } from '../../src/entrypoints/agentSdkTypes.js'
 
@@ -172,6 +173,103 @@ describe('SDK context isolation', () => {
       // Global state should be unchanged
       expect(getSessionId()).toBe(originalSessionId)
       expect(getSessionProjectDir()).toBe(originalSessionProjectDir)
+    })
+  })
+
+  describe('parentSessionId isolation', () => {
+    test('regenerateSessionId({ setCurrentAsParent: true }) writes to SDK context, not global STATE', () => {
+      const ctx = {
+        sessionId: 'parent-test-1' as SessionId,
+        sessionProjectDir: null,
+        cwd: '/cwd',
+        originalCwd: '/cwd',
+      }
+
+      runWithSdkContext(ctx, () => {
+        regenerateSessionId({ setCurrentAsParent: true })
+        // Inside context: parentSessionId should reflect the context's value
+        expect(getParentSessionId()).toBe('parent-test-1')
+      })
+
+      // Outside context: global STATE.parentSessionId should NOT be polluted
+      expect(getParentSessionId()).toBeUndefined()
+    })
+
+    test('sequential SDK contexts do not overwrite each other\'s parentSessionId', () => {
+      const ctxA = {
+        sessionId: '11111111-1111-4111-8111-111111111111' as SessionId,
+        sessionProjectDir: null,
+        cwd: 'C:/a',
+        originalCwd: 'C:/a',
+      }
+      const ctxB = {
+        sessionId: '22222222-2222-4222-8222-222222222222' as SessionId,
+        sessionProjectDir: null,
+        cwd: 'C:/b',
+        originalCwd: 'C:/b',
+      }
+
+      let afterA: SessionId | undefined
+      let afterB: SessionId | undefined
+
+      runWithSdkContext(ctxA, () => {
+        regenerateSessionId({ setCurrentAsParent: true })
+        afterA = getParentSessionId()
+      })
+
+      runWithSdkContext(ctxB, () => {
+        regenerateSessionId({ setCurrentAsParent: true })
+        afterB = getParentSessionId()
+      })
+
+      // Each context sees its own parentSessionId
+      expect(afterA).toBe('11111111-1111-4111-8111-111111111111')
+      expect(afterB).toBe('22222222-2222-4222-8222-222222222222')
+
+      // Global STATE should remain clean
+      expect(getParentSessionId()).toBeUndefined()
+    })
+
+    test('parallel SDK contexts each see their own parentSessionId', async () => {
+      const ctxA = {
+        sessionId: 'parallel-parent-a' as SessionId,
+        sessionProjectDir: null,
+        cwd: '/a',
+        originalCwd: '/a',
+      }
+      const ctxB = {
+        sessionId: 'parallel-parent-b' as SessionId,
+        sessionProjectDir: null,
+        cwd: '/b',
+        originalCwd: '/b',
+      }
+
+      const [resultA, resultB] = await Promise.all([
+        new Promise<SessionId | undefined>(resolve => {
+          runWithSdkContext(ctxA, async () => {
+            regenerateSessionId({ setCurrentAsParent: true })
+            await Bun.sleep(1)
+            resolve(getParentSessionId())
+          })
+        }),
+        new Promise<SessionId | undefined>(resolve => {
+          runWithSdkContext(ctxB, async () => {
+            await Bun.sleep(1)
+            regenerateSessionId({ setCurrentAsParent: true })
+            resolve(getParentSessionId())
+          })
+        }),
+      ])
+
+      expect(resultA).toBe('parallel-parent-a')
+      expect(resultB).toBe('parallel-parent-b')
+    })
+
+    test('non-SDK CLI path: regenerateSessionId still writes to global STATE', () => {
+      // Outside any SDK context, setCurrentAsParent should work as before
+      const beforeId = getSessionId()
+      regenerateSessionId({ setCurrentAsParent: true })
+      expect(getParentSessionId()).toBe(beforeId)
     })
   })
 
