@@ -21,6 +21,19 @@ type TestServerInstance = {
   config?: TestServerConfig
 }
 
+type OfficialMarketplaceCheckResult = {
+  installed: boolean
+  skipped: boolean
+  reason?:
+    | 'already_attempted'
+    | 'already_installed'
+    | 'policy_blocked'
+    | 'git_unavailable'
+    | 'gcs_unavailable'
+    | 'unknown'
+  configSaveFailed?: boolean
+}
+
 let initializationStatus: InitializationStatus = { status: 'not-started' }
 let configuredServers: Record<string, TestServerConfig> = {}
 let serverInstances = new Map<string, TestServerInstance>()
@@ -69,6 +82,13 @@ const uninstallPluginOp = mock(
 
 const reinitializeLspServerManager = mock(() => {})
 const waitForInitialization = mock(async () => {})
+const checkAndInstallOfficialMarketplace = mock(
+  async (): Promise<OfficialMarketplaceCheckResult> => ({
+    installed: false,
+    skipped: true,
+    reason: 'already_installed',
+  }),
+)
 const discoverWorkspaceExtensions = async (pathspec?: string) =>
   pathspec === 'src' || pathspec === '.'
     ? ['.ts', '.tsx']
@@ -96,6 +116,7 @@ const deps = {
     candidateCallOptions.push(options)
     return candidates
   },
+  checkAndInstallOfficialMarketplace,
   installPluginOp,
   uninstallPluginOp,
   refreshActivePlugins,
@@ -115,6 +136,12 @@ beforeEach(() => {
   refreshActivePlugins.mockClear()
   reinitializeLspServerManager.mockClear()
   waitForInitialization.mockClear()
+  checkAndInstallOfficialMarketplace.mockClear()
+  checkAndInstallOfficialMarketplace.mockImplementation(async () => ({
+    installed: false,
+    skipped: true,
+    reason: 'already_installed' as const,
+  }))
   deps.getInitializationStatus = () => initializationStatus
   deps.listLspPluginCandidates = async (options: unknown) => {
     candidateCallOptions.push(options)
@@ -358,6 +385,50 @@ describe('/lsp recommend', () => {
     }
   })
 
+  test('installs missing official marketplace and retries candidate lookup', async () => {
+    const typescriptCandidate = {
+      pluginId: 'typescript-lsp@claude-plugins-official',
+      pluginName: 'typescript-lsp',
+      marketplaceName: 'claude-plugins-official',
+      isOfficial: true,
+      extensions: ['.ts', '.tsx'],
+      command: 'typescript-language-server',
+      binaryInstalled: true,
+      installed: false,
+    }
+    let lookupCount = 0
+    deps.listLspPluginCandidates = async (options: unknown) => {
+      candidateCallOptions.push(options)
+      lookupCount += 1
+      return lookupCount === 1 ? [] : [typescriptCandidate]
+    }
+    checkAndInstallOfficialMarketplace.mockImplementationOnce(async () => ({
+      installed: true,
+      skipped: false,
+    }))
+
+    const output = await run('recommend src/main.ts')
+
+    expect(checkAndInstallOfficialMarketplace).toHaveBeenCalled()
+    expect(candidateCallOptions).toHaveLength(2)
+    expect(output).toContain(
+      'Anthropic marketplace installed for LSP recommendations',
+    )
+    expect(output).toContain('typescript-lsp@claude-plugins-official')
+  })
+
+  test('explains why marketplace repair could not provide candidates', async () => {
+    checkAndInstallOfficialMarketplace.mockImplementationOnce(async () => ({
+      installed: false,
+      skipped: true,
+      reason: 'policy_blocked',
+    }))
+
+    const output = await run('recommend src/main.ts')
+
+    expect(output).toContain('No LSP plugin candidates found for .ts')
+    expect(output).toContain('policy blocks it')
+  })
 })
 
 describe('/lsp install', () => {

@@ -23,6 +23,10 @@ import {
   listLspPluginCandidates,
   type LspPluginCandidate,
 } from '../../utils/plugins/lspRecommendation.js'
+import {
+  checkAndInstallOfficialMarketplace,
+  type OfficialMarketplaceCheckResult,
+} from '../../utils/plugins/officialMarketplaceStartupCheck.js'
 import { refreshActivePlugins } from '../../utils/plugins/refresh.js'
 import { plural } from '../../utils/stringUtils.js'
 
@@ -53,6 +57,7 @@ export type LspCommandDeps = {
   getLspServerManager: () => LspServerManagerLike | undefined
   getAllLspServers: typeof getAllLspServers
   listLspPluginCandidates: typeof listLspPluginCandidates
+  checkAndInstallOfficialMarketplace: typeof checkAndInstallOfficialMarketplace
   installPluginOp: typeof installPluginOp
   uninstallPluginOp: typeof uninstallPluginOp
   refreshActivePlugins: typeof refreshActivePlugins
@@ -66,12 +71,25 @@ const DEFAULT_DEPS: LspCommandDeps = {
   getLspServerManager,
   getAllLspServers,
   listLspPluginCandidates,
+  checkAndInstallOfficialMarketplace,
   installPluginOp,
   uninstallPluginOp,
   refreshActivePlugins,
   reinitializeLspServerManager,
   waitForInitialization,
   discoverWorkspaceExtensions,
+}
+
+type BinaryInstallHint = {
+  install?: {
+    archManjaro?: string
+    debianUbuntu?: string
+    macos?: string
+    windows?: string
+    generic?: string
+  }
+  verify?: string
+  notes?: string[]
 }
 
 const DISCOVERED_EXTENSION_IGNORE_SET = new Set([
@@ -109,18 +127,6 @@ const DISCOVERY_DIRECTORY_IGNORE_SET = new Set([
 
 const MAX_DISCOVERY_FILES = 5_000
 const MAX_DISCOVERY_DEPTH = 8
-
-type BinaryInstallHint = {
-  install?: {
-    archManjaro?: string
-    debianUbuntu?: string
-    macos?: string
-    windows?: string
-    generic?: string
-  }
-  verify?: string
-  notes?: string[]
-}
 
 const BINARY_INSTALL_HINTS: Record<string, BinaryInstallHint> = {
   clangd: {
@@ -353,25 +359,110 @@ async function renderRecommendations(
       : 'No file extensions found in this workspace.'
   }
 
-  const candidates = await deps.listLspPluginCandidates({
-    extensions,
-    includeInstalled: true,
-    includeMissingBinaries: true,
-  })
+  const { candidates, marketplaceSetup, marketplaceSetupError } =
+    await listRecommendationCandidates(extensions, deps)
   const scope = formatExtensionScope(extensions)
 
   if (candidates.length === 0) {
-    return `No LSP plugin candidates found for ${scope}.`
+    const lines = [`No LSP plugin candidates found for ${scope}.`]
+    const setupMessage = renderMarketplaceSetupMessage(
+      marketplaceSetup,
+      marketplaceSetupError,
+      false,
+    )
+    if (setupMessage) lines.push(setupMessage)
+    return lines.join('\n')
   }
 
   const matchedScope = formatExtensionScope(
     getCandidateMatchedExtensions(extensions, candidates),
   )
   const lines = [`LSP recommendations for ${matchedScope || scope}`]
+  const setupMessage = renderMarketplaceSetupMessage(
+    marketplaceSetup,
+    marketplaceSetupError,
+    true,
+  )
+  if (setupMessage) lines.push(setupMessage)
   for (const candidate of candidates) {
     lines.push(...renderCandidate(candidate))
   }
   return lines.join('\n')
+}
+
+type RecommendationCandidateLookup = {
+  candidates: LspPluginCandidate[]
+  marketplaceSetup?: OfficialMarketplaceCheckResult
+  marketplaceSetupError?: string
+}
+
+async function listRecommendationCandidates(
+  extensions: string[],
+  deps: LspCommandDeps,
+): Promise<RecommendationCandidateLookup> {
+  const candidateOptions = {
+    extensions,
+    includeInstalled: true,
+    includeMissingBinaries: true,
+  }
+  let candidates = await deps.listLspPluginCandidates(candidateOptions)
+  if (candidates.length > 0) {
+    return { candidates }
+  }
+
+  let marketplaceSetup: OfficialMarketplaceCheckResult
+  try {
+    marketplaceSetup = await deps.checkAndInstallOfficialMarketplace()
+  } catch (error) {
+    return {
+      candidates,
+      marketplaceSetupError: errorMessage(error),
+    }
+  }
+
+  if (
+    marketplaceSetup.installed ||
+    marketplaceSetup.reason === 'already_installed'
+  ) {
+    candidates = await deps.listLspPluginCandidates(candidateOptions)
+  }
+
+  return { candidates, marketplaceSetup }
+}
+
+function renderMarketplaceSetupMessage(
+  result: OfficialMarketplaceCheckResult | undefined,
+  error: string | undefined,
+  foundCandidates: boolean,
+): string | undefined {
+  if (error) {
+    return `Anthropic marketplace setup failed: ${error}`
+  }
+  if (!result) {
+    return undefined
+  }
+  if (result.installed) {
+    return foundCandidates
+      ? 'Anthropic marketplace installed for LSP recommendations.'
+      : 'Anthropic marketplace was installed, but it has no matching LSP plugin candidates for this scope.'
+  }
+  if (!result.skipped || result.reason === 'already_installed') {
+    return undefined
+  }
+
+  switch (result.reason) {
+    case 'policy_blocked':
+      return 'Anthropic marketplace is unavailable because policy blocks it.'
+    case 'git_unavailable':
+      return 'Anthropic marketplace is unavailable because git is not available.'
+    case 'gcs_unavailable':
+      return 'Anthropic marketplace download is temporarily unavailable; it will retry later.'
+    case 'already_attempted':
+      return 'Anthropic marketplace setup was already attempted and is waiting before retrying.'
+    case 'unknown':
+    default:
+      return 'Anthropic marketplace setup failed; run /doctor for details.'
+  }
 }
 
 function renderCandidate(candidate: LspPluginCandidate): string[] {
