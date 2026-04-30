@@ -210,6 +210,66 @@ describe('createExternalCanUseTool race condition', () => {
     expect(result.behavior).toBe('allow')
     expect(onTimeout).not.toHaveBeenCalled()
   })
+
+  test('host response after timeout is safely ignored (no double-resolve)', async () => {
+    const permissionTarget = createPermissionTarget()
+    const onPermissionRequest = vi.fn()
+    const onTimeout = vi.fn()
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      onTimeout,
+      50, // 50ms timeout
+    )
+
+    const toolUseID = 'test-timeout-then-late-response'
+
+    // Start the canUseTool call — this registers a pending permission
+    const resultPromise = canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      toolUseID,
+      undefined,
+    )
+
+    // Grab a reference to the resolve BEFORE timeout fires — simulates host
+    // capturing the callback while the permission prompt is still pending
+    const staleResolve = permissionTarget.pendingPermissionPrompts.get(toolUseID)
+    expect(staleResolve).toBeDefined()
+
+    // Wait LONGER than the 50ms timeout — timeout fires first, resolves with deny
+    const result = await resultPromise
+
+    // Timeout should have denied
+    expect(result.behavior).toBe('deny')
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+
+    // Map entry cleaned up by timeout handler — no leaked listener
+    expect(permissionTarget.pendingPermissionPrompts.has(toolUseID)).toBe(false)
+
+    // NOW the host responds late through the stale reference it captured earlier.
+    // This is the critical scenario: host calls resolve({allow}) AFTER timeout
+    // already resolved with {deny}. onceOnlyResolve must silently ignore this.
+    // Wrap in try/catch to explicitly verify no error from double-resolve attempt.
+    let lateResponseError: Error | null = null
+    try {
+      staleResolve!.resolve({ behavior: 'allow' as const, updatedInput: { injected: true } })
+    } catch (e) {
+      lateResponseError = e as Error
+    }
+
+    // No error thrown — onceOnlyResolve silently swallowed the second resolve
+    expect(lateResponseError).toBeNull()
+
+    // Result stays 'deny' — timeout decision is immutable
+    expect(result.behavior).toBe('deny')
+    expect((result as any).updatedInput).toBeUndefined()
+  })
 })
 
 describe('createOnceOnlyResolve', () => {
@@ -274,6 +334,33 @@ describe('createOnceOnlyResolve', () => {
 
     onceOnlyResolve(null)
     expect(resolvedValue).toBeUndefined() // Still undefined
+  })
+
+  test('timeout-deny-then-host-allow: raw resolve called exactly once', () => {
+    // This directly proves onceOnlyResolve prevents the raw resolve from being
+    // called a second time — the exact scenario the reviewer asked about:
+    // timeout fires first (deny), then host responds (allow) — raw resolve
+    // must only execute once.
+    let rawCallCount = 0
+    let rawResolvedValue: PermissionResolveDecision | undefined
+
+    const rawResolve = (value: PermissionResolveDecision) => {
+      rawCallCount++
+      rawResolvedValue = value
+    }
+
+    const wrapped = createOnceOnlyResolve(rawResolve)
+
+    // Step 1: Timeout fires first — resolves with deny
+    wrapped({ behavior: 'deny', message: 'Permission resolution timed out' })
+    expect(rawCallCount).toBe(1)
+    expect(rawResolvedValue!.behavior).toBe('deny')
+
+    // Step 2: Host responds late with allow — must be ignored
+    wrapped({ behavior: 'allow' as const, updatedInput: { injected: true } })
+    expect(rawCallCount).toBe(1) // NOT 2 — second call was a no-op
+    expect(rawResolvedValue!.behavior).toBe('deny') // Unchanged
+    expect((rawResolvedValue as any).updatedInput).toBeUndefined()
   })
 })
 
