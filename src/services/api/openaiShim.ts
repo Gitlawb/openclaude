@@ -1591,7 +1591,8 @@ class OpenAIShimMessages {
       ['mistral', 'gemini', 'moonshot', 'deepseek', 'zai', 'kimi-code'].includes(
         runtimeShimContext.routeId ?? '',
       ) ||
-      isGeminiMode()
+      isGeminiMode() ||
+      hasGeminiApiHost(request.baseUrl)
 
     if (
       shimConfig.maxTokensField === 'max_tokens' &&
@@ -1603,6 +1604,10 @@ class OpenAIShimMessages {
 
     for (const field of shimConfig.removeBodyFields ?? []) {
       delete body[field]
+    }
+
+    if (shouldStripResponsesStore) {
+      delete body.store
     }
 
     if (params.temperature !== undefined) body.temperature = params.temperature
