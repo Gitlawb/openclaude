@@ -1594,8 +1594,17 @@ class OpenAIShimMessages {
     // Moonshot direct API, Kimi Code's OpenAI-compatible coding endpoint,
     // DeepSeek, and Z.AI have not published support for the parameter either;
     // strip it preemptively to avoid the same class of error on strict-parse
-    // providers.
-    if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek || isZai) {
+    // providers. Detect Gemini from request.baseUrl as well — providerOverride
+    // routes (e.g. ~/.claude.json primaryProvider: google) reach the Gemini
+    // host without setting OPENAI_BASE_URL / CLAUDE_CODE_USE_GEMINI.
+    if (
+      isMistral ||
+      isGeminiMode() ||
+      hasGeminiApiHost(request.baseUrl) ||
+      isMoonshot ||
+      isDeepSeek ||
+      isZai
+    ) {
       delete body.store
     }
 
@@ -1677,7 +1686,14 @@ class OpenAIShimMessages {
         store: false,
       }
 
-      if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek || isZai) {
+      if (
+        isMistral ||
+        isGeminiMode() ||
+        hasGeminiApiHost(request.baseUrl) ||
+        isMoonshot ||
+        isDeepSeek ||
+        isZai
+      ) {
         delete responsesBody.store
       }
 
