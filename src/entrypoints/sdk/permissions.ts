@@ -437,7 +437,8 @@ export function createDefaultCanUseTool(
     log.warn(
       '[SDK] No canUseTool or onPermissionRequest callback provided. ' +
       'All tool uses will be DENIED by default. ' +
-      'Provide canUseTool in query options to allow specific tools.',
+      'Provide canUseTool in query options, e.g.: ' +
+      '{ canUseTool: async (name, input) => ({ behavior: "allow" }) }',
     )
   }
   return async (tool, input, _toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {
