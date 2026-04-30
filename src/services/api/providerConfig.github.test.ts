@@ -7,12 +7,18 @@ import {
 } from './providerConfig.js'
 
 const originalUseGithub = process.env.CLAUDE_CODE_USE_GITHUB
+const originalOpenAIApiFormat = process.env.OPENAI_API_FORMAT
 
 afterEach(() => {
   if (originalUseGithub === undefined) {
     delete process.env.CLAUDE_CODE_USE_GITHUB
   } else {
     process.env.CLAUDE_CODE_USE_GITHUB = originalUseGithub
+  }
+  if (originalOpenAIApiFormat === undefined) {
+    delete process.env.OPENAI_API_FORMAT
+  } else {
+    process.env.OPENAI_API_FORMAT = originalOpenAIApiFormat
   }
 })
 

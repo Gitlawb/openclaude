@@ -13,6 +13,7 @@ import { getUserAgent } from 'src/utils/http.js'
 import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
   isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
@@ -34,6 +35,10 @@ import {
   getXaiBaseUrlOverride,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
+import {
+  shouldUseFirstPartyAnthropicAuth,
+  type ProviderOverride,
+} from './authRouting.js'
 
 const importRuntimeModule = new Function(
   'specifier',

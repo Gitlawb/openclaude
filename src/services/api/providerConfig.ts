@@ -614,8 +614,10 @@ export function resolveProviderRequest(options?: {
     : requestedModel
 
   const requestedApiFormat =
-    parseOpenAICompatibleApiFormat(options?.apiFormat) ??
-    parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
+    isGithubMode
+      ? undefined
+      : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
+        parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
