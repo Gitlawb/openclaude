@@ -149,7 +149,18 @@ export async function getProviderValidationError(
     return null
   }
 
-  if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {
+  const hasOpenAIAuthHeader = Boolean(env.OPENAI_AUTH_HEADER?.trim())
+  const hasOpenAIAuthHeaderValue = Boolean(env.OPENAI_AUTH_HEADER_VALUE?.trim())
+  if (hasOpenAIAuthHeader && !hasOpenAIAuthHeaderValue) {
+    return 'OPENAI_AUTH_HEADER_VALUE is required when OPENAI_AUTH_HEADER is set.'
+  }
+
+  const hasOpenAIAuthCredential = Boolean(
+    env.OPENAI_API_KEY?.trim() ||
+    (hasOpenAIAuthHeader && hasOpenAIAuthHeaderValue),
+  )
+
+  if (!hasOpenAIAuthCredential && !isLocalProviderUrl(request.baseUrl)) {
     const hasGithubToken = !!(env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim())
     if (useGithub && hasGithubToken) {
       return null
