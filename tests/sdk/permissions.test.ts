@@ -140,6 +140,51 @@ describe('createExternalCanUseTool synchronous host response', () => {
     expect(result.behavior).toBe('allow')
     expect(onPermissionRequest).toHaveBeenCalledTimes(1)
   })
+
+  test('permission request message includes uuid and session_id matching schema', async () => {
+    // Regression test: permission_request must match SDKMessageSchema contract
+    // which requires uuid and session_id fields (not optional).
+    const permissionTarget = createPermissionTarget()
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      // Verify message shape matches generated schema requirements
+      expect(message.type).toBe('permission_request')
+      expect(message.request_id).toBeDefined()
+      expect(message.tool_name).toBe('TestTool')
+      expect(message.tool_use_id).toBe('shape-test-id')
+      expect(message.input).toBeDefined()
+      expect(message.uuid).toBeDefined() // Required by schema
+      expect(message.session_id).toBeDefined() // Required by schema
+
+      // Resolve to complete the test
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50,
+      'test-session-123', // Provide session_id
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'shape-test-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('allow')
+    expect(onPermissionRequest).toHaveBeenCalledTimes(1)
+    // Verify session_id was passed through
+    expect(onPermissionRequest.mock.calls[0][0].session_id).toBe('test-session-123')
+  })
 })
 
 describe('createExternalCanUseTool race condition', () => {
@@ -456,6 +501,43 @@ describe('createExternalCanUseTool error handling', () => {
 
     expect(result.behavior).toBe('deny')
     expect(result.message).toContain('Custom error from callback')
+  })
+
+  test('throwing onPermissionRequest cleans up pending resolver and denies', async () => {
+    // Regression test: After registerPendingPermission was moved before onPermissionRequest,
+    // a throwing host callback leaves a pending resolver behind in pendingPermissionPrompts.
+    // The callback should be wrapped so the pending entry is deleted and the flow denies cleanly.
+    const permissionTarget = createPermissionTarget()
+
+    const throwingCallback = vi.fn(() => {
+      throw new Error('host boom')
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      throwingCallback,
+      undefined,
+      50,
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'throw-id',
+      undefined,
+    )
+
+    // Should deny with error message, NOT throw
+    expect(result.behavior).toBe('deny')
+    expect(result.message).toContain('host boom')
+    expect(throwingCallback).toHaveBeenCalledTimes(1)
+
+    // Critical: pending resolver must be cleaned up, not leaked
+    expect(permissionTarget.pendingPermissionPrompts.has('throw-id')).toBe(false)
   })
 })
 

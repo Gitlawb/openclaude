@@ -198,6 +198,7 @@ export function createExternalCanUseTool(
   onTimeout?: (message: SDKPermissionTimeoutMessage) => void,
   // Default 30 second timeout for permission prompts - reasonable for human response time
   timeoutMs: number = DEFAULT_PERMISSION_TIMEOUT_MS,
+  sessionId?: string,
   logger?: SDKLogger,
 ): CanUseToolFn {
   const log = logger ?? defaultLogger
@@ -231,19 +232,34 @@ export function createExternalCanUseTool(
     // call it directly and await external resolution with timeout.
     if (toolUseID && onPermissionRequest) {
       const requestId = randomUUID()
+      const messageUuid = randomUUID()
 
       // Register pending permission BEFORE emitting the request so that
       // a host which responds synchronously from onPermissionRequest can
       // find the entry in pendingPermissionPrompts immediately.
       const pendingPromise = permissionTarget.registerPendingPermission(toolUseID)
 
-      onPermissionRequest({
-        type: 'permission_request',
-        request_id: requestId,
-        tool_name: tool.name,
-        tool_use_id: toolUseID,
-        input: input as Record<string, unknown>,
-      })
+      // Wrap onPermissionRequest in try-catch since it's SDK-host-provided code.
+      // If it throws, clean up the pending entry and deny/fallback cleanly.
+      try {
+        onPermissionRequest({
+          type: 'permission_request',
+          request_id: requestId,
+          tool_name: tool.name,
+          tool_use_id: toolUseID,
+          input: input as Record<string, unknown>,
+          uuid: messageUuid,
+          session_id: sessionId ?? '',
+        })
+      } catch (err) {
+        permissionTarget.pendingPermissionPrompts.delete(toolUseID)
+        const errorMessage = err instanceof Error ? err.message : 'Unknown host callback error'
+        return {
+          behavior: 'deny' as const,
+          message: `Tool ${tool.name} denied (onPermissionRequest callback error: ${errorMessage})`,
+          decisionReason: { type: 'mode' as const, mode: 'default' },
+        }
+      }
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise<{ timedOut: true }>(resolve => {

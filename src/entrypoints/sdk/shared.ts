@@ -164,7 +164,8 @@ export type SDKPermissionRequestMessage = {
   tool_name: string
   tool_use_id: string
   input: Record<string, unknown>
-  session_id?: string
+  uuid: string
+  session_id: string
 }
 
 /**
