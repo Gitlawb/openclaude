@@ -464,18 +464,26 @@ export function getSessionId(): SessionId {
 export function regenerateSessionId(
   options: { setCurrentAsParent?: boolean } = {},
 ): SessionId {
+  const ctx = getSdkContext()
+  const currentSessionId = ctx?.sessionId ?? STATE.sessionId
   if (options.setCurrentAsParent) {
-    STATE.parentSessionId = STATE.sessionId
+    STATE.parentSessionId = currentSessionId
   }
   // Drop the outgoing session's plan-slug entry so the Map doesn't
   // accumulate stale keys. Callers that need to carry the slug across
   // (REPL.tsx clearContext) read it before calling clearConversation.
-  STATE.planSlugCache.delete(STATE.sessionId)
+  STATE.planSlugCache.delete(currentSessionId)
   // Regenerated sessions live in the current project: reset projectDir to
   // null so getTranscriptPath() derives from originalCwd.
-  STATE.sessionId = randomUUID() as SessionId
-  STATE.sessionProjectDir = null
-  return STATE.sessionId
+  const newId = randomUUID() as SessionId
+  if (ctx) {
+    ctx.sessionId = newId
+    ctx.sessionProjectDir = null
+  } else {
+    STATE.sessionId = newId
+    STATE.sessionProjectDir = null
+  }
+  return newId
 }
 
 export function getParentSessionId(): SessionId | undefined {
@@ -498,12 +506,19 @@ export function switchSession(
   sessionId: SessionId,
   projectDir: string | null = null,
 ): void {
+  const ctx = getSdkContext()
+  const currentSessionId = ctx?.sessionId ?? STATE.sessionId
   // Drop the outgoing session's plan-slug entry so the Map stays bounded
   // across repeated /resume. Only the current session's slug is ever read
   // (plans.ts getPlanSlug defaults to getSessionId()).
-  STATE.planSlugCache.delete(STATE.sessionId)
-  STATE.sessionId = sessionId
-  STATE.sessionProjectDir = projectDir
+  STATE.planSlugCache.delete(currentSessionId)
+  if (ctx) {
+    ctx.sessionId = sessionId
+    ctx.sessionProjectDir = projectDir
+  } else {
+    STATE.sessionId = sessionId
+    STATE.sessionProjectDir = projectDir
+  }
   sessionSwitched.emit(sessionId)
 }
 
@@ -544,6 +559,11 @@ export function getProjectRoot(): string {
 }
 
 export function setOriginalCwd(cwd: string): void {
+  const ctx = getSdkContext()
+  if (ctx) {
+    ctx.originalCwd = cwd.normalize('NFC')
+    return
+  }
   STATE.originalCwd = cwd.normalize('NFC')
 }
 
@@ -561,6 +581,11 @@ export function getCwdState(): string {
 }
 
 export function setCwdState(cwd: string): void {
+  const ctx = getSdkContext()
+  if (ctx) {
+    ctx.cwd = cwd.normalize('NFC')
+    return
+  }
   STATE.cwd = cwd.normalize('NFC')
 }
 
