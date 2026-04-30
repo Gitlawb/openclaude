@@ -18,33 +18,6 @@ export function getIncrementalTokenCounter(): IncrementalTokenCounter {
   return _tokenCounter
 }
 
-/**
- * Cached token state for tracking cache read/creation tokens.
- * Stores the boundaries of cached message ranges to avoid recounting.
- */
-interface CachedRange {
-  startIndex: number
-  endIndex: number
-  cacheReadTokens: number
-  cacheCreationTokens: number
-}
-
-function getCacheInfoFromUsage(usage: Usage): CachedRange | null {
-  const cacheRead = usage.cache_read_input_tokens ?? 0
-  const cacheCreation = usage.cache_creation_input_tokens ?? 0
-
-  if (cacheRead === 0 && cacheCreation === 0) {
-    return null
-  }
-
-  return {
-    startIndex: 0,
-    endIndex: 0,
-    cacheReadTokens: cacheRead,
-    cacheCreationTokens: cacheCreation,
-  }
-}
-
 export function getTokenUsage(message: Message): Usage | undefined {
   if (
     message?.type === 'assistant' &&
