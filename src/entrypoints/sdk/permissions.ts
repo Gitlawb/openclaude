@@ -31,6 +31,24 @@ import type {
 export const DEFAULT_PERMISSION_TIMEOUT_MS = 30000
 
 // ============================================================================
+// Logger interface for SDK surface
+// ============================================================================
+
+/**
+ * Logger interface for SDK permission system.
+ * Hosts can inject a custom logger to control warning output.
+ * Defaults to console.warn if no logger is provided.
+ */
+export interface SDKLogger {
+  warn(message: string): void
+}
+
+/** Default console-based logger used when no custom logger is provided. */
+const defaultLogger: SDKLogger = {
+  warn: (message: string) => console.warn(message),
+}
+
+// ============================================================================
 // Once-only resolve wrapper
 // ============================================================================
 
@@ -180,7 +198,9 @@ export function createExternalCanUseTool(
   onTimeout?: (message: SDKPermissionTimeoutMessage) => void,
   // Default 30 second timeout for permission prompts - reasonable for human response time
   timeoutMs: number = DEFAULT_PERMISSION_TIMEOUT_MS,
+  logger?: SDKLogger,
 ): CanUseToolFn {
+  const log = logger ?? defaultLogger
   return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
     // If a forced decision was passed in, honor it
     if (forceDecision) return forceDecision
@@ -253,7 +273,7 @@ export function createExternalCanUseTool(
           timed_out_after_ms: timeoutMs,
         })
       }
-      console.warn(
+      log.warn(
         `[SDK] Permission request for tool "${tool.name}" timed out after ${timeoutMs}ms. ` +
         'Denying by default. Provide a canUseTool callback or respond to permission_request ' +
         'messages within the timeout window.',
@@ -384,10 +404,12 @@ let warnedDefaultPermissions = false
  */
 export function createDefaultCanUseTool(
   _permissionContext: ToolPermissionContext,
+  logger?: SDKLogger,
 ): CanUseToolFn {
+  const log = logger ?? defaultLogger
   if (!warnedDefaultPermissions) {
     warnedDefaultPermissions = true
-    console.warn(
+    log.warn(
       '[SDK] No canUseTool or onPermissionRequest callback provided. ' +
       'All tool uses will be DENIED by default. ' +
       'Provide canUseTool in query options to allow specific tools.',

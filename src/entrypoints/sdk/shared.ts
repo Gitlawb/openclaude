@@ -33,6 +33,24 @@ export function assertValidSessionId(sessionId: string): void {
 /**
  * Global mutex for process.env mutations.
  * Prevents race conditions when multiple queries run in parallel.
+ *
+ * **Note:** The SDK itself does not directly mutate process.env. This mutex
+ * is provided as a utility for SDK hosts who need to modify environment
+ * variables during parallel query execution (e.g., setting API keys per-query).
+ * Hosts must opt-in to using this mutex — there is no enforcement mechanism.
+ *
+ * Example usage:
+ * ```typescript
+ * const result = await acquireEnvMutex({ timeoutMs: 1000 })
+ * if (result.acquired) {
+ *   try {
+ *     process.env.MY_API_KEY = 'key-for-this-query'
+ *     // ... perform query ...
+ *   } finally {
+ *     releaseEnvMutex()
+ *   }
+ * }
+ * ```
  */
 const envMutationQueue: Array<() => void> = []
 let envMutationLocked = false
@@ -126,6 +144,19 @@ export function resetEnvMutexForTesting(): void {
 /**
  * Permission request message emitted when a tool needs permission approval.
  * Hosts can respond via respondToPermission() using the request_id.
+ *
+ * **ID Relationship:**
+ * - `request_id`: UUID generated per permission request, used as correlation ID
+ *   for respondToPermission(). Passed to onPermissionRequest callback for hosts
+ *   to identify which request they're responding to.
+ * - `tool_use_id`: Identifier for the specific tool use instance, passed from
+ *   canUseTool(). Used internally for pending permission tracking and queue
+ *   filtering. Multiple permission requests for the same tool use are rare but
+ *   possible (e.g., retry after timeout).
+ *
+ * Both IDs are present in every permission request message. Hosts typically use
+ * `request_id` for responding; `tool_use_id` is useful for tracking state or
+ * correlating with tool_use events in the message stream.
  */
 export type SDKPermissionRequestMessage = {
   type: 'permission_request'
@@ -141,6 +172,9 @@ export type SDKPermissionRequestMessage = {
  * Hosts can detect timeouts by checking `type === 'permission_timeout'`
  * in their `for await` loop. The `tool_use_id` matches the original
  * permission_request, allowing correlation.
+ *
+ * Note: `request_id` is not included in timeout messages since the request
+ * is no longer pending — hosts cannot respond to timed-out requests.
  */
 export type SDKPermissionTimeoutMessage = {
   type: 'permission_timeout'

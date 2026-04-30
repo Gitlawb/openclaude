@@ -431,6 +431,10 @@ const STATE: State = getInitialState()
 /**
  * Per-query SDK context for AsyncLocalStorage-based isolation.
  * When set, overrides global STATE reads for the current async context.
+ *
+ * **Runtime Requirement:** Uses Node.js `async_hooks.AsyncLocalStorage`.
+ * Not available in browsers or non-Node JavaScript environments.
+ * SDK consumers must run in a Node.js runtime (Node.js 12.17.0+ or 14.0.0+).
  */
 type SdkContext = {
   sessionId: SessionId
@@ -447,6 +451,10 @@ const sdkContextStorage = new AsyncLocalStorage<SdkContext>()
  * Run a function with an SDK-specific context that overrides global state.
  * All reads of sessionId, sessionProjectDir, cwd, originalCwd within fn
  * return context-scoped values instead of global STATE.
+ *
+ * **Node.js Only:** Requires AsyncLocalStorage from async_hooks module.
+ * This function will throw if called in a non-Node environment where
+ * async_hooks is not available.
  */
 export function runWithSdkContext<T>(context: SdkContext, fn: () => T): T {
   return sdkContextStorage.run(context, fn)
