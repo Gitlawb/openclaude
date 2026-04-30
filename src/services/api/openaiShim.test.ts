@@ -285,6 +285,79 @@ test('strips store from strict OpenAI-compatible responses providers', async () 
   expect(capturedBody?.store).toBeUndefined()
 })
 
+test('strips store when providerOverride routes chat_completions to the Gemini host', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-gemini',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {},
+    providerOverride: {
+      model: 'gemini-3.1-pro',
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiKey: 'gemini-key',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-3.1-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedBody?.store).toBeUndefined()
+})
+
+test('strips store when providerOverride routes responses API to the Gemini host', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'resp-gemini',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {},
+    providerOverride: {
+      model: 'gemini-3.1-pro',
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiKey: 'gemini-key',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-3.1-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedBody?.store).toBeUndefined()
+})
+
 test('uses custom OpenAI-compatible auth header value when configured', async () => {
   process.env.OPENAI_API_KEY = 'generic-key'
   process.env.OPENAI_AUTH_HEADER = 'api-key'
