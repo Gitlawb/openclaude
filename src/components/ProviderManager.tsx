@@ -1364,8 +1364,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         : []),
       {
         value: 'deepseek',
-        label: 'DeepSeek',
-        description: 'DeepSeek OpenAI-compatible endpoint',
+        label: 'DeepSeek V4',
+        description: 'DeepSeek V4 OpenAI-compatible endpoint',
       },
       {
         value: 'gemini',

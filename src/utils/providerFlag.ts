@@ -7,6 +7,7 @@
  * Usage:
  *   openclaude --provider openai --model gpt-4o
  *   openclaude --provider gemini --model gemini-2.0-flash
+ *   openclaude --provider deepseek --model deepseek-v4-pro?reasoning=xhigh
  *   openclaude --provider mistral --model ministral-3b-latest
  *   openclaude --provider ollama --model llama3.2
  *   openclaude --provider anthropic   (default, no-op)
@@ -17,6 +18,7 @@ export const VALID_PROVIDERS = [
   'bankr',
   'zai',
   'xai',
+  'deepseek',
   'openai',
   'gemini',
   'mistral',
@@ -101,6 +103,17 @@ export function applyProviderFlag(
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'deepseek':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://api.deepseek.com/v1'
+      process.env.OPENAI_MODEL ??= 'deepseek-v4-pro?reasoning=xhigh'
+      process.env.OPENAI_API_FORMAT = 'chat_completions'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.DEEPSEEK_API_KEY
+      }
       break
 
     case 'gemini':

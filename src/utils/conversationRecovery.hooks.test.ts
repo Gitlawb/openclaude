@@ -10,6 +10,7 @@ import { join } from 'node:path'
 
 const tempDirs: string[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
+const originalOpenAIBaseUrl = process.env.OPENAI_BASE_URL
 const sessionId = '00000000-0000-4000-8000-000000001999'
 const ts = '2026-04-02T00:00:00.000Z'
 
@@ -47,6 +48,11 @@ async function writeJsonl(entry: unknown): Promise<string> {
 afterEach(async () => {
   mock.restore()
   process.env.CLAUDE_CODE_SIMPLE = originalSimple
+  if (originalOpenAIBaseUrl === undefined) {
+    delete process.env.OPENAI_BASE_URL
+  } else {
+    process.env.OPENAI_BASE_URL = originalOpenAIBaseUrl
+  }
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
@@ -82,6 +88,7 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
       sessionId,
       version: 'test',
       message: {
+        id: 'msg_visible_thinking',
         role: 'assistant',
         content: [
           { type: 'thinking', thinking: 'secret reasoning' },
@@ -98,6 +105,7 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
       sessionId,
       version: 'test',
       message: {
+        id: 'msg_orphan_thinking',
         role: 'assistant',
         content: [{ type: 'thinking', thinking: 'only hidden reasoning' }],
       },
@@ -158,4 +166,97 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
   expect(
     JSON.stringify(anthropicAssistantMessages.map(message => message.message?.content)),
   ).not.toContain('only hidden reasoning')
+})
+
+test('deserializeMessagesWithInterruptDetection preserves DeepSeek tool-call thinking on resume', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+
+  const serializedMessages = [
+    user(id(20), 'hello'),
+    {
+      type: 'assistant',
+      uuid: id(21),
+      parentUuid: id(20),
+      timestamp: ts,
+      cwd: '/tmp',
+      sessionId,
+      version: 'test',
+      message: {
+        id: 'msg_no_tool',
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'no tool reasoning' },
+          { type: 'text', text: 'visible no-tool reply' },
+        ],
+      },
+    },
+    user(id(22), 'use a tool'),
+    {
+      type: 'assistant',
+      uuid: id(23),
+      parentUuid: id(22),
+      timestamp: ts,
+      cwd: '/tmp',
+      sessionId,
+      version: 'test',
+      message: {
+        id: 'msg_tool_call',
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'tool-call reasoning' },
+          { type: 'text', text: 'running a command' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
+      },
+    },
+    {
+      type: 'user',
+      uuid: id(24),
+      parentUuid: id(23),
+      timestamp: ts,
+      cwd: '/tmp',
+      userType: 'external',
+      sessionId,
+      version: 'test',
+      isSidechain: false,
+      isMeta: false,
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_1',
+            content: 'workspace',
+          },
+        ],
+      },
+    },
+    user(id(25), 'follow up'),
+  ]
+
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => 'openai',
+    isOpenAICompatibleProvider: (provider: string) =>
+      provider === 'openai' ||
+      provider === 'gemini' ||
+      provider === 'github' ||
+      provider === 'codex',
+  }))
+
+  const openaiModule = await import(`./conversationRecovery.ts?provider=deepseek-${Date.now()}`)
+  const result = openaiModule.deserializeMessagesWithInterruptDetection(serializedMessages as never[])
+  const assistantContent = JSON.stringify(
+    result.messages
+      .filter(message => message.type === 'assistant')
+      .map(message => message.message?.content),
+  )
+
+  expect(assistantContent).toContain('tool-call reasoning')
+  expect(assistantContent).toContain('running a command')
+  expect(assistantContent).not.toContain('no tool reasoning')
 })

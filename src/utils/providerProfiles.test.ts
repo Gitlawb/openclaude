@@ -716,16 +716,16 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('https://api.moonshot.ai/v1')
     expect(defaults.model).toBe('kimi-k2.5')
   })
-  test('deepseek preset defaults to DeepSeek V4 flash and exposes flash/pro aliases', async () => {
+  test('deepseek preset defaults to DeepSeek V4 Pro thinking mode and exposes aliases', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('deepseek')
 
     expect(defaults.provider).toBe('openai')
-    expect(defaults.name).toBe('DeepSeek')
+    expect(defaults.name).toBe('DeepSeek V4')
     expect(defaults.baseUrl).toBe('https://api.deepseek.com/v1')
     expect(defaults.model).toBe(
-      'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner',
+      'deepseek-v4-pro?reasoning=xhigh, deepseek-v4-flash, deepseek-chat, deepseek-reasoner',
     )
     expect(defaults.requiresApiKey).toBe(true)
   })
