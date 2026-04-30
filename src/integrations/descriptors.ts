@@ -208,6 +208,7 @@ export interface VendorDescriptor {
 export interface GatewayDescriptor {
   id: string
   label: string
+  vendorId?: string
   category?: 'local' | 'hosted' | 'aggregating'
   defaultBaseUrl?: string
   defaultModel?: string

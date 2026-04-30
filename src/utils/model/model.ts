@@ -367,6 +367,10 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-4'
   }
+  // MiniMax provider: always use the configured MiniMax model
+  if (getAPIProvider() === 'minimax') {
+    return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
+  }
 
   // Ants default to defaultModel from flag config, or Opus 1M if not configured
   if (process.env.USER_TYPE === 'ant') {
@@ -549,8 +553,18 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
  * if the model is not recognized as a public model.
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
-  // For OpenAI/Gemini/Codex/GitHub providers, show the actual model name not a Claude alias
-  if (getAPIProvider() === 'openai' || getAPIProvider() === 'gemini' || getAPIProvider() === 'codex' || getAPIProvider() === 'github' || getAPIProvider() === 'xai') {
+  // For OpenAI-compatible/non-Anthropic providers, show the actual model name
+  // instead of interpreting provider-specific defaults as Claude aliases.
+  if (
+    getAPIProvider() === 'openai' ||
+    getAPIProvider() === 'gemini' ||
+    getAPIProvider() === 'codex' ||
+    getAPIProvider() === 'github' ||
+    getAPIProvider() === 'xai' ||
+    getAPIProvider() === 'minimax' ||
+    getAPIProvider() === 'nvidia-nim' ||
+    getAPIProvider() === 'mistral'
+  ) {
     // Return display names for known GitHub Copilot models
     const copilotModelNames: Record<string, string> = {
       'gpt-5.5': 'GPT-5.5',
@@ -813,6 +827,9 @@ export function isLegacyModelRemapEnabled(): boolean {
 
 export function modelDisplayString(model: ModelSetting): string {
   if (model === null) {
+    if (getAPIProvider() !== 'firstParty') {
+      return `Default (${getDefaultMainLoopModel()})`
+    }
     if (process.env.USER_TYPE === 'ant') {
       return `Default for Ants (${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})`
     } else if (isClaudeAISubscriber()) {

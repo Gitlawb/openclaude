@@ -10,6 +10,7 @@ import { defineGateway } from '../define.js'
 export default defineGateway({
   id: 'bedrock',
   label: 'AWS Bedrock',
+  vendorId: 'anthropic',
   category: 'hosted',
   supportsModelRouting: true,
   setup: {

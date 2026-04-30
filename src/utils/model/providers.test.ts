@@ -88,6 +88,24 @@ test('GEMINI takes precedence over GitHub when both are set', async () => {
   expect(getAPIProvider()).toBe('gemini')
 })
 
+test('GEMINI takes precedence over NVIDIA_NIM when both flags are set', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.NVIDIA_NIM = '1'
+  const { getAPIProvider } = await importFreshProvidersModule()
+
+  expect(getAPIProvider()).toBe('gemini')
+})
+
+test('Foundry takes precedence over Gemini when both flags are set', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_FOUNDRY = '1'
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  const { getAPIProvider } = await importFreshProvidersModule()
+
+  expect(getAPIProvider()).toBe('foundry')
+})
+
 test('explicit local openai-compatible base URLs stay on the openai provider', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

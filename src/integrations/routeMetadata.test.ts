@@ -98,6 +98,29 @@ test('resolveActiveRouteIdFromEnv keeps MiniMax primary base over stale API base
   ).toBe('minimax')
 })
 
+test.each([
+  ['MiniMax', 'https://api.minimax.io/v1', 'MiniMax-M2.7', 'minimax'],
+  ['xAI', 'https://api.x.ai/v1', 'grok-4', 'xai'],
+  ['NVIDIA NIM', 'https://integrate.api.nvidia.com/v1', 'nvidia/llama-3.1-nemotron-70b-instruct', 'nvidia-nim'],
+  ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
+  ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
+])(
+  'resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL',
+  (_label, baseUrl, model, expectedRouteId) => {
+    expect(
+      resolveActiveRouteIdFromEnv(
+        {
+          CLAUDE_CODE_USE_OPENAI: '1',
+          CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
+          OPENAI_BASE_URL: baseUrl,
+          OPENAI_MODEL: model,
+        },
+        { activeProfileProvider: 'openai' },
+      ),
+    ).toBe(expectedRouteId)
+  },
+)
+
 test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials', () => {
   expect(
     resolveActiveRouteIdFromEnv({

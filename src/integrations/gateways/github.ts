@@ -13,6 +13,7 @@ import { defineGateway } from '../define.js'
 export default defineGateway({
   id: 'github',
   label: 'GitHub Copilot',
+  vendorId: 'openai',
   category: 'hosted',
   defaultBaseUrl: 'https://api.githubcopilot.com',
   supportsModelRouting: true,

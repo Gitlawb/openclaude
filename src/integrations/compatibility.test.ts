@@ -11,6 +11,7 @@ import {
   routeForPreset,
   vendorIdForPreset,
 } from './compatibility.js'
+import { resolveProfileRoute } from './profileResolver.js'
 import type { ProviderPreset } from '../utils/providerProfiles.js'
 
 const EXPECTED_PRESETS = [
@@ -63,5 +64,18 @@ describe('compatibility mappings', () => {
       expect(route.gatewayId).toBe(gatewayId)
       expect(route.routeId).toBe(gatewayId ?? vendorId)
     }
+  })
+
+  test('native gateway profile routes use their descriptor vendor', () => {
+    expect(resolveProfileRoute('bedrock')).toEqual({
+      vendorId: 'anthropic',
+      gatewayId: 'bedrock',
+      routeId: 'bedrock',
+    })
+    expect(resolveProfileRoute('vertex')).toEqual({
+      vendorId: 'anthropic',
+      gatewayId: 'vertex',
+      routeId: 'vertex',
+    })
   })
 })

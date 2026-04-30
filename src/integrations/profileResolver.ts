@@ -35,7 +35,11 @@ export function resolveProfileRoute(provider: string): ResolvedProfileRoute {
   // 3. Try gateway id
   const gateway = getGateway(provider)
   if (gateway) {
-    return { vendorId: 'openai', gatewayId: gateway.id, routeId: gateway.id }
+    return {
+      vendorId: gateway.vendorId ?? 'openai',
+      gatewayId: gateway.id,
+      routeId: gateway.id,
+    }
   }
 
   // 4. Safe fallback — OpenAI-compatible so the user can still interact,

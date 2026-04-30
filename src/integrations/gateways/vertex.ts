@@ -10,6 +10,7 @@ import { defineGateway } from '../define.js'
 export default defineGateway({
   id: 'vertex',
   label: 'Google Vertex AI',
+  vendorId: 'anthropic',
   category: 'hosted',
   supportsModelRouting: true,
   setup: {

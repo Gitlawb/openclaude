@@ -1588,9 +1588,6 @@ class OpenAIShimMessages {
     const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
     const shouldStripResponsesStore =
       (shimConfig.removeBodyFields ?? []).includes('store') ||
-      ['mistral', 'gemini', 'moonshot', 'deepseek', 'zai', 'kimi-code'].includes(
-        runtimeShimContext.routeId ?? '',
-      ) ||
       isGeminiMode() ||
       hasGeminiApiHost(request.baseUrl)
 
