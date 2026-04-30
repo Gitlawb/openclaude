@@ -106,6 +106,24 @@ test('Foundry takes precedence over Gemini when both flags are set', async () =>
   expect(getAPIProvider()).toBe('foundry')
 })
 
+test('GEMINI takes precedence over env-only MiniMax API keys', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+  const { getAPIProvider } = await importFreshProvidersModule()
+
+  expect(getAPIProvider()).toBe('gemini')
+})
+
+test('OPENAI takes precedence over env-only MiniMax API keys', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.MINIMAX_API_KEY = 'minimax-key'
+  const { getAPIProvider } = await importFreshProvidersModule()
+
+  expect(getAPIProvider()).toBe('openai')
+})
+
 test('explicit local openai-compatible base URLs stay on the openai provider', async () => {
   clearProviderEnv()
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

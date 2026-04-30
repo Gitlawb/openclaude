@@ -35,6 +35,14 @@ describe('Gemini store field fix', () => {
     expect(content).toContain('shimConfig.removeBodyFields')
     expect(content).toContain('delete body[field]')
   })
+
+  test('openaiShim does not keep a hardcoded descriptor route fallback list', async () => {
+    const content = await file('services/api/openaiShim.ts').text()
+
+    expect(content).not.toContain(
+      "['mistral', 'gemini', 'moonshot', 'deepseek', 'zai', 'kimi-code']",
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------
