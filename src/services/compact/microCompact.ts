@@ -460,6 +460,7 @@ export function evaluateTimeBasedTrigger(
 
 /**
  * Semantic compression check for tight contexts.
+ * Only compresses plain text content - skips tool_use, tool_result, code blocks.
  */
 async function maybeSemanticCompression(messages: Message[]): Promise<MicrocompactResult | null> {
   const totalTokens = messages.reduce((sum, m) => {
@@ -480,21 +481,38 @@ async function maybeSemanticCompression(messages: Message[]): Promise<Microcompa
   const compressedMessages: Message[] = []
 
   for (const msg of messages) {
-    const content = typeof msg.message?.content === 'string'
-      ? msg.message.content
-      : Array.isArray(msg.message?.content)
-        ? JSON.stringify(msg.message.content)
-        : ''
+    const content = msg.message?.content
 
-    const result = semanticCompress(content, { targetRatio: 0.7, preserveMeaning: true })
-
-    compressedMessages.push({
-      ...msg,
-      message: {
-        ...msg.message,
-        content: result.compressed,
-      },
-    })
+    if (typeof content === 'string') {
+      const result = semanticCompress(content, { targetRatio: 0.7, preserveMeaning: true })
+      compressedMessages.push({
+        ...msg,
+        message: {
+          ...msg.message,
+          content: result.compressed,
+        },
+      })
+    } else if (Array.isArray(content)) {
+      const hasStructuredBlocks = content.some(
+        block => typeof block === 'object' && block !== null &&
+          ('type' in block && (block.type === 'tool_use' || block.type === 'tool_result' || block.type === 'code_block'))
+      )
+      if (hasStructuredBlocks) {
+        compressedMessages.push(msg)
+      } else {
+        const plainText = content.map(c => typeof c === 'string' ? c : c && 'text' in c ? (c as { text: string }).text : '').join('')
+        const result = semanticCompress(plainText, { targetRatio: 0.7, preserveMeaning: true })
+        compressedMessages.push({
+          ...msg,
+          message: {
+            ...msg.message,
+            content: result.compressed,
+          },
+        })
+      }
+    } else {
+      compressedMessages.push(msg)
+    }
   }
 
   return { messages: compressedMessages }

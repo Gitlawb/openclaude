@@ -124,4 +124,29 @@ describe('microCompact MCP tool compaction', () => {
     expect(result).toBeDefined()
     expect(result.messages.length).toBe(messages.length)
   })
+
+  test('semantic compression skips tool_use and tool_result blocks', async () => {
+    process.env.OPENCLAUDE_FEATURE_SEMANTIC_COMPRESSION = '1'
+    const { microcompactMessages } = await import('./microCompact.js')
+
+    const toolUseInput = { path: 'important.json', content: '{"please dont change": true}' }
+    const messages: Message[] = [
+      { type: 'user', message: { role: 'user', content: 'please please please can you help me with this code', id: 'msg-1', type: 'message', created_at: 1 }, sender: 'user' },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use' as const, id: 'tu1', name: 'Read', input: toolUseInput }], id: 'msg-2', type: 'message', created_at: 2 }, sender: 'assistant' },
+      { type: 'user', message: { role: 'user', content: [{ type: 'tool_result' as const, tool_use_id: 'tu1', content: 'file content here' }, { type: 'text' as const, text: 'thanks for reading this please process it' }], id: 'msg-3', type: 'message', created_at: 3 }, sender: 'user' },
+    ]
+
+    const result = await microcompactMessages(messages as any)
+
+    const toolUseMsg = result.messages.find((m: any) => m.type === 'assistant')
+    expect(toolUseMsg?.message?.content).toEqual([
+      { type: 'tool_use', id: 'tu1', name: 'Read', input: toolUseInput },
+    ])
+
+    const toolResultMsg = result.messages.find((m: any) => m.type === 'user' && Array.isArray(m.message?.content))
+    const toolResultBlock = (toolResultMsg?.message?.content as any[])?.find(b => b.type === 'tool_result')
+    expect(toolResultBlock?.content).toBe('file content here')
+
+    delete process.env.OPENCLAUDE_FEATURE_SEMANTIC_COMPRESSION
+  })
 })
