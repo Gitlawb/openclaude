@@ -15,8 +15,18 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function renderChatHtml({ nonce, platform }) {
+function serializeForInlineScript(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+function renderChatHtml({ nonce, platform, slashCommands = [] }) {
   const modKey = platform === 'darwin' ? 'Cmd' : 'Ctrl';
+  const slashCommandJson = serializeForInlineScript(slashCommands);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -503,16 +513,23 @@ function renderChatHtml({ nonce, platform }) {
 
     /* ── Input area ── */
     .input-area {
-      display: flex;
-      gap: 8px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 8px;
       padding: 10px 12px;
       border-top: 1px solid var(--oc-border-soft);
       background: var(--oc-panel);
       flex-shrink: 0;
       align-items: flex-end;
+      position: relative;
+    }
+    .input-wrap {
+      grid-column: 1;
+      min-width: 0;
+      position: relative;
     }
     .input-area textarea {
-      flex: 1;
+      width: 100%;
       min-height: 36px;
       max-height: 160px;
       padding: 8px 12px;
@@ -528,7 +545,88 @@ function renderChatHtml({ nonce, platform }) {
     }
     .input-area textarea::placeholder { color: var(--oc-text-soft); }
     .input-area textarea:focus { border-color: var(--oc-accent); }
+    .slash-palette,
+    .composer-menu {
+      display: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: calc(100% + 8px);
+      max-height: 260px;
+      overflow-y: auto;
+      padding: 6px;
+      border: 1px solid var(--oc-border-soft);
+      border-radius: 8px;
+      background: var(--vscode-quickInput-background, #252526);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+      z-index: 40;
+    }
+    .slash-palette.visible { display: block; }
+    .composer-menu.visible { display: block; }
+    .composer-menu { z-index: 45; }
+    .slash-item {
+      display: grid;
+      grid-template-columns: minmax(92px, max-content) minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+      padding: 6px 8px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--oc-text-dim);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .slash-item:hover,
+    .slash-item.active {
+      background: var(--vscode-list-activeSelectionBackground, #094771);
+      color: var(--vscode-list-activeSelectionForeground, #fff);
+    }
+    .slash-name {
+      color: inherit;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .slash-desc {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: inherit;
+      opacity: 0.84;
+    }
+    .slash-hint {
+      opacity: 0.68;
+      font-weight: 400;
+    }
+    .slash-empty {
+      padding: 10px 8px;
+      color: var(--oc-text-soft);
+    }
+    .palette-hints {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 5px;
+      padding: 6px 8px 1px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      color: var(--oc-text-soft);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .palette-hints kbd {
+      padding: 1px 4px;
+      border: 1px solid var(--oc-border-soft);
+      border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+      color: var(--oc-text-dim);
+      font: inherit;
+    }
     .send-btn {
+      grid-column: 2;
+      grid-row: 1;
       width: 36px;
       height: 36px;
       border-radius: 10px;
@@ -544,6 +642,50 @@ function renderChatHtml({ nonce, platform }) {
     }
     .send-btn:hover { background: rgba(240,148,100,0.25); }
     .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .composer-toolbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .tool-icon-btn,
+    .composer-select {
+      height: 26px;
+      border: 1px solid var(--oc-border-soft);
+      border-radius: 7px;
+      background: rgba(255,255,255,0.035);
+      color: var(--oc-text-dim);
+      font: inherit;
+      cursor: pointer;
+    }
+    .tool-icon-btn {
+      width: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: var(--oc-text);
+    }
+    .tool-icon-btn:hover,
+    .composer-select:hover { border-color: var(--oc-accent); color: var(--oc-text); }
+    .composer-select {
+      min-width: 0;
+      max-width: 46%;
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .composer-select::after {
+      content: '\\25BE';
+      opacity: 0.7;
+      font-size: 11px;
+    }
+    .composer-spacer { flex: 1; min-width: 0; }
 
     /* ── Session list overlay ── */
     .session-overlay {
@@ -598,6 +740,197 @@ function renderChatHtml({ nonce, platform }) {
     .session-item-preview { font-size: 11px; color: var(--oc-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session-item-time { font-size: 10px; color: var(--oc-text-soft); margin-top: 2px; }
     .session-empty { text-align: center; padding: 32px; color: var(--oc-text-soft); }
+    /* ── Provider manager overlay ── */
+    .provider-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      z-index: 120;
+      background: rgba(10,9,8,0.96);
+      flex-direction: column;
+    }
+    .provider-overlay.visible { display: flex; }
+    .provider-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--oc-border-soft);
+      background: var(--oc-panel);
+    }
+    .provider-header h2 {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .provider-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: minmax(150px, 0.78fr) minmax(0, 1.22fr);
+      gap: 12px;
+      align-items: start;
+    }
+    .provider-panel {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--oc-border-soft);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+    }
+    .provider-panel-title {
+      font-size: 11px;
+      color: var(--oc-text-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .provider-summary {
+      display: grid;
+      gap: 3px;
+      color: var(--oc-text-dim);
+      font-size: 12px;
+    }
+    .provider-profile-list {
+      display: grid;
+      gap: 6px;
+    }
+    .provider-profile-row {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--oc-border-soft);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.025);
+      color: var(--oc-text);
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+    }
+    .provider-profile-row.active {
+      border-color: var(--oc-accent);
+      background: var(--oc-accent-soft);
+    }
+    .provider-profile-main {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 700;
+    }
+    .provider-profile-meta {
+      margin-top: 3px;
+      color: var(--oc-text-soft);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .provider-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 6px;
+    }
+    .provider-option {
+      min-height: 48px;
+      padding: 8px;
+      border: 1px solid var(--oc-border-soft);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+      color: var(--oc-text);
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+    }
+    .provider-option.active {
+      border-color: var(--oc-accent);
+      background: var(--oc-accent-soft);
+    }
+    .provider-option-label { font-weight: 700; }
+    .provider-option-detail {
+      margin-top: 3px;
+      color: var(--oc-text-soft);
+      font-size: 11px;
+    }
+    .provider-form {
+      display: grid;
+      gap: 10px;
+    }
+    .provider-form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .provider-field.wide { grid-column: 1 / -1; }
+    .provider-field {
+      display: grid;
+      gap: 5px;
+    }
+    .provider-field label {
+      font-size: 11px;
+      color: var(--oc-text-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .provider-field input,
+    .provider-field select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--oc-border-soft);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.04);
+      color: var(--oc-text);
+      outline: none;
+      font: inherit;
+    }
+    .provider-field input:focus,
+    .provider-field select:focus { border-color: var(--oc-accent); }
+    .provider-field input:disabled {
+      opacity: 0.48;
+      cursor: not-allowed;
+      background: rgba(255,255,255,0.025);
+    }
+    .provider-secret-note {
+      color: var(--oc-text-soft);
+      font-size: 11px;
+    }
+    .provider-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding-top: 4px;
+    }
+    .provider-btn {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--oc-border-soft);
+      background: rgba(255,255,255,0.04);
+      color: var(--oc-text);
+      cursor: pointer;
+      font: inherit;
+    }
+    .provider-btn.primary {
+      border-color: var(--oc-accent);
+      color: var(--oc-accent-bright);
+      background: var(--oc-accent-soft);
+    }
+    .provider-btn.danger {
+      border-color: var(--oc-perm-border);
+      color: var(--oc-critical);
+    }
+    .provider-error {
+      display: none;
+      color: var(--oc-critical);
+      border: 1px solid var(--oc-perm-border);
+      background: var(--oc-perm-bg);
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 12px;
+    }
+    .provider-error.visible { display: block; }
+    @media (max-width: 560px) {
+      .provider-body { grid-template-columns: 1fr; }
+      .provider-form-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -636,8 +969,19 @@ function renderChatHtml({ nonce, platform }) {
   </div>
 
   <div class="input-area">
-    <textarea id="chatInput" placeholder="Message OpenClaude..." rows="1"></textarea>
+    <div class="input-wrap">
+      <div class="slash-palette" id="slashPalette" role="listbox" aria-label="OpenClaude slash commands"></div>
+      <div class="composer-menu" id="composerMenu" role="listbox" aria-label="Provider and model choices"></div>
+      <textarea id="chatInput" placeholder="Message OpenClaude..." rows="1"></textarea>
+    </div>
     <button class="send-btn" id="sendBtn" title="Send message">&#x27A4;</button>
+    <div class="composer-toolbar">
+      <button class="tool-icon-btn" id="slashCommandBtn" type="button" title="Slash commands">/</button>
+      <button class="composer-select" id="activeProviderBtn" type="button" title="Active provider">Provider</button>
+      <button class="composer-select" id="activeModelBtn" type="button" title="Active model">Model</button>
+      <span class="composer-spacer"></span>
+      <button class="tool-icon-btn" id="providerQuickBtn" type="button" title="Provider manager">&#9881;</button>
+    </div>
   </div>
 
   <!-- Session list overlay -->
@@ -652,13 +996,103 @@ function renderChatHtml({ nonce, platform }) {
     </div>
   </div>
 
+  <!-- Provider manager overlay -->
+  <div class="provider-overlay" id="providerOverlay">
+    <div class="provider-header">
+      <h2>Provider Manager</h2>
+      <button class="header-btn" id="closeProviderBtn">Close</button>
+    </div>
+    <div class="provider-body">
+      <div class="provider-panel">
+        <div class="provider-panel-title">Active Profile</div>
+        <div class="provider-summary" id="providerSummary">Loading provider profile...</div>
+        <div class="provider-panel-title">Configured Profiles</div>
+        <div class="provider-profile-list" id="providerProfileList"></div>
+        <button class="provider-btn" type="button" id="newProviderProfileBtn">New Integration</button>
+      </div>
+      <form class="provider-form" id="providerForm">
+        <div class="provider-error" id="providerError"></div>
+        <div class="provider-panel">
+          <div class="provider-panel-title">Setup Presets</div>
+          <div class="provider-options" id="providerOptions"></div>
+        </div>
+        <div class="provider-form-grid">
+          <div class="provider-field">
+            <label for="providerName">Profile name</label>
+            <input id="providerName" type="text" autocomplete="off" />
+          </div>
+          <div class="provider-field">
+            <label for="providerKind">Provider type</label>
+            <select id="providerKind">
+              <option value="openai">OpenAI-compatible</option>
+              <option value="gemini">Gemini</option>
+              <option value="mistral">Mistral</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+          </div>
+          <div class="provider-field">
+            <label for="providerModel">Model</label>
+            <input id="providerModel" type="text" autocomplete="off" />
+          </div>
+          <div class="provider-field">
+            <label for="providerBaseUrl">Base URL</label>
+            <input id="providerBaseUrl" type="text" autocomplete="off" />
+          </div>
+          <div class="provider-field" id="providerApiKeyWrap">
+            <label for="providerApiKey" id="providerApiKeyLabel">API key</label>
+            <input id="providerApiKey" type="password" autocomplete="off" />
+            <div class="provider-secret-note" id="providerSecretNote"></div>
+          </div>
+          <div class="provider-field" id="providerApiFormatWrap">
+            <label for="providerApiFormat">API format</label>
+            <select id="providerApiFormat">
+              <option value="responses">Responses</option>
+              <option value="chat_completions">Chat completions</option>
+            </select>
+          </div>
+          <div class="provider-field" id="providerAuthHeaderWrap">
+            <label for="providerAuthHeader">Custom auth header</label>
+            <input id="providerAuthHeader" type="text" autocomplete="off" placeholder="api-key" />
+          </div>
+          <div class="provider-field" id="providerAuthSchemeWrap">
+            <label for="providerAuthScheme">Header scheme</label>
+            <select id="providerAuthScheme">
+              <option value="">Default</option>
+              <option value="bearer">Bearer</option>
+              <option value="raw">Raw</option>
+            </select>
+          </div>
+          <div class="provider-field wide" id="providerAuthHeaderValueWrap">
+            <label for="providerAuthHeaderValue">Custom header value</label>
+            <input id="providerAuthHeaderValue" type="password" autocomplete="off" />
+            <div class="provider-secret-note" id="providerHeaderValueNote"></div>
+          </div>
+        </div>
+        <div class="provider-actions">
+          <button class="provider-btn primary" type="submit">Save and Activate</button>
+          <button class="provider-btn" type="button" id="activateProviderProfileBtn">Activate Selected</button>
+          <button class="provider-btn danger" type="button" id="deleteProviderProfileBtn">Delete Selected</button>
+          <button class="provider-btn" type="button" id="openProviderConfigBtn">Open Config</button>
+          <button class="provider-btn" type="button" id="openProviderJsonBtn">Open Startup Profile</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
 <script nonce="${nonce}">
 (function() {
   const vscode = acquireVsCodeApi();
+  const slashCommands = ${slashCommandJson};
 
   const messagesEl = document.getElementById('messages');
   const welcomeEl = document.getElementById('welcomeScreen');
   const inputEl = document.getElementById('chatInput');
+  const slashPalette = document.getElementById('slashPalette');
+  const slashCommandBtn = document.getElementById('slashCommandBtn');
+  const composerMenu = document.getElementById('composerMenu');
+  const activeProviderBtn = document.getElementById('activeProviderBtn');
+  const activeModelBtn = document.getElementById('activeModelBtn');
+  const providerQuickBtn = document.getElementById('providerQuickBtn');
   const sendBtn = document.getElementById('sendBtn');
   const abortBtn = document.getElementById('abortBtn');
   const newChatBtn = document.getElementById('newChatBtn');
@@ -671,10 +1105,48 @@ function renderChatHtml({ nonce, platform }) {
   const closeSessionsBtn = document.getElementById('closeSessionsBtn');
   const sessionSearch = document.getElementById('sessionSearch');
   const sessionList = document.getElementById('sessionList');
+  const providerOverlay = document.getElementById('providerOverlay');
+  const closeProviderBtn = document.getElementById('closeProviderBtn');
+  const providerSummary = document.getElementById('providerSummary');
+  const providerProfileList = document.getElementById('providerProfileList');
+  const providerOptions = document.getElementById('providerOptions');
+  const providerForm = document.getElementById('providerForm');
+  const providerError = document.getElementById('providerError');
+  const providerName = document.getElementById('providerName');
+  const providerKind = document.getElementById('providerKind');
+  const providerModel = document.getElementById('providerModel');
+  const providerBaseUrl = document.getElementById('providerBaseUrl');
+  const providerApiKeyWrap = document.getElementById('providerApiKeyWrap');
+  const providerApiKeyLabel = document.getElementById('providerApiKeyLabel');
+  const providerApiKey = document.getElementById('providerApiKey');
+  const providerSecretNote = document.getElementById('providerSecretNote');
+  const providerApiFormatWrap = document.getElementById('providerApiFormatWrap');
+  const providerApiFormat = document.getElementById('providerApiFormat');
+  const providerAuthHeaderWrap = document.getElementById('providerAuthHeaderWrap');
+  const providerAuthHeader = document.getElementById('providerAuthHeader');
+  const providerAuthSchemeWrap = document.getElementById('providerAuthSchemeWrap');
+  const providerAuthScheme = document.getElementById('providerAuthScheme');
+  const providerAuthHeaderValueWrap = document.getElementById('providerAuthHeaderValueWrap');
+  const providerAuthHeaderValue = document.getElementById('providerAuthHeaderValue');
+  const providerHeaderValueNote = document.getElementById('providerHeaderValueNote');
+  const newProviderProfileBtn = document.getElementById('newProviderProfileBtn');
+  const activateProviderProfileBtn = document.getElementById('activateProviderProfileBtn');
+  const deleteProviderProfileBtn = document.getElementById('deleteProviderProfileBtn');
+  const openProviderConfigBtn = document.getElementById('openProviderConfigBtn');
+  const openProviderJsonBtn = document.getElementById('openProviderJsonBtn');
 
   let isStreaming = false;
   let currentAssistantEl = null;
   let currentTextEl = null;
+  let slashMatches = [];
+  let slashActiveIndex = 0;
+  let providerState = null;
+  let selectedProvider = null;
+  let selectedProfileId = '';
+  let pendingDeleteProfileId = '';
+  let composerMenuKind = '';
+  let composerMenuItems = [];
+  let composerActiveIndex = 0;
   const toolResultMap = {};
 
   /* ── Markdown renderer ── */
@@ -1101,9 +1573,155 @@ function renderChatHtml({ nonce, platform }) {
   }
 
   /* ── Input handling ── */
+  function openProviderManager() {
+    hideSlashPalette();
+    closeComposerMenu();
+    providerOverlay.classList.add('visible');
+    vscode.postMessage({ type: 'open_provider_manager' });
+  }
+
+  function openSlashPaletteFromButton() {
+    closeComposerMenu();
+    inputEl.focus();
+    if (!inputEl.value.trim()) {
+      inputEl.value = '/';
+      inputEl.setSelectionRange(1, 1);
+      autoResizeInput();
+    }
+    renderSlashPalette();
+  }
+
+  function getSlashQuery() {
+    const value = inputEl.value;
+    const cursor = inputEl.selectionStart || 0;
+    const beforeCursor = value.slice(0, cursor);
+    if (!beforeCursor.startsWith('/')) return null;
+    if (beforeCursor.includes('\\n')) return null;
+    if (/\\s/.test(beforeCursor.slice(1))) return null;
+    return beforeCursor.slice(1).toLowerCase();
+  }
+
+  function filterSlashCommands(query) {
+    if (query === null) return [];
+    const normalized = query.trim();
+    const matches = slashCommands.filter(command => {
+      const name = String(command.name || '').toLowerCase();
+      const description = String(command.description || '').toLowerCase();
+      const aliases = Array.isArray(command.aliases) ? command.aliases : [];
+      return !normalized ||
+        name.includes(normalized) ||
+        description.includes(normalized) ||
+        aliases.some(alias => String(alias).toLowerCase().includes(normalized));
+    });
+    return normalized ? matches.slice(0, 24) : matches;
+  }
+
+  function getPaletteHintsHtml() {
+    return '<div class="palette-hints">' +
+      '<span><kbd>&uarr;&darr;</kbd> navigate</span>' +
+      '<span><kbd>Enter</kbd>/<kbd>Tab</kbd> select</span>' +
+      '<span><kbd>Esc</kbd> close</span>' +
+      '</div>';
+  }
+
+  function renderSlashPalette() {
+    const query = getSlashQuery();
+    slashMatches = filterSlashCommands(query);
+    if (query === null) {
+      hideSlashPalette();
+      return;
+    }
+    slashActiveIndex = Math.min(slashActiveIndex, Math.max(slashMatches.length - 1, 0));
+    if (slashMatches.length === 0) {
+      slashPalette.innerHTML = '<div class="slash-empty">No matching commands</div>' + getPaletteHintsHtml();
+      slashPalette.classList.add('visible');
+      return;
+    }
+    slashPalette.innerHTML = '';
+    slashMatches.forEach((command, index) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'slash-item' + (index === slashActiveIndex ? ' active' : '');
+      item.dataset.index = String(index);
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', index === slashActiveIndex ? 'true' : 'false');
+
+      const name = document.createElement('span');
+      name.className = 'slash-name';
+      name.textContent = '/' + command.name;
+      if (command.argumentHint) {
+        const hint = document.createElement('span');
+        hint.className = 'slash-hint';
+        hint.textContent = ' ' + command.argumentHint;
+        name.appendChild(hint);
+      }
+
+      const desc = document.createElement('span');
+      desc.className = 'slash-desc';
+      desc.textContent = command.description || '';
+      item.title = command.description || '/' + command.name;
+      item.appendChild(name);
+      item.appendChild(desc);
+      item.addEventListener('mouseenter', () => {
+        slashActiveIndex = index;
+        renderSlashPalette();
+      });
+      item.addEventListener('mousedown', event => {
+        event.preventDefault();
+        acceptSlashCommand(index);
+      });
+      slashPalette.appendChild(item);
+    });
+    slashPalette.insertAdjacentHTML('beforeend', getPaletteHintsHtml());
+    slashPalette.classList.add('visible');
+  }
+
+  function hideSlashPalette() {
+    slashPalette.classList.remove('visible');
+    slashPalette.innerHTML = '';
+    slashMatches = [];
+    slashActiveIndex = 0;
+  }
+
+  function acceptSlashCommand(index) {
+    const command = slashMatches[index];
+    if (!command) return;
+    if (command.name === 'provider') {
+      inputEl.value = '';
+      autoResizeInput();
+      openProviderManager();
+      return;
+    }
+    const value = '/' + command.name + (command.argumentHint ? ' ' : '');
+    inputEl.value = value;
+    inputEl.focus();
+    inputEl.setSelectionRange(value.length, value.length);
+    hideSlashPalette();
+    autoResizeInput();
+    if (!command.argumentHint) {
+      sendMessage();
+    }
+  }
+
+  function moveSlashSelection(delta) {
+    if (slashMatches.length === 0) return;
+    slashActiveIndex = (slashActiveIndex + delta + slashMatches.length) % slashMatches.length;
+    renderSlashPalette();
+    const active = slashPalette.querySelector('.slash-item.active');
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+
   function sendMessage() {
     const text = inputEl.value.trim();
     if (!text || isStreaming) return;
+    if (text === '/provider') {
+      inputEl.value = '';
+      autoResizeInput();
+      openProviderManager();
+      return;
+    }
+    hideSlashPalette();
+    closeComposerMenu();
     appendUserMessage(text);
     vscode.postMessage({ type: 'send_message', text });
     inputEl.value = '';
@@ -1116,14 +1734,47 @@ function renderChatHtml({ nonce, platform }) {
     inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
   }
 
-  inputEl.addEventListener('input', autoResizeInput);
+  inputEl.addEventListener('input', () => {
+    autoResizeInput();
+    closeComposerMenu();
+    renderSlashPalette();
+  });
   inputEl.addEventListener('keydown', (e) => {
+    if (slashPalette.classList.contains('visible')) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        moveSlashSelection(1);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveSlashSelection(-1);
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        acceptSlashCommand(slashActiveIndex);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hideSlashPalette();
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey && slashMatches.length > 0) {
+        e.preventDefault();
+        acceptSlashCommand(slashActiveIndex);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
   });
   sendBtn.addEventListener('click', sendMessage);
+  slashCommandBtn.addEventListener('click', openSlashPaletteFromButton);
+  providerQuickBtn.addEventListener('click', openProviderManager);
   abortBtn.addEventListener('click', () => vscode.postMessage({ type: 'abort' }));
   newChatBtn.addEventListener('click', () => vscode.postMessage({ type: 'new_session' }));
   historyBtn.addEventListener('click', () => {
@@ -1139,6 +1790,353 @@ function renderChatHtml({ nonce, platform }) {
     sessionList.querySelectorAll('.session-item').forEach(el => {
       const text = el.textContent.toLowerCase();
       el.style.display = text.includes(q) ? '' : 'none';
+    });
+  });
+
+  /* ── Provider manager ── */
+  function showProviderError(message) {
+    providerError.textContent = message || '';
+    providerError.classList.toggle('visible', Boolean(message));
+  }
+
+  function getPreset(presetId) {
+    if (!providerState || !Array.isArray(providerState.presets)) return null;
+    return providerState.presets.find(preset => preset.id === presetId) || null;
+  }
+
+  function getConfiguredProfile(profileId) {
+    if (!providerState || !Array.isArray(providerState.configuredProfiles)) return null;
+    return providerState.configuredProfiles.find(profile => profile.id === profileId) || null;
+  }
+
+  function fillProviderForm(profile) {
+    providerName.value = profile.name || '';
+    providerKind.value = profile.provider || 'openai';
+    providerModel.value = profile.model || '';
+    providerBaseUrl.value = profile.baseUrl || '';
+    providerApiKey.value = '';
+    providerAuthHeaderValue.value = '';
+    providerApiFormat.value = profile.apiFormat || 'responses';
+    providerAuthHeader.value = profile.authHeader || '';
+    providerAuthScheme.value = profile.authScheme || '';
+    providerSecretNote.dataset.masked = profile.apiKeyMasked || '';
+    providerHeaderValueNote.dataset.masked = profile.authHeaderValueMasked || '';
+    updateProviderAuthState();
+  }
+
+  function renderProviderProfiles() {
+    providerProfileList.innerHTML = '';
+    pendingDeleteProfileId = pendingDeleteProfileId && getConfiguredProfile(pendingDeleteProfileId)
+      ? pendingDeleteProfileId
+      : '';
+    const profiles = providerState?.configuredProfiles || [];
+    if (profiles.length === 0) {
+      providerProfileList.innerHTML = '<div class="provider-secret-note">No configured profiles yet. Choose a setup preset to create one.</div>';
+      return;
+    }
+    profiles.forEach(profile => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'provider-profile-row' + (profile.id === selectedProfileId ? ' active' : '');
+      const activeLabel = profile.isActive ? 'Active' : (profile.source === 'startup' ? 'Startup' : '');
+      button.innerHTML =
+        '<div class="provider-profile-main"><span>' + escapeForMd(profile.name) + '</span><span>' + escapeForMd(activeLabel) + '</span></div>' +
+        '<div class="provider-profile-meta">' + escapeForMd(profile.label + ' · ' + profile.model) + '</div>' +
+        '<div class="provider-profile-meta">' + escapeForMd(profile.baseUrl || '') + '</div>';
+      button.addEventListener('click', () => {
+        selectedProfileId = profile.id;
+        pendingDeleteProfileId = '';
+        selectedProvider = profile.provider || 'openai';
+        fillProviderForm(profile);
+        renderProviderManager(providerState);
+      });
+      providerProfileList.appendChild(button);
+    });
+  }
+
+  function renderProviderPresets() {
+    providerOptions.innerHTML = '';
+    if (!providerState || !Array.isArray(providerState.presets)) return;
+    providerState.presets.forEach(preset => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'provider-option' + (preset.id === selectedProvider ? ' active' : '');
+      button.innerHTML =
+        '<div class="provider-option-label">' + escapeForMd(preset.name) + '</div>' +
+        '<div class="provider-option-detail">' + escapeForMd(preset.model || 'custom model') + '</div>';
+      button.addEventListener('click', () => {
+        selectedProvider = preset.id;
+        selectedProfileId = '';
+        providerName.value = preset.name || '';
+        providerKind.value = preset.provider || 'openai';
+        providerModel.value = preset.model || '';
+        providerBaseUrl.value = preset.baseUrl || '';
+        providerApiKey.value = '';
+      providerAuthHeader.value = '';
+      providerAuthHeaderValue.value = '';
+      providerSecretNote.dataset.masked = '';
+      providerHeaderValueNote.dataset.masked = '';
+      providerApiFormat.value = 'responses';
+        providerAuthScheme.value = '';
+        updateProviderAuthState();
+        renderProviderManager(providerState);
+      });
+      providerOptions.appendChild(button);
+    });
+  }
+
+  function renderProviderManager(state) {
+    providerState = state || providerState;
+    if (!providerState) return;
+    renderComposerProviderControls();
+    showProviderError('');
+    if (!selectedProfileId) selectedProfileId = providerState.form?.profileId || providerState.activeProviderProfileId || '';
+    if (!selectedProvider) selectedProvider = providerState.form?.provider || 'openai';
+    const active = providerState.activeProfile;
+    providerSummary.innerHTML =
+      '<div><strong>Workspace</strong>: ' + escapeForMd(providerState.cwd || '') + '</div>' +
+      '<div><strong>Active</strong>: ' + escapeForMd(active ? active.name : 'none') + '</div>' +
+      '<div><strong>Model</strong>: ' + escapeForMd(active ? active.model : 'none') + '</div>' +
+      '<div><strong>Config</strong>: ' + escapeForMd(providerState.globalConfigPath || '') + '</div>' +
+      '<div><strong>Startup</strong>: ' + escapeForMd(providerState.startupProfilePath || '') + '</div>';
+
+    renderProviderProfiles();
+    renderProviderPresets();
+
+    const shouldUseServerForm = providerState.form && !providerName.value && !providerModel.value;
+    if (shouldUseServerForm) {
+      selectedProfileId = providerState.form.profileId || selectedProfileId;
+      selectedProvider = providerState.form.provider || selectedProvider;
+      providerName.value = providerState.form.name || '';
+      providerKind.value = providerState.form.provider || 'openai';
+      providerModel.value = providerState.form.model || '';
+      providerBaseUrl.value = providerState.form.baseUrl || '';
+      providerApiKey.value = '';
+      providerApiFormat.value = providerState.form.apiFormat || 'responses';
+      providerAuthHeader.value = providerState.form.authHeader || '';
+      providerAuthScheme.value = providerState.form.authScheme || '';
+      providerAuthHeaderValue.value = '';
+      providerSecretNote.dataset.masked = providerState.form.apiKeyMasked || '';
+      providerHeaderValueNote.dataset.masked = providerState.form.authHeaderValueMasked || '';
+    }
+    updateProviderAuthState();
+  }
+
+  function renderComposerProviderControls() {
+    if (!providerState) return;
+    const profiles = providerState.configuredProfiles || [];
+    const active = providerState.activeProfile || {};
+    activeProviderBtn.textContent = active.name || profiles.find(profile => profile.isActive)?.name || 'Provider';
+    activeProviderBtn.title = active.baseUrl || 'Active provider';
+    const modelOptions = providerState.models && providerState.models.length > 0
+      ? providerState.models
+      : (active.model ? [{ value: active.model, label: active.model }] : [{ value: 'model', label: 'model' }]);
+    const activeModel = modelOptions.find(model => (typeof model === 'string' ? model : model.value) === active.model) || modelOptions[0];
+    activeModelBtn.textContent = typeof activeModel === 'string'
+      ? activeModel
+      : (activeModel?.label || activeModel?.value || 'Model');
+    activeModelBtn.title = active.model || activeModelBtn.textContent || 'Active model';
+    if (composerMenu.classList.contains('visible')) renderComposerMenu();
+  }
+
+  function getComposerProviderItems() {
+    const profiles = providerState?.configuredProfiles || [];
+    if (profiles.length === 0) {
+      return [{
+        id: '',
+        label: 'New provider integration',
+        description: 'Open Provider Manager',
+        action: openProviderManager,
+      }];
+    }
+    return profiles.map(profile => ({
+      id: profile.id,
+      label: (profile.isActive ? '● ' : '') + profile.name,
+      description: [profile.label, profile.model].filter(Boolean).join(' · '),
+      action: () => vscode.postMessage({ type: 'set_active_provider_profile', profileId: profile.id }),
+    }));
+  }
+
+  function getComposerModelItems() {
+    const active = providerState?.activeProfile || {};
+    const modelOptions = providerState?.models && providerState.models.length > 0
+      ? providerState.models
+      : (active.model ? [{ value: active.model, label: active.model }] : []);
+    if (modelOptions.length === 0) {
+      return [{
+        id: '',
+        label: 'No models found',
+        description: 'Open Provider Manager to add one',
+        action: openProviderManager,
+      }];
+    }
+    return modelOptions.map(model => {
+      const value = typeof model === 'string' ? model : model.value;
+      const label = typeof model === 'string' ? model : (model.label || model.value);
+      const description = typeof model === 'object' ? model.description || '' : '';
+      return {
+        id: value,
+        label: value === active.model ? '● ' + label : label,
+        description,
+        action: () => selectComposerModel(value),
+      };
+    });
+  }
+
+  function renderComposerMenu() {
+    composerMenu.innerHTML = '';
+    composerMenuItems = composerMenuKind === 'provider' ? getComposerProviderItems() : getComposerModelItems();
+    if (composerMenuItems.length === 0) {
+      composerMenu.innerHTML = '<div class="slash-empty">No choices available</div>' + getPaletteHintsHtml();
+      return;
+    }
+    composerActiveIndex = Math.max(0, Math.min(composerActiveIndex, composerMenuItems.length - 1));
+    composerMenuItems.forEach((item, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'slash-item' + (index === composerActiveIndex ? ' active' : '');
+      button.dataset.index = String(index);
+      button.innerHTML =
+        '<span class="slash-name">' + escapeForMd(item.label) + '</span>' +
+        '<span class="slash-desc">' + escapeForMd(item.description || '') + '</span>';
+      button.addEventListener('mouseenter', () => {
+        composerActiveIndex = index;
+        renderComposerMenu();
+      });
+      button.addEventListener('mousedown', event => {
+        event.preventDefault();
+        chooseComposerMenuItem(index);
+      });
+      composerMenu.appendChild(button);
+    });
+    composerMenu.insertAdjacentHTML('beforeend', getPaletteHintsHtml());
+  }
+
+  function openComposerMenu(kind) {
+    composerMenuKind = kind;
+    composerActiveIndex = 0;
+    hideSlashPalette();
+    renderComposerMenu();
+    composerMenu.classList.add('visible');
+  }
+
+  function closeComposerMenu() {
+    composerMenu.classList.remove('visible');
+    composerMenuKind = '';
+    composerMenuItems = [];
+  }
+
+  function chooseComposerMenuItem(index = composerActiveIndex) {
+    const item = composerMenuItems[index];
+    if (!item) return;
+    closeComposerMenu();
+    item.action();
+  }
+
+  function selectComposerModel(model) {
+    const active = providerState?.activeProfile;
+    if (!active) return;
+    selectedProfileId = providerState.activeProviderProfileId || active.id || '';
+    selectedProvider = active.provider || 'openai';
+    providerModel.value = model;
+    vscode.postMessage({
+      type: 'save_provider_profile',
+      form: {
+        profileId: selectedProfileId,
+        name: active.name || 'Custom provider',
+        provider: active.provider || 'openai',
+        model,
+        baseUrl: active.baseUrl || '',
+        apiKey: '',
+        apiFormat: active.apiFormat || 'responses',
+        authHeader: active.authHeader || '',
+        authScheme: active.authScheme || '',
+        authHeaderValue: '',
+      },
+    });
+  }
+
+  function updateProviderAuthState() {
+    const isOpenAI = providerKind.value === 'openai' || providerKind.value === 'anthropic';
+    const usesCustomHeader = Boolean(providerAuthHeader.value.trim() || providerAuthHeaderValue.value.trim());
+    providerApiKeyWrap.style.display = 'grid';
+    providerApiKeyLabel.textContent = providerKind.value === 'gemini'
+      ? 'Gemini API key'
+      : providerKind.value === 'mistral'
+        ? 'Mistral API key'
+        : 'API key';
+    providerApiKey.disabled = isOpenAI && usesCustomHeader;
+    const apiKeyMasked = providerSecretNote.dataset.masked || providerState?.form?.apiKeyMasked || '';
+    const headerValueMasked = providerHeaderValueNote.dataset.masked || providerState?.form?.authHeaderValueMasked || '';
+    providerSecretNote.textContent = providerApiKey.disabled
+      ? 'Disabled because custom header authentication is configured.'
+      : (apiKeyMasked ? 'Saved secret: ' + apiKeyMasked + '. Leave blank to keep it.' : 'Leave blank if this provider does not require a key.');
+    providerApiFormatWrap.style.display = isOpenAI ? 'grid' : 'none';
+    providerAuthHeaderWrap.style.display = isOpenAI ? 'grid' : 'none';
+    providerAuthSchemeWrap.style.display = isOpenAI ? 'grid' : 'none';
+    providerAuthHeaderValueWrap.style.display = isOpenAI ? 'grid' : 'none';
+    providerHeaderValueNote.textContent = headerValueMasked
+      ? 'Saved custom header value: ' + headerValueMasked + '. Leave blank to keep it.'
+      : 'Use this for providers that expect a custom header like api-key.';
+  }
+
+  closeProviderBtn.addEventListener('click', () => providerOverlay.classList.remove('visible'));
+  newProviderProfileBtn.addEventListener('click', () => {
+    selectedProfileId = '';
+    selectedProvider = 'custom';
+    const preset = getPreset('custom');
+    fillProviderForm(preset || { provider: 'openai', name: 'Custom OpenAI-compatible', baseUrl: '', model: '' });
+    renderProviderManager(providerState);
+  });
+  activateProviderProfileBtn.addEventListener('click', () => {
+    if (selectedProfileId && getConfiguredProfile(selectedProfileId)) {
+      vscode.postMessage({ type: 'set_active_provider_profile', profileId: selectedProfileId });
+    }
+  });
+  deleteProviderProfileBtn.addEventListener('click', () => {
+    const profile = selectedProfileId ? getConfiguredProfile(selectedProfileId) : null;
+    if (!profile) return;
+    if (pendingDeleteProfileId === profile.id) {
+      vscode.postMessage({ type: 'delete_provider_profile', profileId: selectedProfileId });
+      pendingDeleteProfileId = '';
+      deleteProviderProfileBtn.textContent = 'Delete Selected';
+      return;
+    }
+    pendingDeleteProfileId = profile.id;
+    deleteProviderProfileBtn.textContent = 'Confirm Delete';
+    showProviderError('Click Confirm Delete to permanently delete "' + profile.name + '".');
+  });
+  providerKind.addEventListener('change', updateProviderAuthState);
+  providerAuthHeader.addEventListener('input', updateProviderAuthState);
+  providerAuthHeaderValue.addEventListener('input', updateProviderAuthState);
+  openProviderConfigBtn.addEventListener('click', () => {
+    if (providerState && providerState.globalConfigPath) {
+      vscode.postMessage({ type: 'open_file', path: providerState.globalConfigPath });
+    }
+  });
+  activeProviderBtn.addEventListener('click', () => openComposerMenu('provider'));
+  activeModelBtn.addEventListener('click', () => openComposerMenu('model'));
+  openProviderJsonBtn.addEventListener('click', () => {
+    if (providerState && providerState.startupProfilePath) {
+      vscode.postMessage({ type: 'open_file', path: providerState.startupProfilePath });
+    }
+  });
+  providerForm.addEventListener('submit', event => {
+    event.preventDefault();
+    vscode.postMessage({
+      type: 'save_provider_profile',
+      form: {
+        profileId: selectedProfileId && getConfiguredProfile(selectedProfileId) ? selectedProfileId : '',
+        name: providerName.value,
+        provider: providerKind.value,
+        model: providerModel.value,
+        baseUrl: providerBaseUrl.value,
+        apiKey: providerApiKey.value,
+        apiFormat: providerApiFormat.value,
+        authHeader: providerAuthHeader.value,
+        authScheme: providerAuthScheme.value,
+        authHeaderValue: providerAuthHeaderValue.value,
+      },
     });
   });
 
@@ -1262,6 +2260,14 @@ function renderChatHtml({ nonce, platform }) {
         renderSessionList(msg.sessions);
         break;
 
+      case 'provider_manager_state':
+        renderProviderManager(msg.state);
+        break;
+
+      case 'provider_manager_error':
+        showProviderError(msg.message || 'Could not save provider profile');
+        break;
+
       case 'session_cleared':
         messagesEl.innerHTML = '';
         if (welcomeEl) {
@@ -1331,10 +2337,46 @@ function renderChatHtml({ nonce, platform }) {
 
   // Focus input on Ctrl/Cmd+L
   document.addEventListener('keydown', (e) => {
+    if (composerMenu.classList.contains('visible')) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (composerMenuItems.length === 0) return;
+        composerActiveIndex = (composerActiveIndex + 1 + composerMenuItems.length) % composerMenuItems.length;
+        renderComposerMenu();
+        const active = composerMenu.querySelector('.slash-item.active');
+        if (active) active.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (composerMenuItems.length === 0) return;
+        composerActiveIndex = (composerActiveIndex - 1 + composerMenuItems.length) % composerMenuItems.length;
+        renderComposerMenu();
+        const active = composerMenu.querySelector('.slash-item.active');
+        if (active) active.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        chooseComposerMenuItem();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeComposerMenu();
+        return;
+      }
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
       e.preventDefault();
       inputEl.focus();
     }
+  });
+
+  document.addEventListener('mousedown', (e) => {
+    if (!composerMenu.classList.contains('visible')) return;
+    if (composerMenu.contains(e.target) || activeProviderBtn.contains(e.target) || activeModelBtn.contains(e.target)) return;
+    closeComposerMenu();
   });
 
   // Restore state
@@ -1344,6 +2386,7 @@ function renderChatHtml({ nonce, platform }) {
   }
 
   // Notify ready
+  vscode.postMessage({ type: 'request_provider_state' });
   vscode.postMessage({ type: 'webview_ready' });
 })();
 </script>

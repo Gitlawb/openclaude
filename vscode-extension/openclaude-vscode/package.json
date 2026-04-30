@@ -12,7 +12,6 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
     "onCommand:openclaude.start",
     "onCommand:openclaude.startInWorkspaceRoot",
     "onCommand:openclaude.openDocs",

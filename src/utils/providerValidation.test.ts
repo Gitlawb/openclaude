@@ -8,6 +8,8 @@ import {
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_AUTH_HEADER: process.env.OPENAI_AUTH_HEADER,
+  OPENAI_AUTH_HEADER_VALUE: process.env.OPENAI_AUTH_HEADER_VALUE,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
@@ -28,6 +30,8 @@ function restoreEnv(key: string, value: string | undefined): void {
 afterEach(() => {
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
   restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+  restoreEnv('OPENAI_AUTH_HEADER', originalEnv.OPENAI_AUTH_HEADER)
+  restoreEnv('OPENAI_AUTH_HEADER_VALUE', originalEnv.OPENAI_AUTH_HEADER_VALUE)
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
@@ -95,6 +99,42 @@ test('openai missing key error includes recovery guidance and config locations',
   )
   expect(message).toContain('Saved startup settings can come from')
   expect(message).toContain('.openclaude-profile.json')
+})
+
+test('accepts custom OpenAI-compatible auth header value as provider credential', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.example.test/v1'
+  process.env.OPENAI_AUTH_HEADER = 'api-key'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'custom-header-secret'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('requires custom OpenAI-compatible auth header value when header is set', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.example.test/v1'
+  process.env.OPENAI_AUTH_HEADER = 'api-key'
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'OPENAI_AUTH_HEADER_VALUE is required when OPENAI_AUTH_HEADER is set.',
+  )
+})
+
+test('does not accept a custom OpenAI-compatible auth header value without a header name', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.example.test/v1'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'custom-header-secret'
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_API_KEY
+
+  const message = await getProviderValidationError(process.env)
+  expect(message).toContain(
+    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+  )
 })
 
 test('startup provider validation allows interactive recovery', () => {

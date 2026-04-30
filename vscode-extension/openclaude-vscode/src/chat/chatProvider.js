@@ -8,6 +8,14 @@ const crypto = require('crypto');
 const { ProcessManager } = require('./processManager');
 const { toViewModel } = require('./messageParser');
 const { renderChatHtml } = require('./chatRenderer');
+const { SLASH_COMMANDS } = require('./slashCommands');
+const {
+  buildProviderManagerState,
+  clearProviderProfile,
+  deleteProviderProfile,
+  saveProviderProfile,
+  setActiveProviderProfile,
+} = require('./providerManager');
 const { isAssistantMessage, isPartialMessage, isStreamEvent,
         isContentBlockDelta, isContentBlockStart, isMessageStart,
         isResultMessage, isControlRequest, isToolProgressMessage,
@@ -481,7 +489,7 @@ class OpenClaudeChatViewProvider {
 
   _getHtml() {
     const nonce = crypto.randomBytes(16).toString('hex');
-    return renderChatHtml({ nonce, platform: process.platform });
+    return renderChatHtml({ nonce, platform: process.platform, slashCommands: SLASH_COMMANDS });
   }
 
   _attachMessageHandler(webview) {
@@ -489,6 +497,32 @@ class OpenClaudeChatViewProvider {
       switch (msg.type) {
         case 'send_message':
           this._chatController.sendMessage(msg.text);
+          break;
+        case 'open_provider_manager':
+          webview.postMessage({ type: 'provider_manager_state', state: await buildProviderManagerState() });
+          break;
+        case 'request_provider_state':
+          webview.postMessage({ type: 'provider_manager_state', state: await buildProviderManagerState() });
+          break;
+        case 'save_provider_profile':
+          try {
+            webview.postMessage({ type: 'provider_manager_state', state: await saveProviderProfile(msg.form || {}) });
+            webview.postMessage({ type: 'status', content: 'Provider profile saved and activated. Start a new chat session to use it.' });
+          } catch (err) {
+            webview.postMessage({ type: 'provider_manager_error', message: err.message || String(err) });
+          }
+          break;
+        case 'set_active_provider_profile':
+          webview.postMessage({ type: 'provider_manager_state', state: await setActiveProviderProfile(msg.profileId) });
+          webview.postMessage({ type: 'status', content: 'Provider profile activated. Start a new chat session to use it.' });
+          break;
+        case 'delete_provider_profile':
+          webview.postMessage({ type: 'provider_manager_state', state: await deleteProviderProfile(msg.profileId) });
+          webview.postMessage({ type: 'status', content: 'Provider profile deleted.' });
+          break;
+        case 'clear_provider_profile':
+          webview.postMessage({ type: 'provider_manager_state', state: await clearProviderProfile() });
+          webview.postMessage({ type: 'status', content: 'Startup provider profile cleared.' });
           break;
         case 'abort':
           this._chatController.abort();
@@ -584,7 +618,7 @@ class OpenClaudeChatPanelManager {
     });
 
     const nonce = crypto.randomBytes(16).toString('hex');
-    webview.html = renderChatHtml({ nonce, platform: process.platform });
+    webview.html = renderChatHtml({ nonce, platform: process.platform, slashCommands: SLASH_COMMANDS });
     this._attachMessageHandler(webview);
 
     const messages = this._chatController.getMessages();
@@ -598,6 +632,32 @@ class OpenClaudeChatPanelManager {
       switch (msg.type) {
         case 'send_message':
           this._chatController.sendMessage(msg.text);
+          break;
+        case 'open_provider_manager':
+          webview.postMessage({ type: 'provider_manager_state', state: await buildProviderManagerState() });
+          break;
+        case 'request_provider_state':
+          webview.postMessage({ type: 'provider_manager_state', state: await buildProviderManagerState() });
+          break;
+        case 'save_provider_profile':
+          try {
+            webview.postMessage({ type: 'provider_manager_state', state: await saveProviderProfile(msg.form || {}) });
+            webview.postMessage({ type: 'status', content: 'Provider profile saved and activated. Start a new chat session to use it.' });
+          } catch (err) {
+            webview.postMessage({ type: 'provider_manager_error', message: err.message || String(err) });
+          }
+          break;
+        case 'set_active_provider_profile':
+          webview.postMessage({ type: 'provider_manager_state', state: await setActiveProviderProfile(msg.profileId) });
+          webview.postMessage({ type: 'status', content: 'Provider profile activated. Start a new chat session to use it.' });
+          break;
+        case 'delete_provider_profile':
+          webview.postMessage({ type: 'provider_manager_state', state: await deleteProviderProfile(msg.profileId) });
+          webview.postMessage({ type: 'status', content: 'Provider profile deleted.' });
+          break;
+        case 'clear_provider_profile':
+          webview.postMessage({ type: 'provider_manager_state', state: await clearProviderProfile() });
+          webview.postMessage({ type: 'status', content: 'Startup provider profile cleared.' });
           break;
         case 'abort':
           this._chatController.abort();
