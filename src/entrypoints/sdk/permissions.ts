@@ -212,6 +212,11 @@ export function createExternalCanUseTool(
     if (toolUseID && onPermissionRequest) {
       const requestId = randomUUID()
 
+      // Register pending permission BEFORE emitting the request so that
+      // a host which responds synchronously from onPermissionRequest can
+      // find the entry in pendingPermissionPrompts immediately.
+      const pendingPromise = permissionTarget.registerPendingPermission(toolUseID)
+
       onPermissionRequest({
         type: 'permission_request',
         request_id: requestId,
@@ -219,8 +224,6 @@ export function createExternalCanUseTool(
         tool_use_id: toolUseID,
         input: input as Record<string, unknown>,
       })
-
-      const pendingPromise = permissionTarget.registerPendingPermission(toolUseID)
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise<{ timedOut: true }>(resolve => {

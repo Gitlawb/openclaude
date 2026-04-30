@@ -106,6 +106,42 @@ describe('createDefaultCanUseTool', () => {
   })
 })
 
+describe('createExternalCanUseTool synchronous host response', () => {
+  test('synchronous host response from onPermissionRequest is received', async () => {
+    // Regression test: onPermissionRequest must fire AFTER registerPendingPermission
+    // so a host that responds synchronously finds the entry in the map.
+    const permissionTarget = createPermissionTarget()
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      // Simulate a host that resolves synchronously from the callback
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      expect(pending).toBeDefined() // Must be registered before this callback fires
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50, // short timeout — should NOT fire since host responds immediately
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'sync-response-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('allow')
+    expect(onPermissionRequest).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('createExternalCanUseTool race condition', () => {
   test('handles simultaneous timeout and response correctly', async () => {
     // Use createPermissionTarget which applies onceOnlyResolve at registration
