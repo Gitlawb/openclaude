@@ -153,10 +153,14 @@ export function resetEnvMutexForTesting(): void {
  *   canUseTool(). Used internally for pending permission tracking and queue
  *   filtering. Multiple permission requests for the same tool use are rare but
  *   possible (e.g., retry after timeout).
+ * - `session_id`: SDK session identifier. When 'no-session', indicates a
+ *   standalone permission prompt outside an SDK session flow (e.g., direct
+ *   createExternalCanUseTool usage without session context).
+ * - `uuid`: Message UUID for stream correlation and transcript persistence.
  *
- * Both IDs are present in every permission request message. Hosts typically use
- * `request_id` for responding; `tool_use_id` is useful for tracking state or
- * correlating with tool_use events in the message stream.
+ * Hosts typically use `request_id` for responding; `tool_use_id` is useful
+ * for tracking state or correlating with tool_use events in the message stream.
+ * `session_id` enables correlation with SDK session lifecycle events.
  */
 export type SDKPermissionRequestMessage = {
   type: 'permission_request'

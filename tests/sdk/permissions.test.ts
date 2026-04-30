@@ -6,6 +6,7 @@ import {
   createExternalCanUseTool,
   createOnceOnlyResolve,
   createPermissionTarget,
+  NO_SESSION_PLACEHOLDER,
 } from '../../src/entrypoints/sdk/permissions.js'
 import type { PermissionResolveDecision } from '../../src/entrypoints/sdk/permissions.js'
 import { getEmptyToolPermissionContext } from '../../src/Tool.js'
@@ -184,6 +185,42 @@ describe('createExternalCanUseTool synchronous host response', () => {
     expect(onPermissionRequest).toHaveBeenCalledTimes(1)
     // Verify session_id was passed through
     expect(onPermissionRequest.mock.calls[0][0].session_id).toBe('test-session-123')
+  })
+
+  test('permission request uses no-session placeholder when sessionId not provided', async () => {
+    // When createExternalCanUseTool is called without sessionId,
+    // the permission request should emit 'no-session' placeholder
+    // to explicitly indicate standalone permission prompt context.
+    const permissionTarget = createPermissionTarget()
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      expect(message.session_id).toBe(NO_SESSION_PLACEHOLDER)
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    // Note: sessionId parameter intentionally omitted
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50,
+      // sessionId undefined - should use placeholder
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'no-session-test-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('allow')
+    expect(onPermissionRequest).toHaveBeenCalledTimes(1)
   })
 })
 

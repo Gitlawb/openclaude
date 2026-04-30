@@ -30,6 +30,15 @@ import type {
 /** Default timeout for permission prompts (30 seconds). Reasonable for human response time. */
 export const DEFAULT_PERMISSION_TIMEOUT_MS = 30000
 
+/**
+ * Placeholder session_id for permission requests outside SDK session context.
+ * Used when createExternalCanUseTool is called without a sessionId parameter,
+ * indicating a standalone permission prompt (e.g., direct tool permission check
+ * without an active SDK session). Hosts can identify such requests by checking
+ * session_id === NO_SESSION_PLACEHOLDER.
+ */
+export const NO_SESSION_PLACEHOLDER = 'no-session'
+
 // ============================================================================
 // Logger interface for SDK surface
 // ============================================================================
@@ -249,7 +258,7 @@ export function createExternalCanUseTool(
           tool_use_id: toolUseID,
           input: input as Record<string, unknown>,
           uuid: messageUuid,
-          session_id: sessionId ?? '',
+          session_id: sessionId ?? NO_SESSION_PLACEHOLDER,
         })
       } catch (err) {
         permissionTarget.pendingPermissionPrompts.delete(toolUseID)
