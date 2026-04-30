@@ -28,7 +28,7 @@ function isFirecrawlEnabled(): boolean {
 async function scrapeWithFirecrawl(url: string): Promise<{ markdown: string; bytes: number }> {
   const { FirecrawlClient } = await import('@mendable/firecrawl-js')
   const app = new FirecrawlClient({
-    apiKey: process.env.FIRECRAWL_API_KEY!,
+    apiKey: process.env.FIRECRAWL_API_KEY,
     apiUrl: process.env.FIRECRAWL_API_URL,
   })
   const result = await app.scrape(url, { formats: ['markdown'] })
