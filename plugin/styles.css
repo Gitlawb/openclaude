@@ -1,14 +1,14 @@
 /* ── Status dot ──────────────────────────────── */
-.openclaude-status-dot {
+.oc-status-dot {
   width: 8px; height: 8px;
   border-radius: 50%;
   display: inline-block;
   flex-shrink: 0;
 }
-.openclaude-status-dot[data-status="ok"]        { background: var(--color-green); }
-.openclaude-status-dot[data-status="starting"]  { background: var(--color-yellow); animation: oc-pulse 1s infinite; }
-.openclaude-status-dot[data-status="error"]     { background: var(--color-red); }
-.openclaude-status-dot[data-status="streaming"] { background: var(--color-green); animation: oc-pulse 0.5s infinite; }
+.oc-status-dot[data-status="ok"]        { background: var(--color-green); }
+.oc-status-dot[data-status="starting"]  { background: var(--color-yellow); animation: oc-pulse 1s infinite; }
+.oc-status-dot[data-status="error"]     { background: var(--color-red); }
+.oc-status-dot[data-status="streaming"] { background: var(--color-green); animation: oc-pulse 0.5s infinite; }
 @keyframes oc-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
 /* ── Sidebar layout ──────────────────────────── */

@@ -8,6 +8,7 @@ export class SidebarView extends ItemView {
   private abortController: AbortController | null = null;
   private currentSessionId: string | undefined;
   private pendingCount = 0;
+  private toolCallEls = new Map<string, HTMLElement>();
 
   // DOM refs set in buildUI()
   private statusDot!: HTMLElement;
@@ -56,7 +57,7 @@ export class SidebarView extends ItemView {
 
     // Header
     const header = root.createDiv({ cls: 'openclaude-header' });
-    this.statusDot = header.createSpan({ cls: 'openclaude-status-dot' });
+    this.statusDot = header.createSpan({ cls: 'oc-status-dot' });
     this.statusDot.dataset['status'] = 'starting';
     header.createSpan({ cls: 'openclaude-title', text: 'OpenClaude' });
     const newBtn = header.createEl('button', { cls: 'openclaude-header-btn', text: '+', attr: { title: 'New session' } });
@@ -122,6 +123,7 @@ export class SidebarView extends ItemView {
 
     this.abortController = new AbortController();
     this.statusDot.dataset['status'] = 'streaming';
+    this.inputEl.disabled = true;
     this.sendBtn.textContent = '■ Stop';
     this.sendBtn.disabled = false;
     this.sendBtn.onclick = () => this.abortController?.abort();
@@ -138,6 +140,8 @@ export class SidebarView extends ItemView {
       }
     } finally {
       this.abortController = null;
+      this.inputEl.disabled = false;
+      this.toolCallEls.clear();
       this.sendBtn.textContent = 'Send';
       this.sendBtn.onclick = () => this.sendMessage();
       // Restore status from health check
@@ -152,9 +156,20 @@ export class SidebarView extends ItemView {
       case 'token':
         this.appendText(contentEl, evt.data.text);
         break;
-      case 'tool_call':
-        contentEl.parentElement?.createDiv({ cls: 'openclaude-tool-call', text: `🔧 ${evt.data.name}…` });
+      case 'tool_call': {
+        const el = contentEl.parentElement?.createDiv({ cls: 'oc-tool-call' }) as HTMLElement;
+        el.setText(`🔧 ${evt.data.name}…`);
+        this.toolCallEls.set(evt.data.id, el);
         break;
+      }
+      case 'tool_result': {
+        const el = this.toolCallEls.get(evt.data.id);
+        if (el) {
+          el.setText(evt.data.ok ? `✅ ${(el.textContent ?? '').replace('…', '')}` : `❌ ${(el.textContent ?? '').replace('…', '')}`);
+          this.toolCallEls.delete(evt.data.id);
+        }
+        break;
+      }
       case 'pending_edit':
         this.appendPendingInline(contentEl, evt.data);
         this.pendingCount++;
