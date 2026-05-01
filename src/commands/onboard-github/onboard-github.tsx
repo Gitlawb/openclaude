@@ -1,8 +1,8 @@
 import * as React from 'react'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Select } from '../../components/CustomSelect/select.js'
 import { Spinner } from '../../components/Spinner.js'
-import { Box, Text } from '../../ink.js'
+import { Box, Text, useInput } from '../../ink.js'
 import {
   exchangeForCopilotToken,
   openVerificationUri,
@@ -27,7 +27,7 @@ const FORCE_RELOGIN_ARGS = new Set([
   '--reauth',
 ])
 
-type Step = 'menu' | 'device-busy' | 'error'
+type Step = 'menu' | 'device-busy' | 'device-waiting' | 'device-polling' | 'exchanging-token' | 'error'
 
 const PROVIDER_SPECIFIC_KEYS = new Set([
   'CLAUDE_CODE_USE_OPENAI',
@@ -35,6 +35,7 @@ const PROVIDER_SPECIFIC_KEYS = new Set([
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_GITHUB_ANTHROPIC_API',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
@@ -226,28 +227,77 @@ function OnboardGithub(props: {
     [onChangeAPIKey, onDone],
   )
 
+  // Ref to hold device code info between the request and polling phases.
+  const deviceRef = useRef<{ device_code: string; interval: number; expires_in: number } | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
   const runDeviceFlow = useCallback(async () => {
     setStep('device-busy')
     setErrorMsg(null)
     setDeviceHint(null)
     try {
       const device = await requestDeviceCode()
+      deviceRef.current = device
       setDeviceHint({
         user_code: device.user_code,
         verification_uri: device.verification_uri,
       })
       await openVerificationUri(device.verification_uri)
+      // Show the code and wait for the user to press Enter before polling.
+      setStep('device-waiting')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setErrorMsg(msg)
+      setStep('error')
+    }
+  }, [])
+
+  const startPolling = useCallback(async () => {
+    const device = deviceRef.current
+    if (!device) return
+    setStep('device-polling')
+    const abortController = new AbortController()
+    abortRef.current = abortController
+    const onSigint = () => abortController.abort()
+    process.once('SIGINT', onSigint)
+    try {
       const oauthToken = await pollAccessToken(device.device_code, {
         initialInterval: device.interval,
         timeoutSeconds: device.expires_in,
+        signal: abortController.signal,
       })
-      const copilotToken = await exchangeForCopilotToken(oauthToken)
-      await finalize(copilotToken.token, DEFAULT_MODEL, oauthToken)
+      // OAuth token obtained — now try to exchange for a Copilot API token.
+      setStep('exchanging-token')
+      // This requires an active GitHub Copilot subscription. If it fails
+      // (no subscription, timeout, network error), fall back to the OAuth
+      // token itself — this still works for GitHub Models endpoints.
+      try {
+        const copilotToken = await exchangeForCopilotToken(oauthToken)
+        await finalize(copilotToken.token, DEFAULT_MODEL, oauthToken)
+      } catch {
+        // Copilot token exchange failed — save OAuth token directly.
+        await finalize(oauthToken, DEFAULT_MODEL)
+      }
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg === 'Cancelled') {
+        onDone('GitHub onboard cancelled', { display: 'system' })
+        return
+      }
+      setErrorMsg(msg)
       setStep('error')
+    } finally {
+      process.off('SIGINT', onSigint)
+      abortRef.current = null
     }
-  }, [finalize])
+  }, [finalize, onDone])
+
+  // Wait for Enter in the device-waiting step, then start polling.
+  useInput((_input, key) => {
+    if (step === 'device-waiting' && key.return) {
+      startPolling()
+    }
+  })
 
   if (step === 'error' && errorMsg) {
     const options = [
@@ -278,23 +328,46 @@ function OnboardGithub(props: {
     )
   }
 
+  if (step === 'exchanging-token') {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text>GitHub Copilot sign-in</Text>
+        <Text dimColor>Authorization confirmed. Retrieving API token...</Text>
+        <Spinner />
+      </Box>
+    )
+  }
+
   if (step === 'device-busy') {
     return (
       <Box flexDirection="column" gap={1}>
         <Text>GitHub Copilot sign-in</Text>
-        {deviceHint ? (
-          <>
-            <Text>
-              Enter code <Text bold>{deviceHint.user_code}</Text> at{' '}
-              {deviceHint.verification_uri}
-            </Text>
-            <Text dimColor>
-              A browser window may have opened. Waiting for authorization...
-            </Text>
-          </>
-        ) : (
-          <Text dimColor>Requesting device code from GitHub...</Text>
-        )}
+        <Text dimColor>Requesting device code from GitHub...</Text>
+        <Spinner />
+      </Box>
+    )
+  }
+
+  if (step === 'device-waiting' && deviceHint) {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text>GitHub Copilot sign-in</Text>
+        <Text>
+          Enter code <Text bold>{deviceHint.user_code}</Text> at{' '}
+          {deviceHint.verification_uri}
+        </Text>
+        <Text dimColor>
+          A browser window may have opened. Press Enter after you have authorized.
+        </Text>
+      </Box>
+    )
+  }
+
+  if (step === 'device-polling') {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text>GitHub Copilot sign-in</Text>
+        <Text dimColor>Waiting for authorization...</Text>
         <Spinner />
       </Box>
     )

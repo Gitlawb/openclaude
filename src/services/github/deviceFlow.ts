@@ -5,6 +5,10 @@
 
 import { execFileNoThrow } from '../../utils/execFileNoThrow.js'
 
+// VS Code GitHub Copilot Chat extension OAuth app — required for the
+// copilot_internal/v2/token exchange that produces a valid Copilot API token.
+// Other client IDs (e.g. the gh CLI's) produce OAuth tokens that the Copilot
+// API rejects with 403 "not licensed to use Copilot".
 export const DEFAULT_GITHUB_DEVICE_FLOW_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
 
 export const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code'
@@ -55,8 +59,18 @@ export function getGithubDeviceFlowClientId(): string {
   )
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new GitHubDeviceFlowError('Cancelled'))
+      return
+    }
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer)
+      reject(new GitHubDeviceFlowError('Cancelled'))
+    }, { once: true })
+  })
 }
 
 export async function requestDeviceCode(options?: {
@@ -133,6 +147,8 @@ export type PollOptions = {
   initialInterval?: number
   timeoutSeconds?: number
   fetchImpl?: FetchLike
+  onStatusChange?: (status: 'polling' | 'exchanging') => void
+  signal?: AbortSignal
 }
 
 export async function pollAccessToken(
@@ -146,9 +162,15 @@ export async function pollAccessToken(
   let interval = Math.max(1, options?.initialInterval ?? 5)
   const timeoutSeconds = options?.timeoutSeconds ?? 900
   const fetchFn = options?.fetchImpl ?? fetch
+  const signal = options?.signal
   const start = Date.now()
 
+  // GitHub enforces strictly MORE than `interval` seconds between polls;
+  // polling at exactly `interval` triggers slow_down. We add 1s buffer to
+  // every sleep to stay safely above the boundary.
+
   while ((Date.now() - start) / 1000 < timeoutSeconds) {
+    if (signal?.aborted) throw new GitHubDeviceFlowError('Cancelled')
     const res = await fetchFn(GITHUB_DEVICE_ACCESS_TOKEN_URL, {
       method: 'POST',
       headers: { Accept: 'application/json' },
@@ -157,6 +179,9 @@ export async function pollAccessToken(
         device_code: deviceCode,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       }),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+        : AbortSignal.timeout(15_000),
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
@@ -174,13 +199,13 @@ export async function pollAccessToken(
       throw new GitHubDeviceFlowError('No access_token in response')
     }
     if (err === 'authorization_pending') {
-      await sleep(interval * 1000)
+      await sleep((interval + 1) * 1000, signal)
       continue
     }
     if (err === 'slow_down') {
-      interval =
-        typeof data.interval === 'number' ? data.interval : interval + 5
-      await sleep(interval * 1000)
+      const suggested = typeof data.interval === 'number' ? data.interval : interval + 5
+      interval = Math.min(suggested, 30)
+      await sleep((interval + 1) * 1000, signal)
       continue
     }
     if (err === 'expired_token') {
@@ -216,6 +241,8 @@ export async function openVerificationUri(uri: string): Promise<void> {
   }
 }
 
+const COPILOT_TOKEN_EXCHANGE_TIMEOUT_MS = 15_000
+
 /**
  * Exchange an OAuth access token for a Copilot API token.
  * The OAuth token alone cannot be used with the Copilot API endpoint.
@@ -232,6 +259,7 @@ export async function exchangeForCopilotToken(
       Authorization: `Bearer ${oauthToken}`,
       ...COPILOT_HEADERS,
     },
+    signal: AbortSignal.timeout(COPILOT_TOKEN_EXCHANGE_TIMEOUT_MS),
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')

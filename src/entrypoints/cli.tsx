@@ -84,6 +84,14 @@ async function main(): Promise<void> {
     return;
   }
 
+  // --help/-h must bypass provider validation so users can always see usage
+  // without needing to be authenticated first.
+  if (args.some(a => a === '--help' || a === '-h')) {
+    const { main: cliMain } = await import('../main.js')
+    await cliMain()
+    return
+  }
+
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   if (args.includes('--provider')) {
