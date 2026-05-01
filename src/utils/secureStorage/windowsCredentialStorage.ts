@@ -30,6 +30,10 @@ function getWindowsSecureStorageFilePath(): string {
   return join(getClaudeConfigHomeDir(), `${resourceName}.secure.dpapi`)
 }
 
+function shouldUseLegacyPasswordVault(): boolean {
+  return process.env.OPENCLAUDE_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT === '1'
+}
+
 function runPowerShell(
   script: string,
   options?: { input?: string },
@@ -61,6 +65,10 @@ function getFailureWarning(
 }
 
 function readLegacyPasswordVault(): SecureStorageData | null {
+  if (!shouldUseLegacyPasswordVault()) {
+    return null
+  }
+
   const resourceName = getLegacyResourceName().replace(/"/g, '`"')
   const username = getUsername().replace(/"/g, '`"')
   const script = `
@@ -204,21 +212,23 @@ export const windowsCredentialStorage: SecureStorage = {
     `
     const removeDpapiResult = runPowerShell(removeDpapiScript)
 
-    const resourceName = getLegacyResourceName().replace(/"/g, '`"')
-    const username = getUsername().replace(/"/g, '`"')
-    const removeLegacyScript = `
-      Add-Type -AssemblyName System.Runtime.WindowsRuntime
-      try {
-        $vault = New-Object Windows.Security.Credentials.PasswordVault
-        $cred = $vault.Retrieve("${resourceName}", "${username}")
-        $vault.Remove($cred)
-      } catch {
-        exit 0
-      }
-    `
-    const removeLegacyResult = runPowerShell(removeLegacyScript)
+    if (shouldUseLegacyPasswordVault()) {
+      const resourceName = getLegacyResourceName().replace(/"/g, '`"')
+      const username = getUsername().replace(/"/g, '`"')
+      const removeLegacyScript = `
+        Add-Type -AssemblyName System.Runtime.WindowsRuntime
+        try {
+          $vault = New-Object Windows.Security.Credentials.PasswordVault
+          $cred = $vault.Retrieve("${resourceName}", "${username}")
+          $vault.Remove($cred)
+        } catch {
+          exit 0
+        }
+      `
+      const removeLegacyResult = runPowerShell(removeLegacyScript)
 
-    void removeLegacyResult
+      void removeLegacyResult
+    }
 
     return (removeDpapiResult?.exitCode ?? 1) === 0
   },

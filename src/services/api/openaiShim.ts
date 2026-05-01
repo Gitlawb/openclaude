@@ -74,7 +74,12 @@ import {
   hasToolFieldMapping,
 } from './toolArgumentNormalization.js'
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
-import { createStreamState, processStreamChunk, getStreamStats } from '../../utils/streamingOptimizer.js'
+import {
+  createStreamState,
+  processStreamChunk,
+  getStreamStats,
+} from '../../utils/streamingOptimizer.js'
+import { stableStringify } from '../../utils/stableStringify.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -1669,8 +1674,17 @@ class OpenAIShimMessages {
     // Moonshot direct API, Kimi Code's OpenAI-compatible coding endpoint,
     // DeepSeek, and Z.AI have not published support for the parameter either;
     // strip it preemptively to avoid the same class of error on strict-parse
-    // providers.
-    if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek || isZai) {
+    // providers. Detect Gemini from request.baseUrl as well — providerOverride
+    // routes (e.g. ~/.claude.json primaryProvider: google) reach the Gemini
+    // host without setting OPENAI_BASE_URL / CLAUDE_CODE_USE_GEMINI.
+    if (
+      isMistral ||
+      isGeminiMode() ||
+      hasGeminiApiHost(request.baseUrl) ||
+      isMoonshot ||
+      isDeepSeek ||
+      isZai
+    ) {
       delete body.store
     }
 
@@ -1752,7 +1766,14 @@ class OpenAIShimMessages {
         store: false,
       }
 
-      if (isMistral || isGeminiMode() || isMoonshot || isDeepSeek || isZai) {
+      if (
+        isMistral ||
+        isGeminiMode() ||
+        hasGeminiApiHost(request.baseUrl) ||
+        isMoonshot ||
+        isDeepSeek ||
+        isZai
+      ) {
         delete responsesBody.store
       }
 
@@ -1932,12 +1953,17 @@ class OpenAIShimMessages {
       return false
     }
 
-    let serializedBody = JSON.stringify(
+    // WHY: byte-identity required for implicit prefix caching in
+    // OpenAI/Kimi/DeepSeek. stableStringify sorts object keys at every
+    // depth so spurious insertion-order differences across rebuilds of
+    // `body` (spread-merge, conditional assignments above) don't bust
+    // the provider's prefix hash.
+    let serializedBody = stableStringify(
       request.transport === 'responses' ? buildResponsesBody() : body,
     )
 
     const refreshSerializedBody = (): void => {
-      serializedBody = JSON.stringify(
+      serializedBody = stableStringify(
         request.transport === 'responses' ? buildResponsesBody() : body,
       )
     }
@@ -2116,7 +2142,7 @@ class OpenAIShimMessages {
             responsesResponse = await fetchWithProxyRetry(responsesUrl, {
               method: 'POST',
               headers,
-              body: JSON.stringify(responsesBody),
+              body: stableStringify(responsesBody),
               signal: options?.signal,
             })
           } catch (error) {
