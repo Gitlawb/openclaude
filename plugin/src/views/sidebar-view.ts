@@ -9,6 +9,7 @@ export class SidebarView extends ItemView {
   private currentSessionId: string | undefined;
   private pendingCount = 0;
   private toolCallEls = new Map<string, HTMLElement>();
+  private boundStatusListener = (s: import('../server-manager.js').ServerStatus) => this.setStatus(s);
 
   // DOM refs set in buildUI()
   private statusDot!: HTMLElement;
@@ -30,7 +31,7 @@ export class SidebarView extends ItemView {
     this.buildUI();
     this.updateContextCard();
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.updateContextCard()));
-    this.plugin.serverManager.onStatus(s => this.setStatus(s));
+    this.plugin.serverManager.onStatus(this.boundStatusListener);
 
     // Handle prompts injected from CommandHubModal
     this.registerDomEvent(window, 'openclaude:inject-prompt' as keyof WindowEventMap, (e: Event) => {
@@ -40,6 +41,7 @@ export class SidebarView extends ItemView {
     });
     this.registerDomEvent(window, 'openclaude:new-session' as keyof WindowEventMap, () => {
       this.currentSessionId = undefined;
+      this.toolCallEls.clear();
       this.chatLog.empty();
     });
 
@@ -47,6 +49,7 @@ export class SidebarView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.plugin.serverManager.offStatus(this.boundStatusListener);
     this.abortController?.abort();
   }
 
@@ -61,7 +64,7 @@ export class SidebarView extends ItemView {
     this.statusDot.dataset['status'] = 'starting';
     header.createSpan({ cls: 'openclaude-title', text: 'OpenClaude' });
     const newBtn = header.createEl('button', { cls: 'openclaude-header-btn', text: '+', attr: { title: 'New session' } });
-    newBtn.onclick = () => { this.currentSessionId = undefined; this.chatLog.empty(); };
+    newBtn.onclick = () => { this.currentSessionId = undefined; this.toolCallEls.clear(); this.chatLog.empty(); };
 
     // Context card
     const card = root.createDiv({ cls: 'openclaude-context-card' });
@@ -77,7 +80,7 @@ export class SidebarView extends ItemView {
       cls: 'openclaude-input',
       attr: { placeholder: 'Ask something… (Shift+Enter for newline)', rows: '2' },
     });
-    this.inputEl.addEventListener('keydown', e => {
+    this.registerDomEvent(this.inputEl, 'keydown', (e: KeyboardEvent) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendMessage(); }
     });
 
@@ -157,7 +160,9 @@ export class SidebarView extends ItemView {
         this.appendText(contentEl, evt.data.text);
         break;
       case 'tool_call': {
-        const el = contentEl.parentElement?.createDiv({ cls: 'oc-tool-call' }) as HTMLElement;
+        const parent = contentEl.parentElement;
+        if (!parent) break;
+        const el = parent.createDiv({ cls: 'oc-tool-call' });
         el.setText(`🔧 ${evt.data.name}…`);
         this.toolCallEls.set(evt.data.id, el);
         break;
@@ -181,6 +186,13 @@ export class SidebarView extends ItemView {
       case 'error':
         this.appendText(contentEl, `\n[Error: ${evt.data.message}]`);
         break;
+      case 'insight':
+        this.appendText(contentEl, `\n💡 ${evt.data.text}`);
+        break;
+      default: {
+        const _exhaustive: never = evt;
+        console.warn('[OpenClaude] unhandled SSE event:', _exhaustive);
+      }
     }
   }
 

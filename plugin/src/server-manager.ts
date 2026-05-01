@@ -19,6 +19,10 @@ export class ServerManager {
     this.statusListeners.push(fn);
   }
 
+  offStatus(fn: StatusListener): void {
+    this.statusListeners = this.statusListeners.filter(l => l !== fn);
+  }
+
   private emit(status: ServerStatus): void {
     this.statusListeners.forEach(fn => fn(status));
   }
