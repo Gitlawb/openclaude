@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,6 +16,7 @@ const originalCwd = process.cwd()
 const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+  'CLAUDE_CONFIG_DIR',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
@@ -1051,7 +1052,9 @@ describe('setActiveProviderProfile', () => {
 
   test('persists no-key openai-compatible profiles for restart fallback', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.OPENAI_API_KEY = 'sk-shell-should-not-persist'
 
     try {
@@ -1073,10 +1076,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('ollama_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('ollama_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('openai')
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'http://localhost:11434/v1',
@@ -1085,12 +1089,15 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
   test('persists primary model for keyed openai-compatible multi-model profiles', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
     try {
       const { setActiveProviderProfile } =
@@ -1112,10 +1119,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('deepseek_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('deepseek_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('openai')
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
@@ -1125,12 +1133,15 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
   test('persists descriptor-backed direct vendors using a legacy-compatible openai startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
     try {
       const { setActiveProviderProfile } =
@@ -1151,10 +1162,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('deepseek_vendor_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('deepseek_vendor_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('openai')
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
@@ -1164,12 +1176,15 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
   test('persists bedrock profiles using a dedicated startup profile kind', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
     try {
       const { setActiveProviderProfile } =
@@ -1189,10 +1204,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('bedrock_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('bedrock_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('bedrock')
       expect(persisted.env).toEqual({
         ANTHROPIC_MODEL: 'claude-sonnet-4-6',
@@ -1201,12 +1217,15 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
   test('persists anthropic profiles using a dedicated anthropic startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
     try {
       const { setActiveProviderProfile } =
@@ -1227,10 +1246,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('anthro_persisted_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('anthro_persisted_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('anthropic')
       expect(persisted.env).toEqual({
         ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
@@ -1240,6 +1260,7 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
