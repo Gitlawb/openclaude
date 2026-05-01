@@ -32,6 +32,28 @@ function searchVault(vault: string, query: string, max: number): SearchHit[] {
   return out;
 }
 
+function extractWikilinks(content: string): string[] {
+  const out: string[] = [];
+  // Match [[NoteName]] and [[NoteName|Alias]] and [[NoteName#header]]
+  const re = /\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]/g;
+  let m: RegExpExecArray | null;
+  // eslint-disable-next-line no-cond-assign
+  while ((m = re.exec(content)) !== null) out.push(m[1]!.trim());
+  return out;
+}
+
+function slugId(name: string): string {
+  return name.replace(/[^A-Za-z0-9]/g, "_");
+}
+
+async function runAgentToString(agent: AgentFn, message: string): Promise<string> {
+  const pieces: string[] = [];
+  for await (const ev of agent({ message, sessionId: "internal", context: {} })) {
+    if (ev.event === "token") pieces.push((ev.data as { text: string }).text);
+  }
+  return pieces.join("");
+}
+
 export const toolsRoutes: Route[] = [
   {
     method: "POST", path: "/tools/search",
@@ -50,17 +72,6 @@ export const toolsRoutes: Route[] = [
       return { status: 200, body: { results: all } };
     },
   },
-];
-
-async function runAgentToString(agent: AgentFn, message: string): Promise<string> {
-  const pieces: string[] = [];
-  for await (const ev of agent({ message, sessionId: "internal", context: {} })) {
-    if (ev.event === "token") pieces.push((ev.data as { text: string }).text);
-  }
-  return pieces.join("");
-}
-
-toolsRoutes.push(
   {
     method: "POST", path: "/tools/dataview",
     handler: async ({ body }) => {
@@ -87,4 +98,38 @@ toolsRoutes.push(
       return { status: 200, body: { insight } };
     },
   },
-);
+  {
+    method: "POST", path: "/tools/mermaid-graph",
+    handler: async ({ body }) => {
+      const b = body as { vault?: string; seedNote?: string; depth?: number; maxNodes?: number };
+      if (!b?.vault || !b?.seedNote) throw new ServerError(ErrorCode.VALIDATION, "vault and seedNote required");
+      const depth = Math.min(Math.max(b.depth ?? 2, 1), 3);
+      const maxNodes = b.maxNodes ?? 50;
+      const edges = new Set<string>();
+      const visited = new Set<string>([b.seedNote]);
+      const queue: Array<{ note: string; d: number }> = [{ note: b.seedNote, d: 0 }];
+      let truncated = false;
+
+      while (queue.length && visited.size < maxNodes) {
+        const { note, d } = queue.shift()!;
+        if (d >= depth) continue;
+        const notePath = join(b.vault, `${note}.md`);
+        if (!existsSync(notePath)) continue;
+        const content = readFileSync(notePath, "utf8");
+        for (const linked of extractWikilinks(content)) {
+          if (visited.size >= maxNodes) { truncated = true; break; }
+          edges.add(`${slugId(note)} --> ${slugId(linked)}`);
+          if (!visited.has(linked)) {
+            visited.add(linked);
+            queue.push({ note: linked, d: d + 1 });
+          }
+        }
+      }
+
+      const nodeDefs = Array.from(visited).map(n => `${slugId(n)}["${n}"]`).join("\n  ");
+      const edgeLines = Array.from(edges).join("\n  ");
+      const mermaid = `graph LR\n  ${nodeDefs}\n  ${edgeLines}`.trim();
+      return { status: 200, body: { mermaid, nodeCount: visited.size, truncated } };
+    },
+  },
+];
