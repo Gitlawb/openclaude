@@ -13,7 +13,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "esbuild": "^0.21.0",
-    "obsidian": "latest",
+    "obsidian": "1.6.7",
     "typescript": "^5.4.0"
   }
 }
