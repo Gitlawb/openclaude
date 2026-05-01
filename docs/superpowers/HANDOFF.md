@@ -4,9 +4,9 @@
 > *"Leia `docs/superpowers/HANDOFF.md` e retome de onde paramos."*
 > Ou copie o kick-off prompt da Seção 11.
 
-**Última atualização:** 2026-04-23 (sessão 2)
+**Última atualização:** 2026-04-30 (sessão 4)
 **Branch ativa:** `feat/serve`
-**Próxima tarefa:** Task 12 do Plano #1 (integrar LLM real)
+**Próxima tarefa:** Task 20 do Plano #1 (README + smoke manual + tag `phase-1-server-complete`) → depois Plano #2 (plugin Obsidian)
 
 ---
 
@@ -52,7 +52,7 @@ cf3dd7a  refactor(serve): harden scaffold per code review
 9994f77  feat(serve): scaffold openclaude serve subcommand
 ```
 
-**Tasks concluídas do Plano #1 (11 de 20):**
+**Tasks concluídas do Plano #1 (19 de 20):**
 - ✅ Task 1: Scaffold `src/serve/` + CLI subcommand
 - ✅ Task 2: Token auth (constant-time hash)
 - ✅ Task 3: HTTP core (routing, CORS, rate limit)
@@ -64,46 +64,37 @@ cf3dd7a  refactor(serve): harden scaffold per code review
 - ✅ Task 9: Session manager JSONL persist
 - ✅ Task 10: `/sessions` CRUD endpoints
 - ✅ Task 11: SSE helper + `/chat` com mock agent pluggable
+- ✅ Task 12: Adapter real OpenClaude Query engine → `/chat` com LLM real
+- ✅ Task 13: Pending edits store + `/pending-edits` (apply/reject com conflict-check 409)
+- ✅ Task 14: Shadow backup (`BackupManager`) + `/backups` + wired no apply
+- ✅ Task 15: `/config`, `/models`, `/vaults` endpoints
+- ✅ Task 16: `/tools/search` cross-vault text search
+- ✅ Task 17: `/tools/dataview` (DQL via LLM) + `/tools/analyze-results` (insight via LLM)
+- ✅ Task 18: `/tools/mermaid-graph` (BFS wikilinks, maxNodes cap)
+- ✅ Task 19: Security matrix E2E (auth, CORS, bind, path, rate limit, validation)
 
-**Verificado em produção (manual smokes):**
+**Verificado em produção (manual smokes sessões 1-3):**
 - `openclaude serve --port 7777` inicia sem banner no stdout (só JSON)
 - `GET /health` → 200 com `{status, version, uptime_ms}`
-- `/sessions` CRUD — GET/POST/GET/DELETE/GET roundtrip com typed 404 final
-- `/chat` streaming SSE — `curl -N POST /chat` devolve `event: token` + `event: done`
-  com `sessionId` auto-criado
-- Token em `~/.openclaude/server-token` (64 hex, mode 0600 no Unix)
+- `/sessions` CRUD — GET/POST/GET/DELETE/GET roundtrip
+- `/chat` streaming SSE — `event: token` + `event: done` com `sessionId` auto-criado
 
-**Testes automatizados:** 54 pass / 0 fail / 89 expect() calls / ~400ms
+**Testes automatizados:** 93 pass / 0 fail / 161+ expect() calls / ~3s
   — rodar com `bun test src/serve/`
-  — 12 arquivos de teste (antes: 4)
+  — 24 arquivos de teste
 
 **Typecheck:** zero erros em `src/serve/` (erros pré-existentes em outros módulos inalterados).
 
 ---
 
-## 3. Tasks restantes do Plano #1 (9 de 20)
-
-Ordem de execução:
+## 3. Tasks restantes do Plano #1 (1 de 20)
 
 | # | Task | Entrega |
 |---|---|---|
-| 12 | Integração real OpenClaude Query engine | **Chat funciona com LLM real** (próxima) |
-| 13 | Pending edits store + endpoints | P3 preview flow |
-| 14 | Shadow backup + `/backups` | Reversibilidade |
-| 15 | `/config`, `/models`, `/vaults` | Config endpoints |
-| 16 | `/tools/search` (cross-vault) | Busca |
-| 17 | `/tools/dataview` + `/tools/analyze-results` | DQL generator |
-| 18 | `/tools/mermaid-graph` | Grafos on-demand |
-| 19 | Security matrix E2E | **Inclui fix: tripwire fs regex pra aceitar `[\\/]` (Windows)** |
-| 20 | README + tag `phase-1-server-complete` | **Phase 1 COMPLETA** |
+| 20 | README + smoke manual + tag `phase-1-server-complete` | **Phase 1 COMPLETA** |
 
-Cada task tem código completo + testes TDD no arquivo do plano.
-
-**Task 12 é diferente das anteriores** — primeira que modifica código fora de
-`src/serve/`. O Step 1 do plano pede um `grep` investigativo pra localizar o
-entry point real do streaming (`query()` ou similar). Não é copy-paste; é um
-adapter que traduz o formato do core OpenClaude para o contrato `AgentFn`
-(AsyncIterable<AgentEvent>) definido em Task 11.
+**Phase 1 está funcionalmente completa.** Task 20 é documentação + tag de milestone.
+Após a tag, começa o Plano #2 (plugin Obsidian).
 
 ---
 
@@ -235,17 +226,13 @@ Retomando projeto openclaude-obsidian.
 Contexto completo em: docs/superpowers/HANDOFF.md
 
 Estado atual:
-- Branch feat/serve, commit HEAD: 9bbda61
-- Plano #1 Tasks 1-11 concluídas, 54 testes verdes
-- Próxima: Task 12 (integrar Query engine OpenClaude real no /chat)
+- Branch feat/serve, commit HEAD: cce7073
+- Plano #1 Tasks 1-19 concluídas, 93 testes verdes
+- Falta apenas Task 20: README + smoke manual + tag phase-1-server-complete
+- Depois: iniciar Plano #2 (plugin Obsidian)
 
-Task 12 é diferente — Step 1 pede grep investigativo em src/query* /
-src/assistant/ pra localizar o streaming real. Não é copy-paste; é
-escrever um adapter de AsyncIterable<{role, content}> (core) pra
-AsyncIterable<AgentEvent> (definido em src/serve/handlers/chat.ts).
-
-Leia HANDOFF.md e o plano, me dê um resumo de 3 linhas confirmando que
-entendeu o estado, e comece pelo grep investigativo da Task 12.
+Leia HANDOFF.md, me dê um resumo de 3 linhas confirmando o estado,
+e me proponha o próximo passo (Task 20 ou já partir pro Plano #2).
 
 Sem re-brainstorming. Sem re-review do design. Sem reabrir decisões fechadas.
 ```
@@ -256,12 +243,11 @@ Sem re-brainstorming. Sem re-review do design. Sem reabrir decisões fechadas.
 
 Antes de qualquer tool call, confirmar:
 - [ ] Está em `e:/Agente_OpenClaude_Segundo_cérebro/`?
-- [ ] Branch atual é `feat/serve`, HEAD é `9bbda61`?
-- [ ] `bun test src/serve/` mostra 54 pass?
-- [ ] Plano em `docs/superpowers/plans/2026-04-23-openclaude-obsidian-phase-1-server.md` existe?
+- [ ] Branch atual é `feat/serve`, HEAD é `cce7073`?
+- [ ] `bun test src/serve/` mostra 93 pass?
 - [ ] HANDOFF.md foi lido (este arquivo)?
 
-Se todos sim, vá pra Task 12. Comece pelo grep investigativo do Step 1 da task.
+Se todos sim: Task 20 (README + smoke + tag) ou propor iniciar Plano #2.
 
 Smoke útil pra confirmar que nada regrediu:
 ```bash
@@ -269,10 +255,10 @@ bun run build
 node dist/cli.mjs serve --port 7778 &
 sleep 2
 TOKEN=$(cat "$USERPROFILE/.openclaude/server-token" 2>/dev/null || cat ~/.openclaude/server-token)
+curl -s http://127.0.0.1:7778/health
 curl -sN -X POST http://127.0.0.1:7778/chat \
   -H "Authorization: Bearer $TOKEN" \
   -H "content-type: application/json" \
-  -d '{"message":"test"}' -m 5
-# Esperado: event: token data: {"text":"echo: test"} / event: done ...
+  -d '{"message":"test"}' -m 10
 kill %1
 ```
