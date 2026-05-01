@@ -160,6 +160,7 @@ Advanced and source-build guides:
 - **Images**: URL and base64 image inputs for providers that support vision
 - **Provider profiles**: Guided setup plus saved `.openclaude-profile.json` support
 - **Local and remote model backends**: Cloud APIs, local servers, and Apple Silicon local inference
+- **Codebase intelligence (repo map)**: Structural map of the repository ranked by PageRank importance, auto-injected into context when the `REPO_MAP` flag is enabled. Inspect with `/repomap`. See [docs/repo-map.md](docs/repo-map.md) for details.
 
 ## Provider Notes
 
