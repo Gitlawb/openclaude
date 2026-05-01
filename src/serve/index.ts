@@ -4,15 +4,24 @@ import { ensureServerToken } from "./auth";
 import { SessionManager } from "./session";
 import { healthRoute } from "./handlers/health";
 import { sessionsRoutes } from "./handlers/sessions";
-import { chatRoute, setMockAgent } from "./handlers/chat";
+import { chatRoute, setMockAgent, setRealAgent } from "./handlers/chat";
+import { pendingEditsRoutes } from "./handlers/pendingEdits";
+import { backupsRoutes } from "./handlers/backups";
+import { configRoutes } from "./handlers/config";
+import { modelsRoutes } from "./handlers/models";
+import { vaultsRoutes } from "./handlers/vaults";
+import { toolsRoutes } from "./handlers/tools";
+import { PendingEditStore } from "./pendingEditStore";
+import { BackupManager } from "./backup";
+import { createRealAgent } from "./agentAdapter";
 
-// Default mock agent — Task 12 will replace with the real OpenClaude engine.
-// Tests override this in beforeEach; the override wins because setMockAgent
-// assigns to a module-level variable.
-setMockAgent(async function* (input) {
-  yield { event: "token", data: { text: `echo: ${input.message}` } };
-  yield { event: "done", data: { finishReason: "stop" } };
-});
+// Wire the real OpenClaude query engine as the default agent.
+// Tests override this in beforeEach via setMockAgent; the override wins
+// because setMockAgent/setRealAgent assign to a module-level variable.
+setRealAgent(createRealAgent());
+
+// Re-export setMockAgent for tests
+export { setMockAgent };
 
 export type ServerOpts = {
   port?: number;
@@ -28,11 +37,29 @@ export type ServerHandle = {
 };
 
 export async function startServer(opts: ServerOpts): Promise<ServerHandle> {
+  // Enable config reading — the serve subcommand dispatches before the CLI's
+  // main bootstrap, so we need to do this explicitly.
+  const { enableConfigs } = await import("../utils/config.js");
+  enableConfigs();
+
   const token = ensureServerToken();
   // SessionManager is constructed per-start (not at module scope) so tests
   // that rotate process.env.HOME in beforeEach get isolated state each run.
   const sm = new SessionManager(homedir());
-  const routes = [healthRoute, ...sessionsRoutes(sm), chatRoute(sm)];
+  const pe = new PendingEditStore(homedir());
+  const routes = [
+    healthRoute,
+    ...configRoutes,
+    ...modelsRoutes,
+    ...vaultsRoutes(),
+    ...sessionsRoutes(sm),
+    chatRoute(sm),
+    ...pendingEditsRoutes(pe, {
+      createBackup: (vault: string, file: string) => new BackupManager(vault).snapshot(file, { reason: "apply pending edit" }),
+    }),
+    ...backupsRoutes,
+    ...toolsRoutes,
+  ];
   const app = await createHttpApp({
     token,
     routes,
