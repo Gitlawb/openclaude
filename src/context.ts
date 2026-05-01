@@ -31,6 +31,7 @@ export function setSystemPromptInjection(value: string | null): void {
   // Clear context caches immediately when injection changes
   getUserContext.cache.clear?.()
   getSystemContext.cache.clear?.()
+  getRepoMapContext.cache.clear?.()
 }
 
 export const getGitStatus = memoize(async (): Promise<string | null> => {
@@ -110,6 +111,37 @@ export const getGitStatus = memoize(async (): Promise<string | null> => {
   }
 })
 
+export const getRepoMapContext = memoize(
+  async (): Promise<string | null> => {
+    // Enable via compile-time feature flag OR runtime env var.
+    // The runtime env var lets users enable auto-injection without rebuilding.
+    const runtimeEnabled = isEnvTruthy(process.env.REPO_MAP)
+    if (!feature('REPO_MAP') && !runtimeEnabled) return null
+    if (isBareMode()) return null
+    if (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE)) return null
+
+    try {
+      const startTime = Date.now()
+      logForDiagnosticsNoPII('info', 'repo_map_started')
+      const { buildRepoMap } = await import('./context/repoMap/index.js')
+      const result = await buildRepoMap({ maxTokens: 1024 })
+      logForDiagnosticsNoPII('info', 'repo_map_completed', {
+        duration_ms: Date.now() - startTime,
+        token_count: result.tokenCount,
+        file_count: result.fileCount,
+        cache_hit: result.cacheHit,
+      })
+      if (!result.map || result.map.length === 0) return null
+      return `This is a structural map of the repository, ranked by importance. Use it to understand the codebase architecture.\n\n${result.map}`
+    } catch (err) {
+      logForDiagnosticsNoPII('warn', 'repo_map_failed', {
+        error: String(err),
+      })
+      return null
+    }
+  },
+)
+
 /**
  * This context is prepended to each conversation, and cached for the duration of the conversation.
  */
@@ -127,6 +159,9 @@ export const getSystemContext = memoize(
         ? null
         : await getGitStatus()
 
+    // Build repo map in parallel with other context (memoized, so cheap on repeat)
+    const repoMap = await getRepoMapContext()
+
     // Include system prompt injection if set (for cache breaking, internal-only)
     const injection = feature('BREAK_CACHE_COMMAND')
       ? getSystemPromptInjection()
@@ -135,11 +170,13 @@ export const getSystemContext = memoize(
     logForDiagnosticsNoPII('info', 'system_context_completed', {
       duration_ms: Date.now() - startTime,
       has_git_status: gitStatus !== null,
+      has_repo_map: repoMap !== null,
       has_injection: injection !== null,
     })
 
     return {
       ...(gitStatus && { gitStatus }),
+      ...(repoMap && { repoMap }),
       ...(feature('BREAK_CACHE_COMMAND') && injection
         ? {
             cacheBreaker: `[CACHE_BREAKER: ${injection}]`,

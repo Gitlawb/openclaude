@@ -1,0 +1,144 @@
+import {
+  computeMapHash,
+  getCachedTags,
+  getCacheStats as getCacheStatsImpl,
+  invalidateCache as invalidateCacheImpl,
+  loadCache,
+  saveCache,
+  setCachedTags,
+} from './cache.js'
+import { getRepoFiles } from './gitFiles.js'
+import { buildGraph } from './graph.js'
+import { rankFiles } from './pagerank.js'
+import { initParser } from './parser.js'
+import { renderMap } from './renderer.js'
+import { extractTags } from './symbolExtractor.js'
+import type { FileTags, RepoMapOptions, RepoMapResult, CacheStats } from './types.js'
+
+const DEFAULT_MAX_TOKENS = 2048
+
+/**
+ * Build a structural summary of a code repository.
+ *
+ * Walks the repo, extracts symbols via tree-sitter, builds an IDF-weighted
+ * reference graph, ranks files with PageRank, and renders a token-budgeted
+ * structural summary.
+ */
+export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMapResult> {
+  const startTime = Date.now()
+  const root = options.root ?? process.cwd()
+  const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS
+  const focusFiles = options.focusFiles ?? []
+
+  // Initialize tree-sitter
+  await initParser()
+
+  // Get files
+  const files = options.files ?? await getRepoFiles(root)
+  const totalFileCount = files.length
+
+  // Check if we have a cached rendered map
+  const mapHash = computeMapHash(files, maxTokens, focusFiles)
+  const cache = loadCache(root)
+
+  // Check if rendered map is cached (stored as a special entry)
+  const renderedCacheKey = `__rendered__${mapHash}`
+  const renderedEntry = cache.entries[renderedCacheKey]
+  if (renderedEntry && renderedEntry.tags.length === 1) {
+    const cachedResult = renderedEntry.tags[0]!
+    // The cached "tag" stores the rendered map in the signature field
+    // and metadata in name/line fields
+    try {
+      const meta = JSON.parse(cachedResult.name)
+      return {
+        map: cachedResult.signature,
+        cacheHit: true,
+        buildTimeMs: Date.now() - startTime,
+        fileCount: meta.fileCount ?? 0,
+        totalFileCount,
+        tokenCount: meta.tokenCount ?? 0,
+      }
+    } catch {
+      // Invalid cached data, continue with full build
+    }
+  }
+
+  // Extract tags for all files (using per-file cache).
+  // Separate cached hits from files needing extraction.
+  const allFileTags: FileTags[] = []
+  const uncachedFiles: string[] = []
+
+  for (const file of files) {
+    const cachedTags = getCachedTags(cache, file, root)
+    if (cachedTags) {
+      allFileTags.push({ path: file, tags: cachedTags })
+    } else {
+      uncachedFiles.push(file)
+    }
+  }
+
+  // Process uncached files in parallel batches
+  const BATCH_SIZE = 50
+  for (let i = 0; i < uncachedFiles.length; i += BATCH_SIZE) {
+    const batch = uncachedFiles.slice(i, i + BATCH_SIZE)
+    const results = await Promise.all(
+      batch.map(file => extractTags(file, root).catch(() => null))
+    )
+    for (let j = 0; j < results.length; j++) {
+      const fileTags = results[j]
+      if (fileTags) {
+        allFileTags.push(fileTags)
+        setCachedTags(cache, fileTags.path, root, fileTags.tags)
+      }
+    }
+  }
+
+  // Build graph and rank
+  const graph = buildGraph(allFileTags)
+  const ranked = rankFiles(graph, focusFiles)
+
+  // Build a lookup map
+  const fileTagsMap = new Map<string, FileTags>()
+  for (const ft of allFileTags) {
+    fileTagsMap.set(ft.path, ft)
+  }
+
+  // Render
+  const { map, tokenCount, fileCount } = renderMap(ranked, fileTagsMap, maxTokens)
+
+  // Cache the rendered result
+  cache.entries[renderedCacheKey] = {
+    tags: [{
+      kind: 'def',
+      name: JSON.stringify({ fileCount, tokenCount }),
+      line: 0,
+      signature: map,
+    }],
+    mtimeMs: Date.now(),
+    size: 0,
+  }
+
+  saveCache(root, cache)
+
+  return {
+    map,
+    cacheHit: false,
+    buildTimeMs: Date.now() - startTime,
+    fileCount,
+    totalFileCount,
+    tokenCount,
+  }
+}
+
+/** Invalidate the disk cache for a given repo root. */
+export function invalidateCache(root?: string): void {
+  invalidateCacheImpl(root ?? process.cwd())
+}
+
+/** Get cache statistics for a given repo root. */
+export function getCacheStats(root?: string): CacheStats {
+  return getCacheStatsImpl(root ?? process.cwd())
+}
+
+// Re-export types for convenience
+export type { RepoMapOptions, RepoMapResult, CacheStats } from './types.js'
