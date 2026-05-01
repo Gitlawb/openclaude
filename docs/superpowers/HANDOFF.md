@@ -4,9 +4,10 @@
 > *"Leia `docs/superpowers/HANDOFF.md` e retome de onde paramos."*
 > Ou copie o kick-off prompt da Seção 11.
 
-**Última atualização:** 2026-04-30 (sessão 4)
+**Última atualização:** 2026-05-01 (sessão 5)
 **Branch ativa:** `feat/serve`
-**Próxima tarefa:** Task 20 do Plano #1 (README + smoke manual + tag `phase-1-server-complete`) → depois Plano #2 (plugin Obsidian)
+**Tag:** `phase-1-server-complete` ✅ — **Plano #1 COMPLETO (20/20 tasks)**
+**Próxima tarefa:** Escrever Plano #2 (plugin Obsidian) e iniciar implementação
 
 ---
 
@@ -52,7 +53,7 @@ cf3dd7a  refactor(serve): harden scaffold per code review
 9994f77  feat(serve): scaffold openclaude serve subcommand
 ```
 
-**Tasks concluídas do Plano #1 (19 de 20):**
+**Tasks concluídas do Plano #1 (20 de 20 — COMPLETO ✅):**
 - ✅ Task 1: Scaffold `src/serve/` + CLI subcommand
 - ✅ Task 2: Token auth (constant-time hash)
 - ✅ Task 3: HTTP core (routing, CORS, rate limit)
@@ -72,8 +73,9 @@ cf3dd7a  refactor(serve): harden scaffold per code review
 - ✅ Task 17: `/tools/dataview` (DQL via LLM) + `/tools/analyze-results` (insight via LLM)
 - ✅ Task 18: `/tools/mermaid-graph` (BFS wikilinks, maxNodes cap)
 - ✅ Task 19: Security matrix E2E (auth, CORS, bind, path, rate limit, validation)
+- ✅ Task 20: README (`src/serve/README.md`) + `test:serve` script + tag `phase-1-server-complete`
 
-**Verificado em produção (manual smokes sessões 1-3):**
+**Verificado em produção (manual smokes sessões 1-5):**
 - `openclaude serve --port 7777` inicia sem banner no stdout (só JSON)
 - `GET /health` → 200 com `{status, version, uptime_ms}`
 - `/sessions` CRUD — GET/POST/GET/DELETE/GET roundtrip
@@ -87,14 +89,12 @@ cf3dd7a  refactor(serve): harden scaffold per code review
 
 ---
 
-## 3. Tasks restantes do Plano #1 (1 de 20)
+## 3. Plano #1 COMPLETO ✅
 
-| # | Task | Entrega |
-|---|---|---|
-| 20 | README + smoke manual + tag `phase-1-server-complete` | **Phase 1 COMPLETA** |
+**20/20 tasks entregues. Tag `phase-1-server-complete` criada.**
 
-**Phase 1 está funcionalmente completa.** Task 20 é documentação + tag de milestone.
-Após a tag, começa o Plano #2 (plugin Obsidian).
+O servidor HTTP está pronto para ser consumido pelo plugin Obsidian (Plano #2).
+API completa, 93 testes verdes, smoke manual validado, zero dependências de produção adicionadas.
 
 ---
 
@@ -226,13 +226,12 @@ Retomando projeto openclaude-obsidian.
 Contexto completo em: docs/superpowers/HANDOFF.md
 
 Estado atual:
-- Branch feat/serve, commit HEAD: cce7073
-- Plano #1 Tasks 1-19 concluídas, 93 testes verdes
-- Falta apenas Task 20: README + smoke manual + tag phase-1-server-complete
-- Depois: iniciar Plano #2 (plugin Obsidian)
+- Branch feat/serve, tag phase-1-server-complete, commit HEAD: 1a81d85
+- Plano #1 COMPLETO: 20/20 tasks, 93 testes verdes, smoke manual validado
+- Próximo: escrever Plano #2 (plugin Obsidian) usando superpowers:writing-plans
 
-Leia HANDOFF.md, me dê um resumo de 3 linhas confirmando o estado,
-e me proponha o próximo passo (Task 20 ou já partir pro Plano #2).
+Leia HANDOFF.md e o spec em docs/superpowers/specs/2026-04-23-openclaude-obsidian-design.md,
+me dê um resumo de 3 linhas confirmando o estado, e comece a escrever o Plano #2.
 
 Sem re-brainstorming. Sem re-review do design. Sem reabrir decisões fechadas.
 ```
@@ -243,11 +242,11 @@ Sem re-brainstorming. Sem re-review do design. Sem reabrir decisões fechadas.
 
 Antes de qualquer tool call, confirmar:
 - [ ] Está em `e:/Agente_OpenClaude_Segundo_cérebro/`?
-- [ ] Branch atual é `feat/serve`, HEAD é `cce7073`?
-- [ ] `bun test src/serve/` mostra 93 pass?
+- [ ] Branch atual é `feat/serve`, tag `phase-1-server-complete` existe?
+- [ ] `bun run test:serve` mostra 93 pass?
 - [ ] HANDOFF.md foi lido (este arquivo)?
 
-Se todos sim: Task 20 (README + smoke + tag) ou propor iniciar Plano #2.
+Se todos sim: escrever Plano #2 (plugin Obsidian) com `superpowers:writing-plans`.
 
 Smoke útil pra confirmar que nada regrediu:
 ```bash
