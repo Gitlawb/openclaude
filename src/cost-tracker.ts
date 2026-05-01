@@ -50,11 +50,13 @@ import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
 } from './utils/context.js'
+import { isEnvTruthy } from './utils/envUtils.js'
 import { isFastModeEnabled } from './utils/fastMode.js'
 import { formatDuration, formatNumber } from './utils/format.js'
 import type { FpsMetrics } from './utils/fpsTracker.js'
 import { getCanonicalName } from './utils/model/model.js'
 import { calculateUSDCost } from './utils/modelCost.js'
+import { formatGithubRateLimitSummary } from './utils/githubRateLimit.js'
 export {
   getTotalCostUSD as getTotalCost,
   getTotalDuration,
@@ -257,12 +259,18 @@ export function formatTotalCost(): string {
 
   const modelUsageDisplay = formatModelUsage()
 
+  // Append GitHub rate-limit summary if available
+  const rateLimitLine = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
+    ? formatGithubRateLimitSummary()
+    : null
+  const rateLimitDisplay = rateLimitLine ? `\n${rateLimitLine}` : ''
+
   return chalk.dim(
     `Total cost:            ${costDisplay}\n` +
       `Total duration (API):  ${formatDuration(getTotalAPIDuration())}
 Total duration (wall): ${formatDuration(getTotalDuration())}
 Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed
-${modelUsageDisplay}`,
+${modelUsageDisplay}${rateLimitDisplay}`,
   )
 }
 

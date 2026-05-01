@@ -19,8 +19,6 @@ import { DEFAULT_GEMINI_BASE_URL } from 'src/utils/providerProfile.js'
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
-/** Default GitHub Copilot API model when user selects copilot / github:copilot */
-export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
 
 const CODEX_ALIAS_MODELS: Record<
@@ -446,43 +444,7 @@ export function isCodexBaseUrl(baseUrl: string | undefined): boolean {
   }
 }
 
-/**
- * Normalize user model string for GitHub Copilot API inference.
- * Mirrors how Copilot resolves model IDs internally.
- */
-export function normalizeGithubCopilotModel(requestedModel: string): string {
-  const noQuery = requestedModel.split('?', 1)[0] ?? requestedModel
-  const segment =
-    noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
-  if (!segment || segment.toLowerCase() === 'copilot') {
-    return DEFAULT_GITHUB_MODELS_API_MODEL
-  }
-  // Strip provider prefix if present (e.g., "openai/gpt-4o" -> "gpt-4o")
-  const slashIndex = segment.indexOf('/')
-  if (slashIndex !== -1) {
-    return segment.slice(slashIndex + 1)
-  }
-  return segment
-}
-
-/**
- * Normalize user model string for GitHub Models API inference.
- * Only normalizes the default alias, preserves provider-qualified models.
- */
-export function normalizeGithubModelsApiModel(requestedModel: string): string {
-  const noQuery = requestedModel.split('?', 1)[0] ?? requestedModel
-  const segment =
-    noQuery.includes(':') ? noQuery.split(':', 2)[1]!.trim() : noQuery.trim()
-  // Only normalize the default alias for GitHub Models
-  if (!segment || segment.toLowerCase() === 'copilot') {
-    return DEFAULT_GITHUB_MODELS_API_MODEL
-  }
-  // Preserve provider prefix for GitHub Models (e.g., "openai/gpt-4.1" stays as-is)
-  return segment
-}
-
 export const GITHUB_COPILOT_BASE_URL = 'https://api.githubcopilot.com'
-export const GITHUB_MODELS_BASE_URL = 'https://models.github.ai/inference'
 
 export function getGithubEndpointType(
   baseUrl: string | undefined,
@@ -493,7 +455,7 @@ export function getGithubEndpointType(
     if (hostname === 'api.githubcopilot.com') {
       return 'copilot'
     }
-    if (hostname === 'models.github.ai' || hostname.endsWith('.github.ai')) {
+    if (hostname === 'models.github.ai' || hostname.endsWith('.github.ai') || hostname === 'models.inference.ai.azure.com') {
       return 'models'
     }
     return 'custom'
@@ -516,10 +478,12 @@ export function resolveProviderRequest(options?: {
     options?.model?.trim() ||
     (isMistralMode
       ? process.env.MISTRAL_MODEL?.trim()
-      : process.env.OPENAI_MODEL?.trim()) ||
-    (isGeminiMode
-      ? process.env.GEMINI_MODEL?.trim()
-      : process.env.OPENAI_MODEL?.trim()) ||
+      : isGeminiMode
+        ? process.env.GEMINI_MODEL?.trim()
+        : isGithubMode  
+          ? process.env.GITHUB_MODEL?.trim() ||  
+            process.env.OPENAI_MODEL?.trim()  
+          : process.env.OPENAI_MODEL?.trim()) ||  
     options?.fallbackModel?.trim() ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
@@ -538,8 +502,8 @@ export function resolveProviderRequest(options?: {
   const primaryEnvBaseUrl = isMistralMode
     ? normalizedMistralEnvBaseUrl
     : isGeminiMode
-    ? normalizedGeminiEnvBaseUrl
-    : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
+      ? normalizedGeminiEnvBaseUrl
+      : asNamedEnvUrl(process.env.OPENAI_BASE_URL, 'OPENAI_BASE_URL')
 
   // In Mistral mode, a literal "undefined" MISTRAL_BASE_URL is treated as
   // misconfiguration and falls back to OPENAI_API_BASE, then
@@ -549,17 +513,14 @@ export function resolveProviderRequest(options?: {
       ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_MISTRAL_BASE_URL
       : undefined)
     : isGeminiMode
-    ? (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
-      : undefined)
-    : (primaryEnvBaseUrl === undefined
-      ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
-      : undefined)
+      ? (primaryEnvBaseUrl === undefined
+        ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE') ?? DEFAULT_GEMINI_BASE_URL
+        : undefined)
+      : (primaryEnvBaseUrl === undefined
+        ? asNamedEnvUrl(process.env.OPENAI_API_BASE, 'OPENAI_API_BASE')
+        : undefined)
 
-  const envBaseUrlRaw =
-    explicitBaseUrl ??
-    primaryEnvBaseUrl ??
-    fallbackEnvBaseUrl
+  const envBaseUrlRaw = explicitBaseUrl ?? primaryEnvBaseUrl ?? fallbackEnvBaseUrl
 
   const isCodexModelForGithub = isGithubMode && isCodexAlias(requestedModel)
   const envBaseUrl =
@@ -586,37 +547,18 @@ export function resolveProviderRequest(options?: {
       ? DEFAULT_CODEX_BASE_URL
       : rawBaseUrl
 
-  const githubEndpointType = isGithubMode
-    ? getGithubEndpointType(rawBaseUrl)
-    : 'custom'
-  const isGithubCopilot = isGithubMode && githubEndpointType === 'copilot'
-  const isGithubModels = isGithubMode && githubEndpointType === 'models'
-  const isGithubCustom = isGithubMode && githubEndpointType === 'custom'
+  const requestedApiFormat = parseOpenAICompatibleApiFormat(
+    options?.apiFormat ?? process.env.OPENAI_API_FORMAT,
+  )
 
-  const githubResolvedModel = isGithubMode
-    ? normalizeGithubModelsApiModel(requestedModel)
-    : requestedModel
-
-  const requestedApiFormat =
-    parseOpenAICompatibleApiFormat(options?.apiFormat) ??
-    parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
   const transport: ProviderTransport =
-    shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
-      (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
+    shouldUseCodexTransport(requestedModel, finalBaseUrl)
       ? 'codex_responses'
       : requestedApiFormat === 'responses'
         ? 'responses'
         : 'chat_completions'
 
-  // For GitHub Copilot API, normalize to real model ID (e.g., "github:copilot" -> "gpt-4o")
-  // For GitHub Models/custom endpoints:
-  //   - Normalize default alias (github:copilot -> gpt-4o)
-  //   - Preserve provider-qualified models (openai/gpt-4.1 stays as-is)
-  const resolvedModel = isGithubCopilot
-    ? normalizeGithubCopilotModel(descriptor.baseModel)
-    : (isGithubModels || isGithubCustom
-      ? normalizeGithubModelsApiModel(descriptor.baseModel)
-      : descriptor.baseModel)
+  const resolvedModel = descriptor.baseModel
 
   const reasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
@@ -627,13 +569,7 @@ export function resolveProviderRequest(options?: {
     requestedModel,
     resolvedModel,
     baseUrl:
-      (finalBaseUrl ??
-        (isGithubCopilot && transport === 'codex_responses'
-          ? GITHUB_COPILOT_BASE_URL
-          : (isGithubMode
-            ? GITHUB_COPILOT_BASE_URL
-            : DEFAULT_OPENAI_BASE_URL))
-      ).replace(/\/+$/, ''),
+      (finalBaseUrl ?? (isGithubMode ? GITHUB_COPILOT_BASE_URL : DEFAULT_OPENAI_BASE_URL)).replace(/\/+$/, ''),
     reasoning,
   }
 }
@@ -641,11 +577,11 @@ export function resolveProviderRequest(options?: {
 export function getAdditionalModelOptionsCacheScope(): string | null {
   if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
     if (!isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
-        !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_MISTRAL) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) &&
+      !isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
       return 'firstParty'
     }
     return null
@@ -832,7 +768,7 @@ export function resolveRuntimeCodexCredentials(options?: {
   )
   const hasStoredCredentialsOption = Boolean(
     options &&
-      Object.prototype.hasOwnProperty.call(options, 'storedCredentials'),
+    Object.prototype.hasOwnProperty.call(options, 'storedCredentials'),
   )
 
   if (

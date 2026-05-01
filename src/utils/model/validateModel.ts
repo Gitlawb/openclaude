@@ -13,6 +13,7 @@ import { getModelStrings } from './modelStrings.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
 import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import { getCachedGithubModelOptions } from './githubModels.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -80,6 +81,23 @@ export async function validateModel(
       const shown = names.slice(0, MAX_SHOWN).join(', ')
       const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
       return { valid: false, error: `Model '${normalizedModel}' not found in MiniMax catalog. Available: ${shown}${suffix}` }
+    }
+  }
+
+  // For GitHub provider, validate against cached model list
+  if (getAPIProvider() === 'github') {
+    const githubModels = getCachedGithubModelOptions()
+    const found = githubModels.some(m => m.value === normalizedModel)
+    if (found) {
+      validModelCache.set(normalizedModel, true)
+      return { valid: true }
+    }
+    if (githubModels.length > 0) {
+      const MAX_SHOWN = 5
+      const names = githubModels.map(m => m.value)
+      const shown = names.slice(0, MAX_SHOWN).join(', ')
+      const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
+      return { valid: false, error: `Model '${normalizedModel}' not found in GitHub Copilot catalog. Available: ${shown}${suffix}` }
     }
   }
 

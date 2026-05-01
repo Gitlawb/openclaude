@@ -22,7 +22,6 @@
  * GitHub Copilot API (api.githubcopilot.com), OpenAI-compatible:
  *   CLAUDE_CODE_USE_GITHUB=1         — enable GitHub inference (no need for USE_OPENAI)
  *   GITHUB_TOKEN or GH_TOKEN         — Copilot API token (mapped to Bearer auth)
- *   OPENAI_MODEL                     — optional; use github:copilot or openai/gpt-4.1 style IDs
  */
 
 import { APIError } from '@anthropic-ai/sdk'
@@ -55,7 +54,6 @@ import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
   getLocalProviderRetryBaseUrls,
-  getGithubEndpointType,
   isLocalProviderUrl,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
@@ -74,11 +72,8 @@ import {
   hasToolFieldMapping,
 } from './toolArgumentNormalization.js'
 import { logApiCallStart, logApiCallEnd } from '../../utils/requestLogging.js'
-import {
-  createStreamState,
-  processStreamChunk,
-  getStreamStats,
-} from '../../utils/streamingOptimizer.js'
+import { createStreamState, processStreamChunk, getStreamStats } from '../../utils/streamingOptimizer.js'
+import { updateGithubRateLimit } from '../../utils/githubRateLimit.js'
 import { stableStringify } from '../../utils/stableStringify.js'
 
 type SecretValueSource = Partial<{
@@ -1354,8 +1349,15 @@ class OpenAIShimMessages {
 
     const promise = (async () => {
       const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
+
+      const isGithub = isGithubModelsMode()
       const response = await self._doRequest(request, params, options)
       httpResponse = response
+
+      // Capture GitHub rate-limit headers from every response
+      if (isGithubModelsMode()) {
+        updateGithubRateLimit(response.headers as unknown as Headers)
+      }
 
       if (params.stream) {
         const isResponsesStream = response.url?.includes('/responses')
@@ -1435,7 +1437,6 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<Response> {
-    const githubEndpointType = getGithubEndpointType(request.baseUrl)
     const isGithubMode = isGithubModelsMode()
     const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
 
@@ -1565,10 +1566,7 @@ class OpenAIShimMessages {
     const isGithub = isGithubModelsMode()
     const isMistral = isMistralMode()
     const isLocal = isLocalProviderUrl(request.baseUrl)
-
-    const githubEndpointType = getGithubEndpointType(request.baseUrl)
-    const isGithubCopilot = isGithub && githubEndpointType === 'copilot'
-    const isGithubModels = isGithub && (githubEndpointType === 'models' || githubEndpointType === 'custom')
+    const isGithubCopilot = isGithub
 
     const isMoonshot = isMoonshotCompatibleBaseUrl(request.baseUrl)
     const isDeepSeek = isDeepSeekBaseUrl(request.baseUrl)
@@ -1745,7 +1743,7 @@ class OpenAIShimMessages {
 
     const isGemini = isGeminiMode()
     const isMiniMax = !!process.env.MINIMAX_API_KEY
-    const apiKey =
+    let apiKey =
       this.providerOverride?.apiKey ??
       process.env.OPENAI_API_KEY ??
       (isMiniMax ? process.env.MINIMAX_API_KEY : '')
@@ -1772,20 +1770,12 @@ class OpenAIShimMessages {
       isBankr = request.baseUrl.toLowerCase().includes('bankr')
     } catch { /* malformed URL — not Bankr */ }
 
-    if (authValue) {
-      if (hasCustomAuthHeader && customAuthHeader) {
-        const defaultCustomAuthScheme =
-          customAuthHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw'
-        const customAuthScheme =
-          process.env.OPENAI_AUTH_SCHEME === 'raw' ||
-          process.env.OPENAI_AUTH_SCHEME === 'bearer'
-            ? process.env.OPENAI_AUTH_SCHEME
-            : defaultCustomAuthScheme
-        headers[customAuthHeader] =
-          customAuthScheme === 'bearer'
-            ? `Bearer ${authValue}`
-            : authValue
-      } else if (isAzure) {
+    if (!apiKey && isGithub) {
+      apiKey = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? ''
+    }
+
+    if (apiKey) {
+      if (isAzure) {
         // Azure uses api-key header instead of Bearer token
         headers['api-key'] = authValue
       } else if (isBankr) {
@@ -1804,11 +1794,36 @@ class OpenAIShimMessages {
       }
     }
 
-    if (isGithubCopilot) {
+        const getGithubEndpointType = (baseUrl: string): 'copilot' | 'models' | 'other' => {  
+      try {  
+        const hostname = new URL(baseUrl).hostname.toLowerCase()  
+        if (  
+          hostname === 'models.github.ai' ||  
+          hostname.endsWith('.github.ai') ||  
+          hostname === 'models.inference.ai.azure.com'  
+        ) {  
+          return 'models'  
+        }  
+      } catch {  
+        const normalizedBaseUrl = baseUrl.toLowerCase()  
+        if (  
+          normalizedBaseUrl.includes('models.github.ai') ||  
+          normalizedBaseUrl.includes('.github.ai') ||  
+          normalizedBaseUrl.includes('models.inference.ai.azure.com')  
+        ) {  
+          return 'models'  
+        }  
+      }  
+
+      return isGithubCopilot ? 'copilot' : 'other'  
+    }  
+
+    const githubEndpointType = isGithub ? getGithubEndpointType(request.baseUrl) : 'other'  
+    if (githubEndpointType === 'models') {  
+      headers.Accept = 'application/vnd.github+json'  
+      headers['X-GitHub-Api-Version'] = '2022-11-28'  
+    } else if (githubEndpointType === 'copilot') {  
       Object.assign(headers, COPILOT_HEADERS)
-    } else if (isGithubModels) {
-      headers['Accept'] = 'application/vnd.github+json'
-      headers['X-GitHub-Api-Version'] = '2022-11-28'
     }
 
     const buildChatCompletionsUrl = (baseUrl: string): string => {

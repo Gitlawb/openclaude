@@ -57,10 +57,6 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'codexspark'
   }
-  // For GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
-  }
   // NVIDIA NIM — OPENAI_MODEL carries the user's active NIM model; use a
   // small Meta Llama variant as the conservative fallback.
   if (getAPIProvider() === 'nvidia-nim') {
@@ -122,7 +118,6 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     const isOpenAIShimProvider =
       provider === 'openai' ||
       provider === 'codex' ||
-      provider === 'github' ||
       provider === 'nvidia-nim' ||
       provider === 'minimax' ||
       provider === 'xai'
@@ -188,10 +183,6 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
-  // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
-  }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
     return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
@@ -234,10 +225,6 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
-  // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
-  }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
     return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
@@ -273,10 +260,6 @@ export function getDefaultHaikuModel(): ModelName {
   // Codex provider
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
-  }
-  // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
@@ -343,7 +326,6 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     const settings = getSettings_DEPRECATED() || {}
     return (
       normalizeModelSetting(settings.model) ||
-      normalizeModelSetting(process.env.OPENAI_MODEL) ||
       'github:copilot'
     )
   }
@@ -639,9 +621,9 @@ export function renderModelName(model: ModelName): string {
   if (publicName) {
     return publicName
   }
-  // Handle GitHub Copilot special model aliases
+  // Handle GitHub Copilot auto-routed alias
   if (model === 'github:copilot') {
-    return 'GPT-4o'
+    return 'GitHub Copilot (auto-routed)'
   }
   if (process.env.USER_TYPE === 'ant') {
     const resolved = parseUserSpecifiedModel(model)

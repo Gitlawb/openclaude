@@ -379,19 +379,32 @@ function getCodexModelOptions(): ModelOption[] {
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 
-import { getAllCopilotModels } from './copilotModels.js'
+import { getCachedGithubModelOptions } from './githubModels.js'
 
 function getCopilotModelOptions(): ModelOption[] {
-  return getAllCopilotModels().map(m => ({
-    value: m.id,
-    label: m.name,
-    description: `${m.family}${m.reasoning ? ' · Reasoning' : ''}${m.tool_call ? ' · Tool call' : ''} · ${Math.round(m.limit.context / 1000)}K context`,
-  }))
+  return getCachedGithubModelOptions()
 }
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {
   if (getAPIProvider() === 'github') {
-    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
+    const defaultOption = getDefaultOptionForUser(fastMode)
+    const githubModels = getCopilotModelOptions()
+    if (githubModels.length > 0) {
+      return [defaultOption, ...githubModels]
+    }
+    // Fallback: if models not yet fetched, show current model instead of "only Default"
+    const currentModel = getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
+    if (currentModel != null) {
+      return [
+        defaultOption,
+        {
+          value: currentModel,
+          label: currentModel,
+          description: 'Currently configured GitHub model',
+        },
+      ]
+    }
+    return [defaultOption]
   }
 
   // When using Ollama, show models from the Ollama server instead of Claude models

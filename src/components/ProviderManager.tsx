@@ -36,6 +36,7 @@ import {
   readGithubModelsToken,
   readGithubModelsTokenAsync,
 } from '../utils/githubModelsCredentials.js'
+import { refreshGithubModelsCache } from '../utils/model/githubModels.js'
 import {
   probeAtomicChatReadiness,
   probeOllamaGenerationReadiness,
@@ -168,9 +169,8 @@ const FORM_STEPS: Array<{
 ]
 
 const GITHUB_PROVIDER_ID = '__github_models__'
-const GITHUB_PROVIDER_LABEL = 'GitHub Models'
-const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
-const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
+const GITHUB_PROVIDER_LABEL = 'GitHub Copilot'
+const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://api.githubcopilot.com'
 const CODEX_OAUTH_PROVIDER_NAME = 'Codex OAuth'
 const CODEX_OAUTH_PROVIDER_MODEL = 'codexplan'
 
@@ -260,9 +260,9 @@ function getGithubProviderModel(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string {
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
-    return processEnv.OPENAI_MODEL?.trim() || GITHUB_PROVIDER_DEFAULT_MODEL
+    return ''
   }
-  return GITHUB_PROVIDER_DEFAULT_MODEL
+  return ''
 }
 
 function getGithubProviderSummary(
@@ -277,7 +277,8 @@ function getGithubProviderSummary(
         ? 'token via env'
         : 'no token found'
   const activeSuffix = isActive ? ' (active)' : ''
-  return `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel(processEnv)} · ${credentialSummary}${activeSuffix}`
+  const modelSummary = getGithubProviderModel(processEnv)
+  return `github-copilot · ${GITHUB_PROVIDER_DEFAULT_BASE_URL}${modelSummary ? ` · ${modelSummary}` : ''} · ${credentialSummary}${activeSuffix}`
 }
 
 function describeAtomicChatSelectionIssue(
@@ -628,6 +629,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }, [refreshCodexOAuthCredentialState, refreshGithubProviderState])
 
   React.useEffect(() => {
+    if (!githubProviderAvailable || githubCredentialSource === 'none') {
+      return
+    }
+
+    void refreshGithubModelsCache().catch(error => {
+      setErrorMessage(
+        `Could not load GitHub models: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    })
+  }, [githubCredentialSource, githubProviderAvailable])
+
+  React.useEffect(() => {
     if (screen !== 'select-ollama-model') {
       return
     }
@@ -810,7 +823,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
         setAppState(prev => ({
           ...prev,
-          mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
+          mainLoopModel: 'github:copilot',  
           mainLoopModelForSession: null,
         }))
         refreshProfiles()
@@ -903,7 +916,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     const { error } = updateSettingsForSource('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
-        OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
         OPENAI_API_KEY: undefined as any,
         OPENAI_ORG: undefined as any,
         OPENAI_PROJECT: undefined as any,
@@ -922,7 +934,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
-    process.env.OPENAI_MODEL = GITHUB_PROVIDER_DEFAULT_MODEL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_ORG
     delete process.env.OPENAI_PROJECT
@@ -952,7 +963,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     const { error } = updateSettingsForSource('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: undefined as any,
-        OPENAI_MODEL: undefined as any,
         OPENAI_BASE_URL: undefined as any,
         OPENAI_API_BASE: undefined as any,
       },
@@ -972,7 +982,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     delete process.env.CLAUDE_CODE_USE_GITHUB
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
-    delete process.env.OPENAI_MODEL
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_ORG
     delete process.env.OPENAI_PROJECT
@@ -1581,7 +1590,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             isGithubCredentialSourceResolved ? (
               <Text dimColor>No provider profiles configured yet.</Text>
             ) : (
-              <Text dimColor>Checking GitHub Models credentials...</Text>
+              <Text dimColor>Checking GitHub Copilot credentials...</Text>
             )
           ) : (
             <>
@@ -1701,7 +1710,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         label: isGithubActive
           ? `${GITHUB_PROVIDER_LABEL} (active)`
           : GITHUB_PROVIDER_LABEL,
-        description: `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel()}`,
+        description: `github-copilot · ${GITHUB_PROVIDER_DEFAULT_BASE_URL}`,
       })
     }
 
