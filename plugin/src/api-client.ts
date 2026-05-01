@@ -31,9 +31,9 @@ export class ApiClient {
     return res.json() as Promise<HealthStatus>;
   }
 
-  async listSessions(): Promise<Session[]> {
+  async listSessions(retried = false): Promise<Session[]> {
     const res = await fetch(`${this.baseUrl}/sessions`, { headers: this.authHeaders() });
-    if (res.status === 401) { this.token = this.readToken(); return this.listSessions(); }
+    if (res.status === 401 && !retried) { this.token = this.readToken(); return this.listSessions(true); }
     if (!res.ok) throw new Error(`list sessions failed: ${res.status}`);
     return res.json() as Promise<Session[]>;
   }
