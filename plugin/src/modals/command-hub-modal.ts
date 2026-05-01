@@ -44,30 +44,33 @@ export class CommandHubModal extends Modal {
     search.focus();
   }
 
-  private buildItems(): HubItem[] {
-    const inject = (prompt: string) => {
-      this.close();
-      this.plugin.activateSidebar().then(() => {
-        window.dispatchEvent(new CustomEvent('openclaude:inject-prompt', { detail: prompt }));
-      });
-    };
+  private async inject(prompt: string): Promise<void> {
+    this.close();
+    try {
+      await this.plugin.activateSidebar();
+      window.dispatchEvent(new CustomEvent('openclaude:inject-prompt', { detail: prompt }));
+    } catch {
+      // Sidebar failed to open; nothing to inject into
+    }
+  }
 
+  private buildItems(): HubItem[] {
     return [
       {
         icon: '✦', name: 'Summarize note', shortcut: 'Ctrl+Shift+A',
-        action: () => inject('Summarize this note concisely.'),
+        action: () => this.inject('Summarize this note concisely.'),
       },
       {
         icon: '⚡', name: 'Expand selection to Zettels', shortcut: 'Ctrl+Shift+Z',
-        action: () => inject('Expand the selected text into Zettelkasten atomic notes with [[wikilinks]].'),
+        action: () => this.inject('Expand the selected text into Zettelkasten atomic notes with [[wikilinks]].'),
       },
       {
         icon: '🗺', name: 'Generate MOC',
-        action: () => inject('Generate a Map of Content (MOC) for this note, listing related topics as [[wikilinks]].'),
+        action: () => this.inject('Generate a Map of Content (MOC) for this note, listing related topics as [[wikilinks]].'),
       },
       {
         icon: '🔗', name: 'Suggest backlinks',
-        action: () => inject('Suggest relevant [[wikilinks]] I should add to this note based on its content.'),
+        action: () => this.inject('Suggest relevant [[wikilinks]] I should add to this note based on its content.'),
       },
       {
         icon: '+', name: 'New session',
@@ -79,17 +82,14 @@ export class CommandHubModal extends Modal {
       {
         icon: '🩺', name: 'Server health check',
         action: async () => {
-          this.close();
+          let detail: string;
           try {
             const h = await this.plugin.api.health();
-            window.dispatchEvent(new CustomEvent('openclaude:inject-prompt', {
-              detail: `Server status: ${h.status} | version: ${h.version} | uptime: ${Math.round(h.uptime_ms / 1000)}s`,
-            }));
+            detail = `Server status: ${h.status} | version: ${h.version} | uptime: ${Math.round(h.uptime_ms / 1000)}s`;
           } catch (e) {
-            window.dispatchEvent(new CustomEvent('openclaude:inject-prompt', {
-              detail: `Server unreachable: ${e instanceof Error ? e.message : String(e)}`,
-            }));
+            detail = `Server unreachable: ${e instanceof Error ? e.message : String(e)}`;
           }
+          await this.inject(detail);
         },
       },
     ];
