@@ -41,15 +41,19 @@ export class DiffPreviewModal extends Modal {
     this.scope.register([], 'Enter', () => { this.apply(); return false; });
   }
 
+  private applying = false;
+
   private async apply(): Promise<void> {
+    if (this.applying) return;
+    this.applying = true;
     try {
       await this.plugin.api.applyEdit(this.edit.id);
       this.close();
     } catch (err) {
-      this.contentEl.createEl('p', {
-        text: `Apply failed: ${(err as Error).message}`,
-        cls: 'mod-warning',
-      });
+      const msg = err instanceof Error ? err.message : String(err);
+      this.contentEl.createEl('p', { text: `Apply failed: ${msg}`, cls: 'mod-warning' });
+    } finally {
+      this.applying = false;
     }
   }
 

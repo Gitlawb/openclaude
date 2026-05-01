@@ -30,7 +30,7 @@ export interface PendingEdit {
   file: string;
   vault: string;
   sessionId: string;
-  reason: string;
+  reason?: string;
   before: string;
   after: string;
   createdAt: number;
