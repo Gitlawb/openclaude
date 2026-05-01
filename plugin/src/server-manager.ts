@@ -9,6 +9,7 @@ type StatusListener = (status: ServerStatus) => void;
 export class ServerManager {
   private proc: ChildProcess | null = null;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private restartCount = 0;
   private readonly maxRestarts = 3;
   private statusListeners: StatusListener[] = [];
@@ -50,6 +51,7 @@ export class ServerManager {
   }
 
   stop(): void {
+    if (this.restartTimer) { clearTimeout(this.restartTimer); this.restartTimer = null; }
     if (this.healthTimer) { clearInterval(this.healthTimer); this.healthTimer = null; }
     if (this.proc) { this.proc.kill(); this.proc = null; }
     this.restartCount = 0;
@@ -72,7 +74,7 @@ export class ServerManager {
     this.emit('error');
     if (this.restartCount < this.maxRestarts) {
       this.restartCount++;
-      setTimeout(() => this.start(), 2_000 * this.restartCount);
+      this.restartTimer = setTimeout(() => this.start(), 2_000 * this.restartCount);
     }
   }
 }

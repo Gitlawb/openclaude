@@ -59,4 +59,5 @@ export interface ChatRequest {
   sessionId?: string;
   // Keys match server's AgentFn context shape
   context?: { activeNote?: string; vault?: string; selection?: string };
+  preset?: 'conservative' | 'balanced' | 'aggressive';
 }

@@ -1,6 +1,6 @@
 import { ItemView, MarkdownView, WorkspaceLeaf } from 'obsidian';
 import type OpenClaudePlugin from '../main.js';
-import type { SseEvent } from '../types.js';
+import type { SseEvent, ChatRequest } from '../types.js';
 
 export const SIDEBAR_VIEW_TYPE = 'openclaude-sidebar';
 
@@ -132,8 +132,14 @@ export class SidebarView extends ItemView {
     this.sendBtn.onclick = () => this.abortController?.abort();
 
     try {
+      const req: ChatRequest = {
+        message: text,
+        sessionId: this.currentSessionId,
+        context: this.getActiveContext(),
+        preset: this.plugin.settings.preset,
+      };
       await this.plugin.api.chat(
-        { message: text, sessionId: this.currentSessionId, context: this.getActiveContext() },
+        req,
         evt => this.handleEvent(evt, assistantContent),
         this.abortController.signal,
       );
