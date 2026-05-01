@@ -2,6 +2,7 @@ import type { Route } from "../http";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { ServerError, ErrorCode } from "../errors";
+import { getActiveAgent, type AgentFn } from "./chat";
 
 function walk(root: string, out: string[] = []): string[] {
   for (const e of readdirSync(root, { withFileTypes: true })) {
@@ -50,3 +51,40 @@ export const toolsRoutes: Route[] = [
     },
   },
 ];
+
+async function runAgentToString(agent: AgentFn, message: string): Promise<string> {
+  const pieces: string[] = [];
+  for await (const ev of agent({ message, sessionId: "internal", context: {} })) {
+    if (ev.event === "token") pieces.push((ev.data as { text: string }).text);
+  }
+  return pieces.join("");
+}
+
+toolsRoutes.push(
+  {
+    method: "POST", path: "/tools/dataview",
+    handler: async ({ body }) => {
+      const b = body as { naturalLanguage?: string };
+      if (!b?.naturalLanguage) throw new ServerError(ErrorCode.VALIDATION, "naturalLanguage required");
+      const agent = getActiveAgent();
+      if (!agent) throw new ServerError(ErrorCode.INTERNAL, "no agent");
+      const prompt = `Generate DQL (Obsidian Dataview) for: "${b.naturalLanguage}". Return ONLY the DQL, no markdown fences.`;
+      const dql = (await runAgentToString(agent, prompt)).trim();
+      return { status: 200, body: { dql, explanation: `Generated from: ${b.naturalLanguage}` } };
+    },
+  },
+  {
+    method: "POST", path: "/tools/analyze-results",
+    handler: async ({ body }) => {
+      const b = body as { dql?: string; results?: unknown[] };
+      if (!b?.dql || !Array.isArray(b.results)) {
+        throw new ServerError(ErrorCode.VALIDATION, "dql and results[] required");
+      }
+      const agent = getActiveAgent();
+      if (!agent) throw new ServerError(ErrorCode.INTERNAL, "no agent");
+      const prompt = `Analyze these Dataview results in 1-2 sentences. Query: ${b.dql}. Results: ${JSON.stringify(b.results).slice(0, 2000)}`;
+      const insight = (await runAgentToString(agent, prompt)).trim();
+      return { status: 200, body: { insight } };
+    },
+  },
+);
