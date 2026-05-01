@@ -1,0 +1,124 @@
+/* ── Status dot ──────────────────────────────── */
+.openclaude-status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.openclaude-status-dot[data-status="ok"]        { background: var(--color-green); }
+.openclaude-status-dot[data-status="starting"]  { background: var(--color-yellow); animation: oc-pulse 1s infinite; }
+.openclaude-status-dot[data-status="error"]     { background: var(--color-red); }
+.openclaude-status-dot[data-status="streaming"] { background: var(--color-green); animation: oc-pulse 0.5s infinite; }
+@keyframes oc-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── Sidebar layout ──────────────────────────── */
+.openclaude-sidebar { display:flex; flex-direction:column; height:100%; font-size:13px; }
+
+.openclaude-header {
+  display:flex; align-items:center; gap:6px;
+  padding:8px 12px;
+  border-bottom:1px solid var(--background-modifier-border);
+  flex-shrink:0;
+}
+.openclaude-title { flex:1; font-weight:600; }
+.openclaude-header-btn {
+  background:none; border:none; cursor:pointer;
+  color:var(--text-muted); padding:2px 6px; border-radius:4px;
+}
+.openclaude-header-btn:hover { color:var(--text-normal); background:var(--background-modifier-hover); }
+
+/* ── Context card ─────────────────────────────── */
+.openclaude-context-card {
+  display:flex; align-items:center; gap:6px;
+  padding:5px 12px;
+  background:var(--background-secondary);
+  border-bottom:1px solid var(--background-modifier-border);
+  font-size:12px; color:var(--text-muted);
+  flex-shrink:0; overflow:hidden;
+}
+.openclaude-context-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* ── Chat log ─────────────────────────────────── */
+.openclaude-chat-log {
+  flex:1; overflow-y:auto; padding:10px 12px;
+  display:flex; flex-direction:column; gap:14px;
+}
+.openclaude-message { display:flex; flex-direction:column; gap:3px; }
+.openclaude-message-role {
+  font-size:11px; font-weight:600; text-transform:uppercase; color:var(--text-muted);
+}
+.openclaude-message-content { white-space:pre-wrap; line-height:1.55; word-break:break-word; }
+.openclaude-message.user .openclaude-message-content {
+  background:var(--background-secondary); padding:6px 10px; border-radius:8px;
+}
+.openclaude-tool-call {
+  font-size:11px; color:var(--text-muted); font-style:italic; padding:1px 0;
+}
+
+/* ── Pending edit inline ──────────────────────── */
+.openclaude-pending-inline {
+  background:var(--background-modifier-error); border-radius:6px;
+  padding:6px 10px; font-size:12px;
+  display:flex; align-items:center; gap:8px;
+}
+.openclaude-pending-inline-file { flex:1; overflow:hidden; text-overflow:ellipsis; font-weight:500; }
+.openclaude-pending-inline-btn {
+  font-size:11px; padding:2px 8px; border-radius:4px; cursor:pointer;
+  border:1px solid var(--background-modifier-border);
+}
+.openclaude-pending-inline-btn.apply { background:var(--color-green); color:#fff; border-color:transparent; }
+.openclaude-pending-inline-btn.reject { background:none; }
+
+/* ── Input area ───────────────────────────────── */
+.openclaude-input-area { border-top:1px solid var(--background-modifier-border); padding:8px; flex-shrink:0; }
+.openclaude-input {
+  width:100%; resize:none; box-sizing:border-box;
+  border:1px solid var(--background-modifier-border); border-radius:6px;
+  padding:6px 8px; font-size:13px; font-family:inherit;
+  background:var(--background-primary); color:var(--text-normal);
+  min-height:36px; max-height:120px; overflow-y:auto;
+}
+.openclaude-input:focus { outline:none; border-color:var(--interactive-accent); }
+.openclaude-input-footer {
+  display:flex; justify-content:space-between; align-items:center; margin-top:4px;
+}
+.openclaude-pending-badge {
+  background:var(--color-red); color:#fff;
+  font-size:11px; padding:1px 7px; border-radius:10px; cursor:pointer;
+}
+.openclaude-send-btn {
+  padding:4px 14px; background:var(--interactive-accent); color:var(--text-on-accent);
+  border:none; border-radius:4px; cursor:pointer; font-size:12px;
+}
+.openclaude-send-btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+/* ── Diff preview modal ───────────────────────── */
+.openclaude-diff-modal .modal-content { max-width:900px; width:90vw; }
+.openclaude-diff-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0; }
+.openclaude-diff-col { display:flex; flex-direction:column; gap:4px; }
+.openclaude-diff-label { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; }
+.openclaude-diff-text {
+  font-family:monospace; font-size:12px; white-space:pre-wrap;
+  padding:8px; border-radius:4px; overflow-y:auto; max-height:55vh;
+}
+.openclaude-diff-text.before { background:#ffeef0; color:#721c24; }
+.openclaude-diff-text.after  { background:#f0fff4; color:#155724; }
+.openclaude-diff-footer { font-size:12px; color:var(--text-muted); margin:4px 0 12px; }
+.openclaude-diff-actions { display:flex; gap:8px; justify-content:flex-end; }
+
+/* ── Command hub modal ────────────────────────── */
+.openclaude-hub-search {
+  width:100%; padding:10px 16px; font-size:16px;
+  border:none; border-bottom:1px solid var(--background-modifier-border);
+  background:transparent; color:var(--text-normal); outline:none;
+}
+.openclaude-hub-list { max-height:60vh; overflow-y:auto; }
+.openclaude-hub-item {
+  display:flex; align-items:center; gap:12px;
+  padding:8px 16px; cursor:pointer;
+}
+.openclaude-hub-item:hover, .openclaude-hub-item.selected { background:var(--background-secondary); }
+.openclaude-hub-item-icon { font-size:16px; flex-shrink:0; }
+.openclaude-hub-item-name { flex:1; font-size:14px; }
+.openclaude-hub-item-shortcut { font-size:11px; color:var(--text-muted); }
+.openclaude-hub-section { padding:4px 16px; font-size:11px; font-weight:600; text-transform:uppercase; color:var(--text-muted); border-top:1px solid var(--background-modifier-border); margin-top:4px; }
