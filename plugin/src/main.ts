@@ -5,6 +5,7 @@ import { ApiClient } from './api-client.js';
 import { ServerManager } from './server-manager.js';
 import { SettingsTab } from './settings.js';
 import { SidebarView, SIDEBAR_VIEW_TYPE } from './views/sidebar-view.js';
+import { CommandHubModal } from './modals/command-hub-modal.js';
 
 export default class OpenClaudePlugin extends Plugin {
   settings!: PluginSettings;
@@ -59,6 +60,7 @@ export default class OpenClaudePlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 
-  // Filled in Task 9
-  openCommandHub(): void {}
+  openCommandHub(): void {
+    new CommandHubModal(this.app, this).open();
+  }
 }
