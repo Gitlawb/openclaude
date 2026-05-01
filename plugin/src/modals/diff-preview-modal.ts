@@ -1,3 +1,57 @@
-// Stub — full implementation added in Task 8.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export class DiffPreviewModal { constructor(..._args: any[]) {} open(): void {} }
+import { App, ButtonComponent, Modal } from 'obsidian';
+import type OpenClaudePlugin from '../main.js';
+import type { PendingEdit } from '../types.js';
+
+export class DiffPreviewModal extends Modal {
+  constructor(
+    app: App,
+    private readonly plugin: OpenClaudePlugin,
+    private readonly edit: PendingEdit,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    this.modalEl.addClass('openclaude-diff-modal');
+    contentEl.empty();
+
+    const name = this.edit.file.split(/[\\/]/).pop() ?? this.edit.file;
+    contentEl.createEl('h2', { text: `Review edit — ${name}` });
+    if (this.edit.reason) {
+      contentEl.createEl('p', { text: `Reason: ${this.edit.reason}`, cls: 'openclaude-diff-footer' });
+    }
+
+    const grid = contentEl.createDiv({ cls: 'openclaude-diff-grid' });
+
+    const before = grid.createDiv({ cls: 'openclaude-diff-col' });
+    before.createDiv({ cls: 'openclaude-diff-label', text: 'Before' });
+    before.createEl('pre', { cls: 'openclaude-diff-text before', text: this.edit.before });
+
+    const after = grid.createDiv({ cls: 'openclaude-diff-col' });
+    after.createDiv({ cls: 'openclaude-diff-label', text: 'After' });
+    after.createEl('pre', { cls: 'openclaude-diff-text after', text: this.edit.after });
+
+    contentEl.createDiv({ cls: 'openclaude-diff-footer', text: '✓ Shadow backup created before applying.' });
+
+    const actions = contentEl.createDiv({ cls: 'openclaude-diff-actions' });
+    new ButtonComponent(actions).setButtonText('Discard (Esc)').onClick(() => this.close());
+    new ButtonComponent(actions).setButtonText('Apply (Enter)').setCta().onClick(() => this.apply());
+
+    this.scope.register([], 'Enter', () => { this.apply(); return false; });
+  }
+
+  private async apply(): Promise<void> {
+    try {
+      await this.plugin.api.applyEdit(this.edit.id);
+      this.close();
+    } catch (err) {
+      this.contentEl.createEl('p', {
+        text: `Apply failed: ${(err as Error).message}`,
+        cls: 'mod-warning',
+      });
+    }
+  }
+
+  onClose(): void { this.contentEl.empty(); }
+}
