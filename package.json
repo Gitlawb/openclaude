@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "bun run scripts/build.ts",
+    "test:serve": "bun test src/serve/",
     "dev": "bun run build && node dist/cli.mjs",
     "dev:profile": "bun run scripts/provider-launch.ts",
     "dev:profile:fast": "bun run scripts/provider-launch.ts auto --fast --bare",
