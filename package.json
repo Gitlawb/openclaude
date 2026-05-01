@@ -14,6 +14,8 @@
   "scripts": {
     "build": "bun run scripts/build.ts",
     "test:serve": "bun test src/serve/",
+    "plugin:build": "cd .worktrees/plugin/plugin && npm install && npm run build",
+    "plugin:install": "cd .worktrees/plugin/plugin && npm run build && node install.mjs",
     "dev": "bun run build && node dist/cli.mjs",
     "dev:profile": "bun run scripts/provider-launch.ts",
     "dev:profile:fast": "bun run scripts/provider-launch.ts auto --fast --bare",
