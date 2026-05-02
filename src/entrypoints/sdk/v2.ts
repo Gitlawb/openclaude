@@ -521,6 +521,7 @@ function createEngineFromOptions(
   options: SDKSessionOptions,
   permissionTarget: { registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>; pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }>; pushTimeout?: (msg: SDKPermissionTimeoutMessage) => void },
   initialMessages?: any[],
+  sessionId?: string,
 ): { engine: QueryEngine; appStateStore: Store<AppState>; abortController: AbortController } {
   const { cwd, model, abortController, permissionMode } = options
 
@@ -576,6 +577,8 @@ function createEngineFromOptions(
     permissionTarget,
     options.onPermissionRequest,
     (msg) => { permissionTarget.pushTimeout?.(msg) },
+    30000, // Default timeout
+    sessionId,
   )
 
   // Abort controller
@@ -632,7 +635,7 @@ export function unstable_v2_createSession(options: SDKSessionOptions): SDKSessio
   // pendingPermissionPrompts map to createEngineFromOptions for
   // external permission resolution support.
   const session = new SDKSessionImpl(null, sessionId, options, null)
-  const { engine, appStateStore, abortController } = createEngineFromOptions(options, session)
+  const { engine, appStateStore, abortController } = createEngineFromOptions(options, session, undefined, sessionId)
   // Wire the engine, store, and abort controller into the session
   session.setEngine(engine)
   session.setAppStateStore(appStateStore)
@@ -771,6 +774,7 @@ export async function unstable_v2_resumeSession(
     options,
     session,
     initialMessages as any[],
+    sessionId,
   )
   session.setEngine(engine)
   session.setAppStateStore(appStateStore)

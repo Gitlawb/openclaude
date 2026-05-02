@@ -504,6 +504,8 @@ async function loadAndInjectSessionMessages(
 
 class QueryImpl implements Query {
   private _engine: QueryEngine | null = null
+  /** Track whether engine was injected at construction (test/mock) vs created fresh. */
+  private _engineWasInjected: boolean
   private get engine(): QueryEngine {
     if (!this._engine) {
       throw new Error('QueryImpl: engine not initialized. Call setEngine() first.')
@@ -545,6 +547,7 @@ class QueryImpl implements Query {
     mcpServers?: Record<string, unknown>,
     permissionContext: ToolPermissionContext = getEmptyToolPermissionContext(),
   ) {
+    this._engineWasInjected = engine !== null
     if (engine) this._engine = engine
     this.prompt = prompt
     this.abortController = abortController
@@ -624,9 +627,11 @@ class QueryImpl implements Query {
         // started, skip init entirely — avoids auth/network side-effects.
         if (self.abortController.signal.aborted) return
 
-        // Track whether engine was replaced by setEngine() (e.g. mock in tests).
-        // If so, init() failures are non-fatal — the mock engine is self-contained.
-        const engineWasOverridden = self._engine !== null
+        // Track whether engine was injected at construction (test mock, SDK host override).
+      // If so, init() failures are non-fatal — the mock engine is self-contained.
+      // IMPORTANT: Check _engineWasInjected, not _engine !== null — the latter is
+      // always true after setEngine() is called in the query() factory.
+      const engineWasOverridden = self._engineWasInjected
 
         // Ensure init() completes before any query runs
         // init() applies config env vars, so we apply our overrides AFTER
@@ -1204,6 +1209,7 @@ export function query(params: {
   // Build the canUseTool that supports external permission resolution.
   // When no user canUseTool callback is provided, this creates a pending
   // prompt entry that respondToPermission() can resolve asynchronously.
+  // Pass sessionId so permission_request messages have correct session_id.
   const externalCanUseTool = createExternalCanUseTool(
     options.canUseTool,
     defaultCanUseTool,
@@ -1211,6 +1217,7 @@ export function query(params: {
     options.onPermissionRequest,
     (msg) => { queryImpl.pushTimeout(msg) },
     options._permissionTimeoutMs ?? 30000,
+    effectiveSessionId,
   )
 
   // Create QueryEngine config
