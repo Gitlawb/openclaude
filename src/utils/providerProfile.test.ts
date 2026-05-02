@@ -632,7 +632,6 @@ test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profile
       CODEX_CREDENTIAL_SOURCE: 'oauth',
     })
     saveProfileFile(oauthProfile, { cwd })
-
     assert.equal(isPersistedCodexOAuthProfile(loadProfileFile({ cwd })), true)
     assert.equal(
       clearPersistedCodexOAuthProfile({ cwd }),
@@ -868,6 +867,34 @@ test('applySavedProfileToCurrentSession can switch away from GitHub provider env
   assert.equal(processEnv.OPENAI_BASE_URL, 'http://localhost:11434/v1')
   assert.equal(processEnv.OPENAI_MODEL, 'llama3.1:8b')
   assert.equal(Object.hasOwn(processEnv, 'OPENAI_API_KEY'), false)
+})
+
+test('applySavedProfileToCurrentSession replaces empty active OpenAI key for Codex OAuth', async () => {
+  const { applySavedProfileToCurrentSession } = await importFreshProviderProfileModule()
+  const processEnv: NodeJS.ProcessEnv = {
+    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
+    CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: 'provider_codex_oauth',
+    CLAUDE_CODE_USE_OPENAI: '1',
+    OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+    OPENAI_MODEL: 'codexplan',
+    OPENAI_API_KEY: '',
+  }
+
+  const error = await applySavedProfileToCurrentSession({
+    profileFile: profile('codex', {
+      OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+      OPENAI_MODEL: 'codexplan',
+      CODEX_CREDENTIAL_SOURCE: 'oauth',
+    }),
+    processEnv,
+  })
+
+  assert.equal(error, null)
+  assert.equal(processEnv.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(processEnv.OPENAI_BASE_URL, DEFAULT_CODEX_BASE_URL)
+  assert.equal(processEnv.OPENAI_MODEL, 'codexplan')
+  assert.equal(Object.hasOwn(processEnv, 'OPENAI_API_KEY'), false)
+  assert.equal(Object.hasOwn(processEnv, 'CODEX_API_KEY'), false)
 })
 
 test('buildStartupEnvFromProfile preserves plural-profile env when the legacy file is stale', async () => {
