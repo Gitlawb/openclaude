@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'crypto'
+import { dirname } from 'path'
 import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import { QueryEngine } from '../../QueryEngine.js'
 import {
@@ -21,12 +22,13 @@ import { createFileStateCacheWithSizeLimit } from '../../utils/fileStateCache.js
 import { init } from '../init.js'
 import {
   resolveSessionFilePath,
+  readTranscriptForLoad,
+  SKIP_PRECOMPACT_THRESHOLD,
 } from '../../utils/sessionStoragePortable.js'
 import { readJSONLFile } from '../../utils/json.js'
+import { stat } from 'fs/promises'
 import {
-  getOriginalCwd,
   switchSession,
-  getSessionProjectDir,
   runWithSdkContext,
 } from '../../bootstrap/state.js'
 import type { SessionId } from '../../types/ids.js'
@@ -162,6 +164,103 @@ export interface SdkMcpToolDefinition<Schema = any> {
 }
 
 // ============================================================================
+// Compact-aware transcript helpers (shared with query.ts approach)
+// ============================================================================
+
+/** Parse JSONL text into typed entries, skipping malformed lines. */
+function parseJsonlEntries(text: string): JsonlEntry[] {
+  const entries: JsonlEntry[] = []
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try { entries.push(JSON.parse(trimmed)) } catch { /* skip malformed */ }
+  }
+  return entries
+}
+
+/** Find last compact_boundary with preserved segment metadata. */
+function findLastCompactBoundary(entries: JsonlEntry[]): {
+  index: number
+  preservedSegment: { headUuid: string; tailUuid: string; anchorUuid: string } | null
+} {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i]
+    if (e.type === 'system' && (e as Record<string, unknown>).subtype === 'compact_boundary') {
+      const meta = (e as Record<string, unknown>).compactMetadata as {
+        preservedSegment?: { headUuid?: string; tailUuid?: string; anchorUuid?: string }
+      } | undefined
+      const seg = meta?.preservedSegment
+      if (seg?.headUuid && seg?.tailUuid && seg?.anchorUuid) {
+        return { index: i, preservedSegment: { headUuid: seg.headUuid, tailUuid: seg.tailUuid, anchorUuid: seg.anchorUuid } }
+      }
+      return { index: i, preservedSegment: null }
+    }
+  }
+  return { index: -1, preservedSegment: null }
+}
+
+/** Apply preserved segment relinks — matching CLI's applyPreservedSegmentRelinks(). */
+function applyPreservedSegmentRelinks(
+  byUuid: Map<string, JsonlEntry & { parentUuid?: string | null }>,
+  seg: { headUuid: string; tailUuid: string; anchorUuid: string },
+): Set<string> {
+  const preservedUuids = new Set<string>()
+  if (!byUuid.has(seg.tailUuid) || !byUuid.has(seg.headUuid) || !byUuid.has(seg.anchorUuid)) {
+    return preservedUuids // Fail closed
+  }
+  const walkSeen = new Set<string>()
+  let cur = byUuid.get(seg.tailUuid)
+  let reachedHead = false
+  while (cur) {
+    if (walkSeen.has(cur.uuid!)) break
+    walkSeen.add(cur.uuid!)
+    preservedUuids.add(cur.uuid!)
+    if (cur.uuid === seg.headUuid) { reachedHead = true; break }
+    if (!cur.parentUuid) break
+    cur = byUuid.get(cur.parentUuid)
+  }
+  if (!reachedHead) return new Set<string>() // Walk failed
+  // Relink head.parentUuid = anchorUuid
+  const head = byUuid.get(seg.headUuid)
+  if (head) byUuid.set(seg.headUuid, { ...head, parentUuid: seg.anchorUuid })
+  // Splice anchor's other children to tailUuid
+  for (const [uuid, entry] of byUuid) {
+    if (entry.parentUuid === seg.anchorUuid && uuid !== seg.headUuid) {
+      byUuid.set(uuid, { ...entry, parentUuid: seg.tailUuid })
+    }
+  }
+  return preservedUuids
+}
+
+/** Build linear chain by walking parentUuid from leaf backwards, then reverse. */
+function buildChain(
+  byUuid: Map<string, JsonlEntry & { parentUuid?: string | null }>,
+  leaf: JsonlEntry & { parentUuid?: string | null },
+): (JsonlEntry & { parentUuid?: string | null })[] {
+  const chain: (JsonlEntry & { parentUuid?: string | null })[] = []
+  const seen = new Set<string>()
+  let current: (JsonlEntry & { parentUuid?: string | null }) | undefined = leaf
+  while (current) {
+    if (!current.uuid || seen.has(current.uuid)) break
+    seen.add(current.uuid)
+    chain.push(current)
+    current = current.parentUuid ? byUuid.get(current.parentUuid) : undefined
+  }
+  chain.reverse()
+  return chain
+}
+
+/** Strip transcript-internal fields that the engine doesn't expect. */
+function stripChainFields(
+  messages: (JsonlEntry & { parentUuid?: string | null })[],
+): unknown[] {
+  return messages.map(m => {
+    const { isSidechain, parentUuid, logicalParentUuid, ...rest } = m as Record<string, unknown> & { isSidechain?: boolean; parentUuid?: string | null; logicalParentUuid?: string | null }
+    return rest
+  })
+}
+
+// ============================================================================
 // SDKSessionImpl — concrete SDKSession
 // ============================================================================
 
@@ -191,6 +290,8 @@ class SDKSessionImpl implements SDKSession {
   }>()
   private timeoutQueue: SDKPermissionTimeoutMessage[] = []
   private agentFailureQueue: SDKAgentLoadFailureMessage[] = []
+  /** Resolved transcript directory — dirname of the JSONL file, or null for default project dir */
+  private _sessionProjectDir: string | null = null
 
   constructor(
     engine: QueryEngine | null,
@@ -222,6 +323,11 @@ class SDKSessionImpl implements SDKSession {
     this._abortController = ac
   }
 
+  /** Set the resolved transcript directory (called by resumeSession after resolving the JSONL path). */
+  setSessionProjectDir(dir: string): void {
+    this._sessionProjectDir = dir
+  }
+
   get sessionId(): string {
     return this._sessionId
   }
@@ -229,7 +335,7 @@ class SDKSessionImpl implements SDKSession {
   async *sendMessage(content: string): AsyncIterable<SDKMessage> {
     const sdkContext = {
       sessionId: this._sessionId as SessionId,
-      sessionProjectDir: getSessionProjectDir() ?? getOriginalCwd(),
+      sessionProjectDir: this._sessionProjectDir,
       cwd: this.options.cwd,
       originalCwd: this.options.cwd,
     }
@@ -269,6 +375,8 @@ class SDKSessionImpl implements SDKSession {
             const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
             if (mcpClients.length > 0) {
               self.engine.config.mcpClients = mcpClients
+            }
+            if (mcpTools.length > 0) {
               const permissionContext = self.appStateStore.getState().toolPermissionContext
               const allTools = getTools(permissionContext)
               for (const mcpTool of mcpTools) {
@@ -285,9 +393,8 @@ class SDKSessionImpl implements SDKSession {
           self.mcpConnected = true
         }
 
-        // Switch session for transcript writes
-        const projectDir = getSessionProjectDir() ?? getOriginalCwd()
-        switchSession(self._sessionId as SessionId, projectDir)
+        // Switch session for transcript writes using session's own resolved dir
+        switchSession(self._sessionId as SessionId, self._sessionProjectDir)
 
         try {
           for await (const engineMsg of self.engine.submitMessage(content)) {
@@ -557,15 +664,100 @@ export async function unstable_v2_resumeSession(
 ): Promise<SDKSession> {
   assertValidSessionId(sessionId)
 
-  // Load prior messages directly from JSONL (preserves sidechain/tool history)
-  //getSessionMessages filters out sidechain entries which breaks tool-result chains
+  // Load prior messages from JSONL with compact-aware chain building.
+  // Matches CLI's loadTranscriptFile → buildConversationChain → removeExtraFields.
   const resolved = await resolveSessionFilePath(sessionId, options.cwd)
-  const rawEntries = resolved ? await readJSONLFile<JsonlEntry>(resolved.filePath) : []
+  let initialMessages: any[]
 
-  // Filter to user/assistant entries (same as loadAndInjectSessionMessages)
-  const initialMessages = rawEntries
-    .filter(entry => !entry.isSidechain && (entry.type === 'user' || entry.type === 'assistant'))
-    .map(entry => ({ ...entry }))
+  if (resolved) {
+    const { size: fileSize } = await stat(resolved.filePath)
+    let entries: JsonlEntry[]
+    let preservedSegment: { headUuid: string; tailUuid: string; anchorUuid: string } | null = null
+    let boundaryIndex = -1
+
+    if (fileSize > SKIP_PRECOMPACT_THRESHOLD) {
+      const scan = await readTranscriptForLoad(resolved.filePath, fileSize)
+      entries = parseJsonlEntries(scan.postBoundaryBuf.toString('utf8'))
+      const boundary = findLastCompactBoundary(entries)
+      preservedSegment = boundary.preservedSegment
+      boundaryIndex = boundary.index
+    } else {
+      entries = await readJSONLFile<JsonlEntry>(resolved.filePath)
+      const boundary = findLastCompactBoundary(entries)
+      preservedSegment = boundary.preservedSegment
+      boundaryIndex = boundary.index
+    }
+
+    // Step 1: Index ALL non-sidechain entries by UUID (user, assistant, system, etc.)
+    // CLI indexes all transcript-chain entries — we need system compact_boundary
+    // entries for cases where anchorUuid === boundary.uuid
+    type ChainEntry = JsonlEntry & { parentUuid?: string | null }
+    const byUuid = new Map<string, ChainEntry>()
+    for (const entry of entries) {
+      if (entry.isSidechain) continue
+      if (entry.uuid) byUuid.set(entry.uuid, entry as ChainEntry)
+    }
+
+    // Apply preserved segment relinks
+    let preservedUuids = new Set<string>()
+    if (preservedSegment) {
+      preservedUuids = applyPreservedSegmentRelinks(byUuid, preservedSegment)
+    }
+
+    // Prune pre-boundary entries (keep preserved + post-boundary)
+    if (boundaryIndex >= 0 && !preservedSegment) {
+      const postBoundaryUuids = new Set<string>()
+      for (const entry of entries.slice(boundaryIndex + 1)) {
+        if (entry.uuid && !entry.isSidechain) postBoundaryUuids.add(entry.uuid)
+      }
+      for (const uuid of byUuid.keys()) {
+        if (!postBoundaryUuids.has(uuid)) byUuid.delete(uuid)
+      }
+    } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size > 0) {
+      const postBoundaryUuids = new Set<string>()
+      for (const entry of entries.slice(boundaryIndex + 1)) {
+        if (entry.uuid && !entry.isSidechain) postBoundaryUuids.add(entry.uuid)
+      }
+      for (const uuid of byUuid.keys()) {
+        if (!preservedUuids.has(uuid) && !postBoundaryUuids.has(uuid)) byUuid.delete(uuid)
+      }
+    } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size === 0) {
+      const postBoundaryUuids = new Set<string>()
+      for (const entry of entries.slice(boundaryIndex + 1)) {
+        if (entry.uuid && !entry.isSidechain) postBoundaryUuids.add(entry.uuid)
+      }
+      for (const uuid of byUuid.keys()) {
+        if (!postBoundaryUuids.has(uuid)) byUuid.delete(uuid)
+      }
+    }
+
+    if (byUuid.size > 0) {
+      const parentUuids = new Set<string>()
+      for (const e of byUuid.values()) {
+        if (e.parentUuid) parentUuids.add(e.parentUuid)
+      }
+      let leaf: ChainEntry | undefined
+      let bestTs = -1
+      for (const e of byUuid.values()) {
+        // Step 2: Only user/assistant entries can be conversation leaves
+        // System entries (compact_boundary, etc.) are part of the chain but not leaves
+        if (e.type !== 'user' && e.type !== 'assistant') continue
+        if (parentUuids.has(e.uuid!)) continue
+        const ts = e.timestamp ? new Date(e.timestamp as string).getTime() : 0
+        if (ts >= bestTs) { bestTs = ts; leaf = e }
+      }
+      if (leaf) {
+        const chain = buildChain(byUuid, leaf)
+        initialMessages = stripChainFields(chain)
+      } else {
+        initialMessages = []
+      }
+    } else {
+      initialMessages = []
+    }
+  } else {
+    initialMessages = []
+  }
 
   const session = new SDKSessionImpl(null, sessionId, options, null)
   const { engine, appStateStore, abortController } = createEngineFromOptions(
@@ -577,10 +769,12 @@ export async function unstable_v2_resumeSession(
   session.setAppStateStore(appStateStore)
   session.setAbortController(abortController)
 
-  // Establish session project context so transcript writes go to the
-  // correct directory (matching CLI behavior with dirname(fullPath)).
-  if (resolved?.projectPath) {
-    switchSession(sessionId as SessionId, resolved.projectPath)
+  // Store the resolved transcript directory for correct routing in sendMessage()
+  // and set global state so tests and legacy code can verify the routing.
+  if (resolved) {
+    const transcriptDir = dirname(resolved.filePath)
+    session.setSessionProjectDir(transcriptDir)
+    switchSession(sessionId as SessionId, transcriptDir)
   }
 
   return session
