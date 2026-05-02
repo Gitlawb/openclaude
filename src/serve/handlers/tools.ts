@@ -1,40 +1,12 @@
 import type { Route } from "../http";
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { ServerError, ErrorCode } from "../errors";
 import { getActiveAgent, type AgentFn } from "./chat";
-
-function walk(root: string, out: string[] = []): string[] {
-  for (const e of readdirSync(root, { withFileTypes: true })) {
-    if (e.name.startsWith(".")) continue;
-    const p = join(root, e.name);
-    if (e.isDirectory()) walk(p, out);
-    else if (e.name.endsWith(".md")) out.push(p);
-  }
-  return out;
-}
-
-type SearchHit = { file: string; vault: string; snippet: string; line: number };
-
-function searchVault(vault: string, query: string, max: number): SearchHit[] {
-  const needle = query.toLowerCase();
-  const out: SearchHit[] = [];
-  for (const f of walk(vault)) {
-    const content = readFileSync(f, "utf8");
-    const lines = content.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i]!.toLowerCase().includes(needle)) {
-        out.push({ file: f, vault, snippet: lines[i]!.slice(0, 200), line: i + 1 });
-        if (out.length >= max) return out;
-      }
-    }
-  }
-  return out;
-}
+import { walk, searchVault, type SearchHit } from "../vaultUtils";
 
 function extractWikilinks(content: string): string[] {
   const out: string[] = [];
-  // Match [[NoteName]] and [[NoteName|Alias]] and [[NoteName#header]]
   const re = /\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]/g;
   let m: RegExpExecArray | null;
   // eslint-disable-next-line no-cond-assign
