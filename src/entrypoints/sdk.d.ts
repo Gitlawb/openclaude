@@ -352,6 +352,8 @@ export interface SDKSession {
   sendMessage(content: string): AsyncIterable<SDKMessage>
   getMessages(): SDKMessage[]
   interrupt(): void
+  /** Close the session and release resources (MCP connections, etc.). */
+  close(): void
   /** Respond to a pending permission prompt. */
   respondToPermission(toolUseId: string, decision: PermissionResult): void
 }

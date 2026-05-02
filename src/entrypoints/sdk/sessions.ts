@@ -320,7 +320,7 @@ export async function deleteSession(
  *
  * @param sessionId - UUID of the source session
  * @param options - Optional dir, upToMessageId, title
- * @returns Object with the new session_id
+ * @returns Object with the new sessionId
  */
 export async function forkSession(
   sessionId: string,

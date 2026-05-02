@@ -296,6 +296,8 @@ export function createExternalCanUseTool(
           tool_name: tool.name,
           tool_use_id: toolUseID,
           timed_out_after_ms: timeoutMs,
+          uuid: messageUuid,
+          session_id: sessionId ?? NO_SESSION_PLACEHOLDER,
         })
       }
       log.warn(

@@ -186,6 +186,10 @@ export type SDKPermissionTimeoutMessage = {
   tool_name: string
   tool_use_id: string
   timed_out_after_ms: number
+  /** UUID of the original permission request message for correlation. */
+  uuid: string
+  /** Session ID where the timeout occurred, or NO_SESSION_PLACEHOLDER. */
+  session_id: string
 }
 
 /**
@@ -245,19 +249,19 @@ export function mapMessageToSDK(msg: Record<string, unknown>): SDKMessage {
 
 /**
  * Session metadata returned by listSessions and getSessionInfo.
- * Uses snake_case field names matching the public SDK contract (matches sdk.d.ts).
+ * Uses camelCase field names matching the public SDK contract (sdk.d.ts).
  */
 export type SDKSessionInfo = {
-  session_id: string
+  sessionId: string
   summary: string
-  last_modified: number
-  file_size?: number
-  custom_title?: string
-  first_prompt?: string
-  git_branch?: string
+  lastModified: number
+  fileSize?: number
+  customTitle?: string
+  firstPrompt?: string
+  gitBranch?: string
   cwd?: string
   tag?: string
-  created_at?: number
+  createdAt?: number
 }
 
 /** Options for listSessions. */
@@ -309,7 +313,7 @@ export type ForkSessionOptions = {
 /** Result of forkSession. */
 export type ForkSessionResult = {
   /** UUID of the newly created forked session. */
-  session_id: string
+  sessionId: string
 }
 
 /**
@@ -321,7 +325,7 @@ export type SessionMessage = {
   content: unknown
   timestamp?: string
   uuid?: string
-  parent_uuid?: string | null
+  parentUuid?: string | null
   [key: string]: unknown
 }
 
