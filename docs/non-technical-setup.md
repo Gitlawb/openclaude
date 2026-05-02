@@ -114,3 +114,4 @@ Fix:
 If you want source builds, advanced provider profiles, diagnostics, or Bun-based workflows, use:
 
 - [Advanced Setup](advanced-setup.md)
+  This is also where to find Codex, Gemini, Mistral, LiteLLM, and profile-launcher setup.

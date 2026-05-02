@@ -97,31 +97,31 @@ async function waitForCondition(
   throw new Error('Timed out waiting for ProviderManager test condition')
 }
 
-// Provider list is sorted alphabetically by label in the preset picker, so
-// reaching a given provider takes more keypresses than it used to. Keep the
+// Provider list is sorted from generated preset metadata by description, with
+// Codex OAuth injected into slot 7 and Custom always pinned last. Keep the
 // target-by-label indirection here so these tests survive future list edits
-// without further churn.
+// without hardcoding raw key counts.
 //
 // Order matches ProviderManager.renderPresetSelection() when
 // canUseCodexOAuth === true (default in mocked tests).
 const PRESET_ORDER = [
-  'Alibaba Coding Plan',
-  'Alibaba Coding Plan (China)',
   'Anthropic',
-  'Atomic Chat',
+  'Alibaba Coding Plan (China)',
+  'Alibaba Coding Plan',
   'Azure OpenAI',
   'Bankr',
-  'Codex OAuth',
   'DeepSeek',
+  'Codex OAuth',
   'Google Gemini',
   'Groq',
   'LM Studio',
+  'Atomic Chat',
+  'Ollama',
   'MiniMax',
-  'Mistral',
+  'Mistral AI',
   'Moonshot AI - API',
   'Moonshot AI - Kimi Code',
   'NVIDIA NIM',
-  'Ollama',
   'OpenAI',
   'OpenRouter',
   'Together AI',
@@ -165,22 +165,55 @@ function mockProviderProfilesModule(options?: {
     applyActiveProviderProfileFromConfig: () => {},
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
     getActiveProviderProfile: options?.getActiveProviderProfile ?? (() => null),
-    getProviderPresetDefaults: (preset: string) =>
-      preset === 'ollama'
-        ? {
-            provider: 'openai',
-            name: 'Ollama',
-            baseUrl: 'http://localhost:11434/v1',
-            model: 'llama3.1:8b',
-            apiKey: '',
-          }
-        : {
-            provider: 'openai',
-            name: 'Mock provider',
-            baseUrl: 'http://localhost:11434/v1',
-            model: 'mock-model',
-            apiKey: '',
-          },
+    getProviderPresetDefaults: (preset: string) => {
+      if (preset === 'ollama') {
+        return {
+          provider: 'openai',
+          name: 'Ollama',
+          baseUrl: 'http://localhost:11434/v1',
+          model: 'llama3.1:8b',
+          apiKey: '',
+        }
+      }
+
+      if (preset === 'atomic-chat') {
+        return {
+          provider: 'openai',
+          name: 'Atomic Chat',
+          baseUrl: 'http://127.0.0.1:1337/v1',
+          model: 'Qwen3_5-4B_Q4_K_M',
+          apiKey: '',
+        }
+      }
+
+      if (preset === 'custom') {
+        return {
+          provider: 'custom',
+          name: 'Custom OpenAI-compatible',
+          baseUrl: 'http://localhost:11434/v1',
+          model: 'custom-model',
+          apiKey: '',
+        }
+      }
+
+      if (preset === 'minimax') {
+        return {
+          provider: 'minimax',
+          name: 'MiniMax',
+          baseUrl: 'https://api.minimax.io/v1',
+          model: 'MiniMax-M2.7',
+          apiKey: '',
+        }
+      }
+
+      return {
+        provider: 'openai',
+        name: 'Mock provider',
+        baseUrl: 'http://localhost:11434/v1',
+        model: 'mock-model',
+        apiKey: '',
+      }
+    },
     getProviderProfiles: options?.getProviderProfiles ?? (() => []),
     setActiveProviderProfile: options?.setActiveProviderProfile ?? (() => null),
     updateProviderProfile: options?.updateProviderProfile ?? (() => null),
@@ -191,11 +224,15 @@ function mockProviderManagerDependencies(
   githubSyncRead: () => string | undefined,
   githubAsyncRead: () => Promise<string | undefined>,
   options?: {
-    addProviderProfile?: (...args: unknown[]) => unknown
-    applySavedProfileToCurrentSession?: (...args: unknown[]) => Promise<string | null>
+    addProviderProfile?: (...args: any[]) => unknown
+    applySavedProfileToCurrentSession?: (...args: any[]) => Promise<string | null>
     clearCodexCredentials?: () => { success: boolean; warning?: string }
     getActiveProviderProfile?: () => unknown
     getProviderProfiles?: () => unknown[]
+    probeRouteReadiness?: (
+      routeId: string,
+      options?: { baseUrl?: string; model?: string; timeoutMs?: number; apiKey?: string },
+    ) => Promise<unknown>
     probeOllamaGenerationReadiness?: () => Promise<{
       state: 'ready' | 'unreachable' | 'no_models' | 'generation_failed'
       models: Array<
@@ -213,8 +250,8 @@ function mockProviderManagerDependencies(
     }>
     codexSyncRead?: () => unknown
     codexAsyncRead?: () => Promise<unknown>
-    updateProviderProfile?: (...args: unknown[]) => unknown
-    setActiveProviderProfile?: (...args: unknown[]) => unknown
+    updateProviderProfile?: (...args: any[]) => unknown
+    setActiveProviderProfile?: (...args: any[]) => unknown
     useCodexOAuthFlow?: (options: {
       onAuthenticated: (tokens: {
         accessToken: string
@@ -241,12 +278,29 @@ function mockProviderManagerDependencies(
   })
 
   mock.module('../utils/providerDiscovery.js', () => ({
-    probeOllamaGenerationReadiness:
-      options?.probeOllamaGenerationReadiness ??
-      (async () => ({
-        state: 'unreachable' as const,
-        models: [],
-      })),
+  }))
+
+  mock.module('../integrations/discoveryService.js', () => ({
+    probeRouteReadiness:
+      options?.probeRouteReadiness ??
+      (async (routeId: string) => {
+        if (routeId === 'ollama') {
+          return (
+            options?.probeOllamaGenerationReadiness?.() ?? {
+              state: 'unreachable' as const,
+              models: [],
+            }
+          )
+        }
+
+        if (routeId === 'atomic-chat') {
+          return {
+            state: 'unreachable' as const,
+          }
+        }
+
+        return null
+      }),
   }))
 
   mock.module('../utils/githubModelsCredentials.js', () => ({
@@ -489,6 +543,168 @@ test('ProviderManager avoids first-frame false negative while stored-token looku
   expect(asyncRead).toHaveBeenCalled()
 })
 
+test('ProviderManager shows API mode picker for custom OpenAI-compatible providers', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined)
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'Custom')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') &&
+      frame.includes('Provider name'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Default model'),
+    )
+    mounted.stdin.write('\r')
+
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('API mode') && frame.includes('Chat Completions'),
+    )
+    expect(output).toContain('Responses')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager skips advanced auth fields when adding MiniMax', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined)
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'MiniMax')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') &&
+      frame.includes('Provider name'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Default model'),
+    )
+    mounted.stdin.write('\r')
+
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('API key'),
+    )
+    expect(output).not.toContain('API mode')
+    expect(output).not.toContain('Auth header')
+    expect(output).not.toContain('Custom headers')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager skips advanced fields for legacy Kimi Code profiles', async () => {
+  const legacyKimiProfile = {
+    id: 'provider_legacy_kimi',
+    provider: 'openai',
+    name: 'Legacy Kimi Code',
+    baseUrl: 'https://api.kimi.com/coding/v1',
+    model: 'kimi-for-coding',
+    apiKey: 'sk-test',
+  }
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [legacyKimiProfile],
+      getActiveProviderProfile: () => legacyKimiProfile,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('Edit provider'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider') &&
+      frame.includes('Legacy Kimi Code'),
+    )
+
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider profile') &&
+      frame.includes('Provider name') &&
+      frame.includes('Step 1 of 4'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL') &&
+      frame.includes('Step 2 of 4'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Default model') &&
+      frame.includes('Step 3 of 4'),
+    )
+
+    mounted.stdin.write('\r')
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('API key') &&
+      frame.includes('Step 4 of 4'),
+    )
+
+    expect(output).not.toContain('API mode')
+    expect(output).not.toContain('Auth header')
+    expect(output).not.toContain('Custom headers')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager first-run Ollama preset auto-detects installed models', async () => {
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.GITHUB_TOKEN
@@ -581,6 +797,129 @@ test('ProviderManager first-run Ollama preset auto-detects installed models', as
   await mounted.dispose()
 })
 
+test('ProviderManager preserves the Ollama readiness message when the probe is unreachable', async () => {
+  const onDone = mock(() => {})
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+    onDone,
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set up provider'),
+  )
+
+  await navigateToPreset(mounted.stdin, 'Ollama')
+  mounted.stdin.write('\r')
+
+  const messageFrame = await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Could not reach Ollama at http://localhost:11434/v1.') &&
+      frame.includes('enter the endpoint manually'),
+  )
+
+  expect(messageFrame).toContain(
+    'Could not reach Ollama at http://localhost:11434/v1. Start Ollama first, or enter the endpoint manually.',
+  )
+
+  await mounted.dispose()
+})
+
+test('ProviderManager first-run Atomic Chat preset auto-detects loaded models', async () => {
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const onDone = mock(() => {})
+  const addProviderProfile = mock((payload: {
+    provider: string
+    name: string
+    baseUrl: string
+    model: string
+    apiKey?: string
+  }) => ({
+    id: 'provider_atomic_chat',
+    provider: payload.provider,
+    name: payload.name,
+    baseUrl: payload.baseUrl,
+    model: payload.model,
+    apiKey: payload.apiKey,
+  }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      addProviderProfile,
+      probeRouteReadiness: async routeId => {
+        if (routeId === 'atomic-chat') {
+          return {
+            state: 'ready' as const,
+            models: ['Qwen3_5-4B_Q4_K_M', 'Llama-3.1-8B-Instruct'],
+          }
+        }
+
+        return null
+      },
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+    onDone,
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set up provider'),
+  )
+
+  await navigateToPreset(mounted.stdin, 'Atomic Chat')
+  mounted.stdin.write('\r')
+
+  const modelFrame = await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Choose an Atomic Chat model') &&
+      frame.includes('Qwen3_5-4B_Q4_K_M') &&
+      frame.includes('Llama-3.1-8B-Instruct'),
+  )
+
+  expect(modelFrame).toContain('Choose an Atomic Chat model')
+  expect(modelFrame).toContain('Qwen3_5-4B_Q4_K_M')
+
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  await waitForCondition(() => onDone.mock.calls.length > 0)
+
+  expect(addProviderProfile).toHaveBeenCalled()
+  expect(addProviderProfile.mock.calls[0]?.[0]).toMatchObject({
+    name: 'Atomic Chat',
+    baseUrl: 'http://127.0.0.1:1337/v1',
+    model: 'Qwen3_5-4B_Q4_K_M',
+  })
+  expect(onDone).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'saved',
+      message: 'Provider configured: Atomic Chat',
+    }),
+  )
+
+  await mounted.dispose()
+})
+
 test('ProviderManager first-run Codex OAuth switches the current session after login completes', async () => {
   delete process.env.CLAUDE_CODE_SIMPLE
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -654,7 +993,7 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
       model: 'codexplan',
       apiKey: '',
     }),
-    expect.objectContaining({ makeActive: true }),
+    expect.objectContaining({ makeActive: false }),
   )
   expect(applySavedProfileToCurrentSession).toHaveBeenCalled()
   expect(persistCredentials).toHaveBeenCalledWith({
@@ -1062,43 +1401,49 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
     mounted.getOutput,
     frame =>
       frame.includes('Edit provider profile') &&
-      frame.includes('Step 1 of 7'),
+      frame.includes('Step 1 of 8'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 2 of 7'),
+    frame => frame.includes('Step 2 of 8'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 3 of 7'),
+    frame => frame.includes('Step 3 of 8'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 4 of 7'),
+    frame => frame.includes('Step 4 of 8'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 5 of 7'),
+    frame => frame.includes('Step 5 of 8'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 6 of 7'),
+    frame => frame.includes('Step 6 of 8'),
   )
 
   mounted.stdin.write('\r')
   await waitForFrameOutput(
     mounted.getOutput,
-    frame => frame.includes('Step 7 of 7'),
+    frame => frame.includes('Step 7 of 8'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Step 8 of 8'),
   )
 
   mounted.stdin.write('\r')
@@ -1130,6 +1475,59 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
       ({ newState }) => newState.mainLoopModel === 'gpt-5.4; gpt-5.4-mini',
     ),
   ).toBe(false)
+
+  await mounted.dispose()
+})
+
+test('ProviderManager set-active list uses descriptor-backed provider type labels', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const geminiProfile = {
+    id: 'provider_gemini',
+    provider: 'gemini',
+    name: 'Gemini Work',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    model: 'gemini-2.5-pro',
+    apiKey: 'gm-test',
+  }
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [geminiProfile],
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('Set active provider'),
+  )
+
+  mounted.stdin.write('j')
+  await Bun.sleep(25)
+  mounted.stdin.write('\r')
+
+  const output = await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Set active provider') &&
+      frame.includes('Gemini Work') &&
+      frame.includes('Gemini API'),
+  )
+
+  expect(output).toContain(
+    'Gemini API · https://generativelanguage.googleapis.com/v1beta/openai · gemini-2.5-pro',
+  )
 
   await mounted.dispose()
 })

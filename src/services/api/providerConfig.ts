@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -14,7 +15,10 @@ import {
   asTrimmedString,
   parseChatgptAccountId,
 } from './codexOAuthShared.js'
-import { DEFAULT_GEMINI_BASE_URL } from 'src/utils/providerProfile.js'
+import {
+  DEFAULT_GEMINI_BASE_URL,
+  DEFAULT_GEMINI_MODEL,
+} from 'src/utils/providerProfile.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
@@ -111,6 +115,17 @@ type ModelDescriptor = {
 }
 
 const LOCALHOST_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
+
+function hashCacheScopePartition(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+function normalizeCacheScopeHeaderValue(value: string | undefined): string {
+  return value?.trim() ?? ''
+}
 
 function isPrivateIpv4Address(hostname: string): boolean {
   const octets = hostname.split('.').map(part => Number.parseInt(part, 10))
@@ -521,6 +536,7 @@ export function resolveProviderRequest(options?: {
       ? process.env.GEMINI_MODEL?.trim()
       : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
+    (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     (isGithubMode ? 'github:copilot' : 'gpt-4o')
   const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
@@ -598,8 +614,10 @@ export function resolveProviderRequest(options?: {
     : requestedModel
 
   const requestedApiFormat =
-    parseOpenAICompatibleApiFormat(options?.apiFormat) ??
-    parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
+    isGithubMode
+      ? undefined
+      : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
+        parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
@@ -660,7 +678,15 @@ export function getAdditionalModelOptionsCacheScope(): string | null {
     return null
   }
 
-  return `openai:${request.baseUrl.toLowerCase()}`
+  const partition = hashCacheScopePartition({
+    apiKey: normalizeCacheScopeHeaderValue(process.env.OPENAI_API_KEY),
+    authHeader: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_HEADER).toLowerCase(),
+    authScheme: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_SCHEME).toLowerCase(),
+    authHeaderValue: normalizeCacheScopeHeaderValue(process.env.OPENAI_AUTH_HEADER_VALUE),
+    customHeaders: normalizeCacheScopeHeaderValue(process.env.ANTHROPIC_CUSTOM_HEADERS),
+  })
+
+  return `openai:${request.baseUrl.toLowerCase()}:${partition}`
 }
 
 export function resolveCodexAuthPath(

@@ -6,6 +6,7 @@ import {
   createExternalCanUseTool,
   createOnceOnlyResolve,
   createPermissionTarget,
+  NO_SESSION_PLACEHOLDER,
 } from '../../src/entrypoints/sdk/permissions.js'
 import type { PermissionResolveDecision } from '../../src/entrypoints/sdk/permissions.js'
 import { getEmptyToolPermissionContext } from '../../src/Tool.js'
@@ -105,6 +106,124 @@ describe('createDefaultCanUseTool', () => {
     expect(result.behavior).toBe('allow')
   })
 })
+
+describe('createExternalCanUseTool synchronous host response', () => {
+  test('synchronous host response from onPermissionRequest is received', async () => {
+    // Regression test: onPermissionRequest must fire AFTER registerPendingPermission
+    // so a host that responds synchronously finds the entry in the map.
+    const permissionTarget = createPermissionTarget()
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      // Simulate a host that resolves synchronously from the callback
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      expect(pending).toBeDefined() // Must be registered before this callback fires
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50, // short timeout — should NOT fire since host responds immediately
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'sync-response-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('allow')
+    expect(onPermissionRequest).toHaveBeenCalledTimes(1)
+  })
+
+  test('permission request message includes uuid and session_id matching schema', async () => {
+    // Regression test: permission_request must match SDKMessageSchema contract
+    // which requires uuid and session_id fields (not optional).
+    const permissionTarget = createPermissionTarget()
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      // Verify message shape matches generated schema requirements
+      expect(message.type).toBe('permission_request')
+      expect(message.request_id).toBeDefined()
+      expect(message.tool_name).toBe('TestTool')
+      expect(message.tool_use_id).toBe('shape-test-id')
+      expect(message.input).toBeDefined()
+      expect(message.uuid).toBeDefined() // Required by schema
+      expect(message.session_id).toBeDefined() // Required by schema
+
+      // Resolve to complete the test
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50,
+      'test-session-123', // Provide session_id
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'shape-test-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('allow')
+    expect(onPermissionRequest).toHaveBeenCalledTimes(1)
+    // Verify session_id was passed through
+    expect(onPermissionRequest.mock.calls[0][0].session_id).toBe('test-session-123')
+  })
+
+  test('permission request uses no-session placeholder when sessionId not provided', async () => {
+    // When createExternalCanUseTool is called without sessionId,
+    // the permission request should emit 'no-session' placeholder
+    // to explicitly indicate standalone permission prompt context.
+    const permissionTarget = createPermissionTarget()
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      expect(message.session_id).toBe(NO_SESSION_PLACEHOLDER)
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    // Note: sessionId parameter intentionally omitted
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50,
+      // sessionId undefined - should use placeholder
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'no-session-test-id',
+      undefined,
+    )
+
+    expect(result.behavior).toBe('allow')
+    expect(onPermissionRequest).toHaveBeenCalledTimes(1)
+  })
+})
+
 
 describe('createExternalCanUseTool race condition', () => {
   test('handles simultaneous timeout and response correctly', async () => {
@@ -210,6 +329,66 @@ describe('createExternalCanUseTool race condition', () => {
     expect(result.behavior).toBe('allow')
     expect(onTimeout).not.toHaveBeenCalled()
   })
+
+  test('host response after timeout is safely ignored (no double-resolve)', async () => {
+    const permissionTarget = createPermissionTarget()
+    const onPermissionRequest = vi.fn()
+    const onTimeout = vi.fn()
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      onTimeout,
+      50, // 50ms timeout
+    )
+
+    const toolUseID = 'test-timeout-then-late-response'
+
+    // Start the canUseTool call — this registers a pending permission
+    const resultPromise = canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      toolUseID,
+      undefined,
+    )
+
+    // Grab a reference to the resolve BEFORE timeout fires — simulates host
+    // capturing the callback while the permission prompt is still pending
+    const staleResolve = permissionTarget.pendingPermissionPrompts.get(toolUseID)
+    expect(staleResolve).toBeDefined()
+
+    // Wait LONGER than the 50ms timeout — timeout fires first, resolves with deny
+    const result = await resultPromise
+
+    // Timeout should have denied
+    expect(result.behavior).toBe('deny')
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+
+    // Map entry cleaned up by timeout handler — no leaked listener
+    expect(permissionTarget.pendingPermissionPrompts.has(toolUseID)).toBe(false)
+
+    // NOW the host responds late through the stale reference it captured earlier.
+    // This is the critical scenario: host calls resolve({allow}) AFTER timeout
+    // already resolved with {deny}. onceOnlyResolve must silently ignore this.
+    // Wrap in try/catch to explicitly verify no error from double-resolve attempt.
+    let lateResponseError: Error | null = null
+    try {
+      staleResolve!.resolve({ behavior: 'allow' as const, updatedInput: { injected: true } })
+    } catch (e) {
+      lateResponseError = e as Error
+    }
+
+    // No error thrown — onceOnlyResolve silently swallowed the second resolve
+    expect(lateResponseError).toBeNull()
+
+    // Result stays 'deny' — timeout decision is immutable
+    expect(result.behavior).toBe('deny')
+    expect((result as any).updatedInput).toBeUndefined()
+  })
 })
 
 describe('createOnceOnlyResolve', () => {
@@ -275,6 +454,33 @@ describe('createOnceOnlyResolve', () => {
     onceOnlyResolve(null)
     expect(resolvedValue).toBeUndefined() // Still undefined
   })
+
+  test('timeout-deny-then-host-allow: raw resolve called exactly once', () => {
+    // This directly proves onceOnlyResolve prevents the raw resolve from being
+    // called a second time — the exact scenario the reviewer asked about:
+    // timeout fires first (deny), then host responds (allow) — raw resolve
+    // must only execute once.
+    let rawCallCount = 0
+    let rawResolvedValue: PermissionResolveDecision | undefined
+
+    const rawResolve = (value: PermissionResolveDecision) => {
+      rawCallCount++
+      rawResolvedValue = value
+    }
+
+    const wrapped = createOnceOnlyResolve(rawResolve)
+
+    // Step 1: Timeout fires first — resolves with deny
+    wrapped({ behavior: 'deny', message: 'Permission resolution timed out' })
+    expect(rawCallCount).toBe(1)
+    expect(rawResolvedValue!.behavior).toBe('deny')
+
+    // Step 2: Host responds late with allow — must be ignored
+    wrapped({ behavior: 'allow' as const, updatedInput: { injected: true } })
+    expect(rawCallCount).toBe(1) // NOT 2 — second call was a no-op
+    expect(rawResolvedValue!.behavior).toBe('deny') // Unchanged
+    expect((rawResolvedValue as any).updatedInput).toBeUndefined()
+  })
 })
 
 describe('createPermissionTarget', () => {
@@ -333,6 +539,43 @@ describe('createExternalCanUseTool error handling', () => {
 
     expect(result.behavior).toBe('deny')
     expect(result.message).toContain('Custom error from callback')
+  })
+
+  test('throwing onPermissionRequest cleans up pending resolver and denies', async () => {
+    // Regression test: After registerPendingPermission was moved before onPermissionRequest,
+    // a throwing host callback leaves a pending resolver behind in pendingPermissionPrompts.
+    // The callback should be wrapped so the pending entry is deleted and the flow denies cleanly.
+    const permissionTarget = createPermissionTarget()
+
+    const throwingCallback = vi.fn(() => {
+      throw new Error('host boom')
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      throwingCallback,
+      undefined,
+      50,
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as any,
+      {},
+      {} as any,
+      {} as any,
+      'throw-id',
+      undefined,
+    )
+
+    // Should deny with error message, NOT throw
+    expect(result.behavior).toBe('deny')
+    expect(result.message).toContain('host boom')
+    expect(throwingCallback).toHaveBeenCalledTimes(1)
+
+    // Critical: pending resolver must be cleaned up, not leaked
+    expect(permissionTarget.pendingPermissionPrompts.has('throw-id')).toBe(false)
   })
 })
 

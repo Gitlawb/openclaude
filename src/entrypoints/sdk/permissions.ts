@@ -30,6 +30,33 @@ import type {
 /** Default timeout for permission prompts (30 seconds). Reasonable for human response time. */
 export const DEFAULT_PERMISSION_TIMEOUT_MS = 30000
 
+/**
+ * Placeholder session_id for permission requests outside SDK session context.
+ * Used when createExternalCanUseTool is called without a sessionId parameter,
+ * indicating a standalone permission prompt (e.g., direct tool permission check
+ * without an active SDK session). Hosts can identify such requests by checking
+ * session_id === NO_SESSION_PLACEHOLDER.
+ */
+export const NO_SESSION_PLACEHOLDER = 'no-session'
+
+// ============================================================================
+// Logger interface for SDK surface
+// ============================================================================
+
+/**
+ * Logger interface for SDK permission system.
+ * Hosts can inject a custom logger to control warning output.
+ * Defaults to console.warn if no logger is provided.
+ */
+export interface SDKLogger {
+  warn(message: string): void
+}
+
+/** Default console-based logger used when no custom logger is provided. */
+const defaultLogger: SDKLogger = {
+  warn: (message: string) => console.warn(message),
+}
+
 // ============================================================================
 // Once-only resolve wrapper
 // ============================================================================
@@ -180,7 +207,10 @@ export function createExternalCanUseTool(
   onTimeout?: (message: SDKPermissionTimeoutMessage) => void,
   // Default 30 second timeout for permission prompts - reasonable for human response time
   timeoutMs: number = DEFAULT_PERMISSION_TIMEOUT_MS,
+  sessionId?: string,
+  logger?: SDKLogger,
 ): CanUseToolFn {
+  const log = logger ?? defaultLogger
   return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
     // If a forced decision was passed in, honor it
     if (forceDecision) return forceDecision
@@ -211,18 +241,34 @@ export function createExternalCanUseTool(
     // call it directly and await external resolution with timeout.
     if (toolUseID && onPermissionRequest) {
       const requestId = randomUUID()
+      const messageUuid = randomUUID()
 
-      onPermissionRequest({
-        type: 'permission_request',
-        request_id: requestId,
-        tool_name: tool.name,
-        tool_use_id: toolUseID,
-        input: input as Record<string, unknown>,
-        uuid: requestId,
-        session_id: toolUseID,
-      })
-
+      // Register pending permission BEFORE emitting the request so that
+      // a host which responds synchronously from onPermissionRequest can
+      // find the entry in pendingPermissionPrompts immediately.
       const pendingPromise = permissionTarget.registerPendingPermission(toolUseID)
+
+      // Wrap onPermissionRequest in try-catch since it's SDK-host-provided code.
+      // If it throws, clean up the pending entry and deny/fallback cleanly.
+      try {
+        onPermissionRequest({
+          type: 'permission_request',
+          request_id: requestId,
+          tool_name: tool.name,
+          tool_use_id: toolUseID,
+          input: input as Record<string, unknown>,
+          uuid: messageUuid,
+          session_id: sessionId ?? NO_SESSION_PLACEHOLDER,
+        })
+      } catch (err) {
+        permissionTarget.pendingPermissionPrompts.delete(toolUseID)
+        const errorMessage = err instanceof Error ? err.message : 'Unknown host callback error'
+        return {
+          behavior: 'deny' as const,
+          message: `Tool ${tool.name} denied (onPermissionRequest callback error: ${errorMessage})`,
+          decisionReason: { type: 'mode' as const, mode: 'default' },
+        }
+      }
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise<{ timedOut: true }>(resolve => {
@@ -250,11 +296,9 @@ export function createExternalCanUseTool(
           tool_name: tool.name,
           tool_use_id: toolUseID,
           timed_out_after_ms: timeoutMs,
-          uuid: toolUseID,
-          session_id: toolUseID,
         })
       }
-      console.warn(
+      log.warn(
         `[SDK] Permission request for tool "${tool.name}" timed out after ${timeoutMs}ms. ` +
         'Denying by default. Provide a canUseTool callback or respond to permission_request ' +
         'messages within the timeout window.',
@@ -385,13 +429,17 @@ let warnedDefaultPermissions = false
  */
 export function createDefaultCanUseTool(
   _permissionContext: ToolPermissionContext,
+  logger?: SDKLogger,
 ): CanUseToolFn {
+  const log = logger ?? defaultLogger
   if (!warnedDefaultPermissions) {
     warnedDefaultPermissions = true
-    console.warn(
+    log.warn(
       '[SDK] No canUseTool or onPermissionRequest callback provided. ' +
       'All tool uses will be DENIED by default. ' +
-      'Provide canUseTool in query options to allow specific tools.',
+      'Provide canUseTool in query options, e.g.: ' +
+      '{ canUseTool: async (name, input) => ({ behavior: "allow" }) }',
+    )
     )
   }
   return async (tool, input, _toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {

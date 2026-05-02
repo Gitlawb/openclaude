@@ -43,7 +43,7 @@ import type { Message } from './types/message.js'
 import type { OrphanedPermission } from './types/textInputTypes.js'
 import { createAbortController } from './utils/abortController.js'
 import { validateArrayOf, assertNonEmptyString, assertObject, assertFunction } from './utils/validation.js'
-import { clearToolSchemaCache } from './utils/toolSchemaCache.js'
+import { invalidateRemovedToolSchemas } from './utils/toolSchemaCache.js'
 import type { AttributionState } from './utils/commitAttribution.js'
 import { getGlobalConfig } from './utils/config.js'
 import { getCwd } from './utils/cwd.js'
@@ -1267,11 +1267,11 @@ export class QueryEngine {
     // Phase 3: Commit — only reached if all validations pass
     this.config.tools = toolArray as Tools
 
-    // Phase 4: Invalidate schema cache since tool set changed.
-    // NOTE: This is a process-wide clear, consistent with auth.ts/logout.tsx usage.
-    // Multi-session SDK consumers share one cache; a scoped invalidation would require
-    // per-engine cache keys — deferred until multi-session perf data warrants it.
-    clearToolSchemaCache()
+    // Phase 4: Invalidate schema cache for removed tools only.
+    // Selective invalidation preserves cached schemas for tools that remain,
+    // avoiding unnecessary recomputation for concurrent engines in multi-session
+    // SDK scenarios. New tools (not yet cached) will be computed on first render.
+    invalidateRemovedToolSchemas(validToolNames)
   }
 
   getReadFileState(): FileStateCache {

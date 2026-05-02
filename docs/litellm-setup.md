@@ -61,7 +61,7 @@ The proxy will start at `http://localhost:4000` by default.
 
 ```bash
 export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_BASE_URL=http://localhost:4000
+export OPENAI_BASE_URL=http://localhost:4000/v1
 export OPENAI_API_KEY=<your-master-key-or-placeholder>
 export OPENAI_MODEL=<your-litellm-model-alias>
 openclaude
@@ -69,16 +69,20 @@ openclaude
 
 Replace `<your-litellm-model-alias>` with a model name from your `litellm_config.yaml` (e.g., `gpt-4o`, `claude-sonnet-4`, `gemini-2.5-flash`).
 
+If your LiteLLM proxy is local and does not enforce auth, `OPENAI_API_KEY` can
+be omitted when you configure env vars manually.
+
 ### Option B: Using /provider
 
 1. Run `openclaude`
 2. Type `/provider` to open the provider setup flow
 3. Choose the **OpenAI-compatible** option
-4. When prompted for the API key, enter the key required by your LiteLLM proxy
-   If your local LiteLLM setup does not enforce auth, you may still need to enter a placeholder value
-      - 5. When prompted for the base URL, enter `http://localhost:4000`
-        6. 6. When prompted for the model, enter the LiteLLM model name or alias you configured
-           7. 7. Save the provider configuration
+4. When prompted for the API key, enter the key required by your LiteLLM proxy.
+   If your local LiteLLM setup does not enforce auth, you may still need to
+   enter a placeholder value because the guided flow expects one.
+5. When prompted for the base URL, enter `http://localhost:4000/v1`
+6. When prompted for the model, enter the LiteLLM model name or alias you configured
+7. Save the provider configuration
 
 ## 3. Example LiteLLM Configs
 
@@ -114,7 +118,7 @@ litellm --config litellm_config.yaml --port 4000 --master_key sk-my-master-key
 
 # Connect OpenClaude
 export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_BASE_URL=http://localhost:4000
+export OPENAI_BASE_URL=http://localhost:4000/v1
 export OPENAI_API_KEY=sk-my-master-key
 export OPENAI_MODEL=gpt-4o
 openclaude

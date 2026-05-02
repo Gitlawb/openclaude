@@ -33,6 +33,24 @@ export function assertValidSessionId(sessionId: string): void {
 /**
  * Global mutex for process.env mutations.
  * Prevents race conditions when multiple queries run in parallel.
+ *
+ * **Note:** The SDK itself does not directly mutate process.env. This mutex
+ * is provided as a utility for SDK hosts who need to modify environment
+ * variables during parallel query execution (e.g., setting API keys per-query).
+ * Hosts must opt-in to using this mutex — there is no enforcement mechanism.
+ *
+ * Example usage:
+ * ```typescript
+ * const result = await acquireEnvMutex({ timeoutMs: 1000 })
+ * if (result.acquired) {
+ *   try {
+ *     process.env.MY_API_KEY = 'key-for-this-query'
+ *     // ... perform query ...
+ *   } finally {
+ *     releaseEnvMutex()
+ *   }
+ * }
+ * ```
  */
 const envMutationQueue: Array<() => void> = []
 let envMutationLocked = false
@@ -120,12 +138,29 @@ export function resetEnvMutexForTesting(): void {
 }
 
 // ============================================================================
-// SDK Types — camelCase public interface (matches sdk.d.ts)
+// SDK Types — snake_case public interface (matches sdk.d.ts)
 // ============================================================================
 
 /**
  * Permission request message emitted when a tool needs permission approval.
  * Hosts can respond via respondToPermission() using the request_id.
+ *
+ * **ID Relationship:**
+ * - `request_id`: UUID generated per permission request, used as correlation ID
+ *   for respondToPermission(). Passed to onPermissionRequest callback for hosts
+ *   to identify which request they're responding to.
+ * - `tool_use_id`: Identifier for the specific tool use instance, passed from
+ *   canUseTool(). Used internally for pending permission tracking and queue
+ *   filtering. Multiple permission requests for the same tool use are rare but
+ *   possible (e.g., retry after timeout).
+ * - `session_id`: SDK session identifier. When 'no-session', indicates a
+ *   standalone permission prompt outside an SDK session flow (e.g., direct
+ *   createExternalCanUseTool usage without session context).
+ * - `uuid`: Message UUID for stream correlation and transcript persistence.
+ *
+ * Hosts typically use `request_id` for responding; `tool_use_id` is useful
+ * for tracking state or correlating with tool_use events in the message stream.
+ * `session_id` enables correlation with SDK session lifecycle events.
  */
 export type SDKPermissionRequestMessage = {
   type: 'permission_request'
@@ -142,14 +177,16 @@ export type SDKPermissionRequestMessage = {
  * Hosts can detect timeouts by checking `type === 'permission_timeout'`
  * in their `for await` loop. The `tool_use_id` matches the original
  * permission_request, allowing correlation.
+ *
+ * Note: `request_id` is not included in timeout messages since the request
+ * is no longer pending — hosts cannot respond to timed-out requests.
  */
 export type SDKPermissionTimeoutMessage = {
   type: 'permission_timeout'
   tool_name: string
   tool_use_id: string
   timed_out_after_ms: number
-  uuid: string
-  session_id: string
+}
 }
 
 /**
@@ -196,19 +233,20 @@ export function mapMessageToSDK(msg: Record<string, unknown>): SDKMessage {
 
 /**
  * Session metadata returned by listSessions and getSessionInfo.
- * Uses camelCase field names matching the public SDK contract (sdk.d.ts).
+ * Uses snake_case field names matching the public SDK contract (matches sdk.d.ts).
  */
 export type SDKSessionInfo = {
-  sessionId: string
+  session_id: string
   summary: string
-  lastModified: number
-  fileSize?: number
-  customTitle?: string
-  firstPrompt?: string
-  gitBranch?: string
+  last_modified: number
+  file_size?: number
+  custom_title?: string
+  first_prompt?: string
+  git_branch?: string
   cwd?: string
   tag?: string
-  createdAt?: number
+  created_at?: number
+}
 }
 
 /** Options for listSessions. */
@@ -260,7 +298,7 @@ export type ForkSessionOptions = {
 /** Result of forkSession. */
 export type ForkSessionResult = {
   /** UUID of the newly created forked session. */
-  sessionId: string
+  session_id: string
 }
 
 /**
@@ -272,7 +310,7 @@ export type SessionMessage = {
   content: unknown
   timestamp?: string
   uuid?: string
-  parentUuid?: string | null
+  parent_uuid?: string | null
   [key: string]: unknown
 }
 

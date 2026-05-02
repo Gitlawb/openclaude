@@ -1,13 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { resetSettingsCache } from './settings/settingsCache.js'
 
-mock.module('./model/providers.js', () => ({
-  getAPIProvider: () =>
-    process.env.CLAUDE_CODE_USE_OPENAI === '1' ? 'openai' : 'firstParty',
-}))
-
-const { modelSupportsThinking } = await import('./thinking.js')
-
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
@@ -42,6 +35,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  mock.restore()
   for (const key of ENV_KEYS) {
     if (originalEnv[key] === undefined) {
       delete process.env[key]
@@ -52,10 +46,20 @@ afterEach(() => {
   resetSettingsCache()
 })
 
+async function importFreshThinkingModule() {
+  mock.restore()
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => 'openai',
+  }))
+  const nonce = `${Date.now()}-${Math.random()}`
+  return import(`./thinking.js?ts=${nonce}`)
+}
+
 describe('modelSupportsThinking — Z.AI GLM', () => {
-  test('enables thinking for exact GLM models on api.z.ai', () => {
+  test('enables thinking for exact GLM models on api.z.ai', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(true)
     expect(modelSupportsThinking('GLM-5-Turbo')).toBe(true)
@@ -63,26 +67,29 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     expect(modelSupportsThinking('GLM-4.5-Air')).toBe(true)
   })
 
-  test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', () => {
+  test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('glm-5.1')).toBe(false)
     expect(modelSupportsThinking('GLM-5.1')).toBe(false)
   })
 
-  test('does not match unrelated GLM-looking model names', () => {
+  test('does not match unrelated GLM-looking model names', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('glm-50')).toBe(false)
   })
 
-  test('does not reuse stale capability overrides after env changes', () => {
+  test('does not reuse stale capability overrides after env changes', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'GLM-5.1'
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES = ''
+    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(false)
 

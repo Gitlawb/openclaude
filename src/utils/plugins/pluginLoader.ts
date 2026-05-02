@@ -87,6 +87,7 @@ import { getAddDirEnabledPlugins } from './addDirPluginSettings.js'
 import { verifyAndDemote } from './dependencyResolver.js'
 import { classifyFetchError, logPluginFetch } from './fetchTelemetry.js'
 import { checkGitAvailable } from './gitAvailability.js'
+import { buildGitChildEnv } from './gitEnv.js'
 import { getInMemoryInstalledPlugins } from './installedPluginsManager.js'
 import { getManagedPluginNames } from './managedPlugins.js'
 import {
@@ -560,7 +561,9 @@ export async function gitClone(
   args.push(gitUrl, targetPath)
 
   const cloneStarted = performance.now()
-  const cloneResult = await execFileNoThrow(gitExe(), args)
+  const cloneResult = await execFileNoThrow(gitExe(), args, {
+    env: buildGitChildEnv(),
+  })
 
   if (cloneResult.code !== 0) {
     logPluginFetch(
@@ -579,7 +582,7 @@ export async function gitClone(
     const shallowFetchResult = await execFileNoThrowWithCwd(
       gitExe(),
       ['fetch', '--depth', '1', 'origin', sha],
-      { cwd: targetPath },
+      { cwd: targetPath, env: buildGitChildEnv() },
     )
 
     if (shallowFetchResult.code !== 0) {
@@ -591,7 +594,7 @@ export async function gitClone(
       const unshallowResult = await execFileNoThrowWithCwd(
         gitExe(),
         ['fetch', '--unshallow'],
-        { cwd: targetPath },
+        { cwd: targetPath, env: buildGitChildEnv() },
       )
 
       if (unshallowResult.code !== 0) {
@@ -612,7 +615,7 @@ export async function gitClone(
     const checkoutResult = await execFileNoThrowWithCwd(
       gitExe(),
       ['checkout', sha],
-      { cwd: targetPath },
+      { cwd: targetPath, env: buildGitChildEnv() },
     )
 
     if (checkoutResult.code !== 0) {
@@ -745,7 +748,9 @@ export async function installFromGitSubdir(
   }
   cloneArgs.push(gitUrl, cloneDir)
 
-  const cloneResult = await execFileNoThrow(gitExe(), cloneArgs)
+  const cloneResult = await execFileNoThrow(gitExe(), cloneArgs, {
+    env: buildGitChildEnv(),
+  })
   if (cloneResult.code !== 0) {
     throw new Error(
       `Failed to clone repository for git-subdir source: ${cloneResult.stderr}`,
@@ -756,7 +761,7 @@ export async function installFromGitSubdir(
     const sparseResult = await execFileNoThrowWithCwd(
       gitExe(),
       ['sparse-checkout', 'set', '--cone', '--', subdirPath],
-      { cwd: cloneDir },
+      { cwd: cloneDir, env: buildGitChildEnv() },
     )
     if (sparseResult.code !== 0) {
       throw new Error(
@@ -775,7 +780,7 @@ export async function installFromGitSubdir(
       const fetchSha = await execFileNoThrowWithCwd(
         gitExe(),
         ['fetch', '--depth', '1', 'origin', sha],
-        { cwd: cloneDir },
+        { cwd: cloneDir, env: buildGitChildEnv() },
       )
       if (fetchSha.code !== 0) {
         logForDebugging(
@@ -784,7 +789,7 @@ export async function installFromGitSubdir(
         const unshallow = await execFileNoThrowWithCwd(
           gitExe(),
           ['fetch', '--unshallow'],
-          { cwd: cloneDir },
+          { cwd: cloneDir, env: buildGitChildEnv() },
         )
         if (unshallow.code !== 0) {
           throw new Error(`Failed to fetch commit ${sha}: ${unshallow.stderr}`)
@@ -793,7 +798,7 @@ export async function installFromGitSubdir(
       const checkout = await execFileNoThrowWithCwd(
         gitExe(),
         ['checkout', sha],
-        { cwd: cloneDir },
+        { cwd: cloneDir, env: buildGitChildEnv() },
       )
       if (checkout.code !== 0) {
         throw new Error(`Failed to checkout commit ${sha}: ${checkout.stderr}`)
@@ -808,9 +813,11 @@ export async function installFromGitSubdir(
       const [checkout, revParse] = await Promise.all([
         execFileNoThrowWithCwd(gitExe(), ['checkout', 'HEAD'], {
           cwd: cloneDir,
+          env: buildGitChildEnv(),
         }),
         execFileNoThrowWithCwd(gitExe(), ['rev-parse', 'HEAD'], {
           cwd: cloneDir,
+          env: buildGitChildEnv(),
         }),
       ])
       if (checkout.code !== 0) {
