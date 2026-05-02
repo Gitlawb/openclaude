@@ -27,11 +27,9 @@ export class SDKBillingError extends SDKError {
 }
 
 export class SDKRateLimitError extends SDKError {
-  constructor(
-    message?: string,
-    readonly resetsAt?: number,
-    readonly rateLimitType?: string,
-  )
+  readonly resetsAt?: number
+  readonly rateLimitType?: string
+  constructor(message?: string, resetsAt?: number, rateLimitType?: string)
 }
 
 export class SDKInvalidRequestError extends SDKError {
@@ -188,9 +186,17 @@ export type SessionMessage = {
 
 // Re-export precise SDK message types from generated types
 // These use camelCase field names and discriminated unions for full IntelliSense
-export type { SDKMessage as SDKMessage } from './sdk/coreTypes.generated.js'
-export type { SDKUserMessage as SDKUserMessage } from './sdk/coreTypes.generated.js'
-export type { SDKResultMessage as SDKResultMessage } from './sdk/coreTypes.generated.js'
+import type {
+  SDKMessage,
+  SDKUserMessage,
+  SDKResultMessage,
+} from './sdk/coreTypes.generated.js'
+
+export type {
+  SDKMessage,
+  SDKUserMessage,
+  SDKResultMessage,
+} from './sdk/coreTypes.generated.js'
 
 // ============================================================================
 // Query types
