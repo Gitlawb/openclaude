@@ -250,14 +250,16 @@ function buildChain(
   return chain
 }
 
-/** Strip transcript-internal fields that the engine doesn't expect. */
+/** Strip transcript-internal fields and system entries that engine doesn't expect. */
 function stripChainFields(
   messages: (JsonlEntry & { parentUuid?: string | null })[],
 ): unknown[] {
-  return messages.map(m => {
-    const { isSidechain, parentUuid, logicalParentUuid, ...rest } = m as Record<string, unknown> & { isSidechain?: boolean; parentUuid?: string | null; logicalParentUuid?: string | null }
-    return rest
-  })
+  return messages
+    .filter(m => m.type !== 'system') // Filter out system (compact_boundary, etc.)
+    .map(m => {
+      const { isSidechain, parentUuid, logicalParentUuid, ...rest } = m as Record<string, unknown> & { isSidechain?: boolean; parentUuid?: string | null; logicalParentUuid?: string | null }
+      return rest
+    })
 }
 
 // ============================================================================
@@ -718,8 +720,13 @@ export async function unstable_v2_resumeSession(
       for (const entry of entries.slice(boundaryIndex + 1)) {
         if (entry.uuid && !entry.isSidechain) postBoundaryUuids.add(entry.uuid)
       }
+      // Keep: preserved entries + anchor + post-boundary entries
+      // The anchor is needed because preserved head.parentUuid = anchor after relink
+      const anchorUuid = preservedSegment.anchorUuid
       for (const uuid of byUuid.keys()) {
-        if (!preservedUuids.has(uuid) && !postBoundaryUuids.has(uuid)) byUuid.delete(uuid)
+        if (!preservedUuids.has(uuid) && !postBoundaryUuids.has(uuid) && uuid !== anchorUuid) {
+          byUuid.delete(uuid)
+        }
       }
     } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size === 0) {
       const postBoundaryUuids = new Set<string>()

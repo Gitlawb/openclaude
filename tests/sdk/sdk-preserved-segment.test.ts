@@ -56,8 +56,9 @@ function createCompactTranscriptWithPreservedSegment(
   })
 
   // Preserved segment entries (will be kept after compact)
+  // The preserved chain must link to the anchor (staleAssistantUuid) for proper relink
   const preservedUuids: string[] = []
-  lastUuid = null
+  lastUuid = staleAssistantUuid // Anchor for preserved chain — NOT null
   for (let i = 0; i < preservedChainLength; i++) {
     const userUuid = randomUUID()
     const assistantUuid = randomUUID()
@@ -69,7 +70,7 @@ function createCompactTranscriptWithPreservedSegment(
       parentUuid: lastUuid,
       sessionId,
       isSidechain: false,
-      timestamp: `2025-01-02T${i}:00:00Z`,
+      timestamp: `2025-01-02T${String(i).padStart(2, '0')}:00:00Z`,
     })
     entries.push({
       type: 'assistant',
@@ -78,7 +79,7 @@ function createCompactTranscriptWithPreservedSegment(
       parentUuid: userUuid,
       sessionId,
       isSidechain: false,
-      timestamp: `2025-01-02T${i}:01:00Z`,
+      timestamp: `2025-01-02T${String(i).padStart(2, '0')}:01:00Z`,
     })
     lastUuid = assistantUuid
   }
@@ -118,7 +119,7 @@ function createCompactTranscriptWithPreservedSegment(
       parentUuid: lastUuid,
       sessionId,
       isSidechain: false,
-      timestamp: `2025-01-04T${i}:00:00Z`,
+      timestamp: `2025-01-04T${String(i).padStart(2, '0')}:00:00Z`,
     })
     entries.push({
       type: 'assistant',
@@ -127,7 +128,7 @@ function createCompactTranscriptWithPreservedSegment(
       parentUuid: userUuid,
       sessionId,
       isSidechain: false,
-      timestamp: `2025-01-04T${i}:01:00Z`,
+      timestamp: `2025-01-04T${String(i).padStart(2, '0')}:01:00Z`,
     })
     lastUuid = assistantUuid
   }
@@ -193,17 +194,30 @@ describe('Compact preserved segment regression', () => {
     const session = await unstable_v2_resumeSession(sessionId, { cwd: dir })
     const messages = session.getMessages()
 
-    // Debug: if 0 messages, the preserved segment logic may have failed
-    if (messages.length === 0) {
-      // Check that session was created at least
-      expect(session.sessionId).toBe(sessionId)
-    } else {
-      // Expected: preserved chain (4 entries: 2 user + 2 assistant) + post-boundary (4 entries)
-      // Stale pre-compact should be pruned
-      // Total: 8 entries (may be fewer if some get filtered)
-      expect(messages.length).toBeGreaterThanOrEqual(4) // At least preserved chain
-      expect(messages.length).toBeLessThanOrEqual(8) // Should not include stale pre-compact
-    }
+    // Expected: preserved chain (4) + anchor (1, the staleAssistantUuid) + post-boundary (4)
+    // The anchor is needed for the chain: preserved head links to anchor after relink
+    // The staleUserUuid is pruned, but staleAssistantUuid (anchor) is kept.
+    // Total: 9 entries maximum
+    expect(messages.length).toBeGreaterThanOrEqual(4) // At least preserved chain
+    expect(messages.length).toBeLessThanOrEqual(9) // preserved + anchor + post-boundary
+
+    // Verify content: stale USER message should NOT appear
+    // Note: The anchor (stale assistant) MAY appear because it's the preserved segment anchor
+    const contents = messages.map(m => {
+      const msg = (m as Record<string, unknown>).message as Record<string, unknown> | undefined
+      if (!msg) return ''
+      const content = msg.content
+      if (typeof content === 'string') return content
+      if (Array.isArray(content)) {
+        const textBlock = content.find((b: Record<string, unknown>) => b.type === 'text')
+        return (textBlock?.text as string) ?? ''
+      }
+      return ''
+    })
+    // Stale pre-compact messages must not appear in loaded history
+    expect(contents.some(c => c.includes('stale pre-compact message'))).toBe(false)
+    // At least some preserved content should be present
+    expect(contents.some(c => c.includes('preserved'))).toBe(true)
 
     session.close()
   })

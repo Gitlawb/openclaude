@@ -327,16 +327,19 @@ function buildConversationChain(
 }
 
 /**
- * Strip transcript-internal fields that the engine doesn't expect.
- * Matches CLI's removeExtraFields().
+ * Strip transcript-internal fields and system entries that engine doesn't expect.
+ * Matches CLI's removeExtraFields() but also filters out system entries
+ * (compact_boundary, etc.) that should not be passed to the engine.
  */
 function stripExtraFields(
   messages: (JsonlEntry & { parentUuid?: string | null })[],
 ): unknown[] {
-  return messages.map(m => {
-    const { isSidechain, parentUuid, logicalParentUuid, ...rest } = m as Record<string, unknown> & { isSidechain?: boolean; parentUuid?: string | null; logicalParentUuid?: string | null }
-    return rest
-  })
+  return messages
+    .filter(m => m.type !== 'system') // Filter out system entries
+    .map(m => {
+      const { isSidechain, parentUuid, logicalParentUuid, ...rest } = m as Record<string, unknown> & { isSidechain?: boolean; parentUuid?: string | null; logicalParentUuid?: string | null }
+      return rest
+    })
 }
 
 /**
@@ -423,14 +426,18 @@ async function loadAndInjectSessionMessages(
       if (!postBoundaryUuids.has(uuid)) byUuid.delete(uuid)
     }
   } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size > 0) {
-    // Preserved segment exists and relink succeeded — keep preserved + post-boundary
+    // Preserved segment exists and relink succeeded — keep preserved + anchor + post-boundary
     const postBoundaryUuids = new Set<string>()
     for (const entry of entries.slice(boundaryIndex + 1)) {
       if (entry.uuid && !entry.isSidechain) postBoundaryUuids.add(entry.uuid)
     }
-    // Remove entries not in preserved or post-boundary
+    // Keep: preserved entries + anchor + post-boundary entries
+    // The anchor is needed because preserved head.parentUuid = anchor after relink
+    const anchorUuid = preservedSegment.anchorUuid
     for (const uuid of byUuid.keys()) {
-      if (!preservedUuids.has(uuid) && !postBoundaryUuids.has(uuid)) byUuid.delete(uuid)
+      if (!preservedUuids.has(uuid) && !postBoundaryUuids.has(uuid) && uuid !== anchorUuid) {
+        byUuid.delete(uuid)
+      }
     }
   } else if (boundaryIndex >= 0 && preservedSegment && preservedUuids.size === 0) {
     // Preserved segment exists but relink failed — fail closed, keep only post-boundary
