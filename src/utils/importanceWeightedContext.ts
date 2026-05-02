@@ -203,22 +203,7 @@ export function selectWeightedMessages(
     }
   }
 
-  const filteredSelected = selected.filter(msg => {
-    const content = msg.message?.content
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_result' && 'tool_use_id' in block) {
-          const toolUseId = (block as { tool_use_id: string }).tool_use_id
-          if (!toolUseIds.has(toolUseId)) {
-            return false
-          }
-        }
-      }
-    }
-    return true
-  })
-
-  const combined = [...filteredSelected, ...recent]
+  const combined = [...selected, ...recent]
   const seen = new Set<string>()
   const deduped: Message[] = []
 
@@ -230,7 +215,34 @@ export function selectWeightedMessages(
     }
   }
 
-  return deduped.sort((a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0))
+  const allToolUseIds = new Set<string>()
+  for (const msg of deduped) {
+    const content = msg.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_use' && 'id' in block) {
+          allToolUseIds.add((block as { id: string }).id)
+        }
+      }
+    }
+  }
+
+  const finalFiltered = deduped.filter(msg => {
+    const content = msg.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_result' && 'tool_use_id' in block) {
+          const toolUseId = (block as { tool_use_id: string }).tool_use_id
+          if (!allToolUseIds.has(toolUseId)) {
+            return false
+          }
+        }
+      }
+    }
+    return true
+  })
+
+  return finalFiltered.sort((a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0))
 }
 
 export function getWeightedStats(
