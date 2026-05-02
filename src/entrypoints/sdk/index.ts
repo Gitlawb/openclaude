@@ -253,4 +253,4 @@ export type {
   McpServerStatus,
   ApiKeySource,
   PermissionResult,
-} from './sdk/coreTypes.generated.js'
+} from './coreTypes.generated.js'

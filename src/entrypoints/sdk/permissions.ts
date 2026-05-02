@@ -100,7 +100,30 @@ export function createOnceOnlyResolve<T>(
  * )
  * ```
  */
-export function createPermissionTarget() {
+// ============================================================================
+// Permission resolve decision type
+// ============================================================================
+
+export type PermissionResolveDecision =
+  | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
+  | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
+
+// ============================================================================
+// PermissionTarget interface
+// ============================================================================
+
+/**
+ * Interface for objects that can register and resolve pending permission prompts.
+ * Used by createExternalCanUseTool to interact with QueryImpl and SDKSessionImpl
+ * without exposing internal pendingPermissionPrompts map.
+ */
+export interface PermissionTarget {
+  registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>
+  deletePendingPermission(toolUseId: string): void
+  denyPendingPermission(toolUseId: string, message: string): void
+}
+
+export function createPermissionTarget(): PermissionTarget & { pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }> } {
   const pendingPermissionPrompts = new Map<string, { resolve: (decision: PermissionResolveDecision) => void }>()
 
   const registerPendingPermission = (toolUseId: string): Promise<PermissionResolveDecision> => {
@@ -113,19 +136,29 @@ export function createPermissionTarget() {
     })
   }
 
+  const deletePendingPermission = (toolUseId: string): void => {
+    pendingPermissionPrompts.delete(toolUseId)
+  }
+
+  const denyPendingPermission = (toolUseId: string, message: string): void => {
+    const pending = pendingPermissionPrompts.get(toolUseId)
+    if (pending) {
+      pending.resolve({
+        behavior: 'deny',
+        message,
+        decisionReason: { type: 'mode', mode: 'default' },
+      })
+      pendingPermissionPrompts.delete(toolUseId)
+    }
+  }
+
   return {
     registerPendingPermission,
+    deletePendingPermission,
+    denyPendingPermission,
     pendingPermissionPrompts,
   }
 }
-
-// ============================================================================
-// Permission resolve decision type
-// ============================================================================
-
-export type PermissionResolveDecision =
-  | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
-  | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
 
 // ============================================================================
 // buildPermissionContext
@@ -205,10 +238,7 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
 export function createExternalCanUseTool(
   userFn: CanUseToolCallback | undefined,
   fallback: CanUseToolFn,
-  permissionTarget: {
-    registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>
-    pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }>
-  },
+  permissionTarget: PermissionTarget,
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void,
   onTimeout?: (message: SDKPermissionTimeoutMessage) => void,
   // Default 30 second timeout for permission prompts - reasonable for human response time
@@ -273,7 +303,7 @@ export function createExternalCanUseTool(
           session_id: resolveSessionId(),
         })
       } catch (err) {
-        permissionTarget.pendingPermissionPrompts.delete(toolUseID)
+        permissionTarget.deletePendingPermission(toolUseID)
         const errorMessage = err instanceof Error ? err.message : 'Unknown host callback error'
         return {
           behavior: 'deny' as const,
@@ -297,7 +327,7 @@ export function createExternalCanUseTool(
       }
 
       if (!raceResult.timedOut && raceResult.result) {
-        permissionTarget.pendingPermissionPrompts.delete(toolUseID)
+        permissionTarget.deletePendingPermission(toolUseID)
         return raceResult.result
       }
 
@@ -317,19 +347,10 @@ export function createExternalCanUseTool(
         'Denying by default. Provide a canUseTool callback or respond to permission_request ' +
         'messages within the timeout window.',
       )
-      const pending = permissionTarget.pendingPermissionPrompts.get(toolUseID)
-      if (pending) {
-        // Resolve the pending promise with denial.
-        // NOTE: For race condition safety, use createPermissionTarget() which wraps
-        // the resolve at registration time. If using a custom permissionTarget,
-        // callers should apply createOnceOnlyResolve in their registerPendingPermission.
-        pending.resolve({
-          behavior: 'deny',
-          message: `SDK: Permission resolution timed out for tool "${tool.name}". Pass canUseTool in options to control tool permissions.`,
-          decisionReason: { type: 'mode' as const, mode: 'default' },
-        })
-        permissionTarget.pendingPermissionPrompts.delete(toolUseID)
-      }
+      permissionTarget.denyPendingPermission(
+        toolUseID,
+        `SDK: Permission resolution timed out for tool "${tool.name}". Pass canUseTool in options to control tool permissions.`,
+      )
     }
 
     // No callback or no toolUseID — fall through to default permission logic

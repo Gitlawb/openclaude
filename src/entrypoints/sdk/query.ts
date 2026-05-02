@@ -40,7 +40,7 @@ import type {
   McpServerStatus,
   ApiKeySource,
   PermissionResult,
-} from './sdk/coreTypes.generated.js'
+} from './coreTypes.generated.js'
 import {
   fileHistoryCanRestore,
   fileHistoryGetDiffStats,
@@ -67,11 +67,19 @@ import {
   createDefaultCanUseTool,
   createOnceOnlyResolve,
   type PermissionResolveDecision,
+  type PermissionTarget,
 } from './permissions.js'
 import {
   listSessions,
   forkSession,
 } from './sessions.js'
+import {
+  parseJsonlEntries as parseJsonlLines,
+  findLastCompactBoundary,
+  applyPreservedSegmentRelinks,
+  buildConversationChain,
+  stripExtraFields,
+} from './transcript.js'
 
 // ============================================================================
 // QueryOptions type
@@ -199,148 +207,6 @@ export interface Query {
 // ============================================================================
 // loadAndInjectSessionMessages
 // ============================================================================
-
-/**
- * Parse JSONL lines into typed entries, skipping malformed lines.
- */
-function parseJsonlLines(text: string): JsonlEntry[] {
-  const entries: JsonlEntry[] = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      entries.push(JSON.parse(trimmed))
-    } catch {
-      // Skip malformed lines
-    }
-  }
-  return entries
-}
-
-/**
- * Find the index of the last compact_boundary entry and check for preserved segment.
- * Returns { index, preservedSegment } where preservedSegment contains headUuid, tailUuid,
- * anchorUuid if present, or null if no preserved segment.
- * Returns { index: -1, preservedSegment: null } if no compact boundary exists.
- */
-function findLastCompactBoundary(entries: JsonlEntry[]): {
-  index: number
-  preservedSegment: { headUuid: string; tailUuid: string; anchorUuid: string } | null
-} {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i]
-    if (e.type === 'system' && (e as Record<string, unknown>).subtype === 'compact_boundary') {
-      const meta = (e as Record<string, unknown>).compactMetadata as {
-        preservedSegment?: { headUuid?: string; tailUuid?: string; anchorUuid?: string }
-      } | undefined
-      const seg = meta?.preservedSegment
-      if (seg?.headUuid && seg?.tailUuid && seg?.anchorUuid) {
-        return {
-          index: i,
-          preservedSegment: { headUuid: seg.headUuid, tailUuid: seg.tailUuid, anchorUuid: seg.anchorUuid },
-        }
-      }
-      return { index: i, preservedSegment: null }
-    }
-  }
-  return { index: -1, preservedSegment: null }
-}
-
-/**
- * Apply preserved segment relinks matching CLI's applyPreservedSegmentRelinks().
- * - Walk tailUuid → headUuid to collect preserved UUIDs
- * - Set head.parentUuid = anchorUuid (relink preserved chain to anchor)
- * - Splice anchor's other children to tailUuid (anchor'a bağlı olup head olmayanlar tailUuid'a bağlanır)
- * - Returns set of preserved UUIDs to keep, or empty set if relink failed
- */
-function applyPreservedSegmentRelinks(
-  byUuid: Map<string, JsonlEntry & { parentUuid?: string | null }>,
-  seg: { headUuid: string; tailUuid: string; anchorUuid: string },
-): Set<string> {
-  const preservedUuids = new Set<string>()
-
-  // Validate tail → head walk
-  const tailInTranscript = byUuid.has(seg.tailUuid)
-  const headInTranscript = byUuid.has(seg.headUuid)
-  const anchorInTranscript = byUuid.has(seg.anchorUuid)
-
-  if (!tailInTranscript || !headInTranscript || !anchorInTranscript) {
-    return preservedUuids // Fail closed — empty set means prune everything
-  }
-
-  // Walk tail → head
-  const walkSeen = new Set<string>()
-  let cur = byUuid.get(seg.tailUuid)
-  let reachedHead = false
-
-  while (cur) {
-    if (walkSeen.has(cur.uuid!)) break // Cycle
-    walkSeen.add(cur.uuid!)
-    preservedUuids.add(cur.uuid!)
-    if (cur.uuid === seg.headUuid) {
-      reachedHead = true
-      break
-    }
-    if (!cur.parentUuid) break // Null parent before head
-    cur = byUuid.get(cur.parentUuid)
-  }
-
-  if (!reachedHead) {
-    return new Set<string>() // Walk failed — fail closed
-  }
-
-  // Relink: head.parentUuid = anchorUuid
-  const head = byUuid.get(seg.headUuid)
-  if (head) {
-    byUuid.set(seg.headUuid, { ...head, parentUuid: seg.anchorUuid })
-  }
-
-  // Splice: anchor'a bağlı olup head olmayanları tailUuid'a bağla
-  for (const [uuid, entry] of byUuid) {
-    if (entry.parentUuid === seg.anchorUuid && uuid !== seg.headUuid) {
-      byUuid.set(uuid, { ...entry, parentUuid: seg.tailUuid })
-    }
-  }
-
-  return preservedUuids
-}
-
-/**
- * Build a linear conversation chain by walking parentUuid links from a leaf
- * message backwards, then reversing. Matches CLI's buildConversationChain().
- */
-function buildConversationChain(
-  byUuid: Map<string, JsonlEntry & { parentUuid?: string | null }>,
-  leaf: JsonlEntry & { parentUuid?: string | null },
-): (JsonlEntry & { parentUuid?: string | null })[] {
-  const chain: (JsonlEntry & { parentUuid?: string | null })[] = []
-  const seen = new Set<string>()
-  let current: (JsonlEntry & { parentUuid?: string | null }) | undefined = leaf
-  while (current) {
-    if (!current.uuid || seen.has(current.uuid)) break
-    seen.add(current.uuid)
-    chain.push(current)
-    current = current.parentUuid ? byUuid.get(current.parentUuid) : undefined
-  }
-  chain.reverse()
-  return chain
-}
-
-/**
- * Strip transcript-internal fields and system entries that engine doesn't expect.
- * Matches CLI's removeExtraFields() but also filters out system entries
- * (compact_boundary, etc.) that should not be passed to the engine.
- */
-function stripExtraFields(
-  messages: (JsonlEntry & { parentUuid?: string | null })[],
-): unknown[] {
-  return messages
-    .filter(m => m.type !== 'system') // Filter out system entries
-    .map(m => {
-      const { isSidechain, parentUuid, logicalParentUuid, ...rest } = m as Record<string, unknown> & { isSidechain?: boolean; parentUuid?: string | null; logicalParentUuid?: string | null }
-      return rest
-    })
-}
 
 /**
  * Load a session's conversation messages from its JSONL file and inject
@@ -586,6 +452,24 @@ class QueryImpl implements Query {
     })
   }
 
+  /** Delete a pending permission prompt without resolving it. */
+  deletePendingPermission(toolUseId: string): void {
+    this.pendingPermissionPrompts.delete(toolUseId)
+  }
+
+  /** Deny a pending permission prompt with a message and clean up. */
+  denyPendingPermission(toolUseId: string, message: string): void {
+    const pending = this.pendingPermissionPrompts.get(toolUseId)
+    if (pending) {
+      pending.resolve({
+        behavior: 'deny',
+        message,
+        decisionReason: { type: 'mode', mode: 'default' },
+      })
+      this.pendingPermissionPrompts.delete(toolUseId)
+    }
+  }
+
   /** Push a timeout message into the queue for later draining. */
   pushTimeout(msg: SDKPermissionTimeoutMessage): void {
     this.timeoutQueue.push(msg)
@@ -726,10 +610,10 @@ class QueryImpl implements Query {
               try {
                 const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
                 if (mcpClients.length > 0) {
-                  self.engine.config.mcpClients = mcpClients
+                  self.engine.setMcpClients(mcpClients)
                 }
                 if (mcpTools.length > 0) {
-                  const allTools = getTools(self.permissionContext)
+                  const allTools = [...getTools(self.permissionContext)]  // Mutable copy
                   for (const mcpTool of mcpTools) {
                     if (!allTools.some(t => t.name === mcpTool.name)) {
                       allTools.push(mcpTool)
@@ -758,8 +642,8 @@ class QueryImpl implements Query {
                   effectiveSessionId = undefined
                 }
               } else {
-                // No existing sessions — keep the fresh UUID
-                effectiveSessionId = undefined
+                // No existing sessions — keep the constructor-created UUID for fresh query
+                effectiveSessionId = self._sessionId
               }
             } else if (self.shouldFork && self._sessionId) {
               try {
@@ -779,7 +663,8 @@ class QueryImpl implements Query {
               if (result.loaded) {
                 resolvedTranscriptDir = result.transcriptDir
               } else {
-                effectiveSessionId = undefined
+                // Session file not found — preserve constructor UUID for fresh session
+                effectiveSessionId = self._sessionId
               }
             }
 
@@ -874,16 +759,13 @@ class QueryImpl implements Query {
     this.interrupt()
     this.abortController.abort()
     // Disconnect MCP clients to prevent resource leaks
-    if (this._engine?.config?.mcpClients) {
-      for (const client of this._engine.config.mcpClients) {
-        if (client.type === 'connected' && client.connection) {
-          try {
-            client.connection.close?.()
-          } catch (err) {
-            // Ignore cleanup errors — query is closing anyway
-            console.warn('SDK: MCP client cleanup error:', err instanceof Error ? err.message : String(err))
-          }
-        }
+    const mcpClients = this._engine?.getMcpClients?.() ?? []
+    for (const client of mcpClients) {
+      if (client.type === 'connected' && client.cleanup) {
+        // Fire-and-forget cleanup — close() is synchronous
+        void client.cleanup().catch(err => {
+          console.warn('SDK: MCP client cleanup error:', err instanceof Error ? err.message : String(err))
+        })
       }
     }
     // Clear engine reference to prevent memory leaks
@@ -964,8 +846,8 @@ class QueryImpl implements Query {
       return { canRewind: false, error: 'No file-history snapshot found to rewind to' }
     }
 
-    // Get diff stats before rewinding
-    const diffStats = fileHistoryGetDiffStats(fileHistory, targetMessageId as any)
+    // Get diff stats before rewinding (async)
+    const diffStats = await fileHistoryGetDiffStats(fileHistory, targetMessageId as any)
 
     // Perform the actual rewind
     try {
@@ -1014,8 +896,8 @@ class QueryImpl implements Query {
   }
 
   mcpServerStatus(): McpServerStatus[] {
-    // SDK stores MCP clients in engine.config (not appStateStore like CLI).
-    const clients: MCPServerConnection[] = this.engine.config.mcpClients ?? []
+    // SDK stores MCP clients via engine.getMcpClients()
+    const clients: MCPServerConnection[] = this.engine.getMcpClients?.() ?? []
     return clients.map((client): McpServerStatus => {
       const base: McpServerStatus = {
         name: client.name,

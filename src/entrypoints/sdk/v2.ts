@@ -36,7 +36,7 @@ import { getAgentDefinitionsWithOverrides } from '../../tools/AgentTool/loadAgen
 import type {
   PermissionResult,
   SDKResultMessage as GeneratedSDKResultMessage,
-} from './sdk/coreTypes.generated.js'
+} from './coreTypes.generated.js'
 import type {
   SDKMessage,
   SDKPermissionTimeoutMessage,
@@ -57,7 +57,15 @@ import {
   createDefaultCanUseTool,
   createOnceOnlyResolve,
   type PermissionResolveDecision,
+  type PermissionTarget,
 } from './permissions.js'
+import {
+  parseJsonlEntries,
+  findLastCompactBoundary,
+  applyPreservedSegmentRelinks,
+  buildConversationChain as buildChain,
+  stripExtraFields as stripChainFields,
+} from './transcript.js'
 
 // ============================================================================
 // V2 API Types
@@ -163,105 +171,6 @@ export interface SdkMcpToolDefinition<Schema = any> {
   annotations?: ToolAnnotations
   searchHint?: string
   alwaysLoad?: boolean
-}
-
-// ============================================================================
-// Compact-aware transcript helpers (shared with query.ts approach)
-// ============================================================================
-
-/** Parse JSONL text into typed entries, skipping malformed lines. */
-function parseJsonlEntries(text: string): JsonlEntry[] {
-  const entries: JsonlEntry[] = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try { entries.push(JSON.parse(trimmed)) } catch { /* skip malformed */ }
-  }
-  return entries
-}
-
-/** Find last compact_boundary with preserved segment metadata. */
-function findLastCompactBoundary(entries: JsonlEntry[]): {
-  index: number
-  preservedSegment: { headUuid: string; tailUuid: string; anchorUuid: string } | null
-} {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i]
-    if (e.type === 'system' && (e as Record<string, unknown>).subtype === 'compact_boundary') {
-      const meta = (e as Record<string, unknown>).compactMetadata as {
-        preservedSegment?: { headUuid?: string; tailUuid?: string; anchorUuid?: string }
-      } | undefined
-      const seg = meta?.preservedSegment
-      if (seg?.headUuid && seg?.tailUuid && seg?.anchorUuid) {
-        return { index: i, preservedSegment: { headUuid: seg.headUuid, tailUuid: seg.tailUuid, anchorUuid: seg.anchorUuid } }
-      }
-      return { index: i, preservedSegment: null }
-    }
-  }
-  return { index: -1, preservedSegment: null }
-}
-
-/** Apply preserved segment relinks — matching CLI's applyPreservedSegmentRelinks(). */
-function applyPreservedSegmentRelinks(
-  byUuid: Map<string, JsonlEntry & { parentUuid?: string | null }>,
-  seg: { headUuid: string; tailUuid: string; anchorUuid: string },
-): Set<string> {
-  const preservedUuids = new Set<string>()
-  if (!byUuid.has(seg.tailUuid) || !byUuid.has(seg.headUuid) || !byUuid.has(seg.anchorUuid)) {
-    return preservedUuids // Fail closed
-  }
-  const walkSeen = new Set<string>()
-  let cur = byUuid.get(seg.tailUuid)
-  let reachedHead = false
-  while (cur) {
-    if (walkSeen.has(cur.uuid!)) break
-    walkSeen.add(cur.uuid!)
-    preservedUuids.add(cur.uuid!)
-    if (cur.uuid === seg.headUuid) { reachedHead = true; break }
-    if (!cur.parentUuid) break
-    cur = byUuid.get(cur.parentUuid)
-  }
-  if (!reachedHead) return new Set<string>() // Walk failed
-  // Relink head.parentUuid = anchorUuid
-  const head = byUuid.get(seg.headUuid)
-  if (head) byUuid.set(seg.headUuid, { ...head, parentUuid: seg.anchorUuid })
-  // Splice anchor's other children to tailUuid
-  for (const [uuid, entry] of byUuid) {
-    if (entry.parentUuid === seg.anchorUuid && uuid !== seg.headUuid) {
-      byUuid.set(uuid, { ...entry, parentUuid: seg.tailUuid })
-    }
-  }
-  return preservedUuids
-}
-
-/** Build linear chain by walking parentUuid from leaf backwards, then reverse. */
-function buildChain(
-  byUuid: Map<string, JsonlEntry & { parentUuid?: string | null }>,
-  leaf: JsonlEntry & { parentUuid?: string | null },
-): (JsonlEntry & { parentUuid?: string | null })[] {
-  const chain: (JsonlEntry & { parentUuid?: string | null })[] = []
-  const seen = new Set<string>()
-  let current: (JsonlEntry & { parentUuid?: string | null }) | undefined = leaf
-  while (current) {
-    if (!current.uuid || seen.has(current.uuid)) break
-    seen.add(current.uuid)
-    chain.push(current)
-    current = current.parentUuid ? byUuid.get(current.parentUuid) : undefined
-  }
-  chain.reverse()
-  return chain
-}
-
-/** Strip transcript-internal fields and system entries that engine doesn't expect. */
-function stripChainFields(
-  messages: (JsonlEntry & { parentUuid?: string | null })[],
-): unknown[] {
-  return messages
-    .filter(m => m.type !== 'system') // Filter out system (compact_boundary, etc.)
-    .map(m => {
-      const { isSidechain, parentUuid, logicalParentUuid, ...rest } = m as Record<string, unknown> & { isSidechain?: boolean; parentUuid?: string | null; logicalParentUuid?: string | null }
-      return rest
-    })
 }
 
 // ============================================================================
@@ -378,11 +287,11 @@ class SDKSessionImpl implements SDKSession {
           try {
             const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
             if (mcpClients.length > 0) {
-              self.engine.config.mcpClients = mcpClients
+              self.engine.setMcpClients(mcpClients)
             }
             if (mcpTools.length > 0) {
               const permissionContext = self.appStateStore.getState().toolPermissionContext
-              const allTools = getTools(permissionContext)
+              const allTools = [...getTools(permissionContext)]  // Mutable copy
               for (const mcpTool of mcpTools) {
                 if (!allTools.some(t => t.name === mcpTool.name)) {
                   allTools.push(mcpTool)
@@ -438,16 +347,13 @@ class SDKSessionImpl implements SDKSession {
     this._abortController?.abort()
     this._abortController = null
     // Disconnect MCP clients to prevent resource leaks
-    if (this._engine?.config?.mcpClients) {
-      for (const client of this._engine.config.mcpClients) {
-        if (client.type === 'connected' && client.connection) {
-          try {
-            client.connection.close?.()
-          } catch (err) {
-            // Ignore cleanup errors — session is closing anyway
-            console.warn('SDK: MCP client cleanup error:', err instanceof Error ? err.message : String(err))
-          }
-        }
+    const mcpClients = this._engine?.getMcpClients?.() ?? []
+    for (const client of mcpClients) {
+      if (client.type === 'connected' && client.cleanup) {
+        // Fire-and-forget cleanup — close() is synchronous
+        void client.cleanup().catch(err => {
+          console.warn('SDK: MCP client cleanup error:', err instanceof Error ? err.message : String(err))
+        })
       }
     }
     // Clear engine and store references to prevent memory leaks
@@ -465,6 +371,24 @@ class SDKSessionImpl implements SDKSession {
       const wrappedResolve = createOnceOnlyResolve(resolve)
       this.pendingPermissionPrompts.set(toolUseId, { resolve: wrappedResolve })
     })
+  }
+
+  /** Delete a pending permission prompt without resolving it. */
+  deletePendingPermission(toolUseId: string): void {
+    this.pendingPermissionPrompts.delete(toolUseId)
+  }
+
+  /** Deny a pending permission prompt with a message and clean up. */
+  denyPendingPermission(toolUseId: string, message: string): void {
+    const pending = this.pendingPermissionPrompts.get(toolUseId)
+    if (pending) {
+      pending.resolve({
+        behavior: 'deny',
+        message,
+        decisionReason: { type: 'mode', mode: 'default' },
+      })
+      this.pendingPermissionPrompts.delete(toolUseId)
+    }
   }
 
   /** Push a timeout message into the queue for later draining. */
@@ -521,7 +445,7 @@ class SDKSessionImpl implements SDKSession {
  */
 function createEngineFromOptions(
   options: SDKSessionOptions,
-  permissionTarget: { registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>; pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }>; pushTimeout?: (msg: SDKPermissionTimeoutMessage) => void },
+  permissionTarget: PermissionTarget & { pushTimeout?: (msg: SDKPermissionTimeoutMessage) => void },
   initialMessages?: any[],
   sessionId?: string,
 ): { engine: QueryEngine; appStateStore: Store<AppState>; abortController: AbortController } {

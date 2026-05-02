@@ -19,14 +19,12 @@ afterAll(() => {
 
 describe('MCP cleanup on session close', () => {
   test('session.close() disconnects MCP clients', async () => {
-    // Create a mock MCP client with a close method
-    const mockClose = vi.fn()
+    // Create a mock MCP client with a cleanup method
+    const mockCleanup = vi.fn().mockResolvedValue(undefined)
     const mockMcpClient: MCPServerConnection = {
       type: 'connected',
       name: 'test-server',
-      connection: {
-        close: mockClose,
-      },
+      cleanup: mockCleanup,
       serverInfo: { name: 'test', version: '1.0' },
       tools: [],
       config: { scope: 'session' },
@@ -37,31 +35,27 @@ describe('MCP cleanup on session close', () => {
       cwd: process.cwd(),
     })
 
-    // Inject mock MCP client into the engine's config
-    // This simulates what would happen after connectSdkMcpServers()
+    // Inject mock MCP client into the engine using setMcpClients
     const sessionImpl = session as any
-    if (sessionImpl._engine?.config) {
-      sessionImpl._engine.config.mcpClients = [mockMcpClient]
+    if (sessionImpl._engine?.setMcpClients) {
+      sessionImpl._engine.setMcpClients([mockMcpClient])
     }
 
     // Close the session
     session.close()
 
-    // Verify MCP client was disconnected
-    expect(mockClose).toHaveBeenCalled()
+    // Verify MCP client cleanup was called (fire-and-forget, wait a bit)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockCleanup).toHaveBeenCalled()
   })
 
   test('session.close() handles MCP cleanup errors gracefully', async () => {
-    // Create a mock MCP client that throws on close
-    const mockClose = vi.fn(() => {
-      throw new Error('MCP cleanup error')
-    })
+    // Create a mock MCP client that throws on cleanup
+    const mockCleanup = vi.fn().mockRejectedValue(new Error('MCP cleanup error'))
     const mockMcpClient: MCPServerConnection = {
       type: 'connected',
       name: 'error-server',
-      connection: {
-        close: mockClose,
-      },
+      cleanup: mockCleanup,
       serverInfo: { name: 'test', version: '1.0' },
       tools: [],
       config: { scope: 'session' },
@@ -73,15 +67,16 @@ describe('MCP cleanup on session close', () => {
 
     // Inject mock MCP client
     const sessionImpl = session as any
-    if (sessionImpl._engine?.config) {
-      sessionImpl._engine.config.mcpClients = [mockMcpClient]
+    if (sessionImpl._engine?.setMcpClients) {
+      sessionImpl._engine.setMcpClients([mockMcpClient])
     }
 
     // Close should not throw despite MCP cleanup error
     expect(() => session.close()).not.toThrow()
 
-    // Verify close was attempted even though it threw
-    expect(mockClose).toHaveBeenCalled()
+    // Verify cleanup was attempted even though it will reject
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockCleanup).toHaveBeenCalled()
   })
 
   test('session.close() clears engine reference', async () => {
@@ -105,16 +100,16 @@ describe('MCP cleanup on session close', () => {
 
     // Remove MCP clients to simulate no MCP servers connected
     const sessionImpl = session as any
-    if (sessionImpl._engine?.config) {
-      sessionImpl._engine.config.mcpClients = undefined
+    if (sessionImpl._engine?.setMcpClients) {
+      sessionImpl._engine.setMcpClients([])
     }
 
     // Close should not throw
     expect(() => session.close()).not.toThrow()
   })
 
-  test('session.close() handles failed MCP clients (no connection)', async () => {
-    // Failed client has no connection property
+  test('session.close() handles failed MCP clients (no cleanup)', async () => {
+    // Failed client has no cleanup property
     const mockMcpClient: MCPServerConnection = {
       type: 'failed',
       name: 'failed-server',
@@ -127,24 +122,22 @@ describe('MCP cleanup on session close', () => {
     })
 
     const sessionImpl = session as any
-    if (sessionImpl._engine?.config) {
-      sessionImpl._engine.config.mcpClients = [mockMcpClient]
+    if (sessionImpl._engine?.setMcpClients) {
+      sessionImpl._engine.setMcpClients([mockMcpClient])
     }
 
-    // Close should not throw - failed clients have no close method
+    // Close should not throw - failed clients have no cleanup method
     expect(() => session.close()).not.toThrow()
   })
 })
 
 describe('MCP cleanup on query close', () => {
   test('query.close() disconnects MCP clients', async () => {
-    const mockClose = vi.fn()
+    const mockCleanup = vi.fn().mockResolvedValue(undefined)
     const mockMcpClient: MCPServerConnection = {
       type: 'connected',
       name: 'test-server',
-      connection: {
-        close: mockClose,
-      },
+      cleanup: mockCleanup,
       serverInfo: { name: 'test', version: '1.0' },
       tools: [],
       config: { scope: 'session' },
@@ -157,25 +150,23 @@ describe('MCP cleanup on query close', () => {
 
     // Inject mock MCP client
     const queryImpl = q as any
-    if (queryImpl._engine?.config) {
-      queryImpl._engine.config.mcpClients = [mockMcpClient]
+    if (queryImpl._engine?.setMcpClients) {
+      queryImpl._engine.setMcpClients([mockMcpClient])
     }
 
     q.close()
 
-    expect(mockClose).toHaveBeenCalled()
+    // Verify cleanup was called (fire-and-forget, wait a bit)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockCleanup).toHaveBeenCalled()
   })
 
   test('query.close() handles MCP cleanup errors gracefully', async () => {
-    const mockClose = vi.fn(() => {
-      throw new Error('MCP cleanup error')
-    })
+    const mockCleanup = vi.fn().mockRejectedValue(new Error('MCP cleanup error'))
     const mockMcpClient: MCPServerConnection = {
       type: 'connected',
       name: 'error-server',
-      connection: {
-        close: mockClose,
-      },
+      cleanup: mockCleanup,
       serverInfo: { name: 'test', version: '1.0' },
       tools: [],
       config: { scope: 'session' },
@@ -187,12 +178,13 @@ describe('MCP cleanup on query close', () => {
     })
 
     const queryImpl = q as any
-    if (queryImpl._engine?.config) {
-      queryImpl._engine.config.mcpClients = [mockMcpClient]
+    if (queryImpl._engine?.setMcpClients) {
+      queryImpl._engine.setMcpClients([mockMcpClient])
     }
 
     expect(() => q.close()).not.toThrow()
-    expect(mockClose).toHaveBeenCalled()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mockCleanup).toHaveBeenCalled()
   })
 
   test('query.close() clears engine reference', async () => {
@@ -216,8 +208,8 @@ describe('MCP cleanup on query close', () => {
     })
 
     const queryImpl = q as any
-    if (queryImpl._engine?.config) {
-      queryImpl._engine.config.mcpClients = undefined
+    if (queryImpl._engine?.setMcpClients) {
+      queryImpl._engine.setMcpClients([])
     }
 
     expect(() => q.close()).not.toThrow()
