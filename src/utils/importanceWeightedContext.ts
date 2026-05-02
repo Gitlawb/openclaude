@@ -60,6 +60,16 @@ function getContent(content: unknown): string {
   return ''
 }
 
+function hasToolUseBlock(content: unknown): boolean {
+  if (!Array.isArray(content)) return false
+  for (const block of content) {
+    if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'tool_use') {
+      return true
+    }
+  }
+  return false
+}
+
 function hasStructuredError(content: unknown): boolean {
   if (!Array.isArray(content)) return false
   for (const block of content) {
@@ -103,7 +113,7 @@ export function calculateImportanceScores(
     const recencyHours = (now - createdAt) / (1000 * 60 * 60)
     const recency = recencyHours < 0.5 ? 1 : recencyHours < 2 ? 0.8 : recencyHours < 6 ? 0.6 : Math.max(0.1, 1 - recencyHours / 24)
 
-    const toolUse = content.includes('tool_use') || content.includes('function_call')
+    const toolUse = hasToolUseBlock(message.message?.content) || content.includes('function_call')
       ? 0.9
       : 0
 
@@ -181,7 +191,34 @@ export function selectWeightedMessages(
     totalTokens += tokens
   }
 
-  const combined = [...selected, ...recent]
+  const toolUseIds = new Set<string>()
+  for (const msg of selected) {
+    const content = msg.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_use' && 'id' in block) {
+          toolUseIds.add((block as { id: string }).id)
+        }
+      }
+    }
+  }
+
+  const filteredSelected = selected.filter(msg => {
+    const content = msg.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'tool_result' && 'tool_use_id' in block) {
+          const toolUseId = (block as { tool_use_id: string }).tool_use_id
+          if (!toolUseIds.has(toolUseId)) {
+            return false
+          }
+        }
+      }
+    }
+    return true
+  })
+
+  const combined = [...filteredSelected, ...recent]
   const seen = new Set<string>()
   const deduped: Message[] = []
 

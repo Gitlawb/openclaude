@@ -311,16 +311,18 @@ export async function autoCompactIfNeeded(
     }
   }
 
-  // Lightweight pruning using importance-weighted selection
-  const autoCompactThreshold = getAutoCompactThreshold(model)
-  const messagesTokenCount = tokenCountWithEstimation(messages)
-  if (messagesTokenCount > autoCompactThreshold * 0.8) {
-    const prunedMessages = selectWeightedMessages(messages, {
-      maxTokens: Math.floor(autoCompactThreshold * 0.85),
-      preserveRecent: 5,
-    })
-    if (prunedMessages.length > 0 && prunedMessages.length < messages.length) {
-      messages = prunedMessages
+  // Lightweight pruning using importance-weighted selection (feature flag gated)
+  if (feature('IMPORTANCE_WEIGHTED_PRUNING')) {
+    const autoCompactThreshold = getAutoCompactThreshold(model)
+    const messagesTokenCount = tokenCountWithEstimation(messages)
+    if (messagesTokenCount > autoCompactThreshold * 0.8) {
+      const prunedMessages = selectWeightedMessages(messages, {
+        maxTokens: Math.floor(autoCompactThreshold * 0.85),
+        preserveRecent: 5,
+      })
+      if (prunedMessages.length > 0 && prunedMessages.length < messages.length) {
+        messages = prunedMessages
+      }
     }
   }
 
