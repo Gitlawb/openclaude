@@ -92,6 +92,8 @@ export type SDKSessionOptions = {
    * the request immediately and can resolve it via respondToPermission().
    */
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
+  /** Tools to disallow (blanket deny by tool name). */
+  disallowedTools?: string[]
 }
 
 /**
@@ -537,6 +539,7 @@ function createEngineFromOptions(
   const permissionContext = buildPermissionContext({
     cwd,
     permissionMode,
+    disallowedTools: options.disallowedTools,
   })
 
   // Create AppState store (minimal, headless)

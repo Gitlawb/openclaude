@@ -376,6 +376,8 @@ export type SDKSessionOptions = {
    * the request immediately and can resolve it via respondToPermission().
    */
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
+  /** Tools to disallow (blanket deny by tool name). */
+  disallowedTools?: string[]
 }
 
 export interface SDKSession {

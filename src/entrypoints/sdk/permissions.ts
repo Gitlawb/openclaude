@@ -136,6 +136,7 @@ export interface PermissionContextOptions {
   permissionMode?: QueryPermissionMode
   additionalDirectories?: string[]
   allowDangerouslySkipPermissions?: boolean
+  disallowedTools?: string[]
 }
 
 export function buildPermissionContext(options: PermissionContextOptions): ToolPermissionContext {
@@ -172,6 +173,10 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
     mode: internalMode as ToolPermissionContext['mode'],
     isBypassPermissionsModeAvailable:
       mode === 'bypass-permissions' || mode === 'bypassPermissions' || options.allowDangerouslySkipPermissions === true,
+    alwaysDenyRules: {
+      ...base.alwaysDenyRules,
+      cliArg: options.disallowedTools ?? [],
+    },
   }
 }
 
@@ -488,13 +493,14 @@ export async function connectSdkMcpServers(
 /**
  * Module-level warning flag for default permissions.
  *
- * This warning fires ONCE PER PROCESS when createDefaultCanUseTool() is called
- * without an explicit canUseTool or onPermissionRequest callback. This is
- * intentional: the warning is noisy enough to catch attention but not so
- * repetitive that it floods logs when creating multiple SDK instances.
+ * This warning fires ONCE PER PROCESS when the default fallback denial
+ * actually executes (i.e., a tool is denied because no canUseTool or
+ * onPermissionRequest callback was provided). The warning is deferred to
+ * execution time so that callers who provide canUseTool/onPermissionRequest
+ * never see it.
  *
  * If you create multiple queries/sessions in the same process, only the first
- * will emit this warning. This behavior is acceptable because:
+ * actual default denial will emit this warning. This behavior is acceptable because:
  * 1. The secure-by-default behavior applies to ALL instances
  * 2. Repeated warnings would be log noise without adding value
  * 3. The denial message per tool use already contains actionable guidance
@@ -510,23 +516,27 @@ let warnedDefaultPermissions = false
  * like 'bypass-permissions' still work because tool filtering happens at
  * the tool-list level via getTools(permissionContext) before this function
  * is ever reached.
+ *
+ * The warning is emitted at execution time (on first actual denial) rather
+ * than at construction time, so callers who provide canUseTool or
+ * onPermissionRequest never see false warnings.
  */
 export function createDefaultCanUseTool(
   _permissionContext: ToolPermissionContext,
   logger?: SDKLogger,
 ): CanUseToolFn {
   const log = logger ?? defaultLogger
-  if (!warnedDefaultPermissions) {
-    warnedDefaultPermissions = true
-    log.warn(
-      '[SDK] No canUseTool or onPermissionRequest callback provided. ' +
-      'All tool uses will be DENIED by default. ' +
-      'Provide canUseTool in query options, e.g.: ' +
-      '{ canUseTool: async (name, input) => ({ behavior: "allow" }) }',
-    )
-  }
   return async (tool, input, _toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {
     if (forceDecision) return forceDecision
+    if (!warnedDefaultPermissions) {
+      warnedDefaultPermissions = true
+      log.warn(
+        '[SDK] No canUseTool or onPermissionRequest callback provided. ' +
+        'All tool uses will be DENIED by default. ' +
+        'Provide canUseTool in query options, e.g.: ' +
+        '{ canUseTool: async (name, input) => ({ behavior: "allow" }) }',
+      )
+    }
     return {
       behavior: 'deny' as const,
       message: `SDK: Tool "${tool.name}" denied — no canUseTool or onPermissionRequest callback provided. Pass canUseTool in options to control tool permissions.`,
