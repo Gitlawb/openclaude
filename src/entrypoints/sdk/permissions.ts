@@ -208,10 +208,16 @@ export function createExternalCanUseTool(
   onTimeout?: (message: SDKPermissionTimeoutMessage) => void,
   // Default 30 second timeout for permission prompts - reasonable for human response time
   timeoutMs: number = DEFAULT_PERMISSION_TIMEOUT_MS,
-  sessionId?: string,
+  /** Session ID or getter for dynamic resolution (e.g. () => queryImpl.sessionId for fork/continue) */
+  sessionId?: string | (() => string | undefined),
   logger?: SDKLogger,
 ): CanUseToolFn {
   const log = logger ?? defaultLogger
+  /** Resolve sessionId - call getter if provided, otherwise return static value */
+  const resolveSessionId = (): string => {
+    const resolved = typeof sessionId === 'function' ? sessionId() : sessionId
+    return resolved ?? NO_SESSION_PLACEHOLDER
+  }
   return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
     // If a forced decision was passed in, honor it
     if (forceDecision) return forceDecision
@@ -259,7 +265,7 @@ export function createExternalCanUseTool(
           tool_use_id: toolUseID,
           input: input as Record<string, unknown>,
           uuid: messageUuid,
-          session_id: sessionId ?? NO_SESSION_PLACEHOLDER,
+          session_id: resolveSessionId(),
         })
       } catch (err) {
         permissionTarget.pendingPermissionPrompts.delete(toolUseID)
@@ -298,7 +304,7 @@ export function createExternalCanUseTool(
           tool_use_id: toolUseID,
           timed_out_after_ms: timeoutMs,
           uuid: messageUuid,
-          session_id: sessionId ?? NO_SESSION_PLACEHOLDER,
+          session_id: resolveSessionId(),
         })
       }
       log.warn(

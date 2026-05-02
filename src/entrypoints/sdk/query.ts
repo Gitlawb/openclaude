@@ -1209,7 +1209,8 @@ export function query(params: {
   // Build the canUseTool that supports external permission resolution.
   // When no user canUseTool callback is provided, this creates a pending
   // prompt entry that respondToPermission() can resolve asynchronously.
-  // Pass sessionId so permission_request messages have correct session_id.
+  // Pass sessionId getter so permission_request messages use actual current session.
+  // For fresh/fork/continue queries, sessionId is resolved dynamically at event time.
   const externalCanUseTool = createExternalCanUseTool(
     options.canUseTool,
     defaultCanUseTool,
@@ -1217,7 +1218,7 @@ export function query(params: {
     options.onPermissionRequest,
     (msg) => { queryImpl.pushTimeout(msg) },
     options._permissionTimeoutMs ?? 30000,
-    effectiveSessionId,
+    () => queryImpl.sessionId,
   )
 
   // Create QueryEngine config

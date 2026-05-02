@@ -17,7 +17,7 @@
     "dist/cli.mjs",
     "dist/sdk.mjs",
     "src/entrypoints/sdk.d.ts",
-    "src/entrypoints/sdk/coreTypes.generated.d.ts",
+    "src/entrypoints/sdk/coreTypes.generated.ts",
     "README.md"
   ],
   "scripts": {

@@ -653,3 +653,115 @@ describe('connectSdkMcpServers error handling', () => {
     expect(result.tools).toEqual([])
   })
 })
+
+describe('permission session_id dynamic resolution', () => {
+  test('static sessionId is used in permission_request', async () => {
+    const permissionTarget = createPermissionTarget()
+    let capturedSessionId: string | undefined
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      capturedSessionId = message.session_id
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50,
+      'static-session-123', // Static value
+    )
+
+    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+
+    expect(capturedSessionId).toBe('static-session-123')
+  })
+
+  test('getter function resolves sessionId at event time', async () => {
+    const permissionTarget = createPermissionTarget()
+    let currentSessionId = 'initial-session'
+    let capturedSessionId: string | undefined
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      capturedSessionId = message.session_id
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    // Pass getter that returns current value at call time
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50,
+      () => currentSessionId, // Dynamic getter
+    )
+
+    // Change sessionId BEFORE the permission request is emitted
+    currentSessionId = 'updated-session'
+
+    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+
+    // Should use the value at event emission time, not initial value
+    expect(capturedSessionId).toBe('updated-session')
+  })
+
+  test('getter returning undefined falls back to no-session placeholder', async () => {
+    const permissionTarget = createPermissionTarget()
+    let capturedSessionId: string | undefined
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      capturedSessionId = message.session_id
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50,
+      () => undefined, // Getter returns undefined
+    )
+
+    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+
+    expect(capturedSessionId).toBe(NO_SESSION_PLACEHOLDER)
+  })
+
+  test('permission_timeout also uses dynamic sessionId', async () => {
+    const permissionTarget = createPermissionTarget()
+    let currentSessionId = 'timeout-session' // Set before call
+    let capturedTimeoutSessionId: string | undefined
+
+    const onPermissionRequest = vi.fn((message: any) => {
+      // Don't resolve - let it timeout
+    })
+
+    const onTimeout = vi.fn((message: any) => {
+      capturedTimeoutSessionId = message.session_id
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      onPermissionRequest, // Required for timeout logic to run
+      onTimeout,
+      20, // Short timeout
+      () => currentSessionId,
+    )
+
+    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+
+    // Timeout message should use dynamic sessionId
+    expect(capturedTimeoutSessionId).toBe('timeout-session')
+  })
+})
