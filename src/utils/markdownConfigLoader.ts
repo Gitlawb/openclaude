@@ -253,7 +253,7 @@ export function getProjectDirsUpToHome(
     }
 
     for (const configDirName of PROJECT_CONFIG_DIR_NAMES) {
-      const claudeSubdir = join(current, configDirName, subdir)
+      const configSubdir = join(current, configDirName, subdir)
       // Filter to existing dirs. This is a perf filter (avoids spawning
       // ripgrep on non-existent dirs downstream) and the worktree fallback
       // in loadMarkdownFilesForSubdir relies on it. statSync + explicit error
@@ -261,8 +261,8 @@ export function getProjectDirsUpToHome(
       // than silently swallowing them. Downstream loadMarkdownFiles handles
       // the TOCTOU window (dir disappearing before read) gracefully.
       try {
-        statSync(claudeSubdir)
-        dirs.push(claudeSubdir)
+        statSync(configSubdir)
+        dirs.push(configSubdir)
       } catch (e: unknown) {
         if (!isFsInaccessible(e)) throw e
       }
@@ -332,9 +332,9 @@ export const loadMarkdownFilesForSubdir = memoize(
       )
       if (!worktreeHasSubdir) {
         for (const configDirName of PROJECT_CONFIG_DIR_NAMES) {
-          const mainClaudeSubdir = join(canonicalRoot, configDirName, subdir)
-          if (!projectDirs.includes(mainClaudeSubdir)) {
-            projectDirs.push(mainClaudeSubdir)
+          const mainConfigSubdir = join(canonicalRoot, configDirName, subdir)
+          if (!projectDirs.includes(mainConfigSubdir)) {
+            projectDirs.push(mainConfigSubdir)
           }
         }
       }

@@ -66,11 +66,7 @@ function getAgentDirectoryPath(location: SettingSource): string {
     case 'projectSettings':
       return join(getCwd(), AGENT_PATHS.FOLDER_NAME, AGENT_PATHS.AGENTS_DIR)
     case 'policySettings':
-      return join(
-        getManagedFilePath(),
-        AGENT_PATHS.FOLDER_NAME,
-        AGENT_PATHS.AGENTS_DIR,
-      )
+      return join(getManagedFilePath(), '.claude', AGENT_PATHS.AGENTS_DIR)
     case 'localSettings':
       return join(getCwd(), AGENT_PATHS.FOLDER_NAME, AGENT_PATHS.AGENTS_DIR)
   }
@@ -145,7 +141,9 @@ export function getActualRelativeAgentFilePath(agent: AgentDefinition): string {
 
   const dirPath =
     agent.baseDir &&
-    (agent.source === 'projectSettings' || agent.source === 'localSettings')
+    (agent.source === 'projectSettings' ||
+      agent.source === 'localSettings' ||
+      agent.source === 'policySettings')
       ? join('.', relative(getCwd(), agent.baseDir))
       : getRelativeAgentDirectoryPath(agent.source)
   const filename = agent.filename || agent.agentType
