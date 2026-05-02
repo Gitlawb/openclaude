@@ -442,7 +442,7 @@ test('uses Hicap api-key auth header for the Hicap route', async () => {
   const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
 
   await client.beta.messages.create({
-    model: 'claude-opus-4.6',
+    model: 'claude-opus-4.7',
     messages: [{ role: 'user', content: 'hello' }],
     max_tokens: 64,
     stream: false,

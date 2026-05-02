@@ -406,7 +406,7 @@ describe('applyProviderProfileToProcessEnv', () => {
       buildProfile({
         provider: 'openai',
         baseUrl: 'https://api.hicap.ai/v1',
-        model: 'claude-opus-4.6',
+        model: 'claude-opus-4.7',
         authHeader: 'api-key',
         authScheme: 'raw',
         authHeaderValue: 'hicap-header-value',
@@ -1006,7 +1006,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('hicap')
     expect(defaults.name).toBe('Hicap')
     expect(defaults.baseUrl).toBe('https://api.hicap.ai/v1')
-    expect(defaults.model).toBe('claude-opus-4.6')
+    expect(defaults.model).toBe('claude-opus-4.7')
     expect(defaults.apiKey).toBe('hicap-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })

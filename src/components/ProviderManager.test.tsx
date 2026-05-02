@@ -212,7 +212,7 @@ function mockProviderProfilesModule(options?: {
           provider: 'hicap',
           name: 'Hicap',
           baseUrl: 'https://api.hicap.ai/v1',
-          model: 'claude-opus-4.6',
+          model: 'claude-opus-4.7',
           apiKey: '',
         }
       }
@@ -649,7 +649,7 @@ test('ProviderManager explains when Hicap non-gpt responses mode is saved as cha
       ...payload,
       apiFormat:
         payload.provider === 'hicap' &&
-        payload.model === 'claude-opus-4.6' &&
+        payload.model === 'claude-opus-4.7' &&
         payload.apiFormat === 'responses'
           ? 'chat_completions'
           : payload.apiFormat,

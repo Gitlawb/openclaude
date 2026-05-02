@@ -5,7 +5,7 @@ export default defineGateway({
   label: 'Hicap',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.hicap.ai/v1',
-  defaultModel: 'claude-opus-4.6',
+  defaultModel: 'claude-opus-4.7',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -57,10 +57,10 @@ export default defineGateway({
     allowManualRefresh: true,
     models: [
       {
-        id: 'hicap-claude-opus-4.6',
-        apiName: 'claude-opus-4.6',
-        label: 'Claude Opus 4.6',
-        modelDescriptorId: 'claude-opus-4-6',
+        id: 'hicap-claude-opus-4.7',
+        apiName: 'claude-opus-4.7',
+        label: 'Claude Opus 4.7',
+        modelDescriptorId: 'claude-opus-4-7',
       },
     ],
   },
