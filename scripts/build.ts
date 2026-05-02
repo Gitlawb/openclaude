@@ -550,6 +550,12 @@ sdkResult = await Bun.build({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
+        // Stub root ink.js barrel imports (../ink.js, ../../ink.js, ./ink.js)
+        // These are TUI entry points that import React directly.
+        build.onResolve({ filter: /^(\.\.?\/)+ink\.js$/ }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
         // Also stub ./ paths used by re-exports in src/ink.ts, src/components/, etc.
         build.onResolve({ filter: /^\.\/components\// }, (args) => ({
           path: args.path,
@@ -567,6 +573,21 @@ sdkResult = await Bun.build({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
+        // Stub tool UI.js imports from within src/tools/ subdirectories.
+        // Tool UI modules render React/TUI components that are not needed
+        // in the SDK (headless) bundle. Only stub when the importer is
+        // inside src/tools/ to avoid blind-matching other UI.js files.
+        build.onResolve({ filter: /(?:^|\/)UI\.js$/ }, (args) => {
+          // Normalize path separators for cross-platform matching
+          const importer = (args.importer || '').replace(/\\/g, '/')
+          if (importer.includes('src/tools/')) {
+            return {
+              path: args.path,
+              namespace: 'sdk-missing-stub',
+            }
+          }
+          return null
+        })
 
         // Stub src/ alias imports that resolve to TUI directories
         // These are used by require('src/components/...') style imports
@@ -575,6 +596,11 @@ sdkResult = await Bun.build({
           namespace: 'sdk-missing-stub',
         }))
         build.onResolve({ filter: /^src\/ink\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub src/ink.js root barrel import (used by some files via 'src/ink.js')
+        build.onResolve({ filter: /^src\/ink\.js$/ }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
@@ -606,6 +632,57 @@ sdkResult = await Bun.build({
         build.onResolve({ filter: /^src\/context\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
+        }))
+        // Stub src/keybindings/ — React-dependent keybinding system not needed in SDK
+        build.onResolve({ filter: /^src\/keybindings\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^(\.\.?\/)+keybindings\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub react-compiler-runtime — not needed in SDK bundle
+        build.onResolve({ filter: /^react-compiler-runtime$/ }, () => ({
+          path: 'react-compiler-runtime',
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub TUI-only React hook files that leak into SDK via tool imports.
+        // These are imported transitively through spawnMultiAgent → It2SetupPrompt
+        // and through keybinding hooks. The SDK doesn't use TUI features.
+        for (const hookPath of [
+          'useDoublePress.js', 'useExitOnCtrlCD.js', 'useExitOnCtrlCDWithKeybindings.js',
+          'useTerminalSize.js', 'useShortcutDisplay.js',
+        ]) {
+          const escaped = hookPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`(^|/)${escaped}$`) }, (args) => ({
+            path: args.path,
+            namespace: 'sdk-missing-stub',
+          }))
+        }
+        // Stub It2SetupPrompt.tsx — TUI component pulled in by spawnMultiAgent
+        build.onResolve({ filter: /It2SetupPrompt\.js$/ }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+
+        // Stub react/jsx-dev-runtime with local no-op — tool .tsx files compile
+        // to jsxDEV() calls that are never rendered in SDK headless mode.
+        // This eliminates the external react/jsx-dev-runtime import entirely.
+        build.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({
+          path: 'react/jsx-dev-runtime',
+          namespace: 'sdk-jsx-stub',
+        }))
+        build.onLoad({ filter: /.*/, namespace: 'sdk-jsx-stub' }, () => ({
+          contents: `
+// No-op jsxDEV: returns null (SDK never renders JSX)
+export function jsxDEV(type, props, key, isStaticChildren, source, self) {
+  return null;
+}
+// No-op Fragment: returns null (never used in SDK rendering)
+export const Fragment = null;
+`,
+          loader: 'js',
         }))
 
         // Resolve .md and .txt file imports (used by yolo-classifier etc.) to empty string stubs
@@ -693,8 +770,14 @@ sdkResult = await Bun.build({
           }
           const isStubbedSpecifier = (s: string) =>
             missingModules.includes(s) ||
-            /^(\.\.?\/)+(components|ink|commands|cli|context|state)\//.test(s) ||
-            /^src\/(components|ink|commands|cli|state|context)\//.test(s)
+            /^(\.\.?\/)+(components|ink|commands|cli|context|state|keybindings)\//.test(s) ||
+            /^(\.\.?\/)+ink\.js$/.test(s) ||
+            /^src\/(components|ink|commands|cli|state|context|keybindings)\//.test(s) ||
+            /^src\/ink\.js$/.test(s) ||
+            /(?:^|\/)UI\.js$/.test(s) ||
+            s === 'react-compiler-runtime' ||
+            /(?:^|\/)It2SetupPrompt\.js$/.test(s) ||
+            /(?:^|\/)(useDoublePress|useExitOnCtrlCD|useExitOnCtrlCDWithKeybindings|useTerminalSize|useShortcutDisplay)\.js$/.test(s)
           function walk(dir: string) {
             for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
               const full = pathMod.join(dir, ent.name)
@@ -813,6 +896,29 @@ if (!sdkResult.success) {
   // Always restore source files, even if Bun.build() throws
   restoreModifiedFiles()
   console.log(`  🔄 feature-flags: pre-processed ${numModified} files (restored)`)
+}
+
+// ── Validate SDK bundle for React/Ink leakage ──────────────────────────────
+if (sdkResult.success) {
+  const sdkBundle = readFileSync('./dist/sdk.mjs', 'utf-8')
+  // Patterns that indicate React/Ink code leaked into the SDK bundle.
+  const reactInkPatterns = [
+    /from\s+["']react["']/,               // direct react import
+    /from\s+["']ink["']/,                 // direct ink import
+    /from\s+["']react\/jsx-dev-runtime["']/, // JSX runtime (must be stubbed, not external)
+  ]
+  const leaks: string[] = []
+  for (const pattern of reactInkPatterns) {
+    const match = sdkBundle.match(pattern)
+    if (match) leaks.push(match[0])
+  }
+  if (leaks.length > 0) {
+    console.error(`\n❌ SDK bundle contains React/Ink imports (must be stubbed):`)
+    for (const leak of leaks) console.error(`   - ${leak}`)
+    process.exitCode = 1
+  } else {
+    console.log(`✓ SDK bundle: no React/Ink leakage detected`)
+  }
 }
 
 // ── Validate external lists ──────────────────────────────────────────────

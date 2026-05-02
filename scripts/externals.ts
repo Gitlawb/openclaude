@@ -47,8 +47,8 @@ export const COMMON_EXTERNALS: string[] = [
 // Additional packages external only in the SDK bundle (TUI + heavy deps)
 export const SDK_ONLY_EXTERNALS: string[] = [
   'react',
-  'ink',
   'react-reconciler',
+  'ink',
   '@anthropic-ai/sdk',
   '@modelcontextprotocol/sdk',
 ]
