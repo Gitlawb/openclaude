@@ -389,8 +389,9 @@ class QueryImpl implements Query {
           let agentDefs: { activeAgents: any[]; allAgents: any[] } = { activeAgents: [], allAgents: [] }
           try {
             agentDefs = await getAgentDefinitionsWithOverrides(self.cwd)
-          } catch {
+          } catch (err) {
             // Agent loading failed — continue without agents
+            console.warn('SDK: agent definitions loading failed:', err instanceof Error ? err.message : String(err))
           }
 
           // Update AppState with agents
@@ -413,7 +414,12 @@ class QueryImpl implements Query {
             agentDefs.activeAgents.push(...userAgents)
           }
           if (agentDefs.activeAgents.length > 0) {
-            self.engine.injectAgents(agentDefs.activeAgents)
+            try {
+              self.engine.injectAgents(agentDefs.activeAgents)
+            } catch (err) {
+              // Agent injection failed — continue without agents
+              console.warn('SDK: agent injection failed:', err instanceof Error ? err.message : String(err))
+            }
           }
 
           // Apply env overrides AFTER init() with full-duration mutex (SEC-1)
@@ -435,16 +441,21 @@ class QueryImpl implements Query {
           try {
             // Connect MCP servers if provided
             if (self.mcpServers && Object.keys(self.mcpServers).length > 0) {
-              const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
-              if (mcpClients.length > 0) {
-                self.engine.config.mcpClients = mcpClients
-                const allTools = getTools(self.permissionContext)
-                for (const mcpTool of mcpTools) {
-                  if (!allTools.some(t => t.name === mcpTool.name)) {
-                    allTools.push(mcpTool)
+              try {
+                const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
+                if (mcpClients.length > 0) {
+                  self.engine.config.mcpClients = mcpClients
+                  const allTools = getTools(self.permissionContext)
+                  for (const mcpTool of mcpTools) {
+                    if (!allTools.some(t => t.name === mcpTool.name)) {
+                      allTools.push(mcpTool)
+                    }
                   }
+                  self.engine.updateTools(allTools)
                 }
-                self.engine.updateTools(allTools)
+              } catch (err) {
+                // MCP connection failed — continue without MCP tools
+                console.warn('SDK: MCP server connection failed:', err instanceof Error ? err.message : String(err))
               }
             }
 
@@ -510,6 +521,8 @@ class QueryImpl implements Query {
             // Final drain for timeout messages that fired on the last engine yield
             yield* self.drainTimeoutQueue()
           } finally {
+            // Clean up timeout queue
+            self.timeoutQueue.length = 0
             // Restore env + release mutex (SEC-1)
             if (self.envSnapshot) {
               for (const key of Object.keys(self.envSnapshot)) {
@@ -566,11 +579,13 @@ class QueryImpl implements Query {
   close(): void {
     this.abortController.abort()
     this.timeoutQueue.length = 0
+    this.pendingPermissionPrompts.clear()
   }
 
   interrupt(): void {
     this.engine.interrupt()
     this.timeoutQueue.length = 0
+    this.pendingPermissionPrompts.clear()
   }
 
   respondToPermission(toolUseId: string, decision: PermissionResult): void {

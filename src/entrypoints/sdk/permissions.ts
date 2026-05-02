@@ -383,9 +383,9 @@ export async function connectSdkMcpServers(
         // Return failed/pending client with no tools
         return { client, tools: [] }
       } catch (error) {
-        // Connection failed, return failed client with full error context
+        // Connection failed, return failed client with error message
         const errorMessage = error instanceof Error
-          ? `${error.message}${error.stack ? `\nStack: ${error.stack}` : ''}`
+          ? error.message
           : 'Unknown error'
         return {
           client: {

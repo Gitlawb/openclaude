@@ -106,6 +106,8 @@ export interface SDKSession {
   getMessages(): SDKMessage[]
   /** Abort the current in-flight query. */
   interrupt(): void
+  /** Close the session and release resources. */
+  close(): void
   /**
    * Respond to a pending permission prompt asynchronously.
    * Use this when no canUseTool callback was provided — the SDK emits a
@@ -220,8 +222,9 @@ class SDKSessionImpl implements SDKSession {
             if (agentDefs.activeAgents.length > 0) {
               self.engine.injectAgents(agentDefs.activeAgents)
             }
-          } catch {
+          } catch (err) {
             // Agent loading failed — continue without agents
+            console.warn('SDK: agent loading failed:', err instanceof Error ? err.message : String(err))
           }
           self.agentsLoaded = true
         }
@@ -241,8 +244,9 @@ class SDKSessionImpl implements SDKSession {
               }
               self.engine.updateTools(allTools)
             }
-          } catch {
+          } catch (err) {
             // MCP connection failed — continue without MCP tools
+            console.warn('SDK: MCP server connection failed:', err instanceof Error ? err.message : String(err))
           }
           self.mcpConnected = true
         }
@@ -251,12 +255,16 @@ class SDKSessionImpl implements SDKSession {
         const projectDir = getSessionProjectDir() ?? getOriginalCwd()
         switchSession(self._sessionId as SessionId, projectDir)
 
-        for await (const engineMsg of self.engine.submitMessage(content)) {
-          yield engineMsg
+        try {
+          for await (const engineMsg of self.engine.submitMessage(content)) {
+            yield engineMsg
+            yield* self.drainTimeoutQueue()
+          }
+          // Final drain for timeout messages that fired on the last engine yield
           yield* self.drainTimeoutQueue()
+        } finally {
+          self.timeoutQueue.length = 0
         }
-        // Final drain for timeout messages that fired on the last engine yield
-        yield* self.drainTimeoutQueue()
       })()
     })
 
@@ -270,6 +278,11 @@ class SDKSessionImpl implements SDKSession {
   interrupt(): void {
     this.engine.interrupt()
     this.timeoutQueue.length = 0
+    this.pendingPermissionPrompts.clear()
+  }
+
+  close(): void {
+    this.interrupt()
   }
 
   /**
