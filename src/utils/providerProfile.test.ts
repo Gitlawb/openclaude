@@ -884,6 +884,7 @@ test('applySavedProfileToCurrentSession replaces empty active OpenAI key for Cod
     profileFile: profile('codex', {
       OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
       OPENAI_MODEL: 'codexplan',
+      CHATGPT_ACCOUNT_ID: 'acct_oauth',
       CODEX_CREDENTIAL_SOURCE: 'oauth',
     }),
     processEnv,
@@ -894,6 +895,7 @@ test('applySavedProfileToCurrentSession replaces empty active OpenAI key for Cod
   assert.equal(processEnv.OPENAI_BASE_URL, DEFAULT_CODEX_BASE_URL)
   assert.equal(processEnv.OPENAI_MODEL, 'codexplan')
   assert.equal(Object.hasOwn(processEnv, 'OPENAI_API_KEY'), false)
+  assert.equal(processEnv.CHATGPT_ACCOUNT_ID, 'acct_oauth')
   assert.equal(Object.hasOwn(processEnv, 'CODEX_API_KEY'), false)
 })
 

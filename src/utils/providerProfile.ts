@@ -1147,16 +1147,21 @@ export async function buildLaunchEnv(options: {
   }
 
   if (options.profile === 'codex') {
-    const codexKey =
-      sanitizeApiKey(processEnv.CODEX_API_KEY) ||
-      sanitizeApiKey(persistedEnv.CODEX_API_KEY)
-    const liveCodexCredentials = resolveCodexApiCredentials(processEnv)
-    const codexAccountId =
-      processEnv.CHATGPT_ACCOUNT_ID ||
-      processEnv.CODEX_ACCOUNT_ID ||
-      liveCodexCredentials.accountId ||
-      persistedEnv.CHATGPT_ACCOUNT_ID ||
-      persistedEnv.CODEX_ACCOUNT_ID
+    const isCodexOAuthProfile = persistedEnv.CODEX_CREDENTIAL_SOURCE === 'oauth'
+    const codexKey = isCodexOAuthProfile
+      ? undefined
+      : sanitizeApiKey(processEnv.CODEX_API_KEY) ||
+        sanitizeApiKey(persistedEnv.CODEX_API_KEY)
+    const liveCodexCredentials = isCodexOAuthProfile
+      ? undefined
+      : resolveCodexApiCredentials(processEnv)
+    const codexAccountId = isCodexOAuthProfile
+      ? persistedEnv.CHATGPT_ACCOUNT_ID || persistedEnv.CODEX_ACCOUNT_ID
+      : processEnv.CHATGPT_ACCOUNT_ID ||
+        processEnv.CODEX_ACCOUNT_ID ||
+        liveCodexCredentials?.accountId ||
+        persistedEnv.CHATGPT_ACCOUNT_ID ||
+        persistedEnv.CODEX_ACCOUNT_ID
 
     return buildCompatibilityProcessEnv({
       processEnv,
