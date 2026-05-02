@@ -182,6 +182,7 @@ class SDKSessionImpl implements SDKSession {
     }
     return this._appStateStore
   }
+  private _abortController: AbortController | null = null
   private agentsLoaded = false
   private mcpServers?: Record<string, unknown>
   private mcpConnected = false
@@ -196,11 +197,13 @@ class SDKSessionImpl implements SDKSession {
     sessionId: string,
     options: SDKSessionOptions,
     appStateStore: Store<AppState> | null,
+    abortController?: AbortController | null,
   ) {
     if (engine) this._engine = engine
     this._sessionId = sessionId
     this.options = options
     if (appStateStore) this._appStateStore = appStateStore
+    if (abortController) this._abortController = abortController
     this.mcpServers = options.mcpServers
   }
 
@@ -212,6 +215,11 @@ class SDKSessionImpl implements SDKSession {
   /** Late-bind the app state store (used when session is created before store). */
   setAppStateStore(store: Store<AppState>): void {
     this._appStateStore = store
+  }
+
+  /** Late-bind the abort controller (used when session is created before engine). */
+  setAbortController(ac: AbortController): void {
+    this._abortController = ac
   }
 
   get sessionId(): string {
@@ -314,6 +322,10 @@ class SDKSessionImpl implements SDKSession {
 
   close(): void {
     this.interrupt()
+    // Abort the AbortController to cancel any in-flight HTTP requests or
+    // async operations tied to the signal. Mirrors QueryImpl.close().
+    this._abortController?.abort()
+    this._abortController = null
     // Disconnect MCP clients to prevent resource leaks
     if (this._engine?.config?.mcpClients) {
       for (const client of this._engine.config.mcpClients) {
@@ -327,8 +339,9 @@ class SDKSessionImpl implements SDKSession {
         }
       }
     }
-    // Clear engine reference to prevent memory leaks
+    // Clear engine and store references to prevent memory leaks
     this._engine = null
+    this._appStateStore = null
   }
 
   /**
@@ -399,7 +412,7 @@ function createEngineFromOptions(
   options: SDKSessionOptions,
   permissionTarget: { registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision>; pendingPermissionPrompts: Map<string, { resolve: (decision: PermissionResolveDecision) => void }>; pushTimeout?: (msg: SDKPermissionTimeoutMessage) => void },
   initialMessages?: any[],
-): { engine: QueryEngine; appStateStore: Store<AppState> } {
+): { engine: QueryEngine; appStateStore: Store<AppState>; abortController: AbortController } {
   const { cwd, model, abortController, permissionMode } = options
 
   if (!cwd) {
@@ -478,7 +491,7 @@ function createEngineFromOptions(
 
   const engine = new QueryEngine(engineConfig)
 
-  return { engine, appStateStore }
+  return { engine, appStateStore, abortController: ac }
 }
 
 // ============================================================================
@@ -510,10 +523,11 @@ export function unstable_v2_createSession(options: SDKSessionOptions): SDKSessio
   // pendingPermissionPrompts map to createEngineFromOptions for
   // external permission resolution support.
   const session = new SDKSessionImpl(null, sessionId, options, null)
-  const { engine, appStateStore } = createEngineFromOptions(options, session)
-  // Wire the engine and store into the session
+  const { engine, appStateStore, abortController } = createEngineFromOptions(options, session)
+  // Wire the engine, store, and abort controller into the session
   session.setEngine(engine)
   session.setAppStateStore(appStateStore)
+  session.setAbortController(abortController)
   return session
 }
 
@@ -554,13 +568,14 @@ export async function unstable_v2_resumeSession(
     .map(entry => ({ ...entry }))
 
   const session = new SDKSessionImpl(null, sessionId, options, null)
-  const { engine, appStateStore } = createEngineFromOptions(
+  const { engine, appStateStore, abortController } = createEngineFromOptions(
     options,
     session,
     initialMessages as any[],
   )
   session.setEngine(engine)
   session.setAppStateStore(appStateStore)
+  session.setAbortController(abortController)
 
   // Establish session project context so transcript writes go to the
   // correct directory (matching CLI behavior with dirname(fullPath)).
