@@ -11,7 +11,7 @@
 
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { join }       from "node:path";
+import { join, resolve } from "node:path";
 import { walk, searchVault, readNote, vaultRelative } from "./vaultUtils";
 import type { AgentFn, AgentEvent } from "./handlers/chat";
 import { ask } from "../QueryEngine";
@@ -194,7 +194,12 @@ function runVaultTool(
   switch (name) {
     case "list_vault": {
       const subdir = typeof args.subdir === "string" && args.subdir ? args.subdir : "";
-      const root = subdir ? join(vault, subdir) : vault;
+      const vaultAbs = resolve(vault);
+      const root = subdir ? resolve(vaultAbs, subdir) : vaultAbs;
+      // Guard: root must stay inside vault
+      if (root !== vaultAbs && !root.startsWith(vaultAbs + "/") && !root.startsWith(vaultAbs + "\\")) {
+        return { ok: false, content: `Path traversal rejected: ${subdir}` };
+      }
       if (!existsSync(root)) {
         return { ok: false, content: `Directory not found: ${subdir || vault}` };
       }
@@ -313,7 +318,8 @@ async function* lightweightOpenAIAgent(
     const assistantText: string[] = [];
 
     try {
-      while (true) {
+      let streamDone = false;
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -325,7 +331,7 @@ async function* lightweightOpenAIAgent(
           const trimmed = line.trim();
           if (!trimmed.startsWith("data:")) continue;
           const data = trimmed.slice(5).trim();
-          if (data === "[DONE]") break;
+          if (data === "[DONE]") { streamDone = true; break; }
 
           try {
             const chunk  = JSON.parse(data);
@@ -436,7 +442,7 @@ export function createRealAgent(_opts: RealAgentOpts = {}): AgentFn {
   return async function* (input): AsyncIterable<AgentEvent> {
     try {
       // ── External provider path (Groq / Ollama / any OpenAI-compatible) ──
-      if (process.env.CLAUDE_CODE_USE_OPENAI) {
+      if (process.env.CLAUDE_CODE_USE_OPENAI === "1") {
         yield* lightweightOpenAIAgent(input.message, input.sessionId, input.context);
         return;
       }

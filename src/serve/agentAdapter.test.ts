@@ -298,4 +298,61 @@ describe("agentAdapter — vault tools with mock provider", () => {
       delete process.env.OPENCLAUDE_MODEL;
     }
   });
+
+  it("list_vault rejects path traversal subdir and returns ok:false in tool_result", async () => {
+    // Mock server: turn 1 requests list_vault with traversal subdir "../.."
+    //             turn 2 (never reached) would be a stop
+    let requestCount = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        requestCount++;
+        if (requestCount === 1) {
+          // Build the SSE line for the arguments delta separately to avoid escaping issues
+          const argsJson = JSON.stringify({ subdir: "../.." });
+          const argsDelta = JSON.stringify({
+            choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: argsJson } }] }, finish_reason: null }],
+          });
+          const body = [
+            `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_trav","type":"function","function":{"name":"list_vault","arguments":""}}]},"finish_reason":null}]}`,
+            `data: ${argsDelta}`,
+            `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+            `data: [DONE]`,
+            "",
+          ].join("\n\n");
+          return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+        }
+        // Turn 2: stop (the agent continues after injecting the tool result)
+        return new Response(
+          [
+            `data: {"choices":[{"delta":{"content":"No files found."},"finish_reason":null}]}`,
+            `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+            `data: [DONE]`,
+            "",
+          ].join("\n\n"),
+          { headers: { "Content-Type": "text/event-stream" } },
+        );
+      },
+    });
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.OPENAI_BASE_URL = `http://127.0.0.1:${server.port}`;
+    process.env.OPENAI_API_KEY = "test";
+    process.env.OPENCLAUDE_MODEL = "test";
+    try {
+      const agent = createRealAgent();
+      const events = await drainEvents(
+        agent({ message: "list parent notes", sessionId: "s-trav", context: { vault } }),
+      );
+      // Must have a tool_result with ok:false (traversal was rejected)
+      const toolResult = events.find(e => e.event === "tool_result");
+      expect(toolResult).toBeDefined();
+      expect((toolResult!.data as any).ok).toBe(false);
+    } finally {
+      await server.stop();
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+      delete process.env.OPENAI_BASE_URL;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.OPENCLAUDE_MODEL;
+    }
+  });
 });
