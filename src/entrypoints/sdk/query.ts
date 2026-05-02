@@ -611,9 +611,8 @@ class QueryImpl implements Query {
   }
 
   close(): void {
+    this.interrupt()
     this.abortController.abort()
-    this.timeoutQueue.length = 0
-    this.pendingPermissionPrompts.clear()
     // Disconnect MCP clients to prevent resource leaks
     if (this._engine?.config?.mcpClients) {
       for (const client of this._engine.config.mcpClients) {
@@ -632,7 +631,9 @@ class QueryImpl implements Query {
   }
 
   interrupt(): void {
-    this.engine.interrupt()
+    if (this._engine) {
+      this._engine.interrupt()
+    }
     this.timeoutQueue.length = 0
     this.pendingPermissionPrompts.clear()
   }

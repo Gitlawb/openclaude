@@ -305,7 +305,9 @@ class SDKSessionImpl implements SDKSession {
   }
 
   interrupt(): void {
-    this.engine.interrupt()
+    if (this._engine) {
+      this._engine.interrupt()
+    }
     this.timeoutQueue.length = 0
     this.pendingPermissionPrompts.clear()
   }
@@ -591,18 +593,21 @@ export async function unstable_v2_prompt(
   options: SDKSessionOptions,
 ): Promise<SDKResultMessage> {
   const session = unstable_v2_createSession(options)
+  try {
+    let resultMessage: SDKResultMessage | undefined
 
-  let resultMessage: SDKResultMessage | undefined
-
-  for await (const msg of session.sendMessage(message)) {
-    if (msg.type === 'result') {
-      resultMessage = msg as SDKResultMessage
+    for await (const msg of session.sendMessage(message)) {
+      if (msg.type === 'result') {
+        resultMessage = msg as SDKResultMessage
+      }
     }
-  }
 
-  if (!resultMessage) {
-    throw new Error('unstable_v2_prompt: query completed without a result message')
-  }
+    if (!resultMessage) {
+      throw new Error('unstable_v2_prompt: query completed without a result message')
+    }
 
-  return resultMessage
+    return resultMessage
+  } finally {
+    session.close()
+  }
 }
