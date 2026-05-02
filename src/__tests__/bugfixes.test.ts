@@ -286,3 +286,30 @@ describe('Context overflow 500 fix', () => {
     expect(content).toContain('automatic compaction has failed')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Fix N: Project-scope MCP servers from .mcp.json not detected for 3P providers (issue #696)
+// ---------------------------------------------------------------------------
+describe('Project-scope MCP approval — third-party providers (issue #696)', () => {
+  test('handleMcpjsonServerApprovals is NOT gated behind usesAnthropicSetup', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+
+    // The call site for handleMcpjsonServerApprovals must not sit inside an
+    // `if (usesAnthropicSetup) { ... }` block, or third-party providers will
+    // never get the dialog and project-scope .mcp.json servers will be silently
+    // dropped from /mcp listings (issue #696).
+    const approvalCallIdx = content.indexOf('await handleMcpjsonServerApprovals(root)')
+    expect(approvalCallIdx).toBeGreaterThan(-1)
+
+    // Look at the 800 chars BEFORE the call site for any `if (usesAnthropicSetup)`
+    // block that would still be open. Pick a window that's definitely inside the
+    // showSetupScreens function but not in earlier dialogs.
+    const before = content.slice(Math.max(0, approvalCallIdx - 800), approvalCallIdx)
+    expect(before).not.toMatch(/if\s*\(\s*usesAnthropicSetup\s*\)\s*{[^}]*$/)
+  })
+
+  test('issue #696 is referenced from the comment so future readers can find context', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+    expect(content).toContain('#696')
+  })
+})
