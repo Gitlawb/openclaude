@@ -12,7 +12,7 @@
  * and verify the adapter handles the error gracefully.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "bun:test";
 import { createRealAgent } from "./agentAdapter";
 import type { AgentEvent } from "./handlers/chat";
 
@@ -190,6 +190,112 @@ describe("agentAdapter — error event structure", () => {
     } finally {
       if (origUrl !== undefined) process.env.OPENAI_BASE_URL = origUrl;
       else delete process.env.OPENAI_BASE_URL;
+    }
+  });
+});
+
+// ─── Mock-server integration tests ─────────────────────────────────────────
+import { mkdirSync, writeFileSync, mkdtempSync } from "node:fs";
+import { join as pathJoin } from "node:path";
+import { tmpdir } from "node:os";
+
+describe("agentAdapter — vault tools with mock provider", () => {
+  let vault: string;
+
+  beforeAll(() => {
+    vault = mkdtempSync(pathJoin(tmpdir(), "oc-vault-task2-"));
+    mkdirSync(pathJoin(vault, "Projects"), { recursive: true });
+    writeFileSync(pathJoin(vault, "index.md"), "# Index\nWelcome to the vault.");
+    writeFileSync(pathJoin(vault, "Projects", "Alpha.md"), "# Alpha\nBudget: 100k");
+  });
+
+  // Helper: build a fake SSE response that returns a normal stop
+  function makeStopResponse(text: string): Response {
+    const body = [
+      `data: {"choices":[{"delta":{"content":"${text}"},"finish_reason":null}]}`,
+      `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+      `data: [DONE]`,
+      "",
+    ].join("\n\n");
+    return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+  }
+
+  it("yields token and done events from a mock stop response", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => makeStopResponse("hello world"),
+    });
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.OPENAI_BASE_URL = `http://127.0.0.1:${server.port}`;
+    process.env.OPENAI_API_KEY = "test";
+    process.env.OPENCLAUDE_MODEL = "test";
+    try {
+      const agent = createRealAgent();
+      const events = await drainEvents(
+        agent({ message: "hi", sessionId: "s1", context: { vault } }),
+      );
+      expect(events.some(e => e.event === "token")).toBe(true);
+      const done = events.find(e => e.event === "done");
+      expect(done).toBeDefined();
+      expect((done!.data as any).finishReason).toBe("stop");
+    } finally {
+      await server.stop();
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+      delete process.env.OPENAI_BASE_URL;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.OPENCLAUDE_MODEL;
+    }
+  });
+
+  it("executes list_vault tool call and continues to stop", async () => {
+    // Turn 1: model requests list_vault
+    // Turn 2: model returns stop after receiving tool result
+    let requestCount = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        requestCount++;
+        if (requestCount === 1) {
+          // First turn: tool_call response
+          const body = [
+            `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"list_vault","arguments":""}}]},"finish_reason":null}]}`,
+            `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null}]}`,
+            `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+            `data: [DONE]`,
+            "",
+          ].join("\n\n");
+          return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+        }
+        // Second turn: stop after receiving tool result
+        return makeStopResponse("I found your notes.");
+      },
+    });
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.OPENAI_BASE_URL = `http://127.0.0.1:${server.port}`;
+    process.env.OPENAI_API_KEY = "test";
+    process.env.OPENCLAUDE_MODEL = "test";
+    try {
+      const agent = createRealAgent();
+      const events = await drainEvents(
+        agent({ message: "list my notes", sessionId: "s2", context: { vault } }),
+      );
+      // Should have: tool_call, tool_result, token, done
+      expect(events.some(e => e.event === "tool_call")).toBe(true);
+      expect(events.some(e => e.event === "tool_result")).toBe(true);
+      const toolCall = events.find(e => e.event === "tool_call");
+      expect((toolCall!.data as any).name).toBe("list_vault");
+      const toolResult = events.find(e => e.event === "tool_result");
+      expect((toolResult!.data as any).ok).toBe(true);
+      const done = events.find(e => e.event === "done");
+      expect(done).toBeDefined();
+      expect((done!.data as any).finishReason).toBe("stop");
+      expect(requestCount).toBe(2); // Two HTTP requests (two turns)
+    } finally {
+      await server.stop();
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+      delete process.env.OPENAI_BASE_URL;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.OPENCLAUDE_MODEL;
     }
   });
 });
