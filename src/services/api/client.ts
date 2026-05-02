@@ -13,6 +13,7 @@ import { getUserAgent } from 'src/utils/http.js'
 import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
   isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
@@ -28,8 +29,15 @@ import {
   isEnvTruthy,
 } from '../../utils/envUtils.js'
 import {
-  type ProviderOverride,
+  getMiniMaxBaseUrlOverride,
+  getRouteDefaultBaseUrl,
+  getRouteDefaultModel,
+  getXaiBaseUrlOverride,
+  resolveEnvOnlyProviderRouteId,
+} from '../../integrations/routeMetadata.js'
+import {
   shouldUseFirstPartyAnthropicAuth,
+  type ProviderOverride,
 } from './authRouting.js'
 
 const importRuntimeModule = new Function(
@@ -91,6 +99,62 @@ function createStderrLogger(): ClientOptions['logger'] {
       // biome-ignore lint/suspicious/noConsole:: intentional console output -- SDK logger must use console
       console.error('[Anthropic SDK DEBUG]', msg, ...args),
   }
+}
+
+function isMiniMaxModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(
+    normalized &&
+      (normalized.startsWith('minimax-') || normalized.startsWith('minimax/')),
+  )
+}
+
+function isXaiModelName(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(
+    normalized &&
+      (normalized.startsWith('grok-') || normalized.startsWith('xai/')),
+  )
+}
+
+function applyMiniMaxEnvOnlyDefaults(): void {
+  const baseUrlOverride = getMiniMaxBaseUrlOverride()
+  const hasMiniMaxBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('minimax')
+  process.env.OPENAI_MODEL =
+    (hasMiniMaxBaseOverride || isMiniMaxModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('minimax')
+  process.env.OPENAI_API_KEY = process.env.MINIMAX_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
+function applyXaiEnvOnlyDefaults(): void {
+  const baseUrlOverride = getXaiBaseUrlOverride()
+  const hasXaiBaseOverride = baseUrlOverride !== undefined
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('xai')
+  process.env.OPENAI_MODEL =
+    (hasXaiBaseOverride || isXaiModelName(modelOverride)
+      ? modelOverride
+      : undefined) ??
+    getRouteDefaultModel('xai')
+  process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
 export async function getAnthropicClient({
@@ -205,7 +269,19 @@ export async function getAnthropicClient({
     }
     return new Anthropic(nativeArgs)
   }
+  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
+  const useXaiEnvOnlyProvider = envOnlyProviderRouteId === 'xai'
+  const useMiniMaxEnvOnlyProvider = envOnlyProviderRouteId === 'minimax'
+  if (useMiniMaxEnvOnlyProvider) {
+    applyMiniMaxEnvOnlyDefaults()
+  }
+  if (useXaiEnvOnlyProvider) {
+    applyXaiEnvOnlyDefaults()
+  }
+
   if (
+    useMiniMaxEnvOnlyProvider ||
+    useXaiEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

@@ -129,4 +129,3 @@ function deepSort(
     ancestors.delete(value as object)
   }
 }
-

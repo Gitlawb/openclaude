@@ -112,8 +112,9 @@ test('third-party provider branch opens the first-run provider manager', async (
   )
 
   expect(output).toContain('Set up provider')
-  // Use alphabetically-early sentinels so they remain visible in the
-  // 13-row test frame after the provider list was sorted A→Z.
+  // Anthropic is pinned first and the remaining presets stay near
+  // description order, so these sentinel labels should remain visible
+  // in the 13-row test frame.
   expect(output).toContain('Anthropic')
   expect(output).toContain('Azure OpenAI')
   expect(output).toContain('DeepSeek')

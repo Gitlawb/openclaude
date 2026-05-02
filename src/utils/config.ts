@@ -155,7 +155,7 @@ export {
   NOTIFICATION_CHANNELS,
 } from './configConstants.js'
 
-import type { EDITOR_MODES, NOTIFICATION_CHANNELS, PROVIDERS } from './configConstants.js'
+import type { EDITOR_MODES, NOTIFICATION_CHANNELS } from './configConstants.js'
 
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number]
 
@@ -184,7 +184,7 @@ export const SHOW_CACHE_STATS_MODES = ['off', 'compact', 'full'] as const satisf
 
 export type OutputStyle = string
 
-export type Providers = typeof PROVIDERS[number]
+export type Providers = string
 export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses'
 export type OpenAICompatibleAuthScheme = 'bearer' | 'raw'
 
@@ -199,6 +199,7 @@ export type ProviderProfile = {
   authHeader?: string
   authScheme?: OpenAICompatibleAuthScheme
   authHeaderValue?: string
+  customHeaders?: Record<string, string>
 }
 
 export type GlobalConfig = {

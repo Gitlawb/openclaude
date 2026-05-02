@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { detectProvider } from './StartupScreen.js'
+import { saveGlobalConfig } from '../utils/config.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from '../utils/settings/settingsCache.js'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -26,9 +31,19 @@ beforeEach(() => {
     originalEnv[key] = process.env[key]
     delete process.env[key]
   }
+  setSessionSettingsCache({ settings: {}, errors: [] })
+  saveGlobalConfig(current => ({
+    ...current,
+    model: undefined,
+  }))
 })
 
 afterEach(() => {
+  resetSettingsCache()
+  saveGlobalConfig(current => ({
+    ...current,
+    model: undefined,
+  }))
   for (const key of ENV_KEYS) {
     if (originalEnv[key] === undefined) {
       delete process.env[key]
@@ -112,14 +127,14 @@ describe('detectProvider — direct vendor endpoints', () => {
     expect(detectProvider().name).toBe('Moonshot AI - API')
   })
 
-  test('api.mistral.ai labels as Mistral', () => {
+  test('api.mistral.ai labels from descriptor route metadata', () => {
     setupOpenAIMode('https://api.mistral.ai/v1', 'mistral-large-latest')
-    expect(detectProvider().name).toBe('Mistral')
+    expect(detectProvider().name).toBe('Mistral AI')
   })
 
-  test('api.z.ai labels as Z.AI GLM', () => {
+  test('api.z.ai labels from descriptor route metadata', () => {
     setupOpenAIMode('https://api.z.ai/api/coding/paas/v4', 'GLM-5.1')
-    expect(detectProvider().name).toBe('Z.AI - GLM')
+    expect(detectProvider().name).toBe('Z.AI')
   })
 
   test('default OpenAI URL + gpt-4o labels as OpenAI', () => {
@@ -156,9 +171,9 @@ describe('detectProvider — rawModel fallback when URL is generic', () => {
     expect(detectProvider().name).toBe('Mistral')
   })
 
-  test('custom proxy + exact uppercase GLM ID falls back to Z.AI GLM', () => {
+  test('custom proxy + exact uppercase GLM ID stays generic without route metadata', () => {
     setupOpenAIMode('https://my-proxy.internal/v1', 'GLM-5.1')
-    expect(detectProvider().name).toBe('Z.AI - GLM')
+    expect(detectProvider().name).toBe('OpenAI')
   })
 
   test('custom proxy + lowercase glm ID stays generic OpenAI', () => {

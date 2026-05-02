@@ -16,6 +16,11 @@ const ENV_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
+  'NVIDIA_API_KEY',
+  'NVIDIA_NIM',
+  'BNKR_API_KEY',
+  'XAI_API_KEY',
+  'MINIMAX_API_KEY',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -37,6 +42,11 @@ const RESET_KEYS = [
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GEMINI_MODEL',
+  'NVIDIA_API_KEY',
+  'NVIDIA_NIM',
+  'BNKR_API_KEY',
+  'XAI_API_KEY',
+  'MINIMAX_API_KEY',
 ] as const
 
 beforeEach(() => {
@@ -91,6 +101,16 @@ describe('applyProviderFlag - anthropic', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+  })
+})
+
+describe('VALID_PROVIDERS', () => {
+  test('includes descriptor-backed preset and route ids', () => {
+    expect(VALID_PROVIDERS).toContain('deepseek')
+    expect(VALID_PROVIDERS).toContain('moonshotai')
+    expect(VALID_PROVIDERS).toContain('openrouter')
+    expect(VALID_PROVIDERS).toContain('atomic-chat')
+    expect(VALID_PROVIDERS).toContain('zai')
   })
 })
 
@@ -152,8 +172,8 @@ describe('applyProviderFlag - ollama', () => {
     const result = applyProviderFlag('ollama', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
-    expect(process.env.OPENAI_API_KEY).toBe('ollama')
+    expect(process.env.OPENAI_BASE_URL!).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_API_KEY!).toBe('ollama')
   })
 
   test('sets OPENAI_MODEL when --model is provided', () => {
@@ -175,6 +195,130 @@ describe('applyProviderFlag - ollama', () => {
 
     expect(process.env.OPENAI_BASE_URL).toBe('http://remote-ollama.internal:11434/v1')
     expect(process.env.OPENAI_API_KEY).toBe('secret-token')
+  })
+})
+
+describe('applyProviderFlag - descriptor-backed openai-compatible routes', () => {
+  test('deepseek applies generic openai-compatible routing with descriptor defaults', () => {
+    const result = applyProviderFlag('deepseek', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.deepseek.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-pro')
+  })
+
+  test('openrouter applies gateway defaults from descriptors', () => {
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears stale NVIDIA_NIM marker when switching to another OpenAI-compatible route', () => {
+    process.env.NVIDIA_NIM = '1'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.NVIDIA_NIM).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears NVIDIA_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.NVIDIA_API_KEY = 'nvidia-live-key'
+
+    const nvidiaResult = applyProviderFlag('nvidia-nim', [])
+    expect(nvidiaResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('nvidia-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.NVIDIA_NIM).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears BNKR_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.BNKR_API_KEY = 'bankr-live-key'
+
+    const bankrResult = applyProviderFlag('bankr', [])
+    expect(bankrResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('bankr-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears XAI_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.XAI_API_KEY = 'xai-live-key'
+
+    const xaiResult = applyProviderFlag('xai', [])
+    expect(xaiResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('xai-live-key')
+
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    const openrouterResult = applyProviderFlag('openrouter', [])
+
+    expect(openrouterResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
+
+  test('clears MINIMAX_API_KEY copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.MINIMAX_API_KEY = 'minimax-live-key'
+    process.env.OPENAI_API_KEY = 'minimax-live-key'
+    process.env.XAI_API_KEY = 'xai-live-key'
+
+    const xaiResult = applyProviderFlag('xai', [])
+
+    expect(xaiResult.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('xai-live-key')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+  })
+})
+
+describe('applyProviderFlag - minimax', () => {
+  test('preserves MiniMax default base URL and model semantics', () => {
+    const result = applyProviderFlag('minimax', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.io/v1')
+    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
+  })
+})
+
+describe('applyProviderFlag - nvidia-nim', () => {
+  test('maps NVIDIA_API_KEY into the OPENAI-compatible auth env when present', () => {
+    process.env.NVIDIA_API_KEY = 'nvidia-live-key'
+
+    const result = applyProviderFlag('nvidia-nim', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.NVIDIA_NIM).toBe('1')
+    expect(process.env.OPENAI_API_KEY).toBe('nvidia-live-key')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://integrate.api.nvidia.com/v1')
+  })
+})
+
+describe('applyProviderFlag - zai', () => {
+  test('preserves Z.AI default base URL and model semantics', () => {
+    const result = applyProviderFlag('zai', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.z.ai/api/coding/paas/v4')
+    expect(process.env.OPENAI_MODEL).toBe('GLM-5.1')
   })
 })
 
@@ -236,8 +380,8 @@ describe('applyProviderFlagFromArgs', () => {
 
     expect(result?.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
-    expect(process.env.OPENAI_API_KEY).toBe('ollama')
+    expect(process.env.OPENAI_BASE_URL!).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_API_KEY!).toBe('ollama')
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
   })
 

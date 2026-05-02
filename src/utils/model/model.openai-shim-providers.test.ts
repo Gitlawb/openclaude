@@ -4,6 +4,13 @@ import { saveGlobalConfig } from '../config.js'
 
 async function importFreshModelModule() {
   mock.restore()
+  mock.module('../auth.js', () => ({
+    getSubscriptionType: () => 'max',
+    isClaudeAISubscriber: () => true,
+    isMaxSubscriber: () => true,
+    isProSubscriber: () => false,
+    isTeamPremiumSubscriber: () => false,
+  }))
   mock.module('./providers.js', () => ({
     getAPIProvider: () => {
       if (process.env.NVIDIA_NIM) return 'nvidia-nim'
@@ -190,6 +197,29 @@ test('getDefaultOpusModel returns OPENAI_MODEL for MiniMax', async () => {
 
   const { getDefaultOpusModel } = await importFreshModelModule()
   expect(getDefaultOpusModel()).toBe('MiniMax-M2.7')
+})
+
+test('getDefaultMainLoopModelSetting defaults MiniMax to M2.7', async () => {
+  process.env.MINIMAX_API_KEY = 'minimax-test'
+
+  const {
+    getDefaultMainLoopModel,
+    getDefaultMainLoopModelSetting,
+  } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M2.7')
+  expect(getDefaultMainLoopModel()).toBe('MiniMax-M2.7')
+})
+
+test('modelDisplayString does not show Claude subscription default for MiniMax', async () => {
+  process.env.MINIMAX_API_KEY = 'minimax-test'
+  process.env.OPENAI_MODEL = 'MiniMax-M2.7'
+
+  const {
+    modelDisplayString,
+    renderDefaultModelSetting,
+  } = await importFreshModelModule()
+  expect(modelDisplayString(null)).toBe('Default (MiniMax-M2.7)')
+  expect(renderDefaultModelSetting('MiniMax-M2.7')).toBe('MiniMax-M2.7')
 })
 
 test('getDefaultSonnetModel returns OPENAI_MODEL for NVIDIA NIM', async () => {

@@ -31,9 +31,16 @@ const RESTORED_KEYS = [
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
   'OPENAI_API_KEY',
+  'CODEX_API_KEY',
+  'CODEX_CREDENTIAL_SOURCE',
+  'CHATGPT_ACCOUNT_ID',
+  'CODEX_ACCOUNT_ID',
+  'ANTHROPIC_BEDROCK_BASE_URL',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_CUSTOM_HEADERS',
+  'ANTHROPIC_VERTEX_BASE_URL',
   'GEMINI_BASE_URL',
   'GEMINI_MODEL',
   'GEMINI_API_KEY',
@@ -43,6 +50,12 @@ const RESTORED_KEYS = [
   'MISTRAL_BASE_URL',
   'MISTRAL_MODEL',
   'MISTRAL_API_KEY',
+  'MINIMAX_API_KEY',
+  'NVIDIA_API_KEY',
+  'NVIDIA_NIM',
+  'BANKR_BASE_URL',
+  'BNKR_API_KEY',
+  'BANKR_MODEL',
   'XAI_API_KEY',
 ] as const
 
@@ -90,7 +103,9 @@ afterEach(() => {
 
 async function importFreshProviderProfileModules() {
   mock.restore()
+  const actualConfig = await import(`./config.js?ts=${Date.now()}-${Math.random()}`)
   mock.module('./config.js', () => ({
+    ...actualConfig,
     getGlobalConfig: () => mockConfigState,
     saveGlobalConfig: (
       updater: (current: MockConfigState) => MockConfigState,
@@ -99,6 +114,9 @@ async function importFreshProviderProfileModules() {
     },
   }))
   const nonce = `${Date.now()}-${Math.random()}`
+  const registry = await import('../integrations/registry.js')
+  registry._clearRegistryForTesting()
+  await import(`../integrations/index.js?ts=${nonce}`)
   const providers = await import(`./model/providers.js?ts=${nonce}`)
   const providerProfiles = await import(`./providerProfiles.js?ts=${nonce}`)
 
@@ -197,6 +215,95 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('gemini')
   })
 
+  test('bedrock profile sets CLAUDE_CODE_USE_BEDROCK and preserves anthropic model routing', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'bedrock',
+        baseUrl: 'https://bedrock-proxy.example',
+        model: 'claude-sonnet-4-6',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_BEDROCK).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
+    expect(process.env.ANTHROPIC_BEDROCK_BASE_URL).toBe(
+      'https://bedrock-proxy.example',
+    )
+    expect(getFreshAPIProvider()).toBe('bedrock')
+  })
+
+  test('github profile sets CLAUDE_CODE_USE_GITHUB instead of generic openai mode', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'github',
+        baseUrl: 'https://models.github.ai/inference',
+        model: 'github:copilot',
+      }),
+    )
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://models.github.ai/inference',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('github:copilot')
+    expect(getFreshAPIProvider()).toBe('github')
+  })
+
+  test('nvidia-nim profile keeps openai-compatible routing but stamps NVIDIA_NIM', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'nvidia-nim',
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        apiKey: 'nvapi-test',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://integrate.api.nvidia.com/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe(
+      'nvidia/llama-3.1-nemotron-70b-instruct',
+    )
+    expect(process.env.OPENAI_API_KEY).toBe('nvapi-test')
+    expect(process.env.NVIDIA_API_KEY).toBe('nvapi-test')
+    expect(process.env.NVIDIA_NIM).toBe('1')
+  })
+
+  test('provider profile apply clears stale codex-managed credentials', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CODEX_API_KEY = 'codex-stale'
+    process.env.CODEX_CREDENTIAL_SOURCE = 'oauth'
+    process.env.CHATGPT_ACCOUNT_ID = 'acct-stale'
+    process.env.CODEX_ACCOUNT_ID = 'acct-stale-legacy'
+
+    applyProviderProfileToProcessEnv(buildProfile())
+
+    expect(process.env.CODEX_API_KEY).toBeUndefined()
+    expect(process.env.CODEX_CREDENTIAL_SOURCE).toBeUndefined()
+    expect(process.env.CHATGPT_ACCOUNT_ID).toBeUndefined()
+    expect(process.env.CODEX_ACCOUNT_ID).toBeUndefined()
+  })
+
   test('anthropic profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -271,6 +378,25 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
   })
 
+  test('custom OpenAI-compatible responses profile sets OPENAI_API_FORMAT', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'https://custom.example/v1',
+        model: 'custom-responses-model',
+        apiFormat: 'responses',
+      }),
+    )
+
+    expect(process.env.OPENAI_MODEL).toBe('custom-responses-model')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://custom.example/v1')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
   test('openai profile sets custom auth header name and value', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -290,6 +416,124 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
     expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('hicap-header-value')
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+  })
+
+  test('minimax profile ignores advanced OpenAI-compatible auth settings', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'minimax',
+        baseUrl: 'https://api.minimax.io/v1',
+        model: 'MiniMax-M2.7',
+        apiKey: 'minimax-live-key',
+        apiFormat: 'responses',
+        authHeader: 'api-key',
+        authScheme: 'raw',
+        authHeaderValue: 'minimax-header-value',
+        customHeaders: {
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.minimax.io/v1')
+    expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
+    expect(process.env.OPENAI_API_KEY).toBe('minimax-live-key')
+    expect(process.env.MINIMAX_API_KEY).toBe('minimax-live-key')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.kimi.com/coding/v1',
+        model: 'kimi-for-coding',
+        apiKey: 'kimi-live-key',
+        apiFormat: 'responses',
+        authHeader: 'api-key',
+        authScheme: 'raw',
+        authHeaderValue: 'kimi-header-value',
+        customHeaders: {
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.kimi.com/coding/v1')
+    expect(process.env.OPENAI_MODEL).toBe('kimi-for-coding')
+    expect(process.env.OPENAI_API_KEY).toBe('kimi-live-key')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('supported routes apply sanitized profile custom headers to env', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'https://custom.example/v1',
+        customHeaders: {
+          'X-Team': 'devtools',
+          'X-Trace': 'enabled',
+        },
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Team: devtools\nX-Trace: enabled',
+    )
+  })
+
+  test('supported routes still reject managed custom headers', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'https://custom.example/v1',
+        customHeaders: {
+          'api-key': 'managed-provider-key',
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('unsupported routes do not apply profile custom headers to env', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        customHeaders: {
+          'X-Team': 'devtools',
+        },
+      }),
+    )
+
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
   })
 
   test('anthropic profile with multi-model string sets only first model in ANTHROPIC_MODEL', async () => {
@@ -344,8 +588,32 @@ describe('applyProviderProfileToProcessEnv', () => {
     const { getAPIProvider: getFreshAPIProvider } =
       await importFreshProvidersModule()
 
-    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+    expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
     expect(getFreshAPIProvider()).toBe('xai')
+  })
+})
+
+describe('getProviderProfiles', () => {
+  test('preserves unknown stored provider ids during sanitization', async () => {
+    const { getProviderProfiles } = await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [
+        buildProfile({
+          id: 'moonshot_vendor_prof',
+          name: 'Moonshot Vendor',
+          provider: 'moonshot',
+          baseUrl: 'https://api.moonshot.ai/v1',
+          model: 'kimi-k2.5',
+        }),
+      ],
+    }))
+
+    const profiles = getProviderProfiles()
+
+    expect(profiles).toHaveLength(1)
+    expect(profiles[0]?.provider).toBe('moonshot')
   })
 })
 
@@ -399,8 +667,8 @@ describe('applyActiveProviderProfileFromConfig', () => {
     } as any)
 
     expect(applied?.id).toBe('saved_moonshot')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.moonshot.ai/v1')
-    expect(process.env.OPENAI_MODEL).toBe('kimi-k2.6')
+    expect(process.env.OPENAI_BASE_URL!).toBe('https://api.moonshot.ai/v1')
+    expect(process.env.OPENAI_MODEL!).toBe('kimi-k2.6')
   })
 
   test('still respects complete shell selection with USE flag + BASE_URL', async () => {
@@ -550,7 +818,7 @@ describe('applyActiveProviderProfileFromConfig', () => {
     } as any)
 
     expect(applied?.id).toBe('saved_xai')
-    expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+    expect(String(process.env.XAI_API_KEY)).toBe('xai-test-key')
   })
 
   test('does not re-apply xai active profile when XAI_API_KEY is aligned', async () => {
@@ -689,7 +957,7 @@ describe('getProviderPresetDefaults', () => {
 
     const defaults = getProviderPresetDefaults('atomic-chat')
 
-    expect(defaults.provider).toBe('openai')
+    expect(defaults.provider).toBe('atomic-chat')
     expect(defaults.name).toBe('Atomic Chat')
     expect(defaults.baseUrl).toBe('http://127.0.0.1:1337/v1')
     expect(defaults.requiresApiKey).toBe(false)
@@ -700,7 +968,7 @@ describe('getProviderPresetDefaults', () => {
 
     const defaults = getProviderPresetDefaults('kimi-code')
 
-    expect(defaults.provider).toBe('openai')
+    expect(defaults.provider).toBe('kimi-code')
     expect(defaults.name).toBe('Moonshot AI - Kimi Code')
     expect(defaults.baseUrl).toBe('https://api.kimi.com/coding/v1')
     expect(defaults.model).toBe('kimi-for-coding')
@@ -716,17 +984,27 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('https://api.moonshot.ai/v1')
     expect(defaults.model).toBe('kimi-k2.5')
   })
-  test('deepseek preset defaults to DeepSeek V4 flash and exposes flash/pro aliases', async () => {
+  test('deepseek preset defaults to DeepSeek V4 Pro', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('deepseek')
 
-    expect(defaults.provider).toBe('openai')
+    expect(defaults.provider).toBe('deepseek')
     expect(defaults.name).toBe('DeepSeek')
     expect(defaults.baseUrl).toBe('https://api.deepseek.com/v1')
-    expect(defaults.model).toBe(
-      'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat, deepseek-reasoner',
-    )
+    expect(defaults.model).toBe('deepseek-v4-pro')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('minimax preset defaults to MiniMax M2.7', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+
+    const defaults = getProviderPresetDefaults('minimax')
+
+    expect(defaults.provider).toBe('minimax')
+    expect(defaults.name).toBe('MiniMax')
+    expect(defaults.baseUrl).toBe('https://api.minimax.io/v1')
+    expect(defaults.model).toBe('MiniMax-M2.7')
     expect(defaults.requiresApiKey).toBe(true)
   })
 
@@ -735,10 +1013,10 @@ describe('getProviderPresetDefaults', () => {
 
     const defaults = getProviderPresetDefaults('zai')
 
-    expect(defaults.provider).toBe('openai')
+    expect(defaults.provider).toBe('zai')
     expect(defaults.name).toBe('Z.AI - GLM Coding Plan')
     expect(defaults.baseUrl).toBe('https://api.z.ai/api/coding/paas/v4')
-    expect(defaults.model).toBe('GLM-5.1, GLM-5-Turbo, GLM-4.7, GLM-4.5-Air')
+    expect(defaults.model).toBe('GLM-5.1')
     expect(defaults.requiresApiKey).toBe(true)
   })
 })
@@ -842,8 +1120,122 @@ describe('setActiveProviderProfile', () => {
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
         OPENAI_MODEL: 'deepseek-v4-flash',
-        OPENAI_API_FORMAT: 'responses',
         OPENAI_API_KEY: 'sk-deepseek-live',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists descriptor-backed direct vendors using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    process.chdir(tempDir)
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const deepSeekProfile = buildProfile({
+        id: 'deepseek_vendor_prof',
+        name: 'DeepSeek Vendor',
+        provider: 'deepseek',
+        baseUrl: 'https://api.deepseek.com/v1',
+        model: 'deepseek-chat',
+        apiKey: 'sk-deepseek-live',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [deepSeekProfile],
+      }))
+
+      const result = setActiveProviderProfile('deepseek_vendor_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('deepseek_vendor_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
+        OPENAI_MODEL: 'deepseek-chat',
+        OPENAI_API_KEY: 'sk-deepseek-live',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists bedrock profiles using a dedicated startup profile kind', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    process.chdir(tempDir)
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const bedrockProfile = buildProfile({
+        id: 'bedrock_prof',
+        name: 'Bedrock',
+        provider: 'bedrock',
+        baseUrl: 'https://bedrock-proxy.example',
+        model: 'claude-sonnet-4-6',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [bedrockProfile],
+      }))
+
+      const result = setActiveProviderProfile('bedrock_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('bedrock_prof')
+      expect(persisted.profile).toBe('bedrock')
+      expect(persisted.env).toEqual({
+        ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+        ANTHROPIC_BEDROCK_BASE_URL: 'https://bedrock-proxy.example',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists anthropic profiles using a dedicated anthropic startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    process.chdir(tempDir)
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const anthropicProfile = buildProfile({
+        id: 'anthro_persisted_prof',
+        name: 'Anthropic Provider',
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        model: 'claude-sonnet-4-6',
+        apiKey: 'sk-ant-live',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [anthropicProfile],
+      }))
+
+      const result = setActiveProviderProfile('anthro_persisted_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('anthro_persisted_prof')
+      expect(persisted.profile).toBe('anthropic')
+      expect(persisted.env).toEqual({
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+        ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+        ANTHROPIC_API_KEY: 'sk-ant-live',
       })
     } finally {
       process.chdir(originalCwd)
@@ -961,8 +1353,7 @@ describe('setActiveProviderProfile', () => {
     expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
-    // ANTHROPIC_MODEL is set to the profile model for all provider types
-    expect(process.env.ANTHROPIC_MODEL).toBe('gpt-4o')
+    expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined()
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
@@ -1145,7 +1536,7 @@ describe('setActiveProviderProfile model cache', () => {
     setActiveProviderProfile('multi_provider')
 
     const cache = getActiveOpenAIModelOptionsCache()
-    const cacheValues = cache.map(opt => opt.value)
+    const cacheValues = cache.map((opt: { value: string }) => opt.value)
     expect(cacheValues).toContain('glm-4.7')
     expect(cacheValues).toContain('glm-4.7-flash')
     expect(cacheValues).toContain('glm-4.7-plus')

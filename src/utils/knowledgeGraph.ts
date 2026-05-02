@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs'
 import { join } from 'path'
 import { getProjectsDir } from './sessionStorage.js'
 import { sanitizePath } from './sessionStoragePortable.js'
@@ -34,6 +34,13 @@ export interface KnowledgeGraph {
 
 let projectGraph: KnowledgeGraph | null = null
 
+function attributesContainAll(
+  current: Record<string, string>,
+  next: Record<string, string>,
+): boolean {
+  return Object.entries(next).every(([key, value]) => current[key] === value)
+}
+
 export function getProjectGraphPath(cwd: string): string {
   const projectDir = join(getProjectsDir(), sanitizePath(cwd))
   return join(projectDir, 'knowledge_graph.json')
@@ -63,7 +70,7 @@ export function loadProjectGraph(cwd: string): KnowledgeGraph {
     rules: [],
     lastUpdateTime: Date.now(),
   }
-  
+
   return projectGraph
 }
 
@@ -99,6 +106,10 @@ export function addGlobalEntity(
   )
 
   if (existingEntity) {
+    if (attributesContainAll(existingEntity.attributes, attributes)) {
+      return existingEntity
+    }
+
     existingEntity.attributes = { ...existingEntity.attributes, ...attributes }
     graph.lastUpdateTime = Date.now()
     saveProjectGraph(getFsImplementation().cwd())
@@ -157,15 +168,15 @@ export function extractKeywords(text: string): string[] {
     .split(/[\s,;:()\"'`?]+/)
     .filter(word => word.length >= 2)
     .map(word => {
-       if (/^\d+\.\d+/.test(word)) return word; 
-       return word.replace(/\.$/g, ''); 
+       if (/^\d+\.\d+/.test(word)) return word;
+       return word.replace(/\.$/g, '');
     })
     .filter(word => word.length >= 2);
 
   const extraWords: string[] = [];
   for (const w of words) {
     if (w.endsWith('s') && w.length > 3) {
-      extraWords.push(w.slice(0, -1)); 
+      extraWords.push(w.slice(0, -1));
     }
   }
 
@@ -179,26 +190,26 @@ export function extractKeywords(text: string): string[] {
 function calculateBM25Score(queryWords: string[], summary: SemanticSummary, allSummaries: SemanticSummary[]): number {
   let totalScore = 0
   const totalDocs = allSummaries.length || 1
-  
+
   for (const word of queryWords) {
-    const tf = summary.keywords.filter(k => k === word).length || 
+    const tf = summary.keywords.filter(k => k === word).length ||
                (summary.content.toLowerCase().includes(word) ? 1 : 0)
-    
-    const docsWithWord = allSummaries.filter(s => 
+
+    const docsWithWord = allSummaries.filter(s =>
       s.keywords.includes(word) || s.content.toLowerCase().includes(word)
     ).length || 1
-    
+
     const idf = Math.log((totalDocs - docsWithWord + 0.5) / (docsWithWord + 0.5) + 1)
     totalScore += idf * (tf * 2.2) / (tf + 1.2)
   }
-  
+
   return totalScore
 }
 
 export function getOrchestratedMemory(query: string): string {
   const graph = getGlobalGraph()
   const queryWords = extractKeywords(query)
-  
+
   if (queryWords.length === 0) {
     return getGlobalGraphSummary()
   }
@@ -210,9 +221,9 @@ export function getOrchestratedMemory(query: string): string {
       const eType = e.type.toLowerCase();
       const eAttrValues = Object.values(e.attributes).map(v => v.toLowerCase());
 
-      return queryWords.some(qw => 
-        eName.includes(qw) || 
-        qw.includes(eName) || 
+      return queryWords.some(qw =>
+        eName.includes(qw) ||
+        qw.includes(eName) ||
         eType.includes(qw) ||
         eAttrValues.some(v => v.includes(qw))
       )
@@ -225,7 +236,7 @@ export function getOrchestratedMemory(query: string): string {
 
       const aPerfect = queryWords.some(qw => aName === qw || aAttrValues.some(av => av === qw)) ? 1 : 0
       const bPerfect = queryWords.some(qw => bName === qw || bAttrValues.some(av => av === qw)) ? 1 : 0
-      
+
       if (aPerfect !== bPerfect) return bPerfect - aPerfect;
 
       // Recency boost: newer entities (higher timestamp in ID) rank higher
@@ -273,13 +284,13 @@ export function getOrchestratedMemory(query: string): string {
 export function searchGlobalGraph(query: string): string {
   const graph = getGlobalGraph()
   const queryWords = extractKeywords(query)
-  
+
   if (queryWords.length === 0) return ''
 
   // 1. Search in Entities (High Precision)
-  const matchingEntities = Object.values(graph.entities).filter(e => 
-    queryWords.some(qw => 
-      e.name.toLowerCase().includes(qw) || 
+  const matchingEntities = Object.values(graph.entities).filter(e =>
+    queryWords.some(qw =>
+      e.name.toLowerCase().includes(qw) ||
       qw.includes(e.name.toLowerCase()) ||
       Object.values(e.attributes).some(v => v.toLowerCase().includes(qw))
     )
@@ -287,8 +298,8 @@ export function searchGlobalGraph(query: string): string {
 
   // 2. Search in Summaries (Broad Recall)
   const scoredSummaries = graph.summaries.map(s => {
-    const matches = queryWords.filter(qw => 
-      s.content.toLowerCase().includes(qw) || 
+    const matches = queryWords.filter(qw =>
+      s.content.toLowerCase().includes(qw) ||
       s.keywords.some(k => k.includes(qw) || qw.includes(k))
     )
     return { ...s, score: matches.length }
@@ -297,7 +308,7 @@ export function searchGlobalGraph(query: string): string {
   if (matchingEntities.length === 0 && scoredSummaries.length === 0) return ''
 
   let result = '\\n--- Persistent Project Memory ---\\n'
-  
+
   if (matchingEntities.length > 0) {
     result += 'Known Facts (from Knowledge Graph):\\n'
     for (const e of matchingEntities.slice(0, 15)) {
@@ -311,7 +322,7 @@ export function searchGlobalGraph(query: string): string {
       result += `- ${s.content}\\n`
     }
   }
-  
+
   return result + '-------------------------------\\n'
 }
 
@@ -351,11 +362,9 @@ export function getGlobalGraphSummary(): string {
 export function resetGlobalGraph(): void {
   const cwd = getFsImplementation().cwd()
   const path = getProjectGraphPath(cwd)
-  if (existsSync(path)) {
-    try {
-      import('fs').then(fs => fs.rmSync(path))
-    } catch { /* ignore */ }
-  }
+  try {
+    rmSync(path, { force: true })
+  } catch { /* ignore */ }
   projectGraph = null;
 }
 

@@ -137,6 +137,21 @@ function printSummary(profile: ProviderProfile): void {
   }
 }
 
+function hasUsableGeminiLaunchAuth(env: NodeJS.ProcessEnv): boolean {
+  const authMode = env.GEMINI_AUTH_MODE?.trim().toLowerCase()
+  if (authMode === 'adc') {
+    return true
+  }
+  if (authMode === 'access-token') {
+    return Boolean(env.GEMINI_ACCESS_TOKEN?.trim())
+  }
+  return Boolean(
+    env.GEMINI_API_KEY?.trim() ||
+      env.GOOGLE_API_KEY?.trim() ||
+      env.GEMINI_ACCESS_TOKEN?.trim(),
+  )
+}
+
 async function main(): Promise<void> {
   const options = parseLaunchOptions(process.argv.slice(2))
   const requestedProfile = options.requestedProfile
@@ -202,8 +217,8 @@ async function main(): Promise<void> {
     applyFastFlags(env)
   }
 
-  if (profile === 'gemini' && !env.GEMINI_API_KEY) {
-    console.error('GEMINI_API_KEY is required for gemini profile. Run: bun run profile:init -- --provider gemini --api-key <key>')
+  if (profile === 'gemini' && !hasUsableGeminiLaunchAuth(env)) {
+    console.error('Gemini credentials are required for gemini profile. Use `bun run profile:init -- --provider gemini --api-key <key>`, save an access-token/ADC Gemini profile with `/provider`, or set GEMINI_API_KEY/GOOGLE_API_KEY/GEMINI_ACCESS_TOKEN.')
     process.exit(1)
   }
 

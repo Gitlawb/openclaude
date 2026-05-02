@@ -73,9 +73,9 @@ describe('conversationArc', () => {
       resetGlobalGraph()
       initializeArc()
       const complexMessage = createMessage('user', 'Set JIRA_URL_TEST=https://jira.local and look in /opt/app/bin/test version v1.2.3')
-      
+
       updateArcPhase([complexMessage])
-      
+
       const summary = getGraphSummary()
       expect(summary).toContain('JIRA_URL_TEST')
       expect(summary).toContain('jira.local')
@@ -95,9 +95,9 @@ describe('conversationArc', () => {
       addGoal('Build RAG engine')
       updateGoalStatus(getArc()!.goals[0].id, 'completed')
       addDecision('Use JSON for storage')
-      
+
       finalizeArcTurn()
-      
+
       const summary = getGraphSummary()
       expect(summary).toMatch(/Knowledge Graph/);
       // searchGlobalGraph should now find it

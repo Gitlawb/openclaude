@@ -104,6 +104,8 @@ OpenClaude supports multiple provider paths. If you change provider logic:
 - avoid breaking third-party providers while fixing first-party behavior
 - test the exact provider/model path you changed when possible
 - call out any limitations or follow-up work in the PR description
+- if you are adding or changing descriptor-era integrations, start with `docs/integrations/overview.md`
+- use the focused how-to guides under `docs/integrations/how-to/` for new vendors, gateways, models, anthropic proxies, and `/usage` support
 
 ## Community
 
