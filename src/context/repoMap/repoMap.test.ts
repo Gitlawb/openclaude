@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
+import { cpSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { invalidateCache, buildRepoMap } from './index.js'
@@ -242,34 +242,116 @@ describe('gitFiles', () => {
   })
 })
 
-describe('error handling', () => {
-  test('no crash on malformed source file', async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-malformed-'))
+describe('focus files', () => {
+  test('prioritizes focus files in the rendered map', async () => {
+    // fileE is normally ranked last. Let's focus it.
+    const result = await buildRepoMap({
+      root: FIXTURE_ROOT,
+      maxTokens: 200, // Small budget to force truncation
+      files: FIXTURE_FILES,
+      focusFiles: ['fileE.ts'],
+    })
+
+    // fileE should now be at the top or near the top
+    const lines = result.map.split('\n')
+    expect(lines[0]).toBe('fileE.ts:')
+  })
+})
+
+describe('edge cases', () => {
+  test('handles empty files gracefully', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-empty-'))
     try {
-      // Valid file
-      writeFileSync(
-        join(tempDir, 'good.ts'),
-        'export function good(): number { return 1 }\n',
-      )
-      // Malformed file — severe syntax errors
-      writeFileSync(
-        join(tempDir, 'bad.ts'),
-        '}{}{}{export classclass [[[ function ,,, @@@ ###\n',
-      )
+      writeFileSync(join(tempDir, 'empty.ts'), '')
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 1024,
+      })
+      expect(result.fileCount).toBe(0) // No symbols to show
+      expect(result.map.trim()).toBe('')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('ignores binary-like or non-text files during symbol extraction', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-binary-'))
+    try {
+      // Create a file with supported extension but binary content
+      writeFileSync(join(tempDir, 'corrupt.ts'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00]))
+      writeFileSync(join(tempDir, 'main.ts'), 'export function actualSymbol(): void {}')
 
       const result = await buildRepoMap({
         root: tempDir,
         maxTokens: 1024,
-        files: ['good.ts', 'bad.ts'],
       })
 
-      // Should complete successfully
-      expect(result.map.length).toBeGreaterThan(0)
-      // The good file should be in the output
-      expect(result.map).toContain('good.ts')
+      expect(result.map).toContain('main.ts')
+      expect(result.map).not.toContain('corrupt.ts')
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
       invalidateCache(tempDir)
     }
   })
 })
+
+describe('project structure', () => {
+  test('handles nested directories and maintains relative paths', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-nested-'))
+    try {
+      const srcDir = join(tempDir, 'src', 'utils')
+      mkdirSync(srcDir, { recursive: true })
+      
+      writeFileSync(
+        join(srcDir, 'helper.ts'),
+        'export function help(): void {}'
+      )
+      writeFileSync(
+        join(tempDir, 'main.ts'),
+        'import { help } from "./src/utils/helper";\nexport function run() { help(); }'
+      )
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 1024,
+      })
+
+      expect(result.map).toContain('src/utils/helper.ts')
+      expect(result.map).toContain('main.ts')
+      // verify hierarchy is reflected in path
+      expect(result.map).toContain('src/utils/helper.ts')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+})
+
+
+describe('large repo simulation', () => {
+  test('handles 100+ files and batching logic', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-large-'))
+    try {
+      const files = []
+      for (let i = 0; i < 110; i++) {
+        const fileName = `file_${i}.ts`
+        writeFileSync(join(tempDir, fileName), `export function func_${i}() {}`)
+        files.push(fileName)
+      }
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 2048,
+        files,
+      })
+
+      expect(result.totalFileCount).toBe(110)
+      expect(result.fileCount).toBeGreaterThan(50) // Should fit a decent chunk
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+})
+

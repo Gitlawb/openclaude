@@ -68,25 +68,33 @@ function gitLsFiles(root: string): Promise<string[]> {
   })
 }
 
-/** Walk directory tree manually as fallback when git is unavailable. */
-function walkDirectory(root: string, currentDir: string = root): string[] {
+/** Walk directory tree iteratively as fallback when git is unavailable. */
+function walkDirectory(root: string): string[] {
   const results: string[] = []
-  let entries: ReturnType<typeof readdirSync>
-  try {
-    entries = readdirSync(currentDir, { withFileTypes: true })
-  } catch {
-    return results
-  }
+  const stack: string[] = [root]
 
-  for (const entry of entries) {
-    const name = entry.name
-    if (entry.isDirectory()) {
-      if (!EXCLUDED_DIRS.has(name) && !name.startsWith('.')) {
-        results.push(...walkDirectory(root, join(currentDir, name)))
-      }
-    } else if (entry.isFile()) {
-      if (!EXCLUDED_FILES.has(name)) {
-        results.push(relative(root, join(currentDir, name)))
+  while (stack.length > 0) {
+    const currentDir = stack.pop()!
+    let entries: ReturnType<typeof readdirSync>
+    try {
+      entries = readdirSync(currentDir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      const name = entry.name
+      const fullPath = join(currentDir, name)
+
+      if (entry.isDirectory()) {
+        if (!EXCLUDED_DIRS.has(name) && !name.startsWith('.')) {
+          stack.push(fullPath)
+        }
+      } else if (entry.isFile()) {
+        if (!EXCLUDED_FILES.has(name)) {
+          const relPath = relative(root, fullPath)
+          results.push(relPath.replace(/\\/g, '/'))
+        }
       }
     }
   }
@@ -105,5 +113,5 @@ export async function getRepoFiles(root: string): Promise<string[]> {
     files = walkDirectory(root)
   }
 
-  return files.filter(isSupportedFile)
+  return files.filter(isSupportedFile).map(f => f.replace(/\\/g, '/'))
 }

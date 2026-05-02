@@ -1,6 +1,6 @@
 import {
   computeMapHash,
-  getCachedTags,
+  getCachedTagsByMetadata,
   getCacheStats as getCacheStatsImpl,
   invalidateCache as invalidateCacheImpl,
   loadCache,
@@ -10,7 +10,7 @@ import {
 import { getRepoFiles } from './gitFiles.js'
 import { buildGraph } from './graph.js'
 import { rankFiles } from './pagerank.js'
-import { initParser } from './parser.js'
+import { createParser, initParser } from './parser.js'
 import { renderMap } from './renderer.js'
 import { extractTags } from './symbolExtractor.js'
 import type { FileTags, RepoMapOptions, RepoMapResult, CacheStats } from './types.js'
@@ -30,15 +30,13 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
   const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS
   const focusFiles = options.focusFiles ?? []
 
-  // Initialize tree-sitter
-  await initParser()
-
   // Get files
   const files = options.files ?? await getRepoFiles(root)
   const totalFileCount = files.length
 
   // Check if we have a cached rendered map
-  const mapHash = computeMapHash(files, maxTokens, focusFiles)
+  // computeMapHash now returns metadata to avoid redundant stat calls later
+  const { hash: mapHash, metadata } = computeMapHash(root, files, maxTokens, focusFiles)
   const cache = loadCache(root)
 
   // Check if rendered map is cached (stored as a special entry)
@@ -46,8 +44,6 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
   const renderedEntry = cache.entries[renderedCacheKey]
   if (renderedEntry && renderedEntry.tags.length === 1) {
     const cachedResult = renderedEntry.tags[0]!
-    // The cached "tag" stores the rendered map in the signature field
-    // and metadata in name/line fields
     try {
       const meta = JSON.parse(cachedResult.name)
       return {
@@ -63,70 +59,74 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
     }
   }
 
-  // Extract tags for all files (using per-file cache).
-  // Separate cached hits from files needing extraction.
-  const allFileTags: FileTags[] = []
-  const uncachedFiles: string[] = []
-
-  for (const file of files) {
-    const cachedTags = getCachedTags(cache, file, root)
-    if (cachedTags) {
-      allFileTags.push({ path: file, tags: cachedTags })
-    } else {
-      uncachedFiles.push(file)
-    }
+  // Initialize tree-sitter and create a reusable parser
+  await initParser()
+  const parser = await createParser('typescript') // Default to TS, extractTags handles switching
+  if (!parser) {
+    throw new Error('Failed to initialize tree-sitter parser')
   }
 
-  // Process uncached files in parallel batches
-  const BATCH_SIZE = 50
-  for (let i = 0; i < uncachedFiles.length; i += BATCH_SIZE) {
-    const batch = uncachedFiles.slice(i, i + BATCH_SIZE)
-    const results = await Promise.all(
-      batch.map(file => extractTags(file, root).catch(() => null))
-    )
-    for (let j = 0; j < results.length; j++) {
-      const fileTags = results[j]
-      if (fileTags) {
-        allFileTags.push(fileTags)
-        setCachedTags(cache, fileTags.path, root, fileTags.tags)
+  try {
+    // Extract tags for all files (using per-file cache).
+    const allFileTags: FileTags[] = []
+    const uncachedFiles: string[] = []
+
+    for (const file of files) {
+      const cachedTags = getCachedTagsByMetadata(cache, file, metadata[file])
+      if (cachedTags) {
+        allFileTags.push({ path: file, tags: cachedTags })
+      } else {
+        uncachedFiles.push(file)
       }
     }
-  }
 
-  // Build graph and rank
-  const graph = buildGraph(allFileTags)
-  const ranked = rankFiles(graph, focusFiles)
+    // Process uncached files in serial to reuse the single parser instance safely
+    // (web-tree-sitter parsers are not thread-safe and WASM memory is shared).
+    for (const file of uncachedFiles) {
+      const fileTags = await extractTags(file, root, parser).catch(() => null)
+      if (fileTags) {
+        allFileTags.push(fileTags)
+        setCachedTags(cache, fileTags.path, metadata[file], fileTags.tags)
+      }
+    }
 
-  // Build a lookup map
-  const fileTagsMap = new Map<string, FileTags>()
-  for (const ft of allFileTags) {
-    fileTagsMap.set(ft.path, ft)
-  }
+    // Build graph and rank
+    const graph = buildGraph(allFileTags)
+    const ranked = rankFiles(graph, focusFiles)
 
-  // Render
-  const { map, tokenCount, fileCount } = renderMap(ranked, fileTagsMap, maxTokens)
+    // Build a lookup map
+    const fileTagsMap = new Map<string, FileTags>()
+    for (const ft of allFileTags) {
+      fileTagsMap.set(ft.path, ft)
+    }
 
-  // Cache the rendered result
-  cache.entries[renderedCacheKey] = {
-    tags: [{
-      kind: 'def',
-      name: JSON.stringify({ fileCount, tokenCount }),
-      line: 0,
-      signature: map,
-    }],
-    mtimeMs: Date.now(),
-    size: 0,
-  }
+    // Render
+    const { map, tokenCount, fileCount } = renderMap(ranked, fileTagsMap, maxTokens)
 
-  saveCache(root, cache)
+    // Cache the rendered result
+    cache.entries[renderedCacheKey] = {
+      tags: [{
+        kind: 'def',
+        name: JSON.stringify({ fileCount, tokenCount }),
+        line: 0,
+        signature: map,
+      }],
+      mtimeMs: Date.now(),
+      size: 0,
+    }
 
-  return {
-    map,
-    cacheHit: false,
-    buildTimeMs: Date.now() - startTime,
-    fileCount,
-    totalFileCount,
-    tokenCount,
+    saveCache(root, cache)
+
+    return {
+      map,
+      cacheHit: false,
+      buildTimeMs: Date.now() - startTime,
+      fileCount,
+      totalFileCount,
+      tokenCount,
+    }
+  } finally {
+    parser.delete()
   }
 }
 

@@ -47,62 +47,71 @@ export function saveCache(root: string, cache: CacheData): void {
 }
 
 /**
- * Check if a file's cached entry is still valid based on mtime and size.
- * Returns the cached tags if valid, null otherwise.
+ * Compute a hash of the inputs that affect the rendered map.
+ * Returns the hash and the collected file metadata to avoid redundant stat calls.
  */
-export function getCachedTags(
+export function computeMapHash(
+  root: string,
+  files: string[],
+  maxTokens: number,
+  focusFiles: string[],
+): { hash: string; metadata: Record<string, { mtime: number; size: number }> } {
+  const sorted = [...files].sort()
+  const metadata: Record<string, { mtime: number; size: number }> = {}
+
+  for (const file of sorted) {
+    try {
+      const stat = statSync(join(root, file))
+      metadata[file] = { mtime: stat.mtimeMs, size: stat.size }
+    } catch {
+      // File missing, skip metadata
+    }
+  }
+
+  const input = JSON.stringify({
+    files: sorted,
+    metadata,
+    maxTokens,
+    focusFiles: [...focusFiles].sort(),
+  })
+  const hash = createHash('sha1').update(input).digest('hex')
+  return { hash, metadata }
+}
+
+/**
+ * Check if a file's cached entry is still valid using provided metadata.
+ */
+export function getCachedTagsByMetadata(
   cache: CacheData,
   filePath: string,
-  root: string,
+  metadata: { mtime: number; size: number } | undefined,
 ): Tag[] | null {
   const entry = cache.entries[filePath]
-  if (!entry) return null
+  if (!entry || !metadata) return null
 
-  try {
-    const absolutePath = join(root, filePath)
-    const stat = statSync(absolutePath)
-    if (stat.mtimeMs === entry.mtimeMs && stat.size === entry.size) {
-      return entry.tags
-    }
-  } catch {
-    // File may have been deleted
+  if (metadata.mtime === entry.mtimeMs && metadata.size === entry.size) {
+    return entry.tags
   }
   return null
 }
 
-/** Update the cache entry for a file. */
+/** Update the cache entry for a file using provided metadata. */
 export function setCachedTags(
   cache: CacheData,
   filePath: string,
-  root: string,
+  metadata: { mtime: number; size: number } | undefined,
   tags: Tag[],
 ): void {
-  try {
-    const absolutePath = join(root, filePath)
-    const stat = statSync(absolutePath)
-    cache.entries[filePath] = {
-      tags,
-      mtimeMs: stat.mtimeMs,
-      size: stat.size,
-    }
-  } catch {
-    // If we can't stat, don't cache
+  if (!metadata) return
+
+  cache.entries[filePath] = {
+    tags,
+    mtimeMs: metadata.mtime,
+    size: metadata.size,
   }
 }
 
-/**
- * Compute a hash of the inputs that affect the rendered map.
- * Used to cache the final rendered output.
- */
-export function computeMapHash(
-  files: string[],
-  maxTokens: number,
-  focusFiles: string[],
-): string {
-  const sorted = [...files].sort()
-  const input = JSON.stringify({ files: sorted, maxTokens, focusFiles: [...focusFiles].sort() })
-  return createHash('sha1').update(input).digest('hex')
-}
+
 
 /** Get cache statistics. */
 export function getCacheStats(root: string): CacheStats {

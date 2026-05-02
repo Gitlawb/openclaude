@@ -1,3 +1,4 @@
+import type Parser from 'web-tree-sitter'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { getLanguageForFile } from './gitFiles.js'
@@ -11,6 +12,7 @@ import type { FileTags, Tag } from './types.js'
 export async function extractTags(
   filePath: string,
   root: string,
+  providedParser?: Parser,
 ): Promise<FileTags | null> {
   const language = getLanguageForFile(filePath)
   if (!language) return null
@@ -25,41 +27,38 @@ export async function extractTags(
 
   const lines = source.split('\n')
 
-  const parser = await createParser(language)
+  let parser = providedParser
+  let temporaryParser = false
+
+  if (!parser) {
+    parser = await createParser(language)
+    temporaryParser = true
+  }
+
   if (!parser) return null
+
+  const lang = await loadLanguage(language)
+  if (!lang) {
+    if (temporaryParser) parser.delete()
+    return null
+  }
+  parser.setLanguage(lang)
 
   const querySource = loadQuery(language)
   if (!querySource) {
-    parser.delete()
+    if (temporaryParser) parser.delete()
     return null
   }
 
-  try {
-    const tree = parser.parse(source) as {
-      rootNode: unknown
-    }
+  let tree: Parser.Tree | null = null
+  let query: Parser.Query | null = null
 
-    const lang = await loadLanguage(language)
-    if (!lang) {
-      parser.delete()
-      return null
-    }
+  try {
+    tree = parser.parse(source)
 
     // Use the non-deprecated Query constructor
     const { Query } = await import('web-tree-sitter')
-    const query = new Query(lang, querySource) as {
-      matches(rootNode: unknown): Array<{
-        pattern: number
-        captures: Array<{
-          name: string
-          node: {
-            text: string
-            startPosition: { row: number; column: number }
-            endPosition: { row: number; column: number }
-          }
-        }>
-      }>
-    }
+    query = new Query(lang, querySource)
 
     const matches = query.matches(tree.rootNode)
     const tags: Tag[] = []
@@ -99,10 +98,12 @@ export async function extractTags(
       }
     }
 
-    parser.delete()
     return { path: filePath, tags }
   } catch {
-    parser.delete()
     return null
+  } finally {
+    tree?.delete()
+    query?.delete()
+    if (temporaryParser) parser.delete()
   }
 }

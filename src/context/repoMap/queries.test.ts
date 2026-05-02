@@ -17,7 +17,7 @@ describe('bundled query drift guard', () => {
       )
       const bundled = getBundledQuery(language)
       expect(bundled).not.toBeNull()
-      expect(bundled).toBe(fromFile)
+      expect(bundled?.replace(/\r\n/g, '\n')).toBe(fromFile.replace(/\r\n/g, '\n'))
     },
   )
 
