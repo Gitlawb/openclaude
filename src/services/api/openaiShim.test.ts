@@ -3566,6 +3566,44 @@ test('classifies localhost transport failures with actionable category marker', 
   ).rejects.toThrow('local server is running')
 })
 
+test('transport failures are not labeled with HTTP status 503', async () => {
+  // Issue #971: ENETDOWN (and other transport errors) are emitted before any
+  // HTTP response is received. Reporting them as "503" makes users believe the
+  // upstream server returned 503 Service Unavailable.
+  process.env.OPENAI_BASE_URL = 'https://intranet.example.test/v1'
+
+  const transportError = Object.assign(new TypeError('fetch failed'), {
+    code: 'ENETDOWN',
+  })
+
+  globalThis.fetch = (async () => {
+    throw transportError
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (error) {
+    caught = error
+  }
+
+  expect(caught).toBeDefined()
+  const err = caught as { status?: number; message: string; constructor: { name: string } }
+  expect(err.constructor.name).toBe('APIConnectionError')
+  expect(err.status).toBeUndefined()
+  expect(err.message).not.toMatch(/^503\b/)
+  expect(err.message).toContain('OpenAI API transport error')
+  expect(err.message).toContain('code=ENETDOWN')
+  expect(err.message).toContain('openai_category=network_error')
+})
+
 test('propagates AbortError without wrapping it as transport failure', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 
