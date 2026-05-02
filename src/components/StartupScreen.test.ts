@@ -8,6 +8,7 @@ import {
 } from '../utils/settings/settingsCache.js'
 
 const ENV_KEYS = [
+  'CI',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_GITHUB',
