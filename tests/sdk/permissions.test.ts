@@ -10,6 +10,7 @@ import {
 } from '../../src/entrypoints/sdk/permissions.js'
 import type { PermissionResolveDecision } from '../../src/entrypoints/sdk/permissions.js'
 import { getEmptyToolPermissionContext } from '../../src/Tool.js'
+import { getTools } from '../../src/tools.js'
 
 describe('buildPermissionContext', () => {
   test('returns default mode when no permissionMode specified', () => {
@@ -70,6 +71,37 @@ describe('buildPermissionContext', () => {
     const ctx = buildPermissionContext({ cwd: '/tmp', additionalDirectories: [] })
     expect(ctx.additionalWorkingDirectories.size).toBe(0)
   })
+
+  test('disallowedTools sets alwaysDenyRules.cliArg', () => {
+    const ctx = buildPermissionContext({ cwd: '/tmp', disallowedTools: ['Bash', 'Edit'] })
+    expect(ctx.alwaysDenyRules.cliArg).toEqual(['Bash', 'Edit'])
+  })
+
+  test('disallowedTools defaults to empty array', () => {
+    const ctx = buildPermissionContext({ cwd: '/tmp' })
+    expect(ctx.alwaysDenyRules.cliArg).toEqual([])
+  })
+})
+
+describe('disallowedTools tool filtering', () => {
+  test('Bash is excluded from getTools when disallowed', () => {
+    const ctx = buildPermissionContext({ cwd: '/tmp', disallowedTools: ['Bash'] })
+    const tools = getTools(ctx)
+    expect(tools.some(t => t.name === 'Bash')).toBe(false)
+  })
+
+  test('disallowedTools does not affect other tools', () => {
+    const ctx = buildPermissionContext({ cwd: '/tmp', disallowedTools: ['Bash'] })
+    const tools = getTools(ctx)
+    // Read tool should still be present
+    expect(tools.some(t => t.name === 'Read')).toBe(true)
+  })
+
+  test('empty disallowedTools includes all tools', () => {
+    const ctx = buildPermissionContext({ cwd: '/tmp' })
+    const tools = getTools(ctx)
+    expect(tools.some(t => t.name === 'Bash')).toBe(true)
+  })
 })
 
 describe('createDefaultCanUseTool', () => {
@@ -104,6 +136,32 @@ describe('createDefaultCanUseTool', () => {
     )
 
     expect(result.behavior).toBe('allow')
+  })
+
+  test('warning not emitted at construction time', () => {
+    const ctx = getEmptyToolPermissionContext()
+    const logger = { warn: vi.fn() }
+    // Creating the default canUseTool should NOT emit a warning at construction time.
+    // The warning is deferred to execution time (when a tool is actually denied).
+    createDefaultCanUseTool(ctx, logger)
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  test('no warning when forceDecision is provided', async () => {
+    const ctx = getEmptyToolPermissionContext()
+    const logger = { warn: vi.fn() }
+    const canUseTool = createDefaultCanUseTool(ctx, logger)
+
+    await canUseTool(
+      { name: 'Bash' } as any,
+      {},
+      {} as any,
+      {} as any,
+      undefined,
+      { behavior: 'allow' as const },
+    )
+
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 })
 
@@ -576,6 +634,54 @@ describe('createExternalCanUseTool error handling', () => {
 
     // Critical: pending resolver must be cleaned up, not leaked
     expect(permissionTarget.pendingPermissionPrompts.has('throw-id')).toBe(false)
+  })
+})
+
+describe('createExternalCanUseTool warning suppression', () => {
+  test('fallback warning not emitted when userFn allows tool', async () => {
+    const ctx = getEmptyToolPermissionContext()
+    const logger = { warn: vi.fn() }
+    const fallback = createDefaultCanUseTool(ctx, logger)
+
+    const userFn = vi.fn(async () => ({ behavior: 'allow' as const }))
+
+    const permissionTarget = createPermissionTarget()
+    const canUseTool = createExternalCanUseTool(
+      userFn,
+      fallback,
+      permissionTarget,
+    )
+
+    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+
+    // User callback allowed the tool — default fallback warning should NOT fire
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  test('fallback warning not emitted when onPermissionRequest resolves', async () => {
+    const ctx = getEmptyToolPermissionContext()
+    const logger = { warn: vi.fn() }
+    const fallback = createDefaultCanUseTool(ctx, logger)
+
+    const permissionTarget = createPermissionTarget()
+    const onPermissionRequest = vi.fn((message: any) => {
+      const pending = permissionTarget.pendingPermissionPrompts.get(message.tool_use_id)
+      pending!.resolve({ behavior: 'allow' as const })
+    })
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      fallback,
+      permissionTarget,
+      onPermissionRequest,
+      undefined,
+      50,
+    )
+
+    await canUseTool({ name: 'TestTool' } as any, {}, {} as any, {} as any, 'test-id', undefined)
+
+    // onPermissionRequest resolved — default fallback warning should NOT fire
+    expect(logger.warn).not.toHaveBeenCalled()
   })
 })
 
