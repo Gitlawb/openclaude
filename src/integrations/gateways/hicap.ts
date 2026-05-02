@@ -47,7 +47,7 @@ export default defineGateway({
     },
     credentialEnvVars: ['HICAP_API_KEY', 'OPENAI_API_KEY'],
     missingCredentialMessage:
-      'HICAP_API_KEY is required for the Hicap provider.',
+      'Set HICAP_API_KEY or OPENAI_API_KEY for the Hicap provider.',
   },
   catalog: {
     source: 'hybrid',

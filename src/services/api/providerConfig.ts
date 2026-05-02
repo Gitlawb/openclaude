@@ -622,19 +622,22 @@ export function resolveProviderRequest(options?: {
       ? undefined
       : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
         parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
-  const runtimeShimContext = resolveOpenAIShimRuntimeContext({
-    processEnv: process.env,
-    baseUrl: finalBaseUrl,
-    model: descriptor.baseModel,
-    treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
-  })
   const supportsRequestedApiFormat =
     requestedApiFormat !== 'responses' ||
-    openAIShimSupportsApiFormatForModel(
-      runtimeShimContext.openaiShimConfig,
-      'responses',
-      descriptor.baseModel,
-    )
+    (() => {
+      const runtimeShimContext = resolveOpenAIShimRuntimeContext({
+        processEnv: process.env,
+        baseUrl: finalBaseUrl,
+        model: descriptor.baseModel,
+        treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
+      })
+
+      return openAIShimSupportsApiFormatForModel(
+        runtimeShimContext.openaiShimConfig,
+        'responses',
+        descriptor.baseModel,
+      )
+    })()
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))

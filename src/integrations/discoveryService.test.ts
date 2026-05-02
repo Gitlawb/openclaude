@@ -306,10 +306,13 @@ describe('discoverModelsForRoute', () => {
           kind: 'openai-compatible',
           requiresAuth: false,
         },
+        discoveryCacheTtl: '1d',
       },
     })
 
+    let callCount = 0
     setMockFetch(mock((_input, init) => {
+      callCount++
       expect(init?.headers).toBeUndefined()
       return Promise.resolve(
         new Response(
@@ -325,9 +328,15 @@ describe('discoverModelsForRoute', () => {
       apiKey: 'discovery-key',
       forceRefresh: true,
     })
+    const cached = await discoverModelsForRoute('discovery-no-auth-test', {
+      apiKey: 'different-discovery-key',
+    })
 
     expect(result?.source).toBe('network')
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
+    expect(cached?.source).toBe('cache')
+    expect(cached?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
+    expect(callCount).toBe(1)
   })
 
   test('skips descriptor network discovery when nonessential traffic is disabled', async () => {
