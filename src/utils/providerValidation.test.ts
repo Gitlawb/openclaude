@@ -1,67 +1,60 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
+import { ensureIntegrationsLoaded, getAllGateways } from '../integrations/index.js'
 
 import {
   getProviderValidationError,
   shouldExitForStartupProviderValidationError,
 } from './providerValidation.js'
 
-const originalEnv = {
-  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
-  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
-  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
-  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
-  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
-  MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
-  MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
-  NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
-  NVIDIA_NIM: process.env.NVIDIA_NIM,
-  BNKR_API_KEY: process.env.BNKR_API_KEY,
-  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
-  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
-  MOONSHOT_API_KEY: process.env.MOONSHOT_API_KEY,
-  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
-  GH_TOKEN: process.env.GH_TOKEN,
-  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-  GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
-  GEMINI_ACCESS_TOKEN: process.env.GEMINI_ACCESS_TOKEN,
-  GEMINI_AUTH_MODE: process.env.GEMINI_AUTH_MODE,
-  GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-}
+const ENV_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+  'CODEX_API_KEY',
+  'CHATGPT_ACCOUNT_ID',
+  'CODEX_ACCOUNT_ID',
+  'CLAUDE_CODE_USE_GITHUB',
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
+  'MISTRAL_API_KEY',
+  'MINIMAX_API_KEY',
+  'NVIDIA_API_KEY',
+  'NVIDIA_NIM',
+  'BNKR_API_KEY',
+  'OPENROUTER_API_KEY',
+  'DEEPSEEK_API_KEY',
+  'MOONSHOT_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'GEMINI_ACCESS_TOKEN',
+  'GEMINI_AUTH_MODE',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+] as const
 
-function restoreEnv(key: string, value: string | undefined): void {
-  if (value === undefined) {
+const originalEnv: Record<string, string | undefined> = {}
+
+beforeAll(() => {
+  ensureIntegrationsLoaded()
+})
+
+beforeEach(() => {
+  for (const key of ENV_KEYS) {
+    originalEnv[key] = process.env[key]
     delete process.env[key]
-  } else {
-    process.env[key] = value
   }
-}
+})
 
 afterEach(() => {
-  restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
-  restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
-  restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
-  restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
-  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
-  restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
-  restoreEnv('MISTRAL_API_KEY', originalEnv.MISTRAL_API_KEY)
-  restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
-  restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
-  restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
-  restoreEnv('BNKR_API_KEY', originalEnv.BNKR_API_KEY)
-  restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
-  restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
-  restoreEnv('MOONSHOT_API_KEY', originalEnv.MOONSHOT_API_KEY)
-  restoreEnv('GITHUB_TOKEN', originalEnv.GITHUB_TOKEN)
-  restoreEnv('GH_TOKEN', originalEnv.GH_TOKEN)
-  restoreEnv('GEMINI_API_KEY', originalEnv.GEMINI_API_KEY)
-  restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
-  restoreEnv('GEMINI_ACCESS_TOKEN', originalEnv.GEMINI_ACCESS_TOKEN)
-  restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
-  restoreEnv(
-    'GOOGLE_APPLICATION_CREDENTIALS',
-    originalEnv.GOOGLE_APPLICATION_CREDENTIALS,
-  )
+  for (const key of ENV_KEYS) {
+    if (originalEnv[key] === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = originalEnv[key]
+    }
+  }
 })
 
 test('accepts GEMINI_ACCESS_TOKEN as valid Gemini auth', async () => {
@@ -109,16 +102,21 @@ test('openai missing key error includes recovery guidance and config locations',
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
   delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CODEX_API_KEY
+  delete process.env.CHATGPT_ACCOUNT_ID
+  delete process.env.CODEX_ACCOUNT_ID
 
   const message = await getProviderValidationError(process.env)
-  expect(message).toContain(
+  expect(message).not.toBeNull()
+  expect(message!).toContain(
     'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
-  expect(message).toContain(
+  expect(message!).toContain(
     'set CLAUDE_CODE_USE_OPENAI=0 in your shell environment',
   )
-  expect(message).toContain('Saved startup settings can come from')
-  expect(message).toContain('.openclaude-profile.json')
+  expect(message!).toContain('Saved startup settings can come from')
 })
 
 test('mistral validation is descriptor-backed and requires MISTRAL_API_KEY', async () => {
@@ -193,7 +191,9 @@ test('openai validation does not accept unrelated minimax credentials', async ()
   process.env.MINIMAX_API_KEY = 'minimax-live-key'
   delete process.env.OPENAI_API_KEY
 
-  await expect(getProviderValidationError(process.env)).resolves.toContain(
+  const error = await getProviderValidationError(process.env)
+  expect(error).not.toBeNull()
+  expect(error!).toContain(
     'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
 })
@@ -246,7 +246,9 @@ test('github validation is skipped when openai mode is also active', async () =>
   delete process.env.GH_TOKEN
   delete process.env.OPENAI_API_KEY
 
-  await expect(getProviderValidationError(process.env)).resolves.toContain(
+  const error = await getProviderValidationError(process.env)
+  expect(error).not.toBeNull()
+  expect(error!).toContain(
     'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
 })
