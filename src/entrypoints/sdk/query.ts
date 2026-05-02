@@ -52,6 +52,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
   type SDKPermissionTimeoutMessage,
+  type SDKAgentLoadFailureMessage,
   type JsonlEntry,
   type QueryPermissionMode,
   type CanUseToolCallback,
@@ -283,6 +284,7 @@ class QueryImpl implements Query {
   private mcpServers?: Record<string, unknown>
   private permissionContext: ToolPermissionContext
   private timeoutQueue: SDKPermissionTimeoutMessage[] = []
+  private agentFailureQueue: SDKAgentLoadFailureMessage[] = []
 
   constructor(
     engine: QueryEngine | null,
@@ -349,6 +351,18 @@ class QueryImpl implements Query {
     }
   }
 
+  /** Push an agent load failure message into the queue for later draining. */
+  pushAgentFailure(msg: SDKAgentLoadFailureMessage): void {
+    this.agentFailureQueue.push(msg)
+  }
+
+  /** Drain all queued agent failure messages. */
+  private *drainAgentFailureQueue(): Generator<SDKAgentLoadFailureMessage> {
+    while (this.agentFailureQueue.length > 0) {
+      yield this.agentFailureQueue.shift()!
+    }
+  }
+
   async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {
     const hasEnvOverrides = this.envOverrides && Object.keys(this.envOverrides).length > 0
 
@@ -390,8 +404,14 @@ class QueryImpl implements Query {
           try {
             agentDefs = await getAgentDefinitionsWithOverrides(self.cwd)
           } catch (err) {
-            // Agent loading failed — continue without agents
-            console.warn('SDK: agent definitions loading failed:', err instanceof Error ? err.message : String(err))
+            // Agent loading failed — continue without agents but emit failure event
+            const errorMessage = err instanceof Error ? err.message : String(err)
+            console.warn('SDK: agent definitions loading failed:', errorMessage)
+            self.pushAgentFailure({
+              type: 'agent_load_failure',
+              stage: 'definitions',
+              error_message: errorMessage,
+            })
           }
 
           // Update AppState with agents
@@ -417,8 +437,14 @@ class QueryImpl implements Query {
             try {
               self.engine.injectAgents(agentDefs.activeAgents)
             } catch (err) {
-              // Agent injection failed — continue without agents
-              console.warn('SDK: agent injection failed:', err instanceof Error ? err.message : String(err))
+              // Agent injection failed — continue without agents but emit failure event
+              const errorMessage = err instanceof Error ? err.message : String(err)
+              console.warn('SDK: agent injection failed:', errorMessage)
+              self.pushAgentFailure({
+                type: 'agent_load_failure',
+                stage: 'injection',
+                error_message: errorMessage,
+              })
             }
           }
 
@@ -507,6 +533,7 @@ class QueryImpl implements Query {
               for await (const engineMsg of self.engine.submitMessage(self.prompt)) {
                 yield engineMsg
                 yield* self.drainTimeoutQueue()
+                yield* self.drainAgentFailureQueue()
               }
             } else {
               for await (const userMessage of self.prompt) {
@@ -515,14 +542,17 @@ class QueryImpl implements Query {
                 for await (const engineMsg of self.engine.submitMessage(content, { uuid: userMessage.uuid })) {
                   yield engineMsg
                   yield* self.drainTimeoutQueue()
+                  yield* self.drainAgentFailureQueue()
                 }
               }
             }
-            // Final drain for timeout messages that fired on the last engine yield
+            // Final drain for timeout/failure messages that fired on the last engine yield
             yield* self.drainTimeoutQueue()
+            yield* self.drainAgentFailureQueue()
           } finally {
-            // Clean up timeout queue
+            // Clean up timeout and agent failure queues
             self.timeoutQueue.length = 0
+            self.agentFailureQueue.length = 0
             // Restore env + release mutex (SEC-1)
             if (self.envSnapshot) {
               for (const key of Object.keys(self.envSnapshot)) {
@@ -683,7 +713,10 @@ class QueryImpl implements Query {
 
   supportedCommands(): string[] {
     const state = this.appStateStore.getState()
-    return (state as any).commands?.map((c: any) => c.name ?? c) ?? []
+    // Commands come from MCP servers and plugins
+    const mcpCommands = state.mcp.commands?.map(c => c.name ?? c) ?? []
+    const pluginCommands = state.plugins.commands?.map(c => c.name ?? c) ?? []
+    return [...mcpCommands, ...pluginCommands]
   }
 
   supportedModels(): string[] {
@@ -696,7 +729,7 @@ class QueryImpl implements Query {
 
   supportedAgents(): string[] {
     const state = this.appStateStore.getState()
-    const agents = (state as any).agentDefinitions?.activeAgents
+    const agents = state.agentDefinitions?.activeAgents
     return agents?.map((a: any) => a.agentType).filter(Boolean) ?? []
   }
 

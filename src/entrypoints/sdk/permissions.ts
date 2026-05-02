@@ -309,7 +309,10 @@ export function createExternalCanUseTool(
         // NOTE: For race condition safety, use createPermissionTarget() which wraps
         // the resolve at registration time. If using a custom permissionTarget,
         // callers should apply createOnceOnlyResolve in their registerPendingPermission.
-        pending.resolve({ behavior: 'deny', message: 'Permission resolution timed out' })
+        pending.resolve({
+          behavior: 'deny',
+          message: `Permission resolution timed out for tool "${tool.name}"`,
+        })
         permissionTarget.pendingPermissionPrompts.delete(toolUseID)
       }
     }

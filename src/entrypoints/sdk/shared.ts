@@ -189,10 +189,23 @@ export type SDKPermissionTimeoutMessage = {
 }
 
 /**
+ * A message emitted when agent definitions fail to load.
+ * This allows hosts to detect configuration issues that would otherwise
+ * be silently logged to console.warn.
+ *
+ * Note: Agent load failures are non-fatal — the query continues without agents.
+ */
+export type SDKAgentLoadFailureMessage = {
+  type: 'agent_load_failure'
+  stage: 'definitions' | 'injection'
+  error_message: string
+}
+
+/**
  * A message emitted by the query engine during a conversation.
  * Re-exports the full generated type from coreTypes.generated.ts.
  */
-export type SDKMessage = GeneratedSDKMessage | SDKPermissionTimeoutMessage
+export type SDKMessage = GeneratedSDKMessage | SDKPermissionTimeoutMessage | SDKAgentLoadFailureMessage
 
 /**
  * A user message fed into query() via AsyncIterable.

@@ -38,6 +38,7 @@ import type {
 import type {
   SDKMessage,
   SDKPermissionTimeoutMessage,
+  SDKAgentLoadFailureMessage,
   JsonlEntry,
   QueryPermissionMode,
   CanUseToolCallback,
@@ -170,6 +171,7 @@ class SDKSessionImpl implements SDKSession {
     resolve: (decision: PermissionResolveDecision) => void
   }>()
   private timeoutQueue: SDKPermissionTimeoutMessage[] = []
+  private agentFailureQueue: SDKAgentLoadFailureMessage[] = []
 
   constructor(
     engine: QueryEngine | null,
@@ -223,8 +225,14 @@ class SDKSessionImpl implements SDKSession {
               self.engine.injectAgents(agentDefs.activeAgents)
             }
           } catch (err) {
-            // Agent loading failed — continue without agents
-            console.warn('SDK: agent loading failed:', err instanceof Error ? err.message : String(err))
+            // Agent loading failed — continue without agents but emit failure event
+            const errorMessage = err instanceof Error ? err.message : String(err)
+            console.warn('SDK: agent loading failed:', errorMessage)
+            self.pushAgentFailure({
+              type: 'agent_load_failure',
+              stage: 'definitions',
+              error_message: errorMessage,
+            })
           }
           self.agentsLoaded = true
         }
@@ -235,7 +243,7 @@ class SDKSessionImpl implements SDKSession {
             const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
             if (mcpClients.length > 0) {
               self.engine.config.mcpClients = mcpClients
-              const permissionContext = (self.appStateStore.getState() as any).toolPermissionContext as ToolPermissionContext
+              const permissionContext = self.appStateStore.getState().toolPermissionContext
               const allTools = getTools(permissionContext)
               for (const mcpTool of mcpTools) {
                 if (!allTools.some(t => t.name === mcpTool.name)) {
@@ -259,11 +267,14 @@ class SDKSessionImpl implements SDKSession {
           for await (const engineMsg of self.engine.submitMessage(content)) {
             yield engineMsg
             yield* self.drainTimeoutQueue()
+            yield* self.drainAgentFailureQueue()
           }
-          // Final drain for timeout messages that fired on the last engine yield
+          // Final drain for timeout/failure messages that fired on the last engine yield
           yield* self.drainTimeoutQueue()
+          yield* self.drainAgentFailureQueue()
         } finally {
           self.timeoutQueue.length = 0
+          self.agentFailureQueue.length = 0
         }
       })()
     })
@@ -306,6 +317,18 @@ class SDKSessionImpl implements SDKSession {
   private *drainTimeoutQueue(): Generator<SDKPermissionTimeoutMessage> {
     while (this.timeoutQueue.length > 0) {
       yield this.timeoutQueue.shift()!
+    }
+  }
+
+  /** Push an agent load failure message into the queue for later draining. */
+  pushAgentFailure(msg: SDKAgentLoadFailureMessage): void {
+    this.agentFailureQueue.push(msg)
+  }
+
+  /** Drain all queued agent failure messages. */
+  private *drainAgentFailureQueue(): Generator<SDKAgentLoadFailureMessage> {
+    while (this.agentFailureQueue.length > 0) {
+      yield this.agentFailureQueue.shift()!
     }
   }
 

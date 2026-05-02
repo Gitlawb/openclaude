@@ -63,6 +63,7 @@ export type {
   SessionMessage,
   SDKPermissionRequestMessage,
   SDKPermissionTimeoutMessage,
+  SDKAgentLoadFailureMessage,
   QueryPermissionMode,
 } from './shared.js'
 

@@ -81,10 +81,13 @@ describe('QueryImpl.supportedCommands', () => {
 
     ;(q as any).appStateStore.setState(() => ({
       ...(q as any).appStateStore.getState(),
-      commands: [
-        { name: '/help' },
-        { name: '/clear' },
-      ],
+      mcp: {
+        ...(q as any).appStateStore.getState().mcp,
+        commands: [
+          { name: '/help' },
+          { name: '/clear' },
+        ],
+      },
     }))
 
     const cmds = q.supportedCommands()
