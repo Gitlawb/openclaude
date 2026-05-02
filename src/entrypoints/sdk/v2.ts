@@ -227,17 +227,21 @@ class SDKSessionImpl implements SDKSession {
 
         // Connect MCP servers once (lazy, on first message)
         if (!self.mcpConnected && self.mcpServers && Object.keys(self.mcpServers).length > 0) {
-          const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
-          if (mcpClients.length > 0) {
-            self.engine.config.mcpClients = mcpClients
-            const permissionContext = (self.appStateStore.getState() as any).toolPermissionContext as ToolPermissionContext
-            const allTools = getTools(permissionContext)
-            for (const mcpTool of mcpTools) {
-              if (!allTools.some(t => t.name === mcpTool.name)) {
-                allTools.push(mcpTool)
+          try {
+            const { clients: mcpClients, tools: mcpTools } = await connectSdkMcpServers(self.mcpServers)
+            if (mcpClients.length > 0) {
+              self.engine.config.mcpClients = mcpClients
+              const permissionContext = (self.appStateStore.getState() as any).toolPermissionContext as ToolPermissionContext
+              const allTools = getTools(permissionContext)
+              for (const mcpTool of mcpTools) {
+                if (!allTools.some(t => t.name === mcpTool.name)) {
+                  allTools.push(mcpTool)
+                }
               }
+              self.engine.updateTools(allTools)
             }
-            self.engine.updateTools(allTools)
+          } catch {
+            // MCP connection failed — continue without MCP tools
           }
           self.mcpConnected = true
         }

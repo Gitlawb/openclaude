@@ -187,7 +187,6 @@ export type SDKPermissionTimeoutMessage = {
   tool_use_id: string
   timed_out_after_ms: number
 }
-}
 
 /**
  * A message emitted by the query engine during a conversation.
@@ -246,7 +245,6 @@ export type SDKSessionInfo = {
   cwd?: string
   tag?: string
   created_at?: number
-}
 }
 
 /** Options for listSessions. */

@@ -440,7 +440,6 @@ export function createDefaultCanUseTool(
       'Provide canUseTool in query options, e.g.: ' +
       '{ canUseTool: async (name, input) => ({ behavior: "allow" }) }',
     )
-    )
   }
   return async (tool, input, _toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {
     if (forceDecision) return forceDecision
