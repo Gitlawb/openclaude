@@ -906,7 +906,11 @@ export async function buildLaunchEnv(options: {
 
     for (const [envKey, provider] of explicitProfileOverrides) {
       if (isEnvTruthy(processEnv[envKey])) {
-        if (!(options.profile === 'codex' && provider === 'openai')) {
+        const isCodexOAuthProfile =
+          options.profile === 'codex' &&
+          provider === 'openai' &&
+          persistedEnv.CODEX_CREDENTIAL_SOURCE === 'oauth'
+        if (!isCodexOAuthProfile) {
           options.profile = provider
         }
         break
