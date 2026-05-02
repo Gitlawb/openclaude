@@ -97,6 +97,24 @@ export type SDKSessionOptions = {
  *
  * Each call to `sendMessage` starts a new turn within the same conversation.
  * State (messages, file cache, usage, etc.) persists across turns.
+ *
+ * **IMPORTANT: Resource Cleanup**
+ * You MUST call `close()` when finished with a session to prevent memory leaks.
+ * Abandoned sessions retain internal buffers (pending permission prompts, timeout
+ * queues, agent failure queues) until explicitly closed. In long-running processes,
+ * failing to close sessions can cause unbounded memory growth.
+ *
+ * @example
+ * ```typescript
+ * const session = unstable_v2_createSession({ cwd: '/my/project' });
+ * try {
+ *   for await (const msg of session.sendMessage('Hello!')) {
+ *     console.log(msg);
+ *   }
+ * } finally {
+ *   session.close(); // ALWAYS close the session
+ * }
+ * ```
  */
 export interface SDKSession {
   /** Unique identifier for this session. */
@@ -294,6 +312,21 @@ class SDKSessionImpl implements SDKSession {
 
   close(): void {
     this.interrupt()
+    // Disconnect MCP clients to prevent resource leaks
+    if (this._engine?.config?.mcpClients) {
+      for (const client of this._engine.config.mcpClients) {
+        if (client.type === 'connected' && client.connection) {
+          try {
+            client.connection.close?.()
+          } catch (err) {
+            // Ignore cleanup errors — session is closing anyway
+            console.warn('SDK: MCP client cleanup error:', err instanceof Error ? err.message : String(err))
+          }
+        }
+      }
+    }
+    // Clear engine reference to prevent memory leaks
+    this._engine = null
   }
 
   /**

@@ -78,7 +78,7 @@ describe('createDefaultCanUseTool', () => {
     const canUseTool = createDefaultCanUseTool(ctx)
 
     const result = await canUseTool(
-      { name: 'Bash' } as any,
+      { name: 'TestTool' } as any,
       { command: 'rm -rf /' },
       {} as any,
       {} as any,

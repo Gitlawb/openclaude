@@ -6,7 +6,6 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { UUID } from 'crypto'
 import { appendFile, mkdir, unlink, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import {
@@ -340,14 +339,14 @@ export async function forkSession(
   }
 
   // Generate new session ID and UUID remapping
-  const forkSessionId = randomUUID() as UUID
+  const forkSessionId = randomUUID()
 
   // Determine the target directory: same as source
   const targetDir = dirname(resolved.filePath)
   const forkPath = join(targetDir, `${forkSessionId}.jsonl`)
 
   // UUID remapping: old UUID → new UUID
-  const uuidMap = new Map<string, UUID>()
+  const uuidMap = new Map<string, string>()
 
   // Filter to main conversation entries only (no sidechains)
   // If upToMessageId is specified, stop at that message
@@ -370,7 +369,7 @@ export async function forkSession(
       continue
     }
 
-    const newUuid = randomUUID() as UUID
+    const newUuid = randomUUID()
     uuidMap.set(entry.uuid, newUuid)
 
     mainEntries.push(entry)

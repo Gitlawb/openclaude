@@ -311,7 +311,8 @@ export function createExternalCanUseTool(
         // callers should apply createOnceOnlyResolve in their registerPendingPermission.
         pending.resolve({
           behavior: 'deny',
-          message: `Permission resolution timed out for tool "${tool.name}"`,
+          message: `SDK: Permission resolution timed out for tool "${tool.name}". Pass canUseTool in options to control tool permissions.`,
+          decisionReason: { type: 'mode' as const, mode: 'default' },
         })
         permissionTarget.pendingPermissionPrompts.delete(toolUseID)
       }
@@ -418,6 +419,20 @@ export async function connectSdkMcpServers(
 // Default permission-denying canUseTool
 // ============================================================================
 
+/**
+ * Module-level warning flag for default permissions.
+ *
+ * This warning fires ONCE PER PROCESS when createDefaultCanUseTool() is called
+ * without an explicit canUseTool or onPermissionRequest callback. This is
+ * intentional: the warning is noisy enough to catch attention but not so
+ * repetitive that it floods logs when creating multiple SDK instances.
+ *
+ * If you create multiple queries/sessions in the same process, only the first
+ * will emit this warning. This behavior is acceptable because:
+ * 1. The secure-by-default behavior applies to ALL instances
+ * 2. Repeated warnings would be log noise without adding value
+ * 3. The denial message per tool use already contains actionable guidance
+ */
 let warnedDefaultPermissions = false
 
 /**

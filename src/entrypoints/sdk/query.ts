@@ -376,27 +376,26 @@ class QueryImpl implements Query {
     const self = this
     const inner = runWithSdkContext(sdkContext, () => {
       return (async function* (): AsyncIterator<SDKMessage> {
+        // Fast exit: if interrupt()/close() was called before iteration
+        // started, skip init entirely — avoids auth/network side-effects.
+        if (self.abortController.signal.aborted) return
+
+        // Track whether engine was replaced by setEngine() (e.g. mock in tests).
+        // If so, init() failures are non-fatal — the mock engine is self-contained.
+        const engineWasOverridden = self._engine !== null
+
+        // Ensure init() completes before any query runs
+        // init() applies config env vars, so we apply our overrides AFTER
         try {
-          // Fast exit: if interrupt()/close() was called before iteration
-          // started, skip init entirely — avoids auth/network side-effects.
-          if (self.abortController.signal.aborted) return
-
-          // Track whether engine was replaced by setEngine() (e.g. mock in tests).
-          // If so, init() failures are non-fatal — the mock engine is self-contained.
-          const engineWasOverridden = self._engine !== null
-
-          // Ensure init() completes before any query runs
-          // init() applies config env vars, so we apply our overrides AFTER
-          try {
-            await init()
-          } catch (initError) {
-            // If a custom engine was injected (test mock, SDK host override),
-            // init() failures are non-fatal — the engine handles everything.
-            if (engineWasOverridden) {
-              // Swallow — mock/overridden engine doesn't need real init
-            } else {
-              throw initError
-            }
+          await init()
+        } catch (initError) {
+          // If a custom engine was injected (test mock, SDK host override),
+          // init() failures are non-fatal — the engine handles everything.
+          if (engineWasOverridden) {
+            // Swallow — mock/overridden engine doesn't need real init
+          } else {
+            throw initError
+          }
           }
 
           // Load agent definitions BEFORE creating engine context
@@ -422,7 +421,15 @@ class QueryImpl implements Query {
 
           // Inject agents into the engine
           if (self.userAgents && Object.keys(self.userAgents).length > 0) {
-            const userAgents = Object.entries(self.userAgents).map(([name, def]) => ({
+            const userAgents: Array<{
+              agentType: string
+              whenToUse: string
+              getSystemPrompt: () => string
+              tools?: string[]
+              disallowedTools?: string[]
+              model?: string
+              maxTurns?: number
+            }> = Object.entries(self.userAgents).map(([name, def]) => ({
               agentType: name,
               whenToUse: def.description ?? name,
               getSystemPrompt: () => def.prompt ?? '',
@@ -569,9 +576,6 @@ class QueryImpl implements Query {
               releaseEnvMutex()
             }
           }
-        } catch (outerError) {
-          throw outerError
-        }
       })()
     })
 
@@ -610,6 +614,21 @@ class QueryImpl implements Query {
     this.abortController.abort()
     this.timeoutQueue.length = 0
     this.pendingPermissionPrompts.clear()
+    // Disconnect MCP clients to prevent resource leaks
+    if (this._engine?.config?.mcpClients) {
+      for (const client of this._engine.config.mcpClients) {
+        if (client.type === 'connected' && client.connection) {
+          try {
+            client.connection.close?.()
+          } catch (err) {
+            // Ignore cleanup errors — query is closing anyway
+            console.warn('SDK: MCP client cleanup error:', err instanceof Error ? err.message : String(err))
+          }
+        }
+      }
+    }
+    // Clear engine reference to prevent memory leaks
+    this._engine = null
   }
 
   interrupt(): void {
