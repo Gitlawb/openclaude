@@ -4,10 +4,11 @@
 > *"Leia `docs/superpowers/HANDOFF.md` e retome de onde paramos."*
 > Ou copie o kick-off prompt da Seção 11.
 
-**Última atualização:** 2026-05-01 (sessão 5)
-**Branch ativa:** `feat/serve`
-**Tag:** `phase-1-server-complete` ✅ — **Plano #1 COMPLETO (20/20 tasks)**
-**Próxima tarefa:** Escrever Plano #2 (plugin Obsidian) e iniciar implementação
+**Última atualização:** 2026-05-01 (sessão 6)
+**Branch ativa:** `feat/serve` (server) + `feat/plugin` (plugin, worktree em `.worktrees/plugin/`)
+**Tags:** `phase-1-server-complete` ✅ + **`phase-2-plugin-complete`** ✅ (a criar)
+**Plano #1 COMPLETO (20/20 tasks)** | **Plano #2 COMPLETO (10/10 tasks)**
+**Próxima tarefa:** Tag `phase-2-plugin-complete` + merge/PR + Plano #3
 
 ---
 
@@ -28,83 +29,94 @@
 
 ## 2. Estado atual (confirmado por testes)
 
-**Branch:** `feat/serve` (criada a partir de `main`)
-**HEAD:** `9bbda61`
+### Plano #1 — Servidor HTTP (`feat/serve`)
 
-**Commits na branch (18 total, mais recentes primeiro):**
-```
-9bbda61  feat(serve): add SSE helper and /chat endpoint with pluggable agent
-ee05ab8  feat(serve): add /sessions CRUD endpoints
-47fd10a  feat(serve): add SessionManager with JSONL persistence
-f358907  feat(serve): add vault registry persistence (~/.openclaude/vaults.yml)
-4989ad4  feat(serve): add tripwires for destructive shell and protected config writes
-b2cd10a  feat(serve): add vault-bound path resolution (blocks .. escapes)
-caa77cd  feat(serve): add typed ServerError with HTTP status mapping
-0423881  docs: add HANDOFF.md for zero-friction session resumption
-ded8603  fix(serve): dispatch serve subcommand before banner to keep stdout clean
-9f83134  fix(serve): resolve package.json path in both source and bundled layouts
-7387c0d  refactor(serve): fail fast on bad package.json and tighten health test
-f1b0025  feat(serve): add /health endpoint (public, no auth)
-4d115be  refactor(serve): bound hits map eviction and guard malformed URI decode
-2b51bdc  feat(serve): add HTTP core with routing, CORS, and rate limit
-ae499f5  fix(serve): harden token auth (atomic create, hash-based constant time)
-60d3523  feat(serve): add token generator + bearer middleware with constant-time compare
-cf3dd7a  refactor(serve): harden scaffold per code review
-9994f77  feat(serve): scaffold openclaude serve subcommand
-```
+**Branch:** `feat/serve` | **Tag:** `phase-1-server-complete`
+**Testes:** 93 pass / 0 fail (`bun test src/serve/`)
+**Typecheck:** zero erros em `src/serve/`
 
-**Tasks concluídas do Plano #1 (20 de 20 — COMPLETO ✅):**
-- ✅ Task 1: Scaffold `src/serve/` + CLI subcommand
-- ✅ Task 2: Token auth (constant-time hash)
-- ✅ Task 3: HTTP core (routing, CORS, rate limit)
-- ✅ Task 4: `/health` endpoint (público)
-- ✅ Task 5: Typed errors (`ServerError`, `ErrorCode`, `errorResponse`)
-- ✅ Task 6: Path normalization vault-bound (`resolveInsideVault`)
-- ✅ Task 7: Tripwires (bash + fs blocklist)
-- ✅ Task 8: Vault registry YAML (hand-rolled parser, no dep)
-- ✅ Task 9: Session manager JSONL persist
-- ✅ Task 10: `/sessions` CRUD endpoints
-- ✅ Task 11: SSE helper + `/chat` com mock agent pluggable
-- ✅ Task 12: Adapter real OpenClaude Query engine → `/chat` com LLM real
-- ✅ Task 13: Pending edits store + `/pending-edits` (apply/reject com conflict-check 409)
-- ✅ Task 14: Shadow backup (`BackupManager`) + `/backups` + wired no apply
-- ✅ Task 15: `/config`, `/models`, `/vaults` endpoints
-- ✅ Task 16: `/tools/search` cross-vault text search
-- ✅ Task 17: `/tools/dataview` (DQL via LLM) + `/tools/analyze-results` (insight via LLM)
-- ✅ Task 18: `/tools/mermaid-graph` (BFS wikilinks, maxNodes cap)
-- ✅ Task 19: Security matrix E2E (auth, CORS, bind, path, rate limit, validation)
-- ✅ Task 20: README (`src/serve/README.md`) + `test:serve` script + tag `phase-1-server-complete`
-
-**Verificado em produção (manual smokes sessões 1-5):**
-- `openclaude serve --port 7777` inicia sem banner no stdout (só JSON)
-- `GET /health` → 200 com `{status, version, uptime_ms}`
-- `/sessions` CRUD — GET/POST/GET/DELETE/GET roundtrip
-- `/chat` streaming SSE — `event: token` + `event: done` com `sessionId` auto-criado
-
-**Testes automatizados:** 93 pass / 0 fail / 161+ expect() calls / ~3s
-  — rodar com `bun test src/serve/`
-  — 24 arquivos de teste
-
-**Typecheck:** zero erros em `src/serve/` (erros pré-existentes em outros módulos inalterados).
+Tasks 1-20 COMPLETAS — ver histórico no HANDOFF anterior (sessão 5).
 
 ---
 
-## 3. Plano #1 COMPLETO ✅
+### Plano #2 — Plugin Obsidian (`feat/plugin`, worktree `.worktrees/plugin/`)
 
-**20/20 tasks entregues. Tag `phase-1-server-complete` criada.**
+**Branch:** `feat/plugin` (worktree em `.worktrees/plugin/`)
+**Testes:** 21 pass / 0 fail (`bun test tests/` dentro de `.worktrees/plugin/plugin/`)
+**Typecheck:** zero erros
+**Build:** `main.js` + `styles.css` + `manifest.json` presentes
 
-O servidor HTTP está pronto para ser consumido pelo plugin Obsidian (Plano #2).
-API completa, 93 testes verdes, smoke manual validado, zero dependências de produção adicionadas.
+**Commits da branch `feat/plugin` (mais recentes primeiro):**
+```
+25428da  fix(plugin): track restart timer, send preset in chat request
+2c3fbae  fix(plugin): command-hub inject error handling and health-check sidebar
+0cc1805  feat(plugin): add Ctrl+K command hub modal with quick actions
+188373e  feat(plugin): add vault installer script
+9d65b2d  fix(plugin): diff-modal double-apply guard, reason optional, safer err cast
+3d5fe34  feat(plugin): add diff preview modal (before/after, apply/reject)
+401d6e9  fix(plugin): sidebar-view quality issues (listener leak, exhaustiveness...)
+faee53d  fix(plugin): sidebar-view spec gaps (status-dot class, tool_result...)
+[Task 7 impl, Tasks 1-6 commits...]
+```
+
+**Tasks concluídas do Plano #2 (10 de 10 — COMPLETO ✅):**
+- ✅ Task 1: Plugin scaffold (manifest, package.json, tsconfig, esbuild, styles.css)
+- ✅ Task 2: types.ts + main.ts stub
+- ✅ Task 3: SSE parser — `parseSseBuffer()` — TDD (6 testes)
+- ✅ Task 4: ApiClient — HTTP + SSE chat stream — TDD (7 testes)
+- ✅ Task 5: ServerManager — spawn/kill/health-poll/auto-restart — TDD (8 testes)
+- ✅ Task 6: SettingsTab + wiring main.ts
+- ✅ Task 7: SidebarView — chat log, status dot, context card, SSE handlers, pending poll
+- ✅ Task 8: DiffPreviewModal — before/after grid, apply/reject, Enter shortcut
+- ✅ Task 9: CommandHubModal — 6 ações preset, filtro fuzzy, navegação teclado
+- ✅ Task 10: install.mjs + scripts root (`plugin:build`, `plugin:install`)
+
+**Arquitetura entregue:**
+```
+plugin/src/
+├── main.ts           — OpenClaudePlugin, wires all modules
+├── types.ts          — PluginSettings, SseEvent, PendingEdit, ChatRequest
+├── sse-parser.ts     — parseSseBuffer() pure fn (no Obsidian dep)
+├── api-client.ts     — ApiClient: fetch + SSE (no Obsidian dep)
+├── server-manager.ts — ServerManager: spawn/kill/poll (no Obsidian dep)
+├── settings.ts       — SettingsTab
+├── views/
+│   └── sidebar-view.ts    — SidebarView: main chat UI
+└── modals/
+    ├── diff-preview-modal.ts  — DiffPreviewModal
+    └── command-hub-modal.ts   — CommandHubModal (Ctrl+K)
+plugin/
+├── install.mjs       — copies artifacts to vault
+├── manifest.json
+├── package.json
+└── styles.css
+```
 
 ---
 
-## 4. Depois do Plano #1
+## 3. Planos completos ✅
 
-**Plano #2** — Plugin Obsidian (sidebar + Ctrl+K + chat UI). **Não escrito ainda.** Espera-se escrever quando Phase 1 terminar.
+**Plano #1:** 20/20 tasks. Tag `phase-1-server-complete`. Servidor HTTP pronto.
+**Plano #2:** 10/10 tasks. Tag `phase-2-plugin-complete` (a criar). Plugin Obsidian pronto para instalação.
+
+---
+
+## 4. Próximos passos
+
+**Imediato:**
+1. Criar tag `phase-2-plugin-complete` na branch `feat/plugin`
+2. Abrir PR: `feat/plugin` → `main` (ou merge direto)
 
 **Plano #3** — Features completas (Dataview L2 painel, Mermaid render, slash commands).
-
 **Plano #4** — Enforcement P3 + CLI installer + testes E2E Playwright.
+
+**Para instalar o plugin num vault agora:**
+```bash
+cd .worktrees/plugin/plugin
+npm run build
+node install.mjs "G:/Meu Drive/Desenvolvimento de Sistema - Projetos/Ambiente de Desenvolvimento/Energinova_Hub"
+```
+Depois em Obsidian: Settings → Community Plugins → enable "OpenClaude".
 
 **Estimativa até "agente funcionando no Obsidian":** ~6-7 sessões como a de 2026-04-23.
 
@@ -226,12 +238,12 @@ Retomando projeto openclaude-obsidian.
 Contexto completo em: docs/superpowers/HANDOFF.md
 
 Estado atual:
-- Branch feat/serve, tag phase-1-server-complete, commit HEAD: 1a81d85
-- Plano #1 COMPLETO: 20/20 tasks, 93 testes verdes, smoke manual validado
-- Próximo: escrever Plano #2 (plugin Obsidian) usando superpowers:writing-plans
+- Plano #1 COMPLETO: feat/serve, tag phase-1-server-complete, 93 testes
+- Plano #2 COMPLETO: feat/plugin (worktree .worktrees/plugin/), 21 testes, plugin instalável
+- Próximo: tag phase-2-plugin-complete + PR feat/plugin→main + escrever Plano #3
 
-Leia HANDOFF.md e o spec em docs/superpowers/specs/2026-04-23-openclaude-obsidian-design.md,
-me dê um resumo de 3 linhas confirmando o estado, e comece a escrever o Plano #2.
+Leia HANDOFF.md, me dê um resumo de 3 linhas confirmando o estado,
+e sugira os próximos passos (tag + PR ou instalar no vault para testar).
 
 Sem re-brainstorming. Sem re-review do design. Sem reabrir decisões fechadas.
 ```
