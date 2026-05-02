@@ -1135,17 +1135,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function persistDraft(nextDraft: ProviderDraft = draft): void {
+    const routeId = resolveProviderEditorRouteId(draftProvider, nextDraft.baseUrl)
+    const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
+    const showsAuthHeader = routeShowsAuthHeader(routeId)
+    const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
+    const showsCustomHeaders = routeShowsCustomHeaders(routeId)
     const parsedCustomHeaders = parseProfileCustomHeadersInput(
-      nextDraft.customHeaders,
+      showsCustomHeaders ? nextDraft.customHeaders : '',
     )
     if (parsedCustomHeaders.error) {
       setErrorMessage(parsedCustomHeaders.error)
       return
     }
 
-    const routeId = resolveProviderEditorRouteId(draftProvider, nextDraft.baseUrl)
-    const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
-    const supportsAuthHeaders = routeSupportsAuthHeaders(routeId)
     const requestedResponses =
       supportsApiFormat && nextDraft.apiFormat === 'responses'
     const shouldUseChatCompletions =
@@ -1160,19 +1162,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       apiKey: nextDraft.apiKey,
       apiFormat: shouldUseChatCompletions ? 'chat_completions' : 'responses',
       authHeader:
-        supportsAuthHeaders && nextDraft.authHeader
+        showsAuthHeader && nextDraft.authHeader
           ? nextDraft.authHeader
           : undefined,
       authScheme:
-        supportsAuthHeaders && nextDraft.authHeader
+        showsAuthHeader && nextDraft.authHeader
           ? (nextDraft.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw')
           : undefined,
       authHeaderValue:
-        supportsAuthHeaders && nextDraft.authHeaderValue
+        showsAuthHeaderValue && nextDraft.authHeaderValue
           ? nextDraft.authHeaderValue
           : undefined,
       customHeaders:
-        routeSupportsCustomHeaders(routeId) &&
+        showsCustomHeaders &&
         Object.keys(parsedCustomHeaders.headers).length > 0
           ? parsedCustomHeaders.headers
           : undefined,
