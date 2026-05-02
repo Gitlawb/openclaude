@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
-import { InMemoryTokenCache } from './crossSessionTokenCache.js'
+import { InMemoryTokenCache } from './inMemoryTokenCache.js'
 
 describe('InMemoryTokenCache', () => {
   let cache: InMemoryTokenCache

@@ -3,7 +3,7 @@ import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from 
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
-import { InMemoryTokenCache } from './crossSessionTokenCache.js'
+import { InMemoryTokenCache } from './inMemoryTokenCache.js'
 
 let _inMemoryTokenCache: InMemoryTokenCache | undefined
 
@@ -39,12 +39,44 @@ function getMessageContentString(message: Message): string {
   return ''
 }
 
+function getMessageTokenEstimate(message: Message): number {
+  const content = message.message?.content
+  if (typeof content === 'string') {
+    return roughTokenCountEstimation(content)
+  }
+  if (Array.isArray(content)) {
+    let tokens = 0
+    for (const block of content) {
+      if (typeof block === 'object' && block !== null) {
+        const b = block as Record<string, unknown>
+        if (b.type === 'image') {
+          tokens += 2000
+        } else if (b.type === 'document') {
+          tokens += 500
+        } else if ('text' in b && typeof b.text === 'string') {
+          tokens += roughTokenCountEstimation(b.text)
+        } else if ('thinking' in b && typeof b.thinking === 'string') {
+          tokens += roughTokenCountEstimation(b.thinking)
+        } else if ('tool_use' in b || 'tool_result' in b) {
+          tokens += 200
+        } else {
+          tokens += roughTokenCountEstimation(JSON.stringify(block))
+        }
+      }
+    }
+    return tokens
+  }
+  return 0
+}
+
 function cachedRoughTokenCountForMessages(messages: readonly Message[]): number {
   let total = 0
   for (const msg of messages) {
     const content = getMessageContentString(msg)
-    if (content) {
+    if (content.length >= 20) {
       total += cachedTokenCount(content)
+    } else {
+      total += getMessageTokenEstimate(msg)
     }
   }
   return total
