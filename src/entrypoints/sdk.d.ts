@@ -316,6 +316,31 @@ export type SDKPermissionTimeoutMessage = {
   session_id: string
 }
 
+/**
+ * A message emitted when agent definitions fail to load.
+ * This allows hosts to detect configuration issues that would otherwise
+ * be silently logged to console.warn.
+ *
+ * Note: Agent load failures are non-fatal — the query continues without agents.
+ */
+export type SDKAgentLoadFailureMessage = {
+  type: 'agent_load_failure'
+  stage: 'definitions' | 'injection'
+  error_message: string
+}
+
+// ============================================================================
+// Permission resolve decision (SDK-specific)
+// ============================================================================
+
+/**
+ * Decision returned by permission resolution.
+ * Used by respondToPermission() and internal permission handling.
+ */
+export type PermissionResolveDecision =
+  | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
+  | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
+
 // ============================================================================
 // V2 API types
 // ============================================================================
