@@ -133,7 +133,7 @@ export function parseGitHubReleaseBody(body: string): string[] {
 }
 
 function releaseTagToVersion(tagName: string): string {
-  return tagName.trim().replace(/^v/i, '')
+  return normalizePublicVersion(tagName)
 }
 
 export function serializeGitHubReleasesAsChangelog(
@@ -327,13 +327,12 @@ export function parseChangelog(content: string): Record<string, string[]> {
       const lines = section.trim().split('\n')
       if (lines.length === 0) continue
 
-      // Extract version from the first line
-      // Handle both "1.2.3" and "1.2.3 - YYYY-MM-DD" formats
+      // Normalize public versions so plain headings, dated headings, and
+      // release-please markdown links all map to the same lookup key.
       const versionLine = lines[0]
       if (!versionLine) continue
 
-      // First part before any dash is the version
-      const version = versionLine.split(' - ')[0]?.trim() || ''
+      const version = normalizePublicVersion(versionLine)
       if (!version) continue
 
       // Extract bullet points
@@ -419,7 +418,7 @@ export function getReleaseNotesForVersion(
 ): string[] {
   try {
     const releaseNotes = parseChangelog(changelogContent)
-    return releaseNotes[releaseTagToVersion(version)] ?? []
+    return releaseNotes[normalizePublicVersion(version)] ?? []
   } catch (error) {
     logError(toError(error))
     return []
