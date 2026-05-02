@@ -62,6 +62,7 @@ import {
   createExternalCanUseTool,
   connectSdkMcpServers,
   createDefaultCanUseTool,
+  createOnceOnlyResolve,
   type PermissionResolveDecision,
 } from './permissions.js'
 import {
@@ -331,7 +332,8 @@ class QueryImpl implements Query {
    */
   registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision> {
     return new Promise(resolve => {
-      this.pendingPermissionPrompts.set(toolUseId, { resolve })
+      const wrappedResolve = createOnceOnlyResolve(resolve)
+      this.pendingPermissionPrompts.set(toolUseId, { resolve: wrappedResolve })
     })
   }
 

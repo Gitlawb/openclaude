@@ -52,6 +52,7 @@ import {
   createExternalCanUseTool,
   connectSdkMcpServers,
   createDefaultCanUseTool,
+  createOnceOnlyResolve,
   type PermissionResolveDecision,
 } from './permissions.js'
 
@@ -278,7 +279,8 @@ class SDKSessionImpl implements SDKSession {
    */
   registerPendingPermission(toolUseId: string): Promise<PermissionResolveDecision> {
     return new Promise(resolve => {
-      this.pendingPermissionPrompts.set(toolUseId, { resolve })
+      const wrappedResolve = createOnceOnlyResolve(resolve)
+      this.pendingPermissionPrompts.set(toolUseId, { resolve: wrappedResolve })
     })
   }
 
@@ -356,7 +358,10 @@ function createEngineFromOptions(
   const appStateStore = createStore<AppState>(stateWithPermissions)
 
   // Build thinkingConfig from initial state
-  const thinkingConfig = stateWithPermissions.thinkingEnabled !== false
+  // thinkingEnabled defaults to true via getDefaultAppState() -> shouldEnableThinkingByDefault()
+  // Explicit false disables thinking, undefined defaults to enabled (adaptive mode)
+  const thinkingEnabled = stateWithPermissions.thinkingEnabled ?? true
+  const thinkingConfig = thinkingEnabled
     ? (stateWithPermissions.thinkingBudgetTokens
       ? { type: 'enabled' as const, budgetTokens: stateWithPermissions.thinkingBudgetTokens }
       : { type: 'adaptive' as const })
