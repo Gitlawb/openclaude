@@ -14,6 +14,7 @@ import {
   type ToolPermissionContext,
   type Tool,
 } from '../../Tool.js'
+import { MCPTool } from '../../tools/MCPTool/MCPTool.js'
 import type { MCPServerConnection, ScopedMcpServerConfig } from '../../services/mcp/types.js'
 import { connectToServer, fetchToolsForClient } from '../../services/mcp/client.js'
 import type {
@@ -369,6 +370,60 @@ export async function connectSdkMcpServers(
         scope: 'session' as const, // SDK servers are scoped to session
       }
 
+      // SDK-type MCP servers (type: 'sdk') carry in-process tool definitions
+      // created via the tool() helper. Convert SdkMcpToolDefinition to Tool
+      // using the MCPTool pattern (spread MCPTool base + override fields).
+      if ((config as Record<string, unknown>).type === 'sdk') {
+        type SdkToolDef = {
+          name: string
+          description?: string
+          inputSchema?: Record<string, unknown>
+          handler?: (args: unknown, extra: unknown) => Promise<{ content: unknown }>
+          annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; openWorldHint?: boolean }
+          searchHint?: string
+          alwaysLoad?: boolean
+        }
+        const sdkConfig = config as { type: 'sdk'; name: string; tools?: SdkToolDef[] }
+        const sdkToolDefs = sdkConfig.tools ?? []
+        const convertedTools: Tool[] = sdkToolDefs.map(toolDef => ({
+          ...MCPTool,
+          name: toolDef.name,
+          isMcp: true,
+          searchHint: toolDef.searchHint,
+          alwaysLoad: toolDef.alwaysLoad,
+          async description() {
+            return toolDef.description ?? ''
+          },
+          async prompt() {
+            return toolDef.description ?? ''
+          },
+          inputJSONSchema: toolDef.inputSchema as Tool['inputJSONSchema'],
+          isConcurrencySafe() {
+            return toolDef.annotations?.readOnlyHint ?? false
+          },
+          isReadOnly() {
+            return toolDef.annotations?.readOnlyHint ?? false
+          },
+          isDestructive() {
+            return toolDef.annotations?.destructiveHint ?? false
+          },
+          isOpenWorld() {
+            return toolDef.annotations?.openWorldHint ?? false
+          },
+          async call(args: Record<string, unknown>, context, _canUseTool, parentMessage, onProgress) {
+            if (!toolDef.handler) {
+              return { data: { type: 'text', text: `SDK tool ${toolDef.name} has no handler` } }
+            }
+            const result = await toolDef.handler(args, { context, parentMessage, onProgress })
+            return { data: result.content }
+          },
+        }))
+        return {
+          client: null as unknown as MCPServerConnection,
+          tools: convertedTools,
+        }
+      }
+
       try {
         // Connect to the server
         const client = await connectToServer(name, scopedConfig, {
@@ -406,10 +461,13 @@ export async function connectSdkMcpServers(
     }),
   )
 
-  // Process results
+  // Process results — skip SDK-type entries (returned as null client)
   for (const result of results) {
     if (result.status === 'fulfilled') {
-      clients.push(result.value.client)
+      // SDK-type servers return null client — only push real clients
+      if (result.value.client != null) {
+        clients.push(result.value.client)
+      }
       tools.push(...result.value.tools)
     }
   }

@@ -184,6 +184,8 @@ export type SdkMcpHttpConfig = {
 export type SdkMcpSdkConfig = {
   type: 'sdk'
   name: string
+  /** In-process tool definitions created via the tool() helper. */
+  tools?: import('./v2.js').SdkMcpToolDefinition[]
 }
 
 export type SdkMcpServerConfig = SdkMcpStdioConfig | SdkMcpSSEConfig | SdkMcpHttpConfig | SdkMcpSdkConfig
