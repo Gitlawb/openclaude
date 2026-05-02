@@ -418,6 +418,40 @@ test('uses custom OpenAI-compatible auth header value when configured', async ()
   expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
+test('uses Hicap api-key auth header for the Hicap route', async () => {
+  process.env.OPENAI_API_KEY = 'hicap-live-key'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'claude-opus-4.6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('api-key')).toBe('hicap-live-key')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
+})
+
 test('defaults Authorization custom auth header to bearer scheme', async () => {
   process.env.OPENAI_API_KEY = 'authorization-key'
   process.env.OPENAI_AUTH_HEADER = 'Authorization'

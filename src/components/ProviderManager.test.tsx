@@ -114,6 +114,7 @@ const PRESET_ORDER = [
   'Codex OAuth',
   'Google Gemini',
   'Groq',
+  'Hicap',
   'LM Studio',
   'Atomic Chat',
   'Ollama',
@@ -202,6 +203,16 @@ function mockProviderProfilesModule(options?: {
           name: 'MiniMax',
           baseUrl: 'https://api.minimax.io/v1',
           model: 'MiniMax-M2.7',
+          apiKey: '',
+        }
+      }
+
+      if (preset === 'hicap') {
+        return {
+          provider: 'hicap',
+          name: 'Hicap',
+          baseUrl: 'https://api.hicap.ai/v1',
+          model: 'claude-opus-4.6',
           apiKey: '',
         }
       }
@@ -626,6 +637,76 @@ test('ProviderManager skips advanced auth fields when adding MiniMax', async () 
     expect(output).not.toContain('API mode')
     expect(output).not.toContain('Auth header')
     expect(output).not.toContain('Custom headers')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager explains when Hicap non-gpt responses mode is saved as chat completions', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile: (payload: any) => ({
+      id: 'hicap_profile',
+      ...payload,
+      apiFormat:
+        payload.provider === 'hicap' &&
+        payload.model === 'claude-opus-4.6' &&
+        payload.apiFormat === 'responses'
+          ? 'chat_completions'
+          : payload.apiFormat,
+    }),
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'Hicap')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider name'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Default model'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('API mode'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    const apiKeyOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 5 of 6: API key'),
+    )
+    expect(apiKeyOutput).not.toContain('Auth header')
+    expect(apiKeyOutput).not.toContain('Auth header value')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 6 of 6: Custom headers'),
+    )
+    mounted.stdin.write('\r')
+
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Hicap only supports the Responses API for gpt- models'),
+    )
+    expect(output).toMatch(/saved\s+using Chat Completions/)
   } finally {
     await mounted.dispose()
   }

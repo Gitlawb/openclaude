@@ -24,13 +24,18 @@ import {
 import {
   getProviderPresetUiMetadata,
   getRouteProviderTypeLabel,
+  getRouteDescriptor,
   ORDERED_PROVIDER_PRESETS,
   routeSupportsApiFormatSelection,
   routeSupportsAuthHeaders,
   routeSupportsCustomHeaders,
+  routeShowsAuthHeader,
+  routeShowsAuthHeaderValue,
+  routeShowsCustomHeaders,
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
+import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMetadata.js'
 import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
   addProviderProfile,
@@ -264,6 +269,25 @@ function resolveProviderEditorRouteId(
   }
 
   return resolveRouteIdFromBaseUrl(baseUrl) ?? route
+}
+
+function routeSupportsResponsesModel(routeId: string, model: string): boolean {
+  return openAIShimSupportsApiFormatForModel(
+    getRouteDescriptor(routeId)?.transportConfig.openaiShim,
+    'responses',
+    getPrimaryModel(model),
+  )
+}
+
+function getResponsesApiModelSetLabel(routeId: string): string {
+  const prefixes =
+    getRouteDescriptor(routeId)?.transportConfig.openaiShim
+      ?.responsesApiModelPrefixes
+  if (!prefixes || prefixes.length === 0) {
+    return "this provider's configured model set"
+  }
+
+  return `${prefixes.join(', ')} models`
 }
 
 async function resolveGithubCredentialSource(
@@ -536,16 +560,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const formSteps = React.useMemo(
     () => {
       const routeId = resolveProviderEditorRouteId(draftProvider, draft.baseUrl)
-      const supportsCustomHeaders = routeSupportsCustomHeaders(routeId)
+      const showsAuthHeader = routeShowsAuthHeader(routeId)
+      const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
+      const showsCustomHeaders = routeShowsCustomHeaders(routeId)
       return FORM_STEPS.filter(step => {
         if (step.key === 'apiFormat') {
           return routeSupportsApiFormatSelection(routeId)
         }
-        if (step.key === 'authHeader' || step.key === 'authHeaderValue') {
-          return routeSupportsAuthHeaders(routeId)
+        if (step.key === 'authHeader') {
+          return showsAuthHeader
+        }
+        if (step.key === 'authHeaderValue') {
+          return showsAuthHeaderValue
         }
         if (step.key === 'customHeaders') {
-          return supportsCustomHeaders
+          return showsCustomHeaders
         }
         return true
       })
@@ -959,7 +988,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function closeWithCancelled(message: string): void {
-    onDone({ action: 'cancelled', message })
+    onDone({
+      action: 'cancelled',
+      message:
+        message === 'Provider manager closed' && statusMessage
+          ? statusMessage
+          : message,
+    })
   }
 
   function activateGithubProvider(): string | null {
@@ -1111,16 +1146,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     const routeId = resolveProviderEditorRouteId(draftProvider, nextDraft.baseUrl)
     const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
     const supportsAuthHeaders = routeSupportsAuthHeaders(routeId)
+    const requestedResponses =
+      supportsApiFormat && nextDraft.apiFormat === 'responses'
+    const shouldUseChatCompletions =
+      !supportsApiFormat ||
+      nextDraft.apiFormat !== 'responses' ||
+      !routeSupportsResponsesModel(routeId, nextDraft.model)
     const payload: ProviderProfileInput = {
       provider: draftProvider,
       name: nextDraft.name,
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
-      apiFormat:
-        supportsApiFormat && nextDraft.apiFormat === 'responses'
-          ? 'responses'
-          : 'chat_completions',
+      apiFormat: shouldUseChatCompletions ? 'chat_completions' : 'responses',
       authHeader:
         supportsAuthHeaders && nextDraft.authHeader
           ? nextDraft.authHeader
@@ -1166,17 +1204,26 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       editingProfileId
         ? `Updated provider: ${saved.name}`
         : `Added provider: ${saved.name} (now active)`
+    const adjustedApiFormat =
+      requestedResponses && saved.apiFormat !== 'responses'
+    const routeLabel =
+      getRouteDescriptor(routeId)?.label ?? getRouteProviderTypeLabel(routeId)
+    const responseModelSetLabel = getResponsesApiModelSetLabel(routeId)
+    const apiFormatMessage = adjustedApiFormat
+      ? `. ${routeLabel} only supports the Responses API for ${responseModelSetLabel}, so this profile was saved using Chat Completions.`
+      : ''
+    const finalSuccessMessage = `${successMessage}${apiFormatMessage}`
     setStatusMessage(
       settingsOverrideError
-        ? `${successMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
-        : successMessage,
+        ? `${finalSuccessMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+        : finalSuccessMessage,
     )
 
     if (mode === 'first-run') {
       onDone({
         action: 'saved',
         activeProfileId: saved.id,
-        message: `Provider configured: ${saved.name}`,
+        message: `Provider configured: ${saved.name}${apiFormatMessage}`,
       })
       return
     }

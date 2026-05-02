@@ -145,6 +145,10 @@ function getRouteDiscoveryApiKey(
   routeId: string,
   options?: { apiKey?: string },
 ): string | undefined {
+  if (getRouteCatalog(routeId)?.discovery?.requiresAuth === false) {
+    return undefined
+  }
+
   if (options?.apiKey?.trim()) {
     return options.apiKey.trim()
   }

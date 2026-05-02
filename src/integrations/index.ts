@@ -118,6 +118,9 @@ export {
   routeSupportsApiFormatSelection,
   routeSupportsAuthHeaders,
   routeSupportsCustomHeaders,
+  routeShowsAuthHeader,
+  routeShowsAuthHeaderValue,
+  routeShowsCustomHeaders,
 } from './routeMetadata.js'
 export {
   getProviderPresetUiMetadata,
