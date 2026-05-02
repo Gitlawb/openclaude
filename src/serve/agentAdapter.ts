@@ -14,6 +14,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { walk, searchVault, readNote, vaultRelative } from "./vaultUtils";
 import type { AgentFn, AgentEvent } from "./handlers/chat";
+import type { PendingEditStore } from "./pendingEditStore";
 import { ask } from "../QueryEngine";
 import { createAbortController } from "../utils/abortController";
 import { getDefaultAppState } from "../state/AppStateStore";
@@ -156,6 +157,33 @@ const VAULT_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "write_note",
+      description:
+        "Propose creating or updating a note. The change is queued for user review — nothing is written until the user clicks Apply in the diff preview. Always use this for any note creation or modification.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description:
+              "Destination path relative to vault root (e.g. 'Projects/NewNote.md'). Creates the note if it does not exist.",
+          },
+          content: {
+            type: "string",
+            description: "Full new content for the note (markdown).",
+          },
+          reason: {
+            type: "string",
+            description: "Short explanation of why this change is being made (shown to user in diff preview).",
+          },
+        },
+        required: ["path", "content", "reason"],
+      },
+    },
+  },
 ];
 
 // ─── Internal types for the agentic loop ───────────────────────────────────
@@ -176,6 +204,8 @@ interface VaultToolResult {
   ok: boolean;
   content: string;
   preview?: string;
+  // Populated only by write_note:
+  pendingEdit?: { id: string; file: string; reason: string };
 }
 
 type OAIMessage =
@@ -190,6 +220,8 @@ function runVaultTool(
   name: string,
   args: Record<string, unknown>,
   vault: string,
+  pendingEditStore?: PendingEditStore,
+  sessionId?: string,
 ): VaultToolResult {
   switch (name) {
     case "list_vault": {
@@ -233,6 +265,38 @@ function runVaultTool(
         preview: `${hits.length} matches for "${query}"`,
       };
     }
+    case "write_note": {
+      if (!pendingEditStore) {
+        return {
+          ok: false,
+          content:
+            "write_note requires a pending edit store. Make sure the server started with a store configured.",
+        };
+      }
+      const path    = String(args.path ?? "");
+      const content = String(args.content ?? "");
+      const reason  = String(args.reason ?? "Agent-proposed change");
+      if (!path) return { ok: false, content: "path is required" };
+
+      const vaultAbs = resolve(vault);
+      const abs      = resolve(vaultAbs, path);
+      // Block path traversal
+      if (abs !== vaultAbs && !abs.startsWith(vaultAbs + "/") && !abs.startsWith(vaultAbs + "\\")) {
+        return { ok: false, content: "Path traversal rejected" };
+      }
+
+      const before = readNote(vault, path) ?? "";
+      const edit   = pendingEditStore.create({
+        file: abs, vault, sessionId: sessionId ?? "unknown", reason, before, after: content,
+      });
+
+      return {
+        ok:          true,
+        content:     `Pending edit created (id: ${edit.id}). The user will be prompted to review and apply the change.`,
+        preview:     `pending edit for ${path}`,
+        pendingEdit: { id: edit.id, file: abs, reason },
+      };
+    }
     default:
       return { ok: false, content: `Unknown tool: ${name}` };
   }
@@ -256,6 +320,7 @@ async function* lightweightOpenAIAgent(
   message: string,
   sessionId: string,
   context?: { activeNote?: string; vault?: string; selection?: string },
+  pendingEditStore?: PendingEditStore,
 ): AsyncIterable<AgentEvent> {
   const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
   const apiKey  = process.env.OPENAI_API_KEY ?? "";
@@ -400,13 +465,25 @@ async function* lightweightOpenAIAgent(
       };
 
       const result = vault
-        ? runVaultTool(tc.function.name, args, vault)
+        ? runVaultTool(tc.function.name, args, vault, pendingEditStore, sessionId)
         : { ok: false, content: "No vault available for tool calls", preview: undefined };
 
       yield {
         event: "tool_result",
         data:  { id: tc.id, ok: result.ok, preview: result.preview },
       };
+
+      // Emit pending_edit event so the plugin shows Apply/Reject buttons
+      if (result.pendingEdit) {
+        yield {
+          event: "pending_edit",
+          data:  {
+            id:     result.pendingEdit.id,
+            file:   result.pendingEdit.file,
+            reason: result.pendingEdit.reason,
+          },
+        };
+      }
 
       messages.push({
         role:         "tool",
@@ -424,6 +501,7 @@ async function* lightweightOpenAIAgent(
 
 export type RealAgentOpts = {
   strictMode?: boolean;
+  pendingEditStore?: PendingEditStore;
 };
 
 /**
@@ -438,12 +516,13 @@ export function createRealAgent(_opts: RealAgentOpts = {}): AgentFn {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let messages: any[] = [];
   const readFileCache = createFileStateCacheWithSizeLimit(100);
+  const { pendingEditStore } = _opts;
 
   return async function* (input): AsyncIterable<AgentEvent> {
     try {
       // ── External provider path (Groq / Ollama / any OpenAI-compatible) ──
       if (process.env.CLAUDE_CODE_USE_OPENAI === "1") {
-        yield* lightweightOpenAIAgent(input.message, input.sessionId, input.context);
+        yield* lightweightOpenAIAgent(input.message, input.sessionId, input.context, pendingEditStore);
         return;
       }
 

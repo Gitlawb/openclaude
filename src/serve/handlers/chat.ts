@@ -18,17 +18,25 @@ export type AgentFn = (input: {
   context?: { activeNote?: string; vault?: string; selection?: string };
 }) => AsyncIterable<AgentEvent>;
 
-let activeAgent: AgentFn | null = null;
-export function setMockAgent(fn: AgentFn): void { activeAgent = fn; }
-export function setRealAgent(fn: AgentFn): void { activeAgent = fn; }
-export function getActiveAgent(): AgentFn | null { return activeAgent; }
+let mockAgent: AgentFn | null = null;
+let realAgent: AgentFn | null = null;
+// mockAgent takes priority over realAgent — this lets setRealAgent be called
+// inside startServer() without overwriting a test mock set in beforeEach.
+export function setMockAgent(fn: AgentFn): void { mockAgent = fn; }
+export function setRealAgent(fn: AgentFn): void { realAgent = fn; }
+export function getActiveAgent(): AgentFn | null { return mockAgent ?? realAgent; }
+const activeAgent: AgentFn = (input) => {
+  const agent = mockAgent ?? realAgent;
+  if (!agent) throw new Error("no agent configured");
+  return agent(input);
+};
 
 export function chatRoute(sm: SessionManager): Route {
   return {
     method: "POST",
     path: "/chat",
     handler: async ({ body, res }) => {
-      if (!activeAgent) throw new ServerError(ErrorCode.INTERNAL, "no agent configured");
+      if (!mockAgent && !realAgent) throw new ServerError(ErrorCode.INTERNAL, "no agent configured");
       const input = body as { sessionId?: string; message: string; context?: any };
       if (!input || typeof input.message !== "string") {
         throw new ServerError(ErrorCode.VALIDATION, "body.message required");

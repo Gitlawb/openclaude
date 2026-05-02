@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll } from "bun:test";
 import { createRealAgent } from "./agentAdapter";
 import type { AgentEvent } from "./handlers/chat";
+import { PendingEditStore } from "./pendingEditStore";
 
 /** Helper: drain an AsyncIterable into an array (with timeout safety). */
 async function drainEvents(
@@ -347,6 +348,81 @@ describe("agentAdapter — vault tools with mock provider", () => {
       const toolResult = events.find(e => e.event === "tool_result");
       expect(toolResult).toBeDefined();
       expect((toolResult!.data as any).ok).toBe(false);
+    } finally {
+      await server.stop();
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+      delete process.env.OPENAI_BASE_URL;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.OPENCLAUDE_MODEL;
+    }
+  });
+});
+
+describe("agentAdapter — write_note tool", () => {
+  it("createRealAgent accepts pendingEditStore option without throwing", () => {
+    const store = new PendingEditStore(tmpdir());
+    expect(() => createRealAgent({ pendingEditStore: store })).not.toThrow();
+  });
+
+  it("write_note creates a pending edit and yields pending_edit event", async () => {
+    const store = new PendingEditStore(tmpdir());
+    const vault = mkdtempSync(pathJoin(tmpdir(), "oc-vault-write-"));
+    writeFileSync(pathJoin(vault, "existing.md"), "# Existing\nOld content.");
+
+    // Mock server: returns write_note tool_call on turn 1, stop on turn 2
+    let requestCount = 0;
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        requestCount++;
+        if (requestCount === 1) {
+          const writeArgs = JSON.stringify({ path: "existing.md", content: "# Existing\nNew content.", reason: "test update" });
+          const body = [
+            `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_w1", type: "function", function: { name: "write_note", arguments: writeArgs } }] }, finish_reason: null }] })}`,
+            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls" }] })}`,
+            `data: [DONE]`,
+            "",
+          ].join("\n\n");
+          return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+        }
+        return new Response(
+          [
+            `data: ${JSON.stringify({ choices: [{ delta: { content: "Done." }, finish_reason: null }] })}`,
+            `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}`,
+            `data: [DONE]`,
+            "",
+          ].join("\n\n"),
+          { headers: { "Content-Type": "text/event-stream" } },
+        );
+      },
+    });
+
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.OPENAI_BASE_URL = `http://127.0.0.1:${server.port}`;
+    process.env.OPENAI_API_KEY = "test";
+    process.env.OPENCLAUDE_MODEL = "test";
+    try {
+      const agent = createRealAgent({ pendingEditStore: store });
+      const events = await drainEvents(
+        agent({ message: "update existing.md", sessionId: "s-write", context: { vault } }),
+      );
+
+      // Verify pending_edit event emitted
+      const pendingEditEvt = events.find(e => e.event === "pending_edit");
+      expect(pendingEditEvt).toBeDefined();
+      expect((pendingEditEvt!.data as any).reason).toBe("test update");
+
+      // Verify tool_result ok
+      const toolResultEvt = events.find(e => e.event === "tool_result");
+      expect(toolResultEvt).toBeDefined();
+      expect((toolResultEvt!.data as any).ok).toBe(true);
+
+      // Verify the pending edit was stored
+      const pendingId = (pendingEditEvt!.data as any).id;
+      const edit = store.get(pendingId);
+      expect(edit).toBeDefined();
+      expect(edit!.before).toBe("# Existing\nOld content.");
+      expect(edit!.after).toBe("# Existing\nNew content.");
     } finally {
       await server.stop();
       delete process.env.CLAUDE_CODE_USE_OPENAI;

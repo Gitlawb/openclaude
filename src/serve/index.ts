@@ -47,6 +47,9 @@ export async function startServer(opts: ServerOpts): Promise<ServerHandle> {
   // that rotate process.env.HOME in beforeEach get isolated state each run.
   const sm = new SessionManager(homedir());
   const pe = new PendingEditStore(homedir());
+  // Re-set agent with the store-aware version (the module-level call has no store,
+  // but tests use setMockAgent so that's fine).
+  setRealAgent(createRealAgent({ pendingEditStore: pe }));
   const routes = [
     healthRoute,
     ...configRoutes,
