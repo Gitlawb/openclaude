@@ -1748,7 +1748,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             )
             const saved = existing
               ? updateProviderProfile(existing.id, payload)
-              : addProviderProfile(payload, { makeActive: true })
+              : addProviderProfile(payload, { makeActive: false })
 
             if (!saved) {
               setErrorMessage(

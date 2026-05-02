@@ -993,7 +993,7 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
       model: 'codexplan',
       apiKey: '',
     }),
-    expect.objectContaining({ makeActive: true }),
+    expect.objectContaining({ makeActive: false }),
   )
   expect(applySavedProfileToCurrentSession).toHaveBeenCalled()
   expect(persistCredentials).toHaveBeenCalledWith({

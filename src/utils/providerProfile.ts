@@ -906,7 +906,13 @@ export async function buildLaunchEnv(options: {
 
     for (const [envKey, provider] of explicitProfileOverrides) {
       if (isEnvTruthy(processEnv[envKey])) {
-        options.profile = provider
+        const isCodexOAuthProfile =
+          options.profile === 'codex' &&
+          provider === 'openai' &&
+          persistedEnv.CODEX_CREDENTIAL_SOURCE === 'oauth'
+        if (!isCodexOAuthProfile) {
+          options.profile = provider
+        }
         break
       }
     }
@@ -1141,16 +1147,21 @@ export async function buildLaunchEnv(options: {
   }
 
   if (options.profile === 'codex') {
-    const codexKey =
-      sanitizeApiKey(processEnv.CODEX_API_KEY) ||
-      sanitizeApiKey(persistedEnv.CODEX_API_KEY)
-    const liveCodexCredentials = resolveCodexApiCredentials(processEnv)
-    const codexAccountId =
-      processEnv.CHATGPT_ACCOUNT_ID ||
-      processEnv.CODEX_ACCOUNT_ID ||
-      liveCodexCredentials.accountId ||
-      persistedEnv.CHATGPT_ACCOUNT_ID ||
-      persistedEnv.CODEX_ACCOUNT_ID
+    const isCodexOAuthProfile = persistedEnv.CODEX_CREDENTIAL_SOURCE === 'oauth'
+    const codexKey = isCodexOAuthProfile
+      ? undefined
+      : sanitizeApiKey(processEnv.CODEX_API_KEY) ||
+        sanitizeApiKey(persistedEnv.CODEX_API_KEY)
+    const liveCodexCredentials = isCodexOAuthProfile
+      ? undefined
+      : resolveCodexApiCredentials(processEnv)
+    const codexAccountId = isCodexOAuthProfile
+      ? persistedEnv.CHATGPT_ACCOUNT_ID || persistedEnv.CODEX_ACCOUNT_ID
+      : processEnv.CHATGPT_ACCOUNT_ID ||
+        processEnv.CODEX_ACCOUNT_ID ||
+        liveCodexCredentials?.accountId ||
+        persistedEnv.CHATGPT_ACCOUNT_ID ||
+        persistedEnv.CODEX_ACCOUNT_ID
 
     return buildCompatibilityProcessEnv({
       processEnv,
@@ -1315,17 +1326,30 @@ export async function applySavedProfileToCurrentSession(options: {
     processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
 
   if (options.profileFile.profile === 'codex' && hasExplicitSelection) {
+    const isCodexOAuthProfile =
+      options.profileFile.env.CODEX_CREDENTIAL_SOURCE === 'oauth'
+    const buildEnvSource = isCodexOAuthProfile
+      ? { ...processEnv }
+      : processEnv
+    if (isCodexOAuthProfile) {
+      delete buildEnvSource.CODEX_API_KEY
+      delete buildEnvSource.CODEX_ACCOUNT_ID
+      delete buildEnvSource.CHATGPT_ACCOUNT_ID
+    }
     const explicitEnv = await buildLaunchEnv({
       profile: options.profileFile.profile,
       persisted: options.profileFile,
       goal: normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
-      processEnv,
+      processEnv: buildEnvSource,
       getOllamaChatBaseUrl,
       readGeminiAccessToken,
     })
     delete explicitEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
     delete explicitEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
-    const validationError = await getProviderValidationError(explicitEnv)
+    const validationEnv = isCodexOAuthProfile
+      ? { ...explicitEnv, CODEX_API_KEY: 'codex-oauth-token-for-validation' }
+      : explicitEnv
+    const validationError = await getProviderValidationError(validationEnv)
 
     if (profileManagedEnv) {
       delete processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
@@ -1369,7 +1393,10 @@ export async function applySavedProfileToCurrentSession(options: {
     getOllamaChatBaseUrl,
     readGeminiAccessToken,
   })
-  const validationError = await getProviderValidationError(nextEnv)
+  const validationEnv = isCodexOAuthProfile
+    ? { ...nextEnv, CODEX_API_KEY: 'codex-oauth-token-for-validation' }
+    : nextEnv
+  const validationError = await getProviderValidationError(validationEnv)
   if (validationError) {
     return validationError
   }
