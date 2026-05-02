@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { detectProvider } from './StartupScreen.js'
+import stripAnsi from 'strip-ansi'
+import { detectProvider, printStartupScreen } from './StartupScreen.js'
 import { saveGlobalConfig } from '../utils/config.js'
 import {
   resetSettingsCache,
@@ -25,6 +26,9 @@ const ENV_KEYS = [
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
+const originalMacro = (globalThis as Record<string, unknown>).MACRO
+const originalIsTTY = process.stdout.isTTY
+const originalWrite = process.stdout.write
 
 beforeEach(() => {
   for (const key of ENV_KEYS) {
@@ -44,6 +48,12 @@ afterEach(() => {
     ...current,
     model: undefined,
   }))
+  ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+  Object.defineProperty(process.stdout, 'isTTY', {
+    configurable: true,
+    value: originalIsTTY,
+  })
+  process.stdout.write = originalWrite
   for (const key of ENV_KEYS) {
     if (originalEnv[key] === undefined) {
       delete process.env[key]
@@ -59,6 +69,30 @@ function setupOpenAIMode(baseUrl: string, model: string): void {
   process.env.OPENAI_MODEL = model
   process.env.OPENAI_API_KEY = 'test-key'
 }
+
+describe('printStartupScreen logo', () => {
+  test('renders CLAUDE with a D-shaped D instead of an O-shaped block', () => {
+    ;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: true,
+    })
+
+    let output = ''
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      output += chunk.toString()
+      return true
+    }) as typeof process.stdout.write
+
+    printStartupScreen()
+
+    const plainOutput = stripAnsi(output)
+    expect(plainOutput).toContain('███████╗ ████████╗')
+    expect(plainOutput).toContain('██╔═══██╗ ██╔═════╝')
+    expect(plainOutput).toContain('███████╔╝ ████████╗')
+    expect(plainOutput).not.toContain('████████║ ████████╗')
+  })
+})
 
 // --- Issue #855: aggregator URL must win over vendor-prefixed model name ---
 
