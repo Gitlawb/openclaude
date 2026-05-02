@@ -440,19 +440,32 @@ describe('Compact preserved segment regression', () => {
     // Expected: preserved chain (4 entries) + post-boundary (2 entries) = 6
     // Stale pre-compact entries should be pruned
     // The system boundary entry is indexed but NOT included in messages (stripped)
-    expect(messages.length).toBeGreaterThanOrEqual(4) // At least preserved chain
-    expect(messages.length).toBeLessThanOrEqual(6) // Preserved + post, no stale
+    // The anchor in this test is boundaryUuid (system entry), so it's filtered out
+    expect(messages.length).toBe(6) // Exact: preserved(4) + post(2), no stale, no system
 
-    // Verify content: no stale messages should appear
+    // No system entries in final messages
+    expect(messages.every(m => (m as Record<string, unknown>).type !== 'system')).toBe(true)
+
+    // Extract content properly: message is {role, content}, access .content
     const contents = messages.map(m => {
-      const content = (m as Record<string, unknown>).message
+      const msg = (m as Record<string, unknown>).message as Record<string, unknown> | undefined
+      if (!msg) return ''
+      const content = msg.content
       if (typeof content === 'string') return content
       if (Array.isArray(content)) {
         const textBlock = content.find((b: Record<string, unknown>) => b.type === 'text')
-        return textBlock?.text ?? ''
+        return (textBlock?.text as string) ?? ''
       }
       return ''
     })
+
+    // Exact content verification
+    expect(contents.some(c => c.includes('preserved turn 1'))).toBe(true)
+    expect(contents.some(c => c.includes('preserved turn 2'))).toBe(true)
+    expect(contents.some(c => c.includes('post-boundary user'))).toBe(true)
+    expect(contents.some(c => c.includes('post-boundary response'))).toBe(true)
+
+    // No stale content
     expect(contents.some(c => c.includes('stale'))).toBe(false)
 
     session.close()
