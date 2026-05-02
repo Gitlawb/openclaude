@@ -11,6 +11,8 @@ beforeAll(() => {
   writeFileSync(join(vault, "index.md"), "# Index\n[[Projects/Alpha]]");
   writeFileSync(join(vault, "Projects", "Alpha.md"), "# Alpha\nBudget: 100k\nStatus: active");
   writeFileSync(join(vault, "Projects", "Beta.md"), "# Beta\nBudget: 50k\nStatus: planning");
+  mkdirSync(join(vault, ".obsidian"), { recursive: true });
+  writeFileSync(join(vault, ".obsidian", "hidden.md"), "# Hidden — should be skipped");
 });
 
 describe("walk", () => {
