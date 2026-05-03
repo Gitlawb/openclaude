@@ -1,0 +1,4 @@
+out/
+release/
+node_modules/
+dist/
