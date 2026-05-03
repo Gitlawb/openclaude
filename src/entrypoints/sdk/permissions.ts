@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'crypto'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
+import type { PermissionDecision, PermissionMode } from '../../types/permissions.js'
 import {
   getEmptyToolPermissionContext,
   type ToolPermissionContext,
@@ -173,7 +174,7 @@ export interface PermissionContextOptions {
 }
 
 export function buildPermissionContext(options: PermissionContextOptions): ToolPermissionContext {
-  const base = getEmptyToolPermissionContext()
+  const base: ToolPermissionContext = getEmptyToolPermissionContext()
   const mode = options.permissionMode ?? 'default'
 
   // Map SDK permission mode to internal PermissionMode
@@ -196,8 +197,9 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
 
   // Wire additionalDirectories into the permission context
   if (options.additionalDirectories && options.additionalDirectories.length > 0) {
+    const dirsMap = base.additionalWorkingDirectories as Map<string, unknown>
     for (const dir of options.additionalDirectories) {
-      base.additionalWorkingDirectories.set(dir, true)
+      dirsMap.set(dir, true)
     }
   }
 
@@ -253,16 +255,18 @@ export function createExternalCanUseTool(
     const resolved = typeof sessionId === 'function' ? sessionId() : sessionId
     return resolved ?? NO_SESSION_PLACEHOLDER
   }
-  return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => {
+  return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision): Promise<PermissionDecision> => {
+    // Cast input to ensure type compatibility with PermissionDecision
+    const typedInput = input as Record<string, unknown>
     // If a forced decision was passed in, honor it
     if (forceDecision) return forceDecision
 
     // If the user provided a synchronous canUseTool callback, use it
     if (userFn) {
       try {
-        const result = await userFn(tool.name, input, { toolUseID })
+        const result = await userFn(tool.name, typedInput, { toolUseID })
         if (result.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: result.updatedInput ?? input }
+          return { behavior: 'allow' as const, updatedInput: (result.updatedInput as Record<string, unknown> | undefined) ?? typedInput }
         }
         return {
           behavior: 'deny' as const,
@@ -328,7 +332,16 @@ export function createExternalCanUseTool(
 
       if (!raceResult.timedOut && raceResult.result) {
         permissionTarget.deletePendingPermission(toolUseID)
-        return raceResult.result
+        // Convert PermissionResolveDecision to PermissionDecision
+        const res = raceResult.result
+        if (res.behavior === 'allow') {
+          return { behavior: 'allow' as const, updatedInput: res.updatedInput ?? typedInput }
+        }
+        return {
+          behavior: 'deny' as const,
+          message: res.message,
+          decisionReason: { type: 'mode' as const, mode: res.decisionReason.mode as PermissionMode },
+        }
       }
 
       // Timeout — emit event and clean up
@@ -389,18 +402,19 @@ export async function connectSdkMcpServers(
           client: {
             type: 'failed' as const,
             name,
-            config: { scope: 'session' as const } as ScopedMcpServerConfig,
+            config: { scope: 'session' } as unknown as ScopedMcpServerConfig,
             error: `Invalid MCP server config for '${name}': expected object, got ${config === null ? 'null' : Array.isArray(config) ? 'array' : typeof config}`,
           },
           tools: [],
         }
       }
 
-      // Convert SDK config to ScopedMcpServerConfig format
-      const scopedConfig: ScopedMcpServerConfig = {
+      // Convert SDK config to internal format with session scope
+      // Note: 'session' is SDK-specific, not part of internal ConfigScope
+      const scopedConfig = {
         ...(config as Record<string, unknown>),
-        scope: 'session' as const, // SDK servers are scoped to session
-      }
+        scope: 'session',
+      } as const
 
       // SDK-type MCP servers (type: 'sdk') carry in-process tool definitions
       // created via the tool() helper. Convert SdkMcpToolDefinition to Tool
@@ -458,7 +472,9 @@ export async function connectSdkMcpServers(
 
       try {
         // Connect to the server
-        const client = await connectToServer(name, scopedConfig, {
+        // Note: SDK 'session' scope is not part of internal ConfigScope,
+        // but connectToServer accepts any object with scope field
+        const client = await connectToServer(name, scopedConfig as unknown as ScopedMcpServerConfig, {
           totalServers: Object.keys(mcpServers).length,
           stdioCount: 0,
           sseCount: 0,
@@ -498,7 +514,8 @@ export async function connectSdkMcpServers(
     if (result.status === 'fulfilled') {
       // SDK-type servers return null client — only push real clients
       if (result.value.client != null) {
-        clients.push(result.value.client)
+        // Cast needed: failed client from invalid config has session-scoped config
+        clients.push(result.value.client as MCPServerConnection)
       }
       tools.push(...result.value.tools)
     }

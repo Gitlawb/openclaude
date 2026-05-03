@@ -255,7 +255,7 @@ class SDKSessionImpl implements SDKSession {
 
     const self = this
     const inner = runWithSdkContext(sdkContext, () => {
-      return (async function* (): AsyncIterator<SDKMessage> {
+      return (async function* (): AsyncGenerator<SDKMessage> {
         await init()
 
         // Load agent definitions once (not on every sendMessage call)
@@ -335,6 +335,14 @@ class SDKSessionImpl implements SDKSession {
   interrupt(): void {
     if (this._engine) {
       this._engine.interrupt()
+    }
+    // Deny all pending permission prompts before clearing
+    for (const [toolUseId, pending] of this.pendingPermissionPrompts) {
+      pending.resolve({
+        behavior: 'deny',
+        message: 'Session interrupted',
+        decisionReason: { type: 'mode', mode: 'default' },
+      })
     }
     this.timeoutQueue.length = 0
     this.pendingPermissionPrompts.clear()

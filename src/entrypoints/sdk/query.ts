@@ -5,6 +5,7 @@
  * factory functions.
  */
 
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import { randomUUID } from 'crypto'
 import { dirname } from 'path'
 import { QueryEngine } from '../../QueryEngine.js'
@@ -506,7 +507,7 @@ class QueryImpl implements Query {
 
     const self = this
     const inner = runWithSdkContext(sdkContext, () => {
-      return (async function* (): AsyncIterator<SDKMessage> {
+      return (async function* (): AsyncGenerator<SDKMessage> {
         // Fast exit: if interrupt()/close() was called before iteration
         // started, skip init entirely — avoids auth/network side-effects.
         if (self.abortController.signal.aborted) return
@@ -739,10 +740,11 @@ class QueryImpl implements Query {
 
   async setPermissionMode(mode: QueryPermissionMode): Promise<void> {
     // Preserve additionalDirectories from the original permission context
+    const dirsMap = this.permissionContext.additionalWorkingDirectories as Map<string, unknown>
     const newPermissionContext = buildPermissionContext({
       cwd: this.cwd,
       permissionMode: mode,
-      additionalDirectories: Array.from(this.permissionContext.additionalWorkingDirectories.keys()),
+      additionalDirectories: Array.from(dirsMap.keys()),
       allowDangerouslySkipPermissions: this.permissionContext.isBypassPermissionsModeAvailable,
     })
     this.permissionContext = newPermissionContext
@@ -775,6 +777,14 @@ class QueryImpl implements Query {
   interrupt(): void {
     if (this._engine) {
       this._engine.interrupt()
+    }
+    // Deny all pending permission prompts before clearing
+    for (const [toolUseId, pending] of this.pendingPermissionPrompts) {
+      pending.resolve({
+        behavior: 'deny',
+        message: 'Query interrupted',
+        decisionReason: { type: 'mode', mode: 'default' },
+      })
     }
     this.timeoutQueue.length = 0
     this.pendingPermissionPrompts.clear()
@@ -897,7 +907,7 @@ class QueryImpl implements Query {
 
   mcpServerStatus(): McpServerStatus[] {
     // SDK stores MCP clients via engine.getMcpClients()
-    const clients: MCPServerConnection[] = this.engine.getMcpClients?.() ?? []
+    const clients = this.engine.getMcpClients?.() ?? []
     return clients.map((client): McpServerStatus => {
       const base: McpServerStatus = {
         name: client.name,
@@ -921,11 +931,27 @@ class QueryImpl implements Query {
     try {
       const { getAccountInformation, getAnthropicApiKeyWithSource } = await import('../../utils/auth.js')
       const info = getAccountInformation()
-      const { source: apiKeySource } = getAnthropicApiKeyWithSource()
-      if (info) {
-        return { apiKeySource: (info.apiKeySource ?? apiKeySource) as ApiKeySource, ...info }
+      const { source } = getAnthropicApiKeyWithSource()
+      // Cast to string to avoid type conflict between internal and SDK ApiKeySource
+      const internalSource: string = source
+      // Map internal ApiKeySource to SDK ApiKeySource
+      // Internal has additional values: apiKeyHelper, ANTHROPIC_API_KEY, /login managed key
+      const mapToSdkSource = (src: string): ApiKeySource => {
+        if (src === 'apiKeyHelper' || src === 'ANTHROPIC_API_KEY' || src === '/login managed key') {
+          return 'user' // These are user-provided keys
+        }
+        // SDK ApiKeySource: "user" | "project" | "org" | "temporary" | "oauth" | "none"
+        if (['user', 'project', 'org', 'temporary', 'oauth', 'none'].includes(src)) {
+          return src as ApiKeySource
+        }
+        return 'none' // Unknown source defaults to none
       }
-      return { apiKeySource: apiKeySource as ApiKeySource }
+      const sdkSource: ApiKeySource = mapToSdkSource(internalSource)
+      if (info) {
+        // Spread info first, then override apiKeySource with SDK-mapped value
+        return { ...info, apiKeySource: sdkSource }
+      }
+      return { apiKeySource: sdkSource }
     } catch {
       return { apiKeySource: 'none' }
     }
@@ -957,14 +983,14 @@ class QueryImpl implements Query {
  */
 function extractPromptFromUserMessage(
   msg: SDKUserMessage,
-): string | Array<{ type: string; text?: string; [key: string]: unknown }> {
+): string | ContentBlockParam[] {
   const { message } = msg
   // message is always { role: "user", content: string | Array<unknown> }
   if (typeof message.content === 'string') {
     return message.content
   }
   if (Array.isArray(message.content)) {
-    return message.content as Array<{ type: string; text?: string; [key: string]: unknown }>
+    return message.content as ContentBlockParam[]
   }
   return String(message.content ?? '')
 }
