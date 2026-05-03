@@ -11,7 +11,7 @@
  */
 import { afterAll, describe, expect, test } from 'bun:test'
 import { execSync } from 'child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync, cpSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync, cpSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 
@@ -67,6 +67,8 @@ function setupConsumerProject(name: string): string {
         version: '0.0.0-test',
         type: 'module',
         exports: {
+          './package.json': './package.json',
+          './dist/cli.mjs': './dist/cli.mjs',
           './sdk': {
             types: './src/entrypoints/sdk.d.ts',
             import: './dist/sdk.mjs',
@@ -190,4 +192,33 @@ describe('package consumer types', () => {
 
     expect(tsc(tmpDir)).toBe('')
   }, 30_000)
+})
+
+describe('package exports resolution', () => {
+  test('package.json export is defined in exports map', () => {
+    // Read the package.json and verify exports structure
+    const pkgJson = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'))
+    expect(pkgJson.exports).toBeDefined()
+    expect(pkgJson.exports['./package.json']).toBe('./package.json')
+    expect(pkgJson.exports['./dist/cli.mjs']).toBe('./dist/cli.mjs')
+    expect(pkgJson.exports['./sdk']).toBeDefined()
+    expect(pkgJson.exports['./sdk'].import).toBe('./dist/sdk.mjs')
+    expect(pkgJson.exports['./sdk'].types).toBe('./src/entrypoints/sdk.d.ts')
+  })
+
+  test('root export is not defined (intentionally blocked)', () => {
+    // Verify that "." is not in exports map
+    const pkgJson = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'))
+    expect(pkgJson.exports['.']).toBeUndefined()
+    // No main field means root import is intentionally broken
+    expect(pkgJson.main).toBeUndefined()
+  })
+
+  test('exported files exist after build', () => {
+    // Verify the files referenced in exports exist
+    expect(existsSync(join(ROOT, 'package.json'))).toBe(true)
+    expect(existsSync(join(ROOT, 'dist', 'cli.mjs'))).toBe(true)
+    expect(existsSync(join(ROOT, 'dist', 'sdk.mjs'))).toBe(true)
+    expect(existsSync(join(ROOT, 'src', 'entrypoints', 'sdk.d.ts'))).toBe(true)
+  })
 })

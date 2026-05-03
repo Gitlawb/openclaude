@@ -7,6 +7,8 @@
     "openclaude": "./bin/openclaude"
   },
   "exports": {
+    "./package.json": "./package.json",
+    "./dist/cli.mjs": "./dist/cli.mjs",
     "./sdk": {
       "types": "./src/entrypoints/sdk.d.ts",
       "import": "./dist/sdk.mjs"

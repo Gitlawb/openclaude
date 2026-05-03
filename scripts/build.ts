@@ -118,8 +118,8 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
-let result: Awaited<ReturnType<typeof Bun.build>>
-let sdkResult: Awaited<ReturnType<typeof Bun.build>>
+let result: Awaited<ReturnType<typeof Bun.build>> | undefined
+let sdkResult: Awaited<ReturnType<typeof Bun.build>> | undefined
 
 try {
 
@@ -899,7 +899,7 @@ if (!sdkResult.success) {
 }
 
 // ── Validate SDK bundle for React/Ink leakage ──────────────────────────────
-if (sdkResult.success) {
+if (sdkResult?.success) {
   const sdkBundle = readFileSync('./dist/sdk.mjs', 'utf-8')
   // Patterns that indicate React/Ink code leaked into the SDK bundle.
   const reactInkPatterns = [
@@ -922,7 +922,7 @@ if (sdkResult.success) {
 }
 
 // ── Validate external lists ──────────────────────────────────────────────
-if (result.success && sdkResult.success) {
+if (result?.success && sdkResult?.success) {
   console.log('\nValidating external lists...')
   const validation = Bun.spawnSync(['bun', 'run', 'scripts/validate-externals.ts'], {
     stdout: 'inherit',
