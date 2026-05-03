@@ -437,8 +437,9 @@ class QueryImpl implements Query {
   }
 
   /** Late-bind the engine (used by query() which creates QueryImpl before the engine). */
-  setEngine(engine: QueryEngine): void {
+  setEngine(engine: QueryEngine, options?: { injected?: boolean }): void {
     this._engine = engine
+    this._engineWasInjected = options?.injected ?? true
   }
 
   /**
@@ -512,28 +513,14 @@ class QueryImpl implements Query {
         // started, skip init entirely — avoids auth/network side-effects.
         if (self.abortController.signal.aborted) return
 
-        // Track whether engine was injected at construction (test mock, SDK host override).
-      // If so, init() failures are non-fatal — the mock engine is self-contained.
-      // IMPORTANT: Check _engineWasInjected, not _engine !== null — the latter is
-      // always true after setEngine() is called in the query() factory.
-      const engineWasOverridden = self._engineWasInjected
-
-        // Ensure init() completes before any query runs
-        // init() applies config env vars, so we apply our overrides AFTER
-        try {
+        // Skip init for mock/host-injected engines; they are self-contained.
+        const engineWasOverridden = self._engineWasInjected
+        if (!engineWasOverridden) {
           await init()
-        } catch (initError) {
-          // If a custom engine was injected (test mock, SDK host override),
-          // init() failures are non-fatal — the engine handles everything.
-          if (engineWasOverridden) {
-            // Swallow — mock/overridden engine doesn't need real init
-          } else {
-            throw initError
-          }
-          }
+        }
 
-          // Load agent definitions BEFORE creating engine context
-          let agentDefs: { activeAgents: any[]; allAgents: any[] } = { activeAgents: [], allAgents: [] }
+        // Load agent definitions BEFORE creating engine context
+        let agentDefs: { activeAgents: any[]; allAgents: any[] } = { activeAgents: [], allAgents: [] }
           try {
             agentDefs = await getAgentDefinitionsWithOverrides(self.cwd)
           } catch (err) {
@@ -1151,7 +1138,7 @@ export function query(params: {
   const engine = new QueryEngine(engineConfig)
 
   // Wire the engine into QueryImpl (was null during construction)
-  queryImpl.setEngine(engine)
+  queryImpl.setEngine(engine, { injected: false })
 
   return queryImpl
 }

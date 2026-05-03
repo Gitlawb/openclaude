@@ -62,6 +62,14 @@ export class MockQueryEngine {
     this.config.tools = tools
   }
 
+  getMcpClients(): readonly unknown[] {
+    return this.config.mcpClients
+  }
+
+  setMcpClients(clients: unknown[]): void {
+    this.config.mcpClients = clients
+  }
+
   getMessages(): unknown[] {
     return this._messages
   }

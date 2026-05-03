@@ -10,7 +10,7 @@ import {
 } from '../../src/entrypoints/sdk/permissions.js'
 import type { PermissionResolveDecision } from '../../src/entrypoints/sdk/permissions.js'
 import { getEmptyToolPermissionContext } from '../../src/Tool.js'
-import { getTools } from '../../src/tools.js'
+import { filterToolsByDenyRules } from '../../src/tools.js'
 
 describe('buildPermissionContext', () => {
   test('returns default mode when no permissionMode specified', () => {
@@ -84,22 +84,24 @@ describe('buildPermissionContext', () => {
 })
 
 describe('disallowedTools tool filtering', () => {
-  test('Bash is excluded from getTools when disallowed', () => {
+  const baseTools = [{ name: 'Bash' }, { name: 'Read' }]
+
+  test('Bash is excluded from the tool list when disallowed', () => {
     const ctx = buildPermissionContext({ cwd: '/tmp', disallowedTools: ['Bash'] })
-    const tools = getTools(ctx)
+    const tools = filterToolsByDenyRules(baseTools, ctx)
     expect(tools.some(t => t.name === 'Bash')).toBe(false)
   })
 
   test('disallowedTools does not affect other tools', () => {
     const ctx = buildPermissionContext({ cwd: '/tmp', disallowedTools: ['Bash'] })
-    const tools = getTools(ctx)
+    const tools = filterToolsByDenyRules(baseTools, ctx)
     // Read tool should still be present
     expect(tools.some(t => t.name === 'Read')).toBe(true)
   })
 
-  test('empty disallowedTools includes all tools', () => {
+  test('empty disallowedTools includes the tool list', () => {
     const ctx = buildPermissionContext({ cwd: '/tmp' })
-    const tools = getTools(ctx)
+    const tools = filterToolsByDenyRules(baseTools, ctx)
     expect(tools.some(t => t.name === 'Bash')).toBe(true)
   })
 })
