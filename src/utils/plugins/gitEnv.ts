@@ -1,4 +1,5 @@
 import { logForDebugging } from '../debug.js'
+import { CONTROL_CHAR_PATTERN } from '../validation.js'
 
 /**
  * Git 2.30+ refuses to start when any environment value contains a NUL,
@@ -9,7 +10,7 @@ import { logForDebugging } from '../debug.js'
  * every plugin clone or pull. We drop offending entries before forwarding
  * the environment to git.
  */
-const GIT_UNSAFE_VALUE_RE = /[\0\r\n]/
+const GIT_UNSAFE_VALUE_RE = CONTROL_CHAR_PATTERN
 
 const GIT_NO_PROMPT_ENV = {
   GIT_TERMINAL_PROMPT: '0', // Prevent terminal credential prompts

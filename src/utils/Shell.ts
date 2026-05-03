@@ -1,4 +1,5 @@
-import { execFileSync, spawn } from 'child_process'
+import { execFile, spawn } from 'child_process'
+import { promisify } from 'util'
 import { constants as fsConstants, readFileSync, unlinkSync } from 'fs'
 import { type FileHandle, mkdir, open, stat } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
@@ -12,6 +13,7 @@ import {
 } from '../bootstrap/state.js'
 import { generateTaskId } from '../Task.js'
 import { pwd } from './cwd.js'
+import { AsyncLock } from './asyncLock.js'
 import { logForDebugging } from './debug.js'
 import { errorMessage, isENOENT } from './errors.js'
 import { getFsImplementation } from './fsOperations.js'
@@ -41,13 +43,18 @@ import type { ShellProvider, ShellType } from './shell/shellProvider.js'
 import { subprocessEnv } from './subprocessEnv.js'
 import { posixPathToWindowsPath } from './windowsPaths.js'
 
-const DEFAULT_TIMEOUT = 30 * 60 * 1000 // 30 minutes
+const DEFAULT_TIMEOUT = 5 * 60 * 1000 // 5 minutes (reduced from 30 to prevent hung commands)
+
+// Lock to prevent race conditions in cwd operations
+const cwdLock = new AsyncLock()
 
 export type ShellConfig = {
   provider: ShellProvider
 }
 
-function isExecutable(shellPath: string): boolean {
+const execFileAsync = promisify(execFile)
+
+async function isExecutable(shellPath: string): Promise<boolean> {
   try {
     accessSync(shellPath, fsConstants.X_OK)
     return true
@@ -55,10 +62,9 @@ function isExecutable(shellPath: string): boolean {
     // Fallback for Nix and other environments where X_OK check might fail
     try {
       // Try to execute the shell with --version, which should exit quickly
-      // Use execFileSync to avoid shell injection vulnerabilities
-      execFileSync(shellPath, ['--version'], {
+      // Use execFile (async) to avoid blocking event loop
+      await execFileAsync(shellPath, ['--version'], {
         timeout: 1000,
-        stdio: 'ignore',
       })
       return true
     } catch {
@@ -77,7 +83,7 @@ export async function findSuitableShell(): Promise<string> {
     // Validate it's a supported shell type
     const isSupported =
       shellOverride.includes('bash') || shellOverride.includes('zsh')
-    if (isSupported && isExecutable(shellOverride)) {
+    if (isSupported && await isExecutable(shellOverride)) {
       logForDebugging(`Using shell override: ${shellOverride}`)
       return shellOverride
     } else {
@@ -118,22 +124,23 @@ export async function findSuitableShell(): Promise<string> {
   }
 
   // Always prioritize SHELL env variable if it's a supported shell type
-  if (isEnvShellSupported && isExecutable(env_shell)) {
+  if (isEnvShellSupported && await isExecutable(env_shell)) {
     supportedShells.unshift(env_shell)
   }
 
-  const shellPath = supportedShells.find(shell => shell && isExecutable(shell))
-
-  // If no valid shell found, throw a helpful error
-  if (!shellPath) {
-    const errorMsg =
-      'No suitable shell found. Claude CLI requires a Posix shell environment. ' +
-      'Please ensure you have a valid shell installed and the SHELL environment variable set.'
-    logError(new Error(errorMsg))
-    throw new Error(errorMsg)
+  // Find first executable shell
+  for (const shell of supportedShells) {
+    if (shell && await isExecutable(shell)) {
+      return shell
+    }
   }
 
-  return shellPath
+  // If no valid shell found, throw a helpful error
+  const errorMsg =
+    'No suitable shell found. Claude CLI requires a Posix shell environment. ' +
+    'Please ensure you have a valid shell installed and the SHELL environment variable set.'
+  logError(new Error(errorMsg))
+  throw new Error(errorMsg)
 }
 
 async function getShellConfigImpl(): Promise<ShellConfig> {
@@ -215,38 +222,50 @@ export async function exec(
 
   let commandString = builtCommand
 
-  let cwd = pwd()
+  // Use lock to prevent race conditions in cwd validation and recovery
+  const cwd = await cwdLock.withLock(async () => {
+    let currentCwd = pwd()
 
-  // Recover if the current working directory no longer exists on disk,
-  // or was replaced by a non-directory (e.g., the path was renamed and a file
-  // was created in its place). realpath() succeeds on any existing path
-  // regardless of type, so we must also verify it's a directory — otherwise
-  // spawn would fail later with ENOTDIR / exit 126.
-  let cwdIsValidDir = false
-  try {
-    cwdIsValidDir = (await stat(cwd)).isDirectory()
-  } catch {
-    cwdIsValidDir = false
-  }
-  if (!cwdIsValidDir) {
-    const fallback = getOriginalCwd()
-    logForDebugging(
-      `Shell CWD "${cwd}" is not a valid directory, recovering to "${fallback}"`,
-    )
-    let fallbackIsValidDir = false
+    // Recover if the current working directory no longer exists on disk,
+    // or was replaced by a non-directory (e.g., the path was renamed and a file
+    // was created in its place). realpath() succeeds on any existing path
+    // regardless of type, so we must also verify it's a directory — otherwise
+    // spawn would fail later with ENOTDIR / exit 126.
+    let cwdIsValidDir = false
     try {
-      fallbackIsValidDir = (await stat(fallback)).isDirectory()
+      cwdIsValidDir = (await stat(currentCwd)).isDirectory()
     } catch {
-      fallbackIsValidDir = false
+      cwdIsValidDir = false
     }
-    if (fallbackIsValidDir) {
-      setCwdState(fallback)
-      cwd = fallback
-    } else {
-      return createFailedCommand(
-        `Working directory "${cwd}" is no longer a valid directory. Please restart Claude from an existing directory.`,
+    if (!cwdIsValidDir) {
+      const fallback = getOriginalCwd()
+      logForDebugging(
+        `Shell CWD "${currentCwd}" is not a valid directory, recovering to "${fallback}"`,
       )
+      let fallbackIsValidDir = false
+      try {
+        fallbackIsValidDir = (await stat(fallback)).isDirectory()
+      } catch {
+        fallbackIsValidDir = false
+      }
+      if (fallbackIsValidDir) {
+        setCwdState(fallback)
+        currentCwd = fallback
+      } else {
+        throw new Error(
+          `Working directory "${currentCwd}" is no longer a valid directory. Please restart Claude from an existing directory.`,
+        )
+      }
     }
+
+    return currentCwd
+  })
+
+  // Handle error from lock
+  if (!cwd) {
+    return createFailedCommand(
+      `Working directory validation failed.`,
+    )
   }
 
   // If already aborted, don't spawn the process at all
@@ -405,24 +424,27 @@ export async function exec(
       }
       // Only foreground tasks update the cwd
       if (result && !preventCwdChanges && !result.backgroundTaskId) {
-        try {
-          let newCwd = readFileSync(nativeCwdFilePath, {
-            encoding: 'utf8',
-          }).trim()
-          if (getPlatform() === 'windows') {
-            newCwd = posixPathToWindowsPath(newCwd)
+        // Use lock to prevent race conditions when reading/updating cwd
+        await cwdLock.withLock(async () => {
+          try {
+            let newCwd = readFileSync(nativeCwdFilePath, {
+              encoding: 'utf8',
+            }).trim()
+            if (getPlatform() === 'windows') {
+              newCwd = posixPathToWindowsPath(newCwd)
+            }
+            // cwd is NFC-normalized (setCwdState); newCwd from `pwd -P` may be
+            // NFD on macOS APFS. Normalize before comparing so Unicode paths
+            // don't false-positive as "changed" on every command.
+            if (newCwd.normalize('NFC') !== cwd) {
+              setCwd(newCwd, cwd)
+              invalidateSessionEnvCache()
+              void onCwdChangedForHooks(cwd, newCwd)
+            }
+          } catch {
+            logEvent('tengu_shell_set_cwd', { success: false })
           }
-          // cwd is NFC-normalized (setCwdState); newCwd from `pwd -P` may be
-          // NFD on macOS APFS. Normalize before comparing so Unicode paths
-          // don't false-positive as "changed" on every command.
-          if (newCwd.normalize('NFC') !== cwd) {
-            setCwd(newCwd, cwd)
-            invalidateSessionEnvCache()
-            void onCwdChangedForHooks(cwd, newCwd)
-          }
-        } catch {
-          logEvent('tengu_shell_set_cwd', { success: false })
-        }
+        })
       }
       // Clean up the temp file used for cwd tracking
       try {

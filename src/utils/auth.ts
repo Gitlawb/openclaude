@@ -15,6 +15,7 @@ import {
   getIsNonInteractiveSession,
   preferThirdPartyAuthentication,
 } from '../bootstrap/state.js'
+import { validateHelperCommand } from './security/commandValidation.js'
 import {
   getMockSubscriptionType,
   shouldUseMockSubscription,
@@ -576,6 +577,16 @@ async function _executeApiKeyHelper(
     }
   }
 
+  // SECURITY: Validate helper command before execution
+  try {
+    validateHelperCommand(apiKeyHelper, 'apiKeyHelper')
+  } catch (error) {
+    logAntError('apiKeyHelper validation failed', error as Error)
+    throw new Error(
+      `apiKeyHelper validation failed: ${errorMessage(error)}`,
+    )
+  }
+
   const result = await execa(apiKeyHelper, {
     shell: true,
     timeout: 10 * 60 * 1000,
@@ -670,6 +681,21 @@ const AWS_AUTH_REFRESH_TIMEOUT_MS = 3 * 60 * 1000
 
 export function refreshAwsAuth(awsAuthRefresh: string): Promise<boolean> {
   logForDebugging('Running AWS auth refresh command')
+
+  // SECURITY: Validate helper command before execution
+  try {
+    validateHelperCommand(awsAuthRefresh, 'awsAuthRefresh')
+  } catch (error) {
+    logAntError('awsAuthRefresh validation failed', error as Error)
+    // biome-ignore lint/suspicious/noConsole:: intentional console output
+    console.error(
+      chalk.red(
+        `awsAuthRefresh validation failed: ${errorMessage(error)}`,
+      ),
+    )
+    return Promise.resolve(false)
+  }
+
   // Start tracking authentication status
   const authStatusManager = AwsAuthStatusManager.getInstance()
   authStatusManager.startAuthentication()
@@ -761,6 +787,17 @@ async function getAwsCredsFromCredentialExport(): Promise<{
     // only actually do the export if caller-identity calls
     try {
       logForDebugging('Running AWS credential export command')
+
+      // SECURITY: Validate helper command before execution
+      try {
+        validateHelperCommand(awsCredentialExport, 'awsCredentialExport')
+      } catch (error) {
+        logAntError('awsCredentialExport validation failed', error as Error)
+        throw new Error(
+          `awsCredentialExport validation failed: ${errorMessage(error)}`,
+        )
+      }
+
       const result = await execa(awsCredentialExport, {
         shell: true,
         reject: false,

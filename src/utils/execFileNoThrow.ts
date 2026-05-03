@@ -7,6 +7,7 @@ import { spawn } from 'cross-spawn'
 import path from 'node:path'
 import { getCwd } from '../utils/cwd.js'
 import { logError } from './log.js'
+import { CONTROL_CHAR_PATTERN } from './validation.js'
 
 export { execSyncWithDefaults_DEPRECATED } from './execFileNoThrowPortable.js'
 
@@ -41,7 +42,6 @@ type ProcessResultWithError = {
   signal?: string
 }
 
-const CONTROL_CHAR_PATTERN = /[\0\r\n]/
 const SAFE_BARE_EXECUTABLE_PATTERN = /^[A-Za-z0-9_.-]+$/
 
 function hasPathSyntax(value: string): boolean {

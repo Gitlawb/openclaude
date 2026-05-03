@@ -9,6 +9,8 @@
  * corpus generated from the WASM parser.
  */
 
+import { createLoopGuard } from '../loopGuard.js'
+
 export type TsNode = {
   type: string
   text: string
@@ -707,7 +709,9 @@ function parseProgram(P: ParseState): TsNode {
   const children: TsNode[] = []
   // Skip leading whitespace & newlines — program start is first content byte
   skipBlanks(P.L)
+  const guard1 = createLoopGuard(100_000, 'parseProgram:skipNewlines')
   while (true) {
+    guard1()
     const save = saveLex(P.L)
     const t = nextToken(P.L, 'cmd')
     if (t.type === 'NEWLINE') {
@@ -718,7 +722,9 @@ function parseProgram(P: ParseState): TsNode {
     break
   }
   const progStart = P.L.b
+  const guard2 = createLoopGuard(100_000, 'parseProgram:main')
   while (P.L.i < P.L.len) {
+    guard2()
     const save = saveLex(P.L)
     const t = nextToken(P.L, 'cmd')
     if (t.type === 'EOF') break
@@ -768,7 +774,9 @@ function restoreLex(L: Lexer, s: LexSave): void {
  */
 function parseStatements(P: ParseState, terminator: string | null): TsNode[] {
   const out: TsNode[] = []
+  const guard = createLoopGuard(100_000, 'parseStatements')
   while (true) {
+    guard()
     skipBlanks(P.L)
     const save = saveLex(P.L)
     const t = nextToken(P.L, 'cmd')
@@ -879,7 +887,9 @@ function parseStatements(P: ParseState, terminator: string | null): TsNode[] {
 function parseAndOr(P: ParseState): TsNode | null {
   let left = parsePipeline(P)
   if (!left) return null
+  const guard = createLoopGuard(100_000, 'parseAndOr')
   while (true) {
+    guard()
     const save = saveLex(P.L)
     const t = nextToken(P.L, 'cmd')
     if (t.type === 'OP' && (t.value === '&&' || t.value === '||')) {
@@ -919,7 +929,9 @@ function parseAndOr(P: ParseState): TsNode | null {
 }
 
 function skipNewlines(P: ParseState): void {
+  const guard = createLoopGuard(100_000, 'skipNewlines')
   while (true) {
+    guard()
     const save = saveLex(P.L)
     const t = nextToken(P.L, 'cmd')
     if (t.type !== 'NEWLINE') {
@@ -939,7 +951,9 @@ function parsePipeline(P: ParseState): TsNode | null {
   let first = parseCommand(P)
   if (!first) return null
   const parts: TsNode[] = [first]
+  const guard = createLoopGuard(100_000, 'parsePipeline')
   while (true) {
+    guard()
     const save = saveLex(P.L)
     const t = nextToken(P.L, 'cmd')
     if (t.type === 'OP' && (t.value === '|' || t.value === '|&')) {
@@ -1143,7 +1157,9 @@ function parseSimpleCommand(P: ParseState): TsNode | null {
   const assignments: TsNode[] = []
   const preRedirects: TsNode[] = []
 
+  const guard = createLoopGuard(100_000, 'parseSimpleCommand:assignments')
   while (true) {
+    guard()
     skipBlanks(P.L)
     const a = tryParseAssignment(P)
     if (a) {
@@ -1259,7 +1275,9 @@ function parseSimpleCommand(P: ParseState): TsNode | null {
   const redirects: TsNode[] = []
   let heredocRedirect: TsNode | null = null
 
+  const guard2 = createLoopGuard(100_000, 'parseSimpleCommand:args')
   while (true) {
+    guard2()
     skipBlanks(P.L)
     // Post-command redirects are greedy (repeat1 $._literal) — once a redirect
     // appears after command_name, subsequent literals attach to it per grammar's
@@ -1409,7 +1427,9 @@ function maybeRedirect(
   allowHerestring = false,
 ): TsNode {
   const redirects: TsNode[] = []
+  const guard = createLoopGuard(100_000, 'maybeRedirect')
   while (true) {
+    guard()
     skipBlanks(P.L)
     const save = saveLex(P.L)
     const r = tryParseRedirect(P)
@@ -1444,7 +1464,9 @@ function tryParseAssignment(P: ParseState): TsNode | null {
   if (peek(P.L) === '[') {
     advance(P.L)
     let depth = 1
+    const guard = createLoopGuard(100_000, 'tryParseAssignment:subscript')
     while (P.L.i < P.L.len && depth > 0) {
+      guard()
       const c = peek(P.L)
       if (c === '[') depth++
       else if (c === ']') depth--
@@ -1483,7 +1505,9 @@ function tryParseAssignment(P: ParseState): TsNode | null {
     const aoTok = nextToken(P.L, 'cmd')
     const aOpen = leaf(P, '(', aoTok)
     const elems: TsNode[] = [aOpen]
+    const guard = createLoopGuard(100_000, 'tryParseAssignment:array')
     while (true) {
+      guard()
       skipBlanks(P.L)
       if (peek(P.L) === ')') break
       const e = parseWord(P, 'arg')
@@ -1714,7 +1738,9 @@ function tryParseRedirect(P: ParseState, greedy = false): TsNode | null {
     // fails closed on any unrecognized child via tooComplex). Pipeline / list
     // operators (| && || ;) are structurally complex — emit ERROR so the same
     // fail-closed path rejects them.
+    const guard = createLoopGuard(100_000, 'tryParseRedirect:heredoc_trailing')
     while (true) {
+      guard()
       skipBlanks(P.L)
       const tc = peek(P.L)
       if (tc === '\n' || tc === '' || P.L.i >= P.L.len) break
@@ -1735,7 +1761,9 @@ function tryParseRedirect(P: ParseState, greedy = false): TsNode | null {
         advance(P.L)
         skipBlanks(P.L)
         const pipeCmds: TsNode[] = []
+        const guard2 = createLoopGuard(100_000, 'tryParseRedirect:heredoc_pipeline')
         while (true) {
+          guard2()
           const cmd = parseCommand(P)
           if (!cmd) break
           pipeCmds.push(cmd)
@@ -1834,7 +1862,9 @@ function tryParseRedirect(P: ParseState, greedy = false): TsNode | null {
     // command's dynamic precedence beats redirected_statement's prec(-1).
     let end = op.endIndex
     let taken = 0
+    const guard = createLoopGuard(100_000, 'tryParseRedirect:file_redirect_dest')
     while (true) {
+      guard()
       skipBlanks(P.L)
       if (!isRedirectLiteralStart(P)) break
       if (!greedy && taken >= 1) break
@@ -3070,7 +3100,9 @@ function parseExpansionRegexSegmented(P: ParseState): TsNode[] {
         let d = 1
         advance(P.L)
         advance(P.L)
+        const guard = createLoopGuard(100_000, 'parseRegexInBracketExpr:nested_brace')
         while (P.L.i < P.L.len && d > 0) {
+          guard()
           const nc = peek(P.L)
           if (nc === '{') d++
           else if (nc === '}') d--
@@ -3082,7 +3114,9 @@ function parseExpansionRegexSegmented(P: ParseState): TsNode[] {
         let d = 1
         advance(P.L)
         advance(P.L)
+        const guard2 = createLoopGuard(100_000, 'parseRegexInBracketExpr:nested_paren')
         while (P.L.i < P.L.len && d > 0) {
+          guard2()
           const nc = peek(P.L)
           if (nc === '(') d++
           else if (nc === ')') d--
@@ -3105,7 +3139,9 @@ function parseBacktick(P: ParseState): TsNode | null {
   P.inBacktick++
   // Parse statements inline — stop at closing backtick
   const body: TsNode[] = []
+  const guard = createLoopGuard(100_000, 'parseBacktick')
   while (true) {
+    guard()
     skipBlanks(P.L)
     if (peek(P.L) === '`' || peek(P.L) === '') break
     const save = saveLex(P.L)
@@ -3278,7 +3314,9 @@ function parseFor(P: ParseState, forTok: Token): TsNode {
   const inTok = nextToken(P.L, 'arg')
   if (inTok.type === 'WORD' && inTok.value === 'in') {
     kids.push(leaf(P, 'in', inTok))
+    const guard = createLoopGuard(100_000, 'parseFor:words')
     while (true) {
+      guard()
       skipBlanks(P.L)
       const c = peek(P.L)
       if (c === ';' || c === '\n' || c === '') break
@@ -3328,7 +3366,9 @@ function parseCase(P: ParseState, caseTok: Token): TsNode {
   skipBlanks(P.L)
   consumeKeyword(P, 'in', kids)
   skipNewlines(P)
+  const guard = createLoopGuard(100_000, 'parseCase')
   while (true) {
+    guard()
     skipBlanks(P.L)
     skipNewlines(P)
     const save = saveLex(P.L)
@@ -3359,7 +3399,9 @@ function parseCaseItem(P: ParseState): TsNode | null {
   }
   // Pattern(s)
   let isFirstAlt = true
+  const guard2 = createLoopGuard(100_000, 'parseCaseItem:patterns')
   while (true) {
+    guard2()
     skipBlanks(P.L)
     const c = peek(P.L)
     if (c === ')' || c === '') break
@@ -3533,7 +3575,9 @@ function parseCasePatternSegmented(P: ParseState): TsNode[] {
       parts.push(mk(P, type, segStart, P.L.b, []))
     }
   }
+  const guard = createLoopGuard(100_000, 'parseCasePatternSegmented')
   while (P.L.i < P.L.len) {
+    guard()
     const c = peek(P.L)
     if (c === '\\' && P.L.i + 1 < P.L.len) {
       advance(P.L)
@@ -3598,7 +3642,9 @@ function parseFunction(P: ParseState, fnTok: Token): TsNode {
 function parseDeclaration(P: ParseState, kwTok: Token): TsNode {
   const kw = leaf(P, kwTok.value, kwTok)
   const kids: TsNode[] = [kw]
+  const guard = createLoopGuard(100_000, 'parseDeclaration')
   while (true) {
+    guard()
     skipBlanks(P.L)
     const c = peek(P.L)
     if (
@@ -3650,7 +3696,9 @@ function parseDeclaration(P: ParseState, kwTok: Token): TsNode {
 function parseUnset(P: ParseState, kwTok: Token): TsNode {
   const kw = leaf(P, 'unset', kwTok)
   const kids: TsNode[] = [kw]
+  const guard = createLoopGuard(100_000, 'parseUnset')
   while (true) {
+    guard()
     skipBlanks(P.L)
     const c = peek(P.L)
     if (
@@ -3705,7 +3753,9 @@ function parseTestExpr(P: ParseState, closer: string): TsNode | null {
 function parseTestOr(P: ParseState, closer: string): TsNode | null {
   let left = parseTestAnd(P, closer)
   if (!left) return null
+  const guard = createLoopGuard(100_000, 'parseTestOr')
   while (true) {
+    guard()
     skipBlanks(P.L)
     const save = saveLex(P.L)
     if (peek(P.L) === '|' && peek(P.L, 1) === '|') {
@@ -3733,7 +3783,9 @@ function parseTestOr(P: ParseState, closer: string): TsNode | null {
 function parseTestAnd(P: ParseState, closer: string): TsNode | null {
   let left = parseTestUnary(P, closer)
   if (!left) return null
+  const guard = createLoopGuard(100_000, 'parseTestAnd')
   while (true) {
+    guard()
     skipBlanks(P.L)
     if (peek(P.L) === '&' && peek(P.L, 1) === '&') {
       const s = P.L.b
@@ -4141,7 +4193,9 @@ function parseArithCommaList(
   mode: ArithMode = 'var',
 ): TsNode[] {
   const out: TsNode[] = []
+  const guard = createLoopGuard(100_000, 'parseArithCommaList')
   while (true) {
+    guard()
     const e = parseArithTernary(P, stop, mode)
     if (e) out.push(e)
     skipBlanks(P.L)
@@ -4237,7 +4291,9 @@ function parseArithBinary(
 ): TsNode | null {
   let left = parseArithUnary(P, stop, mode)
   if (!left) return null
+  const guard = createLoopGuard(100_000, 'parseArithBinary')
   while (true) {
+    guard()
     skipBlanks(P.L)
     if (isArithStop(P, stop)) break
     if (peek(P.L) === ',') break
