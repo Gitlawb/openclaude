@@ -193,9 +193,11 @@ export async function toolToAPISchema(
   // call — name-only keying returned a stale schema (5.4% → 51% err rate, see
   // PR#25424). MCP tools also set inputJSONSchema but each has a stable schema,
   // so including it preserves their GB-flip cache stability.
+  //
+  // Use hash instead of full serialization to prevent memory leak from large schemas
   const cacheKey =
     'inputJSONSchema' in tool && tool.inputJSONSchema
-      ? `${tool.name}:${jsonStringify(tool.inputJSONSchema)}`
+      ? `${tool.name}:${createHash('sha256').update(jsonStringify(tool.inputJSONSchema)).digest('hex')}`
       : tool.name
   const cache = getToolSchemaCache()
   let base = cache.get(cacheKey)

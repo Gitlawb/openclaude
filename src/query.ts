@@ -254,6 +254,23 @@ async function* queryLoop(
   | ToolUseSummaryMessage,
   Terminal
 > {
+  // Auto-spawn Plan/Review agents se task for complexa
+  if (feature('AUTO_SPAWN_AGENTS')) {
+    const { autoSpawnHook } = await import('./utils/autoSpawnAgent.js')
+    const lastUserMessage = params.messages
+      .filter((m): m is UserMessage => m.role === 'user')
+      .at(-1)
+    if (lastUserMessage?.content) {
+      const text = typeof lastUserMessage.content === 'string'
+        ? lastUserMessage.content
+        : lastUserMessage.content
+            .filter((c) => c.type === 'text')
+            .map((c) => c.text)
+            .join(' ')
+      await autoSpawnHook(text)
+    }
+  }
+
   // Start a new turn for multi-turn context tracking
   if (
     feature('MULTI_TURN_CONTEXT') &&

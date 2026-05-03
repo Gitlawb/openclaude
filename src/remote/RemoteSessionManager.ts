@@ -94,13 +94,41 @@ export type RemoteSessionCallbacks = {
  */
 export class RemoteSessionManager {
   private websocket: SessionsWebSocket | null = null
-  private pendingPermissionRequests: Map<string, SDKControlPermissionRequest> =
-    new Map()
+  private pendingPermissionRequests: Map<
+    string,
+    { request: SDKControlPermissionRequest; timestamp: number }
+  > = new Map()
+  private cleanupInterval: NodeJS.Timeout | null = null
+  private readonly REQUEST_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
   constructor(
     private readonly config: RemoteSessionConfig,
     private readonly callbacks: RemoteSessionCallbacks,
-  ) {}
+  ) {
+    // Cleanup stale requests every minute
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleRequests()
+    }, 60 * 1000)
+  }
+
+  /**
+   * Remove permission requests older than TTL
+   */
+  private cleanupStaleRequests(): void {
+    const now = Date.now()
+    let cleaned = 0
+    for (const [id, entry] of this.pendingPermissionRequests.entries()) {
+      if (now - entry.timestamp > this.REQUEST_TTL_MS) {
+        this.pendingPermissionRequests.delete(id)
+        cleaned++
+      }
+    }
+    if (cleaned > 0) {
+      logForDebugging(
+        `[RemoteSessionManager] Cleaned ${cleaned} stale permission requests`,
+      )
+    }
+  }
 
   /**
    * Connect to the remote session via WebSocket
@@ -166,7 +194,7 @@ export class RemoteSessionManager {
       this.pendingPermissionRequests.delete(request_id)
       this.callbacks.onPermissionCancelled?.(
         request_id,
-        pendingRequest?.tool_use_id,
+        pendingRequest?.request.tool_use_id,
       )
       return
     }
@@ -193,7 +221,10 @@ export class RemoteSessionManager {
       logForDebugging(
         `[RemoteSessionManager] Permission request for tool: ${inner.tool_name}`,
       )
-      this.pendingPermissionRequests.set(request_id, inner)
+      this.pendingPermissionRequests.set(request_id, {
+        request: inner,
+        timestamp: Date.now(),
+      })
       this.callbacks.onPermissionRequest(inner, request_id)
     } else {
       // Send an error response for unrecognized subtypes so the server
@@ -311,6 +342,10 @@ export class RemoteSessionManager {
     this.websocket?.close()
     this.websocket = null
     this.pendingPermissionRequests.clear()
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval)
+      this.cleanupInterval = null
+    }
   }
 
   /**

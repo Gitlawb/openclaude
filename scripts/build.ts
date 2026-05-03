@@ -48,6 +48,7 @@ const featureFlags: Record<string, boolean> = {
   DUMP_SYSTEM_PROMPT: true,           // --dump-system-prompt CLI flag for debugging
   CACHED_MICROCOMPACT: true,          // Cache-aware tool result truncation optimization
   AWAY_SUMMARY: true,                 // "While you were away" recap after 5min blur
+  AUTO_SPAWN_AGENTS: true,            // Auto-spawn Plan/Review agents for complex tasks
   TRANSCRIPT_CLASSIFIER: true,        // Auto-approval classifier for safe tool uses
   ULTRATHINK: true,                   // Deep thinking mode — type "ultrathink" to boost reasoning
   TOKEN_BUDGET: true,                 // Token budget tracking with usage warnings

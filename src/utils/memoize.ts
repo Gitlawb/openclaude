@@ -2,6 +2,9 @@ import { LRUCache } from 'lru-cache'
 import { logError } from './log.js'
 import { jsonStringify } from './slowOperations.js'
 
+// Max key size to prevent memory leak from large serialized args
+const MAX_CACHE_KEY_BYTES = 8192 // 8KB limit
+
 type CacheEntry<T> = {
   value: T
   timestamp: number
@@ -45,6 +48,12 @@ export function memoizeWithTTL<Args extends unknown[], Result>(
 
   const memoized = (...args: Args): Result => {
     const key = jsonStringify(args)
+
+    // Skip caching if key is too large (prevents memory leak)
+    if (key.length > MAX_CACHE_KEY_BYTES) {
+      return f(...args)
+    }
+
     const cached = cache.get(key)
     const now = Date.now()
 
@@ -133,6 +142,12 @@ export function memoizeWithTTLAsync<Args extends unknown[], Result>(
 
   const memoized = async (...args: Args): Promise<Result> => {
     const key = jsonStringify(args)
+
+    // Skip caching if key is too large (prevents memory leak)
+    if (key.length > MAX_CACHE_KEY_BYTES) {
+      return await f(...args)
+    }
+
     const cached = cache.get(key)
     const now = Date.now()
 
