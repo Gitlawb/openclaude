@@ -4,17 +4,13 @@ import react from "@vitejs/plugin-react"
 
 export default defineConfig({
   main: {
-    plugins: [
-      externalizeDepsPlugin({
-        exclude: ["superjson"],
-      }),
-    ],
+    plugins: [externalizeDepsPlugin()],
     build: {
       lib: {
         entry: resolve(__dirname, "src/main/index.ts"),
       },
       rollupOptions: {
-        external: ["electron", "better-sqlite3"],
+        external: ["electron", "better-sqlite3", "superjson"],
         output: {
           format: "cjs",
         },
