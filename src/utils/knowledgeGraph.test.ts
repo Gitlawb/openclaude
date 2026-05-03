@@ -1,77 +1,107 @@
-import { describe, expect, it, beforeEach, afterEach, afterAll } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach, afterAll, mock } from 'bun:test'
+
+// Force enable Knowledge system for these tests ONLY
+process.env.OPENCLAUDE_TEST_KNOWLEDGE = 'true'
+
 import {
   addGlobalEntity,
-  addGlobalRelation,
   addGlobalSummary,
-  searchGlobalGraph,
-  loadProjectGraph,
-  getProjectGraphPath,
   resetGlobalGraph,
   clearMemoryOnly,
-  saveProjectGraph
+  getGlobalGraphSummary,
+  addGlobalRule,
+  getOrchestratedMemory
 } from './knowledgeGraph.js'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { getFsImplementation } from './fsOperations.js'
 
-describe('KnowledgeGraph Global Persistence & RAG', () => {
+// Mock generateEmbedding to avoid network calls and speed up tests
+mock.module('./embeddings.js', () => ({
+  generateEmbedding: async () => [0.1, 0.2, 0.3], // Mocked small vector
+}))
+
+describe('KnowledgeGraph Technical Perfection', () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-knowledge-graph-'))
+  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-knowledge-perfection-'))
   process.env.CLAUDE_CONFIG_DIR = configDir
-  const cwd = getFsImplementation().cwd()
-  const graphPath = getProjectGraphPath(cwd)
 
-  beforeEach(() => {
-    resetGlobalGraph()
-    rmSync(graphPath, { force: true })
+  beforeEach(async () => {
+    await resetGlobalGraph()
   })
 
-  afterEach(() => {
-    rmSync(graphPath, { force: true })
-  })
-
-  afterAll(() => {
-    resetGlobalGraph()
+  afterAll(async () => {
+    clearMemoryOnly()
     if (originalConfigDir === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR
     } else {
       process.env.CLAUDE_CONFIG_DIR = originalConfigDir
     }
     rmSync(configDir, { recursive: true, force: true })
+    delete process.env.OPENCLAUDE_TEST_KNOWLEDGE
   })
 
-  it('persists entities across loads', () => {
-    addGlobalEntity('server', 'prod-1', { ip: '1.2.3.4' })
-    saveProjectGraph(cwd)
+  it('handles project switching without cross-pollution', async () => {
+    const project1 = join(configDir, 'p1')
+    const project2 = join(configDir, 'p2')
+    
+    // We use process.chdir to simulate real project switching for our process.cwd() calls
+    const originalCwd = process.cwd()
+    try {
+        mkdirSync(project1, { recursive: true })
+        mkdirSync(project2, { recursive: true })
+        
+        process.chdir(project1)
+        await addGlobalEntity('service', 'auth-v1', { port: '8080' })
+        
+        process.chdir(project2)
+        await addGlobalEntity('service', 'payment-v2', { port: '9090' })
 
-    // Reset singleton and reload
-    clearMemoryOnly()
-    const graph = loadProjectGraph(cwd)
-    const entity = Object.values(graph.entities).find(e => e.name === 'prod-1')
-    expect(entity).toBeDefined()
-    expect(entity?.attributes.ip).toBe('1.2.3.4')
+        const summary2 = await getGlobalGraphSummary()
+        expect(summary2).toContain('payment-v2')
+        expect(summary2).not.toContain('auth-v1')
+
+        process.chdir(project1)
+        const summary1 = await getGlobalGraphSummary()
+        expect(summary1).toContain('auth-v1')
+        expect(summary1).not.toContain('payment-v2')
+    } finally {
+        process.chdir(originalCwd)
+    }
   })
 
-  it('performs keyword-based RAG search', () => {
-    addGlobalSummary('The database uses PostgreSQL version 15.', ['database', 'postgres', 'sql'])
-    addGlobalSummary('The frontend is built with React and Tailwind.', ['frontend', 'react', 'css'])
+  it('resolves concurrent additions through initialization lock', async () => {
+    await Promise.all([
+      addGlobalEntity('type', 'name1'),
+      addGlobalEntity('type', 'name2'),
+      addGlobalEntity('type', 'name3'),
+    ])
 
-    const result = searchGlobalGraph('Tell me about the database setup')
-    expect(result).toContain('PostgreSQL')
-
-    const result2 = searchGlobalGraph('What react components are used?')
-    expect(result2).toContain('React')
+    const summary = await getGlobalGraphSummary()
+    expect(summary).toContain('name1')
+    expect(summary).toContain('name2')
+    expect(summary).toContain('name3')
   })
 
-  it('deduplicates entities and updates attributes', () => {
-    addGlobalEntity('tool', 'openclaude', { status: 'alpha' })
-    addGlobalEntity('tool', 'openclaude', { status: 'beta', version: '0.6.0' })
+  it('performs hybrid RAG with balanced scoring and deduplication', async () => {
+    await addGlobalEntity('concept', 'DatabaseMigration', { tool: 'Flyway' })
+    await addGlobalSummary('The DatabaseMigration was performed using Flyway.', ['database', 'migration'])
 
-    const graph = loadProjectGraph(cwd)
-    const entities = Object.values(graph.entities).filter(e => e.name === 'openclaude')
-    expect(entities.length).toBe(1)
-    expect(entities[0].attributes.status).toBe('beta')
-    expect(entities[0].attributes.version).toBe('0.6.0')
+    const result = await getOrchestratedMemory('tell me about database migration')
+    expect(result).toContain('DatabaseMigration')
+    
+    const matches = result.match(/Flyway/g) || []
+    expect(matches.length).toBeLessThanOrEqual(2)
+  })
+
+  it('strictly respects token budgeting with large payloads', async () => {
+    for (let i = 0; i < 50; i++) {
+      await addGlobalSummary(`Architecture fact #${i}: this is a detailed description to consume tokens.`, ['fact'])
+    }
+
+    const tokenLimit = 150
+    const result = await getOrchestratedMemory('show me facts', tokenLimit)
+    const wordCount = result.split(/\s+/).length
+    expect(wordCount).toBeLessThan(tokenLimit + 50) 
   })
 })

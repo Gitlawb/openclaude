@@ -17,14 +17,12 @@ import {
   extractKeywords
 } from './knowledgeGraph.js'
 
-// ... (Goal, Decision, Milestone interfaces)
-
-export function finalizeArcTurn(): void {
-  const arc = getArc()
+export async function finalizeArcTurn(): Promise<void> {
+  const arc = await getArc()
   if (!arc) return
 
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
-  const graph = getGlobalGraph()
+  const graph = await getGlobalGraph()
   // Heuristic to detect new facts: entities added after arc start
   const newFacts = Object.values(graph.entities).filter(e =>
     e.id.includes(String(arc.id.split('_')[1])) ||
@@ -48,7 +46,7 @@ export function finalizeArcTurn(): void {
 
   const keywords = extractKeywords(summaryContent)
   if (keywords.length > 0) {
-    addGlobalSummary(summaryContent, keywords)
+    await addGlobalSummary(summaryContent, keywords)
   }
 }
 
@@ -93,7 +91,7 @@ const ARC_KEYWORDS = {
 
 let conversationArc: ConversationArc | null = null
 
-export function initializeArc(): ConversationArc {
+export async function initializeArc(): Promise<ConversationArc> {
   conversationArc = {
     id: `arc_${Date.now()}`,
     goals: [],
@@ -103,14 +101,14 @@ export function initializeArc(): ConversationArc {
     startTime: Date.now(),
     lastUpdateTime: Date.now(),
   }
+  // Trigger global graph load
+  await getGlobalGraph()
   return conversationArc
 }
 
-export function getArc(): ConversationArc | null {
+export async function getArc(): Promise<ConversationArc | null> {
   if (!conversationArc) {
-    initializeArc()
-    // Trigger global graph load
-    getGlobalGraph()
+    await initializeArc()
   }
   return conversationArc
 }
@@ -122,31 +120,29 @@ function extractTextFromContent(content: unknown): string {
     return content
       .filter((block: any) => block.type === 'text' && typeof block.text === 'string')
       .map((block: any) => block.text)
-      .join('\\n')
+      .join('\n')
   }
   return ''
 }
 
 function detectPhase(content: string): ConversationArc['currentPhase'] | null {
   const lower = content.toLowerCase()
-
   for (const [phase, keywords] of Object.entries(ARC_KEYWORDS)) {
     if (keywords.some(k => lower.includes(k))) {
       return phase as ConversationArc['currentPhase']
     }
   }
-
   return null
 }
 
-function extractFactsAutomatically(content: string): void {
-  const arc = getArc()
+async function extractFactsAutomatically(content: string): Promise<void> {
+  const arc = await getArc()
   if (!arc) return
 
-  // 1. Detect Environment Variables (KEY=VALUE)
+  // 1. Detect Environment Variables
   const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
   for (const match of envMatches) {
-    addGlobalEntity('environment_variable', match[1], { value: match[2] })
+    await addGlobalEntity('environment_variable', match[1], { value: match[2] })
   }
 
   // 2. Detect Absolute Paths
@@ -154,14 +150,14 @@ function extractFactsAutomatically(content: string): void {
   for (const match of pathMatches) {
     const path = match[1]
     if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
-      addGlobalEntity('path', path, { type: 'absolute' })
+      await addGlobalEntity('path', path, { type: 'absolute' })
     }
   }
 
   // 3. Detect Versions
   const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
   for (const match of versionMatches) {
-    addGlobalEntity('version', match[0].toLowerCase(), { semver: match[1] })
+    await addGlobalEntity('version', match[0].toLowerCase(), { semver: match[1] })
   }
 
   // 4. Detect Hostnames/URLs
@@ -170,7 +166,7 @@ function extractFactsAutomatically(content: string): void {
     try {
       const url = new URL(match[1])
       if (url.hostname.includes('.')) {
-        addGlobalEntity('endpoint', url.hostname, { url: url.toString() })
+        await addGlobalEntity('endpoint', url.hostname, { url: url.toString() })
       }
     } catch { /* ignore */ }
   }
@@ -181,103 +177,79 @@ function extractFactsAutomatically(content: string): void {
     const ip = match[1]
     const context = content.toLowerCase()
     const tags: Record<string, string> = { type: 'ipv4' }
-
-    // Contextual tagging: if 'database' or 'prod' is nearby, tag the IP
     if (context.includes('database') || context.includes('db')) tags.role = 'database'
     if (context.includes('prod')) tags.env = 'production'
     if (context.includes('worker')) tags.role = 'worker'
-
-    addGlobalEntity('server_ip', ip, tags)
+    await addGlobalEntity('server_ip', ip, tags)
   }
 
-  // 6. DYNAMIC CONCEPT DISCOVERY (Improved for Doctoral precision)
-
-  // A. Detect symbols in backticks (High confidence symbols)
+  // 6. DYNAMIC CONCEPT DISCOVERY
   const backtickMatches = content.matchAll(/`([^`]+)`/g)
   for (const match of backtickMatches) {
     const symbol = match[1]
     if (symbol.length > 2 && symbol.length < 60) {
-      addGlobalEntity('concept', symbol, { source: 'backticks' })
+      await addGlobalEntity('concept', symbol, { source: 'backticks' })
     }
   }
 
-  // B. Detect Technical Concepts (Hyphenated-Terms, PascalCase, camelCase)
-  // Now also capturing lowercase hyphenated terms (worker-node-49)
   const technicalMatches = content.matchAll(/\b([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)+|[A-Z][a-z]+[A-Z][\w]*|[a-z]+[A-Z][\w]*)\b/g)
   for (const match of technicalMatches) {
     const word = match[1]
     if (!['The', 'This', 'That', 'With', 'From', 'Here', 'There'].includes(word)) {
-      addGlobalEntity('concept', word, { source: 'auto_discovery' })
+      await addGlobalEntity('concept', word, { source: 'auto_discovery' })
     }
-    }
+  }
 
-    // C. Specific pattern for availability/percentages
-    const metricMatches = content.matchAll(/(\d+(?:\.\d+)?%)/g)
-    for (const match of metricMatches) {
-    addGlobalEntity('metric', match[1], { type: 'availability' })
-    }
+  const metricMatches = content.matchAll(/(\d+(?:\.\d+)?%)/g)
+  for (const match of metricMatches) {
+    await addGlobalEntity('metric', match[1], { type: 'availability' })
+  }
 
-    // D. Project Rule Detection (Passive Learning)
-    const rulePatterns = [
+  const rulePatterns = [
     /\b(?:always|must|should)\s+(?:use|implement|follow)\b\s+([^.!?]+)/gi,
     /\b(?:never|cannot|should\s+not)\b\s+([^.!?]+)/gi,
     /\b(?:prefer)\b\s+([^.!?]+)/gi
-    ]
-    for (const pattern of rulePatterns) {
+  ]
+  for (const pattern of rulePatterns) {
     const ruleMatches = content.matchAll(pattern)
     for (const match of ruleMatches) {
-      addGlobalRule(match[0].trim())
+      await addGlobalRule(match[0].trim())
     }
-    }
+  }
 
-    // E. Direct Tech detection for UI/State
-    if (content.toLowerCase().includes('redux')) addGlobalEntity('technology', 'Redux', { category: 'state_management' })
-    if (content.toLowerCase().includes('react')) addGlobalEntity('technology', 'React', { category: 'frontend' })
+  if (content.toLowerCase().includes('redux')) await addGlobalEntity('technology', 'Redux', { category: 'state_management' })
+  if (content.toLowerCase().includes('react')) await addGlobalEntity('technology', 'React', { category: 'frontend' })
 
-    // F. Project File Signatures
-    if (content.match(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/i)) {
-
-    const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
-    for (const match of fileMatches) {
-      addGlobalEntity('project_file', match[1].toLowerCase(), { category: 'configuration' })
-    }
+  const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
+  for (const match of fileMatches) {
+    await addGlobalEntity('project_file', match[1].toLowerCase(), { category: 'configuration' })
   }
 }
 
-export function updateArcPhase(messages: Message[]): void {
-  const arc = getArc()
+export async function updateArcPhase(messages: Message[]): Promise<void> {
+  const arc = await getArc()
   if (!arc) return
 
   for (const msg of messages.slice(-5).reverse()) {
     const content = extractTextFromContent(msg.message?.content)
     if (!content) continue
 
-    // Phase detection
     const detected = detectPhase(content)
     if (detected && detected !== arc.currentPhase) {
-      const phaseOrder = [
-        'init',
-        'exploring',
-        'implementing',
-        'reviewing',
-        'completed',
-      ]
+      const phaseOrder = ['init', 'exploring', 'implementing', 'reviewing', 'completed']
       const oldIdx = phaseOrder.indexOf(arc.currentPhase)
       const newIdx = phaseOrder.indexOf(detected)
-
       if (newIdx > oldIdx) {
         arc.currentPhase = detected
         arc.lastUpdateTime = Date.now()
       }
     }
-
-    // Passive fact extraction (Automatic Learning)
-    extractFactsAutomatically(content)
+    await extractFactsAutomatically(content)
   }
 }
 
-export function addGoal(description: string): Goal {
-  const arc = getArc()
+export async function addGoal(description: string): Promise<Goal> {
+  const arc = await getArc()
   if (!arc) throw new Error('Arc not initialized')
 
   const goal: Goal = {
@@ -286,99 +258,67 @@ export function addGoal(description: string): Goal {
     status: 'pending',
     createdAt: Date.now(),
   }
-
   arc.goals.push(goal)
   arc.lastUpdateTime = Date.now()
-
-  if (arc.currentPhase === 'init') {
-    arc.currentPhase = 'exploring'
-  }
-
+  if (arc.currentPhase === 'init') arc.currentPhase = 'exploring'
   return goal
 }
 
-export function updateGoalStatus(goalId: string, status: Goal['status']): void {
-  const arc = getArc()
+export async function updateGoalStatus(goalId: string, status: Goal['status']): Promise<void> {
+  const arc = await getArc()
   if (!arc) return
-
   const goal = arc.goals.find(g => g.id === goalId)
   if (!goal) return
-
   goal.status = status
   if (status === 'completed') {
     goal.completedAt = Date.now()
-    addMilestone(`Completed: ${goal.description}`)
+    await addMilestone(`Completed: ${goal.description}`)
   }
-
   arc.lastUpdateTime = Date.now()
 }
 
-export function addDecision(description: string, rationale?: string): Decision {
-  const arc = getArc()
+export async function addDecision(description: string, rationale?: string): Promise<Decision> {
+  const arc = await getArc()
   if (!arc) throw new Error('Arc not initialized')
-
-  const decision: Decision = {
-    id: `decision_${Date.now()}`,
-    description,
-    rationale,
-    timestamp: Date.now(),
-  }
-
+  const decision: Decision = { id: `decision_${Date.now()}`, description, rationale, timestamp: Date.now() }
   arc.decisions.push(decision)
   arc.lastUpdateTime = Date.now()
-
   return decision
 }
 
-export function addMilestone(description: string): Milestone {
-  const arc = getArc()
+export async function addMilestone(description: string): Promise<Milestone> {
+  const arc = await getArc()
   if (!arc) throw new Error('Arc not initialized')
-
-  const milestone: Milestone = {
-    id: `milestone_${Date.now()}`,
-    description,
-    achievedAt: Date.now(),
-  }
-
+  const milestone: Milestone = { id: `milestone_${Date.now()}`, description, achievedAt: Date.now() }
   arc.milestones.push(milestone)
   arc.lastUpdateTime = Date.now()
-
   return milestone
 }
 
-export function getArcSummary(query?: string): string {
-  const arc = getArc()
+export async function getArcSummary(query?: string): Promise<string> {
+  const arc = await getArc()
   if (!arc) return 'No conversation arc'
-
-  const activeGoals = arc.goals.filter(
-    g => g.status === 'active' || g.status === 'pending',
-  )
+  const activeGoals = arc.goals.filter(g => g.status === 'active' || g.status === 'pending')
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
 
-  let summary = `Phase: ${arc.currentPhase}\\n`
-  summary += `Goals: ${completedGoals.length}/${arc.goals.length} completed\\n`
+  let summary = `Phase: ${arc.currentPhase}\n`
+  summary += `Goals: ${completedGoals.length}/${arc.goals.length} completed\n`
+  if (activeGoals.length > 0) summary += `Active: ${activeGoals[0].description.slice(0, 50)}...\n`
 
-  if (activeGoals.length > 0) {
-    summary += `Active: ${activeGoals[0].description.slice(0, 50)}...\\n`
-  }
+  summary += await getOrchestratedMemory(query || '')
 
-  // 1. Primary: Targeted RAG Search (High volume context)
-  summary += getOrchestratedMemory(query || '')
-
-  // 2. Secondary: Global Snapshot (Full Graph for small/medium projects)
-  const graph = getGlobalGraph()
+  const graph = await getGlobalGraph()
   const entities = Object.values(graph.entities)
-  if (entities.length < 100) {
-      summary += '\\n--- Full Project Knowledge Graph ---\\n'
+  if (entities.length < 100 && entities.length > 0) {
+      summary += '\n--- Full Project Knowledge Graph ---\n'
       for (const e of entities) {
-          summary += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k,v]) => `${k}=${v}`).join(', ')}\\n`
+          summary += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k,v]) => `${k}: ${v}`).join(', ')}\n`
       }
       if (graph.rules.length > 0) {
-          summary += '\\nActive Project Rules:\\n'
-          graph.rules.forEach(r => summary += `- ${r}\\n`)
+          summary += '\nActive Project Rules:\n'
+          graph.rules.forEach(r => summary += `- ${r}\n`)
       }
   }
-
   return summary
 }
 
@@ -386,10 +326,9 @@ export function resetArc(): void {
   conversationArc = null
 }
 
-export function getArcStats() {
-  const arc = getArc()
+export async function getArcStats() {
+  const arc = await getArc()
   if (!arc) return null
-
   return {
     phase: arc.currentPhase,
     goalCount: arc.goals.length,
@@ -400,7 +339,6 @@ export function getArcStats() {
   }
 }
 
-// Re-export Knowledge Graph management through the Arc for convenience
 export const addEntity = addGlobalEntity
 export const addRelation = addGlobalRelation
 export const getGraphSummary = getGlobalGraphSummary

@@ -7,9 +7,9 @@ import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js'
 describe('knowledge command', () => {
   const mockContext = {} as any
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetArc()
-    resetGlobalGraph()
+    await resetGlobalGraph()
   })
   
   const knowledgeCallWithCapture = async (args: string) => {
@@ -20,8 +20,7 @@ describe('knowledge command', () => {
     return ''
   }
 
-  beforeEach(() => {
-    // Attempt to reset config - even if mocked, we try to set our key
+  beforeEach(async () => {
     try {
       saveGlobalConfig(current => ({
         ...current,
@@ -31,20 +30,18 @@ describe('knowledge command', () => {
       // Ignore if config is heavily mocked
     }
     resetArc()
+    await resetGlobalGraph()
   })
 
   it('enables and disables knowledge graph engine', async () => {
-    // Test Disable
     const res1 = await knowledgeCallWithCapture('enable no')
     expect(res1.toLowerCase()).toContain('disabled')
     
-    // Safety check: only verify state if property is actually present (avoid CI mock interference)
     const config1 = getGlobalConfig()
     if (config1 && 'knowledgeGraphEnabled' in config1) {
       expect(config1.knowledgeGraphEnabled).toBe(false)
     }
 
-    // Test Enable
     const res2 = await knowledgeCallWithCapture('enable yes')
     expect(res2.toLowerCase()).toContain('enabled')
     
@@ -55,14 +52,12 @@ describe('knowledge command', () => {
   })
 
   it('clears the knowledge graph', async () => {
-    // Add a fact first
-    addEntity('test', 'fact')
-    const graph = getGlobalGraph()
+    await addEntity('test', 'fact')
+    const graph = await getGlobalGraph()
     expect(Object.keys(graph.entities).length).toBe(1)
 
-    // Clear it
     const res = await knowledgeCallWithCapture('clear')
-    const graphAfter = getGlobalGraph()
+    const graphAfter = await getGlobalGraph()
     expect(Object.keys(graphAfter.entities).length).toBe(0)
     expect(res.toLowerCase()).toContain('cleared')
   })

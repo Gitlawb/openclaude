@@ -11,8 +11,8 @@ export const call: LocalCommandCall = async (args, _context) => {
 
   if (!subCommand || subCommand === 'status') {
     const config = getGlobalConfig();
-    const stats = getArcStats();
-    const graph = getGlobalGraph();
+    const stats = await getArcStats();
+    const graph = await getGlobalGraph();
     const entityCount = Object.keys(graph.entities).length;
     
     const statusText = (config.knowledgeGraphEnabled !== false)
@@ -45,7 +45,7 @@ export const call: LocalCommandCall = async (args, _context) => {
 
   if (subCommand === 'clear') {
     resetArc();
-    resetGlobalGraph();
+    await resetGlobalGraph();
     return { 
       type: 'text', 
       value: '🗑️ Knowledge graph memory has been cleared for this session.' 
@@ -53,7 +53,7 @@ export const call: LocalCommandCall = async (args, _context) => {
   }
 
   if (subCommand === 'list') {
-    return { type: 'text', value: getArcSummary() };
+    return { type: 'text', value: await getArcSummary() };
   }
 
   return { 

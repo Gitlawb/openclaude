@@ -1,8 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs'
-import { join } from 'path'
-import { getProjectsDir } from './sessionStorage.js'
-import { sanitizePath } from './sessionStoragePortable.js'
-import { getFsImplementation } from './fsOperations.js'
+import { existsSync, rmSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { join, dirname, resolve } from 'path'
+import { homedir } from 'os'
 
 export interface Entity {
   id: string
@@ -17,362 +15,277 @@ export interface Relation {
   type: string
 }
 
-export interface SemanticSummary {
-  id: string
-  content: string
-  keywords: string[]
-  timestamp: number
-}
-
 export interface KnowledgeGraph {
   entities: Record<string, Entity>
   relations: Relation[]
-  summaries: SemanticSummary[]
-  rules: string[] // New: Persistent project-level rules
+  summaries: string[]
+  rules: string[]
   lastUpdateTime: number
 }
 
-let projectGraph: KnowledgeGraph | null = null
+/**
+ * Universal SQLite Database Wrapper
+ */
+class UniversalDB {
+  private inner: any
+  private isBun: boolean
 
-function attributesContainAll(
-  current: Record<string, string>,
-  next: Record<string, string>,
-): boolean {
-  return Object.entries(next).every(([key, value]) => current[key] === value)
-}
+  constructor(path: string, isBun: boolean, inner: any) {
+    this.inner = inner
+    this.isBun = isBun
+  }
 
-export function getProjectGraphPath(cwd: string): string {
-  const projectDir = join(getProjectsDir(), sanitizePath(cwd))
-  return join(projectDir, 'knowledge_graph.json')
-}
-
-export function loadProjectGraph(cwd: string): KnowledgeGraph {
-  const path = getProjectGraphPath(cwd)
-  let loadedGraph: KnowledgeGraph | null = null
-
-  if (existsSync(path)) {
-    try {
-      const data = JSON.parse(readFileSync(path, 'utf-8'))
-      // Robust migration for all evolving fields
-      if (!data.summaries) data.summaries = []
-      if (!data.rules) data.rules = []
-      loadedGraph = data
-    } catch (e) {
-      console.error(`Failed to load project graph from ${path}:`, e)
+  run(sql: string, ...params: any[]): void {
+    if (this.isBun) {
+      this.inner.run(sql, ...params)
+    } else {
+      this.inner.prepare(sql).run(...params)
     }
   }
 
-  // Use loaded data or default initial state
-  projectGraph = loadedGraph || {
-    entities: {},
-    relations: [],
-    summaries: [],
-    rules: [],
-    lastUpdateTime: Date.now(),
+  exec(sql: string): void {
+    if (this.isBun) {
+      this.inner.run(sql)
+    } else {
+      this.inner.exec(sql)
+    }
   }
 
-  return projectGraph
+  queryAll(sql: string, ...params: any[]): any[] {
+    if (this.isBun) {
+      return this.inner.query(sql).all(...params)
+    } else {
+      return this.inner.prepare(sql).all(...params)
+    }
+  }
+
+  queryOne(sql: string, ...params: any[]): any {
+    if (this.isBun) {
+      return this.inner.query(sql).get(...params)
+    } else {
+      return this.inner.prepare(sql).get(...params)
+    }
+  }
+
+  close(): void {
+    this.inner.close()
+  }
 }
 
-export function saveProjectGraph(cwd: string): void {
-  if (!projectGraph) return
-  const path = getProjectGraphPath(cwd)
+interface ProjectContext {
+  db: UniversalDB
+  orama: any // AnyOrama - Lazy loaded
+  saveTimeout?: any
+  lastUpdateTime: number
+}
+
+const activeContexts = new Map<string, ProjectContext>()
+let initPromise: Promise<void> | null = null
+
+function getInternalConfigDir(): string {
+  return process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
+}
+
+function getProjectDbPath(cwd: string): string {
+  const sanitized = cwd.replace(/[^a-z0-9]/gi, '_').toLowerCase()
+  return join(getInternalConfigDir(), 'projects', sanitized, 'knowledge.db')
+}
+
+function getProjectOramaPath(cwd: string): string {
+  const sanitized = cwd.replace(/[^a-z0-9]/gi, '_').toLowerCase()
+  return join(getInternalConfigDir(), 'projects', sanitized, 'knowledge.orama.json')
+}
+
+async function getContext(cwd: string): Promise<ProjectContext | null> {
+  // Defensive check for test environment pollution
+  if (process.env.BUN_TEST && !process.env.OPENCLAUDE_TEST_KNOWLEDGE) return null
+
+  while (initPromise) await initPromise
+  let context = activeContexts.get(cwd)
+  if (context) return context
+  let resolveInit: () => void
+  initPromise = new Promise(resolve => { resolveInit = resolve })
   try {
-    const dir = join(getProjectsDir(), sanitizePath(cwd))
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true })
+    const dbPath = getProjectDbPath(cwd); const oramaPath = getProjectOramaPath(cwd)
+    const dir = dirname(dbPath); if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    let db: UniversalDB
+    // @ts-ignore
+    if (typeof Bun !== 'undefined') {
+      const { Database } = await import('bun:sqlite')
+      db = new UniversalDB(dbPath, true, new Database(dbPath, { create: true }))
+    } else {
+      const Database = (await import('better-sqlite3')).default
+      db = new UniversalDB(dbPath, false, new Database(dbPath))
     }
-    writeFileSync(path, JSON.stringify(projectGraph, null, 2), 'utf-8')
-  } catch (e) {
-    console.error(`Failed to save project graph to ${path}:`, e)
-  }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS entities (id TEXT PRIMARY KEY, type TEXT, name TEXT, attributes TEXT, last_updated INTEGER);
+      CREATE TABLE IF NOT EXISTS relations (source_id TEXT, target_id TEXT, type TEXT, FOREIGN KEY(source_id) REFERENCES entities(id), FOREIGN KEY(target_id) REFERENCES entities(id));
+      CREATE TABLE IF NOT EXISTS summaries (id TEXT PRIMARY KEY, content TEXT, keywords TEXT, timestamp INTEGER);
+      CREATE TABLE IF NOT EXISTS rules (rule TEXT PRIMARY KEY, timestamp INTEGER);
+      CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+      CREATE INDEX IF NOT EXISTS idx_summaries_timestamp ON summaries(timestamp);
+    `)
+    let orama: any
+    if (existsSync(oramaPath)) { try { const { restore } = await import('@orama/plugin-data-persistence'); const data = readFileSync(oramaPath, 'utf-8'); orama = await restore('json', data) } catch { orama = await createOramaIndex() } } else { orama = await createOramaIndex() }
+    context = { db, orama, lastUpdateTime: Date.now() }; activeContexts.set(cwd, context); return context
+  } finally { initPromise = null; resolveInit!() }
 }
 
-export function getGlobalGraph(): KnowledgeGraph {
-  if (!projectGraph || (Object.keys(projectGraph.entities).length === 0 && projectGraph.summaries.length === 0)) {
-    return loadProjectGraph(getFsImplementation().cwd())
-  }
-  return projectGraph
+async function createOramaIndex() {
+  const { create } = await import('@orama/orama')
+  return await create({ schema: { id: 'string', text: 'string', type: 'string', embedding: 'vector[1536]' } })
 }
 
-export function addGlobalEntity(
-  type: string,
-  name: string,
-  attributes: Record<string, string> = {},
-): Entity {
-  const graph = getGlobalGraph()
-  const existingEntity = Object.values(graph.entities).find(
-    e => e.type === type && e.name === name,
-  )
+function scheduleOramaSave(cwd: string): void {
+  const context = activeContexts.get(cwd); if (!context) return
+  if (context.saveTimeout) clearTimeout(context.saveTimeout)
+  context.saveTimeout = setTimeout(async () => {
+    const oramaPath = getProjectOramaPath(cwd)
+    try { const { persist } = await import('@orama/plugin-data-persistence'); const data = await persist(context.orama, 'json'); writeFileSync(oramaPath, data as string); context.saveTimeout = undefined } catch (e) { console.error(`[Knowledge] Failed to save Orama index for ${cwd}:`, e) }
+  }, 5000)
+}
 
-  if (existingEntity) {
-    if (attributesContainAll(existingEntity.attributes, attributes)) {
-      return existingEntity
-    }
-
-    existingEntity.attributes = { ...existingEntity.attributes, ...attributes }
-    graph.lastUpdateTime = Date.now()
-    saveProjectGraph(getFsImplementation().cwd())
-    return existingEntity
+export async function addGlobalEntity(type: string, name: string, attributes: Record<string, string> = {}): Promise<Entity | null> {
+  const cwd = process.cwd(); const context = await getContext(cwd); if (!context) return null
+  const { db, orama } = context; context.lastUpdateTime = Date.now()
+  const existing = db.queryOne('SELECT * FROM entities WHERE type = ? AND name = ?', type, name)
+  if (existing) {
+    const currentAttrs = JSON.parse(existing.attributes); const mergedAttrs = { ...currentAttrs, ...attributes }
+    db.run('UPDATE entities SET attributes = ?, last_updated = ? WHERE id = ?', JSON.stringify(mergedAttrs), Date.now(), existing.id)
+    return { id: existing.id, type, name, attributes: mergedAttrs }
   }
-
   const id = `entity_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-  const entity: Entity = { id, type, name, attributes }
-
-  graph.entities[id] = entity
-  graph.lastUpdateTime = Date.now()
-  saveProjectGraph(getFsImplementation().cwd())
-  return entity
+  db.run('INSERT INTO entities (id, type, name, attributes, last_updated) VALUES (?, ?, ?, ?, ?)', id, type, name, JSON.stringify(attributes), Date.now())
+  const textToEmbed = `[${type}] ${name}: ${Object.entries(attributes).map(([k,v]) => `${k}:${v}`).join(' ')}`
+  const { generateEmbedding } = await import('./embeddings.js')
+  generateEmbedding(textToEmbed).then(async vector => { if (vector) { const { insert } = await import('@orama/orama'); await insert(orama, { id, text: textToEmbed, type: 'entity', embedding: vector }); scheduleOramaSave(cwd) } }).catch(() => {})
+  return { id, type, name, attributes }
 }
 
-export function addGlobalRelation(
-  sourceId: string,
-  targetId: string,
-  type: string,
-): void {
-  const graph = getGlobalGraph()
-  if (!graph.entities[sourceId] || !graph.entities[targetId]) {
-    throw new Error('Source or target entity not found in graph')
-  }
-
-  graph.relations.push({ sourceId, targetId, type })
-  graph.lastUpdateTime = Date.now()
-  saveProjectGraph(getFsImplementation().cwd())
+export async function addGlobalRelation(sourceId: string, targetId: string, type: string): Promise<void> {
+  const cwd = process.cwd(); const context = await getContext(cwd); if (!context) return
+  const sourceExists = context.db.queryOne('SELECT id FROM entities WHERE id = ?', sourceId)
+  const targetExists = context.db.queryOne('SELECT id FROM entities WHERE id = ?', targetId)
+  if (!sourceExists || !targetExists) throw new Error('Source or target entity not found in graph')
+  context.db.run('INSERT INTO relations (source_id, target_id, type) VALUES (?, ?, ?)', sourceId, targetId, type)
+  context.lastUpdateTime = Date.now()
 }
 
-export function addGlobalSummary(content: string, keywords: string[]): void {
-  const graph = getGlobalGraph()
-  const id = `summary_${Date.now()}`
-  graph.summaries.push({
-    id,
-    content,
-    keywords: keywords.map(k => k.toLowerCase()),
-    timestamp: Date.now(),
-  })
-  graph.lastUpdateTime = Date.now()
-  saveProjectGraph(getFsImplementation().cwd())
+export async function addGlobalSummary(content: string, keywords: string[]): Promise<void> {
+  const cwd = process.cwd(); const context = await getContext(cwd); if (!context) return
+  const { db, orama } = context; const id = `summary_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; context.lastUpdateTime = Date.now()
+  db.run('INSERT INTO summaries (id, content, keywords, timestamp) VALUES (?, ?, ?, ?)', id, content, JSON.stringify(keywords.map(k => k.toLowerCase())), Date.now())
+  const { generateEmbedding } = await import('./embeddings.js')
+  generateEmbedding(content).then(async vector => { if (vector) { const { insert } = await import('@orama/orama'); await insert(orama, { id, text: content, type: 'summary', embedding: vector }); scheduleOramaSave(cwd) } }).catch(() => {})
 }
 
-export function addGlobalRule(rule: string): void {
-  const graph = getGlobalGraph()
-  if (!graph.rules.includes(rule)) {
-    graph.rules.push(rule)
-    graph.lastUpdateTime = Date.now()
-    saveProjectGraph(getFsImplementation().cwd())
-  }
+export async function addGlobalRule(rule: string): Promise<void> {
+  const cwd = process.cwd(); const context = await getContext(cwd); if (!context) return
+  context.db.run('INSERT OR IGNORE INTO rules (rule, timestamp) VALUES (?, ?)', rule, Date.now()); context.lastUpdateTime = Date.now()
 }
 
 export function extractKeywords(text: string): string[] {
-  const words = text
-    .toLowerCase()
-    .split(/[\s,;:()\"'`?]+/)
-    .filter(word => word.length >= 2)
-    .map(word => {
-       if (/^\d+\.\d+/.test(word)) return word;
-       return word.replace(/\.$/g, '');
-    })
-    .filter(word => word.length >= 2);
-
+  const words = text.toLowerCase().split(/[^a-z0-9.-]+/).filter(word => word.length >= 2)
+    .map(word => word.replace(/\.$/g, '')).filter(word => word.length >= 2);
   const extraWords: string[] = [];
-  for (const w of words) {
-    if (w.endsWith('s') && w.length > 3) {
-      extraWords.push(w.slice(0, -1));
-    }
-  }
-
+  for (const w of words) if (w.endsWith('s') && w.length > 3) extraWords.push(w.slice(0, -1));
   return Array.from(new Set([...words, ...extraWords]));
 }
 
-/**
- * BM25-Lite Scoring:
- * Ranks a document based on keyword relevance and rarity.
- */
-function calculateBM25Score(queryWords: string[], summary: SemanticSummary, allSummaries: SemanticSummary[]): number {
-  let totalScore = 0
-  const totalDocs = allSummaries.length || 1
-
-  for (const word of queryWords) {
-    const tf = summary.keywords.filter(k => k === word).length ||
-               (summary.content.toLowerCase().includes(word) ? 1 : 0)
-
-    const docsWithWord = allSummaries.filter(s =>
-      s.keywords.includes(word) || s.content.toLowerCase().includes(word)
-    ).length || 1
-
-    const idf = Math.log((totalDocs - docsWithWord + 0.5) / (docsWithWord + 0.5) + 1)
-    totalScore += idf * (tf * 2.2) / (tf + 1.2)
-  }
-
-  return totalScore
+export async function getGlobalGraph(): Promise<KnowledgeGraph> {
+  const cwd = process.cwd(); const context = await getContext(cwd)
+  if (!context) return { entities: {}, relations: [], summaries: [], rules: [], lastUpdateTime: 0 }
+  const entitiesArr = context.db.queryAll('SELECT * FROM entities'); const entities: Record<string, Entity> = {}
+  for (const e of entitiesArr) { entities[e.id] = { id: e.id, type: e.type, name: e.name, attributes: JSON.parse(e.attributes) } }
+  const relations = context.db.queryAll('SELECT source_id as sourceId, target_id as targetId, type FROM relations')
+  const summaries = context.db.queryAll('SELECT content FROM summaries').map((s: any) => s.content)
+  const rules = context.db.queryAll('SELECT rule FROM rules').map((r: any) => r.rule)
+  return { entities, relations, summaries, rules, lastUpdateTime: context.lastUpdateTime }
 }
 
-export function getOrchestratedMemory(query: string): string {
-  const graph = getGlobalGraph()
-  const queryWords = extractKeywords(query)
-
-  if (queryWords.length === 0) {
-    return getGlobalGraphSummary()
-  }
-
-  // Tier 1: Exact Entity Matches (High precision)
-  const matchingEntities = Object.values(graph.entities)
-    .filter(e => {
-      const eName = e.name.toLowerCase();
-      const eType = e.type.toLowerCase();
-      const eAttrValues = Object.values(e.attributes).map(v => v.toLowerCase());
-
-      return queryWords.some(qw =>
-        eName.includes(qw) ||
-        qw.includes(eName) ||
-        eType.includes(qw) ||
-        eAttrValues.some(v => v.includes(qw))
-      )
-    })
-    .sort((a, b) => {
-      const aName = a.name.toLowerCase();
-      const bName = b.name.toLowerCase();
-      const aAttrValues = Object.values(a.attributes).map(v => v.toLowerCase());
-      const bAttrValues = Object.values(b.attributes).map(v => v.toLowerCase());
-
-      const aPerfect = queryWords.some(qw => aName === qw || aAttrValues.some(av => av === qw)) ? 1 : 0
-      const bPerfect = queryWords.some(qw => bName === qw || bAttrValues.some(av => av === qw)) ? 1 : 0
-
-      if (aPerfect !== bPerfect) return bPerfect - aPerfect;
-
-      // Recency boost: newer entities (higher timestamp in ID) rank higher
-      const aTime = parseInt(a.id.split('_')[1]) || 0
-      const bTime = parseInt(b.id.split('_')[1]) || 0
-      if (Math.abs(aTime - bTime) > 1000) return bTime - aTime;
-
-      const aSub = queryWords.some(qw => aName.includes(qw) || aAttrValues.some(av => av.includes(qw))) ? 1 : 0
-      const bSub = queryWords.some(qw => bName.includes(qw) || bAttrValues.some(av => av.includes(qw))) ? 1 : 0
-      return bSub - aSub;
-    })
-    .slice(0, 15)
-
-  // Tier 2: BM25-ranked Summaries (Contextual History)
-  const scoredSummaries = graph.summaries
-    .map(s => ({ ...s, score: calculateBM25Score(queryWords, s, graph.summaries) }))
-    .filter(s => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 10)
-
-  let output = '\\n--- [PERSISTENT PROJECT MEMORY (NATIVE RAG)] ---\\n'
-
-  if (graph.rules.length > 0) {
-    output += 'Active Project Rules:\\n'
-    graph.rules.forEach(r => output += `- ${r}\\n`)
-  }
-
-  if (matchingEntities.length > 0) {
-    output += '\\nRelevant Technical Entities:\\n'
-    for (const e of matchingEntities) {
-      output += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k,v]) => `${k}: ${v}`).join(', ')}\\n`
-    }
-  }
-
-  if (scoredSummaries.length > 0) {
-    output += '\\nContextual Project History (Ranked):\\n'
-    for (const s of scoredSummaries) {
-      output += `- ${s.content}\\n`
-    }
-  }
-
-  return output + '------------------------------------------------\\n'
+export async function consolidateKnowledge(cwd: string): Promise<void> {
+  const context = await getContext(cwd); if (!context) return
+  const entities = context.db.queryAll('SELECT * FROM entities ORDER BY last_updated DESC LIMIT 50')
+  if (entities.length < 10) return
+  const { getAnthropicClient } = await import('../services/api/client.js')
+  const client = await getAnthropicClient({})
+  const { getSmallFastModel } = await import('./model/model.js')
+  const prompt = `Consolidate these technical entities into high-level rules. Data: ${JSON.stringify(entities.map((e: any) => ({ type: e.type, name: e.name })))}`
+  try {
+    const response = await client.messages.create({ model: getSmallFastModel(), max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
+    const insight = (response.content[0] as any).text; if (insight) await addGlobalRule(`Architectural Insight: ${insight}`)
+  } catch {}
 }
 
-export function searchGlobalGraph(query: string): string {
-  const graph = getGlobalGraph()
-  const queryWords = extractKeywords(query)
-
-  if (queryWords.length === 0) return ''
-
-  // 1. Search in Entities (High Precision)
-  const matchingEntities = Object.values(graph.entities).filter(e =>
-    queryWords.some(qw =>
-      e.name.toLowerCase().includes(qw) ||
-      qw.includes(e.name.toLowerCase()) ||
-      Object.values(e.attributes).some(v => v.toLowerCase().includes(qw))
-    )
-  )
-
-  // 2. Search in Summaries (Broad Recall)
-  const scoredSummaries = graph.summaries.map(s => {
-    const matches = queryWords.filter(qw =>
-      s.content.toLowerCase().includes(qw) ||
-      s.keywords.some(k => k.includes(qw) || qw.includes(k))
-    )
-    return { ...s, score: matches.length }
-  }).filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 10)
-
-  if (matchingEntities.length === 0 && scoredSummaries.length === 0) return ''
-
-  let result = '\\n--- Persistent Project Memory ---\\n'
-
-  if (matchingEntities.length > 0) {
-    result += 'Known Facts (from Knowledge Graph):\\n'
-    for (const e of matchingEntities.slice(0, 15)) {
-      result += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k,v]) => `${k}: ${v}`).join(', ')}\\n`
+export async function getOrchestratedMemory(query: string, tokenLimit: number = 800): Promise<string> {
+  const cwd = process.cwd(); const context = await getContext(cwd); if (!context) return ''
+  const { db, orama } = context; const queryWords = extractKeywords(query)
+  const { encodingForModel } = await import('js-tiktoken')
+  const encoder = encodingForModel('gpt-4o')
+  let output = '\n--- [PERSISTENT PROJECT MEMORY (HYBRID RAG)] ---\n'; let currentTokens = encoder.encode(output).length
+  const rules = db.queryAll('SELECT rule FROM rules ORDER BY timestamp DESC LIMIT 10')
+  if (rules.length > 0) {
+    output += 'Active Project Rules:\n'
+    for (const r of rules) {
+      const line = `- ${r.rule}\n`; const tokens = encoder.encode(line).length
+      if (currentTokens + tokens > tokenLimit * 0.3) break
+      output += line; currentTokens += tokens
     }
   }
-
-  if (scoredSummaries.length > 0) {
-    result += 'Relevant Project History (Summaries):\\n'
-    for (const s of scoredSummaries) {
-      result += `- ${s.content}\\n`
-    }
+  const seenContent = new Set<string>(); const finalMatches: { text: string; score: number }[] = []
+  const { generateEmbedding } = await import('./embeddings.js')
+  const vector = await generateEmbedding(query)
+  if (vector) {
+    try {
+      const { search } = await import('@orama/orama')
+      const results = await search(orama, { mode: 'vector', vector: { value: vector, property: 'embedding' }, limit: 15 })
+      for (const hit of results.hits) { const text = (hit.document as any).text; finalMatches.push({ text, score: hit.score * 5.0 }); seenContent.add(text) }
+    } catch {}
   }
-
-  return result + '-------------------------------\\n'
+  const summaries = db.queryAll('SELECT content, keywords FROM summaries ORDER BY timestamp DESC LIMIT 100')
+  for (const s of summaries) {
+    if (seenContent.has(s.content)) continue
+    let kwScore = 0; const kwArr = JSON.parse(s.keywords) as string[]
+    for (const word of queryWords) { if (s.content.toLowerCase().includes(word)) kwScore += 1.0; if (kwArr.includes(word)) kwScore += 2.0 }
+    if (kwScore > 0) { finalMatches.push({ text: s.content, score: kwScore }); seenContent.add(s.content) }
+  }
+  finalMatches.sort((a, b) => b.score - a.score)
+  output += '\nRelevant Contextual Insights:\n'
+  for (const m of finalMatches) {
+    const line = `- ${m.text}\n`; const tokens = encoder.encode(line).length
+    if (currentTokens + tokens > tokenLimit) break
+    output += line; currentTokens += tokens
+  }
+  return output + '------------------------------------------------\n'
 }
 
-export function getGlobalGraphSummary(): string {
-  const graph = getGlobalGraph()
-  const entities = Object.values(graph.entities)
-  if (entities.length === 0 && graph.summaries.length === 0 && graph.rules.length === 0) {
-    return ''
+export async function searchGlobalGraph(query: string): Promise<string> { return await getOrchestratedMemory(query) }
+
+export async function getGlobalGraphSummary(): Promise<string> {
+  const context = await getContext(process.cwd()); if (!context) return ''
+  const { db } = context
+  const entities = db.queryAll('SELECT * FROM entities ORDER BY last_updated DESC LIMIT 10')
+  const rules = db.queryAll('SELECT rule FROM rules ORDER BY timestamp DESC LIMIT 5')
+  const summaries = db.queryAll('SELECT content FROM summaries ORDER BY timestamp DESC LIMIT 5')
+  if (entities.length === 0 && rules.length === 0 && summaries.length === 0) return ''
+  let summary = '\n--- Full Project Knowledge Graph ---\n'
+  for (const e of entities) {
+    const attrs = JSON.parse(e.attributes)
+    summary += `- [${e.type}] ${e.name.length > 50 ? e.name.slice(0, 47) + '...' : e.name}: ${Object.entries(attrs).map(([k, v]) => `${k}: ${v}`).join(', ')}\n`
   }
-
-  let summary = '\\nKnowledge Graph Snapshot (Most Recent):\\n'
-  const recentEntities = entities
-    .sort((a, b) => {
-      const timeA = parseInt(a.id.split('_')[1]) || 0
-      const timeB = parseInt(b.id.split('_')[1]) || 0
-      return timeB - timeA
-    })
-    .slice(0, 10)
-
-  for (const entity of recentEntities) {
-    summary += `- [${entity.type}] ${entity.name}`
-    const attrs = Object.entries(entity.attributes)
-    if (attrs.length > 0) {
-      summary += ` (${attrs.map(([k, v]) => `${k}: ${v}`).join(', ')})`
-    }
-    summary += '\\n'
-  }
-
-  if (graph.rules.length > 0) {
-    summary += '\\nProject Rules:\\n'
-    graph.rules.slice(0, 5).forEach(r => summary += `- ${r}\\n`)
-  }
-
+  if (rules.length > 0) { summary += '\nActive Project Rules:\n'; rules.forEach((r: any) => summary += `- ${r.rule}\n`) }
+  if (summaries.length > 0) { summary += '\nProject Knowledge Map:\n'; summaries.forEach((s: any) => summary += `- ${s.content}\n`) }
   return summary
 }
 
-export function resetGlobalGraph(): void {
-  const cwd = getFsImplementation().cwd()
-  const path = getProjectGraphPath(cwd)
-  try {
-    rmSync(path, { force: true })
-  } catch { /* ignore */ }
-  projectGraph = null;
+export async function resetGlobalGraph(): Promise<void> {
+  const cwd = process.cwd(); const context = activeContexts.get(cwd)
+  if (context) { if (context.saveTimeout) clearTimeout(context.saveTimeout); try { context.db.close() } catch {}; activeContexts.delete(cwd) }
+  const dbPath = getProjectDbPath(cwd); const oramaPath = getProjectOramaPath(cwd)
+  if (existsSync(dbPath)) rmSync(dbPath, { force: true }); if (existsSync(oramaPath)) rmSync(oramaPath, { force: true })
 }
 
-/**
- * Resets the in-memory cache ONLY.
- * Does NOT delete the physical file from disk.
- * Used for simulating fresh process starts in tests.
- */
 export function clearMemoryOnly(): void {
-  projectGraph = null;
+  for (const [cwd, context] of activeContexts.entries()) { if (context.saveTimeout) clearTimeout(context.saveTimeout); try { context.db.close() } catch {} }
+  activeContexts.clear()
 }
