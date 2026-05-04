@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-describe("Main Process", () => {
+// These tests require vitest-specific APIs (vi.resetModules, vi.doMock)
+// that bun's built-in test runner does not support.
+// Run with: cd packages/desktop && bun run test
+const vitestOnly = typeof vi.resetModules === "function" ? describe : describe.skip
+
+vitestOnly("Main Process", () => {
   let BrowserWindow: ReturnType<typeof vi.fn>
   let mockWindow: Record<string, unknown>
   let mockApp: {
@@ -90,7 +95,6 @@ describe("Main Process", () => {
   it("registers optimizer.watchWindowShortcuts on browser-window-created", async () => {
     await loadMain()
 
-    // Find the "browser-window-created" handler registered via app.on
     const calls = mockApp.on.mock.calls
     const bwCreatedCall = calls.find((c: unknown[]) => c[0] === "browser-window-created")
     expect(bwCreatedCall).toBeDefined()
@@ -102,7 +106,6 @@ describe("Main Process", () => {
   })
 
   it("quits on window-all-closed when not macOS", async () => {
-    // process.platform is "win32" in tests, so app.quit should be called
     await loadMain()
 
     const calls = mockApp.on.mock.calls
@@ -115,7 +118,6 @@ describe("Main Process", () => {
   })
 
   it("does not quit on window-all-closed when macOS", async () => {
-    // Override platform to simulate macOS
     const originalPlatform = process.platform
     Object.defineProperty(process, "platform", { value: "darwin" })
 
