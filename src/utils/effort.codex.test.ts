@@ -63,3 +63,30 @@ test('gpt-5.3-codex-spark stays without effort controls', async () => {
   expect(modelSupportsEffort('gpt-5.3-codex-spark')).toBe(false)
   expect(getAvailableEffortLevels('gpt-5.3-codex-spark')).toEqual([])
 })
+
+test('toPersistableEffort normalizes xhigh to max so it survives settings write', async () => {
+  const { toPersistableEffort } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+  })
+
+  expect(toPersistableEffort('xhigh')).toBe('max')
+  expect(toPersistableEffort('max')).toBe('max')
+  expect(toPersistableEffort('high')).toBe('high')
+  expect(toPersistableEffort('medium')).toBe('medium')
+  expect(toPersistableEffort('low')).toBe('low')
+  expect(toPersistableEffort(undefined)).toBeUndefined()
+})
+
+test('standardEffortToOpenAI maps max to xhigh for shim payload', async () => {
+  const { standardEffortToOpenAI, openAIEffortToStandard } =
+    await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+  expect(standardEffortToOpenAI('max')).toBe('xhigh')
+  expect(standardEffortToOpenAI('high')).toBe('high')
+  expect(openAIEffortToStandard('xhigh')).toBe('max')
+  expect(openAIEffortToStandard('high')).toBe('high')
+})
