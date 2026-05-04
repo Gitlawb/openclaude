@@ -368,6 +368,42 @@ export function routeSupportsCustomHeaders(
   return descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true
 }
 
+export function routeShowsAuthHeaderValue(routeId: string): boolean {
+  const descriptor = getRouteDescriptor(routeId)
+  if (!descriptor) {
+    return false
+  }
+
+  return (
+    descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true &&
+    descriptor.transportConfig.openaiShim?.ui?.showAuthHeaderValue !== false
+  )
+}
+
+export function routeShowsAuthHeader(routeId: string): boolean {
+  const descriptor = getRouteDescriptor(routeId)
+  if (!descriptor) {
+    return false
+  }
+
+  return (
+    descriptor.transportConfig.openaiShim?.supportsAuthHeaders === true &&
+    descriptor.transportConfig.openaiShim?.ui?.showAuthHeader !== false
+  )
+}
+
+export function routeShowsCustomHeaders(routeId: string): boolean {
+  const descriptor = getRouteDescriptor(routeId)
+  if (!descriptor) {
+    return false
+  }
+
+  return (
+    routeSupportsCustomHeaders(routeId) &&
+    descriptor.transportConfig.openaiShim?.ui?.showCustomHeaders !== false
+  )
+}
+
 function routeSupportsOpenAIShimOption(
   routeId: string,
   option: 'supportsApiFormatSelection' | 'supportsAuthHeaders',

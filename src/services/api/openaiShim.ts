@@ -1780,6 +1780,11 @@ class OpenAIShimMessages {
       } else if (isBankr) {
         // Bankr uses X-API-Key header instead of Bearer token
         headers['X-API-Key'] = authValue
+      } else if (shimConfig.defaultAuthHeader?.name) {
+        headers[shimConfig.defaultAuthHeader.name] =
+          shimConfig.defaultAuthHeader.scheme === 'bearer'
+            ? `Bearer ${authValue}`
+            : authValue
       } else {
         headers.Authorization = `Bearer ${authValue}`
       }

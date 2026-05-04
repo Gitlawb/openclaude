@@ -19,6 +19,10 @@ import {
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
 } from 'src/utils/providerProfile.js'
+import {
+  openAIShimSupportsApiFormatForModel,
+  resolveOpenAIShimRuntimeContext,
+} from '../../integrations/runtimeMetadata.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
@@ -618,11 +622,27 @@ export function resolveProviderRequest(options?: {
       ? undefined
       : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
         parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
+  const supportsRequestedApiFormat =
+    requestedApiFormat !== 'responses' ||
+    (() => {
+      const runtimeShimContext = resolveOpenAIShimRuntimeContext({
+        processEnv: process.env,
+        baseUrl: finalBaseUrl,
+        model: descriptor.baseModel,
+        treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
+      })
+
+      return openAIShimSupportsApiFormatForModel(
+        runtimeShimContext.openaiShimConfig,
+        'responses',
+        descriptor.baseModel,
+      )
+    })()
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
-      : requestedApiFormat === 'responses'
+      : requestedApiFormat === 'responses' && supportsRequestedApiFormat
         ? 'responses'
         : 'chat_completions'
 

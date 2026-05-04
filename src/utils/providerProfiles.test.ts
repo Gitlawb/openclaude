@@ -57,6 +57,7 @@ const RESTORED_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'HICAP_API_KEY',
 ] as const
 
 type MockConfigState = {
@@ -411,7 +412,7 @@ describe('applyProviderProfileToProcessEnv', () => {
       buildProfile({
         provider: 'openai',
         baseUrl: 'https://api.hicap.ai/v1',
-        model: 'claude-opus-4.6',
+        model: 'claude-opus-4.7',
         authHeader: 'api-key',
         authScheme: 'raw',
         authHeaderValue: 'hicap-header-value',
@@ -999,6 +1000,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.name).toBe('DeepSeek')
     expect(defaults.baseUrl).toBe('https://api.deepseek.com/v1')
     expect(defaults.model).toBe('deepseek-v4-pro')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
+  test('hicap preset defaults to the Hicap endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.HICAP_API_KEY = 'hicap-live-key'
+
+    const defaults = getProviderPresetDefaults('hicap')
+
+    expect(defaults.provider).toBe('hicap')
+    expect(defaults.name).toBe('Hicap')
+    expect(defaults.baseUrl).toBe('https://api.hicap.ai/v1')
+    expect(defaults.model).toBe('claude-opus-4.7')
+    expect(defaults.apiKey).toBe('hicap-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
 

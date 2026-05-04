@@ -25,6 +25,7 @@ const EXPECTED_PRESETS = [
   'mistral',
   'together',
   'groq',
+  'hicap',
   'azure-openai',
   'openrouter',
   'lmstudio',
