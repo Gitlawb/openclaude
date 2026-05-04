@@ -27,11 +27,9 @@ export class SDKBillingError extends SDKError {
 }
 
 export class SDKRateLimitError extends SDKError {
-  constructor(
-    message?: string,
-    readonly resetsAt?: number,
-    readonly rateLimitType?: string,
-  )
+  readonly resetsAt?: number
+  readonly rateLimitType?: string
+  constructor(message?: string, resetsAt?: number, rateLimitType?: string)
 }
 
 export class SDKInvalidRequestError extends SDKError {
@@ -188,9 +186,17 @@ export type SessionMessage = {
 
 // Re-export precise SDK message types from generated types
 // These use camelCase field names and discriminated unions for full IntelliSense
-export type { SDKMessage as SDKMessage } from './sdk/coreTypes.generated.js'
-export type { SDKUserMessage as SDKUserMessage } from './sdk/coreTypes.generated.js'
-export type { SDKResultMessage as SDKResultMessage } from './sdk/coreTypes.generated.js'
+import type {
+  SDKMessage,
+  SDKUserMessage,
+  SDKResultMessage,
+} from './sdk/coreTypes.generated.js'
+
+export type {
+  SDKMessage,
+  SDKUserMessage,
+  SDKResultMessage,
+} from './sdk/coreTypes.generated.js'
 
 // ============================================================================
 // Query types
@@ -316,6 +322,31 @@ export type SDKPermissionTimeoutMessage = {
   session_id: string
 }
 
+/**
+ * A message emitted when agent definitions fail to load.
+ * This allows hosts to detect configuration issues that would otherwise
+ * be silently logged to console.warn.
+ *
+ * Note: Agent load failures are non-fatal — the query continues without agents.
+ */
+export type SDKAgentLoadFailureMessage = {
+  type: 'agent_load_failure'
+  stage: 'definitions' | 'injection'
+  error_message: string
+}
+
+// ============================================================================
+// Permission resolve decision (SDK-specific)
+// ============================================================================
+
+/**
+ * Decision returned by permission resolution.
+ * Used by respondToPermission() and internal permission handling.
+ */
+export type PermissionResolveDecision =
+  | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
+  | { behavior: 'deny'; message: string; decisionReason: { type: 'mode'; mode: string } }
+
 // ============================================================================
 // V2 API types
 // ============================================================================
@@ -345,6 +376,8 @@ export type SDKSessionOptions = {
    * the request immediately and can resolve it via respondToPermission().
    */
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
+  /** Tools to disallow (blanket deny by tool name). */
+  disallowedTools?: string[]
 }
 
 export interface SDKSession {
@@ -352,6 +385,8 @@ export interface SDKSession {
   sendMessage(content: string): AsyncIterable<SDKMessage>
   getMessages(): SDKMessage[]
   interrupt(): void
+  /** Close the session and release resources (MCP connections, etc.). */
+  close(): void
   /** Respond to a pending permission prompt. */
   respondToPermission(toolUseId: string, decision: PermissionResult): void
 }
@@ -482,6 +517,8 @@ export type SdkMcpHttpConfig = {
 export type SdkMcpSdkConfig = {
   type: "sdk"
   name: string
+  /** In-process tool definitions created via the tool() helper. */
+  tools?: SdkMcpToolDefinition[]
 }
 
 export type SdkMcpServerConfig = SdkMcpStdioConfig | SdkMcpSSEConfig | SdkMcpHttpConfig | SdkMcpSdkConfig
