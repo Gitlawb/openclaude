@@ -21,14 +21,8 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "dependencies": {
-    "better-sqlite3": "^12.9.0",
-    "electron-log": "^5.4.3",
-    "electron-updater": "^6.7.3",
-    "superjson": "^2.2.2"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
     "@testing-library/react": "^16.3.0",
     "@types/better-sqlite3": "^7.6.13",

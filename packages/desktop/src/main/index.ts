@@ -13,7 +13,7 @@ function createWindow(): void {
     show: false,
     title: "OpenClaude Desktop",
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.cjs"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -50,7 +50,7 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
-})
+}).catch(console.error)
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {

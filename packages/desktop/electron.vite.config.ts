@@ -10,7 +10,7 @@ export default defineConfig({
         entry: resolve(__dirname, "src/main/index.ts"),
       },
       rollupOptions: {
-        external: ["electron", "better-sqlite3", "superjson"],
+        external: ["electron"],
         output: {
           format: "cjs",
         },
