@@ -416,6 +416,12 @@ export function startDeferredPrefetches(): void {
   }
   void countFilesRoundedRg(getCwd(), AbortSignal.timeout(3000), []);
 
+  // Project convention scanner — reads config files and persists to wiki.
+  // No-op if wiki isn't initialized (~1 stat call).
+  void import('./services/wiki/conventions.js').then(({ scanAndSaveConventions }) =>
+    scanAndSaveConventions(getCwd()),
+  );
+
   // Analytics and feature flag initialization
   void initializeAnalyticsGates();
   void prefetchOfficialMcpUrls();
