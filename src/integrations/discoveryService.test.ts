@@ -284,6 +284,61 @@ describe('discoverModelsForRoute', () => {
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['discovered-model'])
   })
 
+  test('openai-compatible discovery can opt out of auth', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    registerGateway({
+      id: 'discovery-no-auth-test',
+      label: 'Discovery No Auth Test',
+      category: 'hosted',
+      defaultBaseUrl: 'https://discovery-no-auth-test.example/v1',
+      setup: {
+        requiresAuth: true,
+        authMode: 'api-key',
+        credentialEnvVars: ['DISCOVERY_NO_AUTH_TEST_API_KEY'],
+      },
+      transportConfig: {
+        kind: 'openai-compatible',
+      },
+      catalog: {
+        source: 'dynamic',
+        discovery: {
+          kind: 'openai-compatible',
+          requiresAuth: false,
+        },
+        discoveryCacheTtl: '1d',
+      },
+    })
+
+    let callCount = 0
+    setMockFetch(mock((_input, init) => {
+      callCount++
+      expect(init?.headers).toBeUndefined()
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'public-model' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('discovery-no-auth-test', {
+      apiKey: 'discovery-key',
+      forceRefresh: true,
+    })
+    const cached = await discoverModelsForRoute('discovery-no-auth-test', {
+      apiKey: 'different-discovery-key',
+    })
+
+    expect(result?.source).toBe('network')
+    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
+    expect(cached?.source).toBe('cache')
+    expect(cached?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
+    expect(callCount).toBe(1)
+  })
+
   test('skips descriptor network discovery when nonessential traffic is disabled', async () => {
     process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
     process.env.OPENROUTER_API_KEY = 'or-key'

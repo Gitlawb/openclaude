@@ -159,10 +159,12 @@ export OPENAI_MODEL=meta-llama/Llama-3.3-70B-Instruct-Turbo
 
 ```bash
 export CLAUDE_CODE_USE_OPENAI=1
-export OPENAI_API_KEY=gsk_...
+export GROQ_API_KEY=gsk_...
 export OPENAI_BASE_URL=https://api.groq.com/openai/v1
 export OPENAI_MODEL=llama-3.3-70b-versatile
 ```
+
+`GROQ_API_KEY` matches the built-in Groq gateway preset. `OPENAI_API_KEY` also works as a fallback on the generic OpenAI-compatible path, but `GROQ_API_KEY` is the preferred variable for Groq-specific setup.
 
 ### Mistral
 
@@ -275,7 +277,7 @@ bun run profile:init -- --provider atomic-chat
 # codex bootstrap with a fast model alias
 bun run profile:init -- --provider codex --model codexspark
 
-# launch using persisted profile (.openclaude-profile.json)
+# launch using persisted user-level provider profile
 bun run dev:profile
 
 # codex profile (uses CODEX_API_KEY or ~/.codex/auth.json)

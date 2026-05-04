@@ -114,6 +114,7 @@ const PRESET_ORDER = [
   'Codex OAuth',
   'Google Gemini',
   'Groq',
+  'Hicap',
   'LM Studio',
   'Atomic Chat',
   'Ollama',
@@ -202,6 +203,16 @@ function mockProviderProfilesModule(options?: {
           name: 'MiniMax',
           baseUrl: 'https://api.minimax.io/v1',
           model: 'MiniMax-M2.7',
+          apiKey: '',
+        }
+      }
+
+      if (preset === 'hicap') {
+        return {
+          provider: 'hicap',
+          name: 'Hicap',
+          baseUrl: 'https://api.hicap.ai/v1',
+          model: 'claude-opus-4.7',
           apiKey: '',
         }
       }
@@ -626,6 +637,163 @@ test('ProviderManager skips advanced auth fields when adding MiniMax', async () 
     expect(output).not.toContain('API mode')
     expect(output).not.toContain('Auth header')
     expect(output).not.toContain('Custom headers')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager explains when Hicap non-gpt responses mode is saved as chat completions', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile: (payload: any) => ({
+      id: 'hicap_profile',
+      ...payload,
+      apiFormat:
+        payload.provider === 'hicap' &&
+        payload.model === 'claude-opus-4.7' &&
+        payload.apiFormat === 'responses'
+          ? 'chat_completions'
+          : payload.apiFormat,
+    }),
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'Hicap')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider name'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Default model'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('API mode'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    const apiKeyOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 5 of 6: API key'),
+    )
+    expect(apiKeyOutput).not.toContain('Auth header')
+    expect(apiKeyOutput).not.toContain('Auth header value')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 6 of 6: Custom headers'),
+    )
+    mounted.stdin.write('\r')
+
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Hicap only supports the Responses API for gpt- models'),
+    )
+    expect(output).toMatch(/saved\s+using Chat Completions/)
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager clears hidden Hicap auth fields when editing', async () => {
+  const legacyHicapProfile = {
+    id: 'provider_legacy_hicap',
+    provider: 'hicap',
+    name: 'Legacy Hicap',
+    baseUrl: 'https://api.hicap.ai/v1',
+    model: 'claude-opus-4.7',
+    apiKey: 'hicap-key',
+    apiFormat: 'chat_completions',
+    authHeader: 'Authorization',
+    authHeaderValue: 'stale-hidden-secret',
+    customHeaders: {
+      'X-Regular-Header': 'kept',
+    },
+  }
+  const updateProviderProfile = mock((id: string, payload: any) => ({
+    ...legacyHicapProfile,
+    id,
+    ...payload,
+  }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [legacyHicapProfile],
+      getActiveProviderProfile: () => legacyHicapProfile,
+      updateProviderProfile,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager') &&
+      frame.includes('Edit provider'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider') &&
+      frame.includes('Legacy Hicap'),
+    )
+
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider profile') &&
+      frame.includes('Step 1 of 6'),
+    )
+
+    for (let step = 2; step <= 6; step++) {
+      mounted.stdin.write('\r')
+      await waitForFrameOutput(mounted.getOutput, frame =>
+        frame.includes(`Step ${step} of 6`),
+      )
+    }
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => updateProviderProfile.mock.calls.length > 0)
+    expect(updateProviderProfile).toHaveBeenCalledWith(
+      'provider_legacy_hicap',
+      expect.objectContaining({
+        provider: 'hicap',
+        customHeaders: {
+          'X-Regular-Header': 'kept',
+        },
+      }),
+    )
+    expect(updateProviderProfile.mock.calls[0]?.[1]).toMatchObject({
+      authHeader: undefined,
+      authScheme: undefined,
+      authHeaderValue: undefined,
+    })
   } finally {
     await mounted.dispose()
   }

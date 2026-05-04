@@ -37,6 +37,10 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
     'DEEPSEEK_API_KEY',
     'OPENAI_API_KEY',
   ])
+  expect(getRouteCredentialEnvVars('hicap')).toEqual([
+    'HICAP_API_KEY',
+    'OPENAI_API_KEY',
+  ])
   expect(getRouteCredentialEnvVars('custom')).toEqual(['OPENAI_API_KEY'])
 })
 
@@ -104,6 +108,7 @@ test.each([
   ['NVIDIA NIM', 'https://integrate.api.nvidia.com/v1', 'nvidia/llama-3.1-nemotron-70b-instruct', 'nvidia-nim'],
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
+  ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
 ])(
   'resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL',
   (_label, baseUrl, model, expectedRouteId) => {

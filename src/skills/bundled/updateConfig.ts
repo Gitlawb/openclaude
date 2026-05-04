@@ -73,6 +73,7 @@ Settings load in order: user → project → local (later overrides earlier).
 }
 \`\`\`
 Set \`commit\` or \`pr\` to empty string \`""\` to hide that attribution.
+You can also use \`/commit-message\` to configure commit attribution from the CLI.
 
 ### MCP Server Management
 \`\`\`json

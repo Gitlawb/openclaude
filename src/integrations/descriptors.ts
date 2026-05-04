@@ -14,11 +14,26 @@ export type TransportKind =
   | 'vertex'
 
 export type OpenAIShimTokenField = 'max_tokens' | 'max_completion_tokens'
+export type OpenAIShimAuthScheme = 'bearer' | 'raw'
+
+export interface OpenAIShimAuthHeaderConfig {
+  name: string
+  scheme?: OpenAIShimAuthScheme
+}
+
+export interface OpenAIShimUiConfig {
+  showAuthHeader?: boolean
+  showAuthHeaderValue?: boolean
+  showCustomHeaders?: boolean
+}
 
 export interface OpenAIShimTransportConfig {
   headers?: Record<string, string>
   supportsApiFormatSelection?: boolean
   supportsAuthHeaders?: boolean
+  ui?: OpenAIShimUiConfig
+  defaultAuthHeader?: OpenAIShimAuthHeaderConfig
+  responsesApiModelPrefixes?: string[]
   preserveReasoningContent?: boolean
   requireReasoningContentOnAssistantMessages?: boolean
   reasoningContentFallback?: '' | 'omit'
@@ -85,6 +100,7 @@ export type ModelDiscoveryKind = 'openai-compatible' | 'ollama' | 'custom'
 
 export interface ModelDiscoveryConfig {
   kind: ModelDiscoveryKind
+  requiresAuth?: boolean
   path?: string
   parse?: 'openai-models-list' | 'ollama-tags' | 'custom'
   mapModel?: (raw: unknown) => ModelCatalogEntry | null

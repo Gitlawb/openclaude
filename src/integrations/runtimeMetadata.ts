@@ -104,6 +104,36 @@ function mergeOpenAIShimConfig(
   }
 }
 
+function normalizePrefix(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+export function openAIShimSupportsApiFormatForModel(
+  config:
+    | Pick<OpenAIShimTransportConfig, 'responsesApiModelPrefixes'>
+    | undefined,
+  apiFormat: 'responses',
+  modelApiName: string | undefined,
+): boolean {
+  const prefixes =
+    apiFormat === 'responses'
+      ? config?.responsesApiModelPrefixes
+          ?.map(normalizePrefix)
+          .filter(Boolean)
+      : undefined
+
+  if (!prefixes || prefixes.length === 0) {
+    return true
+  }
+
+  const normalizedModel = normalizeModelApiName(modelApiName)
+  if (!normalizedModel) {
+    return false
+  }
+
+  return prefixes.some(prefix => normalizedModel.startsWith(prefix))
+}
+
 function inferRemoteModelOpenAIShimConfig(
   modelApiName: string | undefined,
 ): Partial<OpenAIShimTransportConfig> | undefined {
