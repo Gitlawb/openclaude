@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import type { AssistantMessage, Message } from '../types/message.js'
@@ -21,6 +22,25 @@ function cachedTokenCount(content: string): number {
     return roughTokenCountEstimation(content)
   }
   return getInMemoryTokenCache().getTokenCount(content)
+}
+
+function getMessageHash(message: Message): string {
+  return createHash('sha256')
+    .update(jsonStringify(message.message?.content ?? ''))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+function cachedMessageTokenEstimate(message: Message): number {
+  const hash = getMessageHash(message)
+  const cache = getInMemoryTokenCache()
+  const existing = cache.cache.get(hash)
+  if (existing) {
+    return existing.tokenCount
+  }
+  const estimate = getMessageTokenEstimate(message)
+  cache.cache.set(hash, { contentHash: hash, contentPreview: '', tokenCount: estimate, lastUsed: Date.now(), useCount: 1 })
+  return estimate
 }
 
 function getMessageContentString(message: Message): string {
@@ -72,12 +92,7 @@ function getMessageTokenEstimate(message: Message): number {
 function cachedRoughTokenCountForMessages(messages: readonly Message[]): number {
   let total = 0
   for (const msg of messages) {
-    const content = getMessageContentString(msg)
-    if (content.length >= 20) {
-      total += cachedTokenCount(content)
-    } else {
-      total += getMessageTokenEstimate(msg)
-    }
+    total += cachedMessageTokenEstimate(msg)
   }
   return total
 }
