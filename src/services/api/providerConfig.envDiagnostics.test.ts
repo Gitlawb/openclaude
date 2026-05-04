@@ -54,12 +54,16 @@ test('logs a warning when OPENAI_BASE_URL is literal undefined', async () => {
   expect(resolved.baseUrl).toBe('https://api.openai.com/v1')
 
   const warningCall = debugSpy.mock.calls.find(call =>
+    // @ts-expect-error bun mock type narrowing
     typeof call?.[0] === 'string' &&
-    call[0].includes('OPENAI_BASE_URL') &&
-    call[0].includes('"undefined"'),
+    // @ts-expect-error bun mock type narrowing
+    (call[0] as any).includes('OPENAI_BASE_URL') &&
+    // @ts-expect-error bun mock type narrowing
+    (call[0] as any).includes('"undefined"'),
   )
 
   expect(warningCall).toBeDefined()
+  // @ts-expect-error bun mock type narrowing
   expect(warningCall?.[1]).toEqual({ level: 'warn' })
 })
 
@@ -83,9 +87,12 @@ test('does not warn for OPENAI_API_BASE when OPENAI_BASE_URL is active', async (
   expect(resolved.baseUrl).toBe('http://127.0.0.1:11434/v1')
 
   const aliasWarning = debugSpy.mock.calls.find(call =>
+    // @ts-expect-error bun mock type narrowing
     typeof call?.[0] === 'string' &&
-    call[0].includes('OPENAI_API_BASE') &&
-    call[0].includes('"undefined"'),
+    // @ts-expect-error bun mock type narrowing
+    (call[0] as any).includes('OPENAI_API_BASE') &&
+    // @ts-expect-error bun mock type narrowing
+    (call[0] as any).includes('"undefined"'),
   )
 
   expect(aliasWarning).toBeUndefined()

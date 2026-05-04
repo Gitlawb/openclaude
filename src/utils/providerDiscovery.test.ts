@@ -1,7 +1,6 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 
 async function loadProviderDiscoveryModule() {
-  // @ts-expect-error cache-busting query string for Bun module mocks
   return import(`./providerDiscovery.js?ts=${Date.now()}-${Math.random()}`)
 }
 
@@ -18,6 +17,7 @@ afterEach(() => {
 test('lists models from a local openai-compatible /models endpoint', async () => {
   const { listOpenAICompatibleModels } = await loadProviderDiscoveryModule()
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock((input, init) => {
     const url = typeof input === 'string' ? input : input.url
     expect(url).toBe('http://localhost:1234/v1/models')
@@ -51,6 +51,7 @@ test('lists models from a local openai-compatible /models endpoint', async () =>
 test('returns null when a local openai-compatible /models request fails', async () => {
   const { listOpenAICompatibleModels } = await loadProviderDiscoveryModule()
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(() =>
     Promise.resolve(new Response('not available', { status: 503 })),
   ) as typeof globalThis.fetch
@@ -130,6 +131,7 @@ test('ollama generation readiness reports unreachable when tags endpoint is down
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(input => {
     const url = typeof input === 'string' ? input : input.url
     calledUrls.push(url)
@@ -154,6 +156,7 @@ test('ollama generation readiness reports no models when server is reachable', a
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(input => {
     const url = typeof input === 'string' ? input : input.url
     calledUrls.push(url)
@@ -183,6 +186,7 @@ test('ollama generation readiness reports generation_failed when requested model
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(input => {
     const url = typeof input === 'string' ? input : input.url
     calledUrls.push(url)
@@ -216,6 +220,7 @@ test('ollama generation readiness reports generation_failed when requested model
 test('ollama generation readiness reports generation failures when chat probe fails', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(input => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/api/tags')) {
@@ -249,6 +254,7 @@ test('ollama generation readiness reports generation failures when chat probe fa
 test('ollama generation readiness reports generation_failed when chat probe returns invalid JSON', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(input => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/api/tags')) {
@@ -287,6 +293,7 @@ test('ollama generation readiness reports generation_failed when chat probe retu
 test('ollama generation readiness reports ready when chat probe succeeds', async () => {
   const { probeOllamaGenerationReadiness } = await loadProviderDiscoveryModule()
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(input => {
     const url = typeof input === 'string' ? input : input.url
     if (url.endsWith('/api/tags')) {
@@ -331,6 +338,7 @@ test('atomic chat readiness reports unreachable when /v1/models is down', async 
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
   const calledUrls: string[] = []
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(input => {
     const url = typeof input === 'string' ? input : input.url
     calledUrls.push(url)
@@ -347,6 +355,7 @@ test('atomic chat readiness reports unreachable when /v1/models is down', async 
 test('atomic chat readiness reports no_models when server is reachable but empty', async () => {
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(() =>
     Promise.resolve(
       new Response(JSON.stringify({ data: [] }), {
@@ -364,6 +373,7 @@ test('atomic chat readiness reports no_models when server is reachable but empty
 test('atomic chat readiness returns loaded model ids when ready', async () => {
   const { probeAtomicChatReadiness } = await loadProviderDiscoveryModule()
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(() =>
     Promise.resolve(
       new Response(

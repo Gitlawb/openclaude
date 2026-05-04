@@ -77,7 +77,8 @@ describe('requestLogging', () => {
           100,
           50,
           true,
-          'error message',
+          'error message' as any,
+          // @ts-expect-error argument type mismatch
           { provider: 'openai' },
         ),
       ).not.toThrow()

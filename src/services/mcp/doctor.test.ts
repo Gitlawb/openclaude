@@ -20,21 +20,21 @@ function stdioConfig(scope: 'local' | 'project' | 'user' | 'enterprise', command
   }
 }
 
-function makeDependencies(overrides: Partial<McpDoctorDependencies> = {}): McpDoctorDependencies {
+function makeDependencies(overrides: Record<string, any> = {}): McpDoctorDependencies {
   return {
-    getAllMcpConfigs: async () => ({ servers: {}, errors: [] }),
-    getMcpConfigsByScope: () => ({ servers: {}, errors: [] }),
+    getAllMcpConfigs: async () => ({ servers: {}, errors: [] }) as any,
+    getMcpConfigsByScope: () => ({ servers: {}, errors: [] }) as any,
     getProjectMcpServerStatus: () => 'approved',
     isMcpServerDisabled: () => false,
     describeMcpConfigFilePath: scope => `scope://${scope}`,
     clearServerCache: async () => {},
-    connectToServer: async (name, config) => ({
+    connectToServer: (async (name: string, config: any, _serverStats?: any) => ({
       name,
-      type: 'connected',
-      capabilities: {},
+      type: 'connected' as const,
+      capabilities: {} as Record<string, any>,
       config,
       cleanup: async () => {},
-    }),
+    })) as any,
     ...overrides,
   }
 }

@@ -5,7 +5,7 @@ import { windowsCredentialStorage } from "./windowsCredentialStorage.js";
 import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
 
 // Mock execaSync
-const mockExecaSync = mock(() => ({ exitCode: 0, stdout: "" }));
+const mockExecaSync = mock(() => ({ exitCode: 0, stdout: "" })) as any;
 mock.module("execa", () => ({
   execaSync: mockExecaSync,
 }));
@@ -67,7 +67,7 @@ describe("Secure Storage Platform Implementations", () => {
       const options = mockExecaSync.mock.calls[0][2];
       expect(script).toContain(expectedName);
       expect(script).toContain("ProtectedData");
-      expect(options.input).toContain("secret-token");
+      expect(options?.input).toContain("secret-token");
     });
   });
 
@@ -89,12 +89,12 @@ describe("Secure Storage Platform Implementations", () => {
       const script = mockExecaSync.mock.calls[0][1][1];
       const options = mockExecaSync.mock.calls[0][2];
       expect(script).toContain("[Console]::In.ReadToEnd()");
-      expect(options.input).toContain("token-with-$env:USERNAME");
+      expect(options?.input).toContain("token-with-$env:USERNAME");
 
       const dataWithQuote = { mcpOAuth: { "s": { accessToken: "token'quote", expiresAt: 1, serverName: "s", serverUrl: "u" } } };
       windowsCredentialStorage.update(dataWithQuote);
       const options2 = mockExecaSync.mock.calls[1][2];
-      expect(options2.input).toContain("token'quote");
+      expect(options2?.input).toContain("token'quote");
     });
 
     test("delete() skips legacy PasswordVault by default", () => {
@@ -162,7 +162,7 @@ describe("Secure Storage Platform Implementations", () => {
       linuxSecretStorage.update(testData);
 
       const options = mockExecaSync.mock.calls[0][2];
-      expect(options.input).toContain("secret-token");
+      expect(options?.input).toContain("secret-token");
     });
 
     test("read parses stdout", () => {

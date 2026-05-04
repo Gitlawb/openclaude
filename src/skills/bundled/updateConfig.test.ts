@@ -14,6 +14,7 @@ test('update-config skill can generate its prompt without JSON Schema conversion
   expect(skill).toBeDefined()
   expect(skill?.type).toBe('prompt')
 
+  // @ts-expect-error object possibly undefined
   const blocks = await skill!.getPromptForCommand('', {} as never)
   expect(blocks.length).toBeGreaterThan(0)
   expect(blocks[0]).toMatchObject({ type: 'text' })

@@ -74,6 +74,7 @@ test('fetchWithProxyRetry retries once with keepalive disabled after socket clos
 test('fetchWithProxyRetry does not retry non-network errors', async () => {
   let attempts = 0
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = (async () => {
     attempts += 1
     throw new Error('400 bad request')

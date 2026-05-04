@@ -330,6 +330,7 @@ describe('applyProviderFlag - xai', () => {
     const result = applyProviderFlag('xai', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    // @ts-expect-error no overload matches
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
     expect(process.env.OPENAI_MODEL).toBe('grok-4')
   })
@@ -345,6 +346,7 @@ describe('applyProviderFlag - xai', () => {
 
     applyProviderFlag('xai', [])
 
+    // @ts-expect-error no overload matches
     expect(process.env.OPENAI_API_KEY).toBe('xai-secret-key')
   })
 
