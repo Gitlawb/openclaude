@@ -17,6 +17,18 @@ async function importFreshEffortModule(options: {
   mock.module('../services/api/providerConfig.js', () => ({
     supportsCodexReasoningEffort: () => options.supportsCodexReasoningEffort,
   }))
+  mock.module('./auth.js', () => ({
+    isProSubscriber: () => false,
+    isMaxSubscriber: () => false,
+    isTeamSubscriber: () => false,
+  }))
+  mock.module('./thinking.js', () => ({
+    isUltrathinkEnabled: () => false,
+  }))
+  mock.module('src/services/analytics/growthbook.js', () => ({
+    getFeatureValue_CACHED_MAY_BE_STALE: (_key: string, fallback: unknown) =>
+      fallback,
+  }))
 
   return import(`./effort.js?ts=${Date.now()}-${Math.random()}`)
 }
@@ -89,4 +101,37 @@ test('standardEffortToOpenAI maps max to xhigh for shim payload', async () => {
   expect(standardEffortToOpenAI('high')).toBe('high')
   expect(openAIEffortToStandard('xhigh')).toBe('max')
   expect(openAIEffortToStandard('high')).toBe('high')
+})
+
+test('e2e: xhigh → persisted max → resolveAppliedEffort → wire xhigh on OpenAI/Codex (no high clamp)', async () => {
+  const {
+    toPersistableEffort,
+    resolveAppliedEffort,
+    standardEffortToOpenAI,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+  })
+
+  // Picker writes the OpenAI-shaped value; toPersistableEffort normalizes.
+  const persisted = toPersistableEffort('xhigh')
+  expect(persisted).toBe('max')
+
+  // App state holds 'max'. Non-Opus 'max' must NOT be downgraded to 'high'
+  // when the model uses the OpenAI effort scheme — the shim converts back
+  // to 'xhigh' on the wire.
+  const applied = resolveAppliedEffort('gpt-5.4', persisted)
+  expect(applied).toBe('max')
+
+  // Final wire value the client shim emits.
+  expect(standardEffortToOpenAI(applied as 'max')).toBe('xhigh')
+})
+
+test('e2e: max on non-Opus Anthropic model still clamps to high', async () => {
+  const { resolveAppliedEffort } = await importFreshEffortModule({
+    provider: 'firstParty' as unknown as 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  expect(resolveAppliedEffort('claude-sonnet-4-6', 'max')).toBe('high')
 })

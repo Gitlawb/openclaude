@@ -219,8 +219,14 @@ export function resolveAppliedEffort(
   }
   const resolved =
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model)
-  // API rejects 'max' on non-Opus-4.6 models — downgrade to 'high'.
-  if (resolved === 'max' && !modelSupportsMaxEffort(model)) {
+  // API rejects 'max' on non-Opus-4.6 Anthropic models — downgrade to 'high'.
+  // OpenAI/Codex models use 'max' as the standard form of 'xhigh'; the client
+  // shim converts it back to 'xhigh' on the wire, so don't clamp it here.
+  if (
+    resolved === 'max' &&
+    !modelSupportsMaxEffort(model) &&
+    !modelUsesOpenAIEffort(model)
+  ) {
     return 'high'
   }
   return resolved
