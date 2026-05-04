@@ -374,7 +374,8 @@ function normalizePathWithV1(pathname: string): string {
   return `${trimmed}/v1`
 }
 
-function isLikelyOllamaEndpoint(baseUrl: string): boolean {
+export function isLikelyOllamaEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
   try {
     const parsed = new URL(baseUrl)
     const hostname = parsed.hostname.toLowerCase()

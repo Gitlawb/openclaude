@@ -253,6 +253,41 @@ test('github validation is skipped when openai mode is also active', async () =>
   )
 })
 
+test('remote Ollama by hostname does not require OPENAI_API_KEY (#369)', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://my-ollama-server.example.com:11434/v1'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('remote Ollama on default port without API key is allowed (#369)', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://203.0.113.5:11434/v1'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('remote Ollama identified by "ollama" in hostname is allowed without key (#369)', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://ollama.corp.example.com/v1'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('non-Ollama remote provider still requires OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  delete process.env.OPENAI_API_KEY
+
+  const message = await getProviderValidationError(process.env)
+  expect(message).toContain(
+    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+  )
+})
+
 test('startup provider validation allows interactive recovery', () => {
   expect(
     shouldExitForStartupProviderValidationError({
