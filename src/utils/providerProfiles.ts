@@ -254,6 +254,31 @@ function getModelCacheByProfile(
   return config.openaiAdditionalModelOptionsCacheByProfile?.[profileId] ?? []
 }
 
+function mergeModelOptionsByValue(
+  primaryOptions: ModelOption[],
+  additionalOptions: ModelOption[],
+): ModelOption[] {
+  const merged: ModelOption[] = []
+  const seen = new Set<string>()
+
+  for (const option of [...primaryOptions, ...additionalOptions]) {
+    if (typeof option.value !== 'string') {
+      continue
+    }
+    const value = option.value.trim()
+    if (!value || seen.has(value)) {
+      continue
+    }
+    seen.add(value)
+    merged.push({
+      ...option,
+      value,
+    })
+  }
+
+  return merged
+}
+
 export function getProviderPresetDefaults(
   preset: ProviderPreset,
 ): ProviderPresetDefaults {
@@ -842,19 +867,24 @@ export function persistActiveProviderProfileModel(
 
 /**
  * Generate model options from a provider profile's model field.
- * Each parsed model becomes a separate option in the picker.
+ * Each parsed model becomes a separate option in the picker, then any
+ * discovered OpenAI-compatible models cached for the same profile are
+ * appended without duplicates.
  */
-export function getProfileModelOptions(profile: ProviderProfile): ModelOption[] {
-  const models = parseModelList(profile.model)
-  if (models.length === 0) {
-    return []
-  }
-
-  return models.map(model => ({
+export function getProfileModelOptions(
+  profile: ProviderProfile,
+  config = getGlobalConfig(),
+): ModelOption[] {
+  const configuredOptions = parseModelList(profile.model).map(model => ({
     value: model,
     label: model,
     description: `Provider: ${profile.name}`,
   }))
+
+  return mergeModelOptionsByValue(
+    configuredOptions,
+    getModelCacheByProfile(profile.id, config),
+  )
 }
 
 function buildOpenAICompatibleStartupEnv(
@@ -1044,19 +1074,15 @@ export function setActiveProviderProfile(
     return null
   }
 
-  const profileModelOptions = getProfileModelOptions(activeProfile)
+  const profileModelOptions = getProfileModelOptions(activeProfile, current)
 
   saveGlobalConfig(config => ({
     ...config,
     activeProviderProfileId: profileId,
-    openaiAdditionalModelOptionsCache: profileModelOptions.length > 0
-      ? profileModelOptions
-      : getModelCacheByProfile(profileId, config),
+    openaiAdditionalModelOptionsCache: profileModelOptions,
     openaiAdditionalModelOptionsCacheByProfile: {
       ...(config.openaiAdditionalModelOptionsCacheByProfile ?? {}),
-      [profileId]: profileModelOptions.length > 0
-        ? profileModelOptions
-        : (config.openaiAdditionalModelOptionsCacheByProfile?.[profileId] ?? []),
+      [profileId]: profileModelOptions,
     },
   }))
 
@@ -1118,10 +1144,16 @@ export function deleteProviderProfile(profileId: string): {
       activeProviderProfileId: nextActiveId,
       openaiAdditionalModelOptionsCacheByProfile: cacheByProfile,
       openaiAdditionalModelOptionsCache: nextActiveId
-        ? getModelCacheByProfile(nextActiveId, {
-            ...current,
-            openaiAdditionalModelOptionsCacheByProfile: cacheByProfile,
-          })
+        ? (
+            nextActiveProfile
+              ? getProfileModelOptions(nextActiveProfile, {
+                  ...current,
+                  providerProfiles: nextProfiles,
+                  activeProviderProfileId: nextActiveId,
+                  openaiAdditionalModelOptionsCacheByProfile: cacheByProfile,
+                })
+              : []
+          )
         : [],
     }
   })
@@ -1159,6 +1191,11 @@ export function getActiveOpenAIModelOptionsCache(
     return cached
   }
 
+  const profileOptions = getProfileModelOptions(activeProfile, config)
+  if (profileOptions.length > 0) {
+    return profileOptions
+  }
+
   // Backward compatibility for users who have only the legacy single cache.
   if (
     Object.keys(config.openaiAdditionalModelOptionsCacheByProfile ?? {}).length ===
@@ -1181,12 +1218,21 @@ export function setActiveOpenAIModelOptionsCache(options: ModelOption[]): void {
     return
   }
 
+  const mergedOptions = mergeModelOptionsByValue(
+    parseModelList(activeProfile.model).map(model => ({
+      value: model,
+      label: model,
+      description: `Provider: ${activeProfile.name}`,
+    })),
+    options,
+  )
+
   saveGlobalConfig(current => ({
     ...current,
-    openaiAdditionalModelOptionsCache: options,
+    openaiAdditionalModelOptionsCache: mergedOptions,
     openaiAdditionalModelOptionsCacheByProfile: {
       ...(current.openaiAdditionalModelOptionsCacheByProfile ?? {}),
-      [activeProfile.id]: options,
+      [activeProfile.id]: mergedOptions,
     },
   }))
 }
