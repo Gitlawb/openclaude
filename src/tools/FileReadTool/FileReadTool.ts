@@ -1161,11 +1161,13 @@ export async function readImageWithTokenBudget(
         const sharpModule = await import('sharp')
         const sharp =
           (
+            // @ts-expect-error conversion mismatch
             sharpModule as {
               default?: typeof sharpModule
             } & typeof sharpModule
           ).default || sharpModule
 
+        // @ts-expect-error not callable
         const fallbackBuffer = await sharp(imageBuffer)
           .resize(400, 400, {
             fit: 'inside',

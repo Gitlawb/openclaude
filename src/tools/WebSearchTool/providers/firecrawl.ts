@@ -24,6 +24,7 @@ export const firecrawlProvider: SearchProvider = {
     const data = await app.search(query, { limit: 15 })
 
     const hits = applyDomainFilters(
+      // @ts-expect-error argument type mismatch
       (data.web ?? []).map((r: { url: string; title?: string; description?: string }) => ({
         title: r.title ?? r.url,
         url: r.url,

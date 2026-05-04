@@ -515,6 +515,7 @@ export async function* runAgent({
     : resolveAgentTools(agentDefinition, availableTools, isAsync).resolvedTools
 
   const additionalWorkingDirectories = Array.from(
+    // @ts-expect-error not callable
     appState.toolPermissionContext.additionalWorkingDirectories.keys(),
   )
 
@@ -525,7 +526,7 @@ export async function* runAgent({
           agentDefinition,
           toolUseContext,
           resolvedAgentModel,
-          additionalWorkingDirectories,
+          additionalWorkingDirectories as any,
           resolvedTools,
         ),
       )

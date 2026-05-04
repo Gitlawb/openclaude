@@ -95,6 +95,7 @@ function FileWriteToolCreatedMessage(t0) {
   const t6 = columns - 12;
   let t7;
   if ($[13] !== filePath || $[14] !== t5 || $[15] !== t6) {
+    // @ts-expect-error type mismatch
     t7 = <Box flexDirection="column"><HighlightedCode code={t5} filePath={filePath} width={t6} /></Box>;
     $[13] = filePath;
     $[14] = t5;
@@ -279,10 +280,10 @@ function WriteRejectionBody(t0) {
     verbose
   } = t0;
   const data = use(promise);
-  if (data.type === "create") {
+  if ((data as any).type === "create") {
     return createFallback;
   }
-  if (data.type === "error") {
+  if ((data as any).type === "error") {
     let t1;
     if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
       t1 = <MessageResponse><Text>(No changes)</Text></MessageResponse>;
@@ -293,10 +294,10 @@ function WriteRejectionBody(t0) {
     return t1;
   }
   let t1;
-  if ($[1] !== data.oldContent || $[2] !== data.patch || $[3] !== filePath || $[4] !== firstLine || $[5] !== style || $[6] !== verbose) {
-    t1 = <FileEditToolUseRejectedMessage file_path={filePath} operation="update" patch={data.patch} firstLine={firstLine} fileContent={data.oldContent} style={style} verbose={verbose} />;
-    $[1] = data.oldContent;
-    $[2] = data.patch;
+  if ($[1] !== (data as any).oldContent || $[2] !== (data as any).patch || $[3] !== filePath || $[4] !== firstLine || $[5] !== style || $[6] !== verbose) {
+    t1 = <FileEditToolUseRejectedMessage file_path={filePath} operation="update" patch={(data as any).patch} firstLine={firstLine} fileContent={(data as any).oldContent} style={style} verbose={verbose} />;
+    $[1] = (data as any).oldContent;
+    $[2] = (data as any).patch;
     $[3] = filePath;
     $[4] = firstLine;
     $[5] = style;
