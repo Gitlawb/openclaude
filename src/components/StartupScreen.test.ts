@@ -38,6 +38,11 @@ const ENV_KEYS = [
   'CLAUDE_MODEL',
   'NVIDIA_NIM',
   'MINIMAX_API_KEY',
+  'XAI_API_KEY',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_BASE_URL',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -308,12 +313,14 @@ describe('detectProvider — modelOverride from --model flag', () => {
   })
 
   test('undefined modelOverride preserves default behavior', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
     const result = detectProvider(undefined)
     expect(result.name).toBe('Anthropic')
     expect(result.model).toContain('sonnet')
   })
 
   test('no argument preserves default behavior', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
     const result = detectProvider()
     expect(result.name).toBe('Anthropic')
     expect(result.model).toContain('sonnet')

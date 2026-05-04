@@ -36,6 +36,8 @@ const ENV_KEYS = [
 
 const originalEnv: Record<string, string | undefined> = {}
 
+const originalEnv: Record<string, string | undefined> = {}
+
 beforeAll(() => {
   ensureIntegrationsLoaded()
 })
@@ -104,6 +106,14 @@ test('openai missing key error includes recovery guidance and config locations',
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CODEX_API_KEY
+  delete process.env.CHATGPT_ACCOUNT_ID
+  delete process.env.CODEX_ACCOUNT_ID
+
+  delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
   delete process.env.CODEX_API_KEY
   delete process.env.CHATGPT_ACCOUNT_ID
   delete process.env.CODEX_ACCOUNT_ID
