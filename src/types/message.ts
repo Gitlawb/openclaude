@@ -19,7 +19,34 @@ export type AssistantMessage = any
 export type UserMessage = any
 export type SystemMessage = any
 export type SystemAPIErrorMessage = any
-export type AttachmentMessage = any
-export type ProgressMessage = any
+export type AttachmentMessage<T = any> = any
+export type ProgressMessage<T = any> = any
 export type HookResultMessage = any
 export type NormalizedUserMessage = any
+export type NormalizedAssistantMessage<T = any> = any
+export type RenderableMessage = any
+export type CollapsedReadSearchGroup = any
+export type GroupedToolUseMessage = any
+export type CollapsibleMessage = any
+export type PartialCompactDirection = any
+export type RequestStartEvent = any
+export type StreamEvent = any
+export type ToolUseSummaryMessage = any
+export type TombstoneMessage = any
+export type StopHookInfo = any
+export type MessageOrigin = any
+export type CompactMetadata = any
+export type SystemStopHookSummaryMessage = any
+export type SystemBridgeStatusMessage = any
+export type SystemTurnDurationMessage = any
+export type SystemThinkingMessage = any
+export type SystemMemorySavedMessage = any
+export type SystemInformationalMessage = any
+export type SystemLocalCommandMessage = any
+export type SystemCompactBoundaryMessage = any
+export type SystemMicrocompactBoundaryMessage = any
+export type SystemPermissionRetryMessage = any
+export type SystemScheduledTaskFireMessage = any
+export type SystemAwaySummaryMessage = any
+export type SystemAgentsKilledMessage = any
+export type SystemFileSnapshotMessage = any

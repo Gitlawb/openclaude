@@ -200,6 +200,7 @@ export type CommandBase = {
   isSensitive?: boolean // If true, args are redacted from the conversation history
   /** Defaults to `name`. Only override when the displayed name differs (e.g. plugin prefix stripping). */
   userFacingName?: () => string
+  getPromptForCommand?: ((args?: string) => string) | ((args: string, context: import('../Tool.js').ToolUseContext) => Promise<import('@anthropic-ai/sdk/resources/index.mjs').ContentBlockParam[]>)
 }
 
 export type Command = CommandBase &

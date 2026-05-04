@@ -168,6 +168,7 @@ export type ToolUseContext = {
     isNonInteractiveSession: boolean
     agentDefinitions: AgentDefinitionsResult
     maxBudgetUsd?: number
+    cwd?: string
     /** Custom system prompt that replaces the default system prompt */
     customSystemPrompt?: string
     /** Additional system prompt appended after the main system prompt */
@@ -312,6 +313,10 @@ export type ToolUseContext = {
    * and bust the cache. See forkSubagent.ts.
    */
   renderedSystemPrompt?: SystemPrompt
+  /** Optional writable stream for non-interactive contexts (benchmark, etc.) */
+  stdout?: { write(data: string): void }
+  /** Optional args for command-style tool execution */
+  args?: Record<string, unknown>
 }
 
 // Re-export ToolProgressData from centralized location
