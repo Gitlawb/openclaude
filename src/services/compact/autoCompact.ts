@@ -12,6 +12,8 @@ import { hasExactErrorMessage } from '../../utils/errors.js'
 import type { CacheSafeParams } from '../../utils/forkedAgent.js'
 import { logError } from '../../utils/log.js'
 import { tokenCountWithEstimation } from '../../utils/tokens.js'
+import { partitionContext } from '../../utils/contextPartitioning.js'
+import { pruneByRelevance } from '../../utils/relevancePruning.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { getMaxOutputTokensForModel } from '../api/claude.js'
 import { notifyCompaction } from '../api/promptCacheBreakDetection.js'
@@ -284,6 +286,39 @@ export async function autoCompactIfNeeded(
 
   if (!shouldCompact) {
     return { wasCompacted: false }
+  }
+
+  const contextWindow = getContextWindowForModel(model, getSdkBetas())
+
+  const partitioned = partitionContext(messages, {
+    contextWindow,
+    recentCount: 5,
+  })
+  const availableSpace = partitioned.canFitInWindow
+    ? contextWindow - partitioned.totalTokens
+    : Math.floor(contextWindow * 0.1)
+
+  if (!partitioned.canFitInWindow && availableSpace > 1000) {
+    // Preserve system messages
+    const systemMessages = messages.filter(m => m.message?.role === 'system')
+    const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
+    
+    const pruned = pruneByRelevance(nonSystemMessages, {
+      targetTokens: availableSpace,
+      preserveRecent: 3,
+      preserveTools: true,
+      preserveErrors: true,
+    })
+    
+    // Combine preserved system + pruned
+    const finalMessages = [...systemMessages, ...pruned]
+    
+    if (finalMessages.length > 0 && finalMessages.length < messages.length) {
+      logForDebugging(
+        `partition+prune: ${messages.length} -> ${finalMessages.length} messages`,
+      )
+      messages = finalMessages
+    }
   }
 
   const recompactionInfo: RecompactionInfo = {
