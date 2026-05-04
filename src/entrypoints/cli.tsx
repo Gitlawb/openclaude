@@ -5,8 +5,36 @@ import {
 } from '../utils/providerProfile.js'
 import {
   getProviderValidationError,
-  validateProviderEnvOrExit,
+  validateProviderEnvForStartupOrExit,
 } from '../utils/providerValidation.js'
+
+// OpenClaude: polyfill globalThis.File for Node < 20.
+// undici v7 references `File` at module evaluation time (webidl type
+// assertions). Node 18 lacks the global, causing a ReferenceError inside
+// the bundled __commonJS require chain which deadlocks the process when a
+// proxy is configured (configureGlobalAgents → require_undici).
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+if (typeof globalThis.File === 'undefined') {
+  try {
+    // Node 18.13+ exposes File in node:buffer but not as a global.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { File: NodeFile } = require('node:buffer')
+    // @ts-expect-error -- polyfilling missing global
+    globalThis.File = NodeFile
+  } catch {
+    // Absolute fallback: stub so `MakeTypeAssertion(File)` doesn't throw.
+    // @ts-expect-error -- minimal polyfill
+    globalThis.File = class File extends Blob {
+      name: string
+      lastModified: number
+      constructor(parts: BlobPart[], name: string, opts?: FilePropertyBag) {
+        super(parts, opts)
+        this.name = name
+        this.lastModified = opts?.lastModified ?? Date.now()
+      }
+    }
+  }
+}
 
 // OpenClaude: disable experimental API betas by default.
 // Tool search (defer_loading), global cache scope, and context management
@@ -52,7 +80,7 @@ async function main(): Promise<void> {
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
     // MACRO.VERSION is inlined at build time
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (Open Claude)`);
+    console.log(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (OpenClaude)`);
     return;
   }
 
@@ -68,15 +96,16 @@ async function main(): Promise<void> {
     }
   }
 
+  // Enable configs first so we can read settings
   {
     const { enableConfigs } = await import('../utils/config.js')
     enableConfigs()
+  }
+
+  // Apply settings.env from user settings (includes GitHub provider settings from /onboard-github)
+  {
     const { applySafeConfigEnvironmentVariables } = await import('../utils/managedEnv.js')
     applySafeConfigEnvironmentVariables()
-    const { hydrateGeminiAccessTokenFromSecureStorage } = await import('../utils/geminiCredentials.js')
-    hydrateGeminiAccessTokenFromSecureStorage()
-    const { hydrateGithubModelsTokenFromSecureStorage } = await import('../utils/githubModelsCredentials.js')
-    hydrateGithubModelsTokenFromSecureStorage()
   }
 
   const startupEnv = await buildStartupEnvFromProfile({
@@ -93,11 +122,25 @@ async function main(): Promise<void> {
     }
   }
 
-  await validateProviderEnvOrExit()
+  // Hydrate GitHub credentials after profile is applied so CLAUDE_CODE_USE_GITHUB from profile is available
+  {
+    const {
+      hydrateGithubModelsTokenFromSecureStorage,
+      refreshGithubModelsTokenIfNeeded,
+    } = await import('../utils/githubModelsCredentials.js')
+    await refreshGithubModelsTokenIfNeeded()
+    hydrateGithubModelsTokenFromSecureStorage()
+  }
+
+  await validateProviderEnvForStartupOrExit()
+
+  // Parse --model early so the startup screen can display the override
+  const { eagerParseCliFlag } = await import('../utils/cliArgs.js')
+  const earlyModelFlag = eagerParseCliFlag('--model')
 
   // Print the gradient startup screen before the Ink UI loads
   const { printStartupScreen } = await import('../components/StartupScreen.js')
-  printStartupScreen()
+  printStartupScreen(earlyModelFlag)
 
   // For all other paths, load the startup profiler
   const {

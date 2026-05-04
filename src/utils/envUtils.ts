@@ -3,23 +3,39 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
+export function resolveClaudeConfigHomeDir(options?: {
+  configDirEnv?: string
+  homeDir?: string
+  openClaudeExists?: boolean
+  legacyClaudeExists?: boolean
+}): string {
+  if (options?.configDirEnv) {
+    return options.configDirEnv.normalize('NFC')
+  }
+
+  const homeDir = options?.homeDir ?? homedir()
+  const openClaudeDir = join(homeDir, '.openclaude')
+  const legacyClaudeDir = join(homeDir, '.claude')
+  const openClaudeExists =
+    options?.openClaudeExists ?? existsSync(openClaudeDir)
+  const legacyClaudeExists =
+    options?.legacyClaudeExists ?? existsSync(legacyClaudeDir)
+
+  // Preserve existing user config/install state until we ship an explicit
+  // migration. New installs (neither path exists) use ~/.openclaude.
+  if (!openClaudeExists && legacyClaudeExists) {
+    return legacyClaudeDir.normalize('NFC')
+  }
+
+  return openClaudeDir.normalize('NFC')
+}
+
 // Memoized: 150+ callers, many on hot paths. Keyed off CLAUDE_CONFIG_DIR so
 // tests that change the env var get a fresh value without explicit cache.clear.
 export const getClaudeConfigHomeDir = memoize(
-  (): string => {
-    if (process.env.CLAUDE_CONFIG_DIR) {
-      return process.env.CLAUDE_CONFIG_DIR.normalize('NFC')
-    }
-    const newDefault = join(homedir(), '.openclaude')
-    // Migration compatibility: if ~/.openclaude doesn't exist yet but ~/.claude
-    // does, keep using ~/.claude so existing users don't lose their data on
-    // upgrade. New installs (neither dir exists) go straight to ~/.openclaude.
-    const legacyPath = join(homedir(), '.claude')
-    if (!existsSync(newDefault) && existsSync(legacyPath)) {
-      return legacyPath.normalize('NFC')
-    }
-    return newDefault.normalize('NFC')
-  },
+  (): string => resolveClaudeConfigHomeDir({
+    configDirEnv: process.env.CLAUDE_CONFIG_DIR,
+  }),
   () => process.env.CLAUDE_CONFIG_DIR,
 )
 

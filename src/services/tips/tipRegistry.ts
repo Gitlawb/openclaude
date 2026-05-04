@@ -96,7 +96,7 @@ const externalTips: Tip[] = [
   {
     id: 'new-user-warmup',
     content: async () =>
-      `Start with small features or bug fixes, tell Claude to propose a plan, and verify its suggested edits`,
+      `Start with small features or bug fixes, tell OpenClaude to propose a plan, and verify its suggested edits`,
     cooldownSessions: 3,
     async isRelevant() {
       const config = getGlobalConfig()
@@ -109,7 +109,6 @@ const externalTips: Tip[] = [
       `Use Plan Mode to prepare for a complex request before making changes. Press ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} twice to enable.`,
     cooldownSessions: 5,
     isRelevant: async () => {
-      if (process.env.USER_TYPE === 'ant') return false
       const config = getGlobalConfig()
       // Show to users who haven't used plan mode recently (7+ days)
       const daysSinceLastUse = config.lastPlanModeUse
@@ -143,7 +142,7 @@ const externalTips: Tip[] = [
   {
     id: 'git-worktrees',
     content: async () =>
-      'Use git worktrees to run multiple Claude sessions in parallel.',
+      'Use git worktrees to run multiple OpenClaude sessions in parallel.',
     cooldownSessions: 10,
     isRelevant: async () => {
       try {
@@ -158,7 +157,7 @@ const externalTips: Tip[] = [
   {
     id: 'color-when-multi-clauding',
     content: async () =>
-      'Running multiple Claude sessions? Use /color and /rename to tell them apart at a glance.',
+      'Running multiple OpenClaude sessions? Use /color and /rename to tell them apart at a glance.',
     cooldownSessions: 10,
     isRelevant: async () => {
       if (getCurrentSessionAgentColor()) return false
@@ -216,7 +215,7 @@ const externalTips: Tip[] = [
   },
   {
     id: 'memory-command',
-    content: async () => 'Use /memory to view and manage Claude memory',
+    content: async () => 'Use /memory to view and manage OpenClaude memory',
     cooldownSessions: 15,
     async isRelevant() {
       const config = getGlobalConfig()
@@ -255,7 +254,7 @@ const externalTips: Tip[] = [
   {
     id: 'prompt-queue',
     content: async () =>
-      'Hit Enter to queue up additional messages while Claude is working.',
+      'Hit Enter to queue up additional messages while OpenClaude is working.',
     cooldownSessions: 5,
     async isRelevant() {
       const config = getGlobalConfig()
@@ -265,14 +264,14 @@ const externalTips: Tip[] = [
   {
     id: 'enter-to-steer-in-relatime',
     content: async () =>
-      'Send messages to Claude while it works to steer Claude in real-time',
+      'Send messages to OpenClaude while it works to steer OpenClaude in real-time',
     cooldownSessions: 20,
     isRelevant: async () => true,
   },
   {
     id: 'todo-list',
     content: async () =>
-      'Ask Claude to create a todo list when working on complex tasks to track progress and remain on track',
+      'Ask OpenClaude to create a todo list when working on complex tasks to track progress and remain on track',
     cooldownSessions: 20,
     isRelevant: async () => true,
   },
@@ -305,7 +304,7 @@ const externalTips: Tip[] = [
   },
   {
     id: 'ide-upsell-external-terminal',
-    content: async () => 'Connect Claude to your IDE · /ide',
+    content: async () => 'Connect OpenClaude to your IDE · /ide',
     cooldownSessions: 4,
     async isRelevant() {
       if (isSupportedTerminal()) {
@@ -325,13 +324,13 @@ const externalTips: Tip[] = [
   {
     id: 'install-github-app',
     content: async () =>
-      'Run /install-github-app to tag @claude right from your Github issues and PRs',
+      'Run /install-github-app to enable GitHub issue and PR tagging from OpenClaude',
     cooldownSessions: 10,
     isRelevant: async () => !getGlobalConfig().githubActionSetupCount,
   },
   {
     id: 'install-slack-app',
-    content: async () => 'Run /install-slack-app to use Claude in Slack',
+    content: async () => 'Run /install-slack-app to use OpenClaude in Slack',
     cooldownSessions: 10,
     isRelevant: async () => !getGlobalConfig().slackAppInstallCount,
   },
@@ -355,7 +354,7 @@ const externalTips: Tip[] = [
   {
     id: 'paste-images-mac',
     content: async () =>
-      'Paste images into Claude Code using control+v (not cmd+v!)',
+      'Paste images into OpenClaude using control+v (not cmd+v!)',
     cooldownSessions: 10,
     isRelevant: async () => getPlatform() === 'macos',
   },
@@ -376,7 +375,7 @@ const externalTips: Tip[] = [
   {
     id: 'continue',
     content: async () =>
-      'Run claude --continue or claude --resume to resume a conversation',
+      'Run openclaude --continue or openclaude --resume to resume a conversation',
     cooldownSessions: 10,
     isRelevant: async () => true,
   },
@@ -401,9 +400,7 @@ const externalTips: Tip[] = [
   {
     id: 'shift-tab',
     content: async () =>
-      process.env.USER_TYPE === 'ant'
-        ? `Hit ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} to cycle between default mode and auto mode`
-        : `Hit ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} to cycle between default mode, auto-accept edit mode, and plan mode`,
+      `Hit ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} to cycle between default mode, auto-accept edit mode, and plan mode`,
     cooldownSessions: 10,
     isRelevant: async () => true,
   },
@@ -437,7 +434,7 @@ const externalTips: Tip[] = [
   {
     id: 'desktop-app',
     content: async () =>
-      'Run Claude Code locally or remotely using the Claude desktop app: clau.de/desktop',
+      'Run OpenClaude locally or remotely with /desktop',
     cooldownSessions: 15,
     isRelevant: async () => getPlatform() !== 'linux',
   },
@@ -445,7 +442,7 @@ const externalTips: Tip[] = [
     id: 'desktop-shortcut',
     content: async ctx => {
       const blue = color('suggestion', ctx.theme)
-      return `Continue your session in Claude Code Desktop with ${blue('/desktop')}`
+      return `Continue your session with ${blue('/desktop')}`
     },
     cooldownSessions: 15,
     isRelevant: async () => {
@@ -459,24 +456,16 @@ const externalTips: Tip[] = [
   {
     id: 'web-app',
     content: async () =>
-      'Run tasks in the cloud while you keep coding locally · clau.de/web',
-    cooldownSessions: 15,
-    isRelevant: async () => true,
-  },
-  {
-    id: 'mobile-app',
-    content: async () =>
-      '/mobile to use Claude Code from the Claude app on your phone',
+      'Run tasks in the cloud while you keep coding locally · /web',
     cooldownSessions: 15,
     isRelevant: async () => true,
   },
   {
     id: 'opusplan-mode-reminder',
     content: async () =>
-      `Your default model setting is Opus Plan Mode. Press ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} twice to activate Plan Mode and plan with Claude Opus.`,
+      `Your default model setting is Opus Plan Mode. Press ${getShortcutDisplay('chat:cycleMode', 'Chat', 'shift+tab')} twice to activate Plan Mode and plan with Opus.`,
     cooldownSessions: 2,
     async isRelevant() {
-      if (process.env.USER_TYPE === 'ant') return false
       const config = getGlobalConfig()
       const modelSetting = getUserSpecifiedModelSetting()
       const hasOpusPlanMode = modelSetting === 'opusplan'
@@ -521,7 +510,7 @@ const externalTips: Tip[] = [
         'off' | 'copy_a' | 'copy_b'
       >('tengu_tide_elm', 'off')
       return variant === 'copy_b'
-        ? `Use ${cmd} for better one-shot answers. Claude thinks it through first.`
+        ? `Use ${cmd} for better one-shot answers. OpenClaude thinks it through first.`
         : `Working on something tricky? ${cmd} gives better first answers`
     },
     cooldownSessions: 3,
@@ -550,8 +539,8 @@ const externalTips: Tip[] = [
         'off' | 'copy_a' | 'copy_b'
       >('tengu_tern_alloy', 'off')
       return variant === 'copy_b'
-        ? `For big tasks, tell Claude to ${blue('use subagents')}. They work in parallel and keep your main thread clean.`
-        : `Say ${blue('"fan out subagents"')} and Claude sends a team. Each one digs deep so nothing gets missed.`
+        ? `For big tasks, tell OpenClaude to ${blue('use subagents')}. They work in parallel and keep your main thread clean.`
+        : `Say ${blue('"fan out subagents"')} and OpenClaude sends a team. Each one digs deep so nothing gets missed.`
     },
     cooldownSessions: 3,
     isRelevant: async () => {
@@ -593,7 +582,7 @@ const externalTips: Tip[] = [
       const claude = color('claude', ctx.theme)
       const reward = getCachedReferrerReward()
       return reward
-        ? `Share Claude Code and earn ${claude(formatCreditAmount(reward))} of extra usage · ${claude('/passes')}`
+        ? `Share OpenClaude and earn ${claude(formatCreditAmount(reward))} of extra usage · ${claude('/passes')}`
         : `You have free guest passes to share · ${claude('/passes')}`
     },
     cooldownSessions: 3,
@@ -621,36 +610,15 @@ const externalTips: Tip[] = [
   },
   {
     id: 'feedback-command',
-    content: async () => 'Use /feedback to help us improve!',
+    content: async () => 'Report bugs or feature requests in the issue tracker to help us improve.',
     cooldownSessions: 15,
     async isRelevant() {
-      if (process.env.USER_TYPE === 'ant') {
-        return false
-      }
       const config = getGlobalConfig()
       return config.numStartups > 5
     },
   },
 ]
-const internalOnlyTips: Tip[] =
-  process.env.USER_TYPE === 'ant'
-    ? [
-        {
-          id: 'important-claudemd',
-          content: async () =>
-            '[internal] Use "IMPORTANT:" prefix for must-follow CLAUDE.md rules',
-          cooldownSessions: 30,
-          isRelevant: async () => true,
-        },
-        {
-          id: 'skillify',
-          content: async () =>
-            '[internal] Turn repeatable workflows into reusable project skills when they keep recurring',
-          cooldownSessions: 15,
-          isRelevant: async () => true,
-        },
-      ]
-    : []
+const internalOnlyTips: Tip[] = []
 
 function getCustomTips(): Tip[] {
   const settings = getInitialSettings()

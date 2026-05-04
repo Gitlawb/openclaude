@@ -1,5 +1,8 @@
 import { feature } from 'bun:bundle'
-import { getRemoteControlAtStartup } from '../../utils/config.js'
+import {
+  getRemoteControlAtStartup,
+  SHOW_CACHE_STATS_MODES,
+} from '../../utils/config.js'
 import {
   EDITOR_MODES,
   NOTIFICATION_CHANNELS,
@@ -76,6 +79,13 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
     type: 'boolean',
     description:
       'Show turn duration message after responses (e.g., "Cooked for 1m 6s")',
+  },
+  showCacheStats: {
+    source: 'global',
+    type: 'string',
+    description:
+      'Show per-query cache hit/miss summary at end of turn (off | compact | full)',
+    options: SHOW_CACHE_STATS_MODES,
   },
   terminalProgressBarEnabled: {
     source: 'global',

@@ -7,28 +7,32 @@ import { sequential } from '../sequential.js'
 import { getInitialSettings } from '../settings/settings.js'
 import { findFirstMatch, getBedrockInferenceProfiles } from './bedrock.js'
 import {
-  ALL_MODEL_CONFIGS,
   CANONICAL_ID_TO_KEY,
+  LEGACY_PROVIDER_MODEL_CONFIGS,
   type CanonicalModelId,
+  type LegacyProviderModelConfig,
   type ModelKey,
 } from './configs.js'
-import { type APIProvider, getAPIProvider } from './providers.js'
+import { type LegacyAPIProvider, getAPIProvider } from './providers.js'
 
 /**
  * Maps each model version to its provider-specific model ID string.
- * Derived from ALL_MODEL_CONFIGS — adding a model there extends this type.
+ * Derived from the legacy provider compatibility table — adding a model there
+ * extends this type until descriptor-native callers fully replace it.
  */
 export type ModelStrings = Record<ModelKey, string>
 
-const MODEL_KEYS = Object.keys(ALL_MODEL_CONFIGS) as ModelKey[]
+const MODEL_KEYS = Object.keys(LEGACY_PROVIDER_MODEL_CONFIGS) as ModelKey[]
 
-function getBuiltinModelStrings(provider: APIProvider): ModelStrings {
+function getBuiltinModelStrings(provider: LegacyAPIProvider): ModelStrings {
   // Codex piggybacks on the OpenAI provider transport for Anthropic tier aliases.
   // Reuse OpenAI mappings so model string lookups never return undefined.
-  const providerKey = provider === 'codex' ? 'openai' : provider
+  const providerKey = provider === 'codex' || provider === 'github' ? 'openai' : provider
   const out = {} as ModelStrings
   for (const key of MODEL_KEYS) {
-    out[key] = ALL_MODEL_CONFIGS[key][providerKey]
+    out[key] = (
+      LEGACY_PROVIDER_MODEL_CONFIGS[key] as LegacyProviderModelConfig
+    )[providerKey]
   }
   return out
 }
@@ -51,7 +55,7 @@ async function getBedrockModelStrings(): Promise<ModelStrings> {
   // when no matching profile is found.
   const out = {} as ModelStrings
   for (const key of MODEL_KEYS) {
-    const needle = ALL_MODEL_CONFIGS[key].firstParty
+    const needle = LEGACY_PROVIDER_MODEL_CONFIGS[key].firstParty
     out[key] = findFirstMatch(profiles, needle) || fallback[key]
   }
   return out

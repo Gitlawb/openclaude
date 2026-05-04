@@ -53,6 +53,7 @@ import {
   getAddDirExtraMarketplaces,
 } from './addDirPluginSettings.js'
 import { markPluginVersionOrphaned } from './cacheUtils.js'
+import { buildGitChildEnv } from './gitEnv.js'
 import { classifyFetchError, logPluginFetch } from './fetchTelemetry.js'
 import { removeAllPluginsForMarketplace } from './installedPluginsManager.js'
 import {
@@ -506,11 +507,6 @@ function seedDirFor(installLocation: string): string | undefined {
  * Provides helpful error messages for common failure scenarios.
  * If a ref is specified, fetches and checks out that specific branch or tag.
  */
-// Environment variables to prevent git from prompting for credentials
-const GIT_NO_PROMPT_ENV = {
-  GIT_TERMINAL_PROMPT: '0', // Prevent terminal credential prompts
-  GIT_ASKPASS: '', // Disable askpass GUI programs
-}
 
 const DEFAULT_PLUGIN_GIT_TIMEOUT_MS = 120 * 1000
 
@@ -531,7 +527,8 @@ export async function gitPull(
   options?: { disableCredentialHelper?: boolean; sparsePaths?: string[] },
 ): Promise<{ code: number; stderr: string }> {
   logForDebugging(`git pull: cwd=${cwd} ref=${ref ?? 'default'}`)
-  const env = { ...process.env, ...GIT_NO_PROMPT_ENV }
+  const env = buildGitChildEnv()
+  const baseArgs = ['-c', 'core.hooksPath=/dev/null']
   const credentialArgs = options?.disableCredentialHelper
     ? ['-c', 'credential.helper=']
     : []
@@ -539,7 +536,7 @@ export async function gitPull(
   if (ref) {
     const fetchResult = await execFileNoThrowWithCwd(
       gitExe(),
-      [...credentialArgs, 'fetch', 'origin', ref],
+      [...baseArgs, ...credentialArgs, 'fetch', 'origin', ref],
       { cwd, timeout: getPluginGitTimeoutMs(), stdin: 'ignore', env },
     )
 
@@ -549,7 +546,7 @@ export async function gitPull(
 
     const checkoutResult = await execFileNoThrowWithCwd(
       gitExe(),
-      [...credentialArgs, 'checkout', ref],
+      [...baseArgs, ...credentialArgs, 'checkout', ref],
       { cwd, timeout: getPluginGitTimeoutMs(), stdin: 'ignore', env },
     )
 
@@ -559,7 +556,7 @@ export async function gitPull(
 
     const pullResult = await execFileNoThrowWithCwd(
       gitExe(),
-      [...credentialArgs, 'pull', 'origin', ref],
+      [...baseArgs, ...credentialArgs, 'pull', 'origin', ref],
       { cwd, timeout: getPluginGitTimeoutMs(), stdin: 'ignore', env },
     )
     if (pullResult.code !== 0) {
@@ -571,7 +568,7 @@ export async function gitPull(
 
   const result = await execFileNoThrowWithCwd(
     gitExe(),
-    [...credentialArgs, 'pull', 'origin', 'HEAD'],
+    [...baseArgs, ...credentialArgs, 'pull', 'origin', 'HEAD'],
     { cwd, timeout: getPluginGitTimeoutMs(), stdin: 'ignore', env },
   )
   if (result.code !== 0) {
@@ -625,6 +622,8 @@ async function gitSubmoduleUpdate(
     [
       '-c',
       'core.sshCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=yes',
+      '-c',
+      'core.hooksPath=/dev/null',
       ...credentialArgs,
       'submodule',
       'update',
@@ -810,6 +809,8 @@ export async function gitClone(
   const args = [
     '-c',
     'core.sshCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=yes',
+    '-c',
+    'core.hooksPath=/dev/null',
     'clone',
     '--depth',
     '1',
@@ -839,7 +840,7 @@ export async function gitClone(
   const result = await execFileNoThrowWithCwd(gitExe(), args, {
     timeout: timeoutMs,
     stdin: 'ignore',
-    env: { ...process.env, ...GIT_NO_PROMPT_ENV },
+    env: buildGitChildEnv(),
   })
 
   // Scrub credentials from execa's error/stderr fields before any logging or
@@ -865,7 +866,7 @@ export async function gitClone(
           cwd: targetPath,
           timeout: timeoutMs,
           stdin: 'ignore',
-          env: { ...process.env, ...GIT_NO_PROMPT_ENV },
+          env: buildGitChildEnv(),
         },
       )
       if (sparseResult.code !== 0) {
@@ -884,7 +885,7 @@ export async function gitClone(
           cwd: targetPath,
           timeout: timeoutMs,
           stdin: 'ignore',
-          env: { ...process.env, ...GIT_NO_PROMPT_ENV },
+          env: buildGitChildEnv(),
         },
       )
       if (checkoutResult.code !== 0) {
@@ -1035,7 +1036,7 @@ export async function reconcileSparseCheckout(
   cwd: string,
   sparsePaths: string[] | undefined,
 ): Promise<{ code: number; stderr: string }> {
-  const env = { ...process.env, ...GIT_NO_PROMPT_ENV }
+  const env = buildGitChildEnv()
 
   if (sparsePaths && sparsePaths.length > 0) {
     return execFileNoThrowWithCwd(

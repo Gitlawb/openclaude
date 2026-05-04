@@ -132,7 +132,7 @@ Cause:
 Fix:
 
 ```powershell
-cd C:\Users\Lucas Pedry\Documents\openclaude\openclaude
+cd <PATH>
 bun run dev:profile
 ```
 
@@ -189,7 +189,7 @@ Or pick a local Ollama profile automatically by goal:
 bun run profile:init -- --provider ollama --goal balanced
 ```
 
-## 6.5 Placeholder key (`SUA_CHAVE`) error
+## 6.5 Placeholder key (`YOUR_KEY`) error
 
 Cause:
 
@@ -260,7 +260,7 @@ bun run profile:init -- --provider ollama --goal coding
 
 - Run `doctor:runtime` before debugging provider issues.
 - Prefer `dev:profile` over manual env edits.
-- Keep `.openclaude-profile.json` local (already gitignored).
+- Keep any legacy workspace `.openclaude-profile.json` local; new provider saves use the user config directory.
 - Use `doctor:report` before asking for help so you have a reproducible snapshot.
 
 ## 10. Quick Recovery Checklist

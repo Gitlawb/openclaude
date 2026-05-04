@@ -1,9 +1,17 @@
 import { APIError } from '@anthropic-ai/sdk'
+import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
+import { compressToolHistory } from './compressToolHistory.js'
+import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
+import { stableStringify } from '../../utils/stableStringify.js'
 import type {
   ResolvedCodexCredentials,
   ResolvedProviderRequest,
 } from './providerConfig.js'
 import { sanitizeSchemaForOpenAICompat } from './openaiSchemaSanitizer.js'
+import {
+  createThinkTagFilter,
+  stripThinkTags,
+} from './thinkTagSanitizer.js'
 
 export interface AnthropicUsage {
   input_tokens: number
@@ -72,16 +80,12 @@ type CodexSseEvent = {
   data: Record<string, any>
 }
 
-function makeUsage(usage?: {
-  input_tokens?: number
-  output_tokens?: number
-}): AnthropicUsage {
-  return {
-    input_tokens: usage?.input_tokens ?? 0,
-    output_tokens: usage?.output_tokens ?? 0,
-    cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
-  }
+function makeUsage(usage?: Record<string, unknown>): AnthropicUsage {
+  // Single source of truth for raw → Anthropic shape. Lives in
+  // cacheMetrics.ts alongside the raw-shape extractor so any new
+  // provider quirk requires a one-file change and the integration test
+  // can call the exact same function instead of re-implementing it.
+  return buildAnthropicUsageFromRawUsage(usage)
 }
 
 function makeMessageId(): string {
@@ -474,13 +478,15 @@ export async function performCodexRequest(options: {
   defaultHeaders: Record<string, string>
   signal?: AbortSignal
 }): Promise<Response> {
-  const input = convertAnthropicMessagesToResponsesInput(
+  const compressedMessages = compressToolHistory(
     options.params.messages as Array<{
       role?: string
       message?: { role?: string; content?: unknown }
       content?: unknown
     }>,
+    options.request.resolvedModel,
   )
+  const input = convertAnthropicMessagesToResponsesInput(compressedMessages)
   const body: Record<string, unknown> = {
     model: options.request.resolvedModel,
     input: input.length > 0
@@ -549,12 +555,17 @@ export async function performCodexRequest(options: {
   }
   headers.originator ??= 'openclaude'
 
-  const response = await fetch(`${options.request.baseUrl}/responses`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal: options.signal,
-  })
+  const response = await fetchWithProxyRetry(
+    `${options.request.baseUrl}/responses`,
+    {
+      method: 'POST',
+      headers,
+      // WHY: byte-identity required for implicit prefix caching on
+      // OpenAI Responses API. See src/utils/stableStringify.ts.
+      body: stableStringify(body),
+      signal: options.signal,
+    },
+  )
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => 'unknown error')
@@ -570,15 +581,55 @@ export async function performCodexRequest(options: {
   return response
 }
 
-async function* readSseEvents(response: Response): AsyncGenerator<CodexSseEvent> {
+async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGenerator<CodexSseEvent> {
   const reader = response.body?.getReader()
   if (!reader) return
 
   const decoder = new TextDecoder()
   let buffer = ''
+  const STREAM_IDLE_TIMEOUT_MS = 120_000 // 2 minutes without data
+  let lastDataTime = Date.now()
+
+  /**
+   * Read from the stream with an idle timeout. Respects the caller's
+   * AbortSignal — clears the idle timer on abort so the AbortError
+   * surfaces cleanly instead of a spurious idle timeout.
+   */
+  async function readWithTimeout(): Promise<ReadableStreamReadResult<Uint8Array>> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
+        reject(new Error(
+          `Codex SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
+        ))
+      }, STREAM_IDLE_TIMEOUT_MS)
+
+      let abortCleanup: (() => void) | undefined
+      if (signal) {
+        abortCleanup = () => {
+          clearTimeout(timeoutId)
+        }
+        signal.addEventListener('abort', abortCleanup, { once: true })
+      }
+
+      reader.read().then(
+        result => {
+          clearTimeout(timeoutId)
+          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          if (result.value) lastDataTime = Date.now()
+          resolve(result)
+        },
+        err => {
+          clearTimeout(timeoutId)
+          if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
+          reject(err)
+        },
+      )
+    })
+  }
 
   while (true) {
-    const { done, value } = await reader.read()
+    const { done, value } = await readWithTimeout()
     if (done) break
 
     buffer += decoder.decode(value, { stream: true })
@@ -639,10 +690,11 @@ function determineStopReason(
 
 export async function collectCodexCompletedResponse(
   response: Response,
+  signal?: AbortSignal,
 ): Promise<Record<string, any>> {
   let completedResponse: Record<string, any> | undefined
 
-  for await (const event of readSseEvents(response)) {
+  for await (const event of readSseEvents(response, signal)) {
     if (event.event === 'response.failed') {
       const msg = event.data?.response?.error?.message ??
         event.data?.error?.message ?? 'Codex response failed'
@@ -671,6 +723,7 @@ export async function collectCodexCompletedResponse(
 export async function* codexStreamToAnthropic(
   response: Response,
   model: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   const toolBlocksByItemId = new Map<
@@ -678,12 +731,24 @@ export async function* codexStreamToAnthropic(
     { index: number; toolUseId: string }
   >()
   let activeTextBlockIndex: number | null = null
+  const thinkFilter = createThinkTagFilter()
   let nextContentBlockIndex = 0
   let sawToolUse = false
   let finalResponse: Record<string, any> | undefined
 
   const closeActiveTextBlock = async function* () {
     if (activeTextBlockIndex === null) return
+    const tail = thinkFilter.flush()
+    if (tail) {
+      yield {
+        type: 'content_block_delta',
+        index: activeTextBlockIndex,
+        delta: {
+          type: 'text_delta',
+          text: tail,
+        },
+      }
+    }
     yield {
       type: 'content_block_stop',
       index: activeTextBlockIndex,
@@ -715,7 +780,7 @@ export async function* codexStreamToAnthropic(
     },
   }
 
-  for await (const event of readSseEvents(response)) {
+  for await (const event of readSseEvents(response, signal)) {
     const payload = event.data
 
     if (event.event === 'response.output_item.added') {
@@ -765,13 +830,16 @@ export async function* codexStreamToAnthropic(
     if (event.event === 'response.output_text.delta') {
       yield* startTextBlockIfNeeded()
       if (activeTextBlockIndex !== null) {
-        yield {
-          type: 'content_block_delta',
-          index: activeTextBlockIndex,
-          delta: {
-            type: 'text_delta',
-            text: payload.delta ?? '',
-          },
+        const visible = thinkFilter.feed(payload.delta ?? '')
+        if (visible) {
+          yield {
+            type: 'content_block_delta',
+            index: activeTextBlockIndex,
+            delta: {
+              type: 'text_delta',
+              text: visible,
+            },
+          }
         }
       }
       continue
@@ -838,10 +906,14 @@ export async function* codexStreamToAnthropic(
       stop_reason: determineStopReason(finalResponse, sawToolUse),
       stop_sequence: null,
     },
-    usage: {
-      input_tokens: finalResponse?.usage?.input_tokens ?? 0,
-      output_tokens: finalResponse?.usage?.output_tokens ?? 0,
-    },
+    // Delegate to the shared normalizer so the streaming message_delta
+    // path uses the same raw→Anthropic conversion as makeUsage() above
+    // and the non-streaming response converter below. Previously this
+    // block had its own inline subtraction that missed Kimi / DeepSeek
+    // / Gemini raw shapes that the shared helper handles.
+    usage: makeUsage(
+      finalResponse?.usage as Record<string, unknown> | undefined,
+    ),
   }
   yield { type: 'message_stop' }
 }
@@ -859,7 +931,7 @@ export function convertCodexResponseToAnthropicMessage(
         if (part?.type === 'output_text') {
           content.push({
             type: 'text',
-            text: part.text ?? '',
+            text: stripThinkTags(part.text ?? ''),
           })
         }
       }

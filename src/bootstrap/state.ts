@@ -428,28 +428,82 @@ function getInitialState(): State {
 // AND ESPECIALLY HERE
 const STATE: State = getInitialState()
 
+/**
+ * Per-query SDK context for AsyncLocalStorage-based isolation.
+ * When set, overrides global STATE reads for the current async context.
+ *
+ * **Runtime Requirement:** Uses Node.js `async_hooks.AsyncLocalStorage`.
+ * Not available in browsers or non-Node JavaScript environments.
+ * SDK consumers must run in a Node.js runtime (Node.js 12.17.0+ or 14.0.0+).
+ */
+type SdkContext = {
+  sessionId: SessionId
+  sessionProjectDir: string | null
+  cwd: string
+  originalCwd: string
+  parentSessionId?: SessionId
+}
+
+import { AsyncLocalStorage } from 'async_hooks'
+
+const sdkContextStorage = new AsyncLocalStorage<SdkContext>()
+
+/**
+ * Run a function with an SDK-specific context that overrides global state.
+ * All reads of sessionId, sessionProjectDir, cwd, originalCwd within fn
+ * return context-scoped values instead of global STATE.
+ *
+ * **Node.js Only:** Requires AsyncLocalStorage from async_hooks module.
+ * This function will throw if called in a non-Node environment where
+ * async_hooks is not available.
+ */
+export function runWithSdkContext<T>(context: SdkContext, fn: () => T): T {
+  return sdkContextStorage.run(context, fn)
+}
+
+function getSdkContext(): SdkContext | undefined {
+  return sdkContextStorage.getStore()
+}
+
 export function getSessionId(): SessionId {
-  return STATE.sessionId
+  const ctx = getSdkContext()
+  return ctx?.sessionId ?? STATE.sessionId
 }
 
 export function regenerateSessionId(
   options: { setCurrentAsParent?: boolean } = {},
 ): SessionId {
+  const ctx = getSdkContext()
+  const currentSessionId = ctx?.sessionId ?? STATE.sessionId
   if (options.setCurrentAsParent) {
-    STATE.parentSessionId = STATE.sessionId
+    if (ctx) {
+      ctx.parentSessionId = currentSessionId
+    } else {
+      STATE.parentSessionId = currentSessionId
+    }
   }
   // Drop the outgoing session's plan-slug entry so the Map doesn't
   // accumulate stale keys. Callers that need to carry the slug across
   // (REPL.tsx clearContext) read it before calling clearConversation.
-  STATE.planSlugCache.delete(STATE.sessionId)
+  STATE.planSlugCache.delete(currentSessionId)
   // Regenerated sessions live in the current project: reset projectDir to
   // null so getTranscriptPath() derives from originalCwd.
-  STATE.sessionId = randomUUID() as SessionId
-  STATE.sessionProjectDir = null
-  return STATE.sessionId
+  const newId = randomUUID() as SessionId
+  if (ctx) {
+    ctx.sessionId = newId
+    ctx.sessionProjectDir = null
+  } else {
+    STATE.sessionId = newId
+    STATE.sessionProjectDir = null
+  }
+  return newId
 }
 
 export function getParentSessionId(): SessionId | undefined {
+  const ctx = getSdkContext()
+  if (ctx) {
+    return ctx.parentSessionId
+  }
   return STATE.parentSessionId
 }
 
@@ -469,12 +523,19 @@ export function switchSession(
   sessionId: SessionId,
   projectDir: string | null = null,
 ): void {
+  const ctx = getSdkContext()
+  const currentSessionId = ctx?.sessionId ?? STATE.sessionId
   // Drop the outgoing session's plan-slug entry so the Map stays bounded
   // across repeated /resume. Only the current session's slug is ever read
   // (plans.ts getPlanSlug defaults to getSessionId()).
-  STATE.planSlugCache.delete(STATE.sessionId)
-  STATE.sessionId = sessionId
-  STATE.sessionProjectDir = projectDir
+  STATE.planSlugCache.delete(currentSessionId)
+  if (ctx) {
+    ctx.sessionId = sessionId
+    ctx.sessionProjectDir = projectDir
+  } else {
+    STATE.sessionId = sessionId
+    STATE.sessionProjectDir = projectDir
+  }
   sessionSwitched.emit(sessionId)
 }
 
@@ -494,11 +555,13 @@ export const onSessionSwitch = sessionSwitched.subscribe
  * originalCwd). See `switchSession()`.
  */
 export function getSessionProjectDir(): string | null {
-  return STATE.sessionProjectDir
+  const ctx = getSdkContext()
+  return ctx?.sessionProjectDir ?? STATE.sessionProjectDir
 }
 
 export function getOriginalCwd(): string {
-  return STATE.originalCwd
+  const ctx = getSdkContext()
+  return ctx?.originalCwd ?? STATE.originalCwd
 }
 
 /**
@@ -513,6 +576,11 @@ export function getProjectRoot(): string {
 }
 
 export function setOriginalCwd(cwd: string): void {
+  const ctx = getSdkContext()
+  if (ctx) {
+    ctx.originalCwd = cwd.normalize('NFC')
+    return
+  }
   STATE.originalCwd = cwd.normalize('NFC')
 }
 
@@ -525,10 +593,16 @@ export function setProjectRoot(cwd: string): void {
 }
 
 export function getCwdState(): string {
-  return STATE.cwd
+  const ctx = getSdkContext()
+  return ctx?.cwd ?? STATE.cwd
 }
 
 export function setCwdState(cwd: string): void {
+  const ctx = getSdkContext()
+  if (ctx) {
+    ctx.cwd = cwd.normalize('NFC')
+    return
+  }
   STATE.cwd = cwd.normalize('NFC')
 }
 
@@ -1562,29 +1636,8 @@ export function clearInvokedSkillsForAgent(agentId: string): void {
   }
 }
 
-// Slow operations tracking for dev bar
-const MAX_SLOW_OPERATIONS = 10
-const SLOW_OPERATION_TTL_MS = 10000
-
-export function addSlowOperation(operation: string, durationMs: number): void {
-  if (process.env.USER_TYPE !== 'ant') return
-  // Skip tracking for editor sessions (user editing a prompt file in $EDITOR)
-  // These are intentionally slow since the user is drafting text
-  if (operation.includes('exec') && operation.includes('claude-prompt-')) {
-    return
-  }
-  const now = Date.now()
-  // Remove stale operations
-  STATE.slowOperations = STATE.slowOperations.filter(
-    op => now - op.timestamp < SLOW_OPERATION_TTL_MS,
-  )
-  // Add new operation
-  STATE.slowOperations.push({ operation, durationMs, timestamp: now })
-  // Keep only the most recent operations
-  if (STATE.slowOperations.length > MAX_SLOW_OPERATIONS) {
-    STATE.slowOperations = STATE.slowOperations.slice(-MAX_SLOW_OPERATIONS)
-  }
-}
+// Slow operations tracking removed (was internal-only).
+// Functions kept as no-ops to avoid breaking callers.
 
 const EMPTY_SLOW_OPERATIONS: ReadonlyArray<{
   operation: string
@@ -1592,32 +1645,17 @@ const EMPTY_SLOW_OPERATIONS: ReadonlyArray<{
   timestamp: number
 }> = []
 
+export function addSlowOperation(
+  _operation: string,
+  _durationMs: number,
+): void {}
+
 export function getSlowOperations(): ReadonlyArray<{
   operation: string
   durationMs: number
   timestamp: number
 }> {
-  // Most common case: nothing tracked. Return a stable reference so the
-  // caller's setState() can bail via Object.is instead of re-rendering at 2fps.
-  if (STATE.slowOperations.length === 0) {
-    return EMPTY_SLOW_OPERATIONS
-  }
-  const now = Date.now()
-  // Only allocate a new array when something actually expired; otherwise keep
-  // the reference stable across polls while ops are still fresh.
-  if (
-    STATE.slowOperations.some(op => now - op.timestamp >= SLOW_OPERATION_TTL_MS)
-  ) {
-    STATE.slowOperations = STATE.slowOperations.filter(
-      op => now - op.timestamp < SLOW_OPERATION_TTL_MS,
-    )
-    if (STATE.slowOperations.length === 0) {
-      return EMPTY_SLOW_OPERATIONS
-    }
-  }
-  // Safe to return directly: addSlowOperation() reassigns STATE.slowOperations
-  // before pushing, so the array held in React state is never mutated.
-  return STATE.slowOperations
+  return EMPTY_SLOW_OPERATIONS
 }
 
 export function getMainThreadAgentType(): string | undefined {

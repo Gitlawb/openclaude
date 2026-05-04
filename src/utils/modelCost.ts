@@ -11,6 +11,7 @@ import {
   CLAUDE_OPUS_4_1_CONFIG,
   CLAUDE_OPUS_4_5_CONFIG,
   CLAUDE_OPUS_4_6_CONFIG,
+  CLAUDE_OPUS_4_7_CONFIG,
   CLAUDE_OPUS_4_CONFIG,
   CLAUDE_SONNET_4_5_CONFIG,
   CLAUDE_SONNET_4_6_CONFIG,
@@ -122,6 +123,8 @@ export const MODEL_COSTS: Record<ModelShortName, ModelCosts> = {
   [firstPartyNameToCanonical(CLAUDE_OPUS_4_5_CONFIG.firstParty)]:
     COST_TIER_5_25,
   [firstPartyNameToCanonical(CLAUDE_OPUS_4_6_CONFIG.firstParty)]:
+    COST_TIER_5_25,
+  [firstPartyNameToCanonical(CLAUDE_OPUS_4_7_CONFIG.firstParty)]:
     COST_TIER_5_25,
 }
 

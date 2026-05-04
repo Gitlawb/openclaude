@@ -600,7 +600,7 @@ export function ExitPlanModePermissionRequest({
     }
     return <PermissionDialog color="planMode" title="Exit plan mode?" workerBadge={workerBadge}>
         <Box flexDirection="column" paddingX={1} marginTop={1}>
-          <Text>Claude wants to exit plan mode</Text>
+          <Text>OpenClaude wants to exit plan mode</Text>
           <Box marginTop={1}>
             <Select options={[{
             label: 'Yes',
@@ -730,7 +730,7 @@ export function buildPlanApprovalOptions({
   });
   if (showUltraplan) {
     options.push({
-      label: 'No, refine with Ultraplan on Claude Code on the web',
+      label: 'No, refine with Ultraplan on OpenClaude on the web',
       value: 'ultraplan'
     });
   }

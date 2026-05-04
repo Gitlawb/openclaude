@@ -4,6 +4,10 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { extractDraggedFilePaths } from './dragDropPaths.js'
 
+function escapeFinderDraggedPath(filePath: string): string {
+  return filePath.replace(/([\\ ])/g, '\\$1')
+}
+
 describe('extractDraggedFilePaths', () => {
   // Paths that exist on any system.
   const thisFile = import.meta.path
@@ -80,6 +84,12 @@ describe('extractDraggedFilePaths', () => {
     })
   })
 
+  test('escapeFinderDraggedPath escapes spaces and backslashes', () => {
+    expect(escapeFinderDraggedPath('/tmp/my\\notes file.txt')).toBe(
+      '/tmp/my\\\\notes\\ file.txt',
+    )
+  })
+
   // Backslash-escaped paths are a Finder/macOS + Linux convention — on
   // Windows the shell-escape step is skipped, so these cases do not apply.
   if (process.platform !== 'win32') {
@@ -92,7 +102,7 @@ describe('extractDraggedFilePaths', () => {
 
       test('resolves an escaped real file with a space in its name', () => {
         // Raw form matches what a terminal delivers on Finder drag.
-        const escaped = spacedFile.replace(/ /g, '\\ ')
+        const escaped = escapeFinderDraggedPath(spacedFile)
         expect(extractDraggedFilePaths(escaped)).toEqual([spacedFile])
       })
     })

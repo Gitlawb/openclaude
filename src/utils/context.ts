@@ -2,12 +2,26 @@
 import { CONTEXT_1M_BETA_HEADER } from '../constants/betas.js'
 import { getGlobalConfig } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
+import { resolveModelRuntimeLimits } from '../integrations/runtimeMetadata.js'
+import {
+  getTransportKindForRoute,
+  resolveActiveRouteIdFromEnv,
+} from '../integrations/routeMetadata.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
-import { getOpenAIContextWindow, getOpenAIMaxOutputTokens } from './model/openaiContextWindows.js'
 
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
+
+// Fallback context window for unknown 3P models. Must be large enough that
+// the effective context (this minus output token reservation) stays positive,
+// otherwise auto-compact fires on every message (issue #635).
+// Override via CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW env var to avoid
+// hardcoding when deploying models not yet in integration model metadata.
+export const OPENAI_FALLBACK_CONTEXT_WINDOW = (() => {
+  const v = parseInt(process.env.CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW ?? '', 10)
+  return !isNaN(v) && v > 0 ? v : 128_000
+})()
 
 // Maximum output tokens for compact operations
 export const COMPACT_MAX_OUTPUT_TOKENS = 20_000
@@ -49,6 +63,19 @@ export function modelSupports1M(model: string): boolean {
   return canonical.includes('claude-sonnet-4') || canonical.includes('opus-4-6')
 }
 
+function shouldUseIntegrationRuntimeLimits(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const routeId = resolveActiveRouteIdFromEnv(processEnv)
+  const transportKind = routeId ? getTransportKindForRoute(routeId) : null
+
+  return (
+    transportKind === 'openai-compatible' ||
+    transportKind === 'local' ||
+    transportKind === 'gemini-native'
+  )
+}
+
 export function getContextWindowForModel(
   model: string,
   betas?: string[],
@@ -72,16 +99,20 @@ export function getContextWindowForModel(
     return 1_000_000
   }
 
-  // OpenAI-compatible provider — use known context windows for the model
-  if (
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-  ) {
-    const openaiWindow = getOpenAIContextWindow(model)
-    if (openaiWindow !== undefined) {
-      return openaiWindow
+  // OpenAI-compatible provider — use known context windows for the model.
+  // Unknown models get a conservative 128k default. This was previously 8k,
+  // but that caused auto-compact to fire on every turn because the effective
+  // context (8k minus output reservation) became negative (issue #635).
+  if (shouldUseIntegrationRuntimeLimits()) {
+    const runtimeLimits = resolveModelRuntimeLimits({ model })
+    if (runtimeLimits.contextWindow !== undefined) {
+      return runtimeLimits.contextWindow
     }
+    console.error(
+      `[context] Warning: model "${model}" not in integration model metadata — using conservative 128k default. ` +
+      'Add it to src/integrations/models for accurate compaction.',
+    )
+    return OPENAI_FALLBACK_CONTEXT_WINDOW
   }
 
   const cap = getModelCapability(model)
@@ -176,14 +207,13 @@ export function getModelMaxOutputTokens(model: string): {
   }
 
   // OpenAI-compatible provider — use known output limits to avoid 400 errors
-  if (
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
-  ) {
-    const openaiMax = getOpenAIMaxOutputTokens(model)
-    if (openaiMax !== undefined) {
-      return { default: openaiMax, upperLimit: openaiMax }
+  if (shouldUseIntegrationRuntimeLimits()) {
+    const runtimeLimits = resolveModelRuntimeLimits({ model })
+    if (runtimeLimits.maxOutputTokens !== undefined) {
+      return {
+        default: runtimeLimits.maxOutputTokens,
+        upperLimit: runtimeLimits.maxOutputTokens,
+      }
     }
   }
 

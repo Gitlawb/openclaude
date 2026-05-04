@@ -1814,7 +1814,10 @@ export async function bashToolHasPermission(
       input,
       appState.toolPermissionContext,
     )
-    if (sandboxAutoAllowResult.behavior !== 'passthrough') {
+    if (
+      sandboxAutoAllowResult.behavior === 'deny' ||
+      sandboxAutoAllowResult.behavior === 'ask'
+    ) {
       return sandboxAutoAllowResult
     }
   }

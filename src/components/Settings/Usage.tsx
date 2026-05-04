@@ -2,8 +2,13 @@ import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
 import { useEffect, useState } from 'react';
 import { extraUsage as extraUsageCommand } from 'src/commands/extra-usage/index.js';
+import {
+  getUsageDescriptor,
+  resolveActiveUsageId,
+} from 'src/commands/usage/index.js';
 import { formatCost } from 'src/cost-tracker.js';
 import { getSubscriptionType } from 'src/utils/auth.js';
+import { getActiveProviderProfile } from 'src/utils/providerProfiles.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { Box, Text } from '../../ink.js';
 import { useKeybinding } from '../../keybindings/useKeybinding.js';
@@ -17,6 +22,8 @@ import { Byline } from '../design-system/Byline.js';
 import { ProgressBar } from '../design-system/ProgressBar.js';
 import { isEligibleForOverageCreditGrant, OverageCreditUpsell } from '../LogoV2/OverageCreditUpsell.js';
 import { CodexUsage } from './CodexUsage.js';
+import { MiniMaxUsage } from './MiniMaxUsage.js';
+import { UnsupportedUsage } from './UnsupportedUsage.js';
 type LimitBarProps = {
   title: string;
   limit: RateLimit;
@@ -24,7 +31,7 @@ type LimitBarProps = {
   showTimeInReset?: boolean;
   extraSubtext?: string;
 };
-function LimitBar(t0) {
+function LimitBar(t0: LimitBarProps) {
   const $ = _c(34);
   const {
     title,
@@ -266,17 +273,29 @@ function AnthropicUsage(): React.ReactNode {
     </Box>;
 }
 export function Usage(): React.ReactNode {
-  if (getAPIProvider() === 'codex') {
+  const provider = getAPIProvider();
+  const activeProfile = getActiveProviderProfile();
+  const usageDescriptor = getUsageDescriptor(resolveActiveUsageId(process.env, {
+    activeProfileProvider: activeProfile?.provider,
+    providerCategory: provider,
+  }));
+  if (provider === 'codex') {
     return <CodexUsage />;
   }
-  return <AnthropicUsage />;
+  if (usageDescriptor.resolvedId === 'minimax' && usageDescriptor.supported) {
+    return <MiniMaxUsage />;
+  }
+  if (usageDescriptor.resolvedId === 'anthropic' && usageDescriptor.supported) {
+    return <AnthropicUsage />;
+  }
+  return <UnsupportedUsage providerLabel={usageDescriptor.activeLabel} />;
 }
 type ExtraUsageSectionProps = {
   extraUsage: ExtraUsage;
   maxWidth: number;
 };
 const EXTRA_USAGE_SECTION_TITLE = 'Extra usage';
-function ExtraUsageSection(t0) {
+function ExtraUsageSection(t0: ExtraUsageSectionProps) {
   const $ = _c(20);
   const {
     extraUsage,

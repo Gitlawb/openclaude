@@ -282,6 +282,44 @@ export function Config({
       });
     }
   }, {
+    id: 'toolHistoryCompressionEnabled',
+    label: 'Tool history compression',
+    value: globalConfig.toolHistoryCompressionEnabled,
+    type: 'boolean' as const,
+    onChange(toolHistoryCompressionEnabled: boolean) {
+      saveGlobalConfig(current => ({
+        ...current,
+        toolHistoryCompressionEnabled
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        toolHistoryCompressionEnabled
+      });
+      logEvent('tengu_tool_history_compression_setting_changed', {
+        enabled: toolHistoryCompressionEnabled
+      });
+    }
+  }, {
+    id: 'showCacheStats',
+    label: 'Cache stats display',
+    value: globalConfig.showCacheStats,
+    options: ['off', 'compact', 'full'],
+    type: 'enum' as const,
+    onChange(mode: string) {
+      const showCacheStats = (mode === 'off' || mode === 'compact' || mode === 'full' ? mode : 'compact') as 'off' | 'compact' | 'full';
+      saveGlobalConfig(current_cs => ({
+        ...current_cs,
+        showCacheStats
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        showCacheStats
+      });
+      logEvent('tengu_show_cache_stats_setting_changed', {
+        mode: showCacheStats as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
     id: 'spinnerTipsEnabled',
     label: 'Show tips',
     value: settingsData?.spinnerTipsEnabled ?? true,
@@ -1157,6 +1195,9 @@ export function Config({
     }
     if (globalConfig.autoCompactEnabled !== initialConfig.current.autoCompactEnabled) {
       formattedChanges.push(`${globalConfig.autoCompactEnabled ? 'Enabled' : 'Disabled'} auto-compact`);
+    }
+    if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
+      formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);
     }
     if (globalConfig.respectGitignore !== initialConfig.current.respectGitignore) {
       formattedChanges.push(`${globalConfig.respectGitignore ? 'Enabled' : 'Disabled'} respect .gitignore in file picker`);

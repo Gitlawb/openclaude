@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react'
-import { isDeepStrictEqual } from 'util'
 import { useRegisterOverlay } from '../../context/overlayContext.js'
 import type { InputEvent } from '../../ink/events/input-event.js'
 // eslint-disable-next-line custom-rules/prefer-use-keybindings -- raw space/arrow multiselect input
@@ -9,6 +8,7 @@ import {
   normalizeFullWidthSpace,
 } from '../../utils/stringUtils.js'
 import type { OptionWithDescription } from './select.js'
+import { optionsNavigateEqual } from './use-select-navigation.js'
 import { useSelectNavigation } from './use-select-navigation.js'
 
 export type UseMultiSelectStateProps<T> = {
@@ -174,7 +174,7 @@ export function useMultiSelectState<T>({
   // and the deleted ui/useMultiSelectState.ts — without this, MCPServerDesktopImportDialog
   // keeps colliding servers checked after getAllMcpConfigs() resolves.
   const [lastOptions, setLastOptions] = useState(options)
-  if (options !== lastOptions && !isDeepStrictEqual(options, lastOptions)) {
+  if (options !== lastOptions && !optionsNavigateEqual(options, lastOptions)) {
     setSelectedValues(defaultValue)
     setLastOptions(options)
   }

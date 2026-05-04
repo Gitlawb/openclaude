@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import { useEventCallback } from 'usehooks-ts'
 import type { InputEvent, Key } from '../events/input-event.js'
 import useStdin from './use-stdin.js'
@@ -66,6 +66,16 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
   // stopImmediatePropagation() ordering. useEventCallback keeps the
   // reference stable while reading latest isActive/inputHandler from
   // closure (it syncs via useLayoutEffect, so it's compiler-safe).
+  //
+  // Use useLayoutEffect (not useEffect) so the handler is registered
+  // synchronously during the commit phase, before any stdin data can be
+  // processed. In data mode, stdin.write() fires handleDataChunk
+  // synchronously, which calls processInput → discreteUpdates → emit('input').
+  // If the handler were in useEffect (passive effect, fires asynchronously
+  // after the scheduler flushes), there's a window where stdin has a
+  // listener but the EventEmitter has no handlers — keys are silently
+  // dropped. This is safe because EventEmitter listener registration is
+  // synchronous, lightweight, and has no visual side effects.
   const handleData = useEventCallback((event: InputEvent) => {
     if (options.isActive === false) {
       return
@@ -80,7 +90,7 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
     }
   })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     internal_eventEmitter?.on('input', handleData)
 
     return () => {

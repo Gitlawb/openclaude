@@ -123,8 +123,6 @@ const SuggestionItemRow = memo(function SuggestionItemRow({
     maxColumnWidth ?? stringWidth(item.displayText) + 5,
     maxNameWidth,
   )
-  const displayTextColor = isSelected ? 'inverseText' : item.color
-  const shouldDim = !isSelected
 
   let displayText = item.displayText
   if (stringWidth(displayText) > displayTextWidth - 2) {
@@ -144,21 +142,17 @@ const SuggestionItemRow = memo(function SuggestionItemRow({
   const truncatedDescription = item.description
     ? truncateToWidth(item.description.replace(/\s+/g, ' '), descriptionWidth)
     : ''
+  const lineContent = `${paddedDisplayText}${tagText}${truncatedDescription}`
 
   return (
     <Box width="100%" opaque={true} backgroundColor={rowBackgroundColor}>
-      <Text wrap="truncate">
-        <Text color={displayTextColor} dimColor={shouldDim} bold={isSelected}>
-          {paddedDisplayText}
-        </Text>
-        {tagText ? (
-          <Text color={textColor} dimColor={!isSelected}>
-            {tagText}
-          </Text>
-        ) : null}
-        <Text color={textColor} dimColor={!isSelected}>
-          {truncatedDescription}
-        </Text>
+      <Text
+        color={textColor}
+        dimColor={!isSelected}
+        bold={isSelected}
+        wrap="truncate"
+      >
+        {lineContent}
       </Text>
     </Box>
   )

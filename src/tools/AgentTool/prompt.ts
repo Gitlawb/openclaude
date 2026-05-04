@@ -156,34 +156,24 @@ ${AGENT_TOOL_NAME}({
   const currentExamples = `Example usage:
 
 <example_agent_descriptions>
-"test-runner": use this agent after you are done writing code to run tests
-"greeting-responder": use this agent to respond to user greetings with a friendly joke
+"claude-code-guide": use this agent when the user asks how Claude Code works or how to use its features
+"statusline-setup": use this agent to configure the user's Claude Code status line setting
 </example_agent_descriptions>
 
 <example>
-user: "Please write a function that checks if a number is prime"
-assistant: I'm going to use the ${FILE_WRITE_TOOL_NAME} tool to write the following code:
-<code>
-function isPrime(n) {
-  if (n <= 1) return false
-  for (let i = 2; i * i <= n; i++) {
-    if (n % i === 0) return false
-  }
-  return true
-}
-</code>
+user: "How do I configure Claude Code hooks?"
 <commentary>
-Since a significant piece of code was written and the task was completed, now use the test-runner agent to run the tests
+This is a Claude Code usage question, so use the claude-code-guide agent
 </commentary>
-assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the test-runner agent
+assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the claude-code-guide agent
 </example>
 
 <example>
-user: "Hello"
+user: "Set up my Claude Code status line"
 <commentary>
-Since the user is greeting, use the greeting-responder agent to respond with a friendly joke
+This matches the statusline-setup agent, so use it to configure the setting
 </commentary>
-assistant: "I'm going to use the ${AGENT_TOOL_NAME} tool to launch the greeting-responder agent"
+assistant: "I'm going to use the ${AGENT_TOOL_NAME} tool to launch the statusline-setup agent"
 </example>
 `
 

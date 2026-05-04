@@ -2,7 +2,7 @@
 
 OpenClaude is an open-source coding-agent CLI for cloud and local model providers.
 
-Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported backends while keeping one terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
+Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, Atomic Chat, and other supported backends while keeping one terminal-first workflow: prompts, tools, agents, MCP, slash commands, and streaming output.
 
 [![PR Checks](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/Gitlawb/openclaude/actions/workflows/pr-checks.yml)
 [![Release](https://img.shields.io/github/v/tag/Gitlawb/openclaude?label=release&color=0ea5e9)](https://github.com/Gitlawb/openclaude/tags)
@@ -10,13 +10,44 @@ Use OpenAI-compatible APIs, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, a
 [![Security Policy](https://img.shields.io/badge/security-policy-0f766e)](SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-2563eb)](LICENSE)
 
-[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Community](#community)
+OpenClaude is also mirrored to GitLawb:
+[gitlawb.com/node/repos/z6MkqDnb/openclaude](https://gitlawb.com/node/repos/z6MkqDnb/openclaude)
+
+[Quick Start](#quick-start) | [Setup Guides](#setup-guides) | [Providers](#supported-providers) | [Source Build](#source-build-and-local-development) | [VS Code Extension](#vs-code-extension) | [Sponsors](#sponsors) | [Community](#community)
+
+## Sponsors
+
+<p align="center">
+  <a href="https://gitlawb.com">
+    <img src="https://gitlawb.com/logo.png" alt="GitLawb logo" width="96">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://bankr.bot">
+    <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="96">
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/">
+    <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="96">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://gitlawb.com"><strong>GitLawb</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/"><strong>Atomic Chat</strong></a>
+</p>
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=gitlawb/openclaude&type=date&legend=top-left)](https://www.star-history.com/?repos=gitlawb%2Fopenclaude&type=date&legend=top-left)
 
 ## Why OpenClaude
 
 - Use one CLI across cloud APIs and local model backends
 - Save provider profiles inside the app with `/provider`
-- Run with OpenAI-compatible services, Gemini, GitHub Models, Codex, Ollama, Atomic Chat, and other supported providers
+- Run with OpenAI-compatible services, Gemini, GitHub Models, Codex OAuth, Codex, Ollama, Atomic Chat, and other supported providers
 - Keep coding-agent workflows in one place: bash, file tools, grep, glob, agents, tasks, MCP, and web tools
 - Use the bundled VS Code extension for launch integration and theme support
 
@@ -85,6 +116,16 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
+### Using Ollama's launch command
+
+If you have [Ollama](https://ollama.com) installed, you can skip the env var setup entirely:
+
+```bash
+ollama launch openclaude --model qwen2.5-coder:7b
+```
+
+This automatically sets `ANTHROPIC_BASE_URL`, model routing, and auth so all API traffic goes through your local Ollama instance. Works with any model you have pulled — local or cloud.
+
 ## Setup Guides
 
 Beginner-friendly guides:
@@ -103,11 +144,13 @@ Advanced and source-build guides:
 | Provider | Setup Path | Notes |
 | --- | --- | --- |
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
+| Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |
 | Gemini | `/provider` or env vars | Supports API key, access token, or local ADC workflow on current `main` |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
-| Codex | `/provider` | Uses existing Codex credentials when available |
-| Ollama | `/provider` or env vars | Local inference with no API key |
-| Atomic Chat | advanced setup | Local Apple Silicon backend |
+| Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
+| Codex | `/provider` | Uses existing Codex CLI auth, OpenClaude secure storage, or env credentials |
+| Ollama | `/provider`, env vars, or `ollama launch` | Local inference with no API key |
+| Atomic Chat | `/provider`, env vars, or `bun run dev:atomic-chat` | Local Model Provider; auto-detects loaded models |
 | Bedrock / Vertex / Foundry | env vars | Additional provider integrations for supported environments |
 
 ## What Works
@@ -116,7 +159,7 @@ Advanced and source-build guides:
 - **Streaming responses**: Real-time token output and tool progress
 - **Tool calling**: Multi-step tool loops with model calls, tool execution, and follow-up responses
 - **Images**: URL and base64 image inputs for providers that support vision
-- **Provider profiles**: Guided setup plus saved `.openclaude-profile.json` support
+- **Provider profiles**: Guided setup plus saved user-level provider profile support
 - **Local and remote model backends**: Cloud APIs, local servers, and Apple Silicon local inference
 
 ## Provider Notes
@@ -134,12 +177,12 @@ For best results, use models with strong tool/function calling support.
 
 OpenClaude can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.
 
-Add to `~/.claude/settings.json`:
+Add to `~/.openclaude.json`:
 
 ```json
 {
   "agentModels": {
-    "deepseek-chat": {
+    "deepseek-v4-flash": {
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "sk-your-key"
     },
@@ -149,10 +192,10 @@ Add to `~/.claude/settings.json`:
     }
   },
   "agentRouting": {
-    "Explore": "deepseek-chat",
+    "Explore": "deepseek-v4-flash",
     "Plan": "gpt-4o",
     "general-purpose": "gpt-4o",
-    "frontend-dev": "deepseek-chat",
+    "frontend-dev": "deepseek-v4-flash",
     "default": "gpt-4o"
   }
 }
@@ -313,7 +356,8 @@ For larger changes, open an issue first so the scope is clear before implementat
 - `bun run build`
 - `bun run test:coverage`
 - `bun run smoke`
-- focused `bun test ...` runs for touched areas
+- focused `bun test ...` runs for files and flows you changed
+
 
 ## Disclaimer
 

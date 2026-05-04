@@ -23,6 +23,7 @@ import { randomUUID } from 'crypto'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
+  isGithubNativeAnthropicMode,
 } from 'src/utils/model/providers.js'
 import {
   getAttributionHeader,
@@ -334,8 +335,13 @@ export function getPromptCachingEnabled(model: string): boolean {
   // Prompt caching is an Anthropic-specific feature. Third-party providers
   // do not understand cache_control blocks and strict backends (e.g. Azure
   // Foundry) reject or flag requests that contain them.
+  //
+  // Exception: when the GitHub provider is configured in native Anthropic API
+  // mode (CLAUDE_CODE_GITHUB_ANTHROPIC_API=1), requests are sent in Anthropic
+  // format, so cache_control blocks are supported.
   const provider = getAPIProvider()
-  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex') {
+  const isNativeGithub = isGithubNativeAnthropicMode(model)
+  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex' && !isNativeGithub) {
     return false
   }
 
@@ -1211,7 +1217,7 @@ async function* queryModel(
     cachedMCEnabled = featureEnabled && modelSupported
     const config = getCachedMCConfig()
     logForDebugging(
-      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify(config.supportedModels)}`,
+      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify(config?.supportedModels)}`,
     )
   }
 
@@ -1276,6 +1282,21 @@ async function* queryModel(
   queryCheckpoint('query_message_normalization_start')
   let messagesForAPI = normalizeMessagesForAPI(messages, filteredTools)
   queryCheckpoint('query_message_normalization_end')
+
+  // Apply hybrid context strategy for optimal cache/fresh balance
+  if (feature('HYBRID_CONTEXT_STRATEGY')) {
+    const { applyHybridStrategy } = await import('../../utils/hybridContextStrategy.js')
+    // Cap at 200k to avoid edge case with very large context windows
+    const strategyResult = applyHybridStrategy(messagesForAPI, {
+      cacheWeight: 0.4,
+      freshWeight: 0.6,
+      maxTotalTokens: Math.min(
+        getContextWindowForModel(model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
+        200000
+      ),
+    })
+    messagesForAPI = strategyResult.selectedMessages
+  }
 
   // Model-specific post-processing: strip tool-search-specific fields if the
   // selected model doesn't support tool search.

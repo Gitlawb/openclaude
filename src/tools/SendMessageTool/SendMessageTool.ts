@@ -819,7 +819,25 @@ export const SendMessageTool: Tool<InputSchema, SendMessageToolOutput> =
                 },
               }
             }
-            // task exists but stopped — auto-resume
+            // task exists but stopped — auto-resume.
+            // Guard against race: two concurrent SendMessage calls to the same
+            // stopped agent could both trigger resumeAgentBackground(), causing
+            // duplicate task registration. Check status again after acquiring
+            // the task reference (the first resume changes status to 'running').
+            const freshTask = context.getAppState().tasks[agentId]
+            if (isLocalAgentTask(freshTask) && freshTask.status === 'running') {
+              queuePendingMessage(
+                agentId,
+                input.message,
+                context.setAppStateForTasks ?? context.setAppState,
+              )
+              return {
+                data: {
+                  success: true,
+                  message: `Message queued for delivery to ${input.to} at its next tool round (was concurrently resumed).`,
+                },
+              }
+            }
             try {
               const result = await resumeAgentBackground({
                 agentId,

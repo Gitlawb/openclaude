@@ -14,6 +14,8 @@ import { logError } from '../../utils/log.js'
 import { tokenCountWithEstimation } from '../../utils/tokens.js'
 import { createSlidingWindow } from '../../utils/slidingContextWindow.js'
 import { selectWeightedMessages } from '../../utils/importanceWeightedContext.js'
+import { partitionContext } from '../../utils/contextPartitioning.js'
+import { pruneByRelevance } from '../../utils/relevancePruning.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { getMaxOutputTokensForModel } from '../api/claude.js'
 import { notifyCompaction } from '../api/promptCacheBreakDetection.js'
@@ -47,7 +49,12 @@ export function getEffectiveContextWindowSize(model: string): number {
     }
   }
 
-  return contextWindow - reservedTokensForSummary
+  // Floor: effective context must be at least the summary reservation plus a
+  // usable buffer. If it goes lower, the auto-compact threshold becomes
+  // negative and fires on every message (issue #635).
+  const autocompactBuffer = 13_000 // must match AUTOCOMPACT_BUFFER_TOKENS
+  const effectiveContext = contextWindow - reservedTokensForSummary
+  return Math.max(effectiveContext, reservedTokensForSummary + autocompactBuffer)
 }
 
 export type AutoCompactTrackingState = {
@@ -107,9 +114,14 @@ export function calculateTokenWarningState(
     ? autoCompactThreshold
     : getEffectiveContextWindowSize(model)
 
+  // Use the raw context window (without output reservation) for the percentage
+  // display, so users see remaining context relative to the model's full capacity.
+  // The threshold (which subtracts buffer) should only affect when we warn/compact,
+  // not what percentage we display.
+  const rawContextWindow = getContextWindowForModel(model, getSdkBetas())
   const percentLeft = Math.max(
     0,
-    Math.round(((threshold - tokenUsage) / threshold) * 100),
+    Math.round(((rawContextWindow - tokenUsage) / rawContextWindow) * 100),
   )
 
   const warningThreshold = threshold - WARNING_THRESHOLD_BUFFER_TOKENS
@@ -276,6 +288,39 @@ export async function autoCompactIfNeeded(
 
   if (!shouldCompact) {
     return { wasCompacted: false }
+  }
+
+  const contextWindow = getContextWindowForModel(model, getSdkBetas())
+
+  const partitioned = partitionContext(messages, {
+    contextWindow,
+    recentCount: 5,
+  })
+  const availableSpace = partitioned.canFitInWindow
+    ? contextWindow - partitioned.totalTokens
+    : Math.floor(contextWindow * 0.1)
+
+  if (!partitioned.canFitInWindow && availableSpace > 1000) {
+    // Preserve system messages
+    const systemMessages = messages.filter(m => m.message?.role === 'system')
+    const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
+    
+    const pruned = pruneByRelevance(nonSystemMessages, {
+      targetTokens: availableSpace,
+      preserveRecent: 3,
+      preserveTools: true,
+      preserveErrors: true,
+    })
+    
+    // Combine preserved system + pruned
+    const finalMessages = [...systemMessages, ...pruned]
+    
+    if (finalMessages.length > 0 && finalMessages.length < messages.length) {
+      logForDebugging(
+        `partition+prune: ${messages.length} -> ${finalMessages.length} messages`,
+      )
+      messages = finalMessages
+    }
   }
 
   const recompactionInfo: RecompactionInfo = {
