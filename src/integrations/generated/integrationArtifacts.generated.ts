@@ -19,6 +19,7 @@ import gatewayDashscopeCn from '../gateways/dashscope-cn.js'
 import gatewayDashscopeIntl from '../gateways/dashscope-intl.js'
 import gatewayGithub from '../gateways/github.js'
 import gatewayGroq from '../gateways/groq.js'
+import gatewayHicap from '../gateways/hicap.js'
 import gatewayKimiCode from '../gateways/kimi-code.js'
 import gatewayLmstudio from '../gateways/lmstudio.js'
 import gatewayMistral from '../gateways/mistral.js'
@@ -55,7 +56,7 @@ import modelQwen from '../models/qwen.js'
 import modelXai from '../models/xai.js'
 
 export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorXai, vendorZai] as const satisfies readonly VendorDescriptor[]
-export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGroq, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
+export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
 export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai] as const satisfies readonly BrandDescriptor[]
 export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNemotron, modelOpenaiCompatibleAlias, modelQwen, modelXai] as const satisfies readonly (readonly ModelDescriptor[])[]
@@ -154,6 +155,20 @@ export const PROVIDER_PRESET_MANIFEST = [
     "description": "Groq OpenAI-compatible endpoint",
     "apiKeyEnvVars": [
       "GROQ_API_KEY"
+    ]
+  },
+  {
+    "preset": "hicap",
+    "routeKind": "gateway",
+    "routeId": "hicap",
+    "vendorId": "openai",
+    "gatewayId": "hicap",
+    "description": "Hicap OpenAI-compatible gateway",
+    "apiKeyEnvVars": [
+      "HICAP_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
     ]
   },
   {
@@ -336,6 +351,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "deepseek",
   "gemini",
   "groq",
+  "hicap",
   "lmstudio",
   "atomic-chat",
   "ollama",

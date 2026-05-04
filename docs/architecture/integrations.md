@@ -204,6 +204,8 @@ should remain explicit unless the external API changes.
   It still requires dedicated env selection and request shaping.
 - Azure OpenAI and Bankr have distinct auth/header contracts.
   Azure uses `api-key` and deployment URLs; Bankr uses `X-API-Key`.
+  Descriptor-backed gateways can use `defaultAuthHeader` for route-owned
+  default auth headers.
 - Gemini still has provider-specific credential handling and thought-signature
   behavior at the shim boundary.
 - DeepSeek and Moonshot/Kimi still need route-specific `reasoning_content`,

@@ -133,6 +133,34 @@ test('uses responses transport when OpenAI-compatible API format requests respon
   })
 })
 
+test('uses responses transport for Hicap gpt models when requested', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'gpt-5.4'
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'responses',
+    requestedModel: 'gpt-5.4',
+    resolvedModel: 'gpt-5.4',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
+test('falls back to chat completions for non-gpt Hicap models when responses is requested', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_MODEL = 'claude-opus-4.7'
+  process.env.OPENAI_API_FORMAT = 'responses'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    requestedModel: 'claude-opus-4.7',
+    resolvedModel: 'claude-opus-4.7',
+    baseUrl: 'https://api.hicap.ai/v1',
+  })
+})
+
 test('keeps Codex backend on Codex responses transport even when API format is set', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://chatgpt.com/backend-api/codex'

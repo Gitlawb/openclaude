@@ -1,5 +1,5 @@
 import { mkdir, open, unlink } from 'fs/promises'
-import { join } from 'path'
+import { join, relative } from 'path'
 import type { SettingSource } from 'src/utils/settings/constants.js'
 import { getManagedFilePath } from 'src/utils/settings/managedPath.js'
 import type { AgentMemoryScope } from '../../tools/AgentTool/agentMemory.js'
@@ -66,11 +66,7 @@ function getAgentDirectoryPath(location: SettingSource): string {
     case 'projectSettings':
       return join(getCwd(), AGENT_PATHS.FOLDER_NAME, AGENT_PATHS.AGENTS_DIR)
     case 'policySettings':
-      return join(
-        getManagedFilePath(),
-        AGENT_PATHS.FOLDER_NAME,
-        AGENT_PATHS.AGENTS_DIR,
-      )
+      return join(getManagedFilePath(), '.claude', AGENT_PATHS.AGENTS_DIR)
     case 'localSettings':
       return join(getCwd(), AGENT_PATHS.FOLDER_NAME, AGENT_PATHS.AGENTS_DIR)
   }
@@ -109,7 +105,7 @@ export function getActualAgentFilePath(agent: AgentDefinition): string {
     throw new Error('Cannot get file path for plugin agents')
   }
 
-  const dirPath = getAgentDirectoryPath(agent.source)
+  const dirPath = agent.baseDir || getAgentDirectoryPath(agent.source)
   const filename = agent.filename || agent.agentType
   return join(dirPath, `${filename}.md`)
 }
@@ -143,7 +139,13 @@ export function getActualRelativeAgentFilePath(agent: AgentDefinition): string {
     return 'CLI argument'
   }
 
-  const dirPath = getRelativeAgentDirectoryPath(agent.source)
+  const dirPath =
+    agent.baseDir &&
+    (agent.source === 'projectSettings' ||
+      agent.source === 'localSettings' ||
+      agent.source === 'policySettings')
+      ? join('.', relative(getCwd(), agent.baseDir))
+      : getRelativeAgentDirectoryPath(agent.source)
   const filename = agent.filename || agent.agentType
   return join(dirPath, `${filename}.md`)
 }

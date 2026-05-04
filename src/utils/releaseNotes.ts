@@ -9,26 +9,39 @@ import { toError } from './errors.js'
 import { logError } from './log.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
 import { gt } from './semver.js'
+import {
+  normalizePublicVersion,
+  OPENCLAUDE_RELEASES_URL,
+  publicBuildVersion,
+} from './version.js'
 
 const MAX_RELEASE_NOTES_SHOWN = 5
+const RELEASES_API_URL =
+  'https://api.github.com/repos/Gitlawb/openclaude/releases?per_page=10'
+const SECTION_HEADER_PREFIX = '__section__:'
+
+type GitHubRelease = {
+  body?: string | null
+  draft?: boolean
+  prerelease?: boolean
+  tag_name?: string | null
+}
 
 /**
- * We fetch the changelog from GitHub instead of bundling it with the build.
+ * We fetch OpenClaude release notes from GitHub instead of bundling them with
+ * the build.
  *
  * This is necessary because Ink's static rendering makes it difficult to
  * dynamically update/show components after initial render. By storing the
- * changelog in config, we ensure it's available on the next startup without
- * requiring a full re-render of the current UI.
+ * fetched notes in config, we ensure they're available on the next startup
+ * without requiring a full re-render of the current UI.
  *
  * The flow is:
  * 1. User updates to a new version
- * 2. We fetch the changelog in the background and store it in config
- * 3. Next time the user starts Claude, the cached changelog is available immediately
+ * 2. We fetch GitHub release notes in the background and store them in config
+ * 3. Next startup, the cached release notes are available immediately
  */
-export const CHANGELOG_URL =
-  'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md'
-const RAW_CHANGELOG_URL =
-  'https://raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/CHANGELOG.md'
+export const RELEASES_URL = OPENCLAUDE_RELEASES_URL
 
 /**
  * Get the path for the cached changelog file.
@@ -45,6 +58,156 @@ let changelogMemoryCache: string | null = null
 /** @internal exported for tests */
 export function _resetChangelogCacheForTesting(): void {
   changelogMemoryCache = null
+}
+
+function sanitizeReleaseNote(note: string): string {
+  let sanitized = note
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/(^|[\s([{])_([^_\s][^_]*?[^_\s])_(?=$|[\s)\]}:;,.!?])/g, '$1$2')
+    .trim()
+
+  while (true) {
+    const next = sanitized
+      .replace(/\s*\((?:#\d+|[0-9a-f]{7,40})\)\s*$/i, '')
+      .trim()
+    if (next === sanitized) {
+      break
+    }
+    sanitized = next
+  }
+
+  return sanitized.replace(/,\s*closes\s+#\d+$/i, '').trim()
+}
+
+function encodeSectionHeader(title: string): string {
+  return `${SECTION_HEADER_PREFIX}${title}`
+}
+
+export function isReleaseSectionHeader(note: string): boolean {
+  return note.startsWith(SECTION_HEADER_PREFIX)
+}
+
+export function getReleaseSectionHeaderTitle(note: string): string {
+  return isReleaseSectionHeader(note)
+    ? note.slice(SECTION_HEADER_PREFIX.length)
+    : note
+}
+
+export function parseGitHubReleaseBody(body: string): string[] {
+  const notes: string[] = []
+  let pendingSection: string | null = null
+
+  for (const rawLine of body.split('\n')) {
+    const line = rawLine.trim()
+    if (!line) {
+      continue
+    }
+
+    if (line.startsWith('### ')) {
+      const title = sanitizeReleaseNote(line.slice(4))
+      pendingSection = title || null
+      continue
+    }
+
+    if (!line.startsWith('- ') && !line.startsWith('* ')) {
+      continue
+    }
+
+    const note = sanitizeReleaseNote(line.slice(2).trim())
+    if (!note) {
+      continue
+    }
+
+    if (pendingSection) {
+      notes.push(encodeSectionHeader(pendingSection))
+      pendingSection = null
+    }
+
+    notes.push(note)
+  }
+
+  return notes
+}
+
+function releaseTagToVersion(tagName: string): string {
+  return normalizePublicVersion(tagName)
+}
+
+export function serializeGitHubReleasesAsChangelog(
+  releases: GitHubRelease[],
+): string {
+  return releases
+    .filter(release => !release.draft && !release.prerelease)
+    .map(release => {
+      const version = release.tag_name
+        ? releaseTagToVersion(release.tag_name)
+        : ''
+      const notes = parseGitHubReleaseBody(release.body ?? '')
+      if (!version || notes.length === 0) {
+        return null
+      }
+
+      return [`## ${version}`, ...notes.map(note => `- ${note}`)].join('\n')
+    })
+    .filter((section): section is string => section !== null)
+    .join('\n\n')
+}
+
+export function getReleaseNotesForVersionFromReleases(
+  version: string,
+  releases: GitHubRelease[],
+): string[] {
+  const normalizedVersion = normalizePublicVersion(version)
+  const release = releases.find(candidate => {
+    if (!candidate.tag_name || candidate.draft || candidate.prerelease) {
+      return false
+    }
+    return releaseTagToVersion(candidate.tag_name) === normalizedVersion
+  })
+
+  return release ? parseGitHubReleaseBody(release.body ?? '') : []
+}
+
+async function fetchGitHubReleases(): Promise<GitHubRelease[]> {
+  const response = await axios.get<GitHubRelease[]>(RELEASES_API_URL, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'openclaude',
+    },
+  })
+
+  if (!Array.isArray(response.data)) {
+    return []
+  }
+
+  return response.status === 200 ? response.data : []
+}
+
+async function storeSerializedChangelog(changelogContent: string): Promise<void> {
+  // Skip write if content unchanged — writing Date.now() defeats the
+  // dirty-check in saveGlobalConfig since the timestamp always differs.
+  if (changelogContent === changelogMemoryCache) {
+    return
+  }
+
+  const cachePath = getChangelogCachePath()
+
+  // Ensure cache directory exists
+  await mkdir(dirname(cachePath), { recursive: true })
+
+  // Write changelog to cache file
+  await writeFile(cachePath, changelogContent, { encoding: 'utf-8' })
+  changelogMemoryCache = changelogContent
+
+  // Update timestamp in config
+  const changelogLastFetched = Date.now()
+  saveGlobalConfig(current => ({
+    ...current,
+    changelogLastFetched,
+  }))
 }
 
 /**
@@ -90,32 +253,29 @@ export async function fetchAndStoreChangelog(): Promise<void> {
     return
   }
 
-  const response = await axios.get(RAW_CHANGELOG_URL)
-  if (response.status === 200) {
-    const changelogContent = response.data
+  const releases = await fetchGitHubReleases()
+  await storeSerializedChangelog(serializeGitHubReleasesAsChangelog(releases))
+}
 
-    // Skip write if content unchanged — writing Date.now() defeats the
-    // dirty-check in saveGlobalConfig since the timestamp always differs.
-    if (changelogContent === changelogMemoryCache) {
-      return
-    }
-
-    const cachePath = getChangelogCachePath()
-
-    // Ensure cache directory exists
-    await mkdir(dirname(cachePath), { recursive: true })
-
-    // Write changelog to cache file
-    await writeFile(cachePath, changelogContent, { encoding: 'utf-8' })
-    changelogMemoryCache = changelogContent
-
-    // Update timestamp in config
-    const changelogLastFetched = Date.now()
-    saveGlobalConfig(current => ({
-      ...current,
-      changelogLastFetched,
-    }))
+export async function fetchReleaseNotesForVersion(
+  version: string,
+): Promise<string[]> {
+  if (getIsNonInteractiveSession()) {
+    return []
   }
+
+  if (isEssentialTrafficOnly()) {
+    return []
+  }
+
+  const releases = await fetchGitHubReleases()
+  const notes = getReleaseNotesForVersionFromReleases(version, releases)
+
+  if (notes.length > 0) {
+    await storeSerializedChangelog(serializeGitHubReleasesAsChangelog(releases))
+  }
+
+  return notes
 }
 
 /**
@@ -149,7 +309,7 @@ export function getStoredChangelogFromMemory(): string {
 }
 
 /**
- * Parses a changelog string in markdown format into a structured format
+ * Parses a cached release-notes string into a structured format.
  * @param content - The changelog content string
  * @returns Record mapping version numbers to arrays of release notes
  */
@@ -167,19 +327,21 @@ export function parseChangelog(content: string): Record<string, string[]> {
       const lines = section.trim().split('\n')
       if (lines.length === 0) continue
 
-      // Extract version from the first line
-      // Handle both "1.2.3" and "1.2.3 - YYYY-MM-DD" formats
+      // Normalize public versions so plain headings, dated headings, and
+      // release-please markdown links all map to the same lookup key.
       const versionLine = lines[0]
       if (!versionLine) continue
 
-      // First part before any dash is the version
-      const version = versionLine.split(' - ')[0]?.trim() || ''
+      const version = normalizePublicVersion(versionLine)
       if (!version) continue
 
       // Extract bullet points
       const notes = lines
         .slice(1)
-        .filter(line => line.trim().startsWith('- '))
+        .filter(line => {
+          const trimmed = line.trim()
+          return trimmed.startsWith('- ') || trimmed.startsWith('* ')
+        })
         .map(line => line.trim().substring(2).trim())
         .filter(Boolean)
 
@@ -214,7 +376,18 @@ export function getRecentReleaseNotes(
 
     // Strip SHA from both versions to compare only the base versions
     const baseCurrentVersion = coerce(currentVersion)
-    const basePreviousVersion = previousVersion ? coerce(previousVersion) : null
+    let basePreviousVersion = previousVersion ? coerce(previousVersion) : null
+
+    // Older OpenClaude builds stored the internal compatibility version
+    // (e.g. 99.0.0) as the "seen" marker. Treat that as unseen so users
+    // can start receiving release notes keyed to the public version.
+    if (
+      baseCurrentVersion &&
+      basePreviousVersion &&
+      gt(basePreviousVersion.version, baseCurrentVersion.version)
+    ) {
+      basePreviousVersion = null
+    }
 
     if (
       !basePreviousVersion ||
@@ -237,6 +410,70 @@ export function getRecentReleaseNotes(
     return []
   }
   return []
+}
+
+export function getReleaseNotesForVersion(
+  version: string,
+  changelogContent: string = getStoredChangelogFromMemory(),
+): string[] {
+  try {
+    const releaseNotes = parseChangelog(changelogContent)
+    return releaseNotes[normalizePublicVersion(version)] ?? []
+  } catch (error) {
+    logError(toError(error))
+    return []
+  }
+}
+
+export function formatReleaseNotesForDisplay(notes: string[]): string {
+  const lines: string[] = []
+
+  for (const note of notes) {
+    if (isReleaseSectionHeader(note)) {
+      if (lines.length > 0) {
+        lines.push('')
+      }
+      lines.push(`${getReleaseSectionHeaderTitle(note)}:`)
+      continue
+    }
+
+    lines.push(`- ${note}`)
+  }
+
+  return lines.join('\n')
+}
+
+export function sliceReleaseNotesForDisplay(
+  notes: string[],
+  maxItems: number,
+): string[] {
+  if (maxItems <= 0) {
+    return []
+  }
+
+  const result: string[] = []
+
+  for (const note of notes) {
+    if (result.length >= maxItems) {
+      break
+    }
+
+    if (isReleaseSectionHeader(note)) {
+      if (result.length + 1 >= maxItems) {
+        break
+      }
+      result.push(note)
+      continue
+    }
+
+    result.push(note)
+  }
+
+  while (result.length > 0 && isReleaseSectionHeader(result[result.length - 1]!)) {
+    result.pop()
+  }
+
+  return result
 }
 
 /**
@@ -286,7 +523,7 @@ export function getAllReleaseNotes(
  */
 export async function checkForReleaseNotes(
   lastSeenVersion: string | null | undefined,
-  currentVersion: string = MACRO.VERSION,
+  currentVersion: string = publicBuildVersion,
 ): Promise<{ hasReleaseNotes: boolean; releaseNotes: string[] }> {
   // For Ant builds, use VERSION_CHANGELOG bundled at build time
   if (process.env.USER_TYPE === 'ant') {
@@ -334,7 +571,7 @@ export async function checkForReleaseNotes(
  */
 export function checkForReleaseNotesSync(
   lastSeenVersion: string | null | undefined,
-  currentVersion: string = MACRO.VERSION,
+  currentVersion: string = publicBuildVersion,
 ): { hasReleaseNotes: boolean; releaseNotes: string[] } {
   // For Ant builds, use VERSION_CHANGELOG bundled at build time
   if (process.env.USER_TYPE === 'ant') {

@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 import type { ProviderProfile } from './config.js'
 
@@ -57,6 +57,7 @@ const RESTORED_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'HICAP_API_KEY',
 ] as const
 
 type MockConfigState = {
@@ -86,6 +87,12 @@ function saveMockGlobalConfig(
 ): void {
   mockConfigState = updater(mockConfigState)
 }
+
+beforeEach(() => {
+  for (const key of RESTORED_KEYS) {
+    delete process.env[key]
+  }
+})
 
 afterEach(() => {
   for (const key of RESTORED_KEYS) {
@@ -405,7 +412,7 @@ describe('applyProviderProfileToProcessEnv', () => {
       buildProfile({
         provider: 'openai',
         baseUrl: 'https://api.hicap.ai/v1',
-        model: 'claude-opus-4.6',
+        model: 'claude-opus-4.7',
         authHeader: 'api-key',
         authScheme: 'raw',
         authHeaderValue: 'hicap-header-value',
@@ -996,6 +1003,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
+  test('hicap preset defaults to the Hicap endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.HICAP_API_KEY = 'hicap-live-key'
+
+    const defaults = getProviderPresetDefaults('hicap')
+
+    expect(defaults.provider).toBe('hicap')
+    expect(defaults.name).toBe('Hicap')
+    expect(defaults.baseUrl).toBe('https://api.hicap.ai/v1')
+    expect(defaults.model).toBe('claude-opus-4.7')
+    expect(defaults.apiKey).toBe('hicap-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('minimax preset defaults to MiniMax M2.7', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
@@ -1499,6 +1520,43 @@ describe('getProfileModelOptions', () => {
     ])
   })
 
+  test('appends discovered model cache entries for the same profile without duplicates', async () => {
+    const { getProfileModelOptions } =
+      await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      openaiAdditionalModelOptionsCacheByProfile: {
+        provider_test: [
+          {
+            value: 'glm-4.7-flash',
+            label: 'glm-4.7-flash',
+            description: 'Discovered from API',
+          },
+          {
+            value: 'glm-4.7-plus',
+            label: 'glm-4.7-plus',
+            description: 'Discovered from API',
+          },
+        ],
+      },
+    }
+
+    const options = getProfileModelOptions(
+      buildProfile({
+        id: 'provider_test',
+        name: 'Test Provider',
+        model: 'glm-4.7, glm-4.7-flash',
+      }),
+    )
+
+    expect(options).toEqual([
+      { value: 'glm-4.7', label: 'glm-4.7', description: 'Provider: Test Provider' },
+      { value: 'glm-4.7-flash', label: 'glm-4.7-flash', description: 'Provider: Test Provider' },
+      { value: 'glm-4.7-plus', label: 'glm-4.7-plus', description: 'Discovered from API' },
+    ])
+  })
+
   test('returns empty array for empty model field', async () => {
     const { getProfileModelOptions } =
       await importFreshProviderProfileModules()
@@ -1540,5 +1598,141 @@ describe('setActiveProviderProfile model cache', () => {
     expect(cacheValues).toContain('glm-4.7')
     expect(cacheValues).toContain('glm-4.7-flash')
     expect(cacheValues).toContain('glm-4.7-plus')
+  })
+
+  test('merges configured profile models with discovered cache on activation', async () => {
+    const {
+      setActiveProviderProfile,
+      getActiveOpenAIModelOptionsCache,
+    } = await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [
+        buildProfile({
+          id: 'multi_provider',
+          name: 'Multi Provider',
+          model: 'glm-4.7, glm-4.7-flash',
+          baseUrl: 'https://api.example.com/v1',
+        }),
+      ],
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'glm-4.7-plus',
+            label: 'glm-4.7-plus',
+            description: 'Discovered from API',
+          },
+          {
+            value: 'glm-4.7-flash',
+            label: 'glm-4.7-flash',
+            description: 'Discovered from API',
+          },
+        ],
+      },
+    }
+
+    setActiveProviderProfile('multi_provider')
+
+    expect(getActiveOpenAIModelOptionsCache()).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Discovered from API',
+      },
+    ])
+  })
+
+  test('merges configured profile models with discovered cache during refresh writes', async () => {
+    const {
+      setActiveOpenAIModelOptionsCache,
+      getActiveOpenAIModelOptionsCache,
+    } = await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [
+        buildProfile({
+          id: 'multi_provider',
+          name: 'Multi Provider',
+          model: 'glm-4.7, glm-4.7-flash',
+          baseUrl: 'https://api.example.com/v1',
+        }),
+      ],
+      activeProviderProfileId: 'multi_provider',
+    }
+
+    setActiveOpenAIModelOptionsCache([
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Discovered from API',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Discovered from API',
+      },
+    ])
+
+    expect(getActiveOpenAIModelOptionsCache()).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Discovered from API',
+      },
+    ])
+  })
+
+  test('falls back to configured profile models when no discovery cache exists yet', async () => {
+    const {
+      getActiveOpenAIModelOptionsCache,
+    } = await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [
+        buildProfile({
+          id: 'multi_provider',
+          name: 'Multi Provider',
+          model: 'glm-4.7, glm-4.7-flash',
+          baseUrl: 'https://api.example.com/v1',
+        }),
+      ],
+      activeProviderProfileId: 'multi_provider',
+    }
+
+    expect(getActiveOpenAIModelOptionsCache()).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+    ])
   })
 })

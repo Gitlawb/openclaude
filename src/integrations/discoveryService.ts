@@ -121,10 +121,11 @@ export function getDiscoveryCacheKey(
     headers?: Record<string, string>
   },
 ): string {
+  const discoveryApiKey = getRouteDiscoveryApiKey(routeId, options)
   const partition = {
     baseUrl: normalizeDiscoveryCacheBaseUrl(getRouteBaseUrl(routeId, options)),
-    apiKeyHash: options?.apiKey?.trim()
-      ? hashDiscoveryCachePartition(options.apiKey.trim())
+    apiKeyHash: discoveryApiKey
+      ? hashDiscoveryCachePartition(discoveryApiKey)
       : '',
     headers: normalizeDiscoveryCacheHeaders(
       getRouteDiscoveryHeaders(routeId, options),
@@ -145,6 +146,10 @@ function getRouteDiscoveryApiKey(
   routeId: string,
   options?: { apiKey?: string },
 ): string | undefined {
+  if (getRouteCatalog(routeId)?.discovery?.requiresAuth === false) {
+    return undefined
+  }
+
   if (options?.apiKey?.trim()) {
     return options.apiKey.trim()
   }
