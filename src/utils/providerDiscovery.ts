@@ -75,14 +75,20 @@ function normalizeOllamaModels(
 async function fetchOllamaModelsProbe(
   baseUrl?: string,
   timeoutMs = 5000,
+  apiKey?: string,
 ): Promise<{
   reachable: boolean
   models: OllamaModelDescriptor[]
 }> {
   const { signal, clear } = withTimeoutSignal(timeoutMs)
   try {
+    const headers: Record<string, string> = {}
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    }
     const response = await fetch(`${getOllamaApiBaseUrl(baseUrl)}/api/tags`, {
       method: 'GET',
+      headers,
       signal,
     })
 
@@ -176,6 +182,9 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (host.endsWith(':11434') || haystack.includes('ollama')) {
       return 'Ollama'
     }
+    if (hostname === 'ollama.com' || hostname.endsWith('.ollama.com')) {
+      return 'Ollama Cloud'
+    }
     if (haystack.includes('localai')) {
       return 'LocalAI'
     }
@@ -245,8 +254,9 @@ export async function hasLocalOllama(baseUrl?: string): Promise<boolean> {
 
 export async function listOllamaModels(
   baseUrl?: string,
+  apiKey?: string,
 ): Promise<OllamaModelDescriptor[]> {
-  const { models } = await fetchOllamaModelsProbe(baseUrl, 5000)
+  const { models } = await fetchOllamaModelsProbe(baseUrl, 5000, apiKey)
   return models
 }
 
@@ -360,15 +370,20 @@ export async function probeAtomicChatReadiness(options?: {
 export async function benchmarkOllamaModel(
   modelName: string,
   baseUrl?: string,
+  apiKey?: string,
 ): Promise<number | null> {
   const start = Date.now()
   const { signal, clear } = withTimeoutSignal(20000)
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    }
     const response = await fetch(`${getOllamaApiBaseUrl(baseUrl)}/api/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       signal,
       body: JSON.stringify({
         model: modelName,
@@ -396,11 +411,13 @@ export async function probeOllamaGenerationReadiness(options?: {
   baseUrl?: string
   model?: string
   timeoutMs?: number
+  apiKey?: string
 }): Promise<OllamaGenerationReadiness> {
   const timeoutMs = options?.timeoutMs ?? 8000
   const { reachable, models } = await fetchOllamaModelsProbe(
     options?.baseUrl,
     timeoutMs,
+    options?.apiKey,
   )
   if (!reachable) {
     return {
@@ -430,11 +447,15 @@ export async function probeOllamaGenerationReadiness(options?: {
   const { signal, clear } = withTimeoutSignal(timeoutMs)
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (options?.apiKey) {
+      headers['Authorization'] = `Bearer ${options.apiKey}`
+    }
     const response = await fetch(`${getOllamaApiBaseUrl(options?.baseUrl)}/api/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       signal,
       body: JSON.stringify({
         model: probeModel,

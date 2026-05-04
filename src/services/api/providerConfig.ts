@@ -370,13 +370,18 @@ function normalizePathWithV1(pathname: string): string {
   return `${trimmed}/v1`
 }
 
-function isLikelyOllamaEndpoint(baseUrl: string): boolean {
+export function isLikelyOllamaEndpoint(baseUrl: string): boolean {
   try {
     const parsed = new URL(baseUrl)
     const hostname = parsed.hostname.toLowerCase()
     const pathname = parsed.pathname.toLowerCase()
 
     if (parsed.port === '11434') {
+      return true
+    }
+
+    // Ollama Cloud (ollama.com)
+    if (hostname === 'ollama.com' || hostname.endsWith('.ollama.com')) {
       return true
     }
 

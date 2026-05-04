@@ -12,6 +12,7 @@ import {
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
   buildMistralProfileEnv,
+  buildOllamaCloudProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
@@ -38,7 +39,7 @@ function parseArg(name: string): string | null {
 
 function parseProviderArg(): ProviderProfile | 'auto' {
   const p = parseArg('--provider')?.toLowerCase()
-  if (p === 'openai' || p === 'ollama' || p === 'codex' || p === 'gemini' || p === 'mistral' || p === 'atomic-chat') return p
+  if (p === 'openai' || p === 'ollama' || p === 'ollama-cloud' || p === 'codex' || p === 'gemini' || p === 'mistral' || p === 'atomic-chat') return p
   return 'auto'
 }
 
@@ -49,7 +50,7 @@ async function resolveOllamaModel(
 ): Promise<string | null> {
   if (argModel) return argModel
 
-  const discovered = await listOllamaModels(argBaseUrl || undefined)
+  const discovered = await listOllamaModels(argBaseUrl || undefined, process.env.OLLAMA_API_KEY || undefined)
   const recommended = recommendOllamaModel(discovered, goal)
   return recommended?.name ?? null
 }
@@ -121,6 +122,21 @@ async function main(): Promise<void> {
         getOllamaChatBaseUrl,
       },
     )
+  } else if (selected === 'ollama-cloud') {
+    const builtEnv = buildOllamaCloudProfileEnv({
+      model: argModel || null,
+      baseUrl: argBaseUrl || null,
+      apiKey: argApiKey || null,
+      processEnv: process.env,
+    })
+
+    if (!builtEnv) {
+      console.error('Ollama Cloud profile requires OLLAMA_API_KEY. Use --api-key or set OLLAMA_API_KEY.')
+      console.error('Get your API key at: https://ollama.com/settings/keys')
+      process.exit(1)
+    }
+
+    env = builtEnv
   } else if (selected === 'atomic-chat') {
     const model = argModel || (await listAtomicChatModels(argBaseUrl || undefined))[0]
     if (!model) {

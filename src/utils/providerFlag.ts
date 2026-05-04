@@ -35,6 +35,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'bedrock',
   'vertex',
   'ollama',
+  'ollama-cloud',
   'nvidia-nim',
   'minimax',
 ] as const
@@ -206,6 +207,21 @@ export function applyProviderFlag(
       process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'http://localhost:11434/v1'
       if (!process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = 'ollama'
+      }
+      if (model) process.env.OPENAI_MODEL = model
+      break
+
+    case 'ollama-cloud':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL ??= 'https://ollama.com/v1'
+      process.env.OPENAI_MODEL ??= 'gpt-oss:120b'
+      if (!process.env.OLLAMA_API_KEY && !process.env.OPENAI_API_KEY) {
+        return {
+          error: 'Ollama Cloud requires OLLAMA_API_KEY. Set it via environment or get a key at https://ollama.com/settings/keys',
+        }
+      }
+      if (process.env.OLLAMA_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.OLLAMA_API_KEY
       }
       if (model) process.env.OPENAI_MODEL = model
       break

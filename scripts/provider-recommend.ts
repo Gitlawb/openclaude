@@ -162,7 +162,7 @@ async function main(): Promise<void> {
     options.provider !== 'openai' &&
     (await hasLocalOllama(options.baseUrl ?? undefined))
   const ollamaModels = ollamaAvailable
-    ? await listOllamaModels(options.baseUrl ?? undefined)
+    ? await listOllamaModels(options.baseUrl ?? undefined, process.env.OLLAMA_API_KEY || undefined)
     : []
 
   const heuristicRanked = rankOllamaModels(ollamaModels, options.goal)
@@ -175,6 +175,7 @@ async function main(): Promise<void> {
     benchmarkResults[model.name] = await benchmarkOllamaModel(
       model.name,
       options.baseUrl ?? undefined,
+      process.env.OLLAMA_API_KEY || undefined,
     )
   }
 

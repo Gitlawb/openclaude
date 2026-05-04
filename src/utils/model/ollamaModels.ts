@@ -11,8 +11,9 @@ let cachedOllamaOptions: ModelOption[] | null = null
 let fetchPromise: Promise<ModelOption[]> | null = null
 
 /**
- * Returns true when the current OPENAI_BASE_URL points at an Ollama instance.
- * Detects OLLAMA_BASE_URL presence, /v1 suffixed URLs, and the raw base URL.
+ * Returns true when the current OPENAI_BASE_URL points at an Ollama instance
+ * (local or cloud). Detects OLLAMA_BASE_URL presence, /v1 suffixed URLs,
+ * the raw base URL, and ollama.com for cloud.
  */
 export function isOllamaProvider(): boolean {
   // Explicit OLLAMA_BASE_URL is always sufficient
@@ -23,6 +24,9 @@ export function isOllamaProvider(): boolean {
   try {
     const parsed = new URL(baseUrl)
     if (parsed.port === '11434') return true
+    // Match Ollama Cloud
+    const hostname = parsed.hostname.toLowerCase()
+    if (hostname === 'ollama.com' || hostname.endsWith('.ollama.com')) return true
   } catch {
     // ignore
   }
@@ -31,6 +35,7 @@ export function isOllamaProvider(): boolean {
 
 /**
  * Fetch models from the Ollama /api/tags endpoint.
+ * For Ollama Cloud, includes the Authorization header with OLLAMA_API_KEY.
  */
 export async function fetchOllamaModels(): Promise<ModelOption[]> {
   const apiUrl = getOllamaApiBaseUrl()
@@ -39,9 +44,16 @@ export async function fetchOllamaModels(): Promise<ModelOption[]> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
 
+  const headers: Record<string, string> = {}
+  const apiKey = process.env.OLLAMA_API_KEY
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`
+  }
+
   try {
     const response = await fetch(`${apiUrl}/api/tags`, {
       method: 'GET',
+      headers,
       signal: controller.signal,
     })
     if (!response.ok) return []

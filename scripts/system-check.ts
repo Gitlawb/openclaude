@@ -465,6 +465,7 @@ async function checkProviderGenerationReadiness(): Promise<CheckResult> {
   const readiness = await probeOllamaGenerationReadiness({
     baseUrl: request.baseUrl,
     model: request.requestedModel,
+    apiKey: process.env.OLLAMA_API_KEY || undefined,
   })
 
   if (readiness.state === 'ready') {
