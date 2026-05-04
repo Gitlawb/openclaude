@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
 import { APIUserAbortError } from '@anthropic-ai/sdk';
 import * as React from 'react';
 import { useCallback } from 'react';
@@ -40,7 +39,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
           if (ctx.resolveIfAborted(resolve)) {
             return;
           }
-          if (feature("TRANSCRIPT_CLASSIFIER") && result.decisionReason?.type === "classifier" && result.decisionReason.classifier === "auto-mode") {
+          if (true && result.decisionReason?.type === "classifier" && result.decisionReason.classifier === "auto-mode") {
             setYoloClassifierApproval(toolUseID, result.decisionReason.reason);
           }
           ctx.logDecision({
@@ -74,7 +73,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                 decision: "reject",
                 source: "config"
               });
-              if (feature("TRANSCRIPT_CLASSIFIER") && result.decisionReason?.type === "classifier" && result.decisionReason.classifier === "auto-mode") {
+              if (true && result.decisionReason?.type === "classifier" && result.decisionReason.classifier === "auto-mode") {
                 recordAutoModeDenial({
                   toolName: tool.name,
                   display: description,
@@ -95,7 +94,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
               if (appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog) {
                 const coordinatorDecision = await handleCoordinatorPermission({
                   ctx,
-                  ...(feature("BASH_CLASSIFIER") ? {
+                  ...(false ? {
                     pendingClassifierCheck: result.pendingClassifierCheck
                   } : {}),
                   updatedInput: result.updatedInput,
@@ -113,7 +112,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
               const swarmDecision = await handleSwarmWorkerPermission({
                 ctx,
                 description,
-                ...(feature("BASH_CLASSIFIER") ? {
+                ...(false ? {
                   pendingClassifierCheck: result.pendingClassifierCheck
                 } : {}),
                 updatedInput: result.updatedInput,
@@ -123,7 +122,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                 resolve(swarmDecision);
                 return;
               }
-              if (feature("BASH_CLASSIFIER") && result.pendingClassifierCheck && tool.name === BASH_TOOL_NAME && !appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog) {
+              if (false && result.pendingClassifierCheck && tool.name === BASH_TOOL_NAME && !appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog) {
                 const speculativePromise = peekSpeculativeClassifierCheck((input as {
                   command: string;
                 }).command);
@@ -132,7 +131,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                   if (ctx.resolveIfAborted(resolve)) {
                     return;
                   }
-                  if (raceResult.type === "result" && raceResult.result.matches && raceResult.result.confidence === "high" && feature("BASH_CLASSIFIER")) {
+                  if (raceResult.type === "result" && raceResult.result.matches && raceResult.result.confidence === "high" && false) {
                     consumeSpeculativeClassifierCheck((input as {
                       command: string;
                     }).command);
@@ -162,8 +161,8 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                 description,
                 result,
                 awaitAutomatedChecksBeforeDialog: appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog,
-                bridgeCallbacks: feature("BRIDGE_MODE") ? appState.replBridgePermissionCallbacks : undefined,
-                channelCallbacks: feature("KAIROS") || feature("KAIROS_CHANNELS") ? appState.channelPermissionCallbacks : undefined
+                bridgeCallbacks: false ? appState.replBridgePermissionCallbacks : undefined,
+                channelCallbacks: false || false ? appState.channelPermissionCallbacks : undefined
               }, resolve);
               return;
             }

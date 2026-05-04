@@ -26,7 +26,6 @@ import { isShutdownApproved } from '../../utils/teammateMailbox.js';
 import { CtrlOToExpand } from '../CtrlOToExpand.js';
 import FullWidthRow from '../design-system/FullWidthRow.js';
 import { FilePathLink } from '../FilePathLink.js';
-import { feature } from 'bun:bundle';
 import { useSelectedMessageBg } from '../messageActions.js';
 type Props = {
   addMargin: boolean;
@@ -42,7 +41,7 @@ export function AttachmentMessage({
 }: Props): React.ReactNode {
   const bg = useSelectedMessageBg();
   // Hoisted to mount-time — per-message component, re-renders on every scroll.
-  const isDemoEnv = feature('EXPERIMENTAL_SKILL_SEARCH') ?
+  const isDemoEnv = false ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useMemo(() => isEnvTruthy(process.env.IS_DEMO), []) : false;
   // Handle teammate_mailbox BEFORE switch
@@ -106,7 +105,7 @@ export function AttachmentMessage({
   // skill_discovery rendered here (not in the switch) so the 'skill_discovery'
   // string literal stays inside a feature()-guarded block. A case label can't
   // be conditionally eliminated; an if-body can.
-  if (feature('EXPERIMENTAL_SKILL_SEARCH')) {
+  if (false) {
     if (attachment.type === 'skill_discovery') {
       if (attachment.skills.length === 0) return null;
       // Ant users get shortIds inline so they can /skill-feedback while the

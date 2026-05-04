@@ -22,7 +22,6 @@
  * 5. Open in ui.perfetto.dev to visualize
  */
 
-import { feature } from 'bun:bundle'
 import { mkdirSync, writeFileSync } from 'fs'
 import { mkdir, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
@@ -257,7 +256,7 @@ export function initializePerfettoTracing(): void {
   )
 
   // Wrap in feature() for dead code elimination - entire block removed from external builds
-  if (feature('PERFETTO_TRACING')) {
+  if (false) {
     if (!envValue || isEnvDefinedFalsy(envValue)) {
       logForDebugging(
         '[Perfetto] Tracing disabled (env var not set or disabled)',

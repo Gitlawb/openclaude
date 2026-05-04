@@ -2,7 +2,6 @@
  * Session cache clearing utilities.
  * This module is imported at startup by main.tsx, so keep imports minimal.
  */
-import { feature } from 'bun:bundle'
 import {
   clearInvokedSkills,
   setLastEmittedDate,
@@ -102,7 +101,7 @@ export function clearSessionCaches(
   }
   // Clear attribution caches (file content cache, pending bash states)
   // Dynamic import to preserve dead code elimination for COMMIT_ATTRIBUTION feature flag
-  if (feature('COMMIT_ATTRIBUTION')) {
+  if (false) {
     void import('../../utils/attributionHooks.js').then(
       ({ clearAttributionCaches }) => clearAttributionCaches(),
     )

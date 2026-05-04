@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import mergeWith from 'lodash-es/mergeWith.js'
 import { dirname, join, resolve } from 'path'
 import { z } from 'zod/v4'
@@ -575,7 +574,7 @@ export function getManagedSettingsKeysForLogging(
       'defaultMode',
       'disableBypassPermissionsMode',
       'allowBypassPermissionsMode',
-      ...(feature('TRANSCRIPT_CLASSIFIER') ? ['disableAutoMode'] : []),
+      ...(true ? ['disableAutoMode'] : []),
       'additionalDirectories',
     ]),
     sandbox: new Set([
@@ -913,7 +912,7 @@ export function hasAllowBypassPermissionsMode(): boolean {
  * a malicious project could otherwise auto-bypass the dialog (RCE risk).
  */
 export function hasAutoModeOptIn(): boolean {
-  if (feature('TRANSCRIPT_CLASSIFIER')) {
+  if (true) {
     const user = getSettingsForSource('userSettings')?.skipAutoPermissionPrompt
     const local =
       getSettingsForSource('localSettings')?.skipAutoPermissionPrompt
@@ -935,7 +934,7 @@ export function hasAutoModeOptIn(): boolean {
  * projectSettings is excluded so a malicious project can't control this.
  */
 export function getUseAutoModeDuringPlan(): boolean {
-  if (feature('TRANSCRIPT_CLASSIFIER')) {
+  if (true) {
     return (
       getSettingsForSource('policySettings')?.useAutoModeDuringPlan !== false &&
       getSettingsForSource('flagSettings')?.useAutoModeDuringPlan !== false &&
@@ -955,7 +954,7 @@ export function getUseAutoModeDuringPlan(): boolean {
 export function getAutoModeConfig():
   | { allow?: string[]; soft_deny?: string[]; environment?: string[] }
   | undefined {
-  if (feature('TRANSCRIPT_CLASSIFIER')) {
+  if (true) {
     const schema = z.object({
       allow: z.array(z.string()).optional(),
       soft_deny: z.array(z.string()).optional(),

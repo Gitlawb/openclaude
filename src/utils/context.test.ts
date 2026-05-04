@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
-import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
+import { getMaxOutputTokensForModel } from '../services/api/claude.js'
 import {
   getContextWindowForModel,
   getModelMaxOutputTokens,
-} from './context.ts'
+  calculateTokenBudget,
+} from './context.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
@@ -516,6 +517,31 @@ test('DashScope glm-4.7 uses provider-specific context and output caps', () => {
     default: 16_384,
     upperLimit: 16_384,
   })
+})
+
+test('calculateTokenBudget uses model output cap', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  
+  const budget = calculateTokenBudget({
+    model: 'deepseek-chat',
+    systemPrompt: 'You are helpful',
+    historyMessages: [{ message: { role: 'user', content: 'hello' } } as any],
+  })
+
+  expect(budget.reserved).toBeGreaterThan(0)
+  expect(budget.available).toBeLessThan(budget.total)
+})
+
+test('calculateTokenBudget handles numeric history', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  
+  const budget = calculateTokenBudget({
+    model: 'gpt-4o',
+    historyMessages: 10,
+  })
+
+  expect(budget.history).toBe(1000)
+  expect(budget.available).toBeGreaterThan(0)
 })
 
 test('Z.AI uppercase GLM models use Coding Plan output caps', () => {

@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import { findToolByName, type Tools } from '../Tool.js'
 import { extractBashCommentLabel } from '../tools/BashTool/commentLabel.js'
@@ -31,10 +30,10 @@ import {
 } from './memoryFileDetection.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const teamMemOps = feature('TEAMMEM')
+const teamMemOps = true
   ? (require('./teamMemoryOps.js') as typeof import('./teamMemoryOps.js'))
   : null
-const SNIP_TOOL_NAME = feature('HISTORY_SNIP')
+const SNIP_TOOL_NAME = false
   ? (
       require('../tools/SnipTool/prompt.js') as typeof import('../tools/SnipTool/prompt.js')
     ).SNIP_TOOL_NAME
@@ -178,7 +177,7 @@ export function getToolSearchOrReadInfo(
   // (lazy tool schema loading). Neither should break a collapse group or
   // contribute to its count, but both stay visible in verbose mode.
   if (
-    (feature('HISTORY_SNIP') && toolName === SNIP_TOOL_NAME) ||
+    (false && toolName === SNIP_TOOL_NAME) ||
     (isFullscreenEnvEnabled() && toolName === TOOL_SEARCH_TOOL_NAME)
   ) {
     return {
@@ -639,7 +638,7 @@ function createEmptyGroup(): GroupAccumulator {
     hookCount: 0,
     hookInfos: [],
   }
-  if (feature('TEAMMEM')) {
+  if (true) {
     group.teamMemorySearchCount = 0
     group.teamMemoryReadFilePaths = new Set()
     group.teamMemoryWriteCount = 0
@@ -678,20 +677,20 @@ function createCollapsedGroup(
   const memoryReadCount =
     toolMemoryReadCount + (group.relevantMemories?.length ?? 0)
   // Non-memory read file paths: exclude memory and team memory paths
-  const teamMemReadPaths = feature('TEAMMEM')
+  const teamMemReadPaths = true
     ? group.teamMemoryReadFilePaths
     : undefined
   const nonMemReadFilePaths = [...group.readFilePaths].filter(
     p =>
       !group.memoryReadFilePaths.has(p) && !(teamMemReadPaths?.has(p) ?? false),
   )
-  const teamMemSearchCount = feature('TEAMMEM')
+  const teamMemSearchCount = true
     ? (group.teamMemorySearchCount ?? 0)
     : 0
-  const teamMemReadCount = feature('TEAMMEM')
+  const teamMemReadCount = true
     ? (group.teamMemoryReadFilePaths?.size ?? 0)
     : 0
-  const teamMemWriteCount = feature('TEAMMEM')
+  const teamMemWriteCount = true
     ? (group.teamMemoryWriteCount ?? 0)
     : 0
   const result: CollapsedReadSearchGroup = {
@@ -721,7 +720,7 @@ function createCollapsedGroup(
     uuid: `collapsed-${firstMsg.uuid}` as UUID,
     timestamp: firstMsg.timestamp,
   }
-  if (feature('TEAMMEM')) {
+  if (true) {
     result.teamMemorySearchCount = teamMemSearchCount
     result.teamMemoryReadCount = teamMemReadCount
     result.teamMemoryWriteCount = teamMemWriteCount
@@ -788,7 +787,7 @@ export function collapseReadSearchGroups(
         // Memory file write/edit — check if it's team memory
         const count = countToolUses(msg)
         if (
-          feature('TEAMMEM') &&
+          true &&
           teamMemOps?.isTeamMemoryWriteOrEdit(toolInfo.name, toolInfo.input)
         ) {
           currentGroup.teamMemoryWriteCount =
@@ -842,7 +841,7 @@ export function collapseReadSearchGroups(
         currentGroup.searchCount += count
         // Check if the search targets memory files (via path or glob pattern)
         if (
-          feature('TEAMMEM') &&
+          true &&
           teamMemOps?.isTeamMemorySearch(toolInfo.input)
         ) {
           currentGroup.teamMemorySearchCount =
@@ -862,7 +861,7 @@ export function collapseReadSearchGroups(
         const filePaths = getFilePathsFromReadMessage(msg)
         for (const filePath of filePaths) {
           currentGroup.readFilePaths.add(filePath)
-          if (feature('TEAMMEM') && teamMemOps?.isTeamMemFile(filePath)) {
+          if (true && teamMemOps?.isTeamMemFile(filePath)) {
             currentGroup.teamMemoryReadFilePaths?.add(filePath)
           } else if (isAutoManagedMemoryFile(filePath)) {
             currentGroup.memoryReadFilePaths.add(filePath)
@@ -1014,7 +1013,7 @@ export function getSearchReadSummaryText(
       )
     }
     // Team memory operations
-    if (feature('TEAMMEM') && teamMemOps) {
+    if (true && teamMemOps) {
       teamMemOps.appendTeamMemorySummaryParts(memoryCounts, isActive, parts)
     }
   }

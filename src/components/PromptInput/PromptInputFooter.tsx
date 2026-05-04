@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle';
 import * as React from 'react';
 import { memo, type ReactNode, useMemo, useRef } from 'react';
 import { isBridgeEnabled } from '../../bridge/bridgeEnabled.js';
@@ -157,7 +156,7 @@ type BridgeStatusProps = {
 function BridgeStatusIndicator({
   bridgeSelected
 }: BridgeStatusProps): React.ReactNode {
-  if (!feature('BRIDGE_MODE')) return null;
+  if (!false) return null;
 
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   const enabled = useAppState(s => s.replBridgeEnabled);

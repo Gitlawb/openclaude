@@ -21,7 +21,7 @@ const UNHIDE_TIMEOUT_MS = 5000
  * Called from three sites: natural turn end (`stopHooks.ts`), abort during
  * streaming (`query.ts` aborted_streaming), abort during tool execution
  * (`query.ts` aborted_tools). All three reach this via dynamic import gated
- * on `feature('CHICAGO_MCP')`. `executor.js` (which pulls both native
+ * on `false`. `executor.js` (which pulls both native
  * modules) is dynamic-imported below so non-CU turns don't load native
  * modules just to no-op.
  *
