@@ -1,11 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-// These tests require vitest-specific APIs (vi.resetModules, vi.doMock)
-// that bun's built-in test runner does not support.
-// Run with: cd packages/desktop && bun run test
-const vitestOnly = typeof vi.resetModules === "function" ? describe : describe.skip
-
-vitestOnly("Main Process", () => {
+describe("Main Process", () => {
   let BrowserWindow: ReturnType<typeof vi.fn>
   let mockWindow: Record<string, unknown>
   let mockApp: {
