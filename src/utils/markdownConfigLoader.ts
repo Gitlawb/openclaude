@@ -17,7 +17,7 @@ import type { FrontmatterData } from './frontmatterParser.js'
 import { parseFrontmatter } from './frontmatterParser.js'
 import { findCanonicalGitRoot, findGitRoot } from './git.js'
 import { parseToolListFromCLI } from './permissions/permissionSetup.js'
-import { ripGrep } from './ripgrep.js'
+import { ripGrep, RipgrepUnavailableError } from './ripgrep.js'
 import {
   isSettingSourceEnabled,
   type SettingSource,
@@ -573,11 +573,26 @@ async function loadMarkdownFiles(dir: string): Promise<
           signal,
         )
   } catch (e: unknown) {
+    // Auto-fallback when ripgrep is unavailable on the host.
+    // This keeps markdown-based customizations (agents/skills/commands)
+    // working in environments without rg.
+    if (!useNative && e instanceof RipgrepUnavailableError) {
+      logForDebugging(
+        `ripgrep unavailable for ${dir}; falling back to native markdown search`,
+      )
+      try {
+        files = await findMarkdownFilesNative(dir, AbortSignal.timeout(3000))
+      } catch (nativeErr: unknown) {
+        if (isFsInaccessible(nativeErr)) return []
+        throw nativeErr
+      }
+    } else {
     // Handle missing/inaccessible dir directly instead of pre-checking
     // existence (TOCTOU). findMarkdownFilesNative already catches internally;
     // ripGrep rejects on inaccessible target paths.
-    if (isFsInaccessible(e)) return []
-    throw e
+      if (isFsInaccessible(e)) return []
+      throw e
+    }
   }
 
   const results = await Promise.all(
