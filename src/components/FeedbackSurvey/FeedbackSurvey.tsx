@@ -152,7 +152,6 @@ function FeedbackSurveyThanks(t0) {
     t3 = $[7];
   }
   useDebouncedDigitInput(t3);
-  const feedbackCommand = false ? "/issue" : "/feedback";
   let t4;
   if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
     t4 = <Text color="success">Thanks for the feedback!</Text>;
@@ -162,7 +161,7 @@ function FeedbackSurveyThanks(t0) {
   }
   let t5;
   if ($[9] !== lastResponse || $[10] !== showFollowUp) {
-    t5 = <Box marginTop={1} flexDirection="column">{t4}{showFollowUp ? <Text dimColor={true}>(Optional) Press [<Text color="ansi:cyan">1</Text>] to tell us what went well {" \xB7 "}{feedbackCommand}</Text> : lastResponse === "bad" ? <Text dimColor={true}>Use /issue to report model behavior issues.</Text> : <Text dimColor={true}>Use {feedbackCommand} to share detailed feedback anytime.</Text>}</Box>;
+    t5 = <Box marginTop={1} flexDirection="column">{t4}{showFollowUp ? <Text dimColor={true}>(Optional) Press [<Text color="ansi:cyan">1</Text>] to tell us what went well.</Text> : lastResponse === "bad" ? <Text dimColor={true}>Use the issue tracker to report model behavior issues.</Text> : null}</Box>;
     $[9] = lastResponse;
     $[10] = showFollowUp;
     $[11] = t5;
