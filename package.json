@@ -3,9 +3,6 @@
   "version": "0.8.0",
   "description": "OpenClaude opens coding-agent workflows to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
   "bin": {
     "openclaude": "./bin/openclaude"
   },
