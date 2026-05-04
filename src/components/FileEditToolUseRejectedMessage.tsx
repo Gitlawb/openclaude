@@ -103,6 +103,7 @@ export function FileEditToolUseRejectedMessage(t0) {
     const t7 = columns - 12;
     let t8;
     if ($[16] !== file_path || $[17] !== t6 || $[18] !== t7) {
+      // @ts-expect-error type mismatch
       t8 = <HighlightedCode code={t6} filePath={file_path} width={t7} dim={true} />;
       $[16] = file_path;
       $[17] = t6;

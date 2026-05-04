@@ -261,7 +261,7 @@ export function useVoiceIntegration({
     // window between CloseStream and WS close — this catches refined
     // TranscriptText arriving then and re-filling a cleared input.
     if (inputValueRef.current !== lastSetInputRef.current) return;
-    const needsSpace = prefix_0.length > 0 && !/\s$/.test(prefix_0) && voiceInterimTranscript.length > 0;
+    const needsSpace = prefix_0.length > 0 && !/\s$/.test(prefix_0) && (voiceInterimTranscript as any).length > 0;
     // Don't gate on voiceInterimTranscript.length -- when interim clears to ''
     // after handleVoiceTranscript sets the final text, the trailing space
     // between prefix and suffix must still be preserved.
@@ -270,7 +270,7 @@ export function useVoiceIntegration({
     const trailingSpace = needsTrailingSpace ? ' ' : '';
     const newValue_0 = prefix_0 + leadingSpace + voiceInterimTranscript + trailingSpace + suffix_0;
     // Position cursor after the transcribed text (before suffix)
-    const cursorPos = prefix_0.length + leadingSpace.length + voiceInterimTranscript.length;
+    const cursorPos = prefix_0.length + leadingSpace.length + (voiceInterimTranscript as any).length;
     if (insertTextRef.current) {
       insertTextRef.current.setInputWithCursor(newValue_0, cursorPos);
     } else {
@@ -328,11 +328,11 @@ export function useVoiceIntegration({
   const interimRange = useMemo((): InterimRange | null => {
     if (!feature('VOICE_MODE')) return null;
     if (voicePrefixRef.current === null) return null;
-    if (voiceInterimTranscript.length === 0) return null;
+    if ((voiceInterimTranscript as any).length === 0) return null;
     const prefix_2 = voicePrefixRef.current;
-    const needsSpace_1 = prefix_2.length > 0 && !/\s$/.test(prefix_2) && voiceInterimTranscript.length > 0;
+    const needsSpace_1 = prefix_2.length > 0 && !/\s$/.test(prefix_2) && (voiceInterimTranscript as any).length > 0;
     const start = prefix_2.length + (needsSpace_1 ? 1 : 0);
-    const end = start + voiceInterimTranscript.length;
+    const end = start + (voiceInterimTranscript as any).length;
     return {
       start,
       end

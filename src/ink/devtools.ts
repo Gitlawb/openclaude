@@ -1,2 +1,2 @@
 // Stub — devtools not included in source snapshot
-export default {}
+export default null as any

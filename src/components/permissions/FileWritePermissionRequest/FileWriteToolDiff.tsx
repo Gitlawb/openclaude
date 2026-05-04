@@ -62,6 +62,7 @@ export function FileWriteToolDiff(t0) {
   const firstLine = t2;
   let t3;
   if ($[6] !== columns || $[7] !== content || $[8] !== file_path || $[9] !== firstLine || $[10] !== hunks || $[11] !== oldContent) {
+    // @ts-expect-error type mismatch
     t3 = hunks ? intersperse(hunks.map(_ => <StructuredDiff key={_.newStart} patch={_} dim={false} filePath={file_path} firstLine={firstLine} fileContent={oldContent} width={columns - 2} />), _temp) : <HighlightedCode code={content || "(No content)"} filePath={file_path} />;
     $[6] = columns;
     $[7] = content;

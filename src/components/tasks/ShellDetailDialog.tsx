@@ -308,7 +308,9 @@ function ShellOutputContent(t0) {
     columns
   } = t0;
   const {
+    // @ts-expect-error property does not exist on inferred type
     content,
+    // @ts-expect-error property does not exist on inferred type
     bytesTotal
   } = use(outputPromise);
   if (!content) {
@@ -328,7 +330,8 @@ function ShellOutputContent(t0) {
     let pos = content.length;
     for (let i = 0; i < 10 && pos > 0; i++) {
       const prev = content.lastIndexOf("\n", pos - 1);
-      starts.push(prev + 1);
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      starts.push(prev + 1 as any);
       pos = prev;
     }
     starts.reverse();

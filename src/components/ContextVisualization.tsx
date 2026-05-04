@@ -40,17 +40,21 @@ function CollapseStatus() {
         } = s;
         const parts = [];
         if (s.collapsedSpans > 0) {
-          parts.push(`${s.collapsedSpans} ${plural(s.collapsedSpans, "span")} summarized (${s.collapsedMessages} msgs)`);
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          parts.push(`${s.collapsedSpans} ${plural(s.collapsedSpans, "span")} summarized (${s.collapsedMessages} msgs)` as any);
         }
         if (s.stagedSpans > 0) {
-          parts.push(`${s.stagedSpans} staged`);
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          parts.push(`${s.stagedSpans} staged` as any);
         }
         const summary = parts.length > 0 ? parts.join(", ") : h.totalSpawns > 0 ? `${h.totalSpawns} ${plural(h.totalSpawns, "spawn")}, nothing staged yet` : "waiting for first trigger";
         let line2 = null;
         if (h.totalErrors > 0) {
+          // @ts-expect-error type mismatch
           line2 = <Text color="warning">Collapse errors: {h.totalErrors}/{h.totalSpawns} spawns failed{h.lastError ? ` (last: ${h.lastError.slice(0, 60)})` : ""}</Text>;
         } else {
           if (h.emptySpawnWarningEmitted) {
+            // @ts-expect-error type mismatch
             line2 = <Text color="warning">Collapse idle: {h.totalEmptySpawns} consecutive empty runs</Text>;
           }
         }

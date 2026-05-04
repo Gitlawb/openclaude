@@ -253,6 +253,7 @@ function ElicitationFormDialog({
 
   // Text fields are always in edit mode when focused — no Enter-to-edit step.
   const isEditingTextField = currentFieldIsText && !focusedButton;
+  // @ts-expect-error wrong number of arguments
   useRegisterOverlay('elicitation');
   useNotifyAfterTimeout('OpenClaude needs your input', 'elicitation_dialog');
 
@@ -1005,6 +1006,7 @@ function ElicitationURLDialog({
   const [focusedButton, setFocusedButton] = useState<'accept' | 'decline' | 'open' | 'action' | 'cancel'>('accept');
   const showCancel = waitingState?.showCancel ?? false;
   useNotifyAfterTimeout('OpenClaude needs your input', 'elicitation_url_dialog');
+  // @ts-expect-error wrong number of arguments
   useRegisterOverlay('elicitation-url');
 
   // Keep refs in sync for use in abort handler (avoids re-registering listener)

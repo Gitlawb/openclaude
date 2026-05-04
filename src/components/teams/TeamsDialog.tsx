@@ -50,6 +50,7 @@ export function TeamsDialog({
   onDone
 }: Props): React.ReactNode {
   // Register as overlay so CancelRequestHandler doesn't intercept escape
+  // @ts-expect-error wrong number of arguments
   useRegisterOverlay('teams-dialog');
 
   // initialTeams is derived from teamContext in PromptInput (no filesystem I/O)

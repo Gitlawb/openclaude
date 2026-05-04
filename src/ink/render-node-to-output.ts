@@ -392,7 +392,7 @@ function isRenderableElementNode(node: unknown): node is DOMElement {
   const candidate = node as Partial<DOMElement> & { nodeName?: string }
   return (
     candidate.nodeName !== undefined &&
-    candidate.nodeName !== '#text' &&
+    candidate.nodeName !== ('#text' as string) &&
     candidate.style !== undefined &&
     typeof candidate.style === 'object' &&
     typeof candidate.dirty === 'boolean' &&

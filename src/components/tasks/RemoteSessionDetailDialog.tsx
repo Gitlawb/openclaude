@@ -111,7 +111,7 @@ function UltraplanSessionDetail(t0) {
   const t1 = 1 + spawns;
   let t2;
   if ($[0] !== lastBlock) {
-    t2 = lastBlock ? formatToolUseSummary(lastBlock.name, lastBlock.input) : null;
+    t2 = lastBlock ? formatToolUseSummary((lastBlock as any).name, (lastBlock as any).input) : null;
     $[0] = lastBlock;
     $[1] = t2;
   } else {

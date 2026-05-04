@@ -60,6 +60,7 @@ export function MCPStdioServerMenu({
 
   // Only show "View tools" if server is not disabled and has tools
   if (server.client.type !== 'disabled' && serverToolsCount > 0) {
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     menuOptions.push({
       label: 'View tools',
       value: 'tools'
@@ -68,11 +69,13 @@ export function MCPStdioServerMenu({
 
   // Only show reconnect option if the server is not disabled
   if (server.client.type !== 'disabled') {
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     menuOptions.push({
       label: 'Reconnect',
       value: 'reconnectMcpServer'
     });
   }
+  // @ts-expect-error any-to-never (stub types cause narrowing)
   menuOptions.push({
     label: server.client.type !== 'disabled' ? 'Disable' : 'Enable',
     value: 'toggle-enabled'
@@ -80,6 +83,7 @@ export function MCPStdioServerMenu({
 
   // If there are no other options, add a back option so Select handles escape
   if (menuOptions.length === 0) {
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     menuOptions.push({
       label: 'Back',
       value: 'back'

@@ -95,10 +95,10 @@ export function TaskListV2({
   const teammateColors: Record<string, keyof Theme> = {};
   if (isAgentSwarmsEnabled() && teamContext?.teammates) {
     for (const teammate of Object.values(teamContext.teammates)) {
-      if (teammate.color) {
-        const themeColor = AGENT_COLOR_TO_THEME_COLOR[teammate.color as AgentColorName];
+      if ((teammate as any).color) {
+        const themeColor = AGENT_COLOR_TO_THEME_COLOR[(teammate as any).color as AgentColorName];
         if (themeColor) {
-          teammateColors[teammate.name] = themeColor;
+          teammateColors[(teammate as any).name] = themeColor;
         }
       }
     }

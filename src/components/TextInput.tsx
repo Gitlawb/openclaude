@@ -69,7 +69,7 @@ export default function TextInput(props: Props): React.ReactNode {
   } else if (isVoiceRecording && !reducedMotion) {
     // Single-bar waveform from the latest audio level
     const smoothed = smoothedRef.current;
-    const raw = audioLevels.length > 0 ? audioLevels[audioLevels.length - 1] ?? 0 : 0;
+    const raw = (audioLevels as any).length > 0 ? (audioLevels as any)[(audioLevels as any).length - 1] ?? 0 : 0;
     const target = Math.min(raw * LEVEL_BOOST, 1);
     smoothed[0] = (smoothed[0] ?? 0) * SMOOTH + target * (1 - SMOOTH);
     const displayLevel = smoothed[0] ?? 0;

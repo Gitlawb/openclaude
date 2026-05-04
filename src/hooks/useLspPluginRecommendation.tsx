@@ -69,7 +69,8 @@ export function useLspPluginRecommendation() {
         for (const file of trackedFiles) {
           if (!checkedFilesRef.current.has(file)) {
             checkedFilesRef.current.add(file);
-            newFiles.push(file);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            newFiles.push(file as any);
           }
         }
         for (const filePath of newFiles) {

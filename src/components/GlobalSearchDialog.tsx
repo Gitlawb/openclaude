@@ -41,6 +41,7 @@ export function GlobalSearchDialog(t0) {
     onDone,
     onInsert
   } = t0;
+  // @ts-expect-error React Compiler output loses type context
   useRegisterOverlay("global-search");
   const {
     columns,
@@ -70,6 +71,7 @@ export function GlobalSearchDialog(t0) {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+      // @ts-expect-error React Compiler output loses type context
       abortRef.current?.abort();
     };
     t3 = [];
@@ -89,15 +91,16 @@ export function GlobalSearchDialog(t0) {
         return;
       }
       const controller = new AbortController();
-      const absolute = resolvePath(getCwd(), focused.file);
-      const start = Math.max(0, focused.line - PREVIEW_CONTEXT_LINES - 1);
+      const absolute = resolvePath(getCwd(), (focused as any).file);
+      const start = Math.max(0, (focused as any).line - PREVIEW_CONTEXT_LINES - 1);
       readFileInRange(absolute, start, PREVIEW_CONTEXT_LINES * 2 + 1, undefined, controller.signal).then(r => {
         if (controller.signal.aborted) {
           return;
         }
         setPreview({
-          file: focused.file,
-          line: focused.line,
+          // @ts-expect-error React Compiler output loses type context
+          file: (focused as any).file,
+          line: (focused as any).line,
           content: r.content
         });
       }).catch(() => {
@@ -105,8 +108,9 @@ export function GlobalSearchDialog(t0) {
           return;
         }
         setPreview({
-          file: focused.file,
-          line: focused.line,
+          // @ts-expect-error React Compiler output loses type context
+          file: (focused as any).file,
+          line: (focused as any).line,
           content: "(preview unavailable)"
         });
       });
@@ -128,6 +132,7 @@ export function GlobalSearchDialog(t0) {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+      // @ts-expect-error React Compiler output loses type context
       abortRef.current?.abort();
       if (!q.trim()) {
         setMatches(_temp);
@@ -136,6 +141,7 @@ export function GlobalSearchDialog(t0) {
         return;
       }
       const controller_0 = new AbortController();
+      // @ts-expect-error React Compiler output loses type context
       abortRef.current = controller_0;
       setIsSearching(true);
       setTruncated(false);
@@ -144,6 +150,7 @@ export function GlobalSearchDialog(t0) {
         const filtered = m_0.filter(match => match.text.toLowerCase().includes(queryLower));
         return filtered.length === m_0.length ? m_0 : filtered;
       });
+      // @ts-expect-error React Compiler output loses type context
       timeoutRef.current = setTimeout(_temp4, DEBOUNCE_MS, q, controller_0, setMatches, setTruncated, setIsSearching);
     };
     $[6] = t6;
@@ -234,6 +241,7 @@ export function GlobalSearchDialog(t0) {
   }
   let t14;
   if ($[24] !== preview || $[25] !== previewWidth || $[26] !== query) {
+    // @ts-expect-error React Compiler output loses type context
     t14 = m_8 => preview?.file === m_8.file && preview.line === m_8.line ? <><Text dimColor={true}>{truncatePathMiddle(m_8.file, previewWidth)}:{m_8.line}</Text>{preview.content.split("\n").map((line_0, i) => <Text key={i}>{highlightMatch(truncateToWidth(line_0, previewWidth), query)}</Text>)}</> : <LoadingState message={"Loading\u2026"} dimColor={true} />;
     $[24] = preview;
     $[25] = previewWidth;
@@ -244,6 +252,7 @@ export function GlobalSearchDialog(t0) {
   }
   let t15;
   if ($[28] !== handleOpen || $[29] !== matchLabel || $[30] !== matches || $[31] !== onDone || $[32] !== t10 || $[33] !== t11 || $[34] !== t12 || $[35] !== t13 || $[36] !== t14 || $[37] !== t9 || $[38] !== visibleResults) {
+    // @ts-expect-error React Compiler output loses type context
     t15 = <FuzzyPicker title="Global Search" placeholder={"Type to search\u2026"} items={matches} getKey={matchKey} visibleCount={visibleResults} direction="up" previewPosition={t9} onQueryChange={handleQueryChange} onFocus={setFocused} onSelect={handleOpen} onTab={t10} onShiftTab={t11} onCancel={onDone} emptyMessage={t12} matchLabel={matchLabel} selectAction="open in editor" renderItem={t13} renderPreview={t14} />;
     $[28] = handleOpen;
     $[29] = matchLabel;
@@ -276,6 +285,7 @@ function _temp4(query_0, controller_1, setMatches_0, setTruncated_0, setIsSearch
         continue;
       }
       const rel = relativePath(cwd, m_1.file);
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       parsed.push({
         ...m_1,
         file: rel.startsWith("..") ? m_1.file : rel

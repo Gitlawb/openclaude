@@ -17,6 +17,7 @@ async function _temp() {
   const notifs = [];
   if (result.configSaveFailed) {
     logForDebugging("Showing marketplace config save failure notification");
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     notifs.push({
       key: "marketplace-config-save-failed",
       jsx: <Text color="error">Failed to save marketplace retry info · Check ~/.openclaude.json permissions</Text>,
@@ -26,6 +27,7 @@ async function _temp() {
   }
   if (result.installed) {
     logForDebugging("Showing marketplace installation success notification");
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     notifs.push({
       key: "marketplace-installed",
       jsx: <Text color="success">✓ Anthropic marketplace installed · /plugin to see available plugins</Text>,
@@ -35,6 +37,7 @@ async function _temp() {
   } else {
     if (result.skipped && result.reason === "unknown") {
       logForDebugging("Showing marketplace installation failure notification");
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       notifs.push({
         key: "marketplace-install-failed",
         jsx: <Text color="warning">Failed to install Anthropic marketplace · Will retry on next startup</Text>,

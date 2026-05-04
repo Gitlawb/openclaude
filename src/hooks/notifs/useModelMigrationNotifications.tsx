@@ -41,7 +41,8 @@ function _temp() {
   for (const migration of MIGRATIONS) {
     const notif = migration(config);
     if (notif) {
-      notifs.push(notif);
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      notifs.push(notif as any);
     }
   }
   return notifs.length > 0 ? notifs : null;

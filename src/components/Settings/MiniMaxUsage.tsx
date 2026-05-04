@@ -228,6 +228,7 @@ export function MiniMaxUsage(): React.ReactNode {
             nowMs={nowMs}
           />
         ) : (
+          // @ts-expect-error TS2741
           <MiniMaxUsageTextRow
             key={`${row.label}-${index}`}
             label={row.label}

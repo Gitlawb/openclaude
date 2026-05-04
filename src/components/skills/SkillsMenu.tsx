@@ -82,7 +82,7 @@ export function SkillsMenu(t0) {
       }
     }
     for (const group of Object.values(groups)) {
-      group.sort(_temp2);
+      (group as any).sort(_temp2);
     }
     $[2] = skills;
     $[3] = groups;

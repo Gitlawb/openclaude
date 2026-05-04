@@ -132,11 +132,11 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                   if (ctx.resolveIfAborted(resolve)) {
                     return;
                   }
-                  if (raceResult.type === "result" && raceResult.result.matches && raceResult.result.confidence === "high" && feature("BASH_CLASSIFIER")) {
+                  if ((raceResult as any).type === "result" && (raceResult as any).result.matches && (raceResult as any).result.confidence === "high" && feature("BASH_CLASSIFIER")) {
                     consumeSpeculativeClassifierCheck((input as {
                       command: string;
                     }).command);
-                    const matchedRule = raceResult.result.matchedDescription ?? undefined;
+                    const matchedRule = (raceResult as any).result.matchedDescription ?? undefined;
                     if (matchedRule) {
                       setClassifierApproval(toolUseID, matchedRule);
                     }
@@ -150,7 +150,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                       decisionReason: {
                         type: "classifier" as const,
                         classifier: "bash_allow" as const,
-                        reason: `Allowed by prompt rule: "${raceResult.result.matchedDescription}"`
+                        reason: `Allowed by prompt rule: "${(raceResult as any).result.matchedDescription}"`
                       }
                     }));
                     return;

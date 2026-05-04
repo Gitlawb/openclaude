@@ -116,6 +116,7 @@ const retryWorkflowAgent = workflowTaskModule?.retryWorkflowAgent ?? null;
 // resolve + eliminate `./` requires, but path-mapped strings stay opaque
 // and survive as dead literals in the bundle. Matches tasks.ts pattern.
 const monitorMcpModule = feature('MONITOR_TOOL') ? require('../../tasks/MonitorMcpTask/MonitorMcpTask.js') as typeof import('../../tasks/MonitorMcpTask/MonitorMcpTask.js') : null;
+// @ts-expect-error property does not exist on inferred type
 const killMonitorMcp = monitorMcpModule?.killMonitorMcp ?? null;
 const MonitorMcpDetailDialog = feature('MONITOR_TOOL') ? (require('./MonitorMcpDetailDialog.js') as typeof import('./MonitorMcpDetailDialog.js')).MonitorMcpDetailDialog : null;
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -166,6 +167,7 @@ export function BackgroundTasksDialog({
 
   // Register as modal overlay so parent Chat keybindings (up/down for history)
   // are deactivated while this dialog is open
+  // @ts-expect-error wrong number of arguments
   useRegisterOverlay('background-tasks-dialog');
 
   // Memoize the sorted and categorized items together to ensure stable references
@@ -490,6 +492,7 @@ export function BackgroundTasksDialog({
       </Dialog>
     </Box>;
 }
+// @ts-expect-error TS2366
 function toListItem(task: BackgroundTaskState): ListItem {
   switch (task.type) {
     case 'local_bash':

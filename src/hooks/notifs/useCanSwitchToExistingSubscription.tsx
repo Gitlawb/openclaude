@@ -11,7 +11,7 @@ const MAX_SHOW_COUNT = 3;
  * Hook to check if the user has a subscription on Console but isn't logged into it.
  */
 export function useCanSwitchToExistingSubscription() {
-  useStartupNotification(_temp2);
+  useStartupNotification(_temp2 as any);
 }
 
 /**

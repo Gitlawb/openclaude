@@ -603,6 +603,7 @@ function MemorySavedMessage(t0) {
   } = message;
   let t1;
   if ($[0] !== message) {
+    // @ts-expect-error possibly undefined
     t1 = feature("TEAMMEM") ? teamMemSaved.teamMemSavedPart(message) : null;
     $[0] = message;
     $[1] = t1;

@@ -471,12 +471,14 @@ export function MCPRemoteServerMenu({
 
   // If server is disabled, show Enable first as the primary action
   if (server.client.type === 'disabled') {
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     menuOptions.push({
       label: 'Enable',
       value: 'toggle-enabled'
     });
   }
   if (server.client.type === 'connected' && serverToolsCount > 0) {
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     menuOptions.push({
       label: 'View tools',
       value: 'tools'
@@ -484,11 +486,13 @@ export function MCPRemoteServerMenu({
   }
   if (server.config.type === 'claudeai-proxy') {
     if (server.client.type === 'connected') {
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       menuOptions.push({
         label: 'Clear authentication',
         value: 'claudeai-clear-auth'
       });
     } else if (server.client.type !== 'disabled') {
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       menuOptions.push({
         label: 'Authenticate',
         value: 'claudeai-auth'
@@ -496,16 +500,19 @@ export function MCPRemoteServerMenu({
     }
   } else {
     if (isEffectivelyAuthenticated) {
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       menuOptions.push({
         label: 'Re-authenticate',
         value: 'reauth'
       });
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       menuOptions.push({
         label: 'Clear authentication',
         value: 'clear-auth'
       });
     }
     if (!isEffectivelyAuthenticated) {
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       menuOptions.push({
         label: 'Authenticate',
         value: 'auth'
@@ -514,11 +521,13 @@ export function MCPRemoteServerMenu({
   }
   if (server.client.type !== 'disabled') {
     if (server.client.type !== 'needs-auth') {
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       menuOptions.push({
         label: 'Reconnect',
         value: 'reconnectMcpServer'
       });
     }
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     menuOptions.push({
       label: 'Disable',
       value: 'toggle-enabled'
@@ -527,6 +536,7 @@ export function MCPRemoteServerMenu({
 
   // If there are no other options, add a back option so Select handles escape
   if (menuOptions.length === 0) {
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     menuOptions.push({
       label: 'Back',
       value: 'back'

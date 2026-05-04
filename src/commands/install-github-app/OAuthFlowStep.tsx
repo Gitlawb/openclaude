@@ -135,7 +135,7 @@ export function OAuthFlowStep({
         });
         // Auto-continue after brief delay to show success
         const timer2 = setTimeout(onSuccess_0, 1000, accessToken);
-        timersRef_0.current.add(timer2);
+        timersRef_0.current.add(timer2 as any);
       }, 100, setOAuthStatus, result.accessToken, onSuccess, timersRef);
       timersRef.current.add(timer1);
     } catch (err_0) {

@@ -48,7 +48,7 @@ function CollapseLabel(t0) {
   const snapshot = useSyncExternalStore(subscribe, t2);
   let t3;
   if ($[2] !== snapshot) {
-    t3 = snapshot.split("|").map(Number);
+    t3 = (snapshot as any).split("|").map(Number);
     $[2] = snapshot;
     $[3] = t3;
   } else {

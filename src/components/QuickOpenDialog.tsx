@@ -31,6 +31,7 @@ export function QuickOpenDialog(t0) {
     onDone,
     onInsert
   } = t0;
+  // @ts-expect-error wrong number of arguments
   useRegisterOverlay("quick-open");
   const {
     columns,
@@ -103,6 +104,7 @@ export function QuickOpenDialog(t0) {
           return;
         }
         setPreview({
+          // @ts-expect-error object literal type mismatch
           path: focusedPath,
           content: r.content
         });
@@ -111,6 +113,7 @@ export function QuickOpenDialog(t0) {
           return;
         }
         setPreview({
+          // @ts-expect-error object literal type mismatch
           path: focusedPath,
           content: "(preview unavailable)"
         });
@@ -197,7 +200,7 @@ export function QuickOpenDialog(t0) {
   }
   let t13;
   if ($[21] !== preview || $[22] !== previewWidth || $[23] !== query) {
-    t13 = p_7 => preview ? <><Text dimColor={true}>{truncatePathMiddle(p_7, previewWidth)}{preview.path !== p_7 ? " \xB7 loading\u2026" : ""}</Text>{preview.content.split("\n").map((line, i_1) => <Text key={i_1}>{highlightMatch(truncateToWidth(line, previewWidth), query)}</Text>)}</> : <LoadingState message={"Loading preview\u2026"} dimColor={true} />;
+    t13 = p_7 => preview ? <><Text dimColor={true}>{truncatePathMiddle(p_7, previewWidth)}{(preview as any).path !== p_7 ? " \xB7 loading\u2026" : ""}</Text>{(preview as any).content.split("\n").map((line, i_1) => <Text key={i_1}>{highlightMatch(truncateToWidth(line, previewWidth), query)}</Text>)}</> : <LoadingState message={"Loading preview\u2026"} dimColor={true} />;
     $[21] = preview;
     $[22] = previewWidth;
     $[23] = query;

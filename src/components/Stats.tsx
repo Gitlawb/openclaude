@@ -149,7 +149,7 @@ function StatsContent(t0) {
       }
       let cancelled = false;
       setIsLoadingFiltered(true);
-      aggregateClaudeCodeStatsForRange(dateRange).then(data => {
+      aggregateClaudeCodeStatsForRange(dateRange as any).then(data => {
         if (!cancelled) {
           setStatsCache(prev => ({
             ...prev,
@@ -176,8 +176,8 @@ function StatsContent(t0) {
     t3 = $[4];
   }
   useEffect(t2, t3);
-  const displayStats = dateRange === "all" ? allTimeResult.type === "success" ? allTimeResult.data : null : statsCache[dateRange] ?? (allTimeResult.type === "success" ? allTimeResult.data : null);
-  const allTimeStats = allTimeResult.type === "success" ? allTimeResult.data : null;
+  const displayStats = dateRange === "all" ? (allTimeResult as any).type === "success" ? (allTimeResult as any).data : null : statsCache[dateRange] ?? ((allTimeResult as any).type === "success" ? (allTimeResult as any).data : null);
+  const allTimeStats = (allTimeResult as any).type === "success" ? (allTimeResult as any).data : null;
   let t4;
   if ($[5] !== onClose) {
     t4 = () => {
@@ -213,9 +213,11 @@ function StatsContent(t0) {
         setActiveTab(_temp);
       }
       if (input === "r" && !key.ctrl && !key.meta) {
+        // @ts-expect-error React Compiler output loses type context
         setDateRange(getNextDateRange(dateRange));
       }
       if (key.ctrl && input === "s" && displayStats) {
+        // @ts-expect-error React Compiler output loses type context
         handleScreenshot(displayStats, activeTab, setCopyStatus);
       }
     };
@@ -228,18 +230,18 @@ function StatsContent(t0) {
     t6 = $[12];
   }
   useInput(t6);
-  if (allTimeResult.type === "error") {
+  if ((allTimeResult as any).type === "error") {
     let t7;
-    if ($[13] !== allTimeResult.message) {
-      t7 = <Box marginTop={1}><Text color="error">Failed to load stats: {allTimeResult.message}</Text></Box>;
-      $[13] = allTimeResult.message;
+    if ($[13] !== (allTimeResult as any).message) {
+      t7 = <Box marginTop={1}><Text color="error">Failed to load stats: {(allTimeResult as any).message}</Text></Box>;
+      $[13] = (allTimeResult as any).message;
       $[14] = t7;
     } else {
       t7 = $[14];
     }
     return t7;
   }
-  if (allTimeResult.type === "empty") {
+  if ((allTimeResult as any).type === "empty") {
     let t7;
     if ($[15] === Symbol.for("react.memo_cache_sentinel")) {
       t7 = <Box marginTop={1}><Text color="warning">No stats available yet. Start using OpenClaude!</Text></Box>;
@@ -261,6 +263,7 @@ function StatsContent(t0) {
   }
   let t7;
   if ($[17] !== allTimeStats || $[18] !== dateRange || $[19] !== displayStats || $[20] !== isLoadingFiltered) {
+    // @ts-expect-error React Compiler output loses type context
     t7 = <Tab title="Overview"><OverviewTab stats={displayStats} allTimeStats={allTimeStats} dateRange={dateRange} isLoading={isLoadingFiltered} /></Tab>;
     $[17] = allTimeStats;
     $[18] = dateRange;
@@ -512,7 +515,7 @@ function OverviewTab({
       </Box>
 
       {/* Speculation time saved (internal-only) */}
-      {"external" === 'ant' && stats.totalSpeculationTimeSavedMs > 0 && <Box flexDirection="row" gap={4}>
+      {("external" as string) === 'ant' && stats.totalSpeculationTimeSavedMs > 0 && <Box flexDirection="row" gap={4}>
             <Box flexDirection="column" width={28}>
               <Text wrap="truncate">
                 Speculation saved:{' '}
@@ -992,6 +995,7 @@ function generateTokenChart(dailyTokens: DailyModelTokens[], models: string[], t
   if (series.length === 0) {
     return null;
   }
+  // @ts-expect-error React Compiler output loses type context
   const chart = asciichart(series, {
     height: 8,
     colors: colors.slice(0, series.length),
@@ -1151,7 +1155,7 @@ function renderOverviewToAnsi(stats: ClaudeCodeStats): string[] {
   lines.push(row('Active days', activeDaysVal, 'Peak hour', peakHourVal));
 
   // Speculation time saved (internal-only)
-  if ("external" === 'ant' && stats.totalSpeculationTimeSavedMs > 0) {
+  if (("external" as string) === 'ant' && stats.totalSpeculationTimeSavedMs > 0) {
     const label = 'Speculation saved:'.padEnd(COL1_LABEL_WIDTH);
     lines.push(label + h(formatDuration(stats.totalSpeculationTimeSavedMs)));
   }

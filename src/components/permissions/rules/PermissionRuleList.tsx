@@ -600,6 +600,7 @@ export function PermissionRuleList(t0) {
       })();
       const options = [];
       if (tab !== "workspace" && tab !== "recent" && !query) {
+        // @ts-expect-error any-to-never (stub types cause narrowing)
         options.push({
           label: `Add a new rule${figures.ellipsis}`,
           value: "add-new-rule"
@@ -623,6 +624,7 @@ export function PermissionRuleList(t0) {
           if (query && !ruleString.toLowerCase().includes(lowerQuery)) {
             continue;
           }
+          // @ts-expect-error any-to-never (stub types cause narrowing)
           options.push({
             label: ruleString,
             value: ruleKey
@@ -736,6 +738,7 @@ export function PermissionRuleList(t0) {
   if ($[25] === Symbol.for("react.memo_cache_sentinel")) {
     t13 = (ruleValue, ruleBehavior) => {
       setValidatedRule({
+        // @ts-expect-error React Compiler output loses type context
         ruleValue,
         ruleBehavior
       });
@@ -795,6 +798,7 @@ export function PermissionRuleList(t0) {
   if ($[30] !== changes || $[31] !== onExit || $[32] !== onRetryDenials) {
     t18 = () => {
       const s_1 = denialStateRef.current;
+      // @ts-expect-error React Compiler output loses type context
       const denialsFor = set => Array.from(set).map(idx => s_1.denials[idx]).filter(_temp2);
       const retryDenials = denialsFor(s_1.retry);
       if (retryDenials.length > 0) {
@@ -845,7 +849,7 @@ export function PermissionRuleList(t0) {
       }
       const {
         options: options_0
-      } = getRulesOptions(selectedRule.ruleBehavior as TabType);
+      } = getRulesOptions((selectedRule as any).ruleBehavior as TabType);
       const selectedKey = jsonStringify(selectedRule);
       const ruleKeys = options_0.filter(_temp5).map(_temp6);
       const currentIndex = ruleKeys.indexOf(selectedKey);
@@ -870,7 +874,7 @@ export function PermissionRuleList(t0) {
           }));
         }
       });
-      setChanges(prev_2 => [...prev_2, `Deleted ${selectedRule.ruleBehavior} rule ${chalk.bold(permissionRuleValueToString(selectedRule.ruleValue))}`]);
+      setChanges(prev_2 => [...prev_2, `Deleted ${(selectedRule as any).ruleBehavior} rule ${chalk.bold(permissionRuleValueToString((selectedRule as any).ruleValue))}`]);
       setSelectedRule(undefined);
     };
     $[36] = getRulesOptions;
@@ -914,9 +918,9 @@ export function PermissionRuleList(t0) {
   }
   if (validatedRule) {
     let t22;
-    if ($[47] !== validatedRule.ruleValue) {
-      t22 = [validatedRule.ruleValue];
-      $[47] = validatedRule.ruleValue;
+    if ($[47] !== (validatedRule as any).ruleValue) {
+      t22 = [(validatedRule as any).ruleValue];
+      $[47] = (validatedRule as any).ruleValue;
       $[48] = t22;
     } else {
       t22 = $[48];
@@ -935,12 +939,12 @@ export function PermissionRuleList(t0) {
       t23 = $[50];
     }
     let t24;
-    if ($[51] !== t22 || $[52] !== t23 || $[53] !== toolPermissionContext || $[54] !== validatedRule.ruleBehavior) {
-      t24 = <AddPermissionRules onAddRules={handleAddRulesSuccess} onCancel={handleAddRuleCancel} ruleValues={t22} ruleBehavior={validatedRule.ruleBehavior} initialContext={toolPermissionContext} setToolPermissionContext={t23} />;
+    if ($[51] !== t22 || $[52] !== t23 || $[53] !== toolPermissionContext || $[54] !== (validatedRule as any).ruleBehavior) {
+      t24 = <AddPermissionRules onAddRules={handleAddRulesSuccess} onCancel={handleAddRuleCancel} ruleValues={t22} ruleBehavior={(validatedRule as any).ruleBehavior} initialContext={toolPermissionContext} setToolPermissionContext={t23} />;
       $[51] = t22;
       $[52] = t23;
       $[53] = toolPermissionContext;
-      $[54] = validatedRule.ruleBehavior;
+      $[54] = (validatedRule as any).ruleBehavior;
       $[55] = t24;
     } else {
       t24 = $[55];
@@ -957,12 +961,14 @@ export function PermissionRuleList(t0) {
           directories: [path_0],
           destination
         };
+        // @ts-expect-error React Compiler output loses type context
         const updatedContext = applyPermissionUpdate(toolPermissionContext, permissionUpdate);
         setAppState(prev_4 => ({
           ...prev_4,
           toolPermissionContext: updatedContext
         }));
         if (remember) {
+          // @ts-expect-error React Compiler output loses type context
           persistPermissionUpdate(permissionUpdate);
         }
         setChanges(prev_5 => [...prev_5, `Added directory ${chalk.bold(path_0)} to workspace${remember ? " and saved to local settings" : " for this session"}`]);

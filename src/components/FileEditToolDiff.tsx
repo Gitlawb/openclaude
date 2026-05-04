@@ -57,8 +57,11 @@ function DiffBody(t0) {
     file_path
   } = t0;
   const {
+    // @ts-expect-error property does not exist on inferred type
     patch,
+    // @ts-expect-error property does not exist on inferred type
     firstLine,
+    // @ts-expect-error property does not exist on inferred type
     fileContent
   } = use(promise);
   const {

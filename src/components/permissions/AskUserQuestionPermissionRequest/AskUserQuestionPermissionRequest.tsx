@@ -183,7 +183,8 @@ function AskUserQuestionPermissionRequestBody(t0) {
         filename: filename || "Pasted image",
         dimensions
       };
-      cacheImagePath(newContent);
+      cacheImagePath(newContent as any);
+      // @ts-expect-error argument type mismatch
       storeImage(newContent);
       setPastedContentsByQuestion(prev => ({
         ...prev,

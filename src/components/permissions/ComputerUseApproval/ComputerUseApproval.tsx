@@ -1,6 +1,9 @@
 import { c as _c } from "react-compiler-runtime";
+// @ts-expect-error React Compiler output loses type context
 import { getSentinelCategory } from '@ant/computer-use-mcp/sentinelApps';
+// @ts-expect-error React Compiler output loses type context
 import type { CuPermissionRequest, CuPermissionResponse } from '@ant/computer-use-mcp/types';
+// @ts-expect-error React Compiler output loses type context
 import { DEFAULT_GRANT_FLAGS } from '@ant/computer-use-mcp/types';
 import figures from 'figures';
 import * as React from 'react';

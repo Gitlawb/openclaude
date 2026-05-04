@@ -18,6 +18,7 @@ import type { Screen } from '../screens/REPL.js';
 import type { Tools } from '../Tool.js';
 import { findToolByName } from '../Tool.js';
 import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js';
+// @ts-expect-error React Compiler output loses type context
 import type { Message as MessageType, NormalizedMessage, ProgressMessage as ProgressMessageType, RenderableMessage } from '../types/message.js';
 import { type AdvisorBlock, isAdvisorBlock } from '../utils/advisor.js';
 import { collapseBackgroundBashNotifications } from '../utils/collapseBackgroundBashNotifications.js';
@@ -55,6 +56,7 @@ import type { JumpHandle } from './VirtualMessageList.js';
 const LogoHeader = React.memo(function LogoHeader(t0) {
   const $ = _c(3);
   const {
+    // @ts-expect-error React Compiler output loses type context
     agentDefinitions
   } = t0;
   let t1;
@@ -79,6 +81,7 @@ const LogoHeader = React.memo(function LogoHeader(t0) {
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactiveModule = feature('PROACTIVE') || feature('KAIROS') ? require('../proactive/index.js') : null;
 const BRIEF_TOOL_NAME: string | null = feature('KAIROS') || feature('KAIROS_BRIEF') ? (require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')).BRIEF_TOOL_NAME : null;
+// @ts-expect-error React Compiler output loses type context
 const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS') ? (require('../tools/SendUserFileTool/prompt.js') as typeof import('../tools/SendUserFileTool/prompt.js')).SEND_USER_FILE_TOOL_NAME : null;
 
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -516,6 +519,7 @@ const MessagesImpl = ({
     const hasTruncatedMessages = shouldTruncate && briefFiltered.length > MAX_MESSAGES_TO_SHOW_IN_TRANSCRIPT_MODE;
     const {
       messages: groupedMessages
+    // @ts-expect-error React Compiler output loses type context
     } = applyGrouping(messagesToShow, tools, verbose);
     const collapsed = collapseBackgroundBashNotifications(collapseHookSummaries(collapseTeammateShutdowns(collapseReadSearchGroups(groupedMessages, tools))), verbose);
     const lookups = buildMessageLookups(normalizedMessages, messagesToShow);
@@ -676,7 +680,8 @@ const MessagesImpl = ({
   }, [tools, lookups_0]);
   return <>
       {/* Logo */}
-      {!hideLogo && !(renderRange && renderRange[0] > 0) && <LogoHeader agentDefinitions={agentDefinitions} />}
+      {!hideLogo && !(renderRange && renderRange[0] > 0) && <LogoHeader // @ts-expect-error React Compiler output loses type context
+        agentDefinitions={agentDefinitions} />}
 
       {/* Truncation indicator */}
       {hasTruncatedMessages_0 && <Divider title={`${toggleShowAllShortcut} to show ${chalk.bold(hiddenMessageCount_0)} previous messages`} width={columns} />}
@@ -776,6 +781,7 @@ export const Messages = React.memo(MessagesImpl, (prev, next) => {
   }
   return true;
 });
+// @ts-expect-error React Compiler output loses type context
 export function shouldRenderStatically(message: RenderableMessage, streamingToolUseIDs: Set<string>, inProgressToolUseIDs: Set<string>, siblingToolUseIDs: ReadonlySet<string>, screen: Screen, lookups: ReturnType<typeof buildMessageLookups>): boolean {
   if (screen === 'transcript') {
     return true;

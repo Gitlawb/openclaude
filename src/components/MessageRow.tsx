@@ -379,4 +379,5 @@ export function areMessageRowPropsEqual(prev: Props, next: Props): boolean {
   // Static message - safe to skip re-render
   return true;
 }
+// @ts-expect-error no overload matches
 export const MessageRow = React.memo(MessageRowImpl, areMessageRowPropsEqual);

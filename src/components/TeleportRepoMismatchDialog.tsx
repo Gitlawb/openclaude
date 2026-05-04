@@ -21,7 +21,7 @@ export function TeleportRepoMismatchDialog(t0) {
     onCancel
   } = t0;
   const [availablePaths, setAvailablePaths] = useState(initialPaths);
-  const [errorMessage, setErrorMessage] = useState(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   let t1;
   if ($[0] !== availablePaths || $[1] !== onCancel || $[2] !== onSelectPath || $[3] !== targetRepo) {

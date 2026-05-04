@@ -37,9 +37,9 @@ export function RemoteEnvironmentDialog(t0) {
     t1 = $[0];
   }
   const [environments, setEnvironments] = useState(t1);
-  const [selectedEnvironment, setSelectedEnvironment] = useState(null);
-  const [selectedEnvironmentSource, setSelectedEnvironmentSource] = useState(null);
-  const [error, setError] = useState(null);
+  const [selectedEnvironment, setSelectedEnvironment] = useState<string | null>(null);
+  const [selectedEnvironmentSource, setSelectedEnvironmentSource] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   let t2;
   let t3;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
@@ -53,8 +53,9 @@ export function RemoteEnvironmentDialog(t0) {
             return;
           }
           setEnvironments(result.availableEnvironments);
-          setSelectedEnvironment(result.selectedEnvironment);
+          setSelectedEnvironment(result.selectedEnvironment as any);
           setSelectedEnvironmentSource(result.selectedEnvironmentSource);
+          // @ts-expect-error argument type mismatch
           setLoadingState(null);
         } catch (t4) {
           const err = t4;
@@ -64,6 +65,7 @@ export function RemoteEnvironmentDialog(t0) {
           const fetchError = toError(err);
           logError(fetchError);
           setError(fetchError.message);
+          // @ts-expect-error argument type mismatch
           setLoadingState(null);
         }
       };

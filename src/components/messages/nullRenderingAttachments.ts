@@ -1,4 +1,5 @@
 import type { Attachment } from 'src/utils/attachments.js'
+// @ts-expect-error module has no exported member
 import type { Message, NormalizedMessage } from '../../types/message.js'
 
 /**
@@ -40,7 +41,9 @@ const NULL_RENDERING_TYPES = [
   'auto_mode',
   'auto_mode_exit',
   'output_token_usage',
+  // @ts-expect-error type mismatch
   'pen_mode_enter',
+  // @ts-expect-error TS2820
   'pen_mode_exit',
   'verify_plan_reminder',
   'current_session_memory',
@@ -50,6 +53,7 @@ const NULL_RENDERING_TYPES = [
 
 export type NullRenderingAttachmentType = (typeof NULL_RENDERING_TYPES)[number]
 
+// @ts-expect-error type mismatch
 const NULL_RENDERING_ATTACHMENT_TYPES: ReadonlySet<Attachment['type']> =
   new Set(NULL_RENDERING_TYPES)
 

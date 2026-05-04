@@ -63,13 +63,16 @@ export function MCPToolListView(t0) {
         const isOpenWorld = tool.isOpenWorld?.({}) ?? false;
         const annotations = [];
         if (isReadOnly) {
-          annotations.push("read-only");
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          annotations.push("read-only" as any);
         }
         if (isDestructive) {
-          annotations.push("destructive");
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          annotations.push("destructive" as any);
         }
         if (isOpenWorld) {
-          annotations.push("open-world");
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          annotations.push("open-world" as any);
         }
         return {
           label: displayName,

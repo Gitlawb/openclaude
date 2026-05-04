@@ -19,7 +19,7 @@ export function WizardProvider(t0) {
   } = t0;
   let t3;
   if ($[0] !== t1) {
-    t3 = t1 === undefined ? {} as T : t1;
+    t3 = t1 === undefined ? {} as any : t1;
     $[0] = t1;
     $[1] = t3;
   } else {

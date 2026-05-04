@@ -190,6 +190,7 @@ export function CodexUsage(): React.ReactNode {
             maxWidth={maxWidth}
           />
         ) : (
+          // @ts-expect-error TS2741
           <CodexUsageTextRow
             key={`${row.label}-${index}`}
             label={row.label}

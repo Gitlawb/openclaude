@@ -23,7 +23,7 @@ export function TypeStep(_props) {
     wizardData
   } = useWizard();
   const [agentType, setAgentType] = useState(wizardData.agentType || "");
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [cursorOffset, setCursorOffset] = useState(agentType.length);
   let t0;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {

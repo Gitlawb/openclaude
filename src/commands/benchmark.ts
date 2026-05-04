@@ -6,7 +6,7 @@ import {
   formatBenchmarkResults,
   isBenchmarkSupported,
 } from '../utils/model/benchmark.js'
-import { getOllamaModelOptions } from '../utils/model/ollamaModels.js'
+import { getCachedOllamaModelOptions as getOllamaModelOptions } from '../utils/model/ollamaModels.js'
 
 async function runBenchmark(
   model?: string,
@@ -26,7 +26,7 @@ async function runBenchmark(
     modelsToBenchmark = [model]
   } else {
     const ollamaModels = getOllamaModelOptions()
-    modelsToBenchmark = ollamaModels.slice(0, 3).map((m) => m.value)
+    modelsToBenchmark = ollamaModels.slice(0, 3).map((m) => m.value as string)
   }
 
   context?.stdout?.write(`Benchmarking ${modelsToBenchmark.length} model(s)...\n`)
@@ -44,7 +44,7 @@ async function runBenchmark(
   context?.stdout?.write('\n' + formatBenchmarkResults(results) + '\n')
 }
 
-export const benchmark: Command = {
+export const benchmark = {
   name: 'benchmark',
 
   async onExecute(context: ToolUseContext): Promise<void> {
@@ -53,4 +53,4 @@ export const benchmark: Command = {
 
     await runBenchmark(model, context)
   },
-}
+} as unknown as Command
