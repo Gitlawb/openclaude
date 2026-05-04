@@ -9,28 +9,30 @@
  */
 import { describe, it, expect, vi } from "vitest"
 
-// Skip tests when vitest-only APIs unavailable
-// In bun:test (root CI), vi.resetModules doesn't exist
-// In vitest (desktop CI job), it's available
+// Skip entire suite when vitest-only APIs unavailable
+// In bun:test (root CI smoke-and-tests), vi.resetModules doesn't exist
+// In vitest (desktop CI job), it's properly available
 const vitestOnly = typeof vi.resetModules === "function" ? describe : describe.skip
 
-vitestOnly("App", async () => {
-  // Dynamic import inside test block — only executed when vitest is running
-  const { render, screen } = await import("@testing-library/react")
-  const { App } = await import("../../src/renderer/App")
-
-  it("renders without crashing", () => {
+vitestOnly("App", () => {
+  it("renders without crashing", async () => {
+    const { render, screen } = await import("@testing-library/react")
+    const { App } = await import("../../src/renderer/App")
     render(<App />)
     expect(screen.getByText("OpenClaude Desktop")).toBeDefined()
   })
 
-  it("shows loading message", () => {
+  it("shows loading message", async () => {
+    const { render, screen } = await import("@testing-library/react")
+    const { App } = await import("../../src/renderer/App")
     render(<App />)
     const loadingElements = screen.getAllByText("Loading...")
     expect(loadingElements.length).toBeGreaterThan(0)
   })
 
-  it("has app-shell structure", () => {
+  it("has app-shell structure", async () => {
+    const { render } = await import("@testing-library/react")
+    const { App } = await import("../../src/renderer/App")
     const { container } = render(<App />)
     expect(container.querySelector(".app-shell")).toBeDefined()
     expect(container.querySelector(".app-header")).toBeDefined()
