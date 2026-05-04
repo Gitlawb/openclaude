@@ -388,10 +388,12 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
+      // @ts-expect-error possibly undefined
       const slug = remoteSkillModules!.stripCanonicalPrefix(
         normalizedCommandName,
       )
       if (slug !== null) {
+        // @ts-expect-error possibly undefined
         const meta = remoteSkillModules!.getDiscoveredRemoteSkill(slug)
         if (!meta) {
           return {
@@ -503,6 +505,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
+      // @ts-expect-error possibly undefined
       const slug = remoteSkillModules!.stripCanonicalPrefix(commandName)
       if (slug !== null) {
         return {
@@ -616,6 +619,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
       feature('EXPERIMENTAL_SKILL_SEARCH') &&
       process.env.USER_TYPE === 'ant'
     ) {
+      // @ts-expect-error possibly undefined
       const slug = remoteSkillModules!.stripCanonicalPrefix(commandName)
       if (slug !== null) {
         return executeRemoteSkill(slug, commandName, parentMessage, context)
@@ -982,6 +986,7 @@ async function executeRemoteSkill(
   parentMessage: AssistantMessage,
   context: ToolUseContext,
 ): Promise<ToolResult<Output>> {
+  // @ts-expect-error possibly undefined
   const { getDiscoveredRemoteSkill, loadRemoteSkill, logRemoteSkillLoaded } =
     remoteSkillModules!
 

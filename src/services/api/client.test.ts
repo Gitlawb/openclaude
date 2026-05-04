@@ -771,6 +771,7 @@ test('env-only MiniMax fallback yields to explicit Bedrock selection', async () 
   process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH = '1'
   process.env.MINIMAX_API_KEY = 'minimax-test-key'
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = (async () => {
     throw new Error('MiniMax/OpenAI shim fetch should not run')
   }) as FetchType
@@ -796,6 +797,7 @@ test('env-only xAI fallback yields to explicit Bedrock selection', async () => {
   process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH = '1'
   process.env.XAI_API_KEY = 'xai-test-key'
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = (async () => {
     throw new Error('xAI/OpenAI shim fetch should not run')
   }) as FetchType

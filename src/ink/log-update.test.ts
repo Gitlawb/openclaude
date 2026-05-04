@@ -43,6 +43,7 @@ function frameFromLines(
 
   for (const [y, line] of lines.entries()) {
     for (const [x, char] of [...line].entries()) {
+      // @ts-expect-error argument type mismatch
       setCellAt(screen, x, y, {
         char,
         styleId: stylePool.none,

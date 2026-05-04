@@ -13,4 +13,6 @@ declare const MACRO: {
   ISSUES_EXPLAINER: string
   PACKAGE_URL: string
   NATIVE_PACKAGE_URL: string | undefined
+  FEEDBACK_CHANNEL: string
+  VERSION_CHANGELOG: string
 }

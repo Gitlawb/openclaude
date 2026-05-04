@@ -189,11 +189,12 @@ function enqueueRemoteNotification(taskId: string, title: string, status: 'compl
 function markTaskNotified(taskId: string, setAppState: SetAppState): boolean {
   let shouldEnqueue = false;
   updateTaskState(taskId, setAppState, task => {
-    if (task.notified) {
+    if ((task as any).notified) {
       return task;
     }
     shouldEnqueue = true;
     return {
+      // @ts-expect-error spread types
       ...task,
       notified: true
     };
@@ -210,7 +211,7 @@ export function extractPlanFromLog(log: SDKMessage[]): string | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const msg = log[i];
     if (msg?.type !== 'assistant') continue;
-    const fullText = extractTextContent(msg.message.content, '\n');
+    const fullText = extractTextContent(msg.message.content as any, '\n');
     const plan = extractTag(fullText, ULTRAPLAN_TAG);
     if (plan?.trim()) return plan.trim();
   }
@@ -363,7 +364,7 @@ Remote review did not produce output (${reason}). Tell the user to retry /ultrar
  * Extract todo list from SDK messages (finds last TodoWrite tool use).
  */
 function extractTodoListFromLog(log: SDKMessage[]): TodoList {
-  const todoListMessage = log.findLast((msg): msg is SDKAssistantMessage => msg.type === 'assistant' && msg.message.content.some(block => block.type === 'tool_use' && block.name === TodoWriteTool.name));
+  const todoListMessage = log.findLast((msg): msg is SDKAssistantMessage => msg.type === 'assistant' && msg.message.content.some((block: any) => block.type === 'tool_use' && block.name === TodoWriteTool.name));
   if (!todoListMessage) {
     return [];
   }
@@ -568,7 +569,7 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
         accumulatedLog = [...accumulatedLog, ...response.newEvents];
         const deltaText = response.newEvents.map(msg => {
           if (msg.type === 'assistant') {
-            return msg.message.content.filter(block => block.type === 'text').map(block => 'text' in block ? block.text : '').join('\n');
+            return msg.message.content.filter((block: any) => block.type === 'text').map(block => 'text' in block ? (block as any).text : '').join('\n');
           }
           return jsonStringify(msg);
         }).join('\n');
@@ -743,6 +744,7 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
 
           // No output or remote error — mark failed with a review-specific message.
           updateTaskState(taskId, context.setAppState, t => ({
+            // @ts-expect-error spread types
             ...t,
             status: 'failed'
           }));
@@ -769,6 +771,7 @@ function startRemoteSessionPolling(taskId: string, context: TaskContext): () => 
         const task = appState.tasks?.[taskId] as RemoteAgentTaskState | undefined;
         if (task?.isRemoteReview && task.status === 'running' && Date.now() - task.pollStartedAt > REMOTE_REVIEW_TIMEOUT_MS) {
           updateTaskState(taskId, context.setAppState, t => ({
+            // @ts-expect-error spread types
             ...t,
             status: 'failed',
             endTime: Date.now()

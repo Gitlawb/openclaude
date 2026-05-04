@@ -157,6 +157,7 @@ function BridgeDisconnectDialog(t0) {
   const {
     onDone
   } = t0;
+  // @ts-expect-error wrong number of arguments
   useRegisterOverlay("bridge-disconnect-dialog");
   const setAppState = useSetAppState();
   const sessionUrl = useAppState(_temp4);

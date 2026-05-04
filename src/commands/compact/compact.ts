@@ -262,6 +262,7 @@ async function getCacheSharingParams(
     context.options.tools,
     context.options.mainLoopModel,
     Array.from(
+      // @ts-expect-error not callable
       appState.toolPermissionContext.additionalWorkingDirectories.keys(),
     ),
     context.options.mcpClients,

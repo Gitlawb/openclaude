@@ -99,6 +99,7 @@ function Button(t0) {
         if (activeTimer.current) {
           clearTimeout(activeTimer.current);
         }
+        // @ts-expect-error type mismatch
         activeTimer.current = setTimeout(_temp, 100, setIsActive);
       }
     };

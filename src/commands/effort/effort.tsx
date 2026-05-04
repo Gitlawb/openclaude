@@ -114,7 +114,7 @@ export function executeEffort(args: string): EffortCommandResult {
     return setEffortValue(normalized);
   }
   if (isOpenAIEffortLevel(normalized)) {
-    return setEffortValue(normalized);
+    return setEffortValue(normalized as EffortValue);
   }
   return {
     message: `Invalid argument: ${args}. Valid options are: low, medium, high, max, xhigh, auto`

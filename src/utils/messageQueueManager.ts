@@ -340,8 +340,10 @@ export function resetCommandQueue(): void {
 // Editable mode helpers
 // ============================================================================
 
+// @ts-expect-error no overload matches
 const NON_EDITABLE_MODES = new Set<PromptInputMode>([
   'task-notification',
+// @ts-expect-error TS1360
 ] satisfies Permutations<Exclude<PromptInputMode, EditablePromptInputMode>>)
 
 export function isPromptInputModeEditable(

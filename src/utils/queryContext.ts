@@ -118,6 +118,7 @@ export async function buildSideQuestionFallbackParams({
       tools,
       mainLoopModel,
       additionalWorkingDirectories: Array.from(
+        // @ts-expect-error not callable
         appState.toolPermissionContext.additionalWorkingDirectories.keys(),
       ),
       mcpClients,

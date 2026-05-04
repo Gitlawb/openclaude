@@ -341,7 +341,7 @@ export function FullscreenLayout(t0) {
     const padCollapsed = sticky != null && overlay == null;
     let t8;
     if ($[7] !== headerPrompt) {
-      t8 = headerPrompt && <StickyPromptHeader text={headerPrompt.text} onClick={headerPrompt.scrollTo} />;
+      t8 = headerPrompt && <StickyPromptHeader text={(headerPrompt as any).text} onClick={(headerPrompt as any).scrollTo} />;
       $[7] = headerPrompt;
       $[8] = t8;
     } else {

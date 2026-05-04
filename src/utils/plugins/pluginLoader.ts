@@ -1875,6 +1875,7 @@ function mergeHooksSettings(
       // Merge matchers for this event
       merged[event as keyof HooksSettings] = [
         ...(merged[event as keyof HooksSettings] || []),
+        // @ts-expect-error TS2488
         ...matchers,
       ]
     }

@@ -62,9 +62,12 @@ async function isCommandAvailable(command: string): Promise<boolean> {
 const detectPackageManagers = memoize(async (): Promise<string[]> => {
   const packageManagers = []
 
-  if (await isCommandAvailable('npm')) packageManagers.push('npm')
-  if (await isCommandAvailable('yarn')) packageManagers.push('yarn')
-  if (await isCommandAvailable('pnpm')) packageManagers.push('pnpm')
+  // @ts-expect-error any-to-never (stub types cause narrowing)
+  if (await isCommandAvailable('npm')) packageManagers.push('npm' as any)
+  // @ts-expect-error any-to-never (stub types cause narrowing)
+  if (await isCommandAvailable('yarn')) packageManagers.push('yarn' as any)
+  // @ts-expect-error any-to-never (stub types cause narrowing)
+  if (await isCommandAvailable('pnpm')) packageManagers.push('pnpm' as any)
 
   return packageManagers
 })
@@ -72,9 +75,12 @@ const detectPackageManagers = memoize(async (): Promise<string[]> => {
 const detectRuntimes = memoize(async (): Promise<string[]> => {
   const runtimes = []
 
-  if (await isCommandAvailable('bun')) runtimes.push('bun')
-  if (await isCommandAvailable('deno')) runtimes.push('deno')
-  if (await isCommandAvailable('node')) runtimes.push('node')
+  // @ts-expect-error any-to-never (stub types cause narrowing)
+  if (await isCommandAvailable('bun')) runtimes.push('bun' as any)
+  // @ts-expect-error any-to-never (stub types cause narrowing)
+  if (await isCommandAvailable('deno')) runtimes.push('deno' as any)
+  // @ts-expect-error any-to-never (stub types cause narrowing)
+  if (await isCommandAvailable('node')) runtimes.push('node' as any)
 
   return runtimes
 })

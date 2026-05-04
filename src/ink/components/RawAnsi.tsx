@@ -44,6 +44,7 @@ export function RawAnsi(t0) {
   }
   let t2;
   if ($[2] !== lines.length || $[3] !== t1 || $[4] !== width) {
+    // @ts-expect-error property does not exist on inferred type
     t2 = <ink-raw-ansi rawText={t1} rawWidth={width} rawHeight={lines.length} />;
     $[2] = lines.length;
     $[3] = t1;

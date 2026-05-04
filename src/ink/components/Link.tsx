@@ -19,6 +19,7 @@ export default function Link(t0) {
   if (supportsHyperlinks()) {
     let t1;
     if ($[0] !== content || $[1] !== url) {
+      // @ts-expect-error property does not exist on inferred type
       t1 = <Text><ink-link href={url}>{content}</ink-link></Text>;
       $[0] = content;
       $[1] = url;

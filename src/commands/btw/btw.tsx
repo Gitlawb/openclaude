@@ -40,8 +40,8 @@ function BtwSideQuestion(t0) {
     context,
     onDone
   } = t0;
-  const [response, setResponse] = useState(null);
-  const [error, setError] = useState(null);
+  const [response, setResponse] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [frame, setFrame] = useState(0);
   const scrollRef = useRef(null);
   const {
@@ -67,10 +67,12 @@ function BtwSideQuestion(t0) {
       }
       if (e.key === "up" || e.ctrl && e.key === "p") {
         e.preventDefault();
+        // @ts-expect-error property does not exist on inferred type
         scrollRef.current?.scrollBy(-SCROLL_LINES);
       }
       if (e.key === "down" || e.ctrl && e.key === "n") {
         e.preventDefault();
+        // @ts-expect-error property does not exist on inferred type
         scrollRef.current?.scrollBy(SCROLL_LINES);
       }
     };

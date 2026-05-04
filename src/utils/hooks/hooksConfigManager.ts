@@ -327,6 +327,7 @@ export function groupHooksByEventAndMatcher(
       const eventGroup = grouped[hookEvent]
       if (!eventGroup) continue
 
+      // @ts-expect-error possibly undefined
       for (const matcher of matchers) {
         const matcherKey = matcher.matcher || ''
 

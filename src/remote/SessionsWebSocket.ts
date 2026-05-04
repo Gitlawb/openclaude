@@ -2,8 +2,10 @@ import { randomUUID } from 'crypto'
 import { getOauthConfig } from '../constants/oauth.js'
 import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
 import type {
+  // @ts-expect-error module has no exported member
   SDKControlCancelRequest,
   SDKControlRequest,
+  // @ts-expect-error module has no exported member
   SDKControlRequestInner,
   SDKControlResponse,
 } from '../entrypoints/sdk/controlTypes.js'
@@ -216,7 +218,7 @@ export class SessionsWebSocket {
         this.callbacks.onMessage(message)
       } else {
         logForDebugging(
-          `[SessionsWebSocket] Ignoring message type: ${typeof message === 'object' && message !== null && 'type' in message ? String(message.type) : 'unknown'}`,
+          `[SessionsWebSocket] Ignoring message type: ${typeof message === 'object' && message !== null && 'type' in message ? String((message as any).type) : 'unknown'}`,
         )
       }
     } catch (error) {

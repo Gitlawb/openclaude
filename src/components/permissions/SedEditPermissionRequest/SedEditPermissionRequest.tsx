@@ -100,7 +100,9 @@ function SedEditPermissionRequestInner(t0) {
     filePath
   } = sedInfo;
   const {
+    // @ts-expect-error property does not exist on inferred type
     oldContent,
+    // @ts-expect-error property does not exist on inferred type
     fileExists
   } = use(contentPromise);
   let t1;

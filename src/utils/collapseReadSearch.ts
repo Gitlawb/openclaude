@@ -178,6 +178,7 @@ export function getToolSearchOrReadInfo(
   // (lazy tool schema loading). Neither should break a collapse group or
   // contribute to its count, but both stay visible in verbose mode.
   if (
+    // @ts-expect-error comparison always false/true
     (feature('HISTORY_SNIP') && toolName === SNIP_TOOL_NAME) ||
     (isFullscreenEnvEnabled() && toolName === TOOL_SEARCH_TOOL_NAME)
   ) {
@@ -896,15 +897,15 @@ export function collapseReadSearchGroups(
       }
     } else if (currentGroup.messages.length > 0 && isPreToolHookSummary(msg)) {
       // Absorb PreToolUse hook summaries into the group instead of deferring
-      currentGroup.hookCount += msg.hookCount
+      currentGroup.hookCount += (msg as any).hookCount
       currentGroup.hookTotalMs +=
-        msg.totalDurationMs ??
-        msg.hookInfos.reduce((sum, h) => sum + (h.durationMs ?? 0), 0)
-      currentGroup.hookInfos.push(...msg.hookInfos)
+        (msg as any).totalDurationMs ??
+        (msg as any).hookInfos.reduce((sum, h) => sum + (h.durationMs ?? 0), 0)
+      currentGroup.hookInfos.push(...(msg as any).hookInfos)
     } else if (
       currentGroup.messages.length > 0 &&
-      msg.type === 'attachment' &&
-      msg.attachment.type === 'relevant_memories'
+      (msg as any).type === 'attachment' &&
+      (msg as any).attachment.type === 'relevant_memories'
     ) {
       // Absorb auto-injected memory attachments so "recalled N memories"
       // renders inline with "ran N bash commands" instead of as a separate
@@ -914,7 +915,7 @@ export function collapseReadSearchGroups(
       // suppresses the fallback). createCollapsedGroup adds .length to
       // memoryReadCount after the readCount subtraction instead.
       currentGroup.relevantMemories ??= []
-      currentGroup.relevantMemories.push(...msg.attachment.memories)
+      currentGroup.relevantMemories.push(...(msg as any).attachment.memories)
     } else if (shouldSkipMessage(msg)) {
       // Don't flush the group for skippable messages (thinking, attachments, system)
       // If a group is in progress, defer these messages to output after the collapsed group
@@ -924,7 +925,7 @@ export function collapseReadSearchGroups(
       // ⎿ Loaded lines cluster tightly instead of being split by the badge's marginTop.
       if (
         currentGroup.messages.length > 0 &&
-        !(msg.type === 'attachment' && msg.attachment.type === 'nested_memory')
+        !((msg as any).type === 'attachment' && (msg as any).attachment.type === 'nested_memory')
       ) {
         deferredSkippable.push(msg)
       } else {

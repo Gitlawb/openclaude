@@ -48,9 +48,11 @@ export function isValidAwsStsOutput(obj: unknown): obj is AwsStsOutput {
 
 /** Throws if STS caller identity cannot be retrieved. */
 export async function checkStsCallerIdentity(): Promise<void> {
+  // @ts-expect-error property does not exist on inferred type
   const { STSClient, GetCallerIdentityCommand } = await import(
     '@aws-sdk/client-sts'
   )
+  // @ts-expect-error property does not exist on inferred type
   await new STSClient().send(new GetCallerIdentityCommand({}))
 }
 

@@ -87,8 +87,8 @@ test('runtime credential resolution avoids sync secure-storage reads when async 
     },
   }))
 
-  // @ts-expect-error cache-busting query string for Bun module mocks
   const { resolveRuntimeCodexCredentials } = await import(
+    // @ts-expect-error cache-busting query string for Bun module mocks
     './providerConfig.js?runtime-no-sync-secure-storage'
   )
 

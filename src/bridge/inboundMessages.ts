@@ -34,7 +34,9 @@ export function extractInboundMessageFields(
       : undefined
 
   return {
-    content: Array.isArray(content) ? normalizeImageBlocks(content) : content,
+    content: Array.isArray(content)
+      ? normalizeImageBlocks(content as Array<ContentBlockParam>)
+      : content,
     uuid,
   }
 }

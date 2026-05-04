@@ -285,14 +285,17 @@ function createSpeculationFeedbackMessage(
 
   const parts = []
   if (toolUses > 0) {
-    parts.push(`Speculated ${toolUses} tool ${toolUses === 1 ? 'use' : 'uses'}`)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    parts.push(`Speculated ${toolUses} tool ${toolUses === 1 ? 'use' : 'uses'}` as any)
   } else {
     const turns = messages.length
-    parts.push(`Speculated ${turns} ${turns === 1 ? 'turn' : 'turns'}`)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    parts.push(`Speculated ${turns} ${turns === 1 ? 'turn' : 'turns'}` as any)
   }
 
   if (tokens !== null) {
-    parts.push(`${formatNumber(tokens)} tokens`)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    parts.push(`${formatNumber(tokens)} tokens` as any)
   }
 
   const savedText = `+${formatDuration(timeSavedMs)} saved`

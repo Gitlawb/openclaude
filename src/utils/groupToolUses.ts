@@ -4,6 +4,7 @@ import type { Tools } from '../Tool.js'
 import type {
   GroupedToolUseMessage,
   NormalizedAssistantMessage,
+  // @ts-expect-error module has no exported member
   NormalizedMessage,
   NormalizedUserMessage,
   ProgressMessage,
@@ -34,10 +35,10 @@ function getToolsWithGrouping(tools: Tools): Set<string> {
 function getToolUseInfo(
   msg: MessageWithoutProgress,
 ): { messageId: string; toolUseId: string; toolName: string } | null {
-  if (msg.type === 'assistant' && msg.message.content[0]?.type === 'tool_use') {
-    const content = msg.message.content[0]
+  if ((msg as any).type === 'assistant' && (msg as any).message.content[0]?.type === 'tool_use') {
+    const content = (msg as any).message.content[0]
     return {
-      messageId: msg.message.id,
+      messageId: (msg as any).message.id,
       toolUseId: content.id,
       toolName: content.name,
     }
@@ -91,7 +92,8 @@ export function applyGrouping(
     if (group.length >= 2) {
       validGroups.set(key, group)
       for (const msg of group) {
-        const info = getToolUseInfo(msg)
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        const info = getToolUseInfo(msg as any)
         if (info) {
           groupedToolUseIds.add(info.toolUseId)
         }
@@ -104,8 +106,8 @@ export function applyGrouping(
   const resultsByToolUseId = new Map<string, NormalizedUserMessage>()
 
   for (const msg of messages) {
-    if (msg.type === 'user') {
-      for (const content of msg.message.content) {
+    if ((msg as any).type === 'user') {
+      for (const content of (msg as any).message.content) {
         if (
           content.type === 'tool_result' &&
           groupedToolUseIds.has(content.tool_use_id)
@@ -161,8 +163,8 @@ export function applyGrouping(
     }
 
     // Skip user messages whose tool_results are all grouped
-    if (msg.type === 'user') {
-      const toolResults = msg.message.content.filter(
+    if ((msg as any).type === 'user') {
+      const toolResults = (msg as any).message.content.filter(
         (c): c is ToolResultBlockParam => c.type === 'tool_result',
       )
       if (toolResults.length > 0) {

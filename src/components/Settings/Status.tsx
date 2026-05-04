@@ -207,7 +207,7 @@ function Diagnostics(t0) {
     promise
   } = t0;
   const diagnostics = use(promise);
-  if (diagnostics.length === 0) {
+  if ((diagnostics as any).length === 0) {
     return null;
   }
   let t1;
@@ -219,7 +219,7 @@ function Diagnostics(t0) {
   }
   let t2;
   if ($[1] !== diagnostics) {
-    t2 = diagnostics.map(_temp5);
+    t2 = (diagnostics as any).map(_temp5);
     $[1] = diagnostics;
     $[2] = t2;
   } else {

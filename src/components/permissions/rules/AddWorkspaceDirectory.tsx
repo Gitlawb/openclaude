@@ -143,7 +143,7 @@ export function AddWorkspaceDirectory(t0) {
     directoryPath
   } = t0;
   const [directoryInput, setDirectoryInput] = useState("");
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = [];

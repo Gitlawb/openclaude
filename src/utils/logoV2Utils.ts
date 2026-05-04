@@ -169,7 +169,8 @@ export function truncatePath(path: string, maxLength: number): string {
   for (let i = parts.length - 2; i > 0; i--) {
     const part = parts[i]
     if (part && stringWidth(part) + separatorWidth <= available) {
-      middleParts.unshift(part)
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      middleParts.unshift(part as any)
       available -= stringWidth(part) + separatorWidth
     } else {
       break

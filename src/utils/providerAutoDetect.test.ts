@@ -154,6 +154,7 @@ describe('detectLocalService', () => {
   })
 
   test('Ollama wins over LM Studio even when both are reachable', async () => {
+    // @ts-expect-error conversion mismatch
     const fetchImpl = (async () => new Response('{}', { status: 200 })) as typeof fetch
     const result = await detectLocalService({
       env: {},
@@ -182,6 +183,7 @@ describe('detectLocalService', () => {
   })
 
   test('returns null when no local services respond', async () => {
+    // @ts-expect-error conversion mismatch
     const fetchImpl = (async () =>
       new Response('', { status: 500 })) as typeof fetch
     const result = await detectLocalService({
@@ -231,6 +233,7 @@ describe('detectLocalService', () => {
   })
 
   test('network errors do not throw', async () => {
+    // @ts-expect-error conversion mismatch
     const fetchImpl = (async () => {
       throw new Error('ECONNREFUSED')
     }) as typeof fetch
@@ -247,6 +250,7 @@ describe('detectLocalService', () => {
 describe('detectBestProvider — orchestrator', () => {
   test('env match short-circuits the local probe', async () => {
     let probeCalled = false
+    // @ts-expect-error conversion mismatch
     const fetchImpl = (async () => {
       probeCalled = true
       return new Response('{}', { status: 200 })
@@ -263,6 +267,7 @@ describe('detectBestProvider — orchestrator', () => {
   })
 
   test('env miss falls through to local-service probe', async () => {
+    // @ts-expect-error conversion mismatch
     const fetchImpl = (async () => new Response('{}', { status: 200 })) as typeof fetch
     const result = await detectBestProvider({
       env: {},
@@ -275,6 +280,7 @@ describe('detectBestProvider — orchestrator', () => {
 
   test('skipLocal prevents network probes', async () => {
     let probeCalled = false
+    // @ts-expect-error conversion mismatch
     const fetchImpl = (async () => {
       probeCalled = true
       return new Response('{}', { status: 200 })
@@ -291,6 +297,7 @@ describe('detectBestProvider — orchestrator', () => {
   })
 
   test('completely empty environment returns null', async () => {
+    // @ts-expect-error conversion mismatch
     const fetchImpl = (async () => {
       throw new Error('nothing reachable')
     }) as typeof fetch

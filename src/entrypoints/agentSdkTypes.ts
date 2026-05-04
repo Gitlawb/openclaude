@@ -34,41 +34,8 @@ export * from './sdk/toolTypes.js'
 // Functions
 // ============================================================================
 
-import type {
-  SDKMessage,
-  SDKResultMessage,
-  SDKSessionInfo,
-  SDKUserMessage,
-} from './sdk/coreTypes.js'
-// Import types needed for function signatures
-import type {
-  AnyZodRawShape,
-  ForkSessionOptions,
-  ForkSessionResult,
-  GetSessionInfoOptions,
-  GetSessionMessagesOptions,
-  InferShape,
-  InternalOptions,
-  InternalQuery,
-  ListSessionsOptions,
-  McpSdkServerConfigWithInstance,
-  Options,
-  Query,
-  SDKSession,
-  SDKSessionOptions,
-  SdkMcpToolDefinition,
-  SessionMessage,
-  SessionMutationOptions,
-} from './sdk/runtimeTypes.js'
-
-export type {
-  ListSessionsOptions,
-  GetSessionInfoOptions,
-  SessionMutationOptions,
-  ForkSessionOptions,
-  ForkSessionResult,
-  SDKSessionInfo,
-}
+// Types needed for function signatures are provided by the local stub
+// declarations at the end of this file (issue #473 — typecheck foundation).
 
 export function tool<Schema extends AnyZodRawShape>(
   _name: string,
@@ -500,7 +467,7 @@ export type RewindFilesResult = any
 export type SDKAssistantMessage = any
 export type SDKAssistantMessageError = any
 export type SDKCompactBoundaryMessage = any
-export type SdkMcpToolDefinition = any
+export type SdkMcpToolDefinition<T = any> = any
 export type SDKPartialAssistantMessage = any
 export type SDKPermissionDenial = any
 export type SDKRateLimitInfo = any
@@ -510,6 +477,12 @@ export type SDKSystemMessage = any
 export type SDKToolProgressMessage = any
 export type SDKUserMessageReplay = any
 export type SessionEndHookInput = any
+export type SDKMessage = any
+export type SDKResultMessage = any
+export type SDKSession = any
+export type SDKSessionInfo = any
+export type SDKSessionOptions = any
+export type SDKUserMessage = any
 export type SessionMessage = any
 export type SessionMutationOptions = any
 export type SessionStartHookInput = any

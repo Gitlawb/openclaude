@@ -18,9 +18,13 @@ const DEFAULT_WIDTH = 80;
 export const HighlightedCode = memo(function HighlightedCode(t0) {
   const $ = _c(21);
   const {
+    // @ts-expect-error property does not exist on inferred type
     code,
+    // @ts-expect-error property does not exist on inferred type
     filePath,
+    // @ts-expect-error property does not exist on inferred type
     width,
+    // @ts-expect-error property does not exist on inferred type
     dim: t1
   } = t0;
   const dim = t1 === undefined ? false : t1;

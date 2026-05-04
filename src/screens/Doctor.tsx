@@ -60,7 +60,7 @@ function DistTagsDisplay(t0) {
     promise
   } = t0;
   const distTags = use(promise);
-  if (!distTags.latest) {
+  if (!(distTags as any).latest) {
     let t1;
     if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
       t1 = <Text dimColor={true}>└ Failed to fetch versions</Text>;
@@ -71,17 +71,17 @@ function DistTagsDisplay(t0) {
     return t1;
   }
   let t1;
-  if ($[1] !== distTags.stable) {
-    t1 = distTags.stable && <Text>└ Stable version: {distTags.stable}</Text>;
-    $[1] = distTags.stable;
+  if ($[1] !== (distTags as any).stable) {
+    t1 = (distTags as any).stable && <Text>└ Stable version: {(distTags as any).stable}</Text>;
+    $[1] = (distTags as any).stable;
     $[2] = t1;
   } else {
     t1 = $[2];
   }
   let t2;
-  if ($[3] !== distTags.latest) {
-    t2 = <Text>└ Latest version: {distTags.latest}</Text>;
-    $[3] = distTags.latest;
+  if ($[3] !== (distTags as any).latest) {
+    t2 = <Text>└ Latest version: {(distTags as any).latest}</Text>;
+    $[3] = (distTags as any).latest;
     $[4] = t2;
   } else {
     t2 = $[4];
@@ -116,10 +116,10 @@ export function Doctor(t0) {
     t1 = $[1];
   }
   const tools = t1;
-  const [diagnostic, setDiagnostic] = useState(null);
-  const [agentInfo, setAgentInfo] = useState(null);
-  const [contextWarnings, setContextWarnings] = useState(null);
-  const [versionLockInfo, setVersionLockInfo] = useState(null);
+  const [diagnostic, setDiagnostic] = useState<any>(null);
+  const [agentInfo, setAgentInfo] = useState<any>(null);
+  const [contextWarnings, setContextWarnings] = useState<any>(null);
+  const [versionLockInfo, setVersionLockInfo] = useState<any>(null);
   const validationErrors = useSettingsErrors();
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {

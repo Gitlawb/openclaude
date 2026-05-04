@@ -241,6 +241,7 @@ ${sessionIds.map(id => `- ${id}`).join('\n')}`
         isDreamTask(dreamState) &&
         dreamState.filesTouched.length > 0
       ) {
+        // @ts-expect-error any-to-never (stub types cause narrowing)
         appendSystemMessage({
           ...createMemorySavedMessage(dreamState.filesTouched),
           verb: 'Improved',

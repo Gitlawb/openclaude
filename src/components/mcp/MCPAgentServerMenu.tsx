@@ -106,11 +106,13 @@ export function MCPAgentServerMenu({
 
   // Only show authenticate option for HTTP/SSE servers
   if (agentServer.needsAuth) {
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     menuOptions.push({
       label: agentServer.isAuthenticated ? 'Re-authenticate' : 'Authenticate',
       value: 'auth'
     });
   }
+  // @ts-expect-error any-to-never (stub types cause narrowing)
   menuOptions.push({
     label: 'Back',
     value: 'back'

@@ -108,14 +108,16 @@ export function formatZodValidationError(
     const missingParamErrors = missingParams.map(
       param => `The required parameter \`${param}\` is missing`,
     )
-    errorParts.push(...missingParamErrors)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    errorParts.push(...missingParamErrors as any)
   }
 
   if (unexpectedParams.length > 0) {
     const unexpectedParamErrors = unexpectedParams.map(
       param => `An unexpected parameter \`${param}\` was provided`,
     )
-    errorParts.push(...unexpectedParamErrors)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    errorParts.push(...unexpectedParamErrors as any)
   }
 
   if (typeMismatchParams.length > 0) {
@@ -123,7 +125,8 @@ export function formatZodValidationError(
       ({ param, expected, received }) =>
         `The parameter \`${param}\` type is expected as \`${expected}\` but provided as \`${received}\``,
     )
-    errorParts.push(...typeErrors)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    errorParts.push(...typeErrors as any)
   }
 
   if (errorParts.length > 0) {

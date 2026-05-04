@@ -108,11 +108,12 @@ function enqueueShellNotification(taskId: string, description: string, status: '
   // enqueueing to avoid sending redundant messages to the model.
   let shouldEnqueue = false;
   updateTaskState(taskId, setAppState, task => {
-    if (task.notified) {
+    if ((task as any).notified) {
       return task;
     }
     shouldEnqueue = true;
     return {
+      // @ts-expect-error spread types
       ...task,
       notified: true
     };
@@ -479,7 +480,8 @@ export function backgroundExistingForegroundTask(taskId: string, shellCommand: S
  * carries the full output, so the <task_notification> would be redundant.
  */
 export function markTaskNotified(taskId: string, setAppState: SetAppState): void {
-  updateTaskState(taskId, setAppState, t => t.notified ? t : {
+  updateTaskState(taskId, setAppState, t => (t as any).notified ? t : {
+    // @ts-expect-error spread types
     ...t,
     notified: true
   });

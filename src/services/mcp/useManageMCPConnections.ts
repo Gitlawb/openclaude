@@ -720,6 +720,7 @@ export function useManageMCPConnections(
                     // Invalidate prompts cache as well: we write commands here,
                     // and a concurrent prompts/list_changed could otherwise have
                     // us stomp its fresh result with our cached stale one.
+                    // @ts-expect-error property does not exist on inferred type
                     fetchMcpSkillsForClient!.cache.delete(client.name)
                     fetchCommandsForClient.cache.delete(client.name)
                     const [newResources, mcpPrompts, mcpSkills] =

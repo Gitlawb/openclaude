@@ -35,6 +35,7 @@ async function waitForExecCall(
   attempts = 20,
 ): Promise<(typeof execFileNoThrowMock.mock.calls)[number] | undefined> {
   for (let attempt = 0; attempt < attempts; attempt++) {
+    // @ts-expect-error bun mock type narrowing
     const call = execFileNoThrowMock.mock.calls.find(([cmd]) => cmd === command)
     if (call) {
       return call
@@ -67,6 +68,7 @@ describe('Windows clipboard fallback', () => {
     await setClipboard('Привет мир')
     const windowsCall = await waitForExecCall('powershell')
 
+    // @ts-expect-error bun mock type narrowing
     expect(execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'clip')).toBe(
       false,
     )
@@ -81,16 +83,21 @@ describe('Windows clipboard fallback', () => {
 
     const windowsCall = await waitForExecCall('powershell')
 
+    // @ts-expect-error bun mock type narrowing
     expect(windowsCall?.[2]).toMatchObject({
       stdin: 'ignore',
     })
+    // @ts-expect-error bun mock type narrowing
     expect(windowsCall?.[2]).not.toMatchObject({ input: 'Привет мир' })
+    // @ts-expect-error bun mock type narrowing
     expect(windowsCall?.[2]).not.toMatchObject({
       env: expect.objectContaining({
         OPENCLAUDE_CLIPBOARD_TEXT_B64: expect.any(String),
       }),
     })
+    // @ts-expect-error bun mock type narrowing
     expect(windowsCall?.[1]).toContain(
+      // @ts-expect-error bun mock type narrowing
       `$text = [System.IO.File]::ReadAllText('${mockedClipboardPath.replace(/'/g, "''")}', [System.Text.Encoding]::UTF8); Set-Clipboard -Value $text`,
     )
   })
@@ -132,6 +139,7 @@ describe('clipboard path behavior remains stable', () => {
 
     await setClipboard('Привет мир')
 
+    // @ts-expect-error bun mock type narrowing
     expect(execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'powershell')).toBe(
       false,
     )
@@ -143,6 +151,7 @@ describe('clipboard path behavior remains stable', () => {
 
     await setClipboard('hello')
 
+    // @ts-expect-error bun mock type narrowing
     expect(execFileNoThrowMock.mock.calls.some(([cmd]) => cmd === 'pbcopy')).toBe(
       true,
     )

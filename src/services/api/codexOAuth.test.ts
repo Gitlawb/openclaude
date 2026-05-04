@@ -69,6 +69,7 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
   process.env.CODEX_OAUTH_CALLBACK_PORT = String(callbackPort)
   process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock(async (input, init) => {
     const url = String(input)
     if (url.startsWith('http://localhost:')) {
@@ -117,6 +118,7 @@ test('cancellation during token exchange returns a cancelled page and rejects th
     resolveFetchStart = resolve
   })
 
+  // @ts-expect-error conversion mismatch
   globalThis.fetch = mock((input, init) => {
     const url = String(input)
     if (url.startsWith('http://localhost:')) {

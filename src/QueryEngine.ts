@@ -291,6 +291,7 @@ export class QueryEngine {
       tools,
       mainLoopModel: initialMainLoopModel,
       additionalWorkingDirectories: Array.from(
+        // @ts-expect-error not callable
         initialAppState.toolPermissionContext.additionalWorkingDirectories.keys(),
       ),
       mcpClients,
@@ -1076,7 +1077,7 @@ export class QueryEngine {
     const edeResultType = result?.type ?? 'undefined'
     const edeLastContentType =
       result?.type === 'assistant'
-        ? (last(result.message.content)?.type ?? 'none')
+        ? ((last(result.message.content) as any)?.type ?? 'none')
         : 'n/a'
 
     // Flush buffered transcript writes before yielding result.
@@ -1136,10 +1137,11 @@ export class QueryEngine {
     if (result.type === 'assistant') {
       const lastContent = last(result.message.content)
       if (
+        // @ts-expect-error property does not exist on inferred type
         lastContent?.type === 'text' &&
-        !SYNTHETIC_MESSAGES.has(lastContent.text)
+        !SYNTHETIC_MESSAGES.has((lastContent as any).text)
       ) {
-        textResult = lastContent.text
+        textResult = (lastContent as any).text
       }
       isApiError = Boolean(result.isApiErrorMessage)
     }
@@ -1227,6 +1229,7 @@ export class QueryEngine {
       }
       return agent
     }, 'injectAgents')
+    // @ts-expect-error type mismatch
     this.config.agents = validated
   }
 

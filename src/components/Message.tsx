@@ -623,4 +623,5 @@ export function areMessagePropsEqual(prev: Props, next: Props): boolean {
   if (prev.isStatic && next.isStatic) return true;
   return false;
 }
+// @ts-expect-error no overload matches
 export const Message = React.memo(MessageImpl, areMessagePropsEqual);

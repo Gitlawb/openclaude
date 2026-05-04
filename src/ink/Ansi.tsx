@@ -32,7 +32,9 @@ type SpanProps = {
 export const Ansi = React.memo(function Ansi(t0) {
   const $ = _c(12);
   const {
+    // @ts-expect-error property does not exist on inferred type
     children,
+    // @ts-expect-error property does not exist on inferred type
     dimColor
   } = t0;
   if (typeof children !== "string") {

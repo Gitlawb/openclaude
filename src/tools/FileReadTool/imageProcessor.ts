@@ -58,6 +58,7 @@ export async function getImageProcessor(): Promise<SharpFunction> {
       if ((imageProcessor as { __stub?: boolean }).__stub) {
         throw new ImageProcessorUnavailableError()
       }
+      // @ts-expect-error property does not exist on inferred type
       const sharp = imageProcessor.sharp || imageProcessor.default
       imageProcessorModule = { default: sharp }
       return sharp

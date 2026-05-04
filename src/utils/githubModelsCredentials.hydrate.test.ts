@@ -41,9 +41,11 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
     }))
 
     const { hydrateGithubModelsTokenFromSecureStorage } = await import(
+      // @ts-expect-error cache-busting query string for Bun module mocks
       './githubModelsCredentials.js?hydrate=sets-token'
     )
     hydrateGithubModelsTokenFromSecureStorage()
+    // @ts-expect-error no overload matches
     expect(process.env.GITHUB_TOKEN).toBe('stored-secret')
     expect(process.env.CLAUDE_CODE_GITHUB_TOKEN_HYDRATED).toBe('1')
   })
@@ -62,6 +64,7 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
     }))
 
     const { hydrateGithubModelsTokenFromSecureStorage } = await import(
+      // @ts-expect-error cache-busting query string for Bun module mocks
       './githubModelsCredentials.js?hydrate=preserve-existing'
     )
     hydrateGithubModelsTokenFromSecureStorage()

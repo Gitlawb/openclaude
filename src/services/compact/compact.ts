@@ -797,7 +797,7 @@ export async function partialCompactConversation(
               m =>
                 m.type !== 'progress' &&
                 !isCompactBoundaryMessage(m) &&
-                !(m.type === 'user' && m.isCompactSummary),
+                !((m as any).type === 'user' && (m as any).isCompactSummary),
             )
         : allMessages.slice(0, pivotIndex).filter(m => m.type !== 'progress')
 

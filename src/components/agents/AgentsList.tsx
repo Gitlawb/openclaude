@@ -51,9 +51,11 @@ export function AgentsList(t0) {
   }
   const renderCreateNewOption = t2;
   let t3;
+  // @ts-expect-error React Compiler output loses type context
   if ($[4] !== isCreateNewSelected || $[5] !== selectedAgent?.agentType || $[6] !== selectedAgent?.source) {
     t3 = agent_0 => {
       const isBuiltIn = agent_0.source === "built-in";
+      // @ts-expect-error React Compiler output loses type context
       const isSelected = !isBuiltIn && !isCreateNewSelected && selectedAgent?.agentType === agent_0.agentType && selectedAgent?.source === agent_0.source;
       const {
         isOverridden,
@@ -65,7 +67,9 @@ export function AgentsList(t0) {
       return <Box key={`${agent_0.agentType}-${agent_0.source}`}><Text dimColor={dimmed && !isSelected} color={textColor}>{isBuiltIn ? "" : isSelected ? `${figures.pointer} ` : "  "}</Text><Text dimColor={dimmed && !isSelected} color={textColor}>{agent_0.agentType}</Text>{resolvedModel && <Text dimColor={true} color={textColor}>{" \xB7 "}{resolvedModel}</Text>}{agent_0.memory && <Text dimColor={true} color={textColor}>{" \xB7 "}{agent_0.memory} memory</Text>}{overriddenBy && <Text dimColor={!isSelected} color={isSelected ? "warning" : undefined}>{" "}{figures.warning} shadowed by {getOverrideSourceLabel(overriddenBy)}</Text>}</Box>;
     };
     $[4] = isCreateNewSelected;
+    // @ts-expect-error React Compiler output loses type context
     $[5] = selectedAgent?.agentType;
+    // @ts-expect-error React Compiler output loses type context
     $[6] = selectedAgent?.source;
     $[7] = t3;
   } else {
@@ -143,7 +147,7 @@ export function AgentsList(t0) {
       }
       let currentPosition = 0;
       if (!isCreateNewSelected && selectedAgent) {
-        const agentIndex = selectableAgentsInOrder.findIndex(a_1 => a_1.agentType === selectedAgent.agentType && a_1.source === selectedAgent.source);
+        const agentIndex = selectableAgentsInOrder.findIndex(a_1 => a_1.agentType === (selectedAgent as any).agentType && a_1.source === (selectedAgent as any).source);
         if (agentIndex >= 0) {
           currentPosition = hasCreateOption ? agentIndex + 1 : agentIndex;
         }

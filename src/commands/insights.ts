@@ -2567,6 +2567,7 @@ async function scanAllSessions(): Promise<LiteSessionInfo[]> {
 
   let dirents: Awaited<ReturnType<typeof readdir>>
   try {
+    // @ts-expect-error type mismatch
     dirents = await readdir(projectsDir, { withFileTypes: true })
   } catch {
     return []
@@ -2574,6 +2575,7 @@ async function scanAllSessions(): Promise<LiteSessionInfo[]> {
 
   const projectDirs = dirents
     .filter(dirent => dirent.isDirectory())
+    // @ts-expect-error argument type mismatch
     .map(dirent => join(projectsDir, dirent.name))
 
   const allSessions: LiteSessionInfo[] = []

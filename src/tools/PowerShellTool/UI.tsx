@@ -9,6 +9,7 @@ import { ShellTimeDisplay } from '../../components/shell/ShellTimeDisplay.js';
 import { Box, Text } from '../../ink.js';
 import type { Tool } from '../../Tool.js';
 import type { ProgressMessage } from '../../types/message.js';
+// @ts-expect-error module has no exported member
 import type { PowerShellProgress } from '../../types/tools.js';
 import type { ThemeName } from '../../utils/theme.js';
 import type { Out, PowerShellToolInput } from './PowerShellTool.js';

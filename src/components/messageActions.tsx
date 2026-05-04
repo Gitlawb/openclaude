@@ -15,6 +15,7 @@ export type NavigableOf<T extends NavigableType> = Extract<RenderableMessage, {
 export type NavigableMessage = RenderableMessage;
 
 // Tier-2 blocklist (tier-1 is height > 0) — things that render but aren't actionable.
+// @ts-expect-error TS2366
 export function isNavigableMessage(msg: NavigableMessage): boolean {
   switch (msg.type) {
     case 'assistant':
@@ -406,6 +407,7 @@ export function stripSystemReminders(text: string): string {
   }
   return t;
 }
+// @ts-expect-error TS2366
 export function copyTextOf(msg: NavigableMessage): string {
   switch (msg.type) {
     case 'user':

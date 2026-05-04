@@ -238,10 +238,12 @@ function PluginComponentsDisplay({
           // Combine commands from both sources
           const commandPathList = [];
           if (plugin.commandsPath) {
-            commandPathList.push(plugin.commandsPath);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            commandPathList.push(plugin.commandsPath as any);
           }
           if (plugin.commandsPaths) {
-            commandPathList.push(...plugin.commandsPaths);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            commandPathList.push(...plugin.commandsPaths as any);
           }
 
           // Get base file names from all command paths
@@ -257,10 +259,12 @@ function PluginComponentsDisplay({
           // Combine agents from both sources
           const agentPathList = [];
           if (plugin.agentsPath) {
-            agentPathList.push(plugin.agentsPath);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            agentPathList.push(plugin.agentsPath as any);
           }
           if (plugin.agentsPaths) {
-            agentPathList.push(...plugin.agentsPaths);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            agentPathList.push(...plugin.agentsPaths as any);
           }
 
           // Get base file names from all agent paths
@@ -276,10 +280,12 @@ function PluginComponentsDisplay({
           // Combine skills from both sources
           const skillPathList = [];
           if (plugin.skillsPath) {
-            skillPathList.push(plugin.skillsPath);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            skillPathList.push(plugin.skillsPath as any);
           }
           if (plugin.skillsPaths) {
-            skillPathList.push(...plugin.skillsPaths);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            skillPathList.push(...plugin.skillsPaths as any);
           }
 
           // Get skill directory names from all skill paths
@@ -296,19 +302,23 @@ function PluginComponentsDisplay({
           // Combine hooks from both sources
           const hooksList = [];
           if (plugin.hooksConfig) {
-            hooksList.push(Object.keys(plugin.hooksConfig));
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            hooksList.push(Object.keys(plugin.hooksConfig) as any);
           }
           if (pluginEntry.hooks) {
-            hooksList.push(pluginEntry.hooks);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            hooksList.push(pluginEntry.hooks as any);
           }
 
           // Combine MCP servers from both sources
           const mcpServersList = [];
           if (plugin.mcpServers) {
-            mcpServersList.push(Object.keys(plugin.mcpServers));
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            mcpServersList.push(Object.keys(plugin.mcpServers) as any);
           }
           if (pluginEntry.mcpServers) {
-            mcpServersList.push(pluginEntry.mcpServers);
+            // @ts-expect-error any-to-never (stub types cause narrowing)
+            mcpServersList.push(pluginEntry.mcpServers as any);
           }
           setComponents({
             commands: commandList.length > 0 ? commandList : null,
@@ -1469,6 +1479,7 @@ export function ManagePlugins({
               const settings = getSettingsForSource(source);
               if (settings?.enabledPlugins?.[pluginId_7] !== undefined) {
                 updateSettingsForSource(source, {
+                  // @ts-expect-error type mismatch
                   enabledPlugins: {
                     ...settings.enabledPlugins,
                     [pluginId_7]: undefined

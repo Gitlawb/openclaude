@@ -95,12 +95,19 @@ function renderColorDiff(patch: StructuredPatchHunk, firstLine: string | null, f
 export const StructuredDiff = memo(function StructuredDiff(t0) {
   const $ = _c(26);
   const {
+    // @ts-expect-error React Compiler output loses type context
     patch,
+    // @ts-expect-error React Compiler output loses type context
     dim,
+    // @ts-expect-error React Compiler output loses type context
     filePath,
+    // @ts-expect-error React Compiler output loses type context
     firstLine,
+    // @ts-expect-error React Compiler output loses type context
     fileContent,
+    // @ts-expect-error React Compiler output loses type context
     width,
+    // @ts-expect-error React Compiler output loses type context
     skipHighlighting: t1
   } = t0;
   const skipHighlighting = t1 === undefined ? false : t1;

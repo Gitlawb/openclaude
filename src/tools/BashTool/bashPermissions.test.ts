@@ -54,6 +54,8 @@ test('sandbox auto-allow still enforces Bash path constraints', async () => {
   )
 
   expect(result.behavior).toBe('ask')
+  // @ts-expect-error property does not exist on inferred type
   expect(result.message).toContain('was blocked')
+  // @ts-expect-error property does not exist on inferred type
   expect(result.message).toContain('passwd')
 })

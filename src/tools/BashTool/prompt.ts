@@ -211,14 +211,17 @@ function getSimpleSandboxSection(): string {
 
   const restrictionsLines = []
   if (Object.keys(filesystemConfig).length > 0) {
-    restrictionsLines.push(`Filesystem: ${jsonStringify(filesystemConfig)}`)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    restrictionsLines.push(`Filesystem: ${jsonStringify(filesystemConfig)}` as any)
   }
   if (Object.keys(networkConfig).length > 0) {
-    restrictionsLines.push(`Network: ${jsonStringify(networkConfig)}`)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    restrictionsLines.push(`Network: ${jsonStringify(networkConfig)}` as any)
   }
   if (ignoreViolations) {
     restrictionsLines.push(
-      `Ignored violations: ${jsonStringify(ignoreViolations)}`,
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      `Ignored violations: ${jsonStringify(ignoreViolations)}` as any,
     )
   }
 

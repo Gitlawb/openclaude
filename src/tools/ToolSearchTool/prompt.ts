@@ -12,6 +12,7 @@ const BRIEF_TOOL_NAME: string | null =
         require('../BriefTool/prompt.js') as typeof import('../BriefTool/prompt.js')
       ).BRIEF_TOOL_NAME
     : null
+// @ts-expect-error type mismatch
 const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
   ? (
       require('../SendUserFileTool/prompt.js') as typeof import('../SendUserFileTool/prompt.js')

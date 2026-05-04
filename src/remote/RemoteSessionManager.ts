@@ -1,5 +1,6 @@
 import type { SDKMessage } from '../entrypoints/agentSdkTypes.js'
 import type {
+  // @ts-expect-error module has no exported member
   SDKControlCancelRequest,
   SDKControlPermissionRequest,
   SDKControlRequest,

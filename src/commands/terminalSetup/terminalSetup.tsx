@@ -119,7 +119,7 @@ export async function setupTerminal(theme: ThemeName): Promise<string> {
   maybeMarkProjectOnboardingComplete();
 
   // Install shell completions (internal-only, since the completion command is internal-only)
-  if ("external" === 'ant') {
+  if (("external" as string) === 'ant') {
     result += await setupShellCompletion(theme);
   }
   return result;

@@ -9,6 +9,7 @@ import {
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS: process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS:
     process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS,
   CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS:
@@ -18,11 +19,13 @@ const originalEnv = {
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
+  USER_TYPE: process.env.USER_TYPE,
 }
 
 beforeEach(() => {
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
   delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
   delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_BASE_URL
@@ -30,6 +33,7 @@ beforeEach(() => {
   delete process.env.OPENAI_MODEL
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
+  delete process.env.USER_TYPE
 })
 
 afterEach(() => {
@@ -43,6 +47,12 @@ afterEach(() => {
   } else {
     process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS =
       originalEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  }
+  if (originalEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS === undefined) {
+    delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+  } else {
+    process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS =
+      originalEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS
   }
   if (originalEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS === undefined) {
     delete process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
@@ -80,6 +90,11 @@ afterEach(() => {
     delete process.env.XAI_API_KEY
   } else {
     process.env.XAI_API_KEY = originalEnv.XAI_API_KEY
+  }
+  if (originalEnv.USER_TYPE === undefined) {
+    delete process.env.USER_TYPE
+  } else {
+    process.env.USER_TYPE = originalEnv.USER_TYPE
   }
 })
 

@@ -115,6 +115,7 @@ function saveIdpIdToken(
   const existing = storage.read() || {}
   storage.update({
     ...existing,
+    // @ts-expect-error type mismatch
     mcpXaaIdp: {
       ...existing.mcpXaaIdp,
       [issuerKey(idpIssuer)]: { idToken, expiresAt },

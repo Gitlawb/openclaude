@@ -368,7 +368,7 @@ export function createSessionSpawner(deps: SessionSpawnerDeps): SessionSpawner {
 
       const env = buildChildEnv(deps.env, {
         accessToken: opts.accessToken,
-        useCcrV2: opts.useCcrV2,
+        useCcrV2: !!opts.useCcrV2,
         workerEpoch: opts.workerEpoch,
         sandbox: deps.sandbox,
       })

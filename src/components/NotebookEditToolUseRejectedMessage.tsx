@@ -70,6 +70,7 @@ export function NotebookEditToolUseRejectedMessage(t0) {
   }
   let t7;
   if ($[13] !== cell_type || $[14] !== edit_mode || $[15] !== new_source) {
+    // @ts-expect-error type mismatch
     t7 = edit_mode !== "delete" && <Box marginTop={1} flexDirection="column"><HighlightedCode code={new_source} filePath={cell_type === "markdown" ? "file.md" : "file.py"} dim={true} /></Box>;
     $[13] = cell_type;
     $[14] = edit_mode;

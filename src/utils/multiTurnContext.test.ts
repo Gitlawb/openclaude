@@ -71,6 +71,7 @@ describe('multiTurnContext', () => {
     it('sets and gets turn state', () => {
       startNewTurn()
       setTurnState('key', 'value')
+      // @ts-expect-error no overload matches
       expect(getTurnState('key')).toBe('value')
     })
 

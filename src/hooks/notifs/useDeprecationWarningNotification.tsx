@@ -18,6 +18,7 @@ export function useDeprecationWarningNotification(model) {
       }
       const deprecationWarning = getModelDeprecationWarning(model);
       if (deprecationWarning && deprecationWarning !== lastWarningRef.current) {
+        // @ts-expect-error type mismatch
         lastWarningRef.current = deprecationWarning;
         addNotification({
           key: "model-deprecation-warning",

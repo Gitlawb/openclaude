@@ -261,9 +261,10 @@ export function HooksConfigMenu(t0) {
     const byEvent = {};
     let total = 0;
     for (const [event_0, matchers] of Object.entries(hooksByEventAndMatcher)) {
+      // @ts-expect-error no overload matches
       const eventCount = Object.values(matchers).reduce(_temp5, 0);
       byEvent[event_0 as HookEvent] = eventCount;
-      total = total + eventCount;
+      total = total + (eventCount as any);
     }
     t20 = {
       hooksByEvent: byEvent,

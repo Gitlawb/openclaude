@@ -259,7 +259,8 @@ export async function* handleStopHooks(
           content: getStopHookMessage(result.blockingError),
           isMeta: true, // Hide from UI (shown in summary message instead)
         })
-        blockingErrors.push(userMessage)
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        blockingErrors.push(userMessage as any)
         yield userMessage
         hasOutput = true
         // Add to hookErrors so it appears in the summary

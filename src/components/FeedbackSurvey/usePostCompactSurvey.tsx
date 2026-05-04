@@ -44,7 +44,7 @@ export function usePostCompactSurvey(messages, isLoading, t0, t1) {
     enabled: t3
   } = t2;
   const enabled = t3 === undefined ? true : t3;
-  const [gateEnabled, setGateEnabled] = useState(null);
+  const [gateEnabled, setGateEnabled] = useState<boolean | null>(null);
   let t4;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t4 = new Set();
@@ -134,6 +134,7 @@ export function usePostCompactSurvey(messages, isLoading, t0, t1) {
       const newBoundaries = Array.from(currentCompactBoundaries).filter(uuid => !seenCompactBoundaries.current.has(uuid));
       if (newBoundaries.length > 0) {
         seenCompactBoundaries.current = new Set(currentCompactBoundaries);
+        // @ts-expect-error type mismatch
         pendingCompactBoundaryUuid.current = newBoundaries[newBoundaries.length - 1];
       }
     };

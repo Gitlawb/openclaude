@@ -336,6 +336,7 @@ export async function getWithPermittedRedirects(
           data: new Uint8Array(arrayBuffer),
           status: fetchResponse.status,
           statusText: fetchResponse.statusText,
+          // @ts-expect-error property does not exist on inferred type
           headers: Object.fromEntries(fetchResponse.headers.entries()),
           config: axiosConfig,
           request: undefined,

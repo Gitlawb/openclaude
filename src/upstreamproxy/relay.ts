@@ -263,6 +263,7 @@ export async function startNodeRelay(
       end: () => sock.end(),
     }
     sock.on('data', data =>
+      // @ts-expect-error argument type mismatch
       handleData(adapter, st, data, wsUrl, authHeader, wsAuthHeader),
     )
     sock.on('close', () => cleanupConn(states.get(sock)))

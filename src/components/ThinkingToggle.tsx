@@ -24,7 +24,7 @@ export function ThinkingToggle(t0) {
     isMidConversation
   } = t0;
   const exitState = useExitOnCtrlCDWithKeybindings();
-  const [confirmationPending, setConfirmationPending] = useState(null);
+  const [confirmationPending, setConfirmationPending] = useState<boolean | null>(null);
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = [{

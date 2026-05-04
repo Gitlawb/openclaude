@@ -100,6 +100,7 @@ function normalizeDiscoveryCacheBaseUrl(
 function normalizeDiscoveryCacheHeaders(
   headers: Record<string, string> | undefined,
 ): Array<[string, string]> {
+  // @ts-expect-error type mismatch
   return Object.entries(headers ?? {})
     .map(([name, value]) => [name.trim().toLowerCase(), value.trim()] as const)
     .filter(([name, value]) => name && value)

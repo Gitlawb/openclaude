@@ -25,6 +25,7 @@ describe('preconnectAnthropicApi', () => {
       getAPIProvider: () => 'openai',
     }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    // @ts-expect-error conversion mismatch
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
@@ -39,6 +40,7 @@ describe('preconnectAnthropicApi', () => {
       getAPIProvider: () => 'gemini',
     }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    // @ts-expect-error conversion mismatch
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
@@ -53,6 +55,7 @@ describe('preconnectAnthropicApi', () => {
       getAPIProvider: () => 'github',
     }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    // @ts-expect-error conversion mismatch
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()
@@ -73,6 +76,7 @@ describe('preconnectAnthropicApi', () => {
       getAPIProvider: () => 'firstParty',
     }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    // @ts-expect-error conversion mismatch
     globalThis.fetch = fetchMock as typeof globalThis.fetch
 
     const { preconnectAnthropicApi } = await importFreshModule()

@@ -60,6 +60,7 @@ function PermissionDecisionInfoItem(t0) {
         case "subcommandResults":
           {
             return <Box flexDirection="column">{Array.from(decisionReason.reasons.entries()).map(t2 => {
+                // @ts-expect-error TS2488
                 const [subcommand, result] = t2;
                 const icon = result.behavior === "allow" ? color("success", theme)(figures.tick) : color("error", theme)(figures.cross);
                 return <Box flexDirection="column" key={subcommand}><Text>{icon} {subcommand}</Text>{result.decisionReason !== undefined && result.decisionReason.type !== "subcommandResults" && <Text><Text dimColor={true}>{"  "}⎿{"  "}</Text><Ansi>{decisionReasonDisplayString(result.decisionReason)}</Ansi></Text>}{result.behavior === "ask" && <SuggestedRules suggestions={result.suggestions} />}</Box>;

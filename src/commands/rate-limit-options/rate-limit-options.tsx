@@ -27,7 +27,7 @@ function RateLimitOptionsMenu(t0) {
     onDone,
     context
   } = t0;
-  const [subCommandJSX, setSubCommandJSX] = useState(null);
+  const [subCommandJSX, setSubCommandJSX] = useState<string | null>(null);
   const claudeAiLimits = useClaudeAiLimits();
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
@@ -155,7 +155,7 @@ function RateLimitOptionsMenu(t0) {
         logEvent("tengu_rate_limit_options_menu_select_upgrade", {});
         upgradeCall(onDone, context).then(jsx => {
           if (jsx) {
-            setSubCommandJSX(jsx);
+            setSubCommandJSX(jsx as any);
           }
         });
       } else {
@@ -163,6 +163,7 @@ function RateLimitOptionsMenu(t0) {
           logEvent("tengu_rate_limit_options_menu_select_extra_usage", {});
           extraUsageCall(onDone, context).then(jsx_0 => {
             if (jsx_0) {
+              // @ts-expect-error argument type mismatch
               setSubCommandJSX(jsx_0);
             }
           });

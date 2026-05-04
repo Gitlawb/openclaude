@@ -222,6 +222,7 @@ export async function setupGitHubActions(
       const workflows = []
 
       if (selectedWorkflows.includes('claude')) {
+        // @ts-expect-error any-to-never (stub types cause narrowing)
         workflows.push({
           path: '.github/workflows/claude.yml',
           content: WORKFLOW_CONTENT,
@@ -230,6 +231,7 @@ export async function setupGitHubActions(
       }
 
       if (selectedWorkflows.includes('claude-review')) {
+        // @ts-expect-error any-to-never (stub types cause narrowing)
         workflows.push({
           path: '.github/workflows/claude-code-review.yml',
           content: CODE_REVIEW_PLUGIN_WORKFLOW_CONTENT,
@@ -241,10 +243,10 @@ export async function setupGitHubActions(
         await createWorkflowFile(
           repoName,
           branchName,
-          workflow.path,
-          workflow.content,
+          (workflow as any).path,
+          (workflow as any).content,
           secretName,
-          workflow.message,
+          (workflow as any).message,
           context,
         )
       }

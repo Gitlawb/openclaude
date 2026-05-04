@@ -119,13 +119,13 @@ test('loadTranscriptFile fails closed when preserved-segment tail is missing', a
   ])
 
   const { messages } = await loadTranscriptFile(filePath)
-  expect(messages.has(id(1))).toBe(false)
-  expect(messages.has(id(2))).toBe(false)
-  expect(messages.has(id(3))).toBe(false)
-  expect(messages.has(id(4))).toBe(true)
-  expect(messages.has(id(5))).toBe(true)
+  expect(messages.has(id(1) as any)).toBe(false)
+  expect(messages.has(id(2) as any)).toBe(false)
+  expect(messages.has(id(3) as any)).toBe(false)
+  expect(messages.has(id(4) as any)).toBe(true)
+  expect(messages.has(id(5) as any)).toBe(true)
 
-  const chain = buildConversationChain(messages, messages.get(id(5))!)
+  const chain = buildConversationChain(messages, messages.get(id(5) as any)!)
   expect(chain.map(message => message.uuid)).toEqual([id(4), id(5)])
 })
 
@@ -151,14 +151,14 @@ test('loadTranscriptFile preserves and relinks a valid preserved segment', async
   ])
 
   const { messages } = await loadTranscriptFile(filePath)
-  expect(messages.has(id(11))).toBe(false)
-  expect(messages.has(id(12))).toBe(false)
-  expect(messages.has(id(13))).toBe(true)
-  expect(messages.has(id(14))).toBe(true)
-  expect(messages.get(id(13))?.parentUuid).toBe(id(16))
-  expect(messages.get(id(14))?.parentUuid).toBe(id(13))
+  expect(messages.has(id(11) as any)).toBe(false)
+  expect(messages.has(id(12) as any)).toBe(false)
+  expect(messages.has(id(13) as any)).toBe(true)
+  expect(messages.has(id(14) as any)).toBe(true)
+  expect(messages.get(id(13) as any)?.parentUuid).toBe(id(16))
+  expect(messages.get(id(14) as any)?.parentUuid).toBe(id(13))
 
-  const chain = buildConversationChain(messages, messages.get(id(14))!)
+  const chain = buildConversationChain(messages, messages.get(id(14) as any)!)
   expect(chain.map(message => message.uuid)).toEqual([
     id(15),
     id(16),
@@ -189,13 +189,13 @@ test('loadTranscriptFile fails closed when preserved-segment anchor is missing',
   ])
 
   const { messages } = await loadTranscriptFile(filePath)
-  expect(messages.has(id(21))).toBe(false)
-  expect(messages.has(id(22))).toBe(false)
-  expect(messages.has(id(23))).toBe(false)
-  expect(messages.has(id(24))).toBe(false)
-  expect(messages.has(id(25))).toBe(true)
+  expect(messages.has(id(21) as any)).toBe(false)
+  expect(messages.has(id(22) as any)).toBe(false)
+  expect(messages.has(id(23) as any)).toBe(false)
+  expect(messages.has(id(24) as any)).toBe(false)
+  expect(messages.has(id(25) as any)).toBe(true)
 
-  const chain = buildConversationChain(messages, messages.get(id(25))!)
+  const chain = buildConversationChain(messages, messages.get(id(25) as any)!)
   expect(chain.map(message => message.uuid)).toEqual([id(25)])
 })
 
@@ -203,6 +203,7 @@ test('stripPersistedToolUseResultsFromJSONLBuffer drops raw toolUseResult while 
   const persisted = user(id(31), null, 'placeholder')
   persisted.message = {
     role: 'user',
+    // @ts-expect-error type mismatch
     content: [
       {
         type: 'tool_result',
@@ -225,6 +226,7 @@ test('stripPersistedToolUseResultsFromJSONLBuffer drops raw toolUseResult while 
 
   expect(parsed?.toolUseResult).toBeUndefined()
   expect(
+    // @ts-expect-error conversion mismatch
     (parsed?.message.content as Array<{ content: string }>)[0]?.content,
   ).toContain('Preview text')
 })
@@ -233,6 +235,7 @@ test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript
   const persisted = user(id(41), null, 'placeholder')
   persisted.message = {
     role: 'user',
+    // @ts-expect-error type mismatch
     content: [
       {
         type: 'tool_result',
@@ -249,13 +252,14 @@ test('loadTranscriptFile omits raw toolUseResult for persisted-output transcript
 
   const filePath = await writeJsonl([persisted])
   const { messages } = await loadTranscriptFile(filePath)
-  const loaded = messages.get(id(41)) as (typeof persisted & {
+  const loaded = messages.get(id(41) as any) as (typeof persisted & {
     toolUseResult?: unknown
   }) | undefined
 
   expect(loaded).toBeDefined()
   expect(loaded?.toolUseResult).toBeUndefined()
   expect(
+    // @ts-expect-error conversion mismatch
     (loaded?.message.content as Array<{ content: string }>)[0]?.content,
   ).toContain('Preview text')
 })

@@ -122,10 +122,12 @@ function formatContextAsMarkdownTable(data: ContextData): string {
       const parts = []
       if (s.collapsedSpans > 0) {
         parts.push(
-          `${s.collapsedSpans} ${plural(s.collapsedSpans, 'span')} summarized (${s.collapsedMessages} messages)`,
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          `${s.collapsedSpans} ${plural(s.collapsedSpans, 'span')} summarized (${s.collapsedMessages} messages)` as any,
         )
       }
-      if (s.stagedSpans > 0) parts.push(`${s.stagedSpans} staged`)
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      if (s.stagedSpans > 0) parts.push(`${s.stagedSpans} staged` as any)
       const summary =
         parts.length > 0
           ? parts.join(', ')

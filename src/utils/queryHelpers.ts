@@ -62,8 +62,10 @@ export function isResultSuccessful(
   if (message.type === 'assistant') {
     const lastContent = last(message.message.content)
     return (
-      lastContent?.type === 'text' ||
+      (lastContent as any)?.type === 'text' ||
+      // @ts-expect-error property does not exist on inferred type
       lastContent?.type === 'thinking' ||
+      // @ts-expect-error property does not exist on inferred type
       lastContent?.type === 'redacted_thinking'
     )
   }

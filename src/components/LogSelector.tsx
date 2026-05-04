@@ -190,7 +190,7 @@ export function LogSelector(t0) {
   }
   const highlightColor = t5;
   const isAgenticSearchEnabled = false;
-  const [currentBranch, setCurrentBranch] = React.useState(null);
+  const [currentBranch, setCurrentBranch] = React.useState<string | null>(null);
   const [branchFilterEnabled, setBranchFilterEnabled] = React.useState(false);
   const [showAllWorktrees, setShowAllWorktrees] = React.useState(false);
   const [hasMultipleWorktrees, setHasMultipleWorktrees] = React.useState(false);
@@ -212,10 +212,10 @@ export function LogSelector(t0) {
     t7 = $[6];
   }
   const [expandedGroupSessionIds, setExpandedGroupSessionIds] = React.useState(t7);
-  const [focusedNode, setFocusedNode] = React.useState(null);
+  const [focusedNode, setFocusedNode] = React.useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = React.useState(1);
   const [viewMode, setViewMode] = React.useState("list");
-  const [previewLog, setPreviewLog] = React.useState(null);
+  const [previewLog, setPreviewLog] = React.useState<string | null>(null);
   const prevFocusedIdRef = React.useRef(null);
   const [selectedTagIndex, setSelectedTagIndex] = React.useState(0);
   let t8;
@@ -299,7 +299,7 @@ export function LogSelector(t0) {
     t16 = $[16];
   }
   React.useEffect(t15, t16);
-  const [deepSearchResults, setDeepSearchResults] = React.useState(null);
+  const [deepSearchResults, setDeepSearchResults] = React.useState<string | null>(null);
   const [isSearching, setIsSearching] = React.useState(false);
   let t17;
   let t18;
@@ -487,7 +487,8 @@ export function LogSelector(t0) {
   if ($[49] !== debouncedDeepSearchQuery || $[50] !== deepSearchResults || $[51] !== titleFilteredLogs) {
     snippetMap = new Map();
     filtered_0 = titleFilteredLogs;
-    if (deepSearchResults && debouncedDeepSearchQuery && deepSearchResults.query === debouncedDeepSearchQuery) {
+    if (deepSearchResults && debouncedDeepSearchQuery && (deepSearchResults as any).query === debouncedDeepSearchQuery) {
+      // @ts-expect-error React Compiler output loses type context
       for (const result of deepSearchResults.results) {
         if (result.searchableText) {
           const snippet = extractSnippet(result.searchableText, debouncedDeepSearchQuery, SNIPPET_CONTEXT_CHARS);
@@ -506,6 +507,7 @@ export function LogSelector(t0) {
       }
       const titleMatchIds = t27;
       let t28;
+      // @ts-expect-error React Compiler output loses type context
       if ($[56] !== deepSearchResults.results || $[57] !== filtered_0 || $[58] !== titleMatchIds) {
         let t29;
         if ($[60] !== titleMatchIds) {
@@ -515,8 +517,10 @@ export function LogSelector(t0) {
         } else {
           t29 = $[61];
         }
+        // @ts-expect-error React Compiler output loses type context
         const transcriptOnlyMatches = deepSearchResults.results.map(_temp7).filter(t29);
         t28 = [...filtered_0, ...transcriptOnlyMatches];
+        // @ts-expect-error React Compiler output loses type context
         $[56] = deepSearchResults.results;
         $[57] = filtered_0;
         $[58] = titleMatchIds;
@@ -703,6 +707,7 @@ export function LogSelector(t0) {
     t30 = t31;
   }
   const flatOptions = t30;
+  // @ts-expect-error React Compiler output loses type context
   const focusedLog = focusedNode?.value.log ?? null;
   let t31;
   if ($[84] !== displayedLogs || $[85] !== expandedGroupSessionIds || $[86] !== focusedLog) {
@@ -792,8 +797,10 @@ export function LogSelector(t0) {
       if (!searchQuery.trim() || !onAgenticSearch || true) {
         return;
       }
+      // @ts-expect-error React Compiler output loses type context
       agenticSearchAbortRef.current?.abort();
       const abortController = new AbortController();
+      // @ts-expect-error React Compiler output loses type context
       agenticSearchAbortRef.current = abortController;
       setAgenticSearchState({
         status: "searching"
@@ -823,7 +830,7 @@ export function LogSelector(t0) {
         }
         setAgenticSearchState({
           status: "error",
-          message: error instanceof Error ? error.message : "Search failed"
+          message: error instanceof Error ? (error as any).message : "Search failed"
         });
         logEvent("tengu_agentic_search_error", {
           query_length: searchQuery.length
@@ -870,6 +877,7 @@ export function LogSelector(t0) {
   let t39;
   if ($[105] === Symbol.for("react.memo_cache_sentinel")) {
     t38 = () => () => {
+      // @ts-expect-error React Compiler output loses type context
       agenticSearchAbortRef.current?.abort();
     };
     t39 = [];
@@ -893,6 +901,7 @@ export function LogSelector(t0) {
           if (!isResumeWithRenameEnabled && displayedLogs.length > 0) {
             const firstLog = displayedLogs[0];
             setFocusedNode({
+              // @ts-expect-error React Compiler output loses type context
               id: "0",
               value: {
                 log: firstLog,
@@ -931,8 +940,10 @@ export function LogSelector(t0) {
       if (!log_11 || prevFocusedIdRef.current === index_1.toString()) {
         return;
       }
+      // @ts-expect-error React Compiler output loses type context
       prevFocusedIdRef.current = index_1.toString();
       setFocusedNode({
+        // @ts-expect-error React Compiler output loses type context
         id: index_1.toString(),
         value: {
           log: log_11,
@@ -966,6 +977,7 @@ export function LogSelector(t0) {
   let t44;
   if ($[120] === Symbol.for("react.memo_cache_sentinel")) {
     t44 = () => {
+      // @ts-expect-error React Compiler output loses type context
       agenticSearchAbortRef.current?.abort();
       setAgenticSearchState({
         status: "idle"
@@ -1353,9 +1365,11 @@ export function LogSelector(t0) {
     t69 = $[201];
   }
   let t70;
+  // @ts-expect-error React Compiler output loses type context
   if ($[202] !== agenticSearchState.status || $[203] !== branchFilterEnabled || $[204] !== columns || $[205] !== displayedLogs || $[206] !== expandedGroupSessionIds || $[207] !== flatOptions || $[208] !== focusedLog || $[209] !== focusedNode?.id || $[210] !== handleFlatOptionsSelectFocus || $[211] !== handleRenameSubmit || $[212] !== handleTreeSelectFocus || $[213] !== isAgenticSearchOptionFocused || $[214] !== onCancel || $[215] !== onSelect || $[216] !== renameCursorOffset || $[217] !== renameValue || $[218] !== treeNodes || $[219] !== viewMode || $[220] !== visibleCount) {
     t70 = agenticSearchState.status === "searching" ? null : viewMode === "rename" && focusedLog ? <Box paddingLeft={2} flexDirection="column"><Text bold={true}>Rename session:</Text><Box paddingTop={1}><TextInput value={renameValue} onChange={setRenameValue} onSubmit={handleRenameSubmit} placeholder={getLogDisplayTitle(focusedLog, "Enter new session name")} columns={columns} cursorOffset={renameCursorOffset} onChangeCursorOffset={setRenameCursorOffset} showCursor={true} /></Box></Box> : isResumeWithRenameEnabled ? <TreeSelect nodes={treeNodes} onSelect={node_0 => {
       onSelect(node_0.value.log);
+    // @ts-expect-error React Compiler output loses type context
     }} onFocus={handleTreeSelectFocus} onCancel={onCancel} focusNodeId={focusedNode?.id} visibleOptionCount={visibleCount} layout="expanded" isDisabled={viewMode === "search" || isAgenticSearchOptionFocused} hideIndexes={false} isNodeExpanded={nodeId => {
       if (viewMode === "search" || branchFilterEnabled) {
         return true;
@@ -1383,6 +1397,7 @@ export function LogSelector(t0) {
       if (log_13) {
         onSelect(log_13);
       }
+    // @ts-expect-error React Compiler output loses type context
     }} visibleOptionCount={visibleCount} onCancel={onCancel} onFocus={handleFlatOptionsSelectFocus} defaultFocusValue={focusedNode?.id.toString()} layout="expanded" isDisabled={viewMode === "search" || isAgenticSearchOptionFocused} onUpFromFirstItem={enterSearchMode} />;
     $[202] = agenticSearchState.status;
     $[203] = branchFilterEnabled;
@@ -1391,6 +1406,7 @@ export function LogSelector(t0) {
     $[206] = expandedGroupSessionIds;
     $[207] = flatOptions;
     $[208] = focusedLog;
+    // @ts-expect-error React Compiler output loses type context
     $[209] = focusedNode?.id;
     $[210] = handleFlatOptionsSelectFocus;
     $[211] = handleRenameSubmit;

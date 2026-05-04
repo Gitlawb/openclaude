@@ -50,3 +50,5 @@ export const VERTEX_COUNT_TOKENS_ALLOWED_BETAS = new Set([
   INTERLEAVED_THINKING_BETA_HEADER,
   CONTEXT_MANAGEMENT_BETA_HEADER,
 ])
+
+export function CACHE_EDITING_BETA_HEADER(..._args: any[]): any { return null }

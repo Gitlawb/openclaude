@@ -38,6 +38,7 @@ export function MonitorPermissionRequest({
   ) => {
     switch (value) {
       case 'yes': {
+        // @ts-expect-error React Compiler output loses type context
         logUnaryPermissionEvent({
           completion_type: 'tool_use_single',
           event: 'accept',
@@ -52,6 +53,7 @@ export function MonitorPermissionRequest({
         break
       }
       case 'yes-dont-ask-again': {
+        // @ts-expect-error React Compiler output loses type context
         logUnaryPermissionEvent({
           completion_type: 'tool_use_single',
           event: 'accept',
@@ -79,6 +81,7 @@ export function MonitorPermissionRequest({
         break
       }
       case 'no': {
+        // @ts-expect-error React Compiler output loses type context
         logUnaryPermissionEvent({
           completion_type: 'tool_use_single',
           event: 'reject',
@@ -97,6 +100,7 @@ export function MonitorPermissionRequest({
   }
 
   const handleCancel = () => {
+    // @ts-expect-error React Compiler output loses type context
     logUnaryPermissionEvent({
       completion_type: 'tool_use_single',
       event: 'reject',

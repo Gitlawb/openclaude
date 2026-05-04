@@ -54,6 +54,7 @@ function permissionComponentForTool(tool: Tool): React.ComponentType<PermissionR
       return BashPermissionRequest;
     case PowerShellTool:
       return PowerShellPermissionRequest;
+    // @ts-expect-error TS2678
     case ReviewArtifactTool:
       return ReviewArtifactPermissionRequest ?? FallbackPermissionRequest;
     case WebFetchTool:
@@ -68,6 +69,7 @@ function permissionComponentForTool(tool: Tool): React.ComponentType<PermissionR
       return SkillPermissionRequest;
     case AskUserQuestionTool:
       return AskUserQuestionPermissionRequest;
+    // @ts-expect-error TS2678
     case WorkflowTool:
       return WorkflowPermissionRequest ?? FallbackPermissionRequest;
     case MonitorTool:
@@ -133,6 +135,7 @@ function getNotificationMessage(toolUseConfirm: ToolUseConfirm): string {
   if (toolUseConfirm.tool === EnterPlanModeTool) {
     return 'OpenClaude wants to enter plan mode';
   }
+  // @ts-expect-error comparison always false/true
   if (feature('REVIEW_ARTIFACT') && toolUseConfirm.tool === ReviewArtifactTool) {
     return 'OpenClaude needs your approval for a review artifact';
   }

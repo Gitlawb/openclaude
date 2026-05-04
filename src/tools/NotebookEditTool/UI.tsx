@@ -85,7 +85,8 @@ export function renderToolResultMessage({
           Updated cell <Text bold>{cell_id}</Text>:
         </Text>
         <Box marginLeft={2}>
-          <HighlightedCode code={new_source} filePath="notebook.py" />
+          <HighlightedCode // @ts-expect-error type mismatch
+ code={new_source} filePath="notebook.py" />
         </Box>
       </Box>
     </MessageResponse>;

@@ -116,6 +116,7 @@ export const MCPTool = buildTool({
   // Overridden in mcpClient.ts
   userFacingName: () => 'mcp',
   renderToolUseProgressMessage,
+  // @ts-expect-error type mismatch
   renderToolResultMessage,
   isResultTruncated(output: Output): boolean {
     if (typeof output === 'string') {
@@ -133,6 +134,7 @@ export const MCPTool = buildTool({
     }
     return false
   },
+  // @ts-expect-error type mismatch
   mapToolResultToToolResultBlockParam(content, toolUseID) {
     // Defensive guard: if content is undefined/null (shouldn't happen after
     // the abort path fix in client.ts), return a clear indicator rather than

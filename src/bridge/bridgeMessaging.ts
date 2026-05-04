@@ -150,24 +150,31 @@ export function handleIngressMessage(
     // control_request from the server (initialize, set_model, can_use_tool).
     // Must respond promptly or the server kills the WS (~10-14s timeout).
     if (isSDKControlRequest(parsed)) {
+      const ctrlReq = parsed as SDKControlRequest
       logForDebugging(
-        `[bridge:repl] Inbound control_request subtype=${parsed.request.subtype}`,
+        `[bridge:repl] Inbound control_request subtype=${ctrlReq.request.subtype}`,
       )
-      onControlRequest?.(parsed)
+      onControlRequest?.(ctrlReq)
       return
     }
 
-    if (!isSDKMessage(parsed)) return
+    // The control type guards narrow parsed via type predicates on `any`
+    // stub aliases (SDKControlResponse/SDKControlRequest), causing
+    // Exclude<unknown, any> = never. Re-type as unknown for the remaining
+    // SDKMessage path.
+    const msg: unknown = parsed
+
+    if (!isSDKMessage(msg)) return
 
     // Check for UUID to detect echoes of our own messages
     const uuid =
-      'uuid' in parsed && typeof parsed.uuid === 'string'
-        ? parsed.uuid
+      'uuid' in msg && typeof msg.uuid === 'string'
+        ? msg.uuid
         : undefined
 
     if (uuid && recentPostedUUIDs.has(uuid)) {
       logForDebugging(
-        `[bridge:repl] Ignoring echo: type=${parsed.type} uuid=${uuid}`,
+        `[bridge:repl] Ignoring echo: type=${msg.type} uuid=${uuid}`,
       )
       return
     }
@@ -179,25 +186,25 @@ export function handleIngressMessage(
     // receiving any frames, etc).
     if (uuid && recentInboundUUIDs.has(uuid)) {
       logForDebugging(
-        `[bridge:repl] Ignoring re-delivered inbound: type=${parsed.type} uuid=${uuid}`,
+        `[bridge:repl] Ignoring re-delivered inbound: type=${msg.type} uuid=${uuid}`,
       )
       return
     }
 
     logForDebugging(
-      `[bridge:repl] Ingress message type=${parsed.type}${uuid ? ` uuid=${uuid}` : ''}`,
+      `[bridge:repl] Ingress message type=${msg.type}${uuid ? ` uuid=${uuid}` : ''}`,
     )
 
-    if (parsed.type === 'user') {
+    if (msg.type === 'user') {
       if (uuid) recentInboundUUIDs.add(uuid)
       logEvent('tengu_bridge_message_received', {
         is_repl: true,
       })
       // Fire-and-forget — handler may be async (attachment resolution).
-      void onInboundMessage?.(parsed)
+      void onInboundMessage?.(msg)
     } else {
       logForDebugging(
-        `[bridge:repl] Ignoring non-user inbound message: type=${parsed.type}`,
+        `[bridge:repl] Ignoring non-user inbound message: type=${msg.type}`,
       )
     }
   } catch (err) {
@@ -265,24 +272,36 @@ export function handleServerControlRequest(
   // Outbound-only: reply error for mutable requests so claude.ai doesn't show
   // false success. initialize must still succeed (server kills the connection
   // if it doesn't — see comment above).
-  if (outboundOnly && request.request.subtype !== 'initialize') {
+  // SDKControlRequest is a stub alias for `any` — cast through a typed
+  // interface so property accesses survive strict narrowing.
+  const req = request as {
+    request_id: string
+    request: {
+      subtype: string
+      model?: string
+      max_thinking_tokens?: number | null
+      mode?: PermissionMode
+    }
+  }
+
+  if (outboundOnly && req.request.subtype !== 'initialize') {
     response = {
       type: 'control_response',
       response: {
         subtype: 'error',
-        request_id: request.request_id,
+        request_id: req.request_id,
         error: OUTBOUND_ONLY_ERROR,
       },
     }
     const event = { ...response, session_id: sessionId }
     void transport.write(event)
     logForDebugging(
-      `[bridge:repl] Rejected ${request.request.subtype} (outbound-only) request_id=${request.request_id}`,
+      `[bridge:repl] Rejected ${req.request.subtype} (outbound-only) request_id=${req.request_id}`,
     )
     return
   }
 
-  switch (request.request.subtype) {
+  switch (req.request.subtype) {
     case 'initialize':
       // Respond with minimal capabilities — the REPL handles
       // commands, models, and account info itself.
@@ -290,7 +309,7 @@ export function handleServerControlRequest(
         type: 'control_response',
         response: {
           subtype: 'success',
-          request_id: request.request_id,
+          request_id: req.request_id,
           response: {
             commands: [],
             output_style: 'normal',
@@ -304,23 +323,23 @@ export function handleServerControlRequest(
       break
 
     case 'set_model':
-      onSetModel?.(request.request.model)
+      onSetModel?.(req.request.model)
       response = {
         type: 'control_response',
         response: {
           subtype: 'success',
-          request_id: request.request_id,
+          request_id: req.request_id,
         },
       }
       break
 
     case 'set_max_thinking_tokens':
-      onSetMaxThinkingTokens?.(request.request.max_thinking_tokens)
+      onSetMaxThinkingTokens?.(req.request.max_thinking_tokens ?? null)
       response = {
         type: 'control_response',
         response: {
           subtype: 'success',
-          request_id: request.request_id,
+          request_id: req.request_id,
         },
       }
       break
@@ -333,7 +352,7 @@ export function handleServerControlRequest(
       // see daemonBridge.ts), return an error verdict rather than a silent
       // false-success: the mode is never actually applied in that context,
       // so success would lie to the client.
-      const verdict = onSetPermissionMode?.(request.request.mode) ?? {
+      const verdict = onSetPermissionMode?.(req.request.mode as PermissionMode) ?? {
         ok: false,
         error:
           'set_permission_mode is not supported in this context (onSetPermissionMode callback not registered)',
@@ -343,7 +362,7 @@ export function handleServerControlRequest(
           type: 'control_response',
           response: {
             subtype: 'success',
-            request_id: request.request_id,
+            request_id: req.request_id,
           },
         }
       } else {
@@ -351,7 +370,7 @@ export function handleServerControlRequest(
           type: 'control_response',
           response: {
             subtype: 'error',
-            request_id: request.request_id,
+            request_id: req.request_id,
             error: verdict.error,
           },
         }
@@ -365,7 +384,7 @@ export function handleServerControlRequest(
         type: 'control_response',
         response: {
           subtype: 'success',
-          request_id: request.request_id,
+          request_id: req.request_id,
         },
       }
       break
@@ -377,8 +396,8 @@ export function handleServerControlRequest(
         type: 'control_response',
         response: {
           subtype: 'error',
-          request_id: request.request_id,
-          error: `REPL bridge does not handle control_request subtype: ${request.request.subtype}`,
+          request_id: req.request_id,
+          error: `REPL bridge does not handle control_request subtype: ${req.request.subtype}`,
         },
       }
   }
@@ -386,7 +405,7 @@ export function handleServerControlRequest(
   const event = { ...response, session_id: sessionId }
   void transport.write(event)
   logForDebugging(
-    `[bridge:repl] Sent control_response for ${request.request.subtype} request_id=${request.request_id} result=${response.response.subtype}`,
+    `[bridge:repl] Sent control_response for ${req.request.subtype} request_id=${req.request_id} result=${response.response.subtype}`,
   )
 }
 

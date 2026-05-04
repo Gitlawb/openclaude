@@ -58,7 +58,8 @@ function getToolBuckets(): ToolBuckets {
     },
     EXECUTION: {
       name: 'Execution tools',
-      toolNames: new Set([BashTool.name, "external" === 'ant' ? TungstenTool.name : undefined].filter(n => n !== undefined))
+      // @ts-expect-error possibly undefined
+      toolNames: new Set([BashTool.name, ("external" as string) === 'ant' ? TungstenTool.name : undefined].filter(n => n !== undefined))
     },
     MCP: {
       name: 'MCP tools',
@@ -251,7 +252,7 @@ export function ToolSelector(t0) {
   let t9;
   if ($[22] !== selectedSet) {
     t9 = bucketTools => {
-      const selected = count(bucketTools, t_5 => selectedSet.has(t_5.name));
+      const selected = count(bucketTools, t_5 => selectedSet.has((t_5 as any).name));
       const needsSelection = selected < bucketTools.length;
       return () => {
         const toolNames_1 = bucketTools.map(_temp4);
@@ -321,7 +322,7 @@ export function ToolSelector(t0) {
       if (bucketTools_0.length === 0) {
         return;
       }
-      const selected_0 = count(bucketTools_0, t_8 => selectedSet.has(t_8.name));
+      const selected_0 = count(bucketTools_0, t_8 => selectedSet.has((t_8 as any).name));
       const isFullySelected = selected_0 === bucketTools_0.length;
       navigableItems.push({
         id,

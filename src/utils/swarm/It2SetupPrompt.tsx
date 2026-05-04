@@ -20,8 +20,8 @@ export function It2SetupPrompt(t0) {
     tmuxAvailable
   } = t0;
   const [step, setStep] = useState("initial");
-  const [packageManager, setPackageManager] = useState(null);
-  const [error, setError] = useState(null);
+  const [packageManager, setPackageManager] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const exitState = useExitOnCtrlCDWithKeybindings();
   let t1;
   let t2;
@@ -96,7 +96,7 @@ export function It2SetupPrompt(t0) {
         return;
       }
       setStep("installing");
-      const result_0 = await installIt2(packageManager);
+      const result_0 = await installIt2(packageManager as any);
       if (result_0.success) {
         setStep("api-instructions");
       } else {

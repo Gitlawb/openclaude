@@ -35,6 +35,7 @@ function readExternalLimits(
             entry[1] > 0,
         )
         .map(([key, value]) => [key.trim(), value])
+        // @ts-expect-error property does not exist on inferred type
         .filter(([key]) => key.length > 0),
     )
   } catch {

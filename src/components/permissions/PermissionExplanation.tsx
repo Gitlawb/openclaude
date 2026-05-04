@@ -100,14 +100,14 @@ export function usePermissionExplainerUI(props) {
   }
   const enabled = t0;
   const [visible, setVisible] = useState(false);
-  const [promise, setPromise] = useState(null);
+  const [promise, setPromise] = useState<string | null>(null);
   let t1;
   if ($[1] !== promise || $[2] !== props || $[3] !== visible) {
     t1 = () => {
       if (!visible) {
         logEvent("tengu_permission_explainer_shortcut_used", {});
         if (!promise) {
-          setPromise(createExplanationPromise(props));
+          setPromise(createExplanationPromise(props) as any);
         }
       }
       setVisible(_temp);
@@ -170,33 +170,33 @@ function ExplanationResult(t0) {
     return t1;
   }
   let t1;
-  if ($[1] !== explanation.explanation) {
-    t1 = <Text>{explanation.explanation}</Text>;
-    $[1] = explanation.explanation;
+  if ($[1] !== (explanation as any).explanation) {
+    t1 = <Text>{(explanation as any).explanation}</Text>;
+    $[1] = (explanation as any).explanation;
     $[2] = t1;
   } else {
     t1 = $[2];
   }
   let t2;
-  if ($[3] !== explanation.reasoning) {
-    t2 = <Box marginTop={1}><Text>{explanation.reasoning}</Text></Box>;
-    $[3] = explanation.reasoning;
+  if ($[3] !== (explanation as any).reasoning) {
+    t2 = <Box marginTop={1}><Text>{(explanation as any).reasoning}</Text></Box>;
+    $[3] = (explanation as any).reasoning;
     $[4] = t2;
   } else {
     t2 = $[4];
   }
   let t3;
-  if ($[5] !== explanation.riskLevel) {
-    t3 = getRiskColor(explanation.riskLevel);
-    $[5] = explanation.riskLevel;
+  if ($[5] !== (explanation as any).riskLevel) {
+    t3 = getRiskColor((explanation as any).riskLevel);
+    $[5] = (explanation as any).riskLevel;
     $[6] = t3;
   } else {
     t3 = $[6];
   }
   let t4;
-  if ($[7] !== explanation.riskLevel) {
-    t4 = getRiskLabel(explanation.riskLevel);
-    $[7] = explanation.riskLevel;
+  if ($[7] !== (explanation as any).riskLevel) {
+    t4 = getRiskLabel((explanation as any).riskLevel);
+    $[7] = (explanation as any).riskLevel;
     $[8] = t4;
   } else {
     t4 = $[8];
@@ -211,9 +211,9 @@ function ExplanationResult(t0) {
     t5 = $[11];
   }
   let t6;
-  if ($[12] !== explanation.risk) {
-    t6 = <Text> {explanation.risk}</Text>;
-    $[12] = explanation.risk;
+  if ($[12] !== (explanation as any).risk) {
+    t6 = <Text> {(explanation as any).risk}</Text>;
+    $[12] = (explanation as any).risk;
     $[13] = t6;
   } else {
     t6 = $[13];

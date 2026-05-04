@@ -79,6 +79,7 @@ export function MCPSettings(t0) {
             const tokens = await authProvider.tokens();
             const hasSessionAuth = getSessionIngressAuthToken() !== null && client_0.type === "connected";
             const hasToolsAndConnected = client_0.type === "connected" && filterToolsByServer(mcp.tools, client_0.name).length > 0;
+            // @ts-expect-error type mismatch
             isAuthenticated = Boolean(tokens) || hasSessionAuth || hasToolsAndConnected;
           }
           const baseInfo = {

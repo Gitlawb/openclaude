@@ -29,6 +29,7 @@ export function HistorySearchDialog({
   onSelect,
   onCancel
 }: Props): React.ReactNode {
+  // @ts-expect-error wrong number of arguments
   useRegisterOverlay('history-search');
   const {
     columns

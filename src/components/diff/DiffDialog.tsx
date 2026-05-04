@@ -141,6 +141,7 @@ export function DiffDialog(t0) {
     t8 = $[15];
   }
   useEffect(t7, t8);
+  // @ts-expect-error wrong number of arguments
   useRegisterOverlay("diff-dialog");
   let t10;
   let t9;

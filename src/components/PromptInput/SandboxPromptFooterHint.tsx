@@ -27,6 +27,7 @@ export function SandboxPromptFooterHint() {
           if (timerRef.current) {
             clearTimeout(timerRef.current);
           }
+          // @ts-expect-error type mismatch
           timerRef.current = setTimeout(setRecentViolationCount, 5000, 0);
         }
       });

@@ -92,6 +92,7 @@ export async function handleUrlSchemeLaunch(): Promise<number | null> {
   }
 
   try {
+    // @ts-expect-error property does not exist on inferred type
     const { waitForUrlEvent } = await import('url-handler-napi')
     const url = waitForUrlEvent(5000)
     if (!url) {

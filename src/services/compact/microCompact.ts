@@ -60,8 +60,10 @@ export function isCompactableTool(name: string): boolean {
 // Lazy-initialized cached MC module and state to avoid importing in external builds.
 // The imports and state live inside feature() checks for dead code elimination.
 let cachedMCModule: typeof import('./cachedMicrocompact.js') | null = null
+// @ts-expect-error namespace not found
 let cachedMCState: import('./cachedMicrocompact.js').CachedMCState | null = null
 let pendingCacheEdits:
+  // @ts-expect-error namespace not found
   | import('./cachedMicrocompact.js').CacheEditsBlock
   | null = null
 
@@ -74,6 +76,7 @@ async function getCachedMCModule(): Promise<
   return cachedMCModule
 }
 
+// @ts-expect-error namespace not found
 function ensureCachedMCState(): import('./cachedMicrocompact.js').CachedMCState {
   if (!cachedMCState && cachedMCModule) {
     cachedMCState = cachedMCModule.createCachedMCState()
@@ -92,6 +95,7 @@ function ensureCachedMCState(): import('./cachedMicrocompact.js').CachedMCState 
  * Clears the pending state (caller must pin them after insertion).
  */
 export function consumePendingCacheEdits():
+  // @ts-expect-error namespace not found
   | import('./cachedMicrocompact.js').CacheEditsBlock
   | null {
   const edits = pendingCacheEdits
@@ -103,6 +107,7 @@ export function consumePendingCacheEdits():
  * Get all previously-pinned cache edits that must be re-sent at their
  * original positions for cache hits.
  */
+// @ts-expect-error namespace not found
 export function getPinnedCacheEdits(): import('./cachedMicrocompact.js').PinnedCacheEdits[] {
   if (!cachedMCState) {
     return []
@@ -116,6 +121,7 @@ export function getPinnedCacheEdits(): import('./cachedMicrocompact.js').PinnedC
  */
 export function pinCacheEdits(
   userMessageIndex: number,
+  // @ts-expect-error namespace not found
   block: import('./cachedMicrocompact.js').CacheEditsBlock,
 ): void {
   if (cachedMCState) {
@@ -357,7 +363,9 @@ async function cachedMicrocompactPath(
       activeToolCount: state.toolOrder.length - state.deletedRefs.size,
       triggerType:
         'auto' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      // @ts-expect-error possibly undefined
       threshold: config.triggerThreshold,
+      // @ts-expect-error possibly undefined
       keepRecent: config.keepRecent,
     })
 

@@ -174,6 +174,7 @@ export function TreeSelect(t0) {
       }
     }
     for (const node_0 of nodes) {
+      // @ts-expect-error wrong number of arguments
       traverse(node_0, 0);
     }
     $[4] = isExpanded;

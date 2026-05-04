@@ -25,7 +25,7 @@ export function TeleportError(t0) {
     errorsToIgnore: t1
   } = t0;
   const errorsToIgnore = t1 === undefined ? EMPTY_ERRORS_TO_IGNORE : t1;
-  const [currentError, setCurrentError] = useState(null);
+  const [currentError, setCurrentError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   let t2;
   if ($[0] !== errorsToIgnore || $[1] !== onComplete) {

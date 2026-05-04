@@ -148,8 +148,8 @@ export function GroveDialog(t0) {
     location,
     onDone
   } = t0;
-  const [shouldShowDialog, setShouldShowDialog] = useState(null);
-  const [groveConfig, setGroveConfig] = useState(null);
+  const [shouldShowDialog, setShouldShowDialog] = useState<boolean | null>(null);
+  const [groveConfig, setGroveConfig] = useState<any>(null);
   let t1;
   let t2;
   if ($[0] !== location || $[1] !== onDone || $[2] !== showIfAlreadyViewed) {

@@ -40,7 +40,10 @@ export function getAgentModel(
   toolSpecifiedModel?: ModelAlias,
   permissionMode?: PermissionMode,
 ): string {
-  if (process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
+  // Global subagent model override: only applies when no explicit
+  // agent model is specified (undefined). Explicit aliases (haiku, sonnet,
+  // opus, inherit) should resolve based on the provider, not be overridden.
+  if (!agentModel && process.env.CLAUDE_CODE_SUBAGENT_MODEL) {
     return parseUserSpecifiedModel(process.env.CLAUDE_CODE_SUBAGENT_MODEL)
   }
 

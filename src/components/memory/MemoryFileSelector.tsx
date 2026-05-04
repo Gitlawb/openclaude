@@ -126,12 +126,15 @@ export function MemoryFileSelector(t0) {
     } else {
       t1 = $[0];
     }
-    folderOptions.push(t1);
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    folderOptions.push(t1 as any);
+    // @ts-expect-error React Compiler output loses type context
     if (feature("TEAMMEM") && teamMemPaths.isTeamMemoryEnabled()) {
       let t2;
       if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
         t2 = {
           label: "Open team memory folder",
+          // @ts-expect-error React Compiler output loses type context
           value: `${OPEN_FOLDER_PREFIX}${teamMemPaths.getTeamMemPath()}`,
           description: ""
         };
@@ -139,11 +142,13 @@ export function MemoryFileSelector(t0) {
       } else {
         t2 = $[1];
       }
-      folderOptions.push(t2);
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      folderOptions.push(t2 as any);
     }
     for (const agent of agentDefinitions.activeAgents) {
       if (agent.memory) {
         const agentDir = getAgentMemoryDir(agent.agentType, agent.memory);
+        // @ts-expect-error any-to-never (stub types cause narrowing)
         folderOptions.push({
           label: `Open ${chalk.bold(agent.agentType)} agent memory`,
           value: `${OPEN_FOLDER_PREFIX}${agentDir}`,
@@ -166,13 +171,14 @@ export function MemoryFileSelector(t0) {
   const [autoDreamOn, setAutoDreamOn] = useState(isAutoDreamEnabled);
   const [showDreamRow] = useState(isAutoMemoryEnabled);
   const isDreamRunning = useAppState(_temp6);
-  const [lastDreamAt, setLastDreamAt] = useState(null);
+  const [lastDreamAt, setLastDreamAt] = useState<string | null>(null);
   let t2;
   if ($[4] !== showDreamRow) {
     t2 = () => {
       if (!showDreamRow) {
         return;
       }
+      // @ts-expect-error React Compiler output loses type context
       readLastConsolidatedAt().then(setLastDreamAt);
     };
     $[4] = showDreamRow;
@@ -192,6 +198,7 @@ export function MemoryFileSelector(t0) {
   useEffect(t2, t3);
   let t4;
   if ($[9] !== isDreamRunning || $[10] !== lastDreamAt) {
+    // @ts-expect-error React Compiler output loses type context
     t4 = isDreamRunning ? "running" : lastDreamAt === null ? "" : lastDreamAt === 0 ? "never" : `last ran ${formatRelativeTimeAgo(new Date(lastDreamAt))}`;
     $[9] = isDreamRunning;
     $[10] = lastDreamAt;
@@ -200,7 +207,7 @@ export function MemoryFileSelector(t0) {
     t4 = $[11];
   }
   const dreamStatus = t4;
-  const [focusedToggle, setFocusedToggle] = useState(null);
+  const [focusedToggle, setFocusedToggle] = useState<string | null>(null);
   const toggleFocused = focusedToggle !== null;
   const lastToggleIndex = showDreamRow ? 1 : 0;
   let t5;
@@ -253,9 +260,11 @@ export function MemoryFileSelector(t0) {
   let t8;
   if ($[17] !== focusedToggle || $[18] !== handleToggleAutoDream || $[19] !== handleToggleAutoMemory) {
     t8 = () => {
+      // @ts-expect-error React Compiler output loses type context
       if (focusedToggle === 0) {
         handleToggleAutoMemory();
       } else {
+        // @ts-expect-error React Compiler output loses type context
         if (focusedToggle === 1) {
           handleToggleAutoDream();
         }
@@ -283,6 +292,7 @@ export function MemoryFileSelector(t0) {
   let t10;
   if ($[23] !== lastToggleIndex) {
     t10 = () => {
+      // @ts-expect-error React Compiler output loses type context
       setFocusedToggle(prev => prev !== null && prev < lastToggleIndex ? prev + 1 : null);
     };
     $[23] = lastToggleIndex;
@@ -323,6 +333,7 @@ export function MemoryFileSelector(t0) {
     t13 = $[29];
   }
   useKeybinding("select:previous", t12, t13);
+  // @ts-expect-error React Compiler output loses type context
   const t14 = focusedToggle === 0;
   const t15 = autoMemoryOn ? "on" : "off";
   let t16;
@@ -344,6 +355,7 @@ export function MemoryFileSelector(t0) {
   }
   let t18;
   if ($[35] !== autoDreamOn || $[36] !== dreamStatus || $[37] !== focusedToggle || $[38] !== isDreamRunning || $[39] !== showDreamRow) {
+    // @ts-expect-error React Compiler output loses type context
     t18 = showDreamRow && <ListItem isFocused={focusedToggle === 1} styled={false}><Text color={focusedToggle === 1 ? "suggestion" : undefined}>Auto-dream: {autoDreamOn ? "on" : "off"}{dreamStatus && <Text dimColor={true}> · {dreamStatus}</Text>}{!isDreamRunning && autoDreamOn && <Text dimColor={true}> · /dream to run</Text>}</Text></ListItem>;
     $[35] = autoDreamOn;
     $[36] = dreamStatus;
@@ -383,6 +395,7 @@ export function MemoryFileSelector(t0) {
   }
   let t21;
   if ($[46] !== lastToggleIndex) {
+    // @ts-expect-error React Compiler output loses type context
     t21 = () => setFocusedToggle(lastToggleIndex);
     $[46] = lastToggleIndex;
     $[47] = t21;

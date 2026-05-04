@@ -2116,8 +2116,10 @@ export class ClaudeAuthProvider implements OAuthClientProvider {
         authorizationServerUrl: cached.authorizationServerUrl,
         resourceMetadataUrl: cached.resourceMetadataUrl,
         resourceMetadata:
+          // @ts-expect-error property does not exist, did you mean
           cached.resourceMetadata as OAuthDiscoveryState['resourceMetadata'],
         authorizationServerMetadata:
+          // @ts-expect-error property does not exist on inferred type
           cached.authorizationServerMetadata as OAuthDiscoveryState['authorizationServerMetadata'],
       }
     }

@@ -383,8 +383,10 @@ export const NotebookEditTool = buildTool({
         (notebook.nbformat === 4 && notebook.nbformat_minor >= 5)
       ) {
         if (edit_mode === 'insert') {
+          // @ts-expect-error type mismatch
           new_cell_id = Math.random().toString(36).substring(2, 15)
         } else if (cell_id !== null) {
+          // @ts-expect-error type mismatch
           new_cell_id = cell_id
         }
       }

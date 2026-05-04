@@ -44,7 +44,8 @@ export function TeamMemCountParts(t0) {
         } else {
           t2 = $[6];
         }
-        nodes.push(t2);
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        nodes.push(t2 as any);
       }
       let t2;
       if ($[7] !== tmReadCount) {
@@ -65,7 +66,8 @@ export function TeamMemCountParts(t0) {
       } else {
         t4 = $[12];
       }
-      nodes.push(t4);
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      nodes.push(t4 as any);
       count++;
     }
     if (tmSearchCount > 0) {
@@ -78,7 +80,8 @@ export function TeamMemCountParts(t0) {
         } else {
           t2 = $[13];
         }
-        nodes.push(t2);
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        nodes.push(t2 as any);
       }
       const t2 = `${verb_0} team memories`;
       let t3;
@@ -89,7 +92,8 @@ export function TeamMemCountParts(t0) {
       } else {
         t3 = $[15];
       }
-      nodes.push(t3);
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      nodes.push(t3 as any);
       count++;
     }
     if (tmWriteCount > 0) {
@@ -102,7 +106,8 @@ export function TeamMemCountParts(t0) {
         } else {
           t2 = $[16];
         }
-        nodes.push(t2);
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        nodes.push(t2 as any);
       }
       let t2;
       if ($[17] !== tmWriteCount) {
@@ -123,7 +128,8 @@ export function TeamMemCountParts(t0) {
       } else {
         t4 = $[22];
       }
-      nodes.push(t4);
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      nodes.push(t4 as any);
     }
     t1 = <>{nodes}</>;
     $[0] = hasPrecedingParts;

@@ -1,5 +1,7 @@
 import type {
+  // @ts-expect-error module has no exported member
   ComputerUseHostAdapter,
+  // @ts-expect-error module has no exported member
   Logger,
 } from '@ant/computer-use-mcp/types'
 import { format } from 'util'

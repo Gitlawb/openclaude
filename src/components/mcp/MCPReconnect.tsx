@@ -22,7 +22,7 @@ export function MCPReconnect(t0) {
   const store = useAppStateStore();
   const reconnectMcpServer = useMcpReconnect();
   const [isReconnecting, setIsReconnecting] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   let t1;
   let t2;
   if ($[0] !== onComplete || $[1] !== reconnectMcpServer || $[2] !== serverName || $[3] !== store) {

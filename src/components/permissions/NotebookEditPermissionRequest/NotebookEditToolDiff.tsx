@@ -84,8 +84,8 @@ function NotebookEditToolDiffInner(t0) {
       }
       const cellIndex = parseCellId(cell_id);
       if (cellIndex !== undefined) {
-        if (notebookData.cells[cellIndex]) {
-          const source = notebookData.cells[cellIndex].source;
+        if ((notebookData as any).cells[cellIndex]) {
+          const source = (notebookData as any).cells[cellIndex].source;
           let t3;
           if ($[3] !== source) {
             t3 = Array.isArray(source) ? source.join("") : source;
@@ -108,7 +108,7 @@ function NotebookEditToolDiffInner(t0) {
       } else {
         t3 = $[6];
       }
-      const cell_0 = notebookData.cells.find(t3);
+      const cell_0 = (notebookData as any).cells.find(t3);
       if (!cell_0) {
         t2 = "";
         break bb0;
@@ -206,6 +206,7 @@ function NotebookEditToolDiffInner(t0) {
   }
   let t9;
   if ($[23] !== cell_type || $[24] !== edit_mode || $[25] !== hunks || $[26] !== new_source || $[27] !== notebook_path || $[28] !== oldSource || $[29] !== width) {
+    // @ts-expect-error React Compiler output loses type context
     t9 = edit_mode === "delete" ? <Box flexDirection="column" paddingLeft={2}><HighlightedCode code={oldSource} filePath={notebook_path} /></Box> : edit_mode === "insert" ? <Box flexDirection="column" paddingLeft={2}><HighlightedCode code={new_source} filePath={cell_type === "markdown" ? "file.md" : notebook_path} /></Box> : hunks ? intersperse(hunks.map(_ => <StructuredDiff key={_.newStart} patch={_} dim={false} width={width} filePath={notebook_path} firstLine={new_source.split("\n")[0] ?? null} fileContent={oldSource} />), _temp3) : <HighlightedCode code={new_source} filePath={cell_type === "markdown" ? "file.md" : notebook_path} />;
     $[23] = cell_type;
     $[24] = edit_mode;
