@@ -3,6 +3,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 describe("Main Process", () => {
   let BrowserWindow: ReturnType<typeof vi.fn>
   let mockWindow: Record<string, unknown>
+  let mockApp: {
+    whenReady: ReturnType<typeof vi.fn>
+    on: ReturnType<typeof vi.fn>
+    quit: ReturnType<typeof vi.fn>
+    setAppUserModelId: ReturnType<typeof vi.fn>
+    isPackaged: boolean
+  }
 
   beforeEach(() => {
     vi.resetModules()
@@ -16,16 +23,23 @@ describe("Main Process", () => {
       isDestroyed: vi.fn(() => false),
     }
 
+    mockApp = {
+      whenReady: vi.fn(() => Promise.resolve()),
+      on: vi.fn(),
+      quit: vi.fn(),
+      setAppUserModelId: vi.fn(),
+      isPackaged: false,
+    }
+
     vi.doMock("electron", () => ({
-      app: {
-        whenReady: vi.fn(() => Promise.resolve()),
-        on: vi.fn(),
-        quit: vi.fn(),
-        setAppUserModelId: vi.fn(),
-        isPackaged: false,
-      },
+      app: mockApp,
       BrowserWindow: vi.fn(() => mockWindow),
       shell: { openExternal: vi.fn() },
+      session: {
+        defaultSession: {
+          webRequest: { onHeadersReceived: vi.fn() },
+        },
+      },
     }))
 
     vi.doMock("@electron-toolkit/utils", () => ({
@@ -37,7 +51,6 @@ describe("Main Process", () => {
 
   async function loadMain() {
     await import("../../src/main/index")
-    // Flush microtask queue so app.whenReady().then(...) resolves
     await new Promise((r) => setTimeout(r, 0))
     const electron = await import("electron")
     return electron.BrowserWindow
@@ -72,5 +85,50 @@ describe("Main Process", () => {
     expect(config?.height).toBe(800)
     expect(config?.minWidth).toBe(900)
     expect(config?.minHeight).toBe(600)
+  })
+
+  it("registers optimizer.watchWindowShortcuts on browser-window-created", async () => {
+    await loadMain()
+
+    // Find the "browser-window-created" handler registered via app.on
+    const calls = mockApp.on.mock.calls
+    const bwCreatedCall = calls.find((c: unknown[]) => c[0] === "browser-window-created")
+    expect(bwCreatedCall).toBeDefined()
+
+    const { optimizer } = await import("@electron-toolkit/utils")
+    const handler = bwCreatedCall![1] as (event: unknown, win: unknown) => void
+    handler({}, mockWindow)
+    expect(optimizer.watchWindowShortcuts).toHaveBeenCalledWith(mockWindow)
+  })
+
+  it("quits on window-all-closed when not macOS", async () => {
+    // process.platform is "win32" in tests, so app.quit should be called
+    await loadMain()
+
+    const calls = mockApp.on.mock.calls
+    const wacCall = calls.find((c: unknown[]) => c[0] === "window-all-closed")
+    expect(wacCall).toBeDefined()
+
+    const handler = wacCall![1] as () => void
+    handler()
+    expect(mockApp.quit).toHaveBeenCalled()
+  })
+
+  it("does not quit on window-all-closed when macOS", async () => {
+    // Override platform to simulate macOS
+    const originalPlatform = process.platform
+    Object.defineProperty(process, "platform", { value: "darwin" })
+
+    await loadMain()
+
+    const calls = mockApp.on.mock.calls
+    const wacCall = calls.find((c: unknown[]) => c[0] === "window-all-closed")
+    expect(wacCall).toBeDefined()
+
+    const handler = wacCall![1] as () => void
+    handler()
+    expect(mockApp.quit).not.toHaveBeenCalled()
+
+    Object.defineProperty(process, "platform", { value: originalPlatform })
   })
 })
