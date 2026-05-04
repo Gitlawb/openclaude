@@ -4,7 +4,7 @@ const wiki = {
   type: 'local-jsx',
   name: 'wiki',
   description: 'Initialize and inspect the OpenClaude project wiki',
-  argumentHint: '[init|status]',
+  argumentHint: '[init|status|scan]',
   immediate: true,
   load: () => import('./wiki.js'),
 } satisfies Command
