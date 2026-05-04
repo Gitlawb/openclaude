@@ -1,4 +1,16 @@
 import { afterEach, expect, mock, test } from 'bun:test'
+// Import the real auth.js and providerConfig.js up front so we can spread
+// their export surfaces into mock factories. `mock.module()` is process-global
+// in bun:test and `mock.restore()` does not undo it (see user.test.ts), so
+// any module we mock here needs to keep the full original export shape — or
+// downstream tests that load it via openaiShim/client/codexShim crash with
+// "Export named 'X' not found in module".
+import * as actualAuth from './auth.js'
+import * as actualProviderConfig from '../services/api/providerConfig.js'
+import * as actualThinking from './thinking.js'
+import * as actualGrowthbook from 'src/services/analytics/growthbook.js'
+import * as actualProviders from './model/providers.js'
+import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
 
 afterEach(() => {
   mock.restore()
@@ -9,23 +21,29 @@ async function importFreshEffortModule(options: {
   supportsCodexReasoningEffort: boolean
 }) {
   mock.module('./model/providers.js', () => ({
+    ...actualProviders,
     getAPIProvider: () => options.provider,
   }))
   mock.module('./model/modelSupportOverrides.js', () => ({
+    ...actualModelSupportOverrides,
     get3PModelCapabilityOverride: () => undefined,
   }))
   mock.module('../services/api/providerConfig.js', () => ({
+    ...actualProviderConfig,
     supportsCodexReasoningEffort: () => options.supportsCodexReasoningEffort,
   }))
   mock.module('./auth.js', () => ({
+    ...actualAuth,
     isProSubscriber: () => false,
     isMaxSubscriber: () => false,
     isTeamSubscriber: () => false,
   }))
   mock.module('./thinking.js', () => ({
+    ...actualThinking,
     isUltrathinkEnabled: () => false,
   }))
   mock.module('src/services/analytics/growthbook.js', () => ({
+    ...actualGrowthbook,
     getFeatureValue_CACHED_MAY_BE_STALE: (_key: string, fallback: unknown) =>
       fallback,
   }))
