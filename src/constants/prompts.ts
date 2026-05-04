@@ -45,7 +45,6 @@ import {
 } from '../utils/permissions/filesystem.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 import { isReplModeEnabled } from '../tools/REPLTool/constants.js'
-import { feature } from 'bun:bundle'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { shouldUseGlobalCacheScope } from '../utils/betas.js'
 import { isForkSubagentEnabled } from '../tools/AgentTool/forkSubagent.js'
@@ -63,36 +62,34 @@ import { isMcpInstructionsDeltaEnabled } from '../utils/mcpInstructionsDelta.js'
 
 // Dead code elimination: conditional imports for feature-gated modules
 /* eslint-disable @typescript-eslint/no-require-imports */
-const getCachedMCConfigForFRC = feature('CACHED_MICROCOMPACT')
+const getCachedMCConfigForFRC = true
   ? (
       require('../services/compact/cachedMCConfig.js') as typeof import('../services/compact/cachedMCConfig.js')
     ).getCachedMCConfig
   : null
 
 const proactiveModule =
-  feature('PROACTIVE') || feature('KAIROS')
+  false || false
     ? require('../proactive/index.js')
     : null
 const BRIEF_PROACTIVE_SECTION: string | null =
-  feature('KAIROS') || feature('KAIROS_BRIEF')
+  false || false
     ? (
         require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')
       ).BRIEF_PROACTIVE_SECTION
     : null
 const briefToolModule =
-  feature('KAIROS') || feature('KAIROS_BRIEF')
+  false || false
     ? (require('../tools/BriefTool/BriefTool.js') as typeof import('../tools/BriefTool/BriefTool.js'))
     : null
-const DISCOVER_SKILLS_TOOL_NAME: string | null = feature(
-  'EXPERIMENTAL_SKILL_SEARCH',
-)
+const DISCOVER_SKILLS_TOOL_NAME: string | null = false
   ? (
       require('../tools/DiscoverSkillsTool/prompt.js') as typeof import('../tools/DiscoverSkillsTool/prompt.js')
     ).DISCOVER_SKILLS_TOOL_NAME
   : null
 // Capture the module (not .isSkillSearchEnabled directly) so spyOn() in tests
 // patches what we actually call — a captured function ref would point past the spy.
-const skillSearchFeatureCheck = feature('EXPERIMENTAL_SKILL_SEARCH')
+const skillSearchFeatureCheck = false
   ? (require('../services/skillSearch/featureCheck.js') as typeof import('../services/skillSearch/featureCheck.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -100,7 +97,7 @@ import type { OutputStyleConfig } from './outputStyles.js'
 import { CYBER_RISK_INSTRUCTION } from './cyberRiskInstruction.js'
 
 export const CLAUDE_CODE_DOCS_MAP_URL =
-  'https://code.claude.com/docs/en/claude_code_docs_map.md'
+  'https://github.com/Gitlawb/openclaude'
 
 /**
  * Boundary marker separating static (cross-org cacheable) content from dynamic content.
@@ -115,14 +112,7 @@ export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY =
   '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__'
 
 // @[MODEL LAUNCH]: Update the latest frontier model.
-const FRONTIER_MODEL_NAME = 'Claude Opus 4.6'
-
-// @[MODEL LAUNCH]: Update the model family IDs below to the latest in each tier.
-const CLAUDE_4_5_OR_4_6_MODEL_IDS = {
-  opus: 'claude-opus-4-6',
-  sonnet: 'claude-sonnet-4-6',
-  haiku: 'claude-haiku-4-5-20251001',
-}
+const FRONTIER_MODEL_NAME = 'Claude Opus 4.7'
 
 function getHooksSection(): string {
   return `Users may configure 'hooks', shell commands that execute in response to events like tool calls, in settings. Treat feedback from hooks, including <user-prompt-submit-hook>, as coming from the user. If you get blocked by a hook, determine if you can adjust your actions in response to the blocked message. If not, ask the user to check their hooks configuration.`
@@ -332,7 +322,7 @@ function getAgentToolSection(): string {
  */
 function getDiscoverSkillsGuidance(): string | null {
   if (
-    feature('EXPERIMENTAL_SKILL_SEARCH') &&
+    false &&
     DISCOVER_SKILLS_TOOL_NAME !== null
   ) {
     return `Relevant skills are automatically surfaced each turn as "Skills relevant to your task:" reminders. If you're about to do something those don't cover — a mid-task pivot, an unusual workflow, a multi-step plan — call ${DISCOVER_SKILLS_TOOL_NAME} with a specific description of what you're doing. Skills already visible or loaded are filtered automatically. Skip this if the surfaced skills already cover your next action.`
@@ -388,7 +378,7 @@ function getSessionSpecificGuidanceSection(
       ? getDiscoverSkillsGuidance()
       : null,
     hasAgentTool &&
-    feature('VERIFICATION_AGENT') &&
+    true &&
     // 3P default: false — verification agent is internal-only A/B
     getFeatureValue_CACHED_MAY_BE_STALE('tengu_hive_evidence', false)
       ? `The contract: when non-trivial implementation happens on your turn, independent adversarial verification must happen before you report completion \u2014 regardless of who did the implementing (you directly, a fork you spawned, or a subagent). You are the one reporting to the user; you own the gate. Non-trivial means: 3+ file edits, backend/API changes, or infrastructure changes. Spawn the ${AGENT_TOOL_NAME} tool with subagent_type="${VERIFICATION_AGENT_TYPE}". Your own checks, caveats, and a fork's self-checks do NOT substitute \u2014 only the verifier assigns a verdict; you cannot self-assign PARTIAL. Pass the original user request, all files changed (by anyone), the approach, and the plan file path if applicable. Flag concerns if you have them but do NOT share test results or claim things work. On FAIL: fix, resume the verifier with its findings plus your fix, repeat until PASS. On PASS: spot-check it \u2014 re-run 2-3 commands from its report, confirm every PASS has a Command run block with output that matches your re-run. If any PASS lacks a command block or diverges, resume the verifier with the specifics. On PARTIAL (from the verifier): report what passed and what could not be verified.`
@@ -464,7 +454,7 @@ export async function getSystemPrompt(
   const enabledTools = new Set(tools.map(_ => _.name))
 
   if (
-    (feature('PROACTIVE') || feature('KAIROS')) &&
+    (false || false) &&
     proactiveModule?.isProactiveActive()
   ) {
     logForDebugging(`[SystemPrompt] path=simple-proactive`)
@@ -535,7 +525,7 @@ ${CYBER_RISK_INSTRUCTION}`,
           ),
         ]
       : []),
-    ...(feature('TOKEN_BUDGET')
+    ...(true
       ? [
           // Cached unconditionally — the "When the user specifies..." phrasing
           // makes it a no-op with no budget active. Was DANGEROUS_uncached
@@ -549,7 +539,7 @@ ${CYBER_RISK_INSTRUCTION}`,
           ),
         ]
       : []),
-    ...(feature('KAIROS') || feature('KAIROS_BRIEF')
+    ...(false || false
       ? [systemPromptSection('brief', () => getBriefSection())]
       : []),
   ]
@@ -693,9 +683,6 @@ export async function computeSimpleEnvInfo(
     knowledgeCutoffMessage,
     process.env.USER_TYPE === 'ant' && isUndercover()
       ? null
-      : `The most recent Claude model family is Claude 4.5/4.6. Model IDs — Opus 4.6: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.opus}', Sonnet 4.6: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.sonnet}', Haiku 4.5: '${CLAUDE_4_5_OR_4_6_MODEL_IDS.haiku}'. When building AI applications, default to the latest and most capable Claude models.`,
-    process.env.USER_TYPE === 'ant' && isUndercover()
-      ? null
       : `OpenClaude is available as a CLI in the terminal and can be used across local development environments and IDE workflows.`,
     process.env.USER_TYPE === 'ant' && isUndercover()
       ? null
@@ -775,7 +762,7 @@ export async function enhanceSystemPromptWithEnvDetails(
   // AgentTool.tsx:768 builds the prompt before assembleToolPool:830 so it
   // omits this param — `?? true` preserves guidance there.
   const discoverSkillsGuidance =
-    feature('EXPERIMENTAL_SKILL_SEARCH') &&
+    false &&
     skillSearchFeatureCheck?.isSkillSearchEnabled() &&
     DISCOVER_SKILLS_TOOL_NAME !== null &&
     (enabledToolNames?.has(DISCOVER_SKILLS_TOOL_NAME) ?? true)
@@ -819,7 +806,7 @@ The scratchpad directory is session-specific, isolated from the user's project, 
 }
 
 function getFunctionResultClearingSection(model: string): string | null {
-  if (!feature('CACHED_MICROCOMPACT') || !getCachedMCConfigForFRC) {
+  if (!true || !getCachedMCConfigForFRC) {
     return null
   }
   const config = getCachedMCConfigForFRC()
@@ -846,7 +833,7 @@ Old tool results will be automatically cleared from context to free up space. Th
 const SUMMARIZE_TOOL_RESULTS_SECTION = `When working with tool results, write down any important information you might need later in your response, as the original tool result may be cleared later.`
 
 function getBriefSection(): string | null {
-  if (!(feature('KAIROS') || feature('KAIROS_BRIEF'))) return null
+  if (!(false || false)) return null
   if (!BRIEF_PROACTIVE_SECTION) return null
   // Whenever the tool is available, the model is told to use it. The
   // /brief toggle and --brief flag now only control the isBriefOnly
@@ -855,7 +842,7 @@ function getBriefSection(): string | null {
   // When proactive is active, getProactiveSection() already appends the
   // section inline. Skip here to avoid duplicating it in the system prompt.
   if (
-    (feature('PROACTIVE') || feature('KAIROS')) &&
+    (false || false) &&
     proactiveModule?.isProactiveActive()
   )
     return null
@@ -863,7 +850,7 @@ function getBriefSection(): string | null {
 }
 
 function getProactiveSection(): string | null {
-  if (!(feature('PROACTIVE') || feature('KAIROS'))) return null
+  if (!(false || false)) return null
   if (!proactiveModule?.isProactiveActive()) return null
 
   return `# Autonomous work

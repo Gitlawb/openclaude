@@ -49,14 +49,14 @@ export function EnterPlanModePermissionRequest(t0) {
   const handleResponse = t1;
   let t2;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Text>Claude wants to enter plan mode to explore and design an implementation approach.</Text>;
+    t2 = <Text>OpenClaude wants to enter plan mode to explore and design an implementation approach.</Text>;
     $[5] = t2;
   } else {
     t2 = $[5];
   }
   let t3;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Box marginTop={1} flexDirection="column"><Text dimColor={true}>In plan mode, Claude will:</Text><Text dimColor={true}> · Explore the codebase thoroughly</Text><Text dimColor={true}> · Identify existing patterns</Text><Text dimColor={true}> · Design an implementation strategy</Text><Text dimColor={true}> · Present a plan for your approval</Text></Box>;
+    t3 = <Box marginTop={1} flexDirection="column"><Text dimColor={true}>In plan mode, OpenClaude will:</Text><Text dimColor={true}> · Explore the codebase thoroughly</Text><Text dimColor={true}> · Identify existing patterns</Text><Text dimColor={true}> · Design an implementation strategy</Text><Text dimColor={true}> · Present a plan for your approval</Text></Box>;
     $[6] = t3;
   } else {
     t3 = $[6];

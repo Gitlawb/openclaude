@@ -103,11 +103,10 @@ import {
 import { getAPIContextManagement } from '../compact/apiMicrocompact.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
+const autoModeStateModule = true
   ? (require('../../utils/permissions/autoModeState.js') as typeof import('../../utils/permissions/autoModeState.js'))
   : null
 
-import { feature } from 'bun:bundle'
 import type { ClientOptions } from '@anthropic-ai/sdk'
 import {
   APIConnectionTimeoutError,
@@ -301,7 +300,7 @@ export function getExtraBodyParams(betaHeaders?: string[]): JsonObject {
 
   // Anti-distillation: send fake_tools opt-in for 1P CLI only
   if (
-    feature('ANTI_DISTILLATION_CC')
+    false
       ? process.env.CLAUDE_CODE_ENTRYPOINT === 'cli' &&
         shouldIncludeFirstPartyOnlyBetas() &&
         getFeatureValue_CACHED_MAY_BE_STALE(
@@ -672,7 +671,7 @@ export function assistantMessageToMessageParam(
           ...(i === message.message.content.length - 1 &&
           _.type !== 'thinking' &&
           _.type !== 'redacted_thinking' &&
-          (feature('CONNECTOR_TEXT') ? !isConnectorTextBlock(_) : true)
+          (false ? !isConnectorTextBlock(_) : true)
             ? enablePromptCaching
               ? { cache_control: getCacheControl({ querySource }) }
               : {}
@@ -1204,7 +1203,7 @@ async function* queryModel(
   // internal-only CACHE_EDITING_BETA_HEADER constant.
   let cachedMCEnabled = false
   let cacheEditingBetaHeader = ''
-  if (feature('CACHED_MICROCOMPACT')) {
+  if (true) {
     const {
       isCachedMicrocompactEnabled,
       isModelSupportedForCacheEditing,
@@ -1282,6 +1281,21 @@ async function* queryModel(
   queryCheckpoint('query_message_normalization_start')
   let messagesForAPI = normalizeMessagesForAPI(messages, filteredTools)
   queryCheckpoint('query_message_normalization_end')
+
+  // Apply hybrid context strategy for optimal cache/fresh balance
+  if (false) {
+    const { applyHybridStrategy } = await import('../../utils/hybridContextStrategy.js')
+    // Cap at 200k to avoid edge case with very large context windows
+    const strategyResult = applyHybridStrategy(messagesForAPI, {
+      cacheWeight: 0.4,
+      freshWeight: 0.6,
+      maxTotalTokens: Math.min(
+        getContextWindowForModel(model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
+        200000
+      ),
+    })
+    messagesForAPI = strategyResult.selectedMessages
+  }
 
   // Model-specific post-processing: strip tool-search-specific fields if the
   // selected model doesn't support tool search.
@@ -1427,7 +1441,7 @@ async function* queryModel(
   // per-call so non-agentic queries keep their own stable header set.
 
   let afkHeaderLatched = getAfkModeHeaderLatched() === true
-  if (feature('TRANSCRIPT_CLASSIFIER')) {
+  if (true) {
     if (
       !afkHeaderLatched &&
       isAgenticQuery &&
@@ -1446,7 +1460,7 @@ async function* queryModel(
   }
 
   let cacheEditingHeaderLatched = getCacheEditingHeaderLatched() === true
-  if (feature('CACHED_MICROCOMPACT')) {
+  if (true) {
     if (
       !cacheEditingHeaderLatched &&
       cachedMCEnabled &&
@@ -1478,7 +1492,7 @@ async function* queryModel(
 
   const effort = resolveAppliedEffort(options.model, options.effortValue)
 
-  if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
+  if (true) {
     // Exclude defer_loading tools from the hash -- the API strips them from the
     // prompt, so they never affect the actual cache key. Including them creates
     // false-positive "tool schemas changed" breaks when tools are discovered or
@@ -1677,7 +1691,7 @@ async function* queryModel(
 
     // AFK mode beta: latched once auto mode is first activated. Still gated
     // by isAgenticQuery per-call so classifiers/compaction don't get it.
-    if (feature('TRANSCRIPT_CLASSIFIER')) {
+    if (true) {
       if (
         afkHeaderLatched &&
         shouldIncludeFirstPartyOnlyBetas() &&
@@ -2090,7 +2104,7 @@ async function* queryModel(
               throw new RangeError('Content block not found')
             }
             if (
-              feature('CONNECTOR_TEXT') &&
+              false &&
               delta.type === 'connector_text_delta'
             ) {
               if (contentBlock.type !== 'connector_text') {
@@ -2152,7 +2166,7 @@ async function* queryModel(
                   break
                 case 'signature_delta':
                   if (
-                    feature('CONNECTOR_TEXT') &&
+                    false &&
                     contentBlock.type === 'connector_text'
                   ) {
                     contentBlock.signature = delta.signature
@@ -2406,7 +2420,7 @@ async function* queryModel(
       }
 
       // Check if the cache actually broke based on response tokens
-      if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
+      if (true) {
         void checkResponseForCacheBreak(
           options.querySource,
           usage.cache_read_input_tokens,
@@ -2857,7 +2871,7 @@ async function* queryModel(
   }
 
   // Mark all registered tools as sent to API so they become eligible for deletion
-  if (feature('CACHED_MICROCOMPACT') && cachedMCEnabled) {
+  if (true && cachedMCEnabled) {
     markToolsSentToAPIState()
   }
 
@@ -2993,7 +3007,7 @@ export function updateUsage(
     // so the string is eliminated from external builds by dead code elimination.
     // Uses the same > 0 guard as other token fields to prevent message_delta
     // from overwriting the real value with 0.
-    ...(feature('CACHED_MICROCOMPACT')
+    ...(true
       ? {
           cache_deleted_input_tokens:
             (partUsage as unknown as { cache_deleted_input_tokens?: number })
@@ -3047,7 +3061,7 @@ export function accumulateUsage(
     },
     // See comment in updateUsage — field is not on NonNullableUsage to keep
     // the string out of external builds.
-    ...(feature('CACHED_MICROCOMPACT')
+    ...(true
       ? {
           cache_deleted_input_tokens:
             ((totalUsage as unknown as { cache_deleted_input_tokens?: number })

@@ -21,6 +21,7 @@ export type OpenAICompatibilityFailure = {
   hint?: string
   code?: string
   status?: number
+  requestUrl?: string
 }
 
 const OPENAI_CATEGORY_MARKER_PREFIX = '[openai_category='
@@ -96,6 +97,11 @@ function isLocalhostLikeHostname(hostname: string | null): boolean {
   return /^127\./.test(hostname)
 }
 
+export function isLocalhostLikeHost(host: string | null | undefined): boolean {
+  if (!host) return false
+  return isLocalhostLikeHostname(host.toLowerCase())
+}
+
 function isContextOverflowMessage(body: string): boolean {
   const lower = body.toLowerCase()
   return (
@@ -149,14 +155,18 @@ function isModelNotFoundMessage(body: string): boolean {
 
 export function formatOpenAICategoryMarker(
   category: OpenAICompatibilityFailureCategory,
+  host?: string,
 ): string {
+  if (host && /^[A-Za-z0-9.\-:]+$/.test(host)) {
+    return `${OPENAI_CATEGORY_MARKER_PREFIX}${category},host=${host}]`
+  }
   return `${OPENAI_CATEGORY_MARKER_PREFIX}${category}]`
 }
 
 export function extractOpenAICategoryMarker(
   message: string,
 ): OpenAICompatibilityFailureCategory | undefined {
-  const match = message.match(/\[openai_category=([a-z_]+)]/)
+  const match = message.match(/\[openai_category=([a-z_]+)(?:,host=[^\]]+)?]/)
   const category = match?.[1]
 
   if (!category || !isOpenAICompatibilityFailureCategory(category)) {
@@ -166,11 +176,17 @@ export function extractOpenAICategoryMarker(
   return category
 }
 
+export function extractOpenAICategoryHost(message: string): string | undefined {
+  const match = message.match(/\[openai_category=[a-z_]+,host=([A-Za-z0-9.\-:]+)]/)
+  return match?.[1]
+}
+
 export function buildOpenAICompatibilityErrorMessage(
   baseMessage: string,
-  failure: Pick<OpenAICompatibilityFailure, 'category' | 'hint'>,
+  failure: Pick<OpenAICompatibilityFailure, 'category' | 'hint' | 'requestUrl'>,
 ): string {
-  const marker = formatOpenAICategoryMarker(failure.category)
+  const host = failure.requestUrl ? getHostname(failure.requestUrl) ?? undefined : undefined
+  const marker = formatOpenAICategoryMarker(failure.category, host)
   const hint = failure.hint ? ` Hint: ${failure.hint}` : ''
   return `${baseMessage} ${marker}${hint}`
 }
@@ -247,8 +263,11 @@ export function classifyOpenAINetworkFailure(
 export function classifyOpenAIHttpFailure(options: {
   status: number
   body: string
+  url?: string
 }): OpenAICompatibilityFailure {
   const body = options.body ?? ''
+  const hostname = options.url ? getHostname(options.url) : null
+  const isLocalHost = isLocalhostLikeHostname(hostname)
 
   if (options.status === 401 || options.status === 403) {
     return {
@@ -284,13 +303,17 @@ export function classifyOpenAIHttpFailure(options: {
   }
 
   if (options.status === 404) {
+    const isRemote = hostname !== null && !isLocalHost
     return {
       source: 'http',
       category: 'endpoint_not_found',
       retryable: false,
       status: options.status,
       message: body,
-      hint: 'Endpoint was not found. Confirm OPENAI_BASE_URL includes /v1 for OpenAI-compatible local providers.',
+      requestUrl: options.url,
+      hint: isRemote
+        ? `Endpoint at ${hostname} returned 404. Verify OPENAI_BASE_URL is correct and the requested model is supported by this provider.`
+        : 'Endpoint was not found. Confirm OPENAI_BASE_URL includes /v1 for OpenAI-compatible local providers.',
     }
   }
 

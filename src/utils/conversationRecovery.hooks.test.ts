@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const tempDirs: string[] = []
-const originalSimple = process.env.CLAUDE_CODE_SIMPLE
+const originalEnv = { ...process.env }
 const sessionId = '00000000-0000-4000-8000-000000001999'
 const ts = '2026-04-02T00:00:00.000Z'
 
@@ -46,7 +46,10 @@ async function writeJsonl(entry: unknown): Promise<string> {
 
 afterEach(async () => {
   mock.restore()
-  process.env.CLAUDE_CODE_SIMPLE = originalSimple
+  mock.module('./model/providers.js', () => ({
+    getAPIProvider: () => 'firstParty',
+  }))
+  process.env = { ...originalEnv }
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
@@ -107,11 +110,6 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
 
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'openai',
-    isOpenAICompatibleProvider: (provider: string) =>
-      provider === 'openai' ||
-      provider === 'gemini' ||
-      provider === 'github' ||
-      provider === 'codex',
   }))
 
   const openaiModule = await import(`./conversationRecovery.ts?provider=openai-${Date.now()}`)
@@ -131,14 +129,8 @@ test('deserializeMessagesWithInterruptDetection strips thinking blocks only for 
     JSON.stringify(thirdPartyAssistantMessages.map(message => message.message?.content)),
   ).not.toContain('only hidden reasoning')
 
-  mock.restore()
   mock.module('./model/providers.js', () => ({
     getAPIProvider: () => 'bedrock',
-    isOpenAICompatibleProvider: (provider: string) =>
-      provider === 'openai' ||
-      provider === 'gemini' ||
-      provider === 'github' ||
-      provider === 'codex',
   }))
 
   const bedrockModule = await import(`./conversationRecovery.ts?provider=bedrock-${Date.now()}`)

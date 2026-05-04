@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { APIUserAbortError } from '@anthropic-ai/sdk'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import {
@@ -56,10 +55,10 @@ import {
 } from './permissionsLoader.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const classifierDecisionModule = feature('TRANSCRIPT_CLASSIFIER')
+const classifierDecisionModule = true
   ? (require('./classifierDecision.js') as typeof import('./classifierDecision.js'))
   : null
-const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
+const autoModeStateModule = true
   ? (require('./autoModeState.js') as typeof import('./autoModeState.js'))
   : null
 
@@ -141,7 +140,7 @@ export function createPermissionRequestMessage(
   // Handle different decision reason types
   if (decisionReason) {
     if (
-      (feature('BASH_CLASSIFIER') || feature('TRANSCRIPT_CLASSIFIER')) &&
+      (false || true) &&
       decisionReason.type === 'classifier'
     ) {
       return `Classifier '${decisionReason.classifier}' requires approval for this ${toolName} command: ${decisionReason.reason}`
@@ -485,7 +484,7 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
   // breaks the consecutive denial streak.
   if (result.behavior === 'allow') {
     const appState = context.getAppState()
-    if (feature('TRANSCRIPT_CLASSIFIER')) {
+    if (true) {
       const currentDenialState =
         context.localDenialTracking ?? appState.denialTracking
       if (
@@ -518,7 +517,7 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
     // Apply auto mode: use AI classifier instead of prompting user
     // Check this BEFORE shouldAvoidPermissionPrompts so classifiers work in headless mode
     if (
-      feature('TRANSCRIPT_CLASSIFIER') &&
+      true &&
       (appState.toolPermissionContext.mode === 'auto' ||
         (appState.toolPermissionContext.mode === 'plan' &&
           (autoModeStateModule?.isAutoModeActive() ?? false)))
@@ -571,7 +570,7 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
       // prefix rules for ant users and auto mode entry.
       if (
         tool.name === POWERSHELL_TOOL_NAME &&
-        !feature('POWERSHELL_AUTO_MODE')
+        !false
       ) {
         if (appState.toolPermissionContext.shouldAvoidPermissionPrompts) {
           return {

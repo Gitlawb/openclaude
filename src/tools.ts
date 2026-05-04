@@ -16,7 +16,7 @@ import { BriefTool } from './tools/BriefTool/BriefTool.js'
 const REPLTool = null
 const SuggestBackgroundPRTool = null
 const SleepTool =
-  feature('PROACTIVE') || feature('KAIROS')
+  false || false
     ? require('./tools/SleepTool/SleepTool.js').SleepTool
     : null
 const cronTools = [
@@ -24,21 +24,21 @@ const cronTools = [
   require('./tools/ScheduleCronTool/CronDeleteTool.js').CronDeleteTool,
   require('./tools/ScheduleCronTool/CronListTool.js').CronListTool,
 ]
-const RemoteTriggerTool = feature('AGENT_TRIGGERS_REMOTE')
+const RemoteTriggerTool = false
   ? require('./tools/RemoteTriggerTool/RemoteTriggerTool.js').RemoteTriggerTool
   : null
-const MonitorTool = feature('MONITOR_TOOL')
+const MonitorTool = true
   ? require('./tools/MonitorTool/MonitorTool.js').MonitorTool
   : null
-const SendUserFileTool = feature('KAIROS')
+const SendUserFileTool = false
   ? require('./tools/SendUserFileTool/SendUserFileTool.js').SendUserFileTool
   : null
 const PushNotificationTool =
-  feature('KAIROS') || feature('KAIROS_PUSH_NOTIFICATION')
+  false || false
     ? require('./tools/PushNotificationTool/PushNotificationTool.js')
         .PushNotificationTool
     : null
-const SubscribePRTool = feature('KAIROS_GITHUB_WEBHOOKS')
+const SubscribePRTool = false
   ? require('./tools/SubscribePRTool/SubscribePRTool.js').SubscribePRTool
   : null
 /* eslint-enable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
@@ -90,32 +90,31 @@ export {
   ASYNC_AGENT_ALLOWED_TOOLS,
   COORDINATOR_MODE_ALLOWED_TOOLS,
 } from './constants/tools.js'
-import { feature } from 'bun:bundle'
 // Dead code elimination: conditional import for OVERFLOW_TEST_TOOL
 /* eslint-disable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
-const OverflowTestTool = feature('OVERFLOW_TEST_TOOL')
+const OverflowTestTool = false
   ? require('./tools/OverflowTestTool/OverflowTestTool.js').OverflowTestTool
   : null
-const CtxInspectTool = feature('CONTEXT_COLLAPSE')
+const CtxInspectTool = false
   ? require('./tools/CtxInspectTool/CtxInspectTool.js').CtxInspectTool
   : null
-const TerminalCaptureTool = feature('TERMINAL_PANEL')
+const TerminalCaptureTool = false
   ? require('./tools/TerminalCaptureTool/TerminalCaptureTool.js')
       .TerminalCaptureTool
   : null
-const WebBrowserTool = feature('WEB_BROWSER_TOOL')
+const WebBrowserTool = false
   ? require('./tools/WebBrowserTool/WebBrowserTool.js').WebBrowserTool
   : null
-const coordinatorModeModule = feature('COORDINATOR_MODE')
+const coordinatorModeModule = true
   ? (require('./coordinator/coordinatorMode.js') as typeof import('./coordinator/coordinatorMode.js'))
   : null
-const SnipTool = feature('HISTORY_SNIP')
+const SnipTool = false
   ? require('./tools/SnipTool/SnipTool.js').SnipTool
   : null
-const ListPeersTool = feature('UDS_INBOX')
+const ListPeersTool = false
   ? require('./tools/ListPeersTool/ListPeersTool.js').ListPeersTool
   : null
-const WorkflowTool = feature('WORKFLOW_SCRIPTS')
+const WorkflowTool = false
   ? (() => {
       require('./tools/WorkflowTool/bundled/index.js').initBundledWorkflows()
       return require('./tools/WorkflowTool/WorkflowTool.js').WorkflowTool
@@ -208,18 +207,19 @@ export function getAllBaseTools(): Tools {
     ...(OverflowTestTool ? [OverflowTestTool] : []),
     ...(CtxInspectTool ? [CtxInspectTool] : []),
     ...(TerminalCaptureTool ? [TerminalCaptureTool] : []),
-    ...(isEnvTruthy(process.env.ENABLE_LSP_TOOL) ? [LSPTool] : []),
+    LSPTool,
     ...(isWorktreeModeEnabled() ? [EnterWorktreeTool, ExitWorktreeTool] : []),
-    getSendMessageTool(),
+    // Use filter(Boolean) to handle case where getter might return null/undefined
+    ...(getSendMessageTool() ? [getSendMessageTool()] : []),
     ...(ListPeersTool ? [ListPeersTool] : []),
     ...(isAgentSwarmsEnabled()
-      ? [getTeamCreateTool(), getTeamDeleteTool()]
+      ? [getTeamCreateTool(), getTeamDeleteTool()].filter(Boolean)
       : []),
     ...(VerifyPlanExecutionTool ? [VerifyPlanExecutionTool] : []),
     ...(process.env.USER_TYPE === 'ant' && REPLTool ? [REPLTool] : []),
     ...(WorkflowTool ? [WorkflowTool] : []),
     ...(SleepTool ? [SleepTool] : []),
-    ...cronTools,
+    ...(cronTools ?? []),
     ...(RemoteTriggerTool ? [RemoteTriggerTool] : []),
     ...(MonitorTool ? [MonitorTool] : []),
     BriefTool,
@@ -234,7 +234,8 @@ export function getAllBaseTools(): Tools {
     // Include ToolSearchTool when tool search might be enabled (optimistic check)
     // The actual decision to defer tools happens at request time in claude.ts
     ...(isToolSearchEnabledOptimistic() ? [ToolSearchTool] : []),
-  ]
+    // Filter out any null/undefined tools that might have been added by getters
+  ].filter(Boolean)
 }
 
 /**
@@ -264,10 +265,11 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
     if (isReplModeEnabled() && REPLTool) {
       const replSimple: Tool[] = [REPLTool]
       if (
-        feature('COORDINATOR_MODE') &&
+        true &&
         coordinatorModeModule?.isCoordinatorMode()
       ) {
-        replSimple.push(TaskStopTool, getSendMessageTool())
+        const sendMessageTool = getSendMessageTool()
+        if (sendMessageTool) replSimple.push(TaskStopTool, sendMessageTool)
       }
       return filterToolsByDenyRules(replSimple, permissionContext)
     }
@@ -276,10 +278,12 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
     // so the coordinator gets Task+TaskStop (via useMergedTools filtering) and
     // workers get Bash/Read/Edit (via filterToolsForAgent filtering).
     if (
-      feature('COORDINATOR_MODE') &&
+      true &&
       coordinatorModeModule?.isCoordinatorMode()
     ) {
-      simpleTools.push(AgentTool, TaskStopTool, getSendMessageTool())
+      simpleTools.push(AgentTool, TaskStopTool)
+      const sendMessageTool = getSendMessageTool()
+      if (sendMessageTool) simpleTools.push(sendMessageTool)
     }
     return filterToolsByDenyRules(simpleTools, permissionContext)
   }
@@ -309,7 +313,11 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
     }
   }
 
-  const isEnabled = allowedTools.map(_ => _.isEnabled())
+  // Filter out any null/undefined tools that might have slipped through
+  // (defensive check against initialization timing issues)
+  allowedTools = allowedTools.filter(Boolean)
+
+  const isEnabled = allowedTools.map(_ => typeof _.isEnabled === 'function' ? _.isEnabled() : true)
   return allowedTools.filter((_, i) => isEnabled[i])
 }
 
@@ -335,8 +343,9 @@ export function assembleToolPool(
 ): Tools {
   const builtInTools = getTools(permissionContext)
 
-  // Filter out MCP tools that are in the deny list
-  const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext)
+  // Filter out MCP tools that are in the deny list, and filter out any null/undefined
+  // tools that might have been added by MCP client initialization
+  const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext).filter(Boolean)
 
   // Sort each partition for prompt-cache stability, keeping built-ins as a
   // contiguous prefix. The server's claude_code_system_cache_policy places a

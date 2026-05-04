@@ -1,7 +1,14 @@
 import type { ModelName } from './model.js'
-import type { APIProvider } from './providers.js'
+import type { LegacyAPIProvider } from './providers.js'
 
-export type ModelConfig = Record<APIProvider, ModelName>
+// Transitional compatibility table keyed by the legacy provider categories
+// returned from getAPIProvider(). Descriptor-native callers should prefer
+// route/model metadata directly; this table exists for older provider-keyed
+// consumers that have not been retired yet.
+export type LegacyProviderModelConfig = Record<LegacyAPIProvider, ModelName>
+
+// Backward-compatible alias for existing imports.
+export type ModelConfig = LegacyProviderModelConfig
 
 // ---------------------------------------------------------------------------
 // OpenAI-compatible model mappings
@@ -35,11 +42,13 @@ export const CLAUDE_3_7_SONNET_CONFIG = {
   foundry: 'claude-3-7-sonnet',
   openai: 'gpt-4o-mini',
   gemini: 'gemini-2.0-flash',
+  mistral: 'mistral-medium-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_3_5_V2_SONNET_CONFIG = {
   firstParty: 'claude-3-5-sonnet-20241022',
@@ -48,11 +57,13 @@ export const CLAUDE_3_5_V2_SONNET_CONFIG = {
   foundry: 'claude-3-5-sonnet',
   openai: 'gpt-4o-mini',
   gemini: 'gemini-2.0-flash',
+  mistral: 'mistral-medium-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_3_5_HAIKU_CONFIG = {
   firstParty: 'claude-3-5-haiku-20241022',
@@ -61,11 +72,13 @@ export const CLAUDE_3_5_HAIKU_CONFIG = {
   foundry: 'claude-3-5-haiku',
   openai: 'gpt-4o-mini',
   gemini: 'gemini-2.0-flash-lite',
+  mistral: 'ministral-3b-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_HAIKU_4_5_CONFIG = {
   firstParty: 'claude-haiku-4-5-20251001',
@@ -74,11 +87,13 @@ export const CLAUDE_HAIKU_4_5_CONFIG = {
   foundry: 'claude-haiku-4-5',
   openai: 'gpt-4o-mini',
   gemini: 'gemini-2.0-flash-lite',
+  mistral: 'ministral-3b-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_CONFIG = {
   firstParty: 'claude-sonnet-4-20250514',
@@ -87,11 +102,13 @@ export const CLAUDE_SONNET_4_CONFIG = {
   foundry: 'claude-sonnet-4',
   openai: 'gpt-4o-mini',
   gemini: 'gemini-2.0-flash',
+  mistral: 'mistral-medium-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_5_CONFIG = {
   firstParty: 'claude-sonnet-4-5-20250929',
@@ -100,11 +117,13 @@ export const CLAUDE_SONNET_4_5_CONFIG = {
   foundry: 'claude-sonnet-4-5',
   openai: 'gpt-4o',
   gemini: 'gemini-2.0-flash',
+  mistral: 'mistral-medium-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_CONFIG = {
   firstParty: 'claude-opus-4-20250514',
@@ -113,11 +132,13 @@ export const CLAUDE_OPUS_4_CONFIG = {
   foundry: 'claude-opus-4',
   openai: 'gpt-4o',
   gemini: 'gemini-2.5-pro',
+  mistral: 'devstral-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_1_CONFIG = {
   firstParty: 'claude-opus-4-1-20250805',
@@ -126,11 +147,13 @@ export const CLAUDE_OPUS_4_1_CONFIG = {
   foundry: 'claude-opus-4-1',
   openai: 'gpt-4o',
   gemini: 'gemini-2.5-pro',
+  mistral: 'devstral-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_5_CONFIG = {
   firstParty: 'claude-opus-4-5-20251101',
@@ -139,11 +162,13 @@ export const CLAUDE_OPUS_4_5_CONFIG = {
   foundry: 'claude-opus-4-5',
   openai: 'gpt-4o',
   gemini: 'gemini-2.5-pro',
+  mistral: 'devstral-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_6_CONFIG = {
   firstParty: 'claude-opus-4-6',
@@ -152,11 +177,28 @@ export const CLAUDE_OPUS_4_6_CONFIG = {
   foundry: 'claude-opus-4-6',
   openai: 'gpt-4o',
   gemini: 'gemini-2.5-pro',
+  mistral: 'devstral-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
+
+export const CLAUDE_OPUS_4_7_CONFIG = {
+  firstParty: 'claude-opus-4-7',
+  bedrock: 'us.anthropic.claude-opus-4-7-v1',
+  vertex: 'claude-opus-4-7',
+  foundry: 'claude-opus-4-7',
+  openai: 'gpt-4o',
+  gemini: 'gemini-2.5-pro',
+  mistral: 'devstral-latest',
+  github: 'github:copilot',
+  codex: 'gpt-5.5',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
+  minimax: 'MiniMax-M2.5',
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_6_CONFIG = {
   firstParty: 'claude-sonnet-4-6',
@@ -165,14 +207,16 @@ export const CLAUDE_SONNET_4_6_CONFIG = {
   foundry: 'claude-sonnet-4-6',
   openai: 'gpt-4o',
   gemini: 'gemini-2.0-flash',
+  mistral: 'mistral-medium-latest',
   github: 'github:copilot',
   codex: 'gpt-5.5',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
-} as const satisfies ModelConfig
+  xai: 'grok-4',
+} as const satisfies LegacyProviderModelConfig
 
 // @[MODEL LAUNCH]: Register the new config here.
-export const ALL_MODEL_CONFIGS = {
+export const LEGACY_PROVIDER_MODEL_CONFIGS = {
   haiku35: CLAUDE_3_5_HAIKU_CONFIG,
   haiku45: CLAUDE_HAIKU_4_5_CONFIG,
   sonnet35: CLAUDE_3_5_V2_SONNET_CONFIG,
@@ -184,23 +228,32 @@ export const ALL_MODEL_CONFIGS = {
   opus41: CLAUDE_OPUS_4_1_CONFIG,
   opus45: CLAUDE_OPUS_4_5_CONFIG,
   opus46: CLAUDE_OPUS_4_6_CONFIG,
-} as const satisfies Record<string, ModelConfig>
+  opus47: CLAUDE_OPUS_4_7_CONFIG,
+} as const satisfies Record<string, LegacyProviderModelConfig>
 
-export type ModelKey = keyof typeof ALL_MODEL_CONFIGS
+// Backward-compatible alias for existing imports.
+export const ALL_MODEL_CONFIGS = LEGACY_PROVIDER_MODEL_CONFIGS
+
+export type ModelKey = keyof typeof LEGACY_PROVIDER_MODEL_CONFIGS
 
 /** Union of all canonical first-party model IDs, e.g. 'claude-opus-4-6' | 'claude-sonnet-4-5-20250929' | … */
 export type CanonicalModelId =
-  (typeof ALL_MODEL_CONFIGS)[ModelKey]['firstParty']
+  (typeof LEGACY_PROVIDER_MODEL_CONFIGS)[ModelKey]['firstParty']
 
 /** Runtime list of canonical model IDs — used by comprehensiveness tests. */
-export const CANONICAL_MODEL_IDS = Object.values(ALL_MODEL_CONFIGS).map(
+export const CANONICAL_MODEL_IDS = Object.values(LEGACY_PROVIDER_MODEL_CONFIGS).map(
   c => c.firstParty,
 ) as [CanonicalModelId, ...CanonicalModelId[]]
 
 /** Map canonical ID → internal short key. Used to apply settings-based modelOverrides. */
 export const CANONICAL_ID_TO_KEY: Record<CanonicalModelId, ModelKey> =
   Object.fromEntries(
-    (Object.entries(ALL_MODEL_CONFIGS) as [ModelKey, ModelConfig][]).map(
+    (
+      Object.entries(LEGACY_PROVIDER_MODEL_CONFIGS) as [
+        ModelKey,
+        LegacyProviderModelConfig,
+      ][]
+    ).map(
       ([key, cfg]) => [cfg.firstParty, key],
     ),
   ) as Record<CanonicalModelId, ModelKey>

@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle';
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import { copyFile, stat as fsStat, truncate as fsTruncate, link } from 'fs/promises';
 import * as React from 'react';
@@ -365,7 +364,7 @@ export const PowerShellTool = buildTool({
         errorCode: 11
       };
     }
-    if (feature('MONITOR_TOOL') && !isBackgroundTasksDisabled && !input.run_in_background) {
+    if (true && !isBackgroundTasksDisabled && !input.run_in_background) {
       const sleepPattern = detectBlockedSleepPattern(input.command);
       if (sleepPattern !== null) {
         return {
@@ -843,7 +842,7 @@ async function* runPowerShellCommand({
   // In assistant mode, the main agent should stay responsive. Auto-background
   // blocking commands after ASSISTANT_BLOCKING_BUDGET_MS so the agent can keep
   // coordinating instead of waiting. The command keeps running — no state loss.
-  if (feature('KAIROS') && getKairosActive() && isMainThread && !isBackgroundTasksDisabled && run_in_background !== true) {
+  if (false && getKairosActive() && isMainThread && !isBackgroundTasksDisabled && run_in_background !== true) {
     setTimeout(() => {
       if (shellCommand.status === 'running' && backgroundShellId === undefined) {
         assistantAutoBackgrounded = true;

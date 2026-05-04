@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle';
 import chalk from 'chalk';
 import * as path from 'path';
 import * as React from 'react';
@@ -111,7 +110,7 @@ import { BackgroundTasksDialog } from '../tasks/BackgroundTasksDialog.js';
 import { shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
 import { TeamsDialog } from '../teams/TeamsDialog.js';
 import VimTextInput from '../VimTextInput.js';
-import { getModeFromInput, getValueFromInput } from './inputModes.js';
+import { detectModeEntry, getModeFromInput, getValueFromInput } from './inputModes.js';
 import { FOOTER_TEMPORARY_STATUS_TIMEOUT, Notifications } from './Notifications.js';
 import PromptInputFooter from './PromptInputFooter.js';
 import type { SuggestionItem } from './PromptInputFooterSuggestions.js';
@@ -331,7 +330,7 @@ function PromptInput({
   // the input bar. viewingAgentTaskId mirrors the gate on both (Spinner.tsx,
   // REPL.tsx) — teammate view falls back to SpinnerWithVerbInner which has
   // its own marginTop, so the gap stays even without ours.
-  const briefOwnsGap = feature('KAIROS') || feature('KAIROS_BRIEF') ?
+  const briefOwnsGap = false || false ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useAppState(s => s.isBriefOnly) && !viewingAgentTaskId : false;
   const mainLoopModel_ = useAppState(s => s.mainLoopModel);
@@ -531,7 +530,7 @@ function PromptInput({
   const thinkTriggers = useMemo(() => findThinkingTriggerPositions(displayedValue), [displayedValue]);
   const ultraplanSessionUrl = useAppState(s => s.ultraplanSessionUrl);
   const ultraplanLaunching = useAppState(s => s.ultraplanLaunching);
-  const ultraplanTriggers = useMemo(() => feature('ULTRAPLAN') && !ultraplanSessionUrl && !ultraplanLaunching ? findUltraplanTriggerPositions(displayedValue) : [], [displayedValue, ultraplanSessionUrl, ultraplanLaunching]);
+  const ultraplanTriggers = useMemo(() => false && !ultraplanSessionUrl && !ultraplanLaunching ? findUltraplanTriggerPositions(displayedValue) : [], [displayedValue, ultraplanSessionUrl, ultraplanLaunching]);
   const ultrareviewTriggers = useMemo(() => isUltrareviewEnabled() ? findUltrareviewTriggerPositions(displayedValue) : [], [displayedValue]);
   const btwTriggers = useMemo(() => findBtwTriggerPositions(displayedValue), [displayedValue]);
   const buddyTriggers = useMemo(() => findBuddyTriggerPositions(displayedValue), [displayedValue]);
@@ -543,7 +542,7 @@ function PromptInput({
       return hasCommand(commandName, commands);
     });
   }, [displayedValue, commands]);
-  const tokenBudgetTriggers = useMemo(() => feature('TOKEN_BUDGET') ? findTokenBudgetPositions(displayedValue) : [], [displayedValue]);
+  const tokenBudgetTriggers = useMemo(() => true ? findTokenBudgetPositions(displayedValue) : [], [displayedValue]);
   const knownChannelsVersion = useSyncExternalStore(subscribeKnownChannels, getKnownChannelsVersion);
   const slackChannelTriggers = useMemo(() => hasSlackMcpServer(store.getState().mcp.clients) ? findSlackChannelPositions(displayedValue) : [],
   // eslint-disable-next-line react-hooks/exhaustive-deps -- store is a stable ref
@@ -710,7 +709,7 @@ function PromptInput({
     }
 
     // Same rainbow treatment for the ultraplan keyword
-    if (feature('ULTRAPLAN')) {
+    if (false) {
       for (const trigger of ultraplanTriggers) {
         for (let i = trigger.start; i < trigger.end; i++) {
           highlights.push({
@@ -770,7 +769,7 @@ function PromptInput({
     }
   }, [addNotification, removeNotification, thinkTriggers.length]);
   useEffect(() => {
-    if (feature('ULTRAPLAN') && ultraplanTriggers.length) {
+    if (false && ultraplanTriggers.length) {
       addNotification({
         key: 'ultraplan-active',
         text: 'This prompt will launch an ultraplan session in OpenClaude on the web',
@@ -878,24 +877,22 @@ function PromptInput({
     abortPromptSuggestion();
     abortSpeculation(setAppState);
 
-    // Check if this is a single character insertion at the start
-    const isSingleCharInsertion = value.length === input.length + 1;
-    const insertedAtStart = cursorOffset === 0;
-    const mode = getModeFromInput(value);
-    if (insertedAtStart && mode !== 'prompt') {
-      if (isSingleCharInsertion) {
-        onModeChange(mode);
-        return;
-      }
-      // Multi-char insertion into empty input (e.g. tab-accepting "! gcloud auth login")
-      if (input.length === 0) {
-        onModeChange(mode);
-        const valueWithoutMode = getValueFromInput(value).replaceAll('\t', '    ');
-        pushToBuffer(input, cursorOffset, pastedContents);
-        trackAndSetInput(valueWithoutMode);
-        setCursorOffset(valueWithoutMode.length);
-        return;
-      }
+    // Strip the mode character from the buffer when entering bash mode — the
+    // mode itself is shown via the prompt prefix in the UI. Without this,
+    // typing `!` into empty input would enter bash mode but leave the literal
+    // `!` in the buffer (issue #662).
+    const modeEntry = detectModeEntry({
+      value,
+      prevInputLength: input.length,
+      cursorOffset,
+    });
+    if (modeEntry) {
+      onModeChange(modeEntry.mode);
+      const cleaned = modeEntry.strippedValue.replaceAll('\t', '    ');
+      pushToBuffer(input, cursorOffset, pastedContents);
+      trackAndSetInput(cleaned);
+      setCursorOffset(cleaned.length);
+      return;
     }
     const processedValue = value.replaceAll('\t', '    ');
 
@@ -1494,10 +1491,10 @@ function PromptInput({
     // the warning dialog once — the CLI flag should grant carousel access,
     // not bypass the safety text.
     let isEnteringAutoModeFirstTime = false;
-    if (feature('TRANSCRIPT_CLASSIFIER')) {
+    if (true) {
       isEnteringAutoModeFirstTime = nextMode === 'auto' && toolPermissionContext.mode !== 'auto' && !hasAutoModeOptIn() && !viewingAgentTaskId; // Only show for primary agent, not subagents
     }
-    if (feature('TRANSCRIPT_CLASSIFIER')) {
+    if (true) {
       if (isEnteringAutoModeFirstTime) {
         // Store previous mode so we can revert if user declines
         setPreviousModeBeforeAuto(toolPermissionContext.mode);
@@ -1536,7 +1533,7 @@ function PromptInput({
     // carousel", not "decline". Reverting causes a ping-pong loop: auto reverts to
     // the prior mode, whose next mode is auto again, forever.
     // The dialog's own decline button (handleAutoModeOptInDecline) handles revert.
-    if (feature('TRANSCRIPT_CLASSIFIER')) {
+    if (true) {
       if (showAutoModeOptIn || autoModeOptInTimeoutRef.current) {
         if (showAutoModeOptIn) {
           logEvent('tengu_auto_mode_opt_in_dialog_decline', {});
@@ -1596,7 +1593,7 @@ function PromptInput({
 
   // Handler for auto mode opt-in dialog acceptance
   const handleAutoModeOptInAccept = useCallback(() => {
-    if (feature('TRANSCRIPT_CLASSIFIER')) {
+    if (true) {
       setShowAutoModeOptIn(false);
       setPreviousModeBeforeAuto(null);
 
@@ -1625,7 +1622,7 @@ function PromptInput({
 
   // Handler for auto mode opt-in dialog decline
   const handleAutoModeOptInDecline = useCallback(() => {
-    if (feature('TRANSCRIPT_CLASSIFIER')) {
+    if (true) {
       logForDebugging(`[auto-mode] handleAutoModeOptInDecline: reverting to ${previousModeBeforeAuto}, setting isAutoModeAvailable=false`);
       setShowAutoModeOptIn(false);
       if (autoModeOptInTimeoutRef.current) {
@@ -1737,9 +1734,9 @@ function PromptInput({
   // Quick Open / Global Search. Hook calls are unconditional (Rules of Hooks);
   // the handler body is feature()-gated so the setState calls and component
   // references get tree-shaken in external builds.
-  const quickSearchActive = feature('QUICK_SEARCH') ? !isModalOverlayActive : false;
+  const quickSearchActive = true ? !isModalOverlayActive : false;
   useKeybinding('app:quickOpen', () => {
-    if (feature('QUICK_SEARCH')) {
+    if (true) {
       setShowQuickOpen(true);
       setHelpOpen(false);
     }
@@ -1748,7 +1745,7 @@ function PromptInput({
     isActive: quickSearchActive
   });
   useKeybinding('app:globalSearch', () => {
-    if (feature('QUICK_SEARCH')) {
+    if (true) {
       setShowGlobalSearch(true);
       setHelpOpen(false);
     }
@@ -1757,13 +1754,13 @@ function PromptInput({
     isActive: quickSearchActive
   });
   useKeybinding('history:search', () => {
-    if (feature('HISTORY_PICKER')) {
+    if (true) {
       setShowHistoryPicker(true);
       setHelpOpen(false);
     }
   }, {
     context: 'Global',
-    isActive: feature('HISTORY_PICKER') ? !isModalOverlayActive : false
+    isActive: true ? !isModalOverlayActive : false
   });
 
   // Handle Ctrl+C to abort speculation when idle (not loading)
@@ -2157,7 +2154,7 @@ function PromptInput({
   // slot's overflowY:hidden clip (same pattern as SuggestionsOverlay).
   // Must be called before early returns below to satisfy rules-of-hooks.
   // Memoized so the portal useEffect doesn't churn on every PromptInput render.
-  const autoModeOptInDialog = useMemo(() => feature('TRANSCRIPT_CLASSIFIER') && showAutoModeOptIn ? <AutoModeOptInDialog onAccept={handleAutoModeOptInAccept} onDecline={handleAutoModeOptInDecline} /> : null, [showAutoModeOptIn, handleAutoModeOptInAccept, handleAutoModeOptInDecline]);
+  const autoModeOptInDialog = useMemo(() => true && showAutoModeOptIn ? <AutoModeOptInDialog onAccept={handleAutoModeOptInAccept} onDecline={handleAutoModeOptInDecline} /> : null, [showAutoModeOptIn, handleAutoModeOptInAccept, handleAutoModeOptInDecline]);
   useSetPromptOverlayDialog(isFullscreenEnvEnabled() ? autoModeOptInDialog : null);
   if (showBashesDialog) {
     return <BackgroundTasksDialog onDone={() => setShowBashesDialog(false)} toolUseContext={getToolUseContext(messages, [], new AbortController(), mainLoopModel)} initialDetailTaskId={typeof showBashesDialog === 'string' ? showBashesDialog : undefined} />;
@@ -2167,7 +2164,7 @@ function PromptInput({
       setShowTeamsDialog(false);
     }} />;
   }
-  if (feature('QUICK_SEARCH')) {
+  if (true) {
     const insertWithSpacing = (text: string) => {
       const cursorChar = input[cursorOffset - 1] ?? ' ';
       insertTextAtCursor(/\s/.test(cursorChar) ? text : ` ${text}`);
@@ -2179,7 +2176,7 @@ function PromptInput({
       return <GlobalSearchDialog onDone={() => setShowGlobalSearch(false)} onInsert={insertWithSpacing} />;
     }
   }
-  if (feature('HISTORY_PICKER') && showHistoryPicker) {
+  if (true && showHistoryPicker) {
     return <HistorySearchDialog initialQuery={input} onSelect={entry => {
       const entryMode = getModeFromInput(entry.display);
       const value = getValueFromInput(entry.display);

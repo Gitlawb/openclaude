@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type { PendingClassifierCheck } from '../../../types/permissions.js'
 import { logError } from '../../../utils/log.js'
 import type { PermissionDecision } from '../../../utils/permissions/PermissionResult.js'
@@ -38,7 +37,7 @@ async function handleCoordinatorPermission(
     if (hookResult) return hookResult
 
     // 2. Try classifier (slow, inference -- bash only)
-    const classifierResult = feature('BASH_CLASSIFIER')
+    const classifierResult = false
       ? await ctx.tryClassifier?.(params.pendingClassifierCheck, updatedInput)
       : null
     if (classifierResult) {

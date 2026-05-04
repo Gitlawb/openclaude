@@ -1,14 +1,14 @@
 /**
  * Conversation Arc Memory - Production Grade
- * 
+ *
  * Remembers conversation goals and key decisions.
  * High-level abstraction of conversation progress.
  */
 
 import type { Message } from '../types/message.js'
-import { 
-  addGlobalEntity, 
-  addGlobalRelation, 
+import {
+  addGlobalEntity,
+  addGlobalRelation,
   addGlobalSummary,
   addGlobalRule,
   getGlobalGraph,
@@ -26,11 +26,11 @@ export function finalizeArcTurn(): void {
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
   const graph = getGlobalGraph()
   // Heuristic to detect new facts: entities added after arc start
-  const newFacts = Object.values(graph.entities).filter(e => 
-    e.id.includes(String(arc.id.split('_')[1])) || 
+  const newFacts = Object.values(graph.entities).filter(e =>
+    e.id.includes(String(arc.id.split('_')[1])) ||
     graph.lastUpdateTime > arc.startTime
   )
-  
+
   if (completedGoals.length === 0 && arc.decisions.length === 0 && newFacts.length === 0) return
 
   // Generate a concise summary of what was learned/done
@@ -181,17 +181,17 @@ function extractFactsAutomatically(content: string): void {
     const ip = match[1]
     const context = content.toLowerCase()
     const tags: Record<string, string> = { type: 'ipv4' }
-    
+
     // Contextual tagging: if 'database' or 'prod' is nearby, tag the IP
     if (context.includes('database') || context.includes('db')) tags.role = 'database'
     if (context.includes('prod')) tags.env = 'production'
     if (context.includes('worker')) tags.role = 'worker'
-    
+
     addGlobalEntity('server_ip', ip, tags)
   }
 
   // 6. DYNAMIC CONCEPT DISCOVERY (Improved for Doctoral precision)
-  
+
   // A. Detect symbols in backticks (High confidence symbols)
   const backtickMatches = content.matchAll(/`([^`]+)`/g)
   for (const match of backtickMatches) {

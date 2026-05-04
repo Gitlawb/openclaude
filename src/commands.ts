@@ -9,6 +9,7 @@ import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
+import commitMessage from './commands/commit-message/index.js'
 import copy from './commands/copy/index.js'
 import desktop from './commands/desktop/index.js'
 import commitPushPr from './commands/commit-push-pr.js'
@@ -28,6 +29,7 @@ import ide from './commands/ide/index.js'
 import init from './commands/init.js'
 import initVerifiers from './commands/init-verifiers.js'
 import keybindings from './commands/keybindings/index.js'
+import lsp from './commands/lsp/index.js'
 import login from './commands/login/index.js'
 import logout from './commands/logout/index.js'
 import installGitHubApp from './commands/install-github-app/index.js'
@@ -61,62 +63,61 @@ import terminalSetup from './commands/terminalSetup/index.js'
 import usage from './commands/usage/index.js'
 import theme from './commands/theme/index.js'
 import vim from './commands/vim/index.js'
-import { feature } from 'bun:bundle'
 import { isBuddyEnabled } from './buddy/feature.js'
 // Dead code elimination: conditional imports
 /* eslint-disable @typescript-eslint/no-require-imports */
 const proactive =
-  feature('PROACTIVE') || feature('KAIROS')
+  false || false
     ? require('./commands/proactive.js').default
     : null
 const briefCommand =
-  feature('KAIROS') || feature('KAIROS_BRIEF')
+  false || false
     ? require('./commands/brief.js').default
     : null
-const assistantCommand = feature('KAIROS')
+const assistantCommand = false
   ? require('./commands/assistant/index.js').default
   : null
-const bridge = feature('BRIDGE_MODE')
+const bridge = false
   ? require('./commands/bridge/index.js').default
   : null
 const remoteControlServerCommand =
-  feature('DAEMON') && feature('BRIDGE_MODE')
+  false && false
     ? require('./commands/remoteControlServer/index.js').default
     : null
-const voiceCommand = feature('VOICE_MODE')
+const voiceCommand = false
   ? require('./commands/voice/index.js').default
   : null
-const forceSnip = feature('HISTORY_SNIP')
+const forceSnip = false
   ? require('./commands/force-snip.js').default
   : null
-const workflowsCmd = feature('WORKFLOW_SCRIPTS')
+const workflowsCmd = false
   ? (
       require('./commands/workflows/index.js') as typeof import('./commands/workflows/index.js')
     ).default
   : null
-const webCmd = feature('CCR_REMOTE_SETUP')
+const webCmd = false
   ? (
       require('./commands/remote-setup/index.js') as typeof import('./commands/remote-setup/index.js')
     ).default
   : null
-const clearSkillIndexCache = feature('EXPERIMENTAL_SKILL_SEARCH')
+const clearSkillIndexCache = false
   ? (
       require('./services/skillSearch/localSearch.js') as typeof import('./services/skillSearch/localSearch.js')
     ).clearSkillIndexCache
   : null
-const subscribePr = feature('KAIROS_GITHUB_WEBHOOKS')
+const subscribePr = false
   ? require('./commands/subscribe-pr.js').default
   : null
-const ultraplan = feature('ULTRAPLAN')
+const ultraplan = false
   ? require('./commands/ultraplan.js').default
   : null
-const torch = feature('TORCH') ? require('./commands/torch.js').default : null
-const peersCmd = feature('UDS_INBOX')
+const torch = false ? require('./commands/torch.js').default : null
+const peersCmd = false
   ? (
       require('./commands/peers/index.js') as typeof import('./commands/peers/index.js')
     ).default
   : null
-const forkCmd = feature('FORK_SUBAGENT')
+const forkCmd = true
   ? (
       require('./commands/fork/index.js') as typeof import('./commands/fork/index.js')
     ).default
@@ -277,6 +278,7 @@ const COMMANDS = memoize((): Command[] => [
   clear,
   color,
   compact,
+  commitMessage,
   config,
   copy,
   desktop,
@@ -296,6 +298,7 @@ const COMMANDS = memoize((): Command[] => [
   init,
   keybindings,
   knowledge,
+  lsp,
   installGitHubApp,
   installSlackApp,
   mcp,
@@ -351,7 +354,7 @@ const COMMANDS = memoize((): Command[] => [
   hooks,
   exportCommand,
   sandboxToggle,
-  ...(!isUsing3PServices() ? [logout, login()] : []),
+  ...(!isUsing3PServices() ? [logout, login()].filter(Boolean) : []),
   passes,
   ...(peersCmd ? [peersCmd] : []),
   tasks,
@@ -415,7 +418,7 @@ async function getSkills(cwd: string): Promise<{
 }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const getWorkflowCommands = feature('WORKFLOW_SCRIPTS')
+const getWorkflowCommands = false
   ? (
       require('./tools/WorkflowTool/createWorkflowCommand.js') as typeof import('./tools/WorkflowTool/createWorkflowCommand.js')
     ).getWorkflowCommands
@@ -431,8 +434,8 @@ const getWorkflowCommands = feature('WORKFLOW_SCRIPTS')
  * Not memoized — auth state can change mid-session (e.g. after /login),
  * so this must be re-evaluated on every getCommands() call.
  */
-export function meetsAvailabilityRequirement(cmd: Command): boolean {
-  if (!cmd.availability) return true
+export function meetsAvailabilityRequirement(cmd: Command | null | undefined): boolean {
+  if (!cmd || !cmd.availability || !Array.isArray(cmd.availability)) return true
   for (const a of cmd.availability) {
     switch (a) {
       case 'claude-ai':
@@ -564,7 +567,7 @@ export function clearCommandsCache(): void {
 export function getMcpSkillCommands(
   mcpCommands: readonly Command[],
 ): readonly Command[] {
-  if (feature('MCP_SKILLS')) {
+  if (false) {
     return mcpCommands.filter(
       cmd =>
         cmd.type === 'prompt' &&
@@ -747,25 +750,27 @@ export function formatDescriptionWithSource(cmd: Command): string {
     return cmd.description ?? ''
   }
 
+  const desc = cmd.description ?? ''
+
   if (cmd.kind === 'workflow') {
-    return `${cmd.description ?? ''} (workflow)`
+    return `${desc} (workflow)`
   }
 
   if (cmd.source === 'plugin') {
     const pluginName = cmd.pluginInfo?.pluginManifest.name
     if (pluginName) {
-      return `(${pluginName}) ${cmd.description ?? ''}`
+      return `(${pluginName}) ${desc}`
     }
-    return `${cmd.description ?? ''} (plugin)`
+    return `${desc} (plugin)`
   }
 
   if (cmd.source === 'builtin' || cmd.source === 'mcp') {
-    return cmd.description ?? ''
+    return desc
   }
 
   if (cmd.source === 'bundled') {
-    return `${cmd.description} (bundled)`
+    return `${desc} (bundled)`
   }
 
-  return `${cmd.description} (${getSettingSourceName(cmd.source)})`
+  return `${desc} (${getSettingSourceName(cmd.source)})`
 }

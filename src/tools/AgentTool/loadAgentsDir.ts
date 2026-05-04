@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import memoize from 'lodash-es/memoize.js'
 import { basename } from 'path'
 import type { SettingSource } from 'src/utils/settings/constants.js'
@@ -19,7 +18,6 @@ import {
   type EffortValue,
   parseEffortValue,
 } from '../../utils/effort.js'
-import { isEnvTruthy } from '../../utils/envUtils.js'
 import { parsePositiveIntFromFrontmatter } from '../../utils/frontmatterParser.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
@@ -295,15 +293,6 @@ async function initializeAgentMemorySnapshots(
 
 export const getAgentDefinitionsWithOverrides = memoize(
   async (cwd: string): Promise<AgentDefinitionsResult> => {
-    // Simple mode: skip custom agents, only return built-ins
-    if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
-      const builtInAgents = getBuiltInAgents()
-      return {
-        activeAgents: builtInAgents,
-        allAgents: builtInAgents,
-      }
-    }
-
     try {
       const markdownFiles = await loadMarkdownFilesForSubdir('agents', cwd)
 
@@ -345,7 +334,7 @@ export const getAgentDefinitionsWithOverrides = memoize(
       // loadPluginAgents is memoized and takes no args, so it's independent.
       // Join both so neither becomes a floating promise if the other throws.
       let pluginAgentsPromise = loadPluginAgents()
-      if (feature('AGENT_MEMORY_SNAPSHOT') && isAutoMemoryEnabled()) {
+      if (false && isAutoMemoryEnabled()) {
         const [pluginAgents_] = await Promise.all([
           pluginAgentsPromise,
           initializeAgentMemorySnapshots(customAgents),

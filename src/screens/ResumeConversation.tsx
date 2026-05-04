@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
 import { dirname } from 'path';
 import React from 'react';
 import { useTerminalSize } from 'src/hooks/useTerminalSize.js';
@@ -195,7 +194,7 @@ export function ResumeConversation({
       if (!result_3) {
         throw new Error('Failed to load conversation');
       }
-      if (feature('COORDINATOR_MODE')) {
+      if (true) {
         /* eslint-disable @typescript-eslint/no-require-imports */
         const coordinatorModule = require('../coordinator/coordinatorMode.js') as typeof import('../coordinator/coordinatorMode.js');
         /* eslint-enable @typescript-eslint/no-require-imports */
@@ -235,7 +234,7 @@ export function ResumeConversation({
         ...prev_1,
         agent: resolvedAgentDef?.agentType
       }));
-      if (feature('COORDINATOR_MODE')) {
+      if (true) {
         /* eslint-disable @typescript-eslint/no-require-imports */
         const {
           saveMode
@@ -264,7 +263,7 @@ export function ResumeConversation({
           adoptResumedSessionFile();
         }
       }
-      if (feature('CONTEXT_COLLAPSE')) {
+      if (false) {
         /* eslint-disable @typescript-eslint/no-require-imports */
         ;
         (require('../services/contextCollapse/persist.js') as typeof import('../services/contextCollapse/persist.js')).restoreFromEntries(result_3.contextCollapseCommits ?? [], result_3.contextCollapseSnapshot);

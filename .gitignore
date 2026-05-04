@@ -1,6 +1,8 @@
 node_modules/
 dist/
 *.tsbuildinfo
+web/dist/
+web/*.tsbuildinfo
 .env
 .env.*
 !.env.example
@@ -12,3 +14,4 @@ package-lock.json
 /.claude
 coverage/
 agent.log
+plan/

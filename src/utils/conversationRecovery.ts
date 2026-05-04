@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import { relative } from 'path'
 import { getCwd } from 'src/utils/cwd.js'
@@ -25,6 +24,7 @@ import {
 } from './fileHistory.js'
 import { logError } from './log.js'
 import { getAPIProvider } from './model/providers.js'
+import { usesAnthropicNativeMessageFormat } from '../integrations/runtimeMetadata.js'
 import {
   createAssistantMessage,
   createUserMessage,
@@ -55,18 +55,18 @@ import type { ContentReplacementRecord } from './toolResultStorage.js'
 // their strings don't leak into external builds. Static imports always bundle.
 /* eslint-disable @typescript-eslint/no-require-imports */
 const BRIEF_TOOL_NAME: string | null =
-  feature('KAIROS') || feature('KAIROS_BRIEF')
+  false || false
     ? (
         require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')
       ).BRIEF_TOOL_NAME
     : null
 const LEGACY_BRIEF_TOOL_NAME: string | null =
-  feature('KAIROS') || feature('KAIROS_BRIEF')
+  false || false
     ? (
         require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')
       ).LEGACY_BRIEF_TOOL_NAME
     : null
-const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
+const SEND_USER_FILE_TOOL_NAME: string | null = false
   ? (
       require('../tools/SendUserFileTool/prompt.js') as typeof import('../tools/SendUserFileTool/prompt.js')
     ).SEND_USER_FILE_TOOL_NAME
@@ -251,7 +251,13 @@ export function deserializeMessagesWithInterruptDetection(
     // when resuming against a 3P provider. These Anthropic-specific blocks cause
     // 400 errors or context corruption on OpenAI-compatible providers (issue #248 finding 5).
     const provider = getAPIProvider()
-    const isThirdPartyProvider = provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex' && provider !== 'foundry'
+    const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
+      processEnv: process.env,
+      model: process.env.OPENAI_MODEL,
+      providerCategory: provider,
+    })
+    const isThirdPartyProvider =
+      provider !== 'foundry' && !isAnthropicNativeTransport
     const thinkingStripped = isThirdPartyProvider
       ? stripThinkingBlocks(filteredThinking)
       : filteredThinking
@@ -550,7 +556,7 @@ export async function loadConversationForResume(
       // that are actively writing their own transcript.
       const logsPromise = loadMessageLogs()
       let skip = new Set<string>()
-      if (feature('BG_SESSIONS')) {
+      if (false) {
         try {
           const { listAllLiveSessions } = await import('./udsClient.js')
           const live = await listAllLiveSessions()

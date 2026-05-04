@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { randomBytes } from 'crypto'
 import { unwatchFile, watchFile } from 'fs'
 import memoize from 'lodash-es/memoize.js'
@@ -34,10 +33,10 @@ import type { ThemeSetting } from './theme.js'
 import { PRIMARY_PROJECT_INSTRUCTION_FILE } from './projectInstructions.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const teamMemPaths = feature('TEAMMEM')
+const teamMemPaths = true
   ? (require('../memdir/teamMemPaths.js') as typeof import('../memdir/teamMemPaths.js'))
   : null
-const ccrAutoConnect = feature('CCR_AUTO_CONNECT')
+const ccrAutoConnect = false
   ? (require('../bridge/bridgeEnabled.js') as typeof import('../bridge/bridgeEnabled.js'))
   : null
 
@@ -155,7 +154,7 @@ export {
   NOTIFICATION_CHANNELS,
 } from './configConstants.js'
 
-import type { EDITOR_MODES, NOTIFICATION_CHANNELS, PROVIDERS } from './configConstants.js'
+import type { EDITOR_MODES, NOTIFICATION_CHANNELS } from './configConstants.js'
 
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number]
 
@@ -184,7 +183,7 @@ export const SHOW_CACHE_STATS_MODES = ['off', 'compact', 'full'] as const satisf
 
 export type OutputStyle = string
 
-export type Providers = typeof PROVIDERS[number]
+export type Providers = string
 export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses'
 export type OpenAICompatibleAuthScheme = 'bearer' | 'raw'
 
@@ -199,6 +198,7 @@ export type ProviderProfile = {
   authHeader?: string
   authScheme?: OpenAICompatibleAuthScheme
   authHeaderValue?: string
+  customHeaders?: Record<string, string>
 }
 
 export type GlobalConfig = {
@@ -1161,7 +1161,7 @@ export function getGlobalConfig(): GlobalConfig {
 export function getRemoteControlAtStartup(): boolean {
   const explicit = getGlobalConfig().remoteControlAtStartup
   if (explicit !== undefined) return explicit
-  if (feature('CCR_AUTO_CONNECT')) {
+  if (false) {
     if (ccrAutoConnect?.getCcrAutoConnectDefault()) return true
   }
   return false
@@ -1858,8 +1858,8 @@ export function getMemoryPath(memoryType: MemoryType): string {
     case 'AutoMem':
       return getAutoMemEntrypoint()
   }
-  // TeamMem is only a valid MemoryType when feature('TEAMMEM') is true
-  if (feature('TEAMMEM')) {
+  // TeamMem is only a valid MemoryType when true is true
+  if (true) {
     return teamMemPaths!.getTeamMemEntrypoint()
   }
   return '' // unreachable in external builds where TeamMem is not in MemoryType

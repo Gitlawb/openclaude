@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { getModelOptions } from '../../utils/model/modelOptions.js'
 import { isVoiceGrowthBookEnabled } from '../../voice/voiceModeEnabled.js'
 import {
@@ -21,7 +20,7 @@ export function generatePrompt(): string {
     // Voice settings are registered at build-time but gated by GrowthBook
     // at runtime. Hide from model prompt when the kill-switch is on.
     if (
-      feature('VOICE_MODE') &&
+      false &&
       key === 'voiceEnabled' &&
       !isVoiceGrowthBookEnabled()
     )

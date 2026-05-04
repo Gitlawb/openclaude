@@ -72,6 +72,8 @@ function getScopedAdditionalModelOptions(): ModelOption[] {
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
+  const is3P = getAPIProvider() !== 'firstParty'
+
   if (process.env.USER_TYPE === 'ant') {
     const currentModel = renderDefaultModelSetting(
       getDefaultMainLoopModelSetting(),
@@ -81,6 +83,14 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
       label: 'Default (recommended)',
       description: `Use the default model for Ants (currently ${currentModel})`,
       descriptionForModel: `Default model (currently ${currentModel})`,
+    }
+  }
+
+  if (is3P) {
+    return {
+      value: null,
+      label: 'Default (recommended)',
+      description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})`,
     }
   }
 
@@ -94,7 +104,6 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
   }
 
   // PAYG
-  const is3P = getAPIProvider() !== 'firstParty'
   return {
     value: null,
     label: 'Default (recommended)',
@@ -156,6 +165,16 @@ function getOpus41Option(): ModelOption {
     label: 'Opus 4.1',
     description: `Opus 4.1 · Legacy`,
     descriptionForModel: 'Opus 4.1 - legacy version',
+  }
+}
+
+function getOpus47Option(fastMode = false): ModelOption {
+  const is3P = getAPIProvider() !== 'firstParty'
+  return {
+    value: is3P ? getModelStrings().opus47 : 'opus',
+    label: 'Opus',
+    description: `Opus 4.7 · Most capable for complex work${getOpus46PricingSuffix(fastMode)}`,
+    descriptionForModel: 'Opus 4.7 - most capable for complex work',
   }
 }
 
@@ -241,7 +260,7 @@ function getMaxOpusOption(fastMode = false): ModelOption {
   return {
     value: 'opus',
     label: 'Opus',
-    description: `Opus 4.6 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`,
+    description: `Opus 4.7 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`,
   }
 }
 
@@ -269,9 +288,9 @@ function getMergedOpus1MOption(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `Opus 4.6 with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode) : ''}`,
+    description: `${is3P ? 'Opus 4.6' : 'Opus 4.7'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode) : ''}`,
     descriptionForModel:
-      'Opus 4.6 with 1M context - most capable for complex work',
+      `${is3P ? 'Opus 4.6' : 'Opus 4.7'} with 1M context - most capable for complex work`,
   }
 }
 
@@ -291,7 +310,7 @@ function getOpusPlanOption(): ModelOption {
   return {
     value: 'opusplan',
     label: 'Opus Plan Mode',
-    description: 'Use Opus 4.6 in plan mode, Sonnet 4.6 otherwise',
+    description: 'Use Opus 4.7 in plan mode, Sonnet 4.6 otherwise',
   }
 }
 
@@ -504,7 +523,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     }
   }
 
-  // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.6 + Opus 1M + Haiku
+  // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
   if (getAPIProvider() === 'firstParty') {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
     if (checkSonnet1mAccess()) {
@@ -513,6 +532,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     if (isOpus1mMergeEnabled()) {
       payg1POptions.push(getMergedOpus1MOption(fastMode))
     } else {
+      payg1POptions.push(getOpus47Option(fastMode))
       payg1POptions.push(getOpus46Option(fastMode))
       if (checkOpus1mAccess()) {
         payg1POptions.push(getOpus46_1MOption(fastMode))
@@ -546,8 +566,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   if (customOpus !== undefined) {
     payg3pOptions.push(customOpus)
   } else {
-    // Add Opus 4.1, Opus 4.6 and Opus 4.6 1M
+    // Add Opus 4.1, Opus 4.7, Opus 4.6 and Opus 4.6 1M
     payg3pOptions.push(getOpus41Option()) // This is the default opus
+    payg3pOptions.push(getOpus47Option(fastMode))
     payg3pOptions.push(getOpus46Option(fastMode))
     if (checkOpus1mAccess()) {
       payg3pOptions.push(getOpus46_1MOption(fastMode))

@@ -1,12 +1,16 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import type { Theme } from './theme.js'
-import { feature } from 'bun:bundle'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
+import {
+  getCatalogEntriesForRoute,
+  getModel,
+  resolveActiveRouteIdFromEnv,
+} from '../integrations/index.js'
 import { getCanonicalName } from './model/model.js'
+import { resolveAntModel } from './model/antModels.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAPIProvider } from './model/providers.js'
 import { getSettingsWithErrors } from './settings/settings.js'
-import { isZaiBaseUrl, isZaiGlmModel } from './zaiProvider.js'
 
 export type ThinkingConfig =
   | { type: 'adaptive' }
@@ -18,7 +22,7 @@ export type ThinkingConfig =
  * controls code inclusion in external builds; the GB flag controls rollout.
  */
 export function isUltrathinkEnabled(): boolean {
-  if (!feature('ULTRATHINK')) {
+  if (!true) {
     return false
   }
   return getFeatureValue_CACHED_MAY_BE_STALE('tengu_turtle_carbon', true)
@@ -78,6 +82,27 @@ const RAINBOW_SHIMMER_COLORS: Array<keyof Theme> = [
   'rainbow_violet_shimmer',
 ]
 
+function routeCatalogSupportsThinking(model: string): boolean | undefined {
+  const routeId = resolveActiveRouteIdFromEnv(process.env)
+  if (!routeId || routeId === 'anthropic') {
+    return undefined
+  }
+
+  const normalizedModel = model.trim().toLowerCase()
+  const entry = getCatalogEntriesForRoute(routeId).find(catalogEntry =>
+    catalogEntry.apiName.trim().toLowerCase() === normalizedModel ||
+    catalogEntry.id.trim().toLowerCase() === normalizedModel,
+  )
+
+  if (entry?.capabilities?.supportsReasoning !== undefined) {
+    return entry.capabilities.supportsReasoning
+  }
+
+  return entry?.modelDescriptorId
+    ? getModel(entry.modelDescriptorId)?.capabilities.supportsReasoning
+    : undefined
+}
+
 export function getRainbowColor(
   charIndex: number,
   shimmer: boolean = false,
@@ -112,12 +137,11 @@ export function modelSupportsThinking(model: string): boolean {
   ) {
     return true
   }
-  if (
-    provider === 'openai' &&
-    isZaiBaseUrl(process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE) &&
-    isZaiGlmModel(canonical)
-  ) {
-    return true
+  if (provider === 'openai') {
+    const descriptorSupportsThinking = routeCatalogSupportsThinking(model)
+    if (descriptorSupportsThinking !== undefined) {
+      return descriptorSupportsThinking
+    }
   }
   // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
   return canonical.includes('sonnet-4') || canonical.includes('opus-4')
@@ -131,7 +155,7 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   }
   const canonical = getCanonicalName(model)
   // Supported by a subset of Claude 4 models
-  if (canonical.includes('opus-4-6') || canonical.includes('sonnet-4-6')) {
+  if (canonical.includes('opus-4-7') || canonical.includes('opus-4-6') || canonical.includes('sonnet-4-6')) {
     return true
   }
   // Exclude any other known legacy models (allowlist above catches 4-6 variants first)

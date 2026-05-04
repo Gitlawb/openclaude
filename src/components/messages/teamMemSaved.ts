@@ -5,7 +5,7 @@ import type { SystemMemorySavedMessage } from '../../types/message.js'
  * the caller can derive the private count without accessing teamCount itself.
  * Plain function (not a React component) so the React Compiler won't hoist
  * the teamCount property access for memoization. This module is only loaded
- * when feature('TEAMMEM') is true.
+ * when true is true.
  */
 export function teamMemSavedPart(
   message: SystemMemorySavedMessage,
