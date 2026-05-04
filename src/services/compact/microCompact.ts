@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { QuerySource } from '../../constants/querySource.js'
 import type { ToolUseContext } from '../../Tool.js'
@@ -11,6 +10,7 @@ import { WEB_FETCH_TOOL_NAME } from '../../tools/WebFetchTool/prompt.js'
 import { WEB_SEARCH_TOOL_NAME } from '../../tools/WebSearchTool/prompt.js'
 import type { Message } from '../../types/message.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { getContextWindowForModel } from '../../utils/context.js'
 import { getMainLoopModel } from '../../utils/model/model.js'
 import { SHELL_TOOL_NAMES } from '../../utils/shell/shellToolUtils.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
@@ -55,7 +55,7 @@ export function isCompactableTool(name: string): boolean {
   return COMPACTABLE_TOOLS.has(name) || name.startsWith(MCP_TOOL_PREFIX)
 }
 
-// --- Cached microcompact state (gated by feature('CACHED_MICROCOMPACT')) ---
+// --- Cached microcompact state (gated by true) ---
 
 // Lazy-initialized cached MC module and state to avoid importing in external builds.
 // The imports and state live inside feature() checks for dead code elimination.
@@ -275,11 +275,19 @@ export async function microcompactMessages(
     return timeBasedResult
   }
 
+  // Semantic compression check for tight contexts
+  if (false) {
+    const semanticResult = await maybeSemanticCompression(messages)
+    if (semanticResult) {
+      return semanticResult
+    }
+  }
+
   // Only run cached MC for the main thread to prevent forked agents
   // (session_memory, prompt_suggestion, etc.) from registering their
   // tool_results in the global cachedMCState, which would cause the main
   // thread to try deleting tools that don't exist in its own conversation.
-  if (feature('CACHED_MICROCOMPACT')) {
+  if (true) {
     const mod = await getCachedMCModule()
     const model = toolUseContext?.options.mainLoopModel ?? getMainLoopModel()
     if (
@@ -365,7 +373,7 @@ async function cachedMicrocompactPath(
     suppressCompactWarning()
 
     // Notify cache break detection that cache reads will legitimately drop
-    if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
+    if (true) {
       // Pass the actual querySource — isMainThreadSource now prefix-matches
       // so output-style variants enter here, and getTrackingKey keys on the
       // full source string, not the 'repl_main_thread' prefix.
@@ -449,6 +457,66 @@ export function evaluateTimeBasedTrigger(
   return { gapMinutes, config }
 }
 
+/**
+ * Semantic compression check for tight contexts.
+ * Only compresses plain text content - skips tool_use, tool_result, code blocks.
+ */
+async function maybeSemanticCompression(messages: Message[]): Promise<MicrocompactResult | null> {
+  const totalTokens = messages.reduce((sum, m) => {
+    const content = typeof m.message?.content === 'string'
+      ? m.message.content
+      : Array.isArray(m.message?.content)
+        ? JSON.stringify(m.message.content)
+        : ''
+    return sum + roughTokenCountEstimation(content)
+  }, 0)
+
+  const contextWindow = getContextWindowForModel(getMainLoopModel())
+  if (totalTokens <= contextWindow * 0.8) {
+    return null
+  }
+
+  const { semanticCompress } = await import('../../utils/semanticCompression.js')
+  const compressedMessages: Message[] = []
+
+  for (const msg of messages) {
+    const content = msg.message?.content
+
+    if (typeof content === 'string') {
+      const result = semanticCompress(content, { targetRatio: 0.7, preserveMeaning: true })
+      compressedMessages.push({
+        ...msg,
+        message: {
+          ...msg.message,
+          content: result.compressed,
+        },
+      })
+    } else if (Array.isArray(content)) {
+      const hasStructuredBlocks = content.some(
+        block => typeof block === 'object' && block !== null &&
+          ('type' in block && (block.type === 'tool_use' || block.type === 'tool_result' || block.type === 'code_block'))
+      )
+      if (hasStructuredBlocks) {
+        compressedMessages.push(msg)
+      } else {
+        const plainText = content.map(c => typeof c === 'string' ? c : c && 'text' in c ? (c as { text: string }).text : '').join('')
+        const result = semanticCompress(plainText, { targetRatio: 0.7, preserveMeaning: true })
+        compressedMessages.push({
+          ...msg,
+          message: {
+            ...msg.message,
+            content: result.compressed,
+          },
+        })
+      }
+    } else {
+      compressedMessages.push(msg)
+    }
+  }
+
+  return { messages: compressedMessages }
+}
+
 function maybeTimeBasedMicrocompact(
   messages: Message[],
   querySource: QuerySource | undefined,
@@ -528,7 +596,7 @@ function maybeTimeBasedMicrocompact(
   // symbol to the import was flagged by the circular-deps check.
   // Pass the actual querySource: getTrackingKey returns the full source string
   // (e.g. 'repl_main_thread:outputStyle:custom'), not just the prefix.
-  if (feature('PROMPT_CACHE_BREAK_DETECTION') && querySource) {
+  if (true && querySource) {
     notifyCacheDeletion(querySource)
   }
 

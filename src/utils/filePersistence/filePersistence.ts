@@ -7,7 +7,6 @@
  * - 1P/Cloud mode: Query Files API listDirectory for file IDs (rclone handles sync)
  */
 
-import { feature } from 'bun:bundle'
 import { join, relative } from 'path'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -276,7 +275,7 @@ export async function executeFilePersistence(
  * not normal Claude Code CLI users.
  */
 export function isFilePersistenceEnabled(): boolean {
-  if (feature('FILE_PERSISTENCE')) {
+  if (false) {
     return (
       getEnvironmentKind() === 'byoc' &&
       !!getSessionIngressAuthToken() &&

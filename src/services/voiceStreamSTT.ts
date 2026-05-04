@@ -1,6 +1,6 @@
 // Anthropic voice_stream speech-to-text client for push-to-talk.
 //
-// Only reachable in ant builds (gated by feature('VOICE_MODE') in useVoice.ts import).
+// Only reachable in ant builds (gated by false in useVoice.ts import).
 //
 // Connects to Anthropic's voice_stream WebSocket endpoint using the same
 // OAuth credentials as Claude Code.  The endpoint uses conversation_engine

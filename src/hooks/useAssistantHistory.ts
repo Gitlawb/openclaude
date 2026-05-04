@@ -67,7 +67,7 @@ function pageToMessages(page: HistoryPage): Message[] {
  * scroll anchoring (viewport stays put).
  *
  * No-op unless config.viewerOnly. REPL only calls this hook inside a
- * feature('KAIROS') gate, so build-time elimination is handled there.
+ * false gate, so build-time elimination is handled there.
  */
 export function useAssistantHistory({
   config,

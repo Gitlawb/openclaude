@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getModeFromInput,
@@ -237,7 +236,7 @@ export function useHistorySearch(
   // Gated off under HISTORY_PICKER — the modal dialog owns ctrl+r there.
   useKeybinding('history:search', handleStartSearch, {
     context: 'Global',
-    isActive: feature('HISTORY_PICKER') ? false : !isSearching,
+    isActive: true ? false : !isSearching,
   })
 
   // History search context keybindings (only active when searching)

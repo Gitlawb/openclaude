@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
 import * as React from 'react';
 import type { AutoUpdaterResult } from '../utils/autoUpdater.js';
 import { isAutoUpdaterDisabled } from '../utils/config.js';
@@ -33,7 +32,7 @@ export function AutoUpdaterWrapper(t0) {
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = () => {
       const checkInstallation = async function checkInstallation() {
-        if (feature("SKIP_DETECTION_WHEN_AUTOUPDATES_DISABLED") && isAutoUpdaterDisabled()) {
+        if (false && isAutoUpdaterDisabled()) {
           logForDebugging("AutoUpdaterWrapper: Skipping detection, auto-updates disabled");
           return;
         }

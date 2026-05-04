@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle'
 import type { BetaToolUseBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { randomUUID } from 'crypto'
 import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
@@ -30,7 +29,7 @@ import type { BuiltInAgentDefinition } from './loadAgentsDir.js'
  * orchestration role and has its own delegation model.
  */
 export function isForkSubagentEnabled(): boolean {
-  if (feature('FORK_SUBAGENT')) {
+  if (true) {
     if (isCoordinatorMode()) return false
     if (getIsNonInteractiveSession()) return false
     return true

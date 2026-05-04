@@ -92,7 +92,7 @@ import type { DiscoverySignal } from '../services/skillSearch/signals.js'
 // the skill_listing suppression check (uses the same skillSearchModules null
 // check). The type-only DiscoverySignal import above is erased at compile time.
 /* eslint-disable @typescript-eslint/no-require-imports */
-const skillSearchModules = feature('EXPERIMENTAL_SKILL_SEARCH')
+const skillSearchModules = false
   ? {
       featureCheck:
         require('../services/skillSearch/featureCheck.js') as typeof import('../services/skillSearch/featureCheck.js'),
@@ -100,7 +100,7 @@ const skillSearchModules = feature('EXPERIMENTAL_SKILL_SEARCH')
         require('../services/skillSearch/prefetch.js') as typeof import('../services/skillSearch/prefetch.js'),
     }
   : null
-const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
+const autoModeStateModule = true
   ? (require('./permissions/autoModeState.js') as typeof import('./permissions/autoModeState.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -195,15 +195,14 @@ import {
 } from './messages.js'
 import { isHumanTurn } from './messagePredicates.js'
 import { isEnvTruthy, getClaudeConfigHomeDir } from './envUtils.js'
-import { feature } from 'bun:bundle'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const BRIEF_TOOL_NAME: string | null =
-  feature('KAIROS') || feature('KAIROS_BRIEF')
+  false || false
     ? (
         require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')
       ).BRIEF_TOOL_NAME
     : null
-const sessionTranscriptModule = feature('KAIROS')
+const sessionTranscriptModule = false
   ? (require('../services/sessionTranscript/sessionTranscript.js') as typeof import('../services/sessionTranscript/sessionTranscript.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -799,7 +798,7 @@ export async function getAttachments(
         // but that content is NOT user intent and must not trigger discovery.
         // Without this gate, a 110KB SKILL.md fires ~3.3s of chunked AKI
         // queries on every skill invocation (session 13a9afae).
-        ...(feature('EXPERIMENTAL_SKILL_SEARCH') &&
+        ...(false &&
         skillSearchModules &&
         !options?.skipSkillDiscovery
           ? [
@@ -881,7 +880,7 @@ export async function getAttachments(
     // replaces it; see src/services/skillSearch/prefetch.ts.
     maybe('plan_mode', () => getPlanModeAttachments(messages, toolUseContext)),
     maybe('plan_mode_exit', () => getPlanModeExitAttachment(toolUseContext)),
-    ...(feature('TRANSCRIPT_CLASSIFIER')
+    ...(true
       ? [
           maybe('auto_mode', () =>
             getAutoModeAttachments(messages, toolUseContext),
@@ -920,7 +919,7 @@ export async function getAttachments(
     maybe('critical_system_reminder', () =>
       Promise.resolve(getCriticalSystemReminderAttachment(toolUseContext)),
     ),
-    ...(feature('COMPACTION_REMINDERS')
+    ...(false
       ? [
           maybe('compaction_reminder', () =>
             Promise.resolve(
@@ -932,7 +931,7 @@ export async function getAttachments(
           ),
         ]
       : []),
-    ...(feature('HISTORY_SNIP')
+    ...(false
       ? [
           maybe('context_efficiency', () =>
             Promise.resolve(getContextEfficiencyAttachment(messages ?? [])),
@@ -1435,7 +1434,7 @@ export function getDateChangeAttachments(
   // the /dream skill (1–5am local) finds it even if no compaction fires
   // today. Fire-and-forget; writeSessionTranscriptSegment buckets by
   // message timestamp so a multi-day gap flushes each day correctly.
-  if (feature('KAIROS')) {
+  if (false) {
     if (getKairosActive() && messages !== undefined) {
       sessionTranscriptModule?.flushOnDateChange(messages, currentDate)
     }
@@ -2691,7 +2690,7 @@ async function getSkillListingAttachments(
   // discovery. feature() first for DCE — the property-access string leaks
   // otherwise even with ?. on null.
   if (
-    feature('EXPERIMENTAL_SKILL_SEARCH') &&
+    false &&
     skillSearchModules?.featureCheck.isSkillSearchEnabled()
   ) {
     allCommands = filterToBundledAndMcp(allCommands)
@@ -3846,7 +3845,7 @@ function getTokenUsageAttachment(
 }
 
 function getOutputTokenUsageAttachment(): Attachment[] {
-  if (feature('TOKEN_BUDGET')) {
+  if (true) {
     const budget = getCurrentTurnTokenBudget()
     if (budget === null || budget <= 0) {
       return []
@@ -3983,7 +3982,7 @@ export function getCompactionReminderAttachment(
 export function getContextEfficiencyAttachment(
   messages: Message[],
 ): Attachment[] {
-  if (!feature('HISTORY_SNIP')) {
+  if (!false) {
     return []
   }
   // Gate must match SnipTool.isEnabled() — don't nudge toward a tool that

@@ -1,5 +1,4 @@
 import { c as _c } from "react-compiler-runtime";
-import { feature } from 'bun:bundle';
 import chalk from 'chalk';
 import { mkdir } from 'fs/promises';
 import { basename, join } from 'path';
@@ -27,7 +26,7 @@ import { ListItem } from '../design-system/ListItem.js';
 import { getProjectMemoryPathForSelector } from './memoryFileSelectorPaths.js';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const teamMemPaths = feature('TEAMMEM') ? require('../../memdir/teamMemPaths.js') as typeof import('../../memdir/teamMemPaths.js') : null;
+const teamMemPaths = true ? require('../../memdir/teamMemPaths.js') as typeof import('../../memdir/teamMemPaths.js') : null;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 interface ExtendedMemoryFileInfo extends MemoryFileInfo {
@@ -127,7 +126,7 @@ export function MemoryFileSelector(t0) {
       t1 = $[0];
     }
     folderOptions.push(t1);
-    if (feature("TEAMMEM") && teamMemPaths.isTeamMemoryEnabled()) {
+    if (true && teamMemPaths.isTeamMemoryEnabled()) {
       let t2;
       if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
         t2 = {
