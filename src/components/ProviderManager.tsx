@@ -1458,7 +1458,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     if (canUseCodexOAuth) {
       options.splice(6, 0, {
         value: 'codex-oauth',
-        label: 'Codex OAuth',
+        label: (
+          <Box>
+            <Text>Codex OAuth </Text>
+            <Text color="green" bold>★ Recommended</Text>
+          </Box>
+        ),
         description:
           'Sign in with ChatGPT in your browser and store Codex credentials securely',
       })
