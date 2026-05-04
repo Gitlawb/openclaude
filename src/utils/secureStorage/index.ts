@@ -15,6 +15,13 @@ export interface SecureStorageData {
     lastRefreshAt?: number
     lastRefreshFailureAt?: number
   }
+  claudeAiOauth?: {
+    accessToken: string
+    refreshToken?: string
+    expiresAt?: number
+    scope?: string
+    clientId?: string
+  }
   mcpOAuth?: Record<
     string,
     {
@@ -34,6 +41,16 @@ export interface SecureStorageData {
     }
   >
   mcpOAuthClientConfig?: Record<string, { clientSecret: string }>
+  mcpXaaIdp?: {
+    accessToken: string
+    refreshToken?: string
+    expiresAt?: number
+  }
+  mcpXaaIdpConfig?: {
+    clientId?: string
+    clientSecret?: string
+    authorizationServerUrl?: string
+  }
   trustedDeviceToken?: string
   pluginSecrets?: Record<string, Record<string, string>>
 }

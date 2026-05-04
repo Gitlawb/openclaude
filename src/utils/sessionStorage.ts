@@ -1747,10 +1747,13 @@ export function getFirstMeaningfulUserMessageTextContent<T extends Message>(
   transcript: T[],
 ): string | undefined {
   for (const msg of transcript) {
+    // @ts-expect-error property does not exist on inferred type
     if (msg.type !== 'user' || msg.isMeta) continue
     // Skip compact summary messages - they should not be treated as the first prompt
+    // @ts-expect-error type mismatch
     if ('isCompactSummary' in msg && msg.isCompactSummary) continue
 
+    // @ts-expect-error property does not exist on inferred type
     const content = msg.message?.content
     if (!content) continue
 
@@ -3906,45 +3909,45 @@ export async function loadTranscriptFile(
           contextCollapseCommits.length = 0
           contextCollapseSnapshot = undefined
         }
-      } else if (entry.type === 'summary' && entry.leafUuid) {
-        summaries.set(entry.leafUuid, entry.summary)
-      } else if (entry.type === 'custom-title' && entry.sessionId) {
-        customTitles.set(entry.sessionId, entry.customTitle)
-      } else if (entry.type === 'tag' && entry.sessionId) {
-        tags.set(entry.sessionId, entry.tag)
-      } else if (entry.type === 'agent-name' && entry.sessionId) {
-        agentNames.set(entry.sessionId, entry.agentName)
-      } else if (entry.type === 'agent-color' && entry.sessionId) {
-        agentColors.set(entry.sessionId, entry.agentColor)
-      } else if (entry.type === 'agent-setting' && entry.sessionId) {
-        agentSettings.set(entry.sessionId, entry.agentSetting)
-      } else if (entry.type === 'mode' && entry.sessionId) {
-        modes.set(entry.sessionId, entry.mode)
-      } else if (entry.type === 'worktree-state' && entry.sessionId) {
-        worktreeStates.set(entry.sessionId, entry.worktreeSession)
-      } else if (entry.type === 'pr-link' && entry.sessionId) {
-        prNumbers.set(entry.sessionId, entry.prNumber)
-        prUrls.set(entry.sessionId, entry.prUrl)
-        prRepositories.set(entry.sessionId, entry.prRepository)
-      } else if (entry.type === 'file-history-snapshot') {
-        fileHistorySnapshots.set(entry.messageId, entry)
-      } else if (entry.type === 'attribution-snapshot') {
-        attributionSnapshots.set(entry.messageId, entry)
-      } else if (entry.type === 'content-replacement') {
+      } else if ((entry as any).type === 'summary' && (entry as any).leafUuid) {
+        summaries.set((entry as any).leafUuid, (entry as any).summary)
+      } else if ((entry as any).type === 'custom-title' && (entry as any).sessionId) {
+        customTitles.set((entry as any).sessionId, (entry as any).customTitle)
+      } else if ((entry as any).type === 'tag' && (entry as any).sessionId) {
+        tags.set((entry as any).sessionId, (entry as any).tag)
+      } else if ((entry as any).type === 'agent-name' && (entry as any).sessionId) {
+        agentNames.set((entry as any).sessionId, (entry as any).agentName)
+      } else if ((entry as any).type === 'agent-color' && (entry as any).sessionId) {
+        agentColors.set((entry as any).sessionId, (entry as any).agentColor)
+      } else if ((entry as any).type === 'agent-setting' && (entry as any).sessionId) {
+        agentSettings.set((entry as any).sessionId, (entry as any).agentSetting)
+      } else if ((entry as any).type === 'mode' && (entry as any).sessionId) {
+        modes.set((entry as any).sessionId, (entry as any).mode)
+      } else if ((entry as any).type === 'worktree-state' && (entry as any).sessionId) {
+        worktreeStates.set((entry as any).sessionId, (entry as any).worktreeSession)
+      } else if ((entry as any).type === 'pr-link' && (entry as any).sessionId) {
+        prNumbers.set((entry as any).sessionId, (entry as any).prNumber)
+        prUrls.set((entry as any).sessionId, (entry as any).prUrl)
+        prRepositories.set((entry as any).sessionId, (entry as any).prRepository)
+      } else if ((entry as any).type === 'file-history-snapshot') {
+        fileHistorySnapshots.set((entry as any).messageId, entry)
+      } else if ((entry as any).type === 'attribution-snapshot') {
+        attributionSnapshots.set((entry as any).messageId, entry)
+      } else if ((entry as any).type === 'content-replacement') {
         // Subagent decisions key by agentId (sidechain resume); main-thread
         // decisions key by sessionId (/resume).
-        if (entry.agentId) {
-          const existing = agentContentReplacements.get(entry.agentId) ?? []
-          agentContentReplacements.set(entry.agentId, existing)
-          existing.push(...entry.replacements)
+        if ((entry as any).agentId) {
+          const existing = agentContentReplacements.get((entry as any).agentId) ?? []
+          agentContentReplacements.set((entry as any).agentId, existing)
+          existing.push(...(entry as any).replacements)
         } else {
-          const existing = contentReplacements.get(entry.sessionId) ?? []
-          contentReplacements.set(entry.sessionId, existing)
-          existing.push(...entry.replacements)
+          const existing = contentReplacements.get((entry as any).sessionId) ?? []
+          contentReplacements.set((entry as any).sessionId, existing)
+          existing.push(...(entry as any).replacements)
         }
-      } else if (entry.type === 'marble-origami-commit') {
+      } else if ((entry as any).type === 'marble-origami-commit') {
         contextCollapseCommits.push(entry)
-      } else if (entry.type === 'marble-origami-snapshot') {
+      } else if ((entry as any).type === 'marble-origami-snapshot') {
         contextCollapseSnapshot = entry
       }
     })

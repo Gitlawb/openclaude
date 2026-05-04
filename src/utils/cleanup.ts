@@ -470,6 +470,7 @@ export async function cleanupNpmCacheForAnthropicPackages(): Promise<void> {
     // Previous implementation used cacache.verify() which does a full
     // integrity check + GC of the ENTIRE cache — O(all content blobs).
     // On large caches this took 60+ seconds and blocked the event loop.
+    // @ts-expect-error property does not exist on inferred type
     const stream = cacache.ls.stream(npmCachePath)
     const anthropicEntries: { key: string; time: number }[] = []
     for await (const entry of stream as AsyncIterable<{
@@ -505,6 +506,7 @@ export async function cleanupNpmCacheForAnthropicPackages(): Promise<void> {
     }
 
     await Promise.all(
+      // @ts-expect-error property does not exist on inferred type
       keysToRemove.map(key => cacache.rm.entry(npmCachePath, key)),
     )
 

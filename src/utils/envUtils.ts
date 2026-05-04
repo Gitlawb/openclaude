@@ -166,6 +166,7 @@ export function isInProtectedNamespace(): boolean {
     /* eslint-disable @typescript-eslint/no-require-imports */
     return (
       require('./protectedNamespace.js') as typeof import('./protectedNamespace.js')
+    // @ts-expect-error property does not exist, did you mean
     ).checkProtectedNamespace()
     /* eslint-enable @typescript-eslint/no-require-imports */
   }

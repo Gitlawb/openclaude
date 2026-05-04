@@ -154,7 +154,8 @@ async function getOtlpReaders() {
         return originalExport(metrics, callback)
       }
 
-      exporters.push(consoleExporter)
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      exporters.push(consoleExporter as any)
     } else if (exporterType === 'otlp') {
       const protocol =
         process.env.OTEL_EXPORTER_OTLP_METRICS_PROTOCOL?.trim() ||
@@ -169,21 +170,24 @@ async function getOtlpReaders() {
           const { OTLPMetricExporter } = await import(
             '@opentelemetry/exporter-metrics-otlp-grpc'
           )
-          exporters.push(new OTLPMetricExporter())
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPMetricExporter() as any)
           break
         }
         case 'http/json': {
           const { OTLPMetricExporter } = await import(
             '@opentelemetry/exporter-metrics-otlp-http'
           )
-          exporters.push(new OTLPMetricExporter(httpConfig))
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPMetricExporter(httpConfig) as any)
           break
         }
         case 'http/protobuf': {
           const { OTLPMetricExporter } = await import(
             '@opentelemetry/exporter-metrics-otlp-proto'
           )
-          exporters.push(new OTLPMetricExporter(httpConfig))
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPMetricExporter(httpConfig) as any)
           break
         }
         default:
@@ -195,7 +199,8 @@ async function getOtlpReaders() {
       const { PrometheusExporter } = await import(
         '@opentelemetry/exporter-prometheus'
       )
-      exporters.push(new PrometheusExporter())
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      exporters.push(new PrometheusExporter() as any)
     } else {
       throw new Error(
         `Unknown exporter type set in OTEL_EXPORTER_OTLP_METRICS_PROTOCOL or OTEL_EXPORTER_OTLP_PROTOCOL env var: ${exporterType}`,
@@ -229,7 +234,8 @@ async function getOtlpLogExporters() {
   const exporters = []
   for (const exporterType of exporterTypes) {
     if (exporterType === 'console') {
-      exporters.push(new ConsoleLogRecordExporter())
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      exporters.push(new ConsoleLogRecordExporter() as any)
     } else if (exporterType === 'otlp') {
       const httpConfig = getOTLPExporterConfig()
 
@@ -238,21 +244,24 @@ async function getOtlpLogExporters() {
           const { OTLPLogExporter } = await import(
             '@opentelemetry/exporter-logs-otlp-grpc'
           )
-          exporters.push(new OTLPLogExporter())
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPLogExporter() as any)
           break
         }
         case 'http/json': {
           const { OTLPLogExporter } = await import(
             '@opentelemetry/exporter-logs-otlp-http'
           )
-          exporters.push(new OTLPLogExporter(httpConfig))
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPLogExporter(httpConfig) as any)
           break
         }
         case 'http/protobuf': {
           const { OTLPLogExporter } = await import(
             '@opentelemetry/exporter-logs-otlp-proto'
           )
-          exporters.push(new OTLPLogExporter(httpConfig))
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPLogExporter(httpConfig) as any)
           break
         }
         default:
@@ -276,7 +285,8 @@ async function getOtlpTraceExporters() {
   const exporters = []
   for (const exporterType of exporterTypes) {
     if (exporterType === 'console') {
-      exporters.push(new ConsoleSpanExporter())
+      // @ts-expect-error any-to-never (stub types cause narrowing)
+      exporters.push(new ConsoleSpanExporter() as any)
     } else if (exporterType === 'otlp') {
       const protocol =
         process.env.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL?.trim() ||
@@ -289,21 +299,24 @@ async function getOtlpTraceExporters() {
           const { OTLPTraceExporter } = await import(
             '@opentelemetry/exporter-trace-otlp-grpc'
           )
-          exporters.push(new OTLPTraceExporter())
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPTraceExporter() as any)
           break
         }
         case 'http/json': {
           const { OTLPTraceExporter } = await import(
             '@opentelemetry/exporter-trace-otlp-http'
           )
-          exporters.push(new OTLPTraceExporter(httpConfig))
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPTraceExporter(httpConfig) as any)
           break
         }
         case 'http/protobuf': {
           const { OTLPTraceExporter } = await import(
             '@opentelemetry/exporter-trace-otlp-proto'
           )
-          exporters.push(new OTLPTraceExporter(httpConfig))
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          exporters.push(new OTLPTraceExporter(httpConfig) as any)
           break
         }
         default:
@@ -372,7 +385,9 @@ async function initializeBetaTracing(
   }
 
   // Initialize trace exporter
+  // @ts-expect-error wrong number of arguments
   const traceExporter = new OTLPTraceExporter(httpConfig)
+  // @ts-expect-error argument type mismatch
   const spanProcessor = new BatchSpanProcessor(traceExporter, {
     scheduledDelayMillis: DEFAULT_TRACES_EXPORT_INTERVAL_MS,
   })
@@ -460,12 +475,14 @@ export async function initializeTelemetry() {
     `[3P telemetry] isTelemetryEnabled=${telemetryEnabled} (CLAUDE_CODE_ENABLE_TELEMETRY=${process.env.CLAUDE_CODE_ENABLE_TELEMETRY})`,
   )
   if (telemetryEnabled) {
-    readers.push(...(await getOtlpReaders()))
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    readers.push(...(await getOtlpReaders()) as any)
   }
 
   // Add BigQuery exporter (for API customers, C4E users, and internal users)
   if (isBigQueryMetricsEnabled()) {
-    readers.push(getBigQueryExportingReader())
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    readers.push(getBigQueryExportingReader() as any)
   }
 
   // Create base resource with service attributes

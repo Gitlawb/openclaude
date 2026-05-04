@@ -13,6 +13,7 @@ import { jsonParse } from '../slowOperations.js'
 export async function validateManifest(
   manifestJson: unknown,
 ): Promise<McpbManifest> {
+  // @ts-expect-error property does not exist on inferred type
   const { McpbManifestSchema } = await import('@anthropic-ai/mcpb')
   const parseResult = McpbManifestSchema.safeParse(manifestJson)
 
@@ -20,6 +21,7 @@ export async function validateManifest(
     const errors = parseResult.error.flatten()
     const errorMessages = [
       ...Object.entries(errors.fieldErrors).map(
+        // @ts-expect-error property does not exist on inferred type
         ([field, errs]) => `${field}: ${errs?.join(', ')}`,
       ),
       ...(errors.formErrors || []),

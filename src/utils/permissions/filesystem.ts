@@ -679,6 +679,7 @@ export function allWorkingDirectories(
 ): Set<string> {
   return new Set([
     getOriginalCwd(),
+    // @ts-expect-error not callable
     ...context.additionalWorkingDirectories.keys(),
   ])
 }

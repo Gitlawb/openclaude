@@ -304,6 +304,7 @@ export async function refreshCodexAccessTokenIfNeeded(options?: {
     const refreshAttemptedAt = Date.now()
 
     try {
+      // @ts-expect-error argument type mismatch
       const body = new URLSearchParams({
         client_id: getCodexOAuthClientId(),
         grant_type: 'refresh_token',

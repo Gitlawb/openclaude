@@ -119,10 +119,12 @@ function processCell(
 function cellContentToToolResult(cell: NotebookCellSource): TextBlockParam {
   const metadata = []
   if (cell.cellType !== 'code') {
-    metadata.push(`<cell_type>${cell.cellType}</cell_type>`)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    metadata.push(`<cell_type>${cell.cellType}</cell_type>` as any)
   }
   if (cell.language !== 'python' && cell.cellType === 'code') {
-    metadata.push(`<language>${cell.language}</language>`)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    metadata.push(`<language>${cell.language}</language>` as any)
   }
   const cellContent = `<cell id="${cell.cell_id}">${metadata.join('')}${cell.source}</cell id="${cell.cell_id}">`
   return {

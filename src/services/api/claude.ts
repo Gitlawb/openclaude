@@ -981,7 +981,7 @@ export function stripExcessMediaItems(
       if (isMedia(block)) toRemove++
       if (isToolResult(block) && Array.isArray(block.content)) {
         for (const nested of block.content) {
-          if (isMedia(nested)) toRemove++
+          if (isMedia(nested as any)) toRemove++
         }
       }
     }
@@ -1004,6 +1004,7 @@ export function stripExcessMediaItems(
         )
           return block
         const filtered = block.content.filter(n => {
+          // @ts-expect-error argument type mismatch
           if (toRemove > 0 && isMedia(n)) {
             toRemove--
             return false
@@ -1211,12 +1212,14 @@ async function* queryModel(
       getCachedMCConfig,
     } = await import('../compact/cachedMicrocompact.js')
     const betas = await import('src/constants/betas.js')
+    // @ts-expect-error type mismatch
     cacheEditingBetaHeader = betas.CACHE_EDITING_BETA_HEADER
     const featureEnabled = isCachedMicrocompactEnabled()
     const modelSupported = isModelSupportedForCacheEditing(options.model)
     cachedMCEnabled = featureEnabled && modelSupported
     const config = getCachedMCConfig()
     logForDebugging(
+      // @ts-expect-error possibly undefined
       `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify(config?.supportedModels)}`,
     )
   }
@@ -2170,6 +2173,7 @@ async function* queryModel(
                     feature('CONNECTOR_TEXT') &&
                     contentBlock.type === 'connector_text'
                   ) {
+                    // @ts-expect-error possibly undefined
                     contentBlock.signature = delta.signature
                     break
                   }

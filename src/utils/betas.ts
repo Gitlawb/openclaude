@@ -238,27 +238,32 @@ export const getAllModelBetas = memoize((model: string): string[] => {
   const includeFirstPartyOnlyBetas = shouldIncludeFirstPartyOnlyBetas()
 
   if (!isHaiku) {
-    betaHeaders.push(CLAUDE_CODE_20250219_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(CLAUDE_CODE_20250219_BETA_HEADER as any)
     if (
       process.env.USER_TYPE === 'ant' &&
       process.env.CLAUDE_CODE_ENTRYPOINT === 'cli'
     ) {
       if (CLI_INTERNAL_BETA_HEADER) {
-        betaHeaders.push(CLI_INTERNAL_BETA_HEADER)
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        betaHeaders.push(CLI_INTERNAL_BETA_HEADER as any)
       }
     }
   }
   if (isClaudeAISubscriber()) {
-    betaHeaders.push(OAUTH_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(OAUTH_BETA_HEADER as any)
   }
   if (has1mContext(model)) {
-    betaHeaders.push(CONTEXT_1M_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(CONTEXT_1M_BETA_HEADER as any)
   }
   if (
     !isEnvTruthy(process.env.DISABLE_INTERLEAVED_THINKING) &&
     modelSupportsISP(model)
   ) {
-    betaHeaders.push(INTERLEAVED_THINKING_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(INTERLEAVED_THINKING_BETA_HEADER as any)
   }
 
   // Skip the API-side Haiku thinking summarizer — the summary is only used
@@ -273,7 +278,8 @@ export const getAllModelBetas = memoize((model: string): string[] => {
     !getIsNonInteractiveSession() &&
     getInitialSettings().showThinkingSummaries !== true
   ) {
-    betaHeaders.push(REDACT_THINKING_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(REDACT_THINKING_BETA_HEADER as any)
   }
 
   // POC: server-side connector-text summarization (anti-distillation). The
@@ -294,7 +300,8 @@ export const getAllModelBetas = memoize((model: string): string[] => {
     (isEnvTruthy(process.env.USE_CONNECTOR_TEXT_SUMMARIZATION) ||
       getFeatureValue_CACHED_MAY_BE_STALE('tengu_slate_prism', false))
   ) {
-    betaHeaders.push(SUMMARIZE_CONNECTOR_TEXT_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(SUMMARIZE_CONNECTOR_TEXT_BETA_HEADER as any)
   }
 
   // Add context management beta for tool clearing (ant opt-in) or thinking preservation
@@ -308,7 +315,8 @@ export const getAllModelBetas = memoize((model: string): string[] => {
     shouldIncludeFirstPartyOnlyBetas() &&
     (antOptedIntoToolClearing || thinkingPreservationEnabled)
   ) {
-    betaHeaders.push(CONTEXT_MANAGEMENT_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(CONTEXT_MANAGEMENT_BETA_HEADER as any)
   }
   // Add strict tool use beta if experiment is enabled.
   // Gate on includeFirstPartyOnlyBetas: CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
@@ -328,7 +336,8 @@ export const getAllModelBetas = memoize((model: string): string[] => {
     modelSupportsStructuredOutputs(model) &&
     strictToolsEnabled
   ) {
-    betaHeaders.push(STRUCTURED_OUTPUTS_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(STRUCTURED_OUTPUTS_BETA_HEADER as any)
   }
   // JSON tool_use format (FC v3) — ~4.5% output token reduction vs ANTML.
   // Sends the v2 header (2026-03-28) added in anthropics/anthropic#337072 to
@@ -339,27 +348,32 @@ export const getAllModelBetas = memoize((model: string): string[] => {
     includeFirstPartyOnlyBetas &&
     tokenEfficientToolsEnabled
   ) {
-    betaHeaders.push(TOKEN_EFFICIENT_TOOLS_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(TOKEN_EFFICIENT_TOOLS_BETA_HEADER as any)
   }
 
   // Add web search beta for Vertex Claude 4.0+ models only
   if (provider === 'vertex' && vertexModelSupportsWebSearch(model)) {
-    betaHeaders.push(WEB_SEARCH_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(WEB_SEARCH_BETA_HEADER as any)
   }
   // Foundry only ships models that already support Web Search
   if (provider === 'foundry') {
-    betaHeaders.push(WEB_SEARCH_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(WEB_SEARCH_BETA_HEADER as any)
   }
 
   // Always send the beta header for 1P. The header is a no-op without a scope field.
   if (includeFirstPartyOnlyBetas) {
-    betaHeaders.push(PROMPT_CACHING_SCOPE_BETA_HEADER)
+    // @ts-expect-error any-to-never (stub types cause narrowing)
+    betaHeaders.push(PROMPT_CACHING_SCOPE_BETA_HEADER as any)
   }
 
   // If ANTHROPIC_BETAS is set, split it by commas and add to betaHeaders.
   // This is an explicit user opt-in, so honor it regardless of model.
   if (process.env.ANTHROPIC_BETAS) {
     betaHeaders.push(
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       ...process.env.ANTHROPIC_BETAS.split(',')
         .map(_ => _.trim())
         .filter(Boolean),

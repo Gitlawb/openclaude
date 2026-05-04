@@ -352,6 +352,7 @@ export async function startRecording(
       nativeRecordingActive = false
     }
     const started = napi.startNativeRecording(
+      // @ts-expect-error wrong number of arguments
       (data: Buffer) => {
         onData(data)
       },
@@ -365,6 +366,7 @@ export async function startRecording(
         // stopRecording() (e.g. when the user presses Ctrl+X).
       },
     )
+    // @ts-expect-error TS1345
     if (started) {
       nativeRecordingActive = true
       return true

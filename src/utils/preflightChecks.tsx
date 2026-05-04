@@ -81,7 +81,7 @@ export function PreflightStep(t0) {
   const {
     onSuccess
   } = t0;
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(true);
   const showSpinner = useTimeout(1000) && isChecking;
   let t1;
@@ -90,7 +90,7 @@ export function PreflightStep(t0) {
     t1 = () => {
       const run = async function run() {
         const checkResult = await checkEndpoints();
-        setResult(checkResult);
+        setResult(checkResult as any);
         setIsChecking(false);
       };
       run();
@@ -107,9 +107,11 @@ export function PreflightStep(t0) {
   let t4;
   if ($[2] !== onSuccess || $[3] !== result) {
     t3 = () => {
+      // @ts-expect-error property does not exist on inferred type
       if (result?.success) {
         onSuccess();
       } else {
+        // @ts-expect-error property does not exist on inferred type
         if (result && !result.success) {
           const timer = setTimeout(_temp, 100);
           return () => clearTimeout(timer);
@@ -128,6 +130,7 @@ export function PreflightStep(t0) {
   useEffect(t3, t4);
   let t5;
   if ($[6] !== isChecking || $[7] !== result || $[8] !== showSpinner) {
+    // @ts-expect-error property does not exist on inferred type
     t5 = isChecking && showSpinner ? <Box paddingLeft={1}><Spinner /><Text>Checking connectivity...</Text></Box> : !result?.success && !isChecking && <Box flexDirection="column" gap={1}><Text color="error">Unable to connect to Anthropic services</Text><Text color="error">{result?.error}</Text>{result?.sslHint ? <Box flexDirection="column" gap={1}><Text>{result.sslHint}</Text><Text color="suggestion">See https://code.claude.com/docs/en/network-config</Text></Box> : <Box flexDirection="column" gap={1}><Text>Please check your internet connection and network settings.</Text>{getAPIProvider() === 'firstParty' && <Text>Note: Claude Code might not be available in your country. Check supported countries at{" "}<Text color="suggestion">https://anthropic.com/supported-countries</Text></Text>}</Box>}</Box>;
     $[6] = isChecking;
     $[7] = result;

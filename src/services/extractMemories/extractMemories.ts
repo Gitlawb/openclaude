@@ -492,7 +492,8 @@ export function initExtractMemories(): void {
         if (feature('TEAMMEM')) {
           msg.teamCount = teamCount
         }
-        appendSystemMessage?.(msg)
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        appendSystemMessage?.(msg as any)
       }
     } catch (error) {
       // Extraction is best-effort — log but don't notify on error

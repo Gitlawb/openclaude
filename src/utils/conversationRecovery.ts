@@ -14,6 +14,7 @@ import type {
 } from '../types/logs.js'
 import type {
   Message,
+  // @ts-expect-error module has no exported member
   NormalizedMessage,
   NormalizedUserMessage,
 } from '../types/message.js'
@@ -67,6 +68,7 @@ const LEGACY_BRIEF_TOOL_NAME: string | null =
         require('../tools/BriefTool/prompt.js') as typeof import('../tools/BriefTool/prompt.js')
       ).LEGACY_BRIEF_TOOL_NAME
     : null
+// @ts-expect-error type mismatch
 const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
   ? (
       require('../tools/SendUserFileTool/prompt.js') as typeof import('../tools/SendUserFileTool/prompt.js')
@@ -255,6 +257,7 @@ export function deserializeMessagesWithInterruptDetection(
     const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
       processEnv: process.env,
       model: process.env.OPENAI_MODEL,
+      // @ts-expect-error type mismatch
       providerCategory: provider,
     })
     const isThirdPartyProvider =

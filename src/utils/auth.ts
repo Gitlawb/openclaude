@@ -1239,13 +1239,16 @@ export function saveOAuthTokensIfNeeded(tokens: OAuthTokens): {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresAt,
+      // @ts-expect-error TS2561
       scopes: tokens.scopes,
       // Profile fetch in refreshOAuthToken swallows errors and returns null on
       // transient failures (network, 5xx, rate limit). Don't clobber a valid
       // stored subscription with null — fall back to the existing value.
       subscriptionType:
+        // @ts-expect-error property does not exist on inferred type
         tokens.subscriptionType ?? existingOauth?.subscriptionType ?? null,
       rateLimitTier:
+        // @ts-expect-error property does not exist on inferred type
         tokens.rateLimitTier ?? existingOauth?.rateLimitTier ?? null,
     }
 

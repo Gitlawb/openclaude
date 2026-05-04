@@ -212,6 +212,7 @@ function getConfigSignature(config: ScopedMcpServerConfig): string {
     case 'sdk':
       return `${config.scope}:${config.type}:${config.name}`
     default:
+      // @ts-expect-error property does not exist on inferred type
       return `${config.scope}:${config.type ?? 'stdio'}:${config.command}:${JSON.stringify(config.args ?? [])}`
   }
 }

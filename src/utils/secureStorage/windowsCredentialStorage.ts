@@ -52,6 +52,7 @@ function getFailureWarning(
   result: ReturnType<typeof execaSync> | null,
   fallback: string,
 ): string {
+  // @ts-expect-error property does not exist on inferred type
   const stderr = result?.stderr?.trim()
   if (stderr) {
     return stderr
@@ -86,6 +87,7 @@ function readLegacyPasswordVault(): SecureStorageData | null {
   const result = runPowerShell(script)
   if (result?.exitCode === 0 && result.stdout) {
     try {
+      // @ts-expect-error argument type mismatch
       return jsonParse(result.stdout)
     } catch {
       return null
@@ -136,6 +138,7 @@ export const windowsCredentialStorage: SecureStorage = {
     const result = runPowerShell(script)
     if (result?.exitCode === 0 && result.stdout) {
       try {
+        // @ts-expect-error argument type mismatch
         return jsonParse(result.stdout)
       } catch {
         return readLegacyPasswordVault()

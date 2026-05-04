@@ -128,6 +128,7 @@ class HighlightSegmenter {
         this.tokenIdx++
       } else {
         const charsNeeded = targetVisiblePos - this.visiblePos
+        // @ts-expect-error property does not exist on inferred type
         const charsAvailable = token.value.length - this.charIdx
         const charsToTake = Math.min(charsNeeded, charsAvailable)
 
@@ -135,6 +136,7 @@ class HighlightSegmenter {
         this.visiblePos += charsToTake
         this.charIdx += charsToTake
 
+        // @ts-expect-error property does not exist on inferred type
         if (this.charIdx >= token.value.length) {
           this.tokenIdx++
           this.charIdx = 0

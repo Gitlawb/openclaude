@@ -279,20 +279,24 @@ async function getInstallationPrefix(): Promise<string | null> {
   const isBun = env.isRunningWithBun()
   let prefixResult = null
   if (isBun) {
+    // @ts-expect-error type mismatch
     prefixResult = await execFileNoThrowWithCwd('bun', ['pm', 'bin', '-g'], {
       cwd: homedir(),
     })
   } else {
+    // @ts-expect-error type mismatch
     prefixResult = await execFileNoThrowWithCwd(
       'npm',
       ['-g', 'config', 'get', 'prefix'],
       { cwd: homedir() },
     )
   }
+  // @ts-expect-error possibly undefined
   if (prefixResult.code !== 0) {
     logError(new Error(`Failed to check ${isBun ? 'bun' : 'npm'} permissions`))
     return null
   }
+  // @ts-expect-error possibly undefined
   return prefixResult.stdout.trim()
 }
 

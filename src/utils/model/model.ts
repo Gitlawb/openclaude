@@ -20,10 +20,11 @@ import {
 } from '../context.js'
 import { isEnvTruthy } from '../envUtils.js'
 import { getModelStrings, resolveOverriddenModel } from './modelStrings.js'
+import { getAntModelOverrideConfig, resolveAntModel } from './antModels.js'
 import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
-import { getAPIProvider } from './providers.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './providers.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
@@ -41,41 +42,43 @@ function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefin
 }
 
 export function getSmallFastModel(): ModelName {
-  if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
+  const provider = getAPIProvider()
   // For Gemini provider, use a fast model
-  if (getAPIProvider() === 'gemini') {
+  if (provider === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
   }
-  if (getAPIProvider() === 'mistral') {
+  if (provider === 'mistral') {
     return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
   }
   // For OpenAI provider, use OPENAI_MODEL or a sensible default
-  if (getAPIProvider() === 'openai') {
+  if (provider === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   }
   // Codex provider — OPENAI_MODEL is always set for Codex profiles; only fall
   // back to a codex-spark alias when an override env strips it.
-  if (getAPIProvider() === 'codex') {
+  if (provider === 'codex') {
     return process.env.OPENAI_MODEL || 'codexspark'
   }
   // For GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
+  if (provider === 'github') {
     return process.env.OPENAI_MODEL || 'github:copilot'
   }
   // NVIDIA NIM — OPENAI_MODEL carries the user's active NIM model; use a
   // small Meta Llama variant as the conservative fallback.
-  if (getAPIProvider() === 'nvidia-nim') {
+  if (provider === 'nvidia-nim') {
     return process.env.OPENAI_MODEL || 'meta/llama-3.1-8b-instruct'
   }
   // MiniMax — OPENAI_MODEL carries the active MiniMax model; fall back to
   // the fastest tier (M2.5-highspeed) when missing.
-  if (getAPIProvider() === 'minimax') {
+  if (provider === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
   }
   // xAI — OPENAI_MODEL carries the active Grok model; fall back to grok-3.
-  if (getAPIProvider() === 'xai') {
+  if (provider === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-3'
   }
+  // Fallback: env var override for custom/unknown providers.
+  if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   return getDefaultHaikuModel()
 }
 
@@ -170,45 +173,62 @@ export function getBestModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Opus model (3P providers may lag so keep defaults unchanged).
 export function getDefaultOpusModel(): ModelName {
-  if (process.env.ANTHROPIC_DEFAULT_OPUS_MODEL) {
-    return process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
+  const provider = getAPIProvider()
+  // Claude-native providers: use built-in model strings directly.
+  // ANTHROPIC_DEFAULT_OPUS_MODEL may contain a non-Claude model ID from
+  // the user's primary provider config and should not override.
+  if (
+    provider === 'bedrock' ||
+    provider === 'vertex' ||
+    provider === 'foundry' ||
+    (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl())
+  ) {
+    // 3P providers may lag firstParty, so use provider-appropriate default.
+    if (provider !== 'firstParty') {
+      return getModelStrings().opus46
+    }
+    return getModelStrings().opus47
   }
   // Gemini provider
-  if (getAPIProvider() === 'gemini') {
+  if (provider === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.5-pro'
   }
   // Mistral provider
-  if (getAPIProvider() === 'mistral') {
+  if (provider === 'mistral') {
     return process.env.MISTRAL_MODEL || 'devstral-latest'
   }
   // OpenAI provider: use user-specified model or default
-  if (getAPIProvider() === 'openai') {
+  if (provider === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // Codex provider: use user-specified model or default to gpt-5.5
-  if (getAPIProvider() === 'codex') {
+  if (provider === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
   // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
+  if (provider === 'github') {
     return process.env.OPENAI_MODEL || 'github:copilot'
   }
   // NVIDIA NIM
-  if (getAPIProvider() === 'nvidia-nim') {
+  if (provider === 'nvidia-nim') {
     return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
   }
   // MiniMax — flagship tier for "opus"-equivalent.
-  if (getAPIProvider() === 'minimax') {
+  if (provider === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
   }
   // xAI — flagship Grok model for "opus"-equivalent.
-  if (getAPIProvider() === 'xai') {
+  if (provider === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-4'
+  }
+  // Fallback: env var override for custom/unknown providers, then model strings.
+  if (process.env.ANTHROPIC_DEFAULT_OPUS_MODEL) {
+    return process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
   // the next model launch. Keep 3P on Opus 4.6 until they roll out 4.7.
-  if (getAPIProvider() !== 'firstParty') {
+  if (provider !== 'firstParty') {
     return getModelStrings().opus46
   }
   return getModelStrings().opus47
@@ -216,43 +236,59 @@ export function getDefaultOpusModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Sonnet model (3P providers may lag so keep defaults unchanged).
 export function getDefaultSonnetModel(): ModelName {
-  if (process.env.ANTHROPIC_DEFAULT_SONNET_MODEL) {
-    return process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+  const provider = getAPIProvider()
+  // Claude-native providers: use built-in model strings directly.
+  // ANTHROPIC_DEFAULT_SONNET_MODEL may contain a non-Claude model ID from
+  // the user's primary provider config and should not override.
+  if (
+    provider === 'bedrock' ||
+    provider === 'vertex' ||
+    provider === 'foundry' ||
+    (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl())
+  ) {
+    if (provider !== 'firstParty') {
+      return getModelStrings().sonnet45
+    }
+    return getModelStrings().sonnet46
   }
   // Gemini provider
-  if (getAPIProvider() === 'gemini') {
+  if (provider === 'gemini') {
     return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
   }
   // Mistral provider
-  if (getAPIProvider() === 'mistral') {
+  if (provider === 'mistral') {
     return process.env.MISTRAL_MODEL || 'mistral-medium-latest'
   }
   // OpenAI provider
-  if (getAPIProvider() === 'openai') {
+  if (provider === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // Codex provider
-  if (getAPIProvider() === 'codex') {
+  if (provider === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
   // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
+  if (provider === 'github') {
     return process.env.OPENAI_MODEL || 'github:copilot'
   }
   // NVIDIA NIM
-  if (getAPIProvider() === 'nvidia-nim') {
+  if (provider === 'nvidia-nim') {
     return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
   }
   // MiniMax — mid tier for "sonnet"-equivalent.
-  if (getAPIProvider() === 'minimax') {
+  if (provider === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.5'
   }
   // xAI — flagship Grok model for "sonnet"-equivalent.
-  if (getAPIProvider() === 'xai') {
+  if (provider === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-4'
   }
+  // Fallback: env var override for custom/unknown providers, then model strings.
+  if (process.env.ANTHROPIC_DEFAULT_SONNET_MODEL) {
+    return process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+  }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
-  if (getAPIProvider() !== 'firstParty') {
+  if (provider !== 'firstParty') {
     return getModelStrings().sonnet45
   }
   return getModelStrings().sonnet46
@@ -260,42 +296,55 @@ export function getDefaultSonnetModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Haiku model (3P providers may lag so keep defaults unchanged).
 export function getDefaultHaikuModel(): ModelName {
-  if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
-    return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  const provider = getAPIProvider()
+  // Claude-native providers (Bedrock, Vertex, Foundry, official Anthropic API)
+  // always have known haiku models available. ANTHROPIC_DEFAULT_HAIKU_MODEL
+  // may contain a non-Claude model ID from the user's primary provider config
+  // and should not override Claude-native resolution.
+  if (
+    provider === 'bedrock' ||
+    provider === 'vertex' ||
+    provider === 'foundry' ||
+    (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl())
+  ) {
+    return getModelStrings().haiku45
   }
   // Mistral provider
-  if (getAPIProvider() === 'mistral') {
+  if (provider === 'mistral') {
     return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
   }
   // OpenAI provider
-  if (getAPIProvider() === 'openai') {
+  if (provider === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o-mini'
   }
   // Codex provider
-  if (getAPIProvider() === 'codex') {
+  if (provider === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
   // GitHub Copilot provider
-  if (getAPIProvider() === 'github') {
+  if (provider === 'github') {
     return process.env.OPENAI_MODEL || 'github:copilot'
   }
   // Gemini provider
-  if (getAPIProvider() === 'gemini') {
+  if (provider === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
   }
   // NVIDIA NIM
-  if (getAPIProvider() === 'nvidia-nim') {
+  if (provider === 'nvidia-nim') {
     return process.env.OPENAI_MODEL || 'meta/llama-3.1-8b-instruct'
   }
   // MiniMax — fastest tier for "haiku"-equivalent.
-  if (getAPIProvider() === 'minimax') {
+  if (provider === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
   }
   // xAI — faster Grok model for "haiku"-equivalent.
-  if (getAPIProvider() === 'xai') {
+  if (provider === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-3'
   }
-
+  // Fallback: env var override for custom/unknown providers, then model strings.
+  if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
+    return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  }
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
   return getModelStrings().haiku45
 }

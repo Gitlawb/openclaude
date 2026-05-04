@@ -163,6 +163,7 @@ export async function detectExtensionInstallationPortable(
     let browserProfileEntries = []
 
     try {
+      // @ts-expect-error type mismatch
       browserProfileEntries = await readdir(browserBasePath, {
         withFileTypes: true,
       })
@@ -173,11 +174,11 @@ export async function detectExtensionInstallationPortable(
     }
 
     const profileDirs = browserProfileEntries
-      .filter(entry => entry.isDirectory())
+      .filter(entry => (entry as any).isDirectory())
       .filter(
-        entry => entry.name === 'Default' || entry.name.startsWith('Profile '),
+        entry => (entry as any).name === 'Default' || (entry as any).name.startsWith('Profile '),
       )
-      .map(entry => entry.name)
+      .map(entry => (entry as any).name)
 
     if (profileDirs.length > 0) {
       log?.(

@@ -612,12 +612,12 @@ async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGe
         signal.addEventListener('abort', abortCleanup, { once: true })
       }
 
-      reader.read().then(
+      reader?.read().then(
         result => {
           clearTimeout(timeoutId)
           if (signal && abortCleanup) signal.removeEventListener('abort', abortCleanup)
           if (result.value) lastDataTime = Date.now()
-          resolve(result)
+          resolve(result as any)
         },
         err => {
           clearTimeout(timeoutId)

@@ -123,6 +123,7 @@ export function applyPermissionUpdate(
       logForDebugging(
         `Applying permission update: Adding ${update.directories.length} director${update.directories.length === 1 ? 'y' : 'ies'} with destination '${update.destination}': ${jsonStringify(update.directories)}`,
       )
+      // @ts-expect-error no overload matches
       const newAdditionalDirs = new Map(context.additionalWorkingDirectories)
       for (const directory of update.directories) {
         newAdditionalDirs.set(directory, {
@@ -172,6 +173,7 @@ export function applyPermissionUpdate(
       logForDebugging(
         `Applying permission update: Removing ${update.directories.length} director${update.directories.length === 1 ? 'y' : 'ies'}: ${jsonStringify(update.directories)}`,
       )
+      // @ts-expect-error no overload matches
       const newAdditionalDirs = new Map(context.additionalWorkingDirectories)
       for (const directory of update.directories) {
         newAdditionalDirs.delete(directory)

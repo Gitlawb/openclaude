@@ -844,7 +844,8 @@ async function checkPermissionsAndCallTool(
         if (result.message.message.type === 'progress') {
           onToolProgress(result.message.message)
         } else {
-          resultingMessages.push(result.message)
+          // @ts-expect-error any-to-never (stub types cause narrowing)
+          resultingMessages.push(result.message as any)
           const att = result.message.message.attachment
           if (
             att &&
@@ -875,13 +876,15 @@ async function checkPermissionsAndCallTool(
         stopReason = result.stopReason
         break
       case 'additionalContext':
-        resultingMessages.push(result.message)
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        resultingMessages.push(result.message as any)
         break
       case 'stop':
         getStatsStore()?.observe(
           'pre_tool_hook_duration_ms',
           Date.now() - preToolHookStart,
         )
+        // @ts-expect-error any-to-never (stub types cause narrowing)
         resultingMessages.push({
           message: createUserMessage({
             content: [createToolResultStopMessage(toolUseID)],
@@ -905,6 +908,7 @@ async function checkPermissionsAndCallTool(
   // Use wall-clock time (not sum of individual durations) since hooks run in parallel.
   if (process.env.USER_TYPE === 'ant' && preToolHookInfos.length > 0) {
     if (preToolHookDurationMs > HOOK_TIMING_DISPLAY_THRESHOLD_MS) {
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       resultingMessages.push({
         message: createStopHookSummaryMessage(
           preToolHookInfos.length,
@@ -1014,6 +1018,7 @@ async function checkPermissionsAndCallTool(
     permissionDecision.decisionReason.hookName === 'PermissionRequest' &&
     permissionDecision.behavior !== 'ask'
   ) {
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     resultingMessages.push({
       message: createAttachmentMessage({
         type: 'hook_permission_decision',
@@ -1093,6 +1098,7 @@ async function checkPermissionsAndCallTool(
       }
     }
 
+    // @ts-expect-error any-to-never (stub types cause narrowing)
     resultingMessages.push({
       message: createUserMessage({
         content: messageContent,
@@ -1122,6 +1128,7 @@ async function checkPermissionsAndCallTool(
         if (result.retry) hookSaysRetry = true
       }
       if (hookSaysRetry) {
+        // @ts-expect-error any-to-never (stub types cause narrowing)
         resultingMessages.push({
           message: createUserMessage({
             content:
@@ -1304,6 +1311,7 @@ async function checkPermissionsAndCallTool(
     // Capture structured output from tool result if present
     if (typeof result === 'object' && 'structured_output' in result) {
       // Store the structured output in an attachment message
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       resultingMessages.push({
         message: createAttachmentMessage({
           type: 'structured_output',
@@ -1486,6 +1494,7 @@ async function checkPermissionsAndCallTool(
         }
       }
 
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       resultingMessages.push({
         message: createUserMessage({
           content: contentBlocks,
@@ -1529,7 +1538,8 @@ async function checkPermissionsAndCallTool(
           toolOutput = hookResult.updatedMCPToolOutput
         }
       } else if (isMcpTool(tool)) {
-        hookResults.push(hookResult)
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        hookResults.push(hookResult as any)
         if (hookResult.message.type === 'attachment') {
           const att = hookResult.message.attachment
           if (
@@ -1545,7 +1555,8 @@ async function checkPermissionsAndCallTool(
           }
         }
       } else {
-        resultingMessages.push(hookResult)
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        resultingMessages.push(hookResult as any)
         if (hookResult.message.type === 'attachment') {
           const att = hookResult.message.attachment
           if (
@@ -1578,6 +1589,7 @@ async function checkPermissionsAndCallTool(
     // Use wall-clock time (not sum of individual durations) since hooks run in parallel.
     if (process.env.USER_TYPE === 'ant' && postToolHookInfos.length > 0) {
       if (postToolHookDurationMs > HOOK_TIMING_DISPLAY_THRESHOLD_MS) {
+        // @ts-expect-error any-to-never (stub types cause narrowing)
         resultingMessages.push({
           message: createStopHookSummaryMessage(
             postToolHookInfos.length,
@@ -1598,11 +1610,13 @@ async function checkPermissionsAndCallTool(
     // If the tool provided new messages, add them to the list to return.
     if (result.newMessages && result.newMessages.length > 0) {
       for (const message of result.newMessages) {
-        resultingMessages.push({ message })
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        resultingMessages.push({ message } as any)
       }
     }
     // If hook indicated to prevent continuation after successful execution, yield a stop reason message
     if (shouldPreventContinuation) {
+      // @ts-expect-error any-to-never (stub types cause narrowing)
       resultingMessages.push({
         message: createAttachmentMessage({
           type: 'hook_stopped_continuation',

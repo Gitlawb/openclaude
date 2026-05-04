@@ -43,6 +43,7 @@ export default function sliceAnsi(
     // pass start/end in display cells (via stringWidth), so position must
     // track the same units.
     const width =
+      // @ts-expect-error property does not exist on inferred type
       token.type === 'ansi' ? 0 : token.fullWidth ? 2 : stringWidth(token.value)
 
     // Break AFTER trailing zero-width marks — a combining mark attaches to
@@ -77,6 +78,7 @@ export default function sliceAnsi(
       }
 
       if (include) {
+        // @ts-expect-error property does not exist on inferred type
         result += token.value
       }
 

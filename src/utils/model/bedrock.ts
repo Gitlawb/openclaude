@@ -7,6 +7,7 @@ import { getAWSClientProxyConfig } from '../proxy.js'
 export const getBedrockInferenceProfiles = memoize(async function (): Promise<
   string[]
 > {
+  // @ts-expect-error possibly undefined
   const [client, { ListInferenceProfilesCommand }] = await Promise.all([
     createBedrockClient(),
     import('@aws-sdk/client-bedrock'),
@@ -20,10 +21,12 @@ export const getBedrockInferenceProfiles = memoize(async function (): Promise<
         ...(nextToken && { nextToken }),
         typeEquals: 'SYSTEM_DEFINED',
       })
+      // @ts-expect-error possibly undefined
       const response = await client.send(command)
 
       if (response.inferenceProfileSummaries) {
-        allProfiles.push(...response.inferenceProfileSummaries)
+        // @ts-expect-error any-to-never (stub types cause narrowing)
+        allProfiles.push(...response.inferenceProfileSummaries as any)
       }
 
       nextToken = response.nextToken
@@ -31,8 +34,8 @@ export const getBedrockInferenceProfiles = memoize(async function (): Promise<
 
     // Filter for Anthropic models (SYSTEM_DEFINED filtering handled in query)
     return allProfiles
-      .filter(profile => profile.inferenceProfileId?.includes('anthropic'))
-      .map(profile => profile.inferenceProfileId)
+      .filter(profile => (profile as any).inferenceProfileId?.includes('anthropic'))
+      .map(profile => (profile as any).inferenceProfileId)
       .filter(Boolean) as string[]
   } catch (error) {
     logError(error as Error)
@@ -57,6 +60,7 @@ async function createBedrockClient() {
 
   const skipAuth = isEnvTruthy(process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH)
 
+  // @ts-expect-error type mismatch
   const clientConfig: ConstructorParameters<typeof BedrockClient>[0] = {
     region,
     ...(process.env.ANTHROPIC_BEDROCK_BASE_URL && {
@@ -82,6 +86,7 @@ async function createBedrockClient() {
     // Only refresh credentials if not using API key authentication
     const cachedCredentials = await refreshAndGetAwsCredentials()
     if (cachedCredentials) {
+      // @ts-expect-error possibly undefined
       clientConfig.credentials = {
         accessKeyId: cachedCredentials.accessKeyId,
         secretAccessKey: cachedCredentials.secretAccessKey,
@@ -90,6 +95,7 @@ async function createBedrockClient() {
     }
   }
 
+  // @ts-expect-error wrong number of arguments
   return new BedrockClient(clientConfig)
 }
 
@@ -142,6 +148,7 @@ export const getInferenceProfileBackingModel = memoize(async function (
   profileId: string,
 ): Promise<string | null> {
   try {
+    // @ts-expect-error possibly undefined
     const [client, { GetInferenceProfileCommand }] = await Promise.all([
       createBedrockClient(),
       import('@aws-sdk/client-bedrock'),
@@ -149,6 +156,7 @@ export const getInferenceProfileBackingModel = memoize(async function (
     const command = new GetInferenceProfileCommand({
       inferenceProfileIdentifier: profileId,
     })
+    // @ts-expect-error possibly undefined
     const response = await client.send(command)
 
     if (!response.models || response.models.length === 0) {

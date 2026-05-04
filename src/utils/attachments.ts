@@ -996,6 +996,7 @@ export async function getAttachments(
 
   clearTimeout(timeoutId)
   // Defensive: a getter leaking [undefined] crashes .map(a => a.type) below.
+  // @ts-expect-error type mismatch
   return [
     ...userAttachmentResults.flat(),
     ...threadAttachmentResults.flat(),

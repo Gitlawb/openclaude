@@ -303,6 +303,7 @@ export async function getAnthropicClient({
         ? process.env.ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION
         : getAWSRegion()
 
+    // @ts-expect-error type mismatch
     const bedrockArgs: ConstructorParameters<typeof AnthropicBedrock>[0] = {
       ...ARGS,
       awsRegion,
@@ -324,6 +325,7 @@ export async function getAnthropicClient({
       // Refresh auth and get credentials with cache clearing
       const cachedCredentials = await refreshAndGetAwsCredentials()
       if (cachedCredentials) {
+        // @ts-expect-error type mismatch
         bedrockArgs.awsAccessKey = cachedCredentials.accessKeyId
         bedrockArgs.awsSecretKey = cachedCredentials.secretAccessKey
         bedrockArgs.awsSessionToken = cachedCredentials.sessionToken
