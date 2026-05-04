@@ -1,3 +1,12 @@
+/**
+ * Desktop Electron preload script tests.
+ *
+ * These tests use basic vitest APIs (vi.fn, vi.mock) that bun:test
+ * partially supports, so they pass in both runners. However, they
+ * primarily run in the dedicated "desktop" CI job via vitest.
+ *
+ * Run: cd packages/desktop && bun run test
+ */
 import { describe, it, expect, vi } from "vitest"
 
 // Mock Electron contextBridge

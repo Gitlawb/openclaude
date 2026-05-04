@@ -1,6 +1,20 @@
+/**
+ * Desktop Electron main process tests.
+ *
+ * These tests use vitest-specific APIs (vi.resetModules, vi.doMock) that
+ * bun:test does not support. They run in the separate "desktop" CI job
+ * via vitest, not in the main "smoke-and-tests" job via bun:test.
+ *
+ * Run: cd packages/desktop && bun run test
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-describe("Main Process", () => {
+// Skip when vi.resetModules is unavailable (bun:test runner)
+// This allows graceful skip in smoke-and-tests CI job while
+// full tests run in dedicated desktop CI job via vitest.
+const vitestOnly = typeof vi.resetModules === "function" ? describe : describe.skip
+
+vitestOnly("Main Process", () => {
   let BrowserWindow: ReturnType<typeof vi.fn>
   let mockWindow: Record<string, unknown>
   let mockApp: {
