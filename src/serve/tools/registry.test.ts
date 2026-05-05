@@ -9,7 +9,7 @@ describe("buildRegistry", () => {
 
   it("includes vault tools when vault is set", () => {
     const modules = buildRegistry({ vault: "/tmp/v" });
-    const names = modules.map(m => (m.definition as any).function.name);
+    const names = modules.map(m => m.definition.function.name);
     expect(names).toContain("list_vault");
     expect(names).toContain("read_note");
     expect(names).toContain("search_vault");
@@ -18,21 +18,21 @@ describe("buildRegistry", () => {
 
   it("does NOT include web tools when braveApiKey is absent", () => {
     const modules = buildRegistry({ vault: "/tmp/v" });
-    const names = modules.map(m => (m.definition as any).function.name);
+    const names = modules.map(m => m.definition.function.name);
     expect(names).not.toContain("web_search");
     expect(names).not.toContain("fetch_page");
   });
 
   it.skip("includes web tools when braveApiKey is set (Task 3)", () => {
     const modules = buildRegistry({ vault: "/tmp/v", braveApiKey: "BSA_KEY" });
-    const names = modules.map(m => (m.definition as any).function.name);
+    const names = modules.map(m => m.definition.function.name);
     expect(names).toContain("web_search");
     expect(names).toContain("fetch_page");
   });
 
   it.skip("includes format tools when vault is set (Task 4)", () => {
     const modules = buildRegistry({ vault: "/tmp/v" });
-    const names = modules.map(m => (m.definition as any).function.name);
+    const names = modules.map(m => m.definition.function.name);
     expect(names).toContain("summarize_notes");
     expect(names).toContain("format_note");
     expect(names).toContain("suggest_links");

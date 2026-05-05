@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { vaultToolModules } from "./vaultTools";
 import { PendingEditStore } from "../pendingEditStore";
+import type { ToolModule } from "./registry";
+
+function findTool(modules: ToolModule[], name: string): ToolModule {
+  const m = modules.find(m => m.definition.function.name === name);
+  if (!m) throw new Error(`Tool "${name}" not found in registry`);
+  return m;
+}
 
 let vault: string;
 let store: PendingEditStore;
@@ -18,7 +25,7 @@ beforeAll(() => {
 
 describe("list_vault", () => {
   it("lists all .md files relative to vault root", async () => {
-    const tool = vaultToolModules({ vault }).find(m => (m.definition as any).function.name === "list_vault")!;
+    const tool = findTool(vaultToolModules({ vault }), "list_vault");
     const result = await tool.run({}, { vault });
     expect(result.ok).toBe(true);
     const files: string[] = JSON.parse(result.content);
@@ -27,14 +34,14 @@ describe("list_vault", () => {
   });
 
   it("rejects path traversal subdir", async () => {
-    const tool = vaultToolModules({ vault }).find(m => (m.definition as any).function.name === "list_vault")!;
+    const tool = findTool(vaultToolModules({ vault }), "list_vault");
     const result = await tool.run({ subdir: "../../etc" }, { vault });
     expect(result.ok).toBe(false);
     expect(result.content).toContain("traversal");
   });
 
   it("returns ok:false for non-existent subdir", async () => {
-    const tool = vaultToolModules({ vault }).find(m => (m.definition as any).function.name === "list_vault")!;
+    const tool = findTool(vaultToolModules({ vault }), "list_vault");
     const result = await tool.run({ subdir: "nonexistent" }, { vault });
     expect(result.ok).toBe(false);
   });
@@ -42,14 +49,14 @@ describe("list_vault", () => {
 
 describe("read_note", () => {
   it("returns note content", async () => {
-    const tool = vaultToolModules({ vault }).find(m => (m.definition as any).function.name === "read_note")!;
+    const tool = findTool(vaultToolModules({ vault }), "read_note");
     const result = await tool.run({ path: "index.md" }, { vault });
     expect(result.ok).toBe(true);
     expect(result.content).toContain("Welcome to the vault");
   });
 
   it("returns ok:false for missing note", async () => {
-    const tool = vaultToolModules({ vault }).find(m => (m.definition as any).function.name === "read_note")!;
+    const tool = findTool(vaultToolModules({ vault }), "read_note");
     const result = await tool.run({ path: "ghost.md" }, { vault });
     expect(result.ok).toBe(false);
   });
@@ -57,7 +64,7 @@ describe("read_note", () => {
 
 describe("search_vault", () => {
   it("returns matching lines", async () => {
-    const tool = vaultToolModules({ vault }).find(m => (m.definition as any).function.name === "search_vault")!;
+    const tool = findTool(vaultToolModules({ vault }), "search_vault");
     const result = await tool.run({ query: "Budget" }, { vault });
     expect(result.ok).toBe(true);
     const hits = JSON.parse(result.content);
@@ -66,17 +73,24 @@ describe("search_vault", () => {
   });
 
   it("returns empty array when no match", async () => {
-    const tool = vaultToolModules({ vault }).find(m => (m.definition as any).function.name === "search_vault")!;
+    const tool = findTool(vaultToolModules({ vault }), "search_vault");
     const result = await tool.run({ query: "ZZZNOMATCH999" }, { vault });
     expect(result.ok).toBe(true);
     expect(JSON.parse(result.content)).toHaveLength(0);
+  });
+
+  it("returns ok:false when query is empty", async () => {
+    const tool = findTool(vaultToolModules({ vault }), "search_vault");
+    const result = await tool.run({ query: "" }, { vault });
+    expect(result.ok).toBe(false);
+    expect(result.content).toBe("query is required");
   });
 });
 
 describe("write_note", () => {
   it("creates a pending edit and returns pendingEdit payload", async () => {
     const ctx = { vault, pendingEditStore: store, sessionId: "s-test" };
-    const tool = vaultToolModules(ctx).find(m => (m.definition as any).function.name === "write_note")!;
+    const tool = findTool(vaultToolModules(ctx), "write_note");
     const result = await tool.run({ path: "NewNote.md", content: "# New\nContent.", reason: "create test" }, ctx);
     expect(result.ok).toBe(true);
     expect(result.pendingEdit).toBeDefined();
@@ -88,7 +102,7 @@ describe("write_note", () => {
 
   it("rejects path traversal", async () => {
     const ctx = { vault, pendingEditStore: store, sessionId: "s-trav" };
-    const tool = vaultToolModules(ctx).find(m => (m.definition as any).function.name === "write_note")!;
+    const tool = findTool(vaultToolModules(ctx), "write_note");
     const result = await tool.run({ path: "../../evil.md", content: "x", reason: "hack" }, ctx);
     expect(result.ok).toBe(false);
     expect(result.content).toContain("traversal");

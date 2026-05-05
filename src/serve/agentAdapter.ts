@@ -298,7 +298,7 @@ Fluxo obrigatório: list_vault → read_note → responda com base no conteúdo 
         data:  { id: tc.id, name: tc.function.name, args },
       };
 
-      const mod = registry.find(m => (m.definition as any).function.name === tc.function.name);
+      const mod = registry.find(m => m.definition.function.name === tc.function.name);
       const result = mod
         ? await mod.run(args, toolCtx)
         : { ok: false, content: `Unknown tool: ${tc.function.name}`, preview: undefined };

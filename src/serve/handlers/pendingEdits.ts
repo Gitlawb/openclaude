@@ -1,7 +1,8 @@
 import type { Route } from "../http";
 import type { PendingEditStore } from "../pendingEditStore";
 import { ServerError, ErrorCode } from "../errors";
-import { writeFileSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { checkFilesystemTripwire } from "../tripwires";
 
 export type PendingEditOpts = {
@@ -25,6 +26,7 @@ export function pendingEditsRoutes(store: PendingEditStore, opts: PendingEditOpt
           }
         }
         createBackup(e.vault, e.file);
+        mkdirSync(dirname(e.file), { recursive: true });
         writeFileSync(e.file, e.after, "utf8");
         store.delete(e.id);
         return { status: 200, body: { id: e.id, applied: true } };

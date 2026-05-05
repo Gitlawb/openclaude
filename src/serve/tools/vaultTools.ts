@@ -1,5 +1,5 @@
-import { resolve, dirname } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { walk, searchVault, readNote, vaultRelative } from "../vaultUtils";
 import type { ToolModule, ToolContext, VaultToolResult } from "./registry";
 
@@ -64,6 +64,7 @@ export function vaultToolModules(_ctx: ToolContext): ToolModule[] {
       async run(args: Record<string, unknown>, ctx: ToolContext): Promise<VaultToolResult> {
         const vault = ctx.vault!;
         const path = String(args.path ?? "");
+        // Path traversal validation is handled inside readNote() (vaultUtils.ts:48) — returns null on escape
         const content = readNote(vault, path);
         if (content === null) {
           return { ok: false, content: `Note not found or path invalid: ${path}` };
@@ -164,9 +165,6 @@ export function vaultToolModules(_ctx: ToolContext): ToolModule[] {
         if (abs !== vaultAbs && !abs.startsWith(vaultAbs + "/") && !abs.startsWith(vaultAbs + "\\")) {
           return { ok: false, content: "Path traversal rejected" };
         }
-
-        // Ensure parent directory exists
-        mkdirSync(dirname(abs), { recursive: true });
 
         const before = readNote(vault, path) ?? "";
         const edit   = pendingEditStore.create({
