@@ -21,6 +21,10 @@ const ENV_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
+  'SPARK_API_KEY',
+  'SPARK_BASE_URL',
+  'SPARK_MODEL',
+  'CLAUDE_CODE_USE_SPARK',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -47,6 +51,10 @@ const RESET_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
+  'SPARK_API_KEY',
+  'SPARK_BASE_URL',
+  'SPARK_MODEL',
+  'CLAUDE_CODE_USE_SPARK',
 ] as const
 
 beforeEach(() => {
@@ -355,6 +363,51 @@ describe('applyProviderFlag - xai', () => {
     applyProviderFlag('xai', [])
 
     expect(process.env.OPENAI_API_KEY).toBe('existing-openai-key')
+  })
+})
+
+describe('applyProviderFlag - spark', () => {
+  test('sets CLAUDE_CODE_USE_OPENAI=1 with Spark defaults when unset', () => {
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_KEY
+    delete process.env.SPARK_API_KEY
+
+    const result = applyProviderFlag('spark', [])
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://spark-api-open.xf-yun.com/v1/chat/completions')
+    expect(process.env.OPENAI_MODEL).toBe('generalv3.5')
+  })
+
+  test('sets OPENAI_MODEL when --model is provided', () => {
+    applyProviderFlag('spark', ['--model', 'generalv4.0'])
+    expect(process.env.OPENAI_MODEL).toBe('generalv4.0')
+  })
+
+  test('propagates SPARK_API_KEY to OPENAI_API_KEY when only SPARK_API_KEY is set', () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.SPARK_API_KEY = 'spark-secret-key'
+
+    applyProviderFlag('spark', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('spark-secret-key')
+  })
+
+  test('does not override existing OPENAI_API_KEY when both keys are set', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+    process.env.SPARK_API_KEY = 'spark-secret-key'
+
+    applyProviderFlag('spark', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('existing-openai-key')
+  })
+
+  test('respects existing OPENAI_BASE_URL when user set a custom one', () => {
+    process.env.OPENAI_BASE_URL = 'https://custom-spark-proxy.example.com/v1/chat/completions'
+
+    applyProviderFlag('spark', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://custom-spark-proxy.example.com/v1/chat/completions')
   })
 })
 

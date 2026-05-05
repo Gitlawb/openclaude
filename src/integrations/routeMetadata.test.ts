@@ -134,3 +134,49 @@ test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials
     }),
   ).toBe('anthropic')
 })
+
+// --- Spark env-only detection ---
+
+test('resolveActiveRouteIdFromEnv treats Spark credential-only env as Spark', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      SPARK_API_KEY: 'spark-key',
+    }),
+  ).toBe('spark')
+})
+
+test('resolveActiveRouteIdFromEnv keeps Spark primary base over stale API base', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      SPARK_API_KEY: 'spark-key',
+      OPENAI_BASE_URL: 'https://spark-api-open.xf-yun.com/v1/chat/completions',
+      OPENAI_API_BASE: 'https://api.openai.com/v1',
+    }),
+  ).toBe('spark')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer Spark with OpenAI credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      SPARK_API_KEY: 'spark-key',
+      OPENAI_API_KEY: 'openai-key',
+    }),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer Spark when base URL points elsewhere', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      SPARK_API_KEY: 'spark-key',
+      OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
+    }),
+  ).toBe('anthropic')
+})
+
+test('CLAUDE_CODE_USE_SPARK resolves to spark route', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_SPARK: '1',
+    }),
+  ).toBe('spark')
+})

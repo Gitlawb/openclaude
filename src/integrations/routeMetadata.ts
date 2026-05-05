@@ -292,6 +292,7 @@ export function hasSparkEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasNonEmptyEnvValue(processEnv.SPARK_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isSparkBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
