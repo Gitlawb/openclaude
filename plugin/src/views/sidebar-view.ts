@@ -107,12 +107,12 @@ export class SidebarView extends ItemView {
   }
 
   private getActiveContext(): { activeNote?: string; vault?: string; selection?: string } {
+    const basePath = (this.app.vault.adapter as { basePath?: string }).basePath ?? '';
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view?.file) return {};
+    if (!view?.file) return { vault: basePath };  // vault sempre enviado
     const editor = view.editor;
     const selection = editor.getSelection() || undefined;
     const lines = editor.getValue().split('\n').slice(0, 200).join('\n');
-    const basePath = (this.app.vault.adapter as { basePath?: string }).basePath ?? '';
     return { activeNote: lines, vault: basePath, selection };
   }
 
