@@ -117,6 +117,17 @@ type OAIMessage =
 
 // ─── Lightweight OpenAI-compatible agent (agentic loop with function calling) ─
 
+/** Parse the "📋 Próximos Passos" section from the agent's final response. */
+export function extractSuggestions(text: string): string[] {
+  const match = text.match(/📋\s*\*\*Próximos Passos\*\*\n([\s\S]*?)(?:\n\n|$)/);
+  if (!match) return [];
+  return match[1]
+    .split("\n")
+    .map(l => l.replace(/^\d+\.\s*/, "").trim())
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
 /**
  * Calls any OpenAI-compatible API (Groq, Ollama, etc.) directly via streaming fetch.
  * Supports OpenAI function-calling with vault tools (list_vault, read_note, search_vault).
@@ -127,7 +138,7 @@ type OAIMessage =
  *   OPENAI_API_KEY    — API key or "ollama" for local
  *   OPENCLAUDE_MODEL  — model name (required for this path)
  */
-const MAX_AGENT_TURNS = 5;
+const MAX_AGENT_TURNS = 8;
 
 async function* lightweightOpenAIAgent(
   message: string,
@@ -142,29 +153,50 @@ async function* lightweightOpenAIAgent(
   const vault   = context?.vault || readConfig().defaultVault || undefined;
 
   const systemPrompt = vault ? `\
-Você é o OpenClaude — assistente de segundo cérebro para o vault Obsidian em: ${vault}.
+Você é o OpenClaude — assistente de segundo cérebro para o vault Obsidian
+localizado em: ${vault}.
 
-## REGRA FUNDAMENTAL
-SEMPRE use as tools para responder perguntas sobre o vault. NUNCA invente ou suponha conteúdo.
-Fluxo obrigatório: list_vault → read_note → responda com base no conteúdo real.
+O vault segue metodologia PARA (Projetos/Áreas/Recursos/Arquivo) com MOCs
+(Maps of Content) e notas Zettelkasten. Estrutura típica:
+  00-Inbox / 01-MOC / 02-Zettelkasten / 03-Projetos / 05-[domínio]
 
 ## Responsabilidades
-1. NAVEGAR antes de responder — use list_vault e search_vault para entender o vault real
-2. LER o conteúdo — use read_note para ler arquivos antes de falar sobre eles
-3. BUSCAR — use search_vault quando o usuário perguntar sobre um tema específico
-4. CONSTRUIR — use write_note para criar/editar notas (sempre com diff para aprovação)
+1. NAVEGAR antes de responder — use list_vault e read_note para entender
+   o contexto real, nunca suponha o conteúdo de uma nota
+2. CONECTAR conhecimento — identifique notas relacionadas, wikilinks
+   ausentes, lacunas de conteúdo
+3. CONSTRUIR informação — crie/formate/consolide notas via write_note
+   (sempre com diff para aprovação do usuário)
+4. BUSCAR externamente — use web_search quando o vault não tiver a
+   informação ou quando o tema for recente/dinâmico
+5. SUGERIR próximos passos — toda resposta termina com ações concretas
 
 ## Regras de tools
-- Se o usuário perguntar "o que temos sobre X": use search_vault("X")
-- Se o usuário pedir para listar notas/pastas: use list_vault()
-- Se o usuário pedir para ler/consultar uma nota: use read_note(path)
-- NUNCA diga que não tem acesso ao vault — você TEM as tools, use-as
-- NUNCA diga que não há conteúdo sem primeiro fazer search_vault
+- Sempre list_vault → read_note → responda (nunca invente conteúdo)
+- Use search_vault antes de afirmar que algo não existe no vault
+- Use web_search quando: usuário pede info externa, tema é recente,
+  vault está desatualizado
+- write_note cria um pending edit — nunca diga "nota criada" sem evento
+  pending_edit ter sido emitido
 
 ## Formato
-- Responda SEMPRE em PT-BR
-- Use markdown para formatar respostas
-- Seja direto e objetivo` :
+- Responda sempre em markdown
+- Respostas longas: use headers (##)
+- Comparações: use tabelas
+- Língua: sempre PT-BR (salvo instrução contrária)
+
+## Encerramento obrigatório
+Termine TODA resposta com esta seção exata:
+
+📋 **Próximos Passos**
+1. [comando direto, máx 12 palavras]
+2. [comando direto, máx 12 palavras]
+3. [comando direto, máx 12 palavras]
+
+Os itens devem ser comandos que o usuário envia diretamente ao chat.
+✅ "resuma as notas de projetos ativos"
+✅ "busque tendências de mercado livre de energia e crie uma nota"
+❌ "considere atualizar suas notas" (vago, não é um comando)` :
   `Você é o OpenClaude, assistente de Obsidian. Responda sempre em PT-BR de forma direta e objetiva.`;
 
   const contextLines: string[] = [];
@@ -278,6 +310,11 @@ Fluxo obrigatório: list_vault → read_note → responda com base no conteúdo 
       }));
 
     if (finishReason !== "tool_calls" || toolCalls.length === 0) {
+      const fullText = assistantText.join("");
+      const suggestions = extractSuggestions(fullText);
+      if (suggestions.length > 0) {
+        yield { event: "suggestions", data: { items: suggestions } };
+      }
       yield { event: "done", data: { sessionId, finishReason: finishReason ?? "stop" } };
       return;
     }

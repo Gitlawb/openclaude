@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, beforeAll } from "bun:test";
-import { createRealAgent } from "./agentAdapter";
+import { createRealAgent, extractSuggestions } from "./agentAdapter";
 import type { AgentEvent } from "./handlers/chat";
 import { PendingEditStore } from "./pendingEditStore";
 
@@ -425,6 +425,76 @@ describe("agentAdapter — write_note tool", () => {
       expect(edit!.after).toBe("# Existing\nNew content.");
     } finally {
       await server.stop();
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+      delete process.env.OPENAI_BASE_URL;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.OPENCLAUDE_MODEL;
+    }
+  });
+});
+
+// === Task 5 additions ===
+
+describe("extractSuggestions", () => {
+  it("extracts suggestion items from structured response", () => {
+    const text = `# Resposta
+
+Aqui está o conteúdo.
+
+📋 **Próximos Passos**
+1. liste as notas de projetos ativos
+2. busque tendências de mercado livre de energia
+3. crie uma nota sobre blockchain
+
+`;
+    const suggestions = extractSuggestions(text);
+    expect(suggestions).toHaveLength(3);
+    expect(suggestions[0]).toBe("liste as notas de projetos ativos");
+    expect(suggestions[2]).toBe("crie uma nota sobre blockchain");
+  });
+
+  it("returns empty array when no Próximos Passos section", () => {
+    const text = "# Resposta\n\nAlgum texto sem sugestões.";
+    expect(extractSuggestions(text)).toHaveLength(0);
+  });
+
+  it("limits to 5 suggestions", () => {
+    const items = Array.from({ length: 8 }, (_, i) => `${i + 1}. sugestão ${i + 1}`).join("\n");
+    const text = `📋 **Próximos Passos**\n${items}\n\n`;
+    expect(extractSuggestions(text).length).toBeLessThanOrEqual(5);
+  });
+});
+
+describe("agentAdapter — suggestions SSE event emitted", () => {
+  it("emits suggestions event before done when response contains Próximos Passos", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => {
+        const body = [
+          `data: {"choices":[{"delta":{"content":"Aqui está o resumo.\\n\\n📋 **Próximos Passos**\\n1. liste o vault\\n2. busque energia solar\\n"},"finish_reason":null}]}`,
+          `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+          `data: [DONE]`,
+          "",
+        ].join("\n\n");
+        return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+      },
+    });
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    process.env.OPENAI_BASE_URL = `http://127.0.0.1:${server.port}`;
+    process.env.OPENAI_API_KEY = "test";
+    process.env.OPENCLAUDE_MODEL = "test";
+    try {
+      const agent = createRealAgent();
+      const events = await drainEvents(agent({ message: "o que temos?", sessionId: "s-sugg" }));
+      const suggestionsEvt = events.find(e => e.event === "suggestions");
+      expect(suggestionsEvt).toBeDefined();
+      expect((suggestionsEvt!.data as any).items).toContain("liste o vault");
+      // done must come after suggestions
+      const suggIdx = events.indexOf(suggestionsEvt!);
+      const doneIdx = events.findIndex(e => e.event === "done");
+      expect(doneIdx).toBeGreaterThan(suggIdx);
+    } finally {
+      await server.stop(true);
       delete process.env.CLAUDE_CODE_USE_OPENAI;
       delete process.env.OPENAI_BASE_URL;
       delete process.env.OPENAI_API_KEY;

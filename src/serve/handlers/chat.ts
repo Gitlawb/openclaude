@@ -9,6 +9,7 @@ export type AgentEvent =
   | { event: "tool_result"; data: { id: string; ok: boolean; preview?: string } }
   | { event: "pending_edit"; data: { id: string; file: string; reason: string } }
   | { event: "insight"; data: { text: string } }
+  | { event: "suggestions"; data: { items: string[] } }
   | { event: "done"; data: { sessionId?: string; finishReason: string } }
   | { event: "error"; data: { code: string; message: string } };
 
