@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.9.0](https://github.com/Gitlawb/openclaude/compare/v0.8.0...v0.9.0) (2026-05-05)
+
+
+### Features
+
+* context partitioning and relevance-based pruning ([#849](https://github.com/Gitlawb/openclaude/issues/849)) ([ca676af](https://github.com/Gitlawb/openclaude/commit/ca676affc47dca7f2a65fa867410931e27ae4969))
+* rework release notes around GitHub releases ([#981](https://github.com/Gitlawb/openclaude/issues/981)) ([d948769](https://github.com/Gitlawb/openclaude/commit/d948769dd59c5533fa9769c0f16de783010b4620))
+* SDK Runtime — Query Engine, Sessions, and Build Pipeline ([#984](https://github.com/Gitlawb/openclaude/issues/984)) ([60c76b6](https://github.com/Gitlawb/openclaude/commit/60c76b6599f691781ad5ae7dfeb6e4029b679d0a))
+* support self-hosted Firecrawl via FIRECRAWL_API_URL ([#949](https://github.com/Gitlawb/openclaude/issues/949)) ([a133e76](https://github.com/Gitlawb/openclaude/commit/a133e7631a7c0b6eeb624d60567147cab1257ff0))
+
+
+### Bug Fixes
+
+* **groq:** strip unsupported store field ([#983](https://github.com/Gitlawb/openclaude/issues/983)) ([6d0953a](https://github.com/Gitlawb/openclaude/commit/6d0953a79cb435b17ed231019fa0b660b770c914))
+* **mcp:** allow third-party providers to approve project-scope .mcp.json servers ([#696](https://github.com/Gitlawb/openclaude/issues/696)) ([#937](https://github.com/Gitlawb/openclaude/issues/937)) ([dc3c065](https://github.com/Gitlawb/openclaude/commit/dc3c065c4a70663978f965d50846ba6a0692e59d))
+* **shims:** strip x-anthropic-billing-header block before forwarding system prompt ([#1019](https://github.com/Gitlawb/openclaude/issues/1019)) ([40ae1e7](https://github.com/Gitlawb/openclaude/commit/40ae1e720034f00912762d5e723903d3170bc396))
+* **startup:** make CLAUDE logo D distinct ([#986](https://github.com/Gitlawb/openclaude/issues/986)) ([35f86a9](https://github.com/Gitlawb/openclaude/commit/35f86a9580aedd3f359dfc13992e49f2ec53757e))
+* **tests:** resolve flakiness due to module leak and env state leakage ([#988](https://github.com/Gitlawb/openclaude/issues/988)) ([990a5a2](https://github.com/Gitlawb/openclaude/commit/990a5a2afbb22b8f9274328783a6adbda1a3b62c))
+* **web-search:** surface diagnostic when adapter returns 0 hits and no native fallback ([#1006](https://github.com/Gitlawb/openclaude/issues/1006)) ([1c74675](https://github.com/Gitlawb/openclaude/commit/1c746750f67d576b8272ba985b65c9c4406bdbc9))
+
 ## [0.8.0](https://github.com/Gitlawb/openclaude/compare/v0.7.0...v0.8.0) (2026-05-02)
 
 
