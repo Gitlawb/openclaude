@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { resolve, dirname, basename } from "node:path";
 import { existsSync } from "node:fs";
 import { walk, searchVault, readNote, vaultRelative } from "../vaultUtils";
 import type { ToolModule, ToolContext, VaultToolResult } from "./registry";
@@ -175,6 +175,138 @@ export function vaultToolModules(_ctx: ToolContext): ToolModule[] {
           ok:          true,
           content:     `Pending edit created (id: ${edit.id}). The user will be prompted to review and apply the change.`,
           preview:     `pending edit for ${path}`,
+          pendingEdit: { id: edit.id, file: abs, reason },
+        };
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "delete_note",
+          description: "Propose deleting a note. Moves to .trash/ on apply — never permanent. Requires user approval.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Relative path of note to delete." },
+              reason: { type: "string", description: "Why this note should be deleted." },
+            },
+            required: ["path", "reason"],
+          },
+        },
+      },
+      run: async (args, ctx): Promise<VaultToolResult> => {
+        const { vault, pendingEditStore, sessionId } = ctx;
+        if (!pendingEditStore) return { ok: false, content: "delete_note requires a pending edit store." };
+        const path = String(args.path ?? "");
+        const reason = String(args.reason ?? "Agent-proposed deletion");
+        if (!path) return { ok: false, content: "path is required" };
+        const vaultAbs = resolve(vault!);
+        const abs = resolve(vaultAbs, path);
+        if (abs !== vaultAbs && !abs.startsWith(vaultAbs + "/") && !abs.startsWith(vaultAbs + "\\")) {
+          return { ok: false, content: "Path traversal rejected" };
+        }
+        const before = readNote(vault!, path);
+        if (before === null) return { ok: false, content: `Note not found: ${path}` };
+        const edit = pendingEditStore.create({
+          file: abs, vault: vault!, sessionId: sessionId ?? "unknown",
+          reason, before, after: "", kind: "delete",
+        });
+        return {
+          ok: true,
+          content: `Delete pending (id: ${edit.id}). Note will be moved to .trash/ on apply.`,
+          preview: `pending delete for ${path}`,
+          pendingEdit: { id: edit.id, file: abs, reason },
+        };
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "rename_note",
+          description: "Propose renaming a note. Updates [[wikilinks]] across the vault on apply. Requires user approval.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Current relative path of the note." },
+              newName: { type: "string", description: "New filename without extension (e.g. 'NewTitle')." },
+              reason: { type: "string", description: "Why this note is being renamed." },
+            },
+            required: ["path", "newName", "reason"],
+          },
+        },
+      },
+      run: async (args, ctx): Promise<VaultToolResult> => {
+        const { vault, pendingEditStore, sessionId } = ctx;
+        if (!pendingEditStore) return { ok: false, content: "rename_note requires a pending edit store." };
+        const path = String(args.path ?? "");
+        const newName = String(args.newName ?? "").replace(/\.md$/, "");
+        const reason = String(args.reason ?? "Agent-proposed rename");
+        if (!path || !newName) return { ok: false, content: "path and newName are required" };
+        const vaultAbs = resolve(vault!);
+        const abs = resolve(vaultAbs, path);
+        if (abs !== vaultAbs && !abs.startsWith(vaultAbs + "/") && !abs.startsWith(vaultAbs + "\\")) {
+          return { ok: false, content: "Path traversal rejected" };
+        }
+        const before = readNote(vault!, path);
+        if (before === null) return { ok: false, content: `Note not found: ${path}` };
+        const newFile = resolve(dirname(abs), `${newName}.md`);
+        const edit = pendingEditStore.create({
+          file: abs, vault: vault!, sessionId: sessionId ?? "unknown",
+          reason, before, after: before, kind: "rename", newFile,
+        });
+        return {
+          ok: true,
+          content: `Rename pending (id: ${edit.id}). Will rename to ${newName}.md and update wikilinks.`,
+          preview: `pending rename for ${path}`,
+          pendingEdit: { id: edit.id, file: abs, reason },
+        };
+      },
+    },
+    {
+      definition: {
+        type: "function",
+        function: {
+          name: "move_note",
+          description: "Propose moving a note to a different folder. Updates [[wikilinks]] on apply. Requires user approval.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Current relative path of the note." },
+              newPath: { type: "string", description: "New relative path (e.g. 'Archive/OldNote.md')." },
+              reason: { type: "string", description: "Why this note is being moved." },
+            },
+            required: ["path", "newPath", "reason"],
+          },
+        },
+      },
+      run: async (args, ctx): Promise<VaultToolResult> => {
+        const { vault, pendingEditStore, sessionId } = ctx;
+        if (!pendingEditStore) return { ok: false, content: "move_note requires a pending edit store." };
+        const path = String(args.path ?? "");
+        const newPath = String(args.newPath ?? "");
+        const reason = String(args.reason ?? "Agent-proposed move");
+        if (!path || !newPath) return { ok: false, content: "path and newPath are required" };
+        const vaultAbs = resolve(vault!);
+        const abs = resolve(vaultAbs, path);
+        const newAbs = resolve(vaultAbs, newPath);
+        if (abs !== vaultAbs && !abs.startsWith(vaultAbs + "/") && !abs.startsWith(vaultAbs + "\\")) {
+          return { ok: false, content: "Path traversal rejected (source)" };
+        }
+        if (newAbs !== vaultAbs && !newAbs.startsWith(vaultAbs + "/") && !newAbs.startsWith(vaultAbs + "\\")) {
+          return { ok: false, content: "Path traversal rejected (destination)" };
+        }
+        const before = readNote(vault!, path);
+        if (before === null) return { ok: false, content: `Note not found: ${path}` };
+        const edit = pendingEditStore.create({
+          file: abs, vault: vault!, sessionId: sessionId ?? "unknown",
+          reason, before, after: before, kind: "move", newFile: newAbs,
+        });
+        return {
+          ok: true,
+          content: `Move pending (id: ${edit.id}). Will move to ${newPath} and update wikilinks.`,
+          preview: `pending move for ${path}`,
           pendingEdit: { id: edit.id, file: abs, reason },
         };
       },

@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+export type PendingEditKind = "write" | "delete" | "rename" | "move";
+
 export type PendingEditInput = {
   file: string;
   vault: string;
@@ -16,6 +18,8 @@ export type PendingEditInput = {
   reason: string;
   before: string;
   after: string;
+  kind?: PendingEditKind;  // default: "write" if absent
+  newFile?: string;        // populated for rename/move
 };
 
 export type PendingEdit = PendingEditInput & { id: string; createdAt: number };

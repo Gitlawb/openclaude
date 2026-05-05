@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { vaultToolModules } from "./vaultTools";
@@ -106,5 +106,61 @@ describe("write_note", () => {
     const result = await tool.run({ path: "../../evil.md", content: "x", reason: "hack" }, ctx);
     expect(result.ok).toBe(false);
     expect(result.content).toContain("traversal");
+  });
+});
+
+describe("delete_note", () => {
+  it("creates a pending delete with kind='delete'", async () => {
+    const tmpVault = mkdtempSync(join(tmpdir(), "oc-del-"));
+    writeFileSync(join(tmpVault, "ToDelete.md"), "# Delete me");
+    const deleteStore = new PendingEditStore(tmpdir());
+    const ctx = { vault: tmpVault, pendingEditStore: deleteStore, sessionId: "s-del" };
+    const tool = findTool(vaultToolModules(ctx), "delete_note");
+    const result = await tool.run({ path: "ToDelete.md", reason: "cleanup" }, ctx);
+    expect(result.ok).toBe(true);
+    expect(result.pendingEdit).toBeDefined();
+    const stored = deleteStore.get(result.pendingEdit!.id);
+    expect(stored!.kind).toBe("delete");
+  });
+
+  it("returns ok:false for non-existent note", async () => {
+    const tmpVault = mkdtempSync(join(tmpdir(), "oc-del2-"));
+    const deleteStore = new PendingEditStore(tmpdir());
+    const ctx = { vault: tmpVault, pendingEditStore: deleteStore, sessionId: "s-del2" };
+    const tool = findTool(vaultToolModules(ctx), "delete_note");
+    const result = await tool.run({ path: "ghost.md", reason: "nope" }, ctx);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("rename_note", () => {
+  it("creates a pending rename with kind='rename' and newFile set", async () => {
+    const tmpVault = mkdtempSync(join(tmpdir(), "oc-ren-"));
+    writeFileSync(join(tmpVault, "OldName.md"), "# Old\nContent.");
+    const renStore = new PendingEditStore(tmpdir());
+    const ctx = { vault: tmpVault, pendingEditStore: renStore, sessionId: "s-ren" };
+    const tool = findTool(vaultToolModules(ctx), "rename_note");
+    const result = await tool.run({ path: "OldName.md", newName: "NewName", reason: "rename" }, ctx);
+    expect(result.ok).toBe(true);
+    expect(result.pendingEdit).toBeDefined();
+    const stored = renStore.get(result.pendingEdit!.id);
+    expect(stored!.kind).toBe("rename");
+    expect(stored!.newFile).toContain("NewName.md");
+  });
+});
+
+describe("move_note", () => {
+  it("creates a pending move with kind='move' and correct newFile", async () => {
+    const tmpVault = mkdtempSync(join(tmpdir(), "oc-mov-"));
+    mkdirSync(join(tmpVault, "Archive"), { recursive: true });
+    writeFileSync(join(tmpVault, "Note.md"), "# Note");
+    const movStore = new PendingEditStore(tmpdir());
+    const ctx = { vault: tmpVault, pendingEditStore: movStore, sessionId: "s-mov" };
+    const tool = findTool(vaultToolModules(ctx), "move_note");
+    const result = await tool.run({ path: "Note.md", newPath: "Archive/Note.md", reason: "archive" }, ctx);
+    expect(result.ok).toBe(true);
+    const stored = movStore.get(result.pendingEdit!.id);
+    expect(stored!.kind).toBe("move");
+    expect(stored!.newFile).toContain("Archive");
   });
 });
