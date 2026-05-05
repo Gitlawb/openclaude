@@ -100,6 +100,18 @@ function tsc(tmpDir: string): string {
   }).trim()
 }
 
+function ensureBuildArtifacts(): void {
+  const distCli = join(ROOT, 'dist', 'cli.mjs')
+  const distSdk = join(ROOT, 'dist', 'sdk.mjs')
+  if (existsSync(distCli) && existsSync(distSdk)) return
+
+  execSync('bun run build', {
+    cwd: ROOT,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 180000,
+  })
+}
+
 afterAll(() => {
   for (const dir of tempDirs) {
     try {
@@ -215,6 +227,8 @@ describe('package exports resolution', () => {
   })
 
   test('exported files exist after build', () => {
+    ensureBuildArtifacts()
+
     // Verify the files referenced in exports exist
     expect(existsSync(join(ROOT, 'package.json'))).toBe(true)
     expect(existsSync(join(ROOT, 'dist', 'cli.mjs'))).toBe(true)
