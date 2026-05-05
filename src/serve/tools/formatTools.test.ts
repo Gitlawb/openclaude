@@ -134,5 +134,8 @@ describe("suggest_links", () => {
     expect(Array.isArray(suggestions)).toBe(true);
     // Should find at least one suggestion (Alpha or Beta mentioned in Ref.md without [[ ]])
     expect(suggestions.length).toBeGreaterThan(0);
+    // targetNote should be the link destination (NoteA.md or NoteB.md), not the source Ref.md
+    expect(suggestions[0].targetNote).not.toBe("Ref.md");
+    expect(["NoteA.md", "NoteB.md"]).toContain(suggestions[0].targetNote);
   });
 });

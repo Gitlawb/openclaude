@@ -43,7 +43,12 @@ function extractNoteTopics(vault: string): Map<string, string> {
   const topics = new Map<string, string>();
   for (const file of walk(vault)) {
     const relPath = vaultRelative(vault, file);
-    const content = readFileSync(file, "utf8");
+    let content: string;
+    try {
+      content = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
     for (const match of content.matchAll(/^#{1,3}\s+(.+)$/gm)) {
       topics.set(match[1]!.toLowerCase().trim(), relPath);
     }
@@ -141,6 +146,12 @@ export function formatToolModules(_ctx: ToolContext): ToolModule[] {
         if (!path) return { ok: false, content: "path is required" };
         if (!instructions) return { ok: false, content: "instructions are required" };
 
+        const vaultAbs = resolve(vault!);
+        const abs = resolve(vaultAbs, path);
+        if (abs !== vaultAbs && !abs.startsWith(vaultAbs + "/") && !abs.startsWith(vaultAbs + "\\")) {
+          return { ok: false, content: "Path traversal rejected" };
+        }
+
         const before = readNote(vault!, path);
         if (before === null) return { ok: false, content: `Note not found: ${path}` };
 
@@ -155,8 +166,6 @@ export function formatToolModules(_ctx: ToolContext): ToolModule[] {
           return { ok: false, content: `LLM sub-call failed: ${String(err)}` };
         }
 
-        const vaultAbs = resolve(vault!);
-        const abs = resolve(vaultAbs, path);
         const edit = pendingEditStore.create({
           file: abs, vault: vault!, sessionId: sessionId ?? "unknown",
           reason: `Format: ${instructions.slice(0, 60)}`, before, after: formatted,
@@ -216,7 +225,7 @@ export function formatToolModules(_ctx: ToolContext): ToolModule[] {
 
           if (occurrences > 0) {
             suggestions.push({
-              targetNote: path,
+              targetNote: notePath,
               suggestedLink: `[[${notePath.replace(/\.md$/, "")}|${heading}]]`,
               reason: `"${heading}" appears ${occurrences}x without a wikilink`,
               occurrences,
