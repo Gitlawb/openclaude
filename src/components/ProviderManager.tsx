@@ -1461,7 +1461,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         label: (
           <Text>
             <Text>Codex OAuth </Text>
-            <Text color="green" bold>★ Recommended</Text>
+            <Text color="success" bold>★ Recommended</Text>
           </Text>
         ),
         description:
