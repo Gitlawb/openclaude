@@ -69,10 +69,11 @@ export class ApiClient {
     return res.json() as Promise<VaultInfo[]>;
   }
 
-  async chat(req: ChatRequest, onEvent: (evt: SseEvent) => void, signal?: AbortSignal): Promise<void> {
+  async chat(req: ChatRequest, onEvent: (evt: SseEvent) => void, signal?: AbortSignal, retried = false): Promise<void> {
     const res = await fetch(`${this.baseUrl}/chat`, {
       method: 'POST', headers: this.authHeaders(), body: JSON.stringify(req), signal,
     });
+    if (res.status === 401 && !retried) { this.token = this.readToken(); return this.chat(req, onEvent, signal, true); }
     if (!res.ok) throw new Error(`chat failed: ${res.status}`);
     if (!res.body) throw new Error('no response body');
 
