@@ -200,9 +200,42 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// ShimToolSearch — opt-in lazy tool loading for 3P providers
-// Gated behind ENABLE_SHIM_TOOL_SEARCH=1. Off by default.
+// ShimToolSearch — opt-in tool schema reduction for 3P providers.
+// Off by default. Modes:
+//   minify  — send every tool, but strip verbose schema prose.
+//   predict — send a predicted subset only when confident; uncertain sends all.
+//   lazy    — two-phase request_tools protocol for conversational turns.
+// ENABLE_SHIM_TOOL_SEARCH=1 is kept as a backwards-compatible alias for lazy.
 // ---------------------------------------------------------------------------
+
+type ShimToolSearchMode = 'off' | 'minify' | 'predict' | 'lazy'
+
+function getShimToolSearchMode(): ShimToolSearchMode {
+  const raw = (
+    process.env.OPENAI_SHIM_TOOL_MODE ??
+    process.env.ENABLE_SHIM_TOOL_SEARCH ??
+    ''
+  ).trim().toLowerCase()
+
+  if (!raw || raw === '0' || raw === 'false' || raw === 'off') return 'off'
+  if (raw === 'minify') return 'minify'
+  if (raw === 'predict' || raw === 'safe-predict' || raw === 'predict-safe') {
+    return 'predict'
+  }
+  if (raw === 'lazy' || raw === '1' || raw === 'true' || raw === 'on') {
+    return 'lazy'
+  }
+  return 'off'
+}
+
+function debugShimToolSearch(message: string): void {
+  if (
+    isEnvTruthy(process.env.OPENAI_SHIM_DEBUG) ||
+    isEnvTruthy(process.env.ENABLE_SHIM_TOOL_SEARCH_DEBUG)
+  ) {
+    process.stderr.write(`[ShimToolSearch] ${message}\n`)
+  }
+}
 
 /**
  * Keep only the first sentence of a tool description (up to maxLen chars).
@@ -257,38 +290,71 @@ function minifyToolSchemas(tools: OpenAITool[]): OpenAITool[] {
   }))
 }
 
-/** One-line descriptions for the tool directory injected during phase-1 */
+/** One-line descriptions for the tool directory injected during phase-1. */
 const TOOL_DIRECTORY: Record<string, string> = {
   Bash:            'Execute shell commands (build, test, install, git, etc.)',
   Read:            'Read file contents',
   Write:           'Create or overwrite a file',
   Edit:            'Make targeted edits to an existing file',
+  MultiEdit:       'Make multiple coordinated edits to an existing file',
   Glob:            'List files matching a pattern',
   Grep:            'Search file contents with regex',
+  WebSearch:       'Search the web for current information',
+  WebFetch:        'Fetch and read web page content',
+  NotebookEdit:    'Edit Jupyter notebook cells',
+  Skill:           'Load and use a named skill',
   TodoWrite:       'Create/update structured task list',
   AskUserQuestion: 'Ask the user a clarifying question',
   Agent:           'Spawn a sub-agent to handle a complex sub-task',
+  TaskCreate:      'Create a tracked task for teammate/coordinator workflows',
+  TaskGet:         'Read a tracked task',
+  TaskUpdate:      'Update a tracked task status or ownership',
+  TaskList:        'List tracked tasks',
+  TaskOutput:      'Read output from a background task',
+  TaskStop:        'Stop a running task',
+  EnterPlanMode:   'Enter plan mode when implementation should wait',
+  ExitPlanMode:    'Exit plan mode with an implementation plan',
+  EnterWorktree:   'Enter a worktree session',
+  ExitWorktree:    'Exit a worktree session',
+  SendMessage:     'Send a message to a teammate or coordinator',
+  ListPeers:       'List connected peers or teammates',
+  LSP:             'Use language server intelligence',
 }
 
-/** Derived from TOOL_DIRECTORY so the two are always in sync. */
-const ESSENTIAL_TOOL_NAMES = new Set(Object.keys(TOOL_DIRECTORY))
+const CORE_TOOL_NAMES = new Set([
+  'Bash',
+  'Read',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'Glob',
+  'Grep',
+  'TodoWrite',
+  'AskUserQuestion',
+  'Agent',
+])
 
-/** The single meta-tool sent during phase-1 of ShimToolSearch */
-const REQUEST_TOOLS_SCHEMA: OpenAITool = {
-  type: 'function',
-  function: {
-    name: 'request_tools',
-    description: 'Request the full schema for one or more tools before using them. Call this first if you need to use any tools.',
-    parameters: {
-      type: 'object',
-      properties: {
-        tools: {
-          type: 'array',
-          items: { type: 'string' },
+/** The single meta-tool sent during phase-1, in Anthropic tool shape. */
+const REQUEST_TOOLS_TOOL = {
+  name: 'request_tools',
+  description: 'Request the full schema for one or more tools before using them. Call this first if you need to use any tools.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      tools: {
+        type: 'array',
+        description: 'Names of the tools needed for the next step.',
+        items: {
+          type: 'string',
         },
       },
-      required: ['tools'],
+      rationale: {
+        type: 'string',
+        description: 'Brief reason these tools are needed.',
+      },
     },
+    required: ['tools'],
+    additionalProperties: false,
   },
 }
 
@@ -328,7 +394,7 @@ function predictNeededTools(messages: unknown[]): Set<string> | null {
   const t = lastUserText.toLowerCase()
 
   const isConversational = /^(what|who|why|how|when|where|explain|describe|tell me|is it|can you|do you|list|summarize|overview|difference between|compare|pros and cons)/.test(t.trim())
-    && !/file|code|function|class|test|build|run|install|create|write|edit|implement|fix|debug/.test(t)
+    && !/file|code|codebase|repository|repo|project|source|module|component|function|class|test|build|run|install|create|write|edit|implement|fix|debug/.test(t)
 
   if (isConversational) return new Set([])
 
@@ -339,7 +405,11 @@ function predictNeededTools(messages: unknown[]): Set<string> | null {
   if (/\bcreate\b|\bwrite\b|\bnew file|\bgenerat|\bscaffold|\binitializ|\btouch\b/.test(t)) tools.add('Write')
   if (/\bedit\b|\bmodif|\bchange\b|\bfix\b|\bupdat|\brefactor|\breplace|\bimpleme|\badd.*to\b|\bremove\b|\bdelet.*from/.test(t)) tools.add('Edit')
   if (/\bsearch\b|\bfind\b|\bgrep\b|\blook for\b|\bwhere is\b|\boccurrenc|\bwhich file/.test(t)) { tools.add('Grep'); tools.add('Glob') }
+  if (/\bweb\b|\binternet\b|\bonline\b|\bsearch the web\b|\bbrowse\b|\blatest\b|\bcurrent\b|\btoday\b|\bfetch.*https?:\/\//.test(t)) { tools.add('WebSearch'); tools.add('WebFetch') }
   if (/\blist.*file|\bfind.*file|\bfiles in|\bwhat files|\blist.*dir|\bls\b/.test(t)) tools.add('Glob')
+  if (/\bnotebook\b|\bjupyter\b|\bipynb\b/.test(t)) tools.add('NotebookEdit')
+  if (/\bskill\b|\bskills\b/.test(t)) tools.add('Skill')
+  if (/\btask\b|\bteammate\b|\bcoordinator\b|\bassign\b|\bowner\b/.test(t)) { tools.add('TaskCreate'); tools.add('TaskUpdate'); tools.add('TaskList') }
   if (/\btodo\b|\bplan\b|\btask list|\btrack\b|\bprogress\b/.test(t)) tools.add('TodoWrite')
 
   if (/\bimplement\b|\bbuild.*feature|\badd.*feature|\bwrite.*function|\bwrite.*class|\bcreate.*function|\bcreate.*class/.test(t)) {
@@ -351,6 +421,52 @@ function predictNeededTools(messages: unknown[]): Set<string> | null {
   }
 
   return tools.size > 0 ? tools : null
+}
+
+function appendSystemPrompt(system: unknown, note: string): ShimCreateParams['system'] {
+  if (typeof system === 'string') return `${system}${note}`
+  if (Array.isArray(system)) {
+    return [
+      ...system,
+      { type: 'text', text: note.trimStart() },
+    ] as ShimCreateParams['system']
+  }
+  return `You are a helpful AI assistant.${note}`
+}
+
+function getToolDirectoryLines(tools: OpenAITool[]): string {
+  return tools
+    .map(tool => {
+      const name = tool.function.name
+      const desc = TOOL_DIRECTORY[name] ?? truncateToolDescription(tool.function.description, 120)
+      return `- ${name}: ${desc || 'Available tool'}`
+    })
+    .join('\n')
+}
+
+function selectShimToolSet(
+  converted: OpenAITool[],
+  messages: unknown[],
+  mode: Exclude<ShimToolSearchMode, 'off' | 'lazy'>,
+): OpenAITool[] {
+  if (mode === 'minify') return minifyToolSchemas(converted)
+
+  const predicted = predictNeededTools(messages)
+  if (predicted === null) {
+    return minifyToolSchemas(converted)
+  }
+  if (predicted.size === 0) {
+    return []
+  }
+
+  const wanted = new Set<string>(CORE_TOOL_NAMES)
+  for (const toolName of predicted) wanted.add(toolName)
+  const filtered = converted.filter(tool => wanted.has(tool.function.name))
+  return minifyToolSchemas(filtered.length > 0 ? filtered : converted)
+}
+
+function isRequestToolsOnly(tools: OpenAITool[]): boolean {
+  return tools.length === 1 && tools[0]?.function.name === 'request_tools'
 }
 
 // ---------------------------------------------------------------------------
@@ -1531,15 +1647,16 @@ class OpenAIShimMessages {
     const promise = (async () => {
       const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
 
-      // ShimToolSearch: for conversational turns, skip tools entirely (phase-1 bypass)
+      // ShimToolSearch lazy mode: for conversational turns, send only the
+      // request_tools meta-tool and let the model ask for schemas if needed.
+      const shimToolSearchMode = getShimToolSearchMode()
       if (
-        isEnvTruthy(process.env.ENABLE_SHIM_TOOL_SEARCH) &&
+        shimToolSearchMode === 'lazy' &&
         params.tools && (params.tools as unknown[]).length > 0
       ) {
         const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
         const predicted = predictNeededTools(msgs)
         if (predicted !== null && predicted.size === 0) {
-          // Pure conversational — send with request_tools meta-tool only
           return await self._shimToolSearchCreate(request, params, options)
         }
       }
@@ -1743,25 +1860,27 @@ class OpenAIShimMessages {
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
   ): Promise<OpenAIShimStream | Response> {
-    process.stderr.write('[ShimToolSearch] Phase 1: conversational prediction — sending meta-tool only\n')
+    debugShimToolSearch('Phase 1: conversational prediction — sending meta-tool only')
+
+    const allConverted = convertTools(
+      params.tools as Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
+    )
 
     // Build directory listing for the system prompt
-    const directoryLines = Object.entries(TOOL_DIRECTORY)
-      .map(([name, desc]) => `- ${name}: ${desc}`)
-      .join('\n')
+    const directoryLines = getToolDirectoryLines(allConverted)
     const directoryNote = `\n\nAvailable tools (call request_tools to use any):\n${directoryLines}`
 
-    // Clone messages, inject directory into first system message
     const phase1Messages = JSON.parse(JSON.stringify(params.messages)) as Array<{ role: string; content: unknown }>
-    const sysIdx = phase1Messages.findIndex(m => m.role === 'system')
-    if (sysIdx >= 0 && typeof phase1Messages[sysIdx].content === 'string') {
-      phase1Messages[sysIdx].content += directoryNote
-    } else {
-      phase1Messages.unshift({ role: 'system', content: `You are a helpful AI assistant.${directoryNote}` })
-    }
+    const phase1System = appendSystemPrompt(params.system, directoryNote)
 
     // Phase 1 request — non-streaming, single meta-tool
-    const phase1Params = { ...params, stream: false, messages: phase1Messages, tools: [REQUEST_TOOLS_SCHEMA] as unknown as typeof params.tools }
+    const phase1Params = {
+      ...params,
+      stream: false,
+      system: phase1System,
+      messages: phase1Messages,
+      tools: [REQUEST_TOOLS_TOOL] as typeof params.tools,
+    }
     const phase1Response = await this._doRequest(request, phase1Params, options)
     const phase1Json = await phase1Response.json() as {
       choices?: Array<{
@@ -1780,7 +1899,7 @@ class OpenAIShimMessages {
 
     if (!requestToolsCall) {
       // Model chose to respond conversationally — return as synthetic stream
-      process.stderr.write('[ShimToolSearch] Phase 1 result: conversational (no tools requested)\n')
+      debugShimToolSearch('Phase 1 result: conversational (no tools requested)')
       const msg = choice?.message ?? { role: 'assistant', content: '' }
       if (params.stream) {
         return new OpenAIShimStream(
@@ -1801,26 +1920,29 @@ class OpenAIShimMessages {
 
     // Model requested tools — parse and do phase 2
     let requestedNames: string[] = []
+    let parsedRequestedNames = true
     try {
       const args = JSON.parse(requestToolsCall.function?.arguments ?? '{}')
       requestedNames = Array.isArray(args.tools) ? args.tools : []
     } catch {
+      debugShimToolSearch('Phase 1 returned malformed request_tools JSON; falling back to all tools')
+      parsedRequestedNames = false
       requestedNames = []
     }
-    process.stderr.write(`[ShimToolSearch] Phase 2: model requested tools: ${requestedNames.join(', ')}\n`)
+    debugShimToolSearch(`Phase 2: model requested tools: ${requestedNames.join(', ')}`)
 
     // Build full tool set from the original params, filtered + minified
-    const allConverted = convertTools(
-      params.tools as Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
-    )
-    const wanted = new Set([...requestedNames, ...ESSENTIAL_TOOL_NAMES])
+    const wanted = new Set([...requestedNames, ...CORE_TOOL_NAMES])
     const filtered = allConverted.filter(t => wanted.has(t.function.name))
-    const toolSet = minifyToolSchemas(filtered.length > 0 ? filtered : allConverted)
-    process.stderr.write(`[ShimToolSearch] Phase 2: sending ${toolSet.length} tools (${JSON.stringify(toolSet).length} chars)\n`)
+    const toolSet = minifyToolSchemas(
+      parsedRequestedNames && requestedNames.length > 0 && filtered.length > 0
+        ? filtered
+        : allConverted,
+    )
+    debugShimToolSearch(`Phase 2: sending ${toolSet.length} tools (${JSON.stringify(toolSet).length} chars)`)
 
     // Phase 2 — re-request with the actual tools
-    const phase2Params = { ...params, tools: toolSet as unknown as typeof params.tools }
-    const response = await this._doRequest(request, phase2Params, options)
+    const response = await this._doOpenAIRequest(request, params, options, toolSet)
 
     if (params.stream) {
       const isResponsesStream = response.url?.includes('/responses')
@@ -1837,6 +1959,7 @@ class OpenAIShimMessages {
     request: ReturnType<typeof resolveProviderRequest>,
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
+    convertedToolOverride?: OpenAITool[],
   ): Promise<Response> {
     const compressedMessages = compressToolHistory(
       params.messages as Array<{
@@ -1935,8 +2058,8 @@ class OpenAIShimMessages {
       }
     }
 
-    if (params.tools && params.tools.length > 0) {
-      const converted = convertTools(
+    if ((params.tools && params.tools.length > 0) || convertedToolOverride) {
+      const converted = convertedToolOverride ?? convertTools(
         params.tools as Array<{
           name: string
           description?: string
@@ -1944,27 +2067,25 @@ class OpenAIShimMessages {
         }>,
       )
       if (converted.length > 0) {
-        // ShimToolSearch: filter + minify tool schemas when enabled
-        if (isEnvTruthy(process.env.ENABLE_SHIM_TOOL_SEARCH)) {
+        const shimToolSearchMode = getShimToolSearchMode()
+        if (convertedToolOverride || isRequestToolsOnly(converted)) {
+          body.tools = convertedToolOverride
+            ? convertedToolOverride
+            : converted
+        } else if (shimToolSearchMode === 'minify' || shimToolSearchMode === 'predict') {
           const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
-          const predicted = predictNeededTools(msgs)
-          // Start from essential tools, then add whatever the heuristic predicts
-          const wanted = new Set(ESSENTIAL_TOOL_NAMES)
-          if (predicted) {
-            for (const t of predicted) wanted.add(t)
-          }
-          const filtered = converted.filter(t => wanted.has(t.function.name))
-          const toolSet = minifyToolSchemas(filtered.length > 0 ? filtered : converted)
+          const toolSet = selectShimToolSet(converted, msgs, shimToolSearchMode)
           body.tools = toolSet
           const names = toolSet.map(t => t.function.name)
           const totalChars = JSON.stringify(toolSet).length
-          process.stderr.write(
-            `[ShimToolSearch] ${toolSet.length} tools (${totalChars} chars): ${names.join(', ')}\n`,
-          )
+          debugShimToolSearch(`${shimToolSearchMode}: ${toolSet.length} tools (${totalChars} chars): ${names.join(', ')}`)
+        } else if (shimToolSearchMode === 'lazy') {
+          const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
+          body.tools = selectShimToolSet(converted, msgs, 'predict')
         } else {
           body.tools = converted
         }
-        if (params.tool_choice) {
+        if (params.tool_choice && Array.isArray(body.tools) && body.tools.length > 0) {
           const tc = params.tool_choice as { type?: string; name?: string }
           if (tc.type === 'auto') {
             body.tool_choice = 'auto'
@@ -2477,10 +2598,10 @@ class OpenAIShimMessages {
           role?: string
           content?:
             | string
-            | null
-            | Array<{ type?: string; text?: string }>
-          reasoning_content?: string | null
-          tool_calls?: Array<{
+          | null
+          | Array<{ type?: string; text?: string }>
+        reasoning_content?: string | null
+        tool_calls?: Array<{
             id: string
             function: { name: string; arguments: string }
             extra_content?: Record<string, unknown>
