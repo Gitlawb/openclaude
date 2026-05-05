@@ -463,6 +463,15 @@ Aqui está o conteúdo.
     const text = `📋 **Próximos Passos**\n${items}\n\n`;
     expect(extractSuggestions(text).length).toBeLessThanOrEqual(5);
   });
+
+  it("extracts items when section is at EOF with no trailing newline", () => {
+    // LLMs often end the response without a blank line after the last item
+    const text = "Resposta aqui.\n\n📋 **Próximos Passos**\n1. liste o vault\n2. busque energia solar";
+    const suggestions = extractSuggestions(text);
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions[0]).toBe("liste o vault");
+    expect(suggestions[1]).toBe("busque energia solar");
+  });
 });
 
 describe("agentAdapter — suggestions SSE event emitted", () => {

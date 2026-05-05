@@ -119,7 +119,7 @@ type OAIMessage =
 
 /** Parse the "📋 Próximos Passos" section from the agent's final response. */
 export function extractSuggestions(text: string): string[] {
-  const match = text.match(/📋\s*\*\*Próximos Passos\*\*\n([\s\S]*?)(?=\n\n|$)/s);
+  const match = text.match(/📋\s*\*\*Próximos Passos\*\*\n([\s\S]+?)(?=\n\n|$)/s);
   if (!match) return [];
   return match[1]
     .split("\n")
@@ -412,6 +412,8 @@ export function createRealAgent(_opts: RealAgentOpts = {}): AgentFn {
       const cwd = input.context?.vault ?? homedir();
       const abortController = createAbortController();
 
+      // Accumulate text so we can extract suggestions before the done event.
+      const anthropicText: string[] = [];
       for await (const msg of ask({
         commands: [],
         prompt,
@@ -431,7 +433,16 @@ export function createRealAgent(_opts: RealAgentOpts = {}): AgentFn {
         abortController,
         maxTurns: 10,
       })) {
-        yield* translateSDKMessage(msg as unknown as SDKMessageLike, input.sessionId);
+        for (const evt of translateSDKMessage(msg as unknown as SDKMessageLike, input.sessionId)) {
+          if (evt.event === "token") anthropicText.push(evt.data.text);
+          if (evt.event === "done") {
+            const items = extractSuggestions(anthropicText.join(""));
+            if (items.length > 0) {
+              yield { event: "suggestions", data: { items } };
+            }
+          }
+          yield evt;
+        }
       }
     } catch (err) {
       yield {
