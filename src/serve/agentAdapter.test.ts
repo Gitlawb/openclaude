@@ -479,6 +479,10 @@ describe("agentAdapter — suggestions SSE event emitted", () => {
         return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
       },
     });
+    const origUseOpenAI = process.env.CLAUDE_CODE_USE_OPENAI;
+    const origBaseUrl   = process.env.OPENAI_BASE_URL;
+    const origApiKey    = process.env.OPENAI_API_KEY;
+    const origModel     = process.env.OPENCLAUDE_MODEL;
     process.env.CLAUDE_CODE_USE_OPENAI = "1";
     process.env.OPENAI_BASE_URL = `http://127.0.0.1:${server.port}`;
     process.env.OPENAI_API_KEY = "test";
@@ -495,10 +499,10 @@ describe("agentAdapter — suggestions SSE event emitted", () => {
       expect(doneIdx).toBeGreaterThan(suggIdx);
     } finally {
       await server.stop(true);
-      delete process.env.CLAUDE_CODE_USE_OPENAI;
-      delete process.env.OPENAI_BASE_URL;
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.OPENCLAUDE_MODEL;
+      origUseOpenAI !== undefined ? (process.env.CLAUDE_CODE_USE_OPENAI = origUseOpenAI) : delete process.env.CLAUDE_CODE_USE_OPENAI;
+      origBaseUrl   !== undefined ? (process.env.OPENAI_BASE_URL = origBaseUrl)           : delete process.env.OPENAI_BASE_URL;
+      origApiKey    !== undefined ? (process.env.OPENAI_API_KEY = origApiKey)             : delete process.env.OPENAI_API_KEY;
+      origModel     !== undefined ? (process.env.OPENCLAUDE_MODEL = origModel)            : delete process.env.OPENCLAUDE_MODEL;
     }
   });
 });

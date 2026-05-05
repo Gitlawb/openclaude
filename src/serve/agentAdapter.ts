@@ -119,7 +119,7 @@ type OAIMessage =
 
 /** Parse the "📋 Próximos Passos" section from the agent's final response. */
 export function extractSuggestions(text: string): string[] {
-  const match = text.match(/📋\s*\*\*Próximos Passos\*\*\n([\s\S]*?)(?:\n\n|$)/);
+  const match = text.match(/📋\s*\*\*Próximos Passos\*\*\n([\s\S]*?)(?=\n\n|$)/s);
   if (!match) return [];
   return match[1]
     .split("\n")
