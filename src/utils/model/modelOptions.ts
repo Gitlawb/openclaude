@@ -41,7 +41,6 @@ import {
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
 import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
-import { getCachedSparkModelOptions, isSparkProvider } from './sparkModels.js'
 import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
@@ -442,16 +441,6 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const minimaxModels = getCachedMiniMaxModelOptions()
     if (minimaxModels.length > 0) {
       return [defaultOption, ...minimaxModels]
-    }
-    return [defaultOption]
-  }
-
-  // When using Spark, show models from the Spark catalog
-  if (isSparkProvider()) {
-    const defaultOption = getDefaultOptionForUser(fastMode)
-    const sparkModels = getCachedSparkModelOptions()
-    if (sparkModels.length > 0) {
-      return [defaultOption, ...sparkModels]
     }
     return [defaultOption]
   }

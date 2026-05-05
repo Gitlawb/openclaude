@@ -295,15 +295,6 @@ export async function getAnthropicClient({
     }) as unknown as Anthropic
   }
 
-  // Spark (iFlytek 星火) uses a dedicated shim with Bearer token auth
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_SPARK)) {
-    const { createSparkShimClient } = await import('./sparkShim.js')
-    return createSparkShimClient({
-      defaultHeaders,
-      maxRetries,
-      timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
-    }) as unknown as Anthropic
-  }
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)) {
     const { AnthropicBedrock } = await import('@anthropic-ai/bedrock-sdk')
     // Use region override for small fast model if specified
