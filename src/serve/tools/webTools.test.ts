@@ -37,7 +37,7 @@ describe("web_search", () => {
       expect(result.content).toContain("403");
     } finally {
       delete process.env._BRAVE_TEST_URL;
-      await server.stop();
+      server.stop(true);
     }
   });
 
@@ -68,7 +68,7 @@ describe("web_search", () => {
       expect(hits[0].snippet).toBe("A test snippet");
     } finally {
       delete process.env._BRAVE_TEST_URL;
-      await server.stop();
+      server.stop(true);
     }
   });
 });
@@ -89,7 +89,7 @@ describe("fetch_page", () => {
       expect(result.content).not.toContain("<html>");
       expect(result.content).not.toContain("<p>");
     } finally {
-      await server.stop();
+      server.stop(true);
     }
   });
 

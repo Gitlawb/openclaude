@@ -1,4 +1,5 @@
 import type { ToolModule, ToolContext, VaultToolResult } from "./registry";
+import { createCombinedAbortSignal } from "../../utils/combinedAbortSignal.js";
 
 interface WebResult {
   title: string;
@@ -62,6 +63,7 @@ export function webToolModules(_ctx: ToolContext): ToolModule[] {
         const url = `${baseUrl}?q=${encodeURIComponent(query)}&count=${count}`;
 
         let res: Response;
+        const { signal: abortSignal, cleanup } = createCombinedAbortSignal(undefined, { timeoutMs: 10_000 });
         try {
           res = await fetch(url, {
             headers: {
@@ -69,10 +71,12 @@ export function webToolModules(_ctx: ToolContext): ToolModule[] {
               "Accept-Encoding": "gzip",
               "X-Subscription-Token": apiKey,
             },
-            signal: AbortSignal.timeout(10_000),
+            signal: abortSignal,
           });
         } catch (err) {
           return { ok: false, content: `web_search fetch error: ${String(err)}` };
+        } finally {
+          cleanup();
         }
 
         if (!res.ok) {
@@ -118,10 +122,11 @@ export function webToolModules(_ctx: ToolContext): ToolModule[] {
         const timeoutMs = Number(process.env._FETCH_PAGE_TIMEOUT_MS ?? 10_000);
 
         let res: Response;
+        const { signal: abortSignal, cleanup } = createCombinedAbortSignal(undefined, { timeoutMs });
         try {
           res = await fetch(url, {
             headers: { "User-Agent": "Mozilla/5.0 (compatible; OpenClaude/1.0)" },
-            signal: AbortSignal.timeout(timeoutMs),
+            signal: abortSignal,
           });
         } catch (err) {
           const msg = String(err);
@@ -132,6 +137,8 @@ export function webToolModules(_ctx: ToolContext): ToolModule[] {
               ? `fetch_page timeout after ${timeoutMs}ms: ${url}`
               : `fetch_page error: ${msg}`,
           };
+        } finally {
+          cleanup();
         }
 
         if (!res.ok) {
