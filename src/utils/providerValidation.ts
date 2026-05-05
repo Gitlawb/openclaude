@@ -1,9 +1,29 @@
 import { resolve } from 'node:path'
+import '../integrations/index.js'
+import {
+  ensureIntegrationsLoaded,
+  getAllGateways,
+  getAllVendors,
+} from '../integrations/index.js'
+import type {
+  GatewayDescriptor,
+  ValidationMetadata,
+  VendorDescriptor,
+} from '../integrations/descriptors.js'
+import {
+  getRouteCredentialEnvVars,
+  getRouteCredentialValue,
+  getRouteDescriptor,
+  getRouteDefaultModel,
+  resolveActiveRouteIdFromEnv,
+  resolveRouteIdFromBaseUrl,
+} from '../integrations/routeMetadata.js'
 import {
   getGithubEndpointType,
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
+  shouldUseCodexTransport,
 } from '../services/api/providerConfig.js'
 import { getGlobalClaudeFile } from './env.js'
 import { isBareMode } from './envUtils.js'
@@ -12,7 +32,10 @@ import {
   resolveGeminiCredential,
 } from './geminiAuth.js'
 import { PROFILE_FILE_NAME } from './providerProfile.js'
-import { redactSecretValueForDisplay } from './providerSecrets.js'
+import {
+  redactSecretValueForDisplay,
+  type SecretValueSource,
+} from './providerSecrets.js'
 
 function isEnvTruthy(value: string | undefined): boolean {
   if (!value) return false
@@ -21,6 +44,10 @@ function isEnvTruthy(value: string | undefined): boolean {
 }
 
 type GithubTokenStatus = 'valid' | 'expired' | 'invalid_format'
+
+type ValidationTarget =
+  | { kind: 'vendor'; descriptor: VendorDescriptor }
+  | { kind: 'gateway'; descriptor: GatewayDescriptor }
 
 const GITHUB_PAT_PREFIXES = ['ghp_', 'gho_', 'ghs_', 'ghr_', 'github_pat_']
 
@@ -76,6 +103,271 @@ function getOpenAIMissingKeyMessage(): string {
   ].join('\n')
 }
 
+function hasNonEmptyEnvValue(
+  env: NodeJS.ProcessEnv,
+  envVar: string,
+): boolean {
+  return typeof env[envVar] === 'string' && env[envVar]!.trim() !== ''
+}
+
+function normalizeBaseUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) {
+    return undefined
+  }
+
+  const trimmed = baseUrl.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  return trimmed.replace(/\/+$/, '').toLowerCase()
+}
+
+function baseUrlMatchesDescriptor(
+  baseUrl: string | undefined,
+  descriptorBaseUrl: string | undefined,
+): boolean {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  const normalizedDescriptorBaseUrl = normalizeBaseUrl(descriptorBaseUrl)
+
+  return Boolean(
+    normalizedBaseUrl &&
+      normalizedDescriptorBaseUrl &&
+      normalizedBaseUrl === normalizedDescriptorBaseUrl,
+  )
+}
+
+function getNormalizedBaseUrlHost(
+  baseUrl: string | undefined,
+): string | undefined {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  if (!normalizedBaseUrl) {
+    return undefined
+  }
+
+  try {
+    return new URL(normalizedBaseUrl).hostname.toLowerCase()
+  } catch {
+    return undefined
+  }
+}
+
+function getValidationTargets(): ValidationTarget[] {
+  ensureIntegrationsLoaded()
+
+  return [
+    ...getAllVendors()
+      .filter((descriptor): descriptor is VendorDescriptor => Boolean(descriptor.validation))
+      .map(descriptor => ({ kind: 'vendor', descriptor }) as const),
+    ...getAllGateways()
+      .filter((descriptor): descriptor is GatewayDescriptor => Boolean(descriptor.validation))
+      .map(descriptor => ({ kind: 'gateway', descriptor }) as const),
+  ]
+}
+
+function getValidationRouting(target: ValidationTarget) {
+  return target.descriptor.validation?.routing
+}
+
+function getValidationTargetBaseUrl(
+  target: ValidationTarget,
+): string | undefined {
+  return target.descriptor.defaultBaseUrl
+}
+
+function getRuntimeValidationTarget(
+  env: NodeJS.ProcessEnv,
+): ValidationTarget | undefined {
+  const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
+  const validationTargets = getValidationTargets()
+
+  const enabledTarget = validationTargets.find(target => {
+    const routing = getValidationRouting(target)
+    if (!routing?.enablementEnvVar || !isEnvTruthy(env[routing.enablementEnvVar])) {
+      return false
+    }
+
+    if (useOpenAI && routing.skipWhenUseOpenAI) {
+      return false
+    }
+
+    return true
+  })
+
+  if (enabledTarget) {
+    return enabledTarget
+  }
+
+  if (!useOpenAI) {
+    return undefined
+  }
+
+  const request = resolveProviderRequest({
+    model: env.OPENAI_MODEL,
+    baseUrl: env.OPENAI_BASE_URL,
+    fallbackModel: getRouteDefaultModel('openai'),
+  })
+
+  const baseUrlMatchedTarget = validationTargets.find(target => {
+    const routing = getValidationRouting(target)
+    if (!routing?.matchDefaultBaseUrl && !routing?.matchBaseUrlHosts?.length) {
+      return false
+    }
+
+    if (baseUrlMatchesDescriptor(
+      request.baseUrl,
+      getValidationTargetBaseUrl(target),
+    )) {
+      return true
+    }
+
+    const requestHost = getNormalizedBaseUrlHost(request.baseUrl)
+    if (!requestHost) {
+      return false
+    }
+
+    return (
+      routing.matchBaseUrlHosts?.some(
+        host => requestHost === host.toLowerCase(),
+      ) ?? false
+    )
+  })
+
+  if (baseUrlMatchedTarget) {
+    return baseUrlMatchedTarget
+  }
+
+  return validationTargets.find(
+    target => getValidationRouting(target)?.fallbackWhenUseOpenAI,
+  )
+}
+
+function getCredentialEnvValidationError(
+  validation: Extract<ValidationMetadata, { kind: 'credential-env' }>,
+  env: NodeJS.ProcessEnv,
+  request?: ReturnType<typeof resolveProviderRequest>,
+): string | null {
+  for (const invalidValue of validation.invalidCredentialValues ?? []) {
+    if (env[invalidValue.envVar]?.trim() === invalidValue.value) {
+      return invalidValue.message
+    }
+  }
+
+  if (
+    validation.allowLocalBaseUrlWithoutCredential &&
+    request &&
+    isLocalProviderUrl(request.baseUrl)
+  ) {
+    return null
+  }
+
+  if (
+    validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+  ) {
+    return null
+  }
+
+  return validation.missingCredentialMessage ?? null
+}
+
+async function getDescriptorValidationError(
+  target: ValidationTarget,
+  env: NodeJS.ProcessEnv,
+  options: {
+    request?: ReturnType<typeof resolveProviderRequest>
+    resolveGeminiCredential?: (
+      env: NodeJS.ProcessEnv,
+    ) => Promise<GeminiResolvedCredential>
+  },
+): Promise<string | null> {
+  const validation = target.descriptor.validation
+  if (!validation) {
+    return null
+  }
+
+  switch (validation.kind) {
+    case 'credential-env':
+      return getCredentialEnvValidationError(validation, env, options.request)
+
+    case 'gemini-credential': {
+      const geminiCredential = await (
+        options.resolveGeminiCredential ?? resolveGeminiCredential
+      )(env)
+      return geminiCredential.kind === 'none'
+        ? validation.missingCredentialMessage
+        : null
+    }
+
+    case 'github-token': {
+      const token = (env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()) ?? ''
+      if (!token) {
+        return validation.missingCredentialMessage
+      }
+
+      const endpointType = getGithubEndpointType(env.OPENAI_BASE_URL)
+      const status = checkGithubTokenStatus(token, endpointType)
+      if (status === 'expired') {
+        return validation.expiredCredentialMessage
+      }
+      if (status === 'invalid_format') {
+        return validation.invalidCredentialMessage
+      }
+
+      return null
+    }
+  }
+}
+
+function getGenericRouteCredentialValidationError(
+  env: NodeJS.ProcessEnv,
+  request: ReturnType<typeof resolveProviderRequest>,
+): { applicable: boolean; error: string | null } {
+  const routeId =
+    resolveRouteIdFromBaseUrl(request.baseUrl) ??
+    resolveActiveRouteIdFromEnv(env)
+  if (!routeId || routeId === 'anthropic' || routeId === 'custom') {
+    return { applicable: false, error: null }
+  }
+
+  const descriptor = getRouteDescriptor(routeId)
+  if (
+    !descriptor ||
+    descriptor.validation ||
+    !descriptor.setup.requiresAuth ||
+    !['openai-compatible', 'local'].includes(descriptor.transportConfig.kind)
+  ) {
+    return { applicable: false, error: null }
+  }
+
+  if (
+    descriptor.setup.authMode !== 'api-key' &&
+    descriptor.setup.authMode !== 'token'
+  ) {
+    return { applicable: false, error: null }
+  }
+
+  if (
+    descriptor.setup.authMode === 'api-key' &&
+    isLocalProviderUrl(request.baseUrl)
+  ) {
+    return { applicable: true, error: null }
+  }
+
+  if (getRouteCredentialValue(routeId, env)) {
+    return { applicable: true, error: null }
+  }
+
+  const credentialEnvVars = getRouteCredentialEnvVars(routeId)
+  if (credentialEnvVars.length === 0) {
+    return { applicable: false, error: null }
+  }
+
+  return {
+    applicable: true,
+    error: `${descriptor.label} auth is required. Set ${credentialEnvVars.join(' or ')}.`,
+  }
+}
+
 export async function getProviderValidationError(
   env: NodeJS.ProcessEnv = process.env,
   options?: {
@@ -84,54 +376,41 @@ export async function getProviderValidationError(
     ) => Promise<GeminiResolvedCredential>
   },
 ): Promise<string | null> {
-  const secretSource = env
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: env.OPENAI_API_KEY,
+    CODEX_API_KEY: env.CODEX_API_KEY,
+    GEMINI_API_KEY: env.GEMINI_API_KEY,
+    GOOGLE_API_KEY: env.GOOGLE_API_KEY,
+    MISTRAL_API_KEY: env.MISTRAL_API_KEY,
+    BNKR_API_KEY: env.BNKR_API_KEY,
+  }
   const useOpenAI = isEnvTruthy(env.CLAUDE_CODE_USE_OPENAI)
-  const useGithub = isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)
+  const validationTarget = getRuntimeValidationTarget(env)
 
-  if (isEnvTruthy(env.CLAUDE_CODE_USE_GEMINI)) {
-    const geminiCredential = await (
-      options?.resolveGeminiCredential ?? resolveGeminiCredential
-    )(env)
-    if (geminiCredential.kind === 'none') {
-      return 'GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_ACCESS_TOKEN, or Google ADC credentials are required when CLAUDE_CODE_USE_GEMINI=1.'
-    }
-    return null
-  }
-
-  if (useGithub && !useOpenAI) {
-    const token = (env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim()) ?? ''
-    if (!token) {
-      return 'GitHub Copilot authentication required.\n' +
-        'Run /onboard-github in the CLI to sign in with your GitHub account.\n' +
-        'This will store your OAuth token securely and enable Copilot models.'
-    }
-    const endpointType = getGithubEndpointType(env.OPENAI_BASE_URL)
-    const status = checkGithubTokenStatus(token, endpointType)
-    if (status === 'expired') {
-      return 'GitHub Copilot token has expired.\n' +
-        'Run /onboard-github to sign in again and get a fresh token.'
-    }
-    if (status === 'invalid_format') {
-      return 'GitHub Copilot token is invalid or corrupted.\n' +
-        'Run /onboard-github to sign in again with your GitHub account.'
-    }
-    return null
-  }
-
-  if (!useOpenAI) {
+  if (!useOpenAI && !validationTarget) {
     return null
   }
 
   const request = resolveProviderRequest({
     model: env.OPENAI_MODEL,
     baseUrl: env.OPENAI_BASE_URL,
+    fallbackModel: getRouteDefaultModel('openai'),
   })
+  const genericRouteValidation = getGenericRouteCredentialValidationError(
+    env,
+    request,
+  )
 
-  if (env.OPENAI_API_KEY === 'SUA_CHAVE') {
-    return 'Invalid OPENAI_API_KEY: placeholder value SUA_CHAVE detected. Set a real key or unset for local providers.'
-  }
+  // Codex auth depends on transport resolution plus local auth/account state,
+  // so it intentionally stays procedural instead of moving into descriptors.
+  const explicitBaseUrl =
+    env.OPENAI_BASE_URL?.trim() || env.OPENAI_API_BASE?.trim()
+  const hasExplicitCodexIntent =
+    (env.OPENAI_MODEL?.trim()
+      ? shouldUseCodexTransport(env.OPENAI_MODEL, explicitBaseUrl)
+      : false) || Boolean(explicitBaseUrl && shouldUseCodexTransport('', explicitBaseUrl))
 
-  if (request.transport === 'codex_responses') {
+  if (hasExplicitCodexIntent) {
     const credentials = resolveCodexApiCredentials(env)
     if (!credentials.apiKey) {
       const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
@@ -139,6 +418,7 @@ export async function getProviderValidationError(
         ? `${oauthHint} or put auth.json at ${credentials.authPath}`
         : oauthHint
       const safeModel =
+        redactSecretValueForDisplay(env.OPENAI_MODEL, secretSource) ??
         redactSecretValueForDisplay(request.requestedModel, secretSource) ??
         'the requested model'
       return `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`
@@ -149,11 +429,47 @@ export async function getProviderValidationError(
     return null
   }
 
-  if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {
-    const hasGithubToken = !!(env.GITHUB_TOKEN?.trim() || env.GH_TOKEN?.trim())
-    if (useGithub && hasGithubToken) {
+  const activeRouteId = resolveActiveRouteIdFromEnv(env)
+  const shouldPreferGenericRouteValidation =
+    validationTarget?.kind === 'vendor' &&
+    validationTarget.descriptor.id === 'openai' &&
+    genericRouteValidation.applicable &&
+    activeRouteId !== 'openai' &&
+    activeRouteId !== 'custom'
+
+  if (validationTarget) {
+    if (!shouldPreferGenericRouteValidation) {
+      const descriptorValidationError = await getDescriptorValidationError(
+        validationTarget,
+        env,
+        {
+          request,
+          resolveGeminiCredential: options?.resolveGeminiCredential,
+        },
+      )
+
+      if (descriptorValidationError) {
+        if (
+          validationTarget.kind === 'vendor' &&
+          validationTarget.descriptor.id === 'openai' &&
+          !env.OPENAI_API_KEY &&
+          !isLocalProviderUrl(request.baseUrl)
+        ) {
+          return getOpenAIMissingKeyMessage()
+        }
+
+        return descriptorValidationError
+      }
+
       return null
     }
+  }
+
+  if (genericRouteValidation.applicable) {
+    return genericRouteValidation.error
+  }
+
+  if (!env.OPENAI_API_KEY && !isLocalProviderUrl(request.baseUrl)) {
     return getOpenAIMissingKeyMessage()
   }
 

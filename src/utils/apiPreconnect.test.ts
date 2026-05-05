@@ -68,6 +68,13 @@ describe('preconnectAnthropicApi', () => {
     delete process.env.CLAUDE_CODE_USE_BEDROCK
     delete process.env.CLAUDE_CODE_USE_VERTEX
     delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.HTTPS_PROXY
+    delete process.env.https_proxy
+    delete process.env.HTTP_PROXY
+    delete process.env.http_proxy
+    delete process.env.ANTHROPIC_UNIX_SOCKET
+    delete process.env.CLAUDE_CODE_CLIENT_CERT
+    delete process.env.CLAUDE_CODE_CLIENT_KEY
 
     mock.module('./model/providers.js', () => ({
       getAPIProvider: () => 'firstParty',

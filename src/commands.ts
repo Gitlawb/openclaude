@@ -9,6 +9,7 @@ import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
+import commitMessage from './commands/commit-message/index.js'
 import copy from './commands/copy/index.js'
 import desktop from './commands/desktop/index.js'
 import commitPushPr from './commands/commit-push-pr.js'
@@ -28,6 +29,7 @@ import ide from './commands/ide/index.js'
 import init from './commands/init.js'
 import initVerifiers from './commands/init-verifiers.js'
 import keybindings from './commands/keybindings/index.js'
+import lsp from './commands/lsp/index.js'
 import login from './commands/login/index.js'
 import logout from './commands/logout/index.js'
 import installGitHubApp from './commands/install-github-app/index.js'
@@ -277,6 +279,7 @@ const COMMANDS = memoize((): Command[] => [
   clear,
   color,
   compact,
+  commitMessage,
   config,
   copy,
   desktop,
@@ -296,6 +299,7 @@ const COMMANDS = memoize((): Command[] => [
   init,
   keybindings,
   knowledge,
+  lsp,
   installGitHubApp,
   installSlackApp,
   mcp,
@@ -351,7 +355,7 @@ const COMMANDS = memoize((): Command[] => [
   hooks,
   exportCommand,
   sandboxToggle,
-  ...(!isUsing3PServices() ? [logout, login()] : []),
+  ...(!isUsing3PServices() ? [logout, login()].filter(Boolean) : []),
   passes,
   ...(peersCmd ? [peersCmd] : []),
   tasks,
@@ -431,8 +435,8 @@ const getWorkflowCommands = feature('WORKFLOW_SCRIPTS')
  * Not memoized — auth state can change mid-session (e.g. after /login),
  * so this must be re-evaluated on every getCommands() call.
  */
-export function meetsAvailabilityRequirement(cmd: Command): boolean {
-  if (!cmd.availability) return true
+export function meetsAvailabilityRequirement(cmd: Command | null | undefined): boolean {
+  if (!cmd || !cmd.availability || !Array.isArray(cmd.availability)) return true
   for (const a of cmd.availability) {
     switch (a) {
       case 'claude-ai':
@@ -747,25 +751,27 @@ export function formatDescriptionWithSource(cmd: Command): string {
     return cmd.description ?? ''
   }
 
+  const desc = cmd.description ?? ''
+
   if (cmd.kind === 'workflow') {
-    return `${cmd.description ?? ''} (workflow)`
+    return `${desc} (workflow)`
   }
 
   if (cmd.source === 'plugin') {
     const pluginName = cmd.pluginInfo?.pluginManifest.name
     if (pluginName) {
-      return `(${pluginName}) ${cmd.description ?? ''}`
+      return `(${pluginName}) ${desc}`
     }
-    return `${cmd.description ?? ''} (plugin)`
+    return `${desc} (plugin)`
   }
 
   if (cmd.source === 'builtin' || cmd.source === 'mcp') {
-    return cmd.description ?? ''
+    return desc
   }
 
   if (cmd.source === 'bundled') {
-    return `${cmd.description} (bundled)`
+    return `${desc} (bundled)`
   }
 
-  return `${cmd.description} (${getSettingSourceName(cmd.source)})`
+  return `${desc} (${getSettingSourceName(cmd.source)})`
 }

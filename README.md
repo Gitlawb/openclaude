@@ -25,12 +25,18 @@ OpenClaude is also mirrored to GitLawb:
   <a href="https://bankr.bot">
     <img src="https://bankr.bot/favicon.svg" alt="Bankr.bot logo" width="96">
   </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/">
+    <img src="docs/assets/atomic-chat-logo.png" alt="Atomic Chat logo" width="96">
+  </a>
 </p>
 
 <p align="center">
   <a href="https://gitlawb.com"><strong>GitLawb</strong></a>
   &nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://bankr.bot"><strong>Bankr.bot</strong></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://atomic.chat/"><strong>Atomic Chat</strong></a>
 </p>
 
 ## Star History
@@ -138,6 +144,7 @@ Advanced and source-build guides:
 | Provider | Setup Path | Notes |
 | --- | --- | --- |
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
+| Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |
 | Gemini | `/provider` or env vars | Supports API key, access token, or local ADC workflow on current `main` |
 | GitHub Models | `/onboard-github` | Interactive onboarding with saved credentials |
 | Codex OAuth | `/provider` | Opens ChatGPT sign-in in your browser and stores Codex credentials securely |
@@ -152,7 +159,7 @@ Advanced and source-build guides:
 - **Streaming responses**: Real-time token output and tool progress
 - **Tool calling**: Multi-step tool loops with model calls, tool execution, and follow-up responses
 - **Images**: URL and base64 image inputs for providers that support vision
-- **Provider profiles**: Guided setup plus saved `.openclaude-profile.json` support
+- **Provider profiles**: Guided setup plus saved user-level provider profile support
 - **Local and remote model backends**: Cloud APIs, local servers, and Apple Silicon local inference
 
 ## Provider Notes
@@ -170,7 +177,7 @@ For best results, use models with strong tool/function calling support.
 
 OpenClaude can route different agents to different models through settings-based routing. This is useful for cost optimization or splitting work by model strength.
 
-Add to `~/.claude/settings.json`:
+Add to `~/.openclaude.json`:
 
 ```json
 {

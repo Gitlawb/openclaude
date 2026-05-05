@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { registerGateway } from '../../integrations/index.ts'
 import { createOpenAIShimClient } from './openaiShim.ts'
 
 type FetchType = typeof globalThis.fetch
@@ -24,6 +25,14 @@ const originalEnv = {
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
+  NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
+  NVIDIA_NIM: process.env.NVIDIA_NIM,
+  MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  BNKR_API_KEY: process.env.BNKR_API_KEY,
+  BANKR_BASE_URL: process.env.BANKR_BASE_URL,
+  BANKR_MODEL: process.env.BANKR_MODEL,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
 }
 
 const originalFetch = globalThis.fetch
@@ -96,6 +105,14 @@ beforeEach(() => {
   delete process.env.GEMINI_MODEL
   delete process.env.GOOGLE_CLOUD_PROJECT
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  delete process.env.NVIDIA_API_KEY
+  delete process.env.NVIDIA_NIM
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.BNKR_API_KEY
+  delete process.env.BANKR_BASE_URL
+  delete process.env.BANKR_MODEL
+  delete process.env.OPENROUTER_API_KEY
+  delete process.env.DEEPSEEK_API_KEY
 })
 
 afterEach(() => {
@@ -119,6 +136,14 @@ afterEach(() => {
   restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
   restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
   restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+  restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
+  restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
+  restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
+  restoreEnv('BNKR_API_KEY', originalEnv.BNKR_API_KEY)
+  restoreEnv('BANKR_BASE_URL', originalEnv.BANKR_BASE_URL)
+  restoreEnv('BANKR_MODEL', originalEnv.BANKR_MODEL)
+  restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
+  restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
   globalThis.fetch = originalFetch
 })
 
@@ -285,6 +310,79 @@ test('strips store from strict OpenAI-compatible responses providers', async () 
   expect(capturedBody?.store).toBeUndefined()
 })
 
+test('strips store when providerOverride routes chat_completions to the Gemini host', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-gemini',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {},
+    providerOverride: {
+      model: 'gemini-3.1-pro',
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiKey: 'gemini-key',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-3.1-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedBody?.store).toBeUndefined()
+})
+
+test('strips store when providerOverride routes responses API to the Gemini host', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'resp-gemini',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {},
+    providerOverride: {
+      model: 'gemini-3.1-pro',
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      apiKey: 'gemini-key',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gemini-3.1-pro',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedBody?.store).toBeUndefined()
+})
+
 test('uses custom OpenAI-compatible auth header value when configured', async () => {
   process.env.OPENAI_API_KEY = 'generic-key'
   process.env.OPENAI_AUTH_HEADER = 'api-key'
@@ -317,6 +415,40 @@ test('uses custom OpenAI-compatible auth header value when configured', async ()
   })
 
   expect(capturedHeaders?.get('api-key')).toBe('hicap-header-value')
+  expect(capturedHeaders?.get('authorization')).toBeNull()
+})
+
+test('uses Hicap api-key auth header for the Hicap route', async () => {
+  process.env.OPENAI_API_KEY = 'hicap-live-key'
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  let capturedHeaders: Headers | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers as HeadersInit)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'ok' } }],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'claude-opus-4.7',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('api-key')).toBe('hicap-live-key')
   expect(capturedHeaders?.get('authorization')).toBeNull()
 })
 
@@ -476,6 +608,90 @@ test('strips canonical Anthropic headers from per-request shim headers too', asy
   expect(capturedHeaders?.get('anthropic-version')).toBeNull()
   expect(capturedHeaders?.get('anthropic-beta')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
+})
+
+test('applies descriptor static headers before client and request headers', async () => {
+  let capturedHeaders: Headers | undefined
+
+  registerGateway({
+    id: 'shim-header-test',
+    label: 'Shim Header Test',
+    category: 'hosted',
+    defaultBaseUrl: 'https://shim-header-test.example/v1',
+    defaultModel: 'shim-test-model',
+    setup: {
+      requiresAuth: true,
+      authMode: 'api-key',
+      credentialEnvVars: ['OPENAI_API_KEY'],
+    },
+    transportConfig: {
+      kind: 'openai-compatible',
+      openaiShim: {
+        headers: {
+          'x-static-header': 'from-descriptor',
+          'x-override-header': 'from-descriptor',
+        },
+      },
+    },
+  })
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://shim-header-test.example/v1'
+  process.env.OPENAI_MODEL = 'shim-test-model'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'shim-test-model',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    defaultHeaders: {
+      'x-override-header': 'from-client',
+    },
+  }) as OpenAIShimClient
+
+  await client.beta.messages.create(
+    {
+      model: 'shim-test-model',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    {
+      headers: {
+        'x-override-header': 'from-request',
+      },
+    },
+  )
+
+  expect(capturedHeaders?.get('x-static-header')).toBe('from-descriptor')
+  expect(capturedHeaders?.get('x-override-header')).toBe('from-request')
 })
 
 test('strips Anthropic-specific headers on GitHub Codex transport requests', async () => {
@@ -741,6 +957,56 @@ test('keeps max_completion_tokens for non-local non-github providers', async () 
     max_tokens: 64,
     stream: false,
   })
+})
+
+test('uses route-specific credential env vars for descriptor-backed openai-compatible routes', async () => {
+  let capturedHeaders: Headers | undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENROUTER_API_KEY = 'or-route-key'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'openai/gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 1,
+          total_tokens: 6,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-5-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer or-route-key')
 })
 
 test('preserves Gemini tool call extra_content in follow-up requests', async () => {
@@ -1210,6 +1476,208 @@ test('uses GEMINI_ACCESS_TOKEN for Gemini OpenAI-compatible requests', async () 
   )
   expect(capturedAuthorization).toBe('Bearer gemini-access-token')
   expect(capturedProject).toBe('gemini-project')
+})
+
+test('uses NVIDIA_API_KEY for NVIDIA NIM requests without OPENAI_API_KEY', async () => {
+  let capturedAuthorization: string | null = null
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.NVIDIA_NIM = '1'
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.OPENAI_MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct'
+  process.env.NVIDIA_API_KEY = 'nvidia-live-key'
+  delete process.env.OPENAI_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-nvidia',
+        model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 1,
+          total_tokens: 4,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedAuthorization).toBe('Bearer nvidia-live-key')
+})
+
+test('does not use stale NVIDIA_API_KEY for non-NVIDIA OpenAI-compatible routes', async () => {
+  let capturedAuthorization: string | null = null
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.NVIDIA_NIM = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'openai/gpt-5-mini'
+  process.env.NVIDIA_API_KEY = 'nvidia-live-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openrouter',
+        model: 'openai/gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-5-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedAuthorization).toBeNull()
+})
+
+test('does not use MINIMAX_API_KEY for non-MiniMax OpenAI-compatible routes', async () => {
+  let capturedAuthorization: string | null = null
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'openai/gpt-5-mini'
+  process.env.MINIMAX_API_KEY = 'minimax-live-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openrouter',
+        model: 'openai/gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-5-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedAuthorization).toBeNull()
+})
+
+test('does not use BNKR_API_KEY for non-Bankr OpenAI-compatible routes', async () => {
+  let capturedAuthorization: string | null = null
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_MODEL = 'openai/gpt-5-mini'
+  process.env.BNKR_API_KEY = 'bankr-live-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENROUTER_API_KEY
+
+  globalThis.fetch = (async (_input, init) => {
+    const headers = init?.headers as Record<string, string> | undefined
+    capturedAuthorization =
+      headers?.Authorization ?? headers?.authorization ?? null
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-openrouter',
+        model: 'openai/gpt-5-mini',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'openai/gpt-5-mini',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(capturedAuthorization).toBeNull()
 })
 
 test('preserves Gemini tool call extra_content from streaming chunks', async () => {
@@ -3132,6 +3600,44 @@ test('classifies localhost transport failures with actionable category marker', 
   ).rejects.toThrow('local server is running')
 })
 
+test('transport failures are not labeled with HTTP status 503', async () => {
+  // Issue #971: ENETDOWN (and other transport errors) are emitted before any
+  // HTTP response is received. Reporting them as "503" makes users believe the
+  // upstream server returned 503 Service Unavailable.
+  process.env.OPENAI_BASE_URL = 'https://intranet.example.test/v1'
+
+  const transportError = Object.assign(new TypeError('fetch failed'), {
+    code: 'ENETDOWN',
+  })
+
+  globalThis.fetch = (async () => {
+    throw transportError
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (error) {
+    caught = error
+  }
+
+  expect(caught).toBeDefined()
+  const err = caught as { status?: number; message: string; constructor: { name: string } }
+  expect(err.constructor.name).toBe('APIConnectionError')
+  expect(err.status).toBeUndefined()
+  expect(err.message).not.toMatch(/^503\b/)
+  expect(err.message).toContain('OpenAI API transport error')
+  expect(err.message).toContain('code=ENETDOWN')
+  expect(err.message).toContain('openai_category=network_error')
+})
+
 test('propagates AbortError without wrapping it as transport failure', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 
@@ -3592,6 +4098,40 @@ test('Moonshot: uses max_tokens (not max_completion_tokens) and strips store', a
   expect(requestBody?.store).toBeUndefined()
 })
 
+test('Groq: keeps max_completion_tokens and strips unsupported store', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.groq.com/openai/v1'
+  process.env.OPENAI_API_KEY = 'gsk-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'llama-3.3-70b-versatile',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'llama-3.3-70b-versatile',
+    system: 'you are groq',
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 256,
+    stream: false,
+  })
+
+  expect(requestBody?.max_completion_tokens).toBe(256)
+  expect(requestBody?.max_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+})
+
 test('Moonshot: echoes reasoning_content on assistant tool-call messages', async () => {
   // Regression for: "API Error: 400 {"error":{"message":"thinking is enabled
   // but reasoning_content is missing in assistant tool call message at index
@@ -3778,6 +4318,73 @@ test('generic OpenAI-compatible providers do not echo reasoning_content on assis
   )
   expect(assistantWithToolCall).toBeDefined()
   expect(assistantWithToolCall?.reasoning_content).toBeUndefined()
+})
+
+test('gateway-routed DeepSeek models inherit descriptor-backed reasoning and token shaping', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  process.env.OPENAI_API_KEY = 'sk-openrouter-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'deepseek/deepseek-reasoner',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    reasoningEffort: 'xhigh',
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'deepseek/deepseek-reasoner',
+    system: 'test',
+    messages: [
+      { role: 'user', content: 'hi' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'thought' },
+          { type: 'text', text: 'hello' },
+          {
+            type: 'tool_use',
+            id: 'call_1',
+            name: 'Bash',
+            input: { command: 'ls' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_1', content: 'files' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+    thinking: { type: 'enabled' },
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    message => message.role === 'assistant' && Array.isArray(message.tool_calls),
+  )
+
+  expect(assistantWithToolCall?.reasoning_content).toBe('thought')
+  expect(requestBody?.thinking).toEqual({ type: 'enabled' })
+  expect(requestBody?.reasoning_effort).toBe('max')
+  expect(requestBody?.max_tokens).toBe(64)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
 })
 
 test('Moonshot: cn host is also detected', async () => {
@@ -4315,4 +4922,100 @@ test('Z.AI: thinking mode enabled when requested', async () => {
   expect((requestBody?.thinking as Record<string, string>)?.type).toBe('enabled')
   expect(requestBody?.max_completion_tokens).toBeUndefined()
   expect(requestBody?.max_tokens).toBe(1024)
+})
+
+test('strips Anthropic attribution header block from chat-completions system prompt (#607)', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: [
+      {
+        type: 'text',
+        text:
+          'x-anthropic-billing-header: cc_version=0.8.0.abc123; ' +
+          'cc_entrypoint=cli;',
+      },
+      { type: 'text', text: 'You are Claude Code, helpful assistant.' },
+      { type: 'text', text: 'Project context: bun + react.' },
+    ],
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = capturedBody?.messages as Array<{ role: string; content: string }>
+  const sysMsg = messages.find(m => m.role === 'system')
+  expect(sysMsg).toBeDefined()
+  expect(sysMsg?.content).not.toContain('x-anthropic-billing-header')
+  expect(sysMsg?.content).not.toContain('cc_version=')
+  expect(sysMsg?.content).toContain('You are Claude Code, helpful assistant.')
+  expect(sysMsg?.content).toContain('Project context: bun + react.')
+})
+
+test('strips Anthropic attribution header block from responses-API instructions (#607)', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    system: [
+      {
+        type: 'text',
+        text: 'x-anthropic-billing-header: cc_version=0.8.0.abc123; cc_entrypoint=cli;',
+      },
+      { type: 'text', text: 'You are Claude Code.' },
+    ],
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const instructions = capturedBody?.instructions as string
+  expect(instructions).not.toContain('x-anthropic-billing-header')
+  expect(instructions).not.toContain('cc_version=')
+  expect(instructions).toContain('You are Claude Code.')
 })

@@ -208,18 +208,19 @@ export function getAllBaseTools(): Tools {
     ...(OverflowTestTool ? [OverflowTestTool] : []),
     ...(CtxInspectTool ? [CtxInspectTool] : []),
     ...(TerminalCaptureTool ? [TerminalCaptureTool] : []),
-    ...(isEnvTruthy(process.env.ENABLE_LSP_TOOL) ? [LSPTool] : []),
+    LSPTool,
     ...(isWorktreeModeEnabled() ? [EnterWorktreeTool, ExitWorktreeTool] : []),
-    getSendMessageTool(),
+    // Use filter(Boolean) to handle case where getter might return null/undefined
+    ...(getSendMessageTool() ? [getSendMessageTool()] : []),
     ...(ListPeersTool ? [ListPeersTool] : []),
     ...(isAgentSwarmsEnabled()
-      ? [getTeamCreateTool(), getTeamDeleteTool()]
+      ? [getTeamCreateTool(), getTeamDeleteTool()].filter(Boolean)
       : []),
     ...(VerifyPlanExecutionTool ? [VerifyPlanExecutionTool] : []),
     ...(process.env.USER_TYPE === 'ant' && REPLTool ? [REPLTool] : []),
     ...(WorkflowTool ? [WorkflowTool] : []),
     ...(SleepTool ? [SleepTool] : []),
-    ...cronTools,
+    ...(cronTools ?? []),
     ...(RemoteTriggerTool ? [RemoteTriggerTool] : []),
     ...(MonitorTool ? [MonitorTool] : []),
     BriefTool,
@@ -234,7 +235,8 @@ export function getAllBaseTools(): Tools {
     // Include ToolSearchTool when tool search might be enabled (optimistic check)
     // The actual decision to defer tools happens at request time in claude.ts
     ...(isToolSearchEnabledOptimistic() ? [ToolSearchTool] : []),
-  ]
+    // Filter out any null/undefined tools that might have been added by getters
+  ].filter(Boolean)
 }
 
 /**
@@ -267,7 +269,8 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
         feature('COORDINATOR_MODE') &&
         coordinatorModeModule?.isCoordinatorMode()
       ) {
-        replSimple.push(TaskStopTool, getSendMessageTool())
+        const sendMessageTool = getSendMessageTool()
+        if (sendMessageTool) replSimple.push(TaskStopTool, sendMessageTool)
       }
       return filterToolsByDenyRules(replSimple, permissionContext)
     }
@@ -279,7 +282,9 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
       feature('COORDINATOR_MODE') &&
       coordinatorModeModule?.isCoordinatorMode()
     ) {
-      simpleTools.push(AgentTool, TaskStopTool, getSendMessageTool())
+      simpleTools.push(AgentTool, TaskStopTool)
+      const sendMessageTool = getSendMessageTool()
+      if (sendMessageTool) simpleTools.push(sendMessageTool)
     }
     return filterToolsByDenyRules(simpleTools, permissionContext)
   }
@@ -309,7 +314,11 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
     }
   }
 
-  const isEnabled = allowedTools.map(_ => _.isEnabled())
+  // Filter out any null/undefined tools that might have slipped through
+  // (defensive check against initialization timing issues)
+  allowedTools = allowedTools.filter(Boolean)
+
+  const isEnabled = allowedTools.map(_ => typeof _.isEnabled === 'function' ? _.isEnabled() : true)
   return allowedTools.filter((_, i) => isEnabled[i])
 }
 
@@ -335,8 +344,9 @@ export function assembleToolPool(
 ): Tools {
   const builtInTools = getTools(permissionContext)
 
-  // Filter out MCP tools that are in the deny list
-  const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext)
+  // Filter out MCP tools that are in the deny list, and filter out any null/undefined
+  // tools that might have been added by MCP client initialization
+  const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext).filter(Boolean)
 
   // Sort each partition for prompt-cache stability, keeping built-ins as a
   // contiguous prefix. The server's claude_code_system_cache_policy places a

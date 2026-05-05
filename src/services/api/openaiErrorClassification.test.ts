@@ -4,8 +4,10 @@ import {
   buildOpenAICompatibilityErrorMessage,
   classifyOpenAIHttpFailure,
   classifyOpenAINetworkFailure,
+  extractOpenAICategoryHost,
   extractOpenAICategoryMarker,
   formatOpenAICategoryMarker,
+  isLocalhostLikeHost,
 } from './openaiErrorClassification.js'
 
 test('classifies localhost ECONNREFUSED as connection_refused', () => {
@@ -94,4 +96,59 @@ test('embeds and extracts category markers in formatted messages', () => {
 test('ignores unknown category markers during extraction', () => {
   const malformed = 'OpenAI API error 500 [openai_category=totally_fake_category]'
   expect(extractOpenAICategoryMarker(malformed)).toBeUndefined()
+})
+
+test('endpoint_not_found 404 from a remote host gets a host-aware hint (issue #926)', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 404,
+    body: 'Not Found',
+    url: 'https://integrate.api.nvidia.com/v1/chat/completions',
+  })
+
+  expect(failure.category).toBe('endpoint_not_found')
+  expect(failure.requestUrl).toBe('https://integrate.api.nvidia.com/v1/chat/completions')
+  expect(failure.hint).toContain('integrate.api.nvidia.com')
+  expect(failure.hint).not.toContain('local providers')
+})
+
+test('endpoint_not_found 404 from localhost keeps the Ollama-flavored hint', () => {
+  const failure = classifyOpenAIHttpFailure({
+    status: 404,
+    body: 'Not Found',
+    url: 'http://127.0.0.1:11434/v1/chat/completions',
+  })
+
+  expect(failure.category).toBe('endpoint_not_found')
+  expect(failure.hint).toContain('local providers')
+})
+
+test('marker round-trip preserves host segment', () => {
+  const formatted = buildOpenAICompatibilityErrorMessage(
+    'OpenAI API error 404: Not Found',
+    {
+      category: 'endpoint_not_found',
+      hint: 'Endpoint at integrate.api.nvidia.com returned 404.',
+      requestUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    },
+  )
+
+  expect(formatted).toContain('[openai_category=endpoint_not_found,host=integrate.api.nvidia.com]')
+  expect(extractOpenAICategoryMarker(formatted)).toBe('endpoint_not_found')
+  expect(extractOpenAICategoryHost(formatted)).toBe('integrate.api.nvidia.com')
+})
+
+test('marker without host stays backward-compatible', () => {
+  const marker = formatOpenAICategoryMarker('endpoint_not_found')
+  expect(marker).toBe('[openai_category=endpoint_not_found]')
+  expect(extractOpenAICategoryMarker(marker)).toBe('endpoint_not_found')
+  expect(extractOpenAICategoryHost(marker)).toBeUndefined()
+})
+
+test('isLocalhostLikeHost matches loopback variants', () => {
+  expect(isLocalhostLikeHost('localhost')).toBe(true)
+  expect(isLocalhostLikeHost('127.0.0.1')).toBe(true)
+  expect(isLocalhostLikeHost('127.0.0.5')).toBe(true)
+  expect(isLocalhostLikeHost('::1')).toBe(true)
+  expect(isLocalhostLikeHost('integrate.api.nvidia.com')).toBe(false)
+  expect(isLocalhostLikeHost(undefined)).toBe(false)
 })

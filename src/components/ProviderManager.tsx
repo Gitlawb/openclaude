@@ -10,6 +10,10 @@ import {
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
+import {
+  parseProfileCustomHeadersInput,
+  serializeProfileCustomHeaders,
+} from '../utils/providerCustomHeaders.js'
 import { getPrimaryModel, hasMultipleModels, parseModelList } from '../utils/providerModels.js'
 import {
   applySavedProfileToCurrentSession,
@@ -17,6 +21,22 @@ import {
   clearPersistedCodexOAuthProfile,
   createProfileFile,
 } from '../utils/providerProfile.js'
+import {
+  getProviderPresetUiMetadata,
+  getRouteProviderTypeLabel,
+  getRouteDescriptor,
+  ORDERED_PROVIDER_PRESETS,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
+  routeSupportsCustomHeaders,
+  routeShowsAuthHeader,
+  routeShowsAuthHeaderValue,
+  routeShowsCustomHeaders,
+  resolveProfileRoute,
+  resolveRouteIdFromBaseUrl,
+} from '../integrations/index.js'
+import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMetadata.js'
+import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
   addProviderProfile,
   applyActiveProviderProfileFromConfig,
@@ -37,8 +57,6 @@ import {
   readGithubModelsTokenAsync,
 } from '../utils/githubModelsCredentials.js'
 import {
-  probeAtomicChatReadiness,
-  probeOllamaGenerationReadiness,
   type AtomicChatReadiness,
   type OllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
@@ -89,6 +107,7 @@ type DraftField =
   | 'apiFormat'
   | 'authHeader'
   | 'authHeaderValue'
+  | 'customHeaders'
 
 type ProviderDraft = Record<DraftField, string>
 
@@ -165,6 +184,13 @@ const FORM_STEPS: Array<{
     helpText: 'Optional. Press Enter with empty value to skip.',
     optional: true,
   },
+  {
+    key: 'customHeaders',
+    label: 'Custom headers',
+    placeholder: 'e.g. X-Trace: enabled; X-Team: devtools',
+    helpText: 'Optional. Extra non-auth request headers for providers that support them.',
+    optional: true,
+  },
 ]
 
 const GITHUB_PROVIDER_ID = '__github_models__'
@@ -185,6 +211,7 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
     apiFormat: profile.apiFormat ?? 'chat_completions',
     authHeader: profile.authHeader ?? '',
     authHeaderValue: profile.authHeaderValue ?? '',
+    customHeaders: serializeProfileCustomHeaders(profile.customHeaders) ?? '',
   }
 }
 
@@ -198,25 +225,26 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
     apiFormat: 'chat_completions',
     authHeader: '',
     authHeaderValue: '',
+    customHeaders: '',
   }
 }
 
 function profileSummary(profile: ProviderProfile, isActive: boolean): string {
   const activeSuffix = isActive ? ' (active)' : ''
   const keyInfo = profile.apiKey ? 'key set' : 'no key'
-  const providerKind =
-    profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'
+  const routeId = resolveProfileRoute(profile.provider).routeId
+  const providerKind = getRouteProviderTypeLabel(routeId)
   const models = parseModelList(profile.model)
   const modelDisplay =
     models.length <= 3
       ? models.join(', ')
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
-    profile.provider === 'openai'
+    routeSupportsApiFormatSelection(routeId)
       ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
       : ''
   const authInfo =
-    profile.provider === 'openai' && profile.authHeader
+    routeSupportsAuthHeaders(routeId) && profile.authHeader
       ? ` · ${profile.authHeader} auth`
       : ''
   return `${providerKind} · ${profile.baseUrl} · ${modelDisplay}${modeInfo}${authInfo} · ${keyInfo}${activeSuffix}`
@@ -229,6 +257,37 @@ function getGithubCredentialSourceFromEnv(
     return 'env'
   }
   return 'none'
+}
+
+function resolveProviderEditorRouteId(
+  provider: ProviderProfile['provider'],
+  baseUrl?: string,
+): string {
+  const route = resolveProfileRoute(provider).routeId
+  if (route !== 'openai') {
+    return route
+  }
+
+  return resolveRouteIdFromBaseUrl(baseUrl) ?? route
+}
+
+function routeSupportsResponsesModel(routeId: string, model: string): boolean {
+  return openAIShimSupportsApiFormatForModel(
+    getRouteDescriptor(routeId)?.transportConfig.openaiShim,
+    'responses',
+    getPrimaryModel(model),
+  )
+}
+
+function getResponsesApiModelSetLabel(routeId: string): string {
+  const prefixes =
+    getRouteDescriptor(routeId)?.transportConfig.openaiShim
+      ?.responsesApiModelPrefixes
+  if (!prefixes || prefixes.length === 0) {
+    return "this provider's configured model set"
+  }
+
+  return `${prefixes.join(', ')} models`
 }
 
 async function resolveGithubCredentialSource(
@@ -358,7 +417,7 @@ function CodexOAuthSetup({
   }, persistCredentials: (options?: { profileId?: string }) => void) => {
     await onConfigured(tokens, persistCredentials)
   }, [onConfigured])
-  useKeybinding('confirm:no', onBack, [onBack])
+  useKeybinding('confirm:no', onBack)
 
   const status = useCodexOAuthFlow({
     onAuthenticated: handleAuthenticated,
@@ -499,15 +558,28 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }, [])
 
   const formSteps = React.useMemo(
-    () =>
-      draftProvider === 'openai'
-        ? FORM_STEPS
-        : FORM_STEPS.filter(step =>
-            step.key !== 'apiFormat' &&
-            step.key !== 'authHeader' &&
-            step.key !== 'authHeaderValue'
-          ),
-    [draftProvider],
+    () => {
+      const routeId = resolveProviderEditorRouteId(draftProvider, draft.baseUrl)
+      const showsAuthHeader = routeShowsAuthHeader(routeId)
+      const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
+      const showsCustomHeaders = routeShowsCustomHeaders(routeId)
+      return FORM_STEPS.filter(step => {
+        if (step.key === 'apiFormat') {
+          return routeSupportsApiFormatSelection(routeId)
+        }
+        if (step.key === 'authHeader') {
+          return showsAuthHeader
+        }
+        if (step.key === 'authHeaderValue') {
+          return showsAuthHeaderValue
+        }
+        if (step.key === 'customHeaders') {
+          return showsCustomHeaders
+        }
+        return true
+      })
+    },
+    [draft.baseUrl, draftProvider],
   )
   const currentStep = formSteps[formStepIndex] ?? formSteps[0] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
@@ -636,9 +708,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setOllamaSelection({ state: 'loading' })
 
     void (async () => {
-      const readiness = await probeOllamaGenerationReadiness({
+      const readiness = await probeRouteReadiness('ollama', {
         baseUrl: draft.baseUrl,
       })
+      if (!readiness) {
+        if (!cancelled) {
+          setOllamaSelection({
+            state: 'unavailable',
+            message: `Could not load the Ollama readiness probe for ${redactUrlForDisplay(draft.baseUrl)}. Enter the endpoint manually.`,
+          })
+        }
+        return
+      }
+
       if (readiness.state !== 'ready') {
         if (!cancelled) {
           setOllamaSelection({
@@ -678,9 +760,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setAtomicChatSelection({ state: 'loading' })
 
     void (async () => {
-      const readiness = await probeAtomicChatReadiness({
+      const readiness = await probeRouteReadiness('atomic-chat', {
         baseUrl: draft.baseUrl,
       })
+      if (!readiness) {
+        if (!cancelled) {
+          setAtomicChatSelection({
+            state: 'unavailable',
+            message: `Could not load the Atomic Chat readiness probe for ${redactUrlForDisplay(draft.baseUrl)}. Enter the endpoint manually.`,
+          })
+        }
+        return
+      }
+
       if (readiness.state !== 'ready') {
         if (!cancelled) {
           setAtomicChatSelection({
@@ -896,7 +988,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function closeWithCancelled(message: string): void {
-    onDone({ action: 'cancelled', message })
+    onDone({
+      action: 'cancelled',
+      message:
+        message === 'Provider manager closed' && statusMessage
+          ? statusMessage
+          : message,
+    })
   }
 
   function activateGithubProvider(): string | null {
@@ -996,6 +1094,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       apiFormat: 'chat_completions',
       authHeader: '',
       authHeaderValue: '',
+      customHeaders: '',
     }
     setEditingProfileId(null)
     setDraftProvider(defaults.provider ?? 'openai')
@@ -1036,27 +1135,48 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function persistDraft(nextDraft: ProviderDraft = draft): void {
+    const routeId = resolveProviderEditorRouteId(draftProvider, nextDraft.baseUrl)
+    const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
+    const showsAuthHeader = routeShowsAuthHeader(routeId)
+    const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
+    const showsCustomHeaders = routeShowsCustomHeaders(routeId)
+    const parsedCustomHeaders = parseProfileCustomHeadersInput(
+      showsCustomHeaders ? nextDraft.customHeaders : '',
+    )
+    if (parsedCustomHeaders.error) {
+      setErrorMessage(parsedCustomHeaders.error)
+      return
+    }
+
+    const requestedResponses =
+      supportsApiFormat && nextDraft.apiFormat === 'responses'
+    const shouldUseChatCompletions =
+      !supportsApiFormat ||
+      nextDraft.apiFormat !== 'responses' ||
+      !routeSupportsResponsesModel(routeId, nextDraft.model)
     const payload: ProviderProfileInput = {
       provider: draftProvider,
       name: nextDraft.name,
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
-      apiFormat:
-        draftProvider === 'openai' && nextDraft.apiFormat === 'responses'
-          ? 'responses'
-          : 'chat_completions',
+      apiFormat: shouldUseChatCompletions ? 'chat_completions' : 'responses',
       authHeader:
-        draftProvider === 'openai' && nextDraft.authHeader
+        showsAuthHeader && nextDraft.authHeader
           ? nextDraft.authHeader
           : undefined,
       authScheme:
-        draftProvider === 'openai' && nextDraft.authHeader
+        showsAuthHeader && nextDraft.authHeader
           ? (nextDraft.authHeader.toLowerCase() === 'authorization' ? 'bearer' : 'raw')
           : undefined,
       authHeaderValue:
-        draftProvider === 'openai' && nextDraft.authHeaderValue
+        showsAuthHeaderValue && nextDraft.authHeaderValue
           ? nextDraft.authHeaderValue
+          : undefined,
+      customHeaders:
+        showsCustomHeaders &&
+        Object.keys(parsedCustomHeaders.headers).length > 0
+          ? parsedCustomHeaders.headers
           : undefined,
     }
 
@@ -1086,17 +1206,26 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       editingProfileId
         ? `Updated provider: ${saved.name}`
         : `Added provider: ${saved.name} (now active)`
+    const adjustedApiFormat =
+      requestedResponses && saved.apiFormat !== 'responses'
+    const routeLabel =
+      getRouteDescriptor(routeId)?.label ?? getRouteProviderTypeLabel(routeId)
+    const responseModelSetLabel = getResponsesApiModelSetLabel(routeId)
+    const apiFormatMessage = adjustedApiFormat
+      ? `. ${routeLabel} only supports the Responses API for ${responseModelSetLabel}, so this profile was saved using Chat Completions.`
+      : ''
+    const finalSuccessMessage = `${successMessage}${apiFormatMessage}`
     setStatusMessage(
       settingsOverrideError
-        ? `${successMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
-        : successMessage,
+        ? `${finalSuccessMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+        : finalSuccessMessage,
     )
 
     if (mode === 'first-run') {
       onDone({
         action: 'saved',
         activeProfileId: saved.id,
-        message: `Provider configured: ${saved.name}`,
+        message: `Provider configured: ${saved.name}${apiFormatMessage}`,
       })
       return
     }
@@ -1317,141 +1446,36 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function renderPresetSelection(): React.ReactNode {
     const canUseCodexOAuth = !isBareMode()
-    // Providers sorted alphabetically by label. `Custom` is pinned to the end
-    // because it's the catch-all / escape hatch — users scanning the list
-    // should always find known providers first. `Skip for now` (first-run
-    // only) comes last, after Custom.
-    const options = [
-      {
-        value: 'dashscope-intl',
-        label: 'Alibaba Coding Plan',
-        description: 'Alibaba DashScope International endpoint',
-      },
-      {
-        value: 'dashscope-cn',
-        label: 'Alibaba Coding Plan (China)',
-        description: 'Alibaba DashScope China endpoint',
-      },
-      {
-        value: 'anthropic',
-        label: 'Anthropic',
-        description: 'Native Claude API (x-api-key auth)',
-      },
-      {
-        value: 'atomic-chat',
-        label: 'Atomic Chat',
-        description: 'Local Model Provider',
-      },
-      {
-        value: 'azure-openai',
-        label: 'Azure OpenAI',
-        description: 'Azure OpenAI endpoint (model=deployment name)',
-      },
-      {
-        value: 'bankr',
-        label: 'Bankr',
-        description: 'Bankr LLM Gateway (OpenAI-compatible)',
-      },
-      ...(canUseCodexOAuth
-        ? [
-            {
-              value: 'codex-oauth',
-              label: 'Codex OAuth',
-              description:
-                'Sign in with ChatGPT in your browser and store Codex credentials securely',
-            },
-          ]
-        : []),
-      {
-        value: 'deepseek',
-        label: 'DeepSeek',
-        description: 'DeepSeek OpenAI-compatible endpoint',
-      },
-      {
-        value: 'gemini',
-        label: 'Google Gemini',
-        description: 'Gemini OpenAI-compatible endpoint',
-      },
-      {
-        value: 'groq',
-        label: 'Groq',
-        description: 'Groq OpenAI-compatible endpoint',
-      },
-      {
-        value: 'lmstudio',
-        label: 'LM Studio',
-        description: 'Local LM Studio endpoint',
-      },
-      {
-        value: 'minimax',
-        label: 'MiniMax',
-        description: 'MiniMax API endpoint',
-      },
-      {
-        value: 'mistral',
-        label: 'Mistral',
-        description: 'Mistral OpenAI-compatible endpoint',
-      },
-      {
-        value: 'moonshotai',
-        label: 'Moonshot AI - API',
-        description: 'Moonshot AI - API endpoint',
-      },
-      {
-        value: 'kimi-code',
-        label: 'Moonshot AI - Kimi Code',
-        description: 'Moonshot AI - Kimi Code Subscription endpoint',
-      },
-      {
-        value: 'nvidia-nim',
-        label: 'NVIDIA NIM',
-        description: 'NVIDIA NIM endpoint',
-      },
-      {
-        value: 'ollama',
-        label: 'Ollama',
-        description: 'Local or remote Ollama endpoint',
-      },
-      {
-        value: 'openai',
-        label: 'OpenAI',
-        description: 'OpenAI API with API key',
-      },
-      {
-        value: 'openrouter',
-        label: 'OpenRouter',
-        description: 'OpenRouter OpenAI-compatible endpoint',
-      },
-      {
-        value: 'together',
-        label: 'Together AI',
-        description: 'Together chat/completions endpoint',
-      },
-      {
-        value: 'xai',
-        label: 'xAI',
-        description: 'xAI Grok OpenAI-compatible endpoint',
-      },
-      {
-        value: 'zai',
-        label: 'Z.AI - GLM Coding Plan',
-        description: 'Z.AI GLM coding subscription endpoint',
-      },
-      {
-        value: 'custom',
-        label: 'Custom',
-        description: 'Any OpenAI-compatible provider',
-      },
-      ...(mode === 'first-run'
-        ? [
-            {
-              value: 'skip',
-              label: 'Skip for now',
-              description: 'Continue with current defaults',
-            },
-          ]
-        : []),
-    ]
+    const options: OptionWithDescription<string>[] = ORDERED_PROVIDER_PRESETS.map(preset => {
+      const metadata = getProviderPresetUiMetadata(preset)
+      return {
+        value: preset,
+        label: metadata.label,
+        description: metadata.description,
+      }
+    })
+
+    if (canUseCodexOAuth) {
+      options.splice(6, 0, {
+        value: 'codex-oauth',
+        label: (
+          <Text>
+            <Text>Codex OAuth </Text>
+            <Text color="success" bold>★ Recommended</Text>
+          </Text>
+        ),
+        description:
+          'Sign in with ChatGPT in your browser and store Codex credentials securely',
+      })
+    }
+
+    if (mode === 'first-run') {
+      options.push({
+        value: 'skip',
+        label: 'Skip for now',
+        description: 'Continue with current defaults',
+      })
+    }
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -1496,10 +1520,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text dimColor>{currentStep.helpText}</Text>
         <Text dimColor>
           Provider type:{' '}
-          {draftProvider === 'anthropic'
-            ? 'Anthropic native API'
-            : 'OpenAI-compatible API'}
+          {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
         </Text>
+        {routeSupportsCustomHeaders(resolveProfileRoute(draftProvider).routeId) ? (
+          <Text dimColor>
+            Advanced: this provider supports custom request headers when you
+            need them.
+          </Text>
+        ) : null}
         <Text dimColor>
           Step {formStepIndex + 1} of {formSteps.length}: {currentStep.label}
         </Text>
@@ -1523,7 +1551,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             defaultFocusValue={
               currentValue === 'responses' ? 'responses' : 'chat_completions'
             }
-            onChange={value => handleFormSubmit(value)}
+            onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
             visibleOptionCount={2}
           />
@@ -1692,7 +1720,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         profile.id === activeProfileId
           ? `${profile.name} (active)`
           : profile.name,
-      description: `${profile.provider === 'anthropic' ? 'anthropic' : 'openai-compatible'} · ${profile.baseUrl} · ${profile.model}`,
+      description: `${getRouteProviderTypeLabel(resolveProfileRoute(profile.provider).routeId)} · ${profile.baseUrl} · ${profile.model}`,
     }))
 
     if (includeGithub && githubProviderAvailable) {
@@ -1774,7 +1802,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             )
             const saved = existing
               ? updateProviderProfile(existing.id, payload)
-              : addProviderProfile(payload, { makeActive: true })
+              : addProviderProfile(payload, { makeActive: false })
 
             if (!saved) {
               setErrorMessage(

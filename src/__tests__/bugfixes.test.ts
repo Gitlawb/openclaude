@@ -18,23 +18,30 @@ const file = (relative: string) => Bun.file(resolve(SRC, relative))
 // Fix 1: Gemini `store: false` rejection
 // ---------------------------------------------------------------------------
 describe('Gemini store field fix', () => {
-  test('isGeminiMode is imported and used in openaiShim', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
+  test('descriptor-backed shim config strips store for Gemini and Mistral routes', async () => {
+    const runtimeMetadata = await file('integrations/runtimeMetadata.ts').text()
+    const geminiDescriptor = await file('integrations/vendors/gemini.ts').text()
+    const mistralDescriptor = await file('integrations/gateways/mistral.ts').text()
 
-    // Verify the fix: store deletion should check for Gemini mode
-    expect(content).toContain('isGeminiMode()')
-    expect(content).toContain("mistral and gemini don't recognize body.store")
-    // Ensure the delete body.store is guarded for both Mistral and Gemini
-    expect(content).toMatch(/isMistral\s*\|\|\s*isGeminiMode\(\)/)
+    expect(runtimeMetadata).toContain('removeBodyFields')
+    expect(geminiDescriptor).toContain("removeBodyFields: ['store']")
+    expect(mistralDescriptor).toContain("removeBodyFields: ['store']")
   })
 
-  test('store: false is still set by default (OpenAI needs it)', async () => {
+  test('store: false is still set by default and only removed via shim config', async () => {
     const content = await file('services/api/openaiShim.ts').text()
 
-    // The body should still have store: false by default
     expect(content).toMatch(/store:\s*false/)
-    // But it should be deleted for non-OpenAI providers
-    expect(content).toMatch(/delete body\.store/)
+    expect(content).toContain('shimConfig.removeBodyFields')
+    expect(content).toContain('delete body[field]')
+  })
+
+  test('openaiShim does not keep a hardcoded descriptor route fallback list', async () => {
+    const content = await file('services/api/openaiShim.ts').text()
+
+    expect(content).not.toContain(
+      "['mistral', 'gemini', 'moonshot', 'deepseek', 'zai', 'kimi-code']",
+    )
   })
 })
 
@@ -219,22 +226,13 @@ describe('MCP tool timeout fix', () => {
 // Cross-cutting: verify no regressions
 // ---------------------------------------------------------------------------
 describe('Regression checks', () => {
-  test('store field is still set for OpenAI (not deleted unconditionally)', async () => {
-    const content = await file('services/api/openaiShim.ts').text()
+  test('store field remains opt-out by per-route config rather than unconditional deletion', async () => {
+    const openaiShim = await file('services/api/openaiShim.ts').text()
+    const runtimeMetadata = await file('integrations/runtimeMetadata.ts').text()
 
-    // store: false should exist in body construction
-    expect(content).toMatch(/store:\s*false/)
-    // But delete body.store should be conditional (guarded by if)
-    const deleteLines = content.split('\n').filter(l => l.includes('delete body.store'))
-    expect(deleteLines.length).toBeGreaterThan(0)
-    // Verify the delete is inside a conditional block by checking surrounding context
-    for (const line of deleteLines) {
-      const trimmed = line.trim()
-      // Should be either inside an if block (indented delete) or a comment
-      expect(
-        trimmed.startsWith('delete') && !trimmed.includes('// unconditional'),
-      ).toBe(true)
-    }
+    expect(openaiShim).toMatch(/store:\s*false/)
+    expect(openaiShim).toContain('for (const field of shimConfig.removeBodyFields ?? [])')
+    expect(runtimeMetadata).toContain('mergeRemoveBodyFields')
   })
 })
 
@@ -286,5 +284,32 @@ describe('Context overflow 500 fix', () => {
     expect(content).toContain('Safety net: when auto-compact')
     expect(content).toContain('circuit breaker has tripped')
     expect(content).toContain('automatic compaction has failed')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Fix N: Project-scope MCP servers from .mcp.json not detected for 3P providers (issue #696)
+// ---------------------------------------------------------------------------
+describe('Project-scope MCP approval — third-party providers (issue #696)', () => {
+  test('handleMcpjsonServerApprovals is NOT gated behind usesAnthropicSetup', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+
+    // The call site for handleMcpjsonServerApprovals must not sit inside an
+    // `if (usesAnthropicSetup) { ... }` block, or third-party providers will
+    // never get the dialog and project-scope .mcp.json servers will be silently
+    // dropped from /mcp listings (issue #696).
+    const approvalCallIdx = content.indexOf('await handleMcpjsonServerApprovals(root)')
+    expect(approvalCallIdx).toBeGreaterThan(-1)
+
+    // Look at the 800 chars BEFORE the call site for any `if (usesAnthropicSetup)`
+    // block that would still be open. Pick a window that's definitely inside the
+    // showSetupScreens function but not in earlier dialogs.
+    const before = content.slice(Math.max(0, approvalCallIdx - 800), approvalCallIdx)
+    expect(before).not.toMatch(/if\s*\(\s*usesAnthropicSetup\s*\)\s*{[^}]*$/)
+  })
+
+  test('issue #696 is referenced from the comment so future readers can find context', async () => {
+    const content = await file('interactiveHelpers.tsx').text()
+    expect(content).toContain('#696')
   })
 })

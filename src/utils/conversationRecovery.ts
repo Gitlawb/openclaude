@@ -25,6 +25,7 @@ import {
 } from './fileHistory.js'
 import { logError } from './log.js'
 import { getAPIProvider } from './model/providers.js'
+import { usesAnthropicNativeMessageFormat } from '../integrations/runtimeMetadata.js'
 import {
   createAssistantMessage,
   createUserMessage,
@@ -251,7 +252,13 @@ export function deserializeMessagesWithInterruptDetection(
     // when resuming against a 3P provider. These Anthropic-specific blocks cause
     // 400 errors or context corruption on OpenAI-compatible providers (issue #248 finding 5).
     const provider = getAPIProvider()
-    const isThirdPartyProvider = provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex' && provider !== 'foundry'
+    const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
+      processEnv: process.env,
+      model: process.env.OPENAI_MODEL,
+      providerCategory: provider,
+    })
+    const isThirdPartyProvider =
+      provider !== 'foundry' && !isAnthropicNativeTransport
     const thinkingStripped = isThirdPartyProvider
       ? stripThinkingBlocks(filteredThinking)
       : filteredThinking
