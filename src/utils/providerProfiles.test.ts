@@ -82,6 +82,7 @@ function createMockConfigState(): MockConfigState {
 }
 
 let mockConfigState: MockConfigState = createMockConfigState()
+let testConfigDir: string | null = null
 
 function saveMockGlobalConfig(
   updater: (current: MockConfigState) => MockConfigState,
@@ -93,6 +94,8 @@ beforeEach(() => {
   for (const key of RESTORED_KEYS) {
     delete process.env[key]
   }
+  testConfigDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+  process.env.CLAUDE_CONFIG_DIR = testConfigDir
 })
 
 afterEach(() => {
@@ -107,6 +110,10 @@ afterEach(() => {
   mock.restore()
   mockConfigState = createMockConfigState()
   process.chdir(originalCwd)
+  if (testConfigDir) {
+    rmSync(testConfigDir, { recursive: true, force: true })
+    testConfigDir = null
+  }
 })
 
 async function importFreshProviderProfileModules() {
@@ -1045,30 +1052,37 @@ describe('getProviderPresetDefaults', () => {
 
 describe('setActiveProviderProfile', () => {
   test('sets OPENAI_MODEL env var when switching to an openai-type provider', async () => {
-    const { setActiveProviderProfile } =
-      await importFreshProviderProfileModules()
-    const openaiProfile = buildProfile({
-      id: 'openai_prof',
-      name: 'OpenAI Provider',
-      provider: 'openai',
-      baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o',
-    })
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
-    saveMockGlobalConfig(current => ({
-      ...current,
-      providerProfiles: [openaiProfile],
-    }))
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const openaiProfile = buildProfile({
+        id: 'openai_prof',
+        name: 'OpenAI Provider',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      })
 
-    const result = setActiveProviderProfile('openai_prof')
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [openaiProfile],
+      }))
 
-    expect(result?.id).toBe('openai_prof')
-    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
-    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
-    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
-      'openai_prof',
-    )
+      const result = setActiveProviderProfile('openai_prof')
+
+      expect(result?.id).toBe('openai_prof')
+      expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+      expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+      expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+      expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
+        'openai_prof',
+      )
+    } finally {
+      rmSync(configDir, { recursive: true, force: true })
+    }
   })
 
   test('persists no-key openai-compatible profiles for restart fallback', async () => {
