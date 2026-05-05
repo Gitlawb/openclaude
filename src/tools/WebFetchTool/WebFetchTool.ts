@@ -20,19 +20,23 @@ import {
   isPreapprovedUrl,
   MAX_MARKDOWN_LENGTH,
 } from './utils.js'
+import { firecrawlScrape } from '../firecrawl/client.js'
 
 function isFirecrawlEnabled(): boolean {
   return Boolean(process.env.FIRECRAWL_API_KEY) || Boolean(process.env.FIRECRAWL_API_URL)
 }
 
-async function scrapeWithFirecrawl(url: string): Promise<{ markdown: string; bytes: number }> {
-  const { FirecrawlClient } = await import('@mendable/firecrawl-js')
-  const app = new FirecrawlClient({
+async function scrapeWithFirecrawl(
+  url: string,
+  signal?: AbortSignal,
+): Promise<{ markdown: string; bytes: number }> {
+  const result = await firecrawlScrape(url, {
     apiKey: process.env.FIRECRAWL_API_KEY,
     apiUrl: process.env.FIRECRAWL_API_URL,
+    formats: ['markdown'],
+    signal,
   })
-  const result = await app.scrape(url, { formats: ['markdown'] })
-  const markdown = (result as { markdown?: string }).markdown ?? ''
+  const markdown = result.markdown ?? ''
   return { markdown, bytes: Buffer.byteLength(markdown) }
 }
 
@@ -227,7 +231,7 @@ ${DESCRIPTION}`
     const start = Date.now()
 
     if (isFirecrawlEnabled()) {
-      const { markdown, bytes } = await scrapeWithFirecrawl(url)
+      const { markdown, bytes } = await scrapeWithFirecrawl(url, abortController.signal)
       const result = await applyPromptToMarkdown(
         prompt,
         markdown,
