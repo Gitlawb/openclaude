@@ -33,11 +33,13 @@ export class SidebarView extends ItemView {
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.updateContextCard()));
     this.plugin.serverManager.onStatus(this.boundStatusListener);
 
-    // Handle prompts injected from CommandHubModal
+    // Handle prompts injected from CommandHubModal — populate and focus only;
+    // the user completes partial prompts (e.g. "pesquise na web sobre: ___")
+    // and presses Enter to send. Suggestion chips bypass this and call sendMessage() directly.
     this.registerDomEvent(window, 'openclaude:inject-prompt' as keyof WindowEventMap, (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
       this.inputEl.value = detail;
-      this.sendMessage();
+      this.inputEl.focus();
     });
     this.registerDomEvent(window, 'openclaude:new-session' as keyof WindowEventMap, () => {
       this.currentSessionId = undefined;
@@ -135,7 +137,7 @@ export class SidebarView extends ItemView {
     const text = (overrideText ?? this.inputEl.value).trim();
     if (!text || this.abortController) return;
 
-    this.inputEl.value = '';
+    if (overrideText === undefined) this.inputEl.value = '';
     this.addMessage('user', text);
     const assistantContent = this.addMessage('assistant', '');
 
