@@ -499,7 +499,189 @@ Wave 3 and Wave 4 can partially overlap — Wave 4 PRs only depend on Wave 1 + 2
 | Testing | Vitest + React Testing Library | latest |
 | Language | TypeScript | 5.9+ |
 
-## 9. Constraints and Non-Goals
+## 9. Branding & Design System (Website Alignment)
+
+The desktop app must share a unified visual identity with the OpenClaude website (https://openclaude.gitlawb.com/). All UI surfaces — splash screen, sidebar, chat, settings, dialogs — must follow the same design language.
+
+### 9.1 Design Philosophy
+
+The website's aesthetic is **monospace-first, terminal-inspired, minimal**. It uses a warm orange accent on a light background with sharp (unrounded) corners and dashed divider lines. The desktop app must replicate this feeling — not a generic dark SaaS app, but a developer tool with a distinctive hacker/terminal vibe.
+
+### 9.2 Typography
+
+**Primary font stack** (entire UI):
+```
+font-family: SF Mono, Fira Code, Fira Mono, Roboto Mono, Courier New, monospace;
+```
+
+- Google Fonts import: `Fira+Code:wght@400;500;600;700`
+- `font-feature-settings: "ss01", "ss02", "cv01", "cv11"` (OpenType stylistic sets for better monospace readability)
+- `font-synthesis: none; text-rendering: optimizelegibility`
+- Logo text uses same monospace stack (no separate display font like Outfit)
+
+**Font sizes** (from website, adapt for desktop):
+
+| Usage | Size | Weight | Letter Spacing |
+|-------|------|--------|----------------|
+| Hero / Splash title | `clamp(2.4rem, 6vw, 4.4rem)` | 700 | `-0.04em` |
+| Section headings | `clamp(1.6rem, 3vw, 2.1rem)` | 600 | `-0.025em` |
+| Brand / Logo | `0.95rem` | 600 | `-0.01em` |
+| Feature titles | `0.9rem` | 600 | `-0.005em` |
+| Body text | `0.88rem` | 400 | — |
+| Buttons | `0.8rem` | 500 | `0.01em` |
+| Nav links | `0.78rem` | 400 | — |
+| Eyebrow / Label | `0.72rem` | 500 | `0.04em` |
+| Caption / Quiet | `0.74rem` | 400 | `0.02em` |
+| Version tag | `0.7rem` | 400 | — |
+
+**Line heights**: Hero `1`, Headings `1.15`, Body `1.65`, Buttons `1`
+
+### 9.3 Color System
+
+#### Accent Colors (constant across themes)
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--accent` | `#ff7a1a` | Primary orange — buttons, links, active states, focus rings, badges |
+| `--accent-2` | `#ffb15f` | Lighter orange — inline code text, secondary highlights |
+| `--accent-soft` | `#ff7a1a24` | Accent at ~14% opacity — box shadows, subtle backgrounds |
+| `--accent-line` | `#ff7a1a66` | Accent at ~40% opacity — borders on interactive elements |
+
+#### Light Theme (default)
+
+| Token | Value | Notes |
+|-------|-------|-------|
+| `--bg` | `#fbfaf7` | Warm off-white background |
+| `--bg-elev` | `#fbfaf7e0` | Same at ~88% — frosted header/sidebar |
+| `--bg-soft` | `#ff7a1a0d` | Accent at ~5% — subtle tinted backgrounds |
+| `--ink` | `#1a1208` | Near-black, warm brown — primary text |
+| `--ink-2` | `#1a1208e0` | Primary text at 88% opacity |
+| `--muted` | `#1a1208a3` | Body text at ~64% opacity |
+| `--quiet` | `#1a120875` | Caption text at ~46% opacity |
+| `--line` | `#1a12081a` | Borders at ~10% opacity |
+| `--line-strong` | `#ff7a1a4d` | Accent border at ~30% opacity |
+| `--hero-glow` | `#ff7a1a47` | Text shadow glow at ~28% |
+| `--hero-wash` | `#ff7a1a2e` | Body gradient wash at ~18% |
+| `--hero-wash-2` | `#ffb15f1a` | Second gradient wash at ~10% |
+| `--copy-bg` | `#fff` | Pure white — code blocks, inputs |
+| `--selection-fg` | `#fff` | White text on orange selection |
+| `--scroll-thumb` | `#d8c9bc` | Warm beige scrollbar |
+
+#### Dark Theme
+
+| Token | Value | Notes |
+|-------|-------|-------|
+| `--bg` | `#000` | Pure black |
+| `--bg-elev` | `#000000d9` | Black at ~85% — frosted surfaces |
+| `--bg-soft` | `#ffffff06` | White at ~2% |
+| `--ink` | `#fff` | Pure white |
+| `--ink-2` | `#ffffffd1` | White at ~82% |
+| `--muted` | `#ffffff8c` | White at ~55% |
+| `--quiet` | `#ffffff61` | White at ~38% |
+| `--line` | `#ffffff1a` | White at ~10% |
+| `--line-strong` | `#fff3` | White at ~20% |
+| `--hero-glow` | `#ff7a1a38` | Accent at ~22% |
+| `--hero-wash` | `#ff7a1a29` | Accent at ~16% |
+| `--hero-wash-2` | `#ff7a1a0f` | Accent at ~6% |
+| `--copy-bg` | `#00000080` | Black at 50% |
+| `--selection-fg` | `#120804` | Dark brown on selection |
+| `--scroll-thumb` | `#3a2615` | Warm dark brown |
+
+### 9.4 Theme Toggle
+
+- **Default theme**: Light (`#fbfaf7` background)
+- **Toggle**: `data-theme="light"` / `data-theme="dark"` on `<html>` element
+- **Persistence**: `localStorage` key `openclaude-theme`
+- **Bootstrap**: Inline `<script>` before paint to prevent flash
+- **Toggle UI**: Small square button (28x28px) with `☀`/`🌙` icons, bordered, top-right nav position
+- **Transitions**: `background-color 0.25s, color 0.25s` on `html` and `body`
+
+### 9.5 Borders & Shapes
+
+- **Border radius**: None — all elements are sharp-cornered (buttons, cards, inputs, modals, dropdowns)
+- **Primary border style**: `1px solid var(--line)` for section separators
+- **Signature style**: `1px dashed var(--line)` for decorative dividers (nav rule, footer)
+- **Interactive borders**: `1px solid var(--accent-line)` for copy-cmd, hero eyebrow, active inputs
+- **Focus outline**: `1px solid var(--accent); outline-offset: 3px`
+
+### 9.6 Key UI Components (Website Reference)
+
+#### Nav Bar
+- Height: 64px, sticky, frosted glass (`backdrop-filter: blur(14px)`)
+- Background: `var(--bg-elev)` (semi-transparent)
+- Logo: 36px icon + brand name in monospace
+- Links: muted color → ink on hover
+- Theme toggle: 28x28px bordered square, right side
+
+#### Buttons
+- Height: 44px, **no border-radius** (sharp rectangles)
+- Ghost variant: transparent bg, `var(--line-strong)` border, ink text
+- Hover: `var(--ink)` border + `#ffffff0a` background overlay
+- Active/pressed: Accent border + accent text
+
+#### Code / Copy-Cmd Blocks
+- Height: 44px (48px hero variant)
+- Border: `1px solid var(--accent-line)`
+- Background: `var(--copy-bg)`
+- Shadow: `0 8px 24px -16px var(--accent-soft)`
+- Hover: accent border + stronger shadow
+
+#### Feature/Settings Rows
+- Top+bottom border: `1px solid var(--line)`
+- Two-column grid: label (180px/32%) + description
+- Hover: subtle background change
+
+#### Scrollbar
+- Width: 3px (minimal)
+- Track: `var(--bg)`, Thumb: `var(--scroll-thumb)`
+
+#### Selection
+- `::selection { background: var(--accent); color: var(--selection-fg); }`
+
+### 9.7 Body Background (Desktop Adaptation)
+
+The website uses radial gradients for warm ambient glow:
+```css
+background:
+  radial-gradient(circle at 78% -4%, var(--hero-wash), transparent 420px),
+  radial-gradient(circle at 12% 18%, var(--hero-wash-2), transparent 360px),
+  var(--bg);
+```
+Desktop should apply similar gradients to main content areas (chat background, settings background).
+
+### 9.8 Splash Screen
+
+- Font: Fira Code monospace
+- Text: "OpenClaude" in brand weight (600-700)
+- Color: `var(--ink)` with `text-shadow: 0 0 28px var(--hero-glow)` glow
+- Background: `var(--bg)` (light: `#fbfaf7`, dark: `#000`)
+- Subtle pulse animation, fade out on load
+
+### 9.9 PR4 Rebranding Checklist
+
+When rebranding the PR4 UI to match this design system, apply ALL of the following:
+
+- [ ] **Font**: Replace `Inter` + `Outfit` with `Fira Code` monospace stack everywhere
+- [ ] **Accent**: Replace `#0034FF` (blue) with `#ff7a1a` (orange) in all theme tokens
+- [ ] **Colors**: Replace zinc palette with warm `#1a1208`-based light theme + `#000` dark theme
+- [ ] **Theme toggle**: Add light/dark switch (default light) with `localStorage` persistence
+- [ ] **Border radius**: Remove all `border-radius` — everything sharp-cornered
+- [ ] **Border style**: Replace solid dividers with dashed where appropriate
+- [ ] **Focus rings**: Use `1px solid var(--accent); outline-offset: 3px`
+- [ ] **Selection**: Orange selection color
+- [ ] **Splash screen**: Monospace text, orange glow, light background
+- [ ] **Sidebar**: Warm colors, monospace font, dashed dividers
+- [ ] **Chat input**: Sharp corners, orange focus glow instead of blue
+- [ ] **Model/Mode dropdowns**: Sharp corners, orange accent, monospace
+- [ ] **Settings**: Warm palette, dashed separators, sharp cards
+- [ ] **Scrollbars**: 3px width, themed thumb color
+- [ ] **Scrollbar**: Minimal 3px custom scrollbar
+- [ ] **Body gradients**: Add radial orange wash gradients
+- [ ] **Title bar**: Frosted glass effect, warm colors
+- [ ] **Logo**: Monospace font instead of Outfit
+- [ ] **All interactive elements**: Orange accent on hover/focus/active states
+
+## 10. Constraints and Non-Goals
 
 ### Constraints
 - Each PR: 1000-3000 lines including tests
