@@ -176,6 +176,19 @@ function hasNonEmptyEnvValue(value: string | undefined): boolean {
   return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
 }
 
+export function isSparkBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'spark-api-open.xf-yun.com'
+  } catch {
+    return false
+  }
+}
+
 export function isMiniMaxBaseUrl(value: string | undefined): boolean {
   const trimmed = value?.trim()
   if (!trimmed) {
@@ -253,6 +266,7 @@ function hasNoExplicitNonOpenAICompatibleProvider(
   processEnv: NodeJS.ProcessEnv,
 ): boolean {
   return (
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_SPARK) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI) &&
@@ -273,6 +287,16 @@ export function hasXaiEnvOnlyProviderIntent(
   )
 }
 
+export function hasSparkEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.SPARK_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isSparkBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
 export function hasMiniMaxEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -287,9 +311,13 @@ export function hasMiniMaxEnvOnlyProviderIntent(
 
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'xai' | 'minimax' | null {
+): 'xai' | 'minimax' | 'spark' | null {
   if (hasXaiEnvOnlyProviderIntent(processEnv)) {
     return 'xai'
+  }
+
+  if (hasSparkEnvOnlyProviderIntent(processEnv)) {
+    return 'spark'
   }
 
   if (hasMiniMaxEnvOnlyProviderIntent(processEnv)) {
@@ -492,6 +520,9 @@ export function resolveActiveRouteIdFromEnv(
   }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
     return 'github'
+  }
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_SPARK)) {
+    return 'spark'
   }
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK)) {
     return 'bedrock'
