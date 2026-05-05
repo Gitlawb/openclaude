@@ -139,14 +139,16 @@ function detectPhase(content: string): ConversationArc['currentPhase'] | null {
   return null
 }
 
-function extractFactsAutomatically(content: string): void {
+async function extractFactsAutomatically(content: string): Promise<void> {
   const arc = getArc()
   if (!arc) return
+
+  const promises: Promise<any>[] = []
 
   // 1. Detect Environment Variables (KEY=VALUE)
   const envMatches = content.matchAll(/(?:export\s+)?([A-Z_]{3,})=([^\s\n"']+)/g)
   for (const match of envMatches) {
-    addGlobalEntity('environment_variable', match[1], { value: match[2] })
+    promises.push(addGlobalEntity('environment_variable', match[1], { value: match[2] }))
   }
 
   // 2. Detect Absolute Paths
@@ -154,14 +156,14 @@ function extractFactsAutomatically(content: string): void {
   for (const match of pathMatches) {
     const path = match[1]
     if (path.length > 8 && !path.includes('node_modules') && !path.includes('://')) {
-      addGlobalEntity('path', path, { type: 'absolute' })
+      promises.push(addGlobalEntity('path', path, { type: 'absolute' }))
     }
   }
 
   // 3. Detect Versions
   const versionMatches = content.matchAll(/(?:v|version\s+)(\d+\.\d+(?:\.\d+)?)/gi)
   for (const match of versionMatches) {
-    addGlobalEntity('version', match[0].toLowerCase(), { semver: match[1] })
+    promises.push(addGlobalEntity('version', match[0].toLowerCase(), { semver: match[1] }))
   }
 
   // 4. Detect Hostnames/URLs
@@ -170,9 +172,11 @@ function extractFactsAutomatically(content: string): void {
     try {
       const url = new URL(match[1])
       if (url.hostname.includes('.')) {
-        addGlobalEntity('endpoint', url.hostname, { url: url.toString() })
+        promises.push(addGlobalEntity('endpoint', url.hostname, { url: url.toString() }))
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   // 5. Detect IPv4
@@ -187,7 +191,7 @@ function extractFactsAutomatically(content: string): void {
     if (context.includes('prod')) tags.env = 'production'
     if (context.includes('worker')) tags.role = 'worker'
 
-    addGlobalEntity('server_ip', ip, tags)
+    promises.push(addGlobalEntity('server_ip', ip, tags))
   }
 
   // 6. DYNAMIC CONCEPT DISCOVERY (Improved for Doctoral precision)
@@ -197,54 +201,59 @@ function extractFactsAutomatically(content: string): void {
   for (const match of backtickMatches) {
     const symbol = match[1]
     if (symbol.length > 2 && symbol.length < 60) {
-      addGlobalEntity('concept', symbol, { source: 'backticks' })
+      promises.push(addGlobalEntity('concept', symbol, { source: 'backticks' }))
     }
   }
 
   // B. Detect Technical Concepts (Hyphenated-Terms, PascalCase, camelCase)
   // Now also capturing lowercase hyphenated terms (worker-node-49)
-  const technicalMatches = content.matchAll(/\b([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)+|[A-Z][a-z]+[A-Z][\w]*|[a-z]+[A-Z][\w]*)\b/g)
+  const technicalMatches = content.matchAll(
+    /\b([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)+|[A-Z][a-z]+[A-Z][\w]*|[a-z]+[A-Z][\w]*)\b/g,
+  )
   for (const match of technicalMatches) {
     const word = match[1]
     if (!['The', 'This', 'That', 'With', 'From', 'Here', 'There'].includes(word)) {
-      addGlobalEntity('concept', word, { source: 'auto_discovery' })
-    }
-    }
-
-    // C. Specific pattern for availability/percentages
-    const metricMatches = content.matchAll(/(\d+(?:\.\d+)?%)/g)
-    for (const match of metricMatches) {
-    addGlobalEntity('metric', match[1], { type: 'availability' })
-    }
-
-    // D. Project Rule Detection (Passive Learning)
-    const rulePatterns = [
-    /\b(?:always|must|should)\s+(?:use|implement|follow)\b\s+([^.!?]+)/gi,
-    /\b(?:never|cannot|should\s+not)\b\s+([^.!?]+)/gi,
-    /\b(?:prefer)\b\s+([^.!?]+)/gi
-    ]
-    for (const pattern of rulePatterns) {
-    const ruleMatches = content.matchAll(pattern)
-    for (const match of ruleMatches) {
-      addGlobalRule(match[0].trim())
-    }
-    }
-
-    // E. Direct Tech detection for UI/State
-    if (content.toLowerCase().includes('redux')) addGlobalEntity('technology', 'Redux', { category: 'state_management' })
-    if (content.toLowerCase().includes('react')) addGlobalEntity('technology', 'React', { category: 'frontend' })
-
-    // F. Project File Signatures
-    if (content.match(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/i)) {
-
-    const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
-    for (const match of fileMatches) {
-      addGlobalEntity('project_file', match[1].toLowerCase(), { category: 'configuration' })
+      promises.push(addGlobalEntity('concept', word, { source: 'auto_discovery' }))
     }
   }
+
+  // C. Specific pattern for availability/percentages
+  const metricMatches = content.matchAll(/(\d+(?:\.\d+)?%)/g)
+  for (const match of metricMatches) {
+    promises.push(addGlobalEntity('metric', match[1], { type: 'availability' }))
+  }
+
+  // D. Project Rule Detection (Passive Learning)
+  const rulePatterns = [
+    /\b(?:always|must|should)\s+(?:use|implement|follow)\b\s+([^.!?]+)/gi,
+    /\b(?:never|cannot|should\s+not)\b\s+([^.!?]+)/gi,
+    /\b(?:prefer)\b\s+([^.!?]+)/gi,
+  ]
+  for (const pattern of rulePatterns) {
+    const ruleMatches = content.matchAll(pattern)
+    for (const match of ruleMatches) {
+      promises.push(addGlobalRule(match[0].trim()))
+    }
+  }
+
+  // E. Direct Tech detection for UI/State
+  if (content.toLowerCase().includes('redux'))
+    promises.push(addGlobalEntity('technology', 'Redux', { category: 'state_management' }))
+  if (content.toLowerCase().includes('react'))
+    promises.push(addGlobalEntity('technology', 'React', { category: 'frontend' }))
+
+  // F. Project File Signatures
+  if (content.match(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/i)) {
+    const fileMatches = content.matchAll(/\b([\w.-]+\.(?:xml|json|yaml|yml|gradle|toml|bazel))\b/gi)
+    for (const match of fileMatches) {
+      promises.push(addGlobalEntity('project_file', match[1].toLowerCase(), { category: 'configuration' }))
+    }
+  }
+
+  await Promise.all(promises)
 }
 
-export function updateArcPhase(messages: Message[]): void {
+export async function updateArcPhase(messages: Message[]): Promise<void> {
   const arc = getArc()
   if (!arc) return
 
@@ -255,13 +264,7 @@ export function updateArcPhase(messages: Message[]): void {
     // Phase detection
     const detected = detectPhase(content)
     if (detected && detected !== arc.currentPhase) {
-      const phaseOrder = [
-        'init',
-        'exploring',
-        'implementing',
-        'reviewing',
-        'completed',
-      ]
+      const phaseOrder = ['init', 'exploring', 'implementing', 'reviewing', 'completed']
       const oldIdx = phaseOrder.indexOf(arc.currentPhase)
       const newIdx = phaseOrder.indexOf(detected)
 
@@ -272,7 +275,7 @@ export function updateArcPhase(messages: Message[]): void {
     }
 
     // Passive fact extraction (Automatic Learning)
-    extractFactsAutomatically(content)
+    await extractFactsAutomatically(content)
   }
 }
 
@@ -346,13 +349,11 @@ export function addMilestone(description: string): Milestone {
   return milestone
 }
 
-export function getArcSummary(query?: string): string {
+export async function getArcSummary(query?: string): Promise<string> {
   const arc = getArc()
   if (!arc) return 'No conversation arc'
 
-  const activeGoals = arc.goals.filter(
-    g => g.status === 'active' || g.status === 'pending',
-  )
+  const activeGoals = arc.goals.filter(g => g.status === 'active' || g.status === 'pending')
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
 
   let summary = `Phase: ${arc.currentPhase}\\n`
@@ -363,20 +364,22 @@ export function getArcSummary(query?: string): string {
   }
 
   // 1. Primary: Targeted RAG Search (High volume context)
-  summary += getOrchestratedMemory(query || '')
+  summary += await getOrchestratedMemory(query || '')
 
   // 2. Secondary: Global Snapshot (Full Graph for small/medium projects)
   const graph = getGlobalGraph()
   const entities = Object.values(graph.entities)
   if (entities.length < 100) {
-      summary += '\\n--- Full Project Knowledge Graph ---\\n'
-      for (const e of entities) {
-          summary += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k,v]) => `${k}=${v}`).join(', ')}\\n`
-      }
-      if (graph.rules.length > 0) {
-          summary += '\\nActive Project Rules:\\n'
-          graph.rules.forEach(r => summary += `- ${r}\\n`)
-      }
+    summary += '\\n--- Full Project Knowledge Graph ---\\n'
+    for (const e of entities) {
+      summary += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ')}\\n`
+    }
+    if (graph.rules.length > 0) {
+      summary += '\\nActive Project Rules:\\n'
+      graph.rules.forEach(r => (summary += `- ${r}\\n`))
+    }
   }
 
   return summary
