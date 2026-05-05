@@ -122,3 +122,29 @@
 .openclaude-hub-item-name { flex:1; font-size:14px; }
 .openclaude-hub-item-shortcut { font-size:11px; color:var(--text-muted); }
 .openclaude-hub-section { padding:4px 16px; font-size:11px; font-weight:600; text-transform:uppercase; color:var(--text-muted); border-top:1px solid var(--background-modifier-border); margin-top:4px; }
+
+/* ── Suggestion chips ─────────────────────────── */
+.oc-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 0;
+}
+
+.oc-suggestion-chip {
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--interactive-accent);
+  border-radius: 12px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-normal);
+  line-height: 1.4;
+  transition: background 0.15s, color 0.15s;
+}
+
+.oc-suggestion-chip:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}

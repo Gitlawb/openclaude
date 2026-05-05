@@ -78,6 +78,20 @@ export class SettingsTab extends PluginSettingTab {
          })
       );
 
+    containerEl.createEl('h3', { text: 'Web Search' });
+
+    new Setting(containerEl)
+      .setName('Brave Search API Key')
+      .setDesc('Para habilitar buscas na web. Obtenha gratuitamente em brave.com/search/api (2.000 req/mês grátis).')
+      .addText(t =>
+        t.setPlaceholder('BSA...')
+         .setValue(this.plugin.settings.braveApiKey)
+         .onChange(async v => {
+           this.plugin.settings.braveApiKey = v.trim();
+           await this.plugin.saveSettings();
+         })
+      );
+
     containerEl.createEl('h3', { text: 'Model provider' });
 
     new Setting(containerEl)

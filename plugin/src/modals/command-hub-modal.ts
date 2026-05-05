@@ -57,37 +57,45 @@ export class CommandHubModal extends Modal {
   private buildItems(): HubItem[] {
     return [
       {
-        icon: '✦', name: 'Summarize note', shortcut: 'Ctrl+Shift+A',
-        action: () => this.inject('Summarize this note concisely.'),
+        icon: '💬', name: 'Resumir nota ativa',
+        action: () => this.inject('resuma a nota ativa e sugira melhorias'),
       },
       {
-        icon: '⚡', name: 'Expand selection to Zettels', shortcut: 'Ctrl+Shift+Z',
-        action: () => this.inject('Expand the selected text into Zettelkasten atomic notes with [[wikilinks]].'),
+        icon: '🌐', name: 'Pesquisar na web',
+        action: () => this.inject('pesquise na web sobre: '),
       },
       {
-        icon: '🗺', name: 'Generate MOC',
-        action: () => this.inject('Generate a Map of Content (MOC) for this note, listing related topics as [[wikilinks]].'),
+        icon: '📝', name: 'Criar nota',
+        action: () => this.inject('crie uma nota sobre: '),
       },
       {
-        icon: '🔗', name: 'Suggest backlinks',
-        action: () => this.inject('Suggest relevant [[wikilinks]] I should add to this note based on its content.'),
+        icon: '🔗', name: 'Sugerir wikilinks ausentes',
+        action: () => this.inject('sugira wikilinks ausentes na nota ativa'),
       },
       {
-        icon: '+', name: 'New session',
+        icon: '📂', name: 'Renomear nota ativa',
+        action: () => this.inject('renomeie a nota ativa para: '),
+      },
+      {
+        icon: '🗂️', name: 'Consolidar notas similares',
+        action: () => this.inject('consolide as notas similares à nota ativa'),
+      },
+      {
+        icon: '+', name: 'Nova sessão',
         action: () => {
           this.close();
           window.dispatchEvent(new CustomEvent('openclaude:new-session'));
         },
       },
       {
-        icon: '🩺', name: 'Server health check',
+        icon: '🩺', name: 'Status do servidor',
         action: async () => {
           let detail: string;
           try {
             const h = await this.plugin.api.health();
-            detail = `Server status: ${h.status} | version: ${h.version} | uptime: ${Math.round(h.uptime_ms / 1000)}s`;
+            detail = `Server: ${h.status} | version: ${h.version} | uptime: ${Math.round(h.uptime_ms / 1000)}s`;
           } catch (e) {
-            detail = `Server unreachable: ${e instanceof Error ? e.message : String(e)}`;
+            detail = `Server inacessível: ${e instanceof Error ? e.message : String(e)}`;
           }
           await this.inject(detail);
         },

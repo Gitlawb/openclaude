@@ -20,6 +20,7 @@ export interface PluginSettings {
   provider: ModelProvider;
   /** Override manual do caminho do vault. Deixe vazio para auto-detectar. */
   vaultPathOverride: string;
+  braveApiKey: string;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -29,6 +30,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   autoStartServer: true,
   preset: 'balanced',
   vaultPathOverride: '',
+  braveApiKey: '',
   provider: {
     type: 'ollama',
     baseUrl: 'http://localhost:11434/v1',
@@ -44,6 +46,7 @@ export type SseEvent =
   | { event: 'tool_result';  data: { id: string; ok: boolean; preview?: string } }
   | { event: 'pending_edit'; data: { id: string; file: string; reason: string } }
   | { event: 'insight';      data: { text: string } }
+  | { event: 'suggestions';  data: { items: string[] } }
   | { event: 'done';         data: { sessionId: string; finishReason: string } }
   | { event: 'error';        data: { code: string; message: string } };
 
@@ -81,6 +84,6 @@ export interface ChatRequest {
   message: string;
   sessionId?: string;
   // Keys match server's AgentFn context shape
-  context?: { activeNote?: string; vault?: string; selection?: string };
+  context?: { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string };
   preset?: 'conservative' | 'balanced' | 'aggressive';
 }

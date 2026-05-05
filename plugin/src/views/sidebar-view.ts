@@ -120,18 +120,19 @@ export class SidebarView extends ItemView {
     return basePath;
   }
 
-  private getActiveContext(): { activeNote?: string; vault?: string; selection?: string } {
+  private getActiveContext(): { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string } {
     const vault = this.getVaultPath();
+    const braveApiKey = this.plugin.settings.braveApiKey || undefined;
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view?.file) return { vault };   // vault sempre enviado, mesmo sem nota aberta
+    if (!view?.file) return { vault, braveApiKey };   // vault sempre enviado, mesmo sem nota aberta
     const editor = view.editor;
     const selection = editor.getSelection() || undefined;
     const lines = editor.getValue().split('\n').slice(0, 200).join('\n');
-    return { activeNote: lines, vault, selection };
+    return { activeNote: lines, vault, selection, braveApiKey };
   }
 
-  async sendMessage(): Promise<void> {
-    const text = this.inputEl.value.trim();
+  async sendMessage(overrideText?: string): Promise<void> {
+    const text = (overrideText ?? this.inputEl.value).trim();
     if (!text || this.abortController) return;
 
     this.inputEl.value = '';
@@ -183,7 +184,8 @@ export class SidebarView extends ItemView {
         const parent = contentEl.parentElement;
         if (!parent) break;
         const el = parent.createDiv({ cls: 'oc-tool-call' });
-        el.setText(`🔧 ${evt.data.name}…`);
+        const icon = evt.data.name === 'web_search' || evt.data.name === 'fetch_page' ? '🌐' : '🔧';
+        el.setText(`${icon} ${evt.data.name}…`);
         this.toolCallEls.set(evt.data.id, el);
         break;
       }
@@ -200,6 +202,16 @@ export class SidebarView extends ItemView {
         this.pendingCount++;
         this.refreshBadge();
         break;
+      case 'suggestions': {
+        const parent = contentEl.parentElement;
+        if (!parent || evt.data.items.length === 0) break;
+        const container = parent.createDiv({ cls: 'oc-suggestions' });
+        for (const item of evt.data.items) {
+          const chip = container.createEl('button', { cls: 'oc-suggestion-chip', text: item });
+          chip.addEventListener('click', () => this.sendMessage(item));
+        }
+        break;
+      }
       case 'done':
         this.currentSessionId = evt.data.sessionId;
         break;
