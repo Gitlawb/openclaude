@@ -1,9 +1,11 @@
-import { mkdirSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { getProjectDir } from '../../../src/utils/sessionStoragePortable.js'
 import type { Query } from '../../../src/entrypoints/sdk/index.js'
+
+let tempDirLockPromise: Promise<void> | null = null
 
 /**
  * Creates a temp directory and returns its path.
@@ -23,11 +25,36 @@ export async function withTempDir<T>(
   fn: (dir: string) => Promise<T>,
   prefix: string = 'sdk-test',
 ): Promise<T> {
+  while (tempDirLockPromise) {
+    await tempDirLockPromise
+  }
+
+  let releaseLock: (() => void) | undefined
+  tempDirLockPromise = new Promise<void>(resolve => {
+    releaseLock = resolve
+  })
+
   const dir = createTempDir(prefix)
+  const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const previousSimpleMode = process.env.CLAUDE_CODE_SIMPLE
+  process.env.CLAUDE_CONFIG_DIR = dir
+  process.env.CLAUDE_CODE_SIMPLE = '1'
   try {
     return await fn(dir)
   } finally {
+    if (previousConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+    }
+    if (previousSimpleMode === undefined) {
+      delete process.env.CLAUDE_CODE_SIMPLE
+    } else {
+      process.env.CLAUDE_CODE_SIMPLE = previousSimpleMode
+    }
     rmSync(dir, { recursive: true, force: true })
+    tempDirLockPromise = null
+    releaseLock?.()
   }
 }
 
@@ -42,7 +69,14 @@ export function createSessionJsonl(
   sessionId: string,
   entries: Array<Record<string, unknown>>,
 ): string {
-  const sessionDir = getProjectDir(cwd)
+  const canonicalCwd = (() => {
+    try {
+      return realpathSync(cwd)
+    } catch {
+      return cwd
+    }
+  })()
+  const sessionDir = getProjectDir(canonicalCwd)
   mkdirSync(sessionDir, { recursive: true })
   const filePath = join(sessionDir, `${sessionId}.jsonl`)
   const lines = entries.map(e => JSON.stringify(e))
