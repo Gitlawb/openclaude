@@ -1,4 +1,4 @@
-import { ItemView, MarkdownView, WorkspaceLeaf } from 'obsidian';
+import { FileSystemAdapter, ItemView, MarkdownView, WorkspaceLeaf } from 'obsidian';
 import type OpenClaudePlugin from '../main.js';
 import type { SseEvent, ChatRequest } from '../types.js';
 
@@ -106,14 +106,28 @@ export class SidebarView extends ItemView {
     this.sendBtn.disabled = status !== 'ok';
   }
 
-  private getActiveContext(): { activeNote?: string; vault?: string; selection?: string } {
+  private getVaultPath(): string {
+    // 1. Override manual configurado nas Settings (mais confiável)
+    const override = this.plugin.settings.vaultPathOverride?.trim();
+    if (override) return override;
+    // 2. API oficial do Obsidian para desktop (FileSystemAdapter)
+    // basePath existe em runtime mas não nos tipos públicos — cast seguro após instanceof
+    if (this.app.vault.adapter instanceof FileSystemAdapter) {
+      return (this.app.vault.adapter as FileSystemAdapter & { basePath: string }).basePath;
+    }
+    // 3. Fallback: cast antigo (compatibilidade)
     const basePath = (this.app.vault.adapter as { basePath?: string }).basePath ?? '';
+    return basePath;
+  }
+
+  private getActiveContext(): { activeNote?: string; vault?: string; selection?: string } {
+    const vault = this.getVaultPath();
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view?.file) return { vault: basePath };  // vault sempre enviado
+    if (!view?.file) return { vault };   // vault sempre enviado, mesmo sem nota aberta
     const editor = view.editor;
     const selection = editor.getSelection() || undefined;
     const lines = editor.getValue().split('\n').slice(0, 200).join('\n');
-    return { activeNote: lines, vault: basePath, selection };
+    return { activeNote: lines, vault, selection };
   }
 
   async sendMessage(): Promise<void> {
