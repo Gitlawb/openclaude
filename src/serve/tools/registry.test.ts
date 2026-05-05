@@ -23,7 +23,7 @@ describe("buildRegistry", () => {
     expect(names).not.toContain("fetch_page");
   });
 
-  it.skip("includes web tools when braveApiKey is set (Task 3)", () => {
+  it("includes web tools when braveApiKey is set (Task 3)", () => {
     const modules = buildRegistry({ vault: "/tmp/v", braveApiKey: "BSA_KEY" });
     const names = modules.map(m => m.definition.function.name);
     expect(names).toContain("web_search");

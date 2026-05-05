@@ -7,13 +7,19 @@ type ServerConfig = {
   permissions: { preset: "conservador" | "balanceado" | "agressivo" };
   backup: { retentionDays: number };
   rateLimit: { windowMs: number; max: number };
+  /** Vault padrão usado quando o plugin não envia vault no contexto. */
+  defaultVault?: string;
 };
 
 const DEFAULTS: ServerConfig = {
   permissions: { preset: "balanceado" },
   backup: { retentionDays: 30 },
   rateLimit: { windowMs: 60_000, max: 100 },
+  defaultVault: "",
 };
+
+export { type ServerConfig };
+export { readConfig };
 
 function configPath(): string {
   return join(homedir(), ".openclaude", "server-config.json");

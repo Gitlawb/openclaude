@@ -15,7 +15,7 @@ export type AgentEvent =
 export type AgentFn = (input: {
   message: string;
   sessionId: string;
-  context?: { activeNote?: string; vault?: string; selection?: string };
+  context?: { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string };
 }) => AsyncIterable<AgentEvent>;
 
 let mockAgent: AgentFn | null = null;
