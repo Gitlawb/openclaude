@@ -30,7 +30,7 @@ describe("buildRegistry", () => {
     expect(names).toContain("fetch_page");
   });
 
-  it.skip("includes format tools when vault is set (Task 4)", () => {
+  it("includes format tools when vault is set (Task 4)", () => {
     const modules = buildRegistry({ vault: "/tmp/v" });
     const names = modules.map(m => m.definition.function.name);
     expect(names).toContain("summarize_notes");
