@@ -1360,7 +1360,26 @@ export async function buildStartupEnvFromProfile(options?: {
   }
 
   if (!persisted) {
-    return processEnv
+    // No saved profile — default to Codex OAuth / GPT 5.5.
+    // If Codex credentials are available (OAuth or existing), use Codex.
+    // Otherwise inject the Codex env defaults so the provider picker
+    // shows GPT 5.5 as the default model when the user lands on it.
+    const codexEnv = buildCodexProfileEnv({})
+    if (codexEnv) {
+      return buildCompatibilityProcessEnv({
+        processEnv,
+        compatibilityMode: 'openai',
+        profileEnv: codexEnv,
+      })
+    }
+    return buildCompatibilityProcessEnv({
+      processEnv,
+      compatibilityMode: 'openai',
+      profileEnv: {
+        OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+        OPENAI_MODEL: 'codexplan',
+      },
+    })
   }
 
   return buildLaunchEnv({

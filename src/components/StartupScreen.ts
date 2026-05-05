@@ -171,7 +171,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
 
   // Default: Anthropic - check settings.model first, then env vars
   const settings = getSettings_DEPRECATED() || {}
-  const modelSetting = modelOverride || settings.model || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
+  const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)

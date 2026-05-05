@@ -656,6 +656,22 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
   })
 
+  beforeEach(() => {
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_USE_MISTRAL
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env.CLAUDE_CODE_USE_BEDROCK
+    delete process.env.CLAUDE_CODE_USE_VERTEX
+    delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+  })
+
   test('applies active profile when a bare CLAUDE_CODE_USE_OPENAI flag is stale (no BASE_URL/MODEL)', async () => {
     // Regression: a leftover `CLAUDE_CODE_USE_OPENAI=1` in the shell with no
     // paired OPENAI_BASE_URL / OPENAI_MODEL is not a real explicit selection
@@ -1434,6 +1450,22 @@ describe('setActiveProviderProfile', () => {
 })
 
 describe('deleteProviderProfile', () => {
+  beforeEach(() => {
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_USE_MISTRAL
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env.CLAUDE_CODE_USE_BEDROCK
+    delete process.env.CLAUDE_CODE_USE_VERTEX
+    delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+  })
+
   test('deleting final profile clears provider env when active profile applied it', async () => {
     const {
       applyProviderProfileToProcessEnv,

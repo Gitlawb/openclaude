@@ -209,7 +209,7 @@ test('openai launch ignores codex shell transport hints', async () => {
   })
 
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
-  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(env.OPENAI_MODEL, 'gpt-5.5')
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
 })
 
@@ -228,7 +228,7 @@ test('openai launch ignores codex persisted transport hints', async () => {
   })
 
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
-  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(env.OPENAI_MODEL, 'gpt-5.5')
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
 })
 
@@ -1220,7 +1220,7 @@ test('openai profiles ignore codex shell transport hints', () => {
 
   assert.deepEqual(env, {
     OPENAI_BASE_URL: 'https://api.openai.com/v1',
-    OPENAI_MODEL: 'gpt-4o',
+    OPENAI_MODEL: 'gpt-5.5',
     OPENAI_API_KEY: 'sk-live',
   })
 })
@@ -1269,7 +1269,7 @@ test('openai profiles ignore poisoned shell model and base url values', () => {
 
   assert.deepEqual(env, {
     OPENAI_BASE_URL: 'https://api.openai.com/v1',
-    OPENAI_MODEL: 'gpt-4o',
+    OPENAI_MODEL: 'gpt-5.5',
     OPENAI_API_KEY: 'sk-live',
   })
 })
@@ -1302,7 +1302,7 @@ test('startup env ignores poisoned persisted openai model and base url', async (
 
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
   assert.equal(env.OPENAI_API_KEY, 'sk-live')
-  assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(env.OPENAI_MODEL, 'gpt-5.5')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
 })
 

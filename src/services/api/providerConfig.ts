@@ -541,7 +541,7 @@ export function resolveProviderRequest(options?: {
       : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
-    (isGithubMode ? 'github:copilot' : 'gpt-4o')
+    (isGithubMode ? 'github:copilot' : 'codexplan')
   const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
