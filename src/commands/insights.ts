@@ -20,8 +20,8 @@ import { toError } from '../utils/errors.js'
 import { logError } from '../utils/log.js'
 import { extractTextContent } from '../utils/messages.js'
 import { getDefaultOpusModel } from '../utils/model/model.js'
+import { getProjectsDir } from '../utils/envUtils.js'
 import {
-  getProjectsDir,
   getSessionFilesWithMtime,
   getSessionIdFromLog,
   loadAllLogsFromSessionFile,
