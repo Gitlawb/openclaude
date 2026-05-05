@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/Gitlawb/openclaude/compare/v0.9.0...v0.9.1) (2026-05-05)
+
+
+### Bug Fixes
+
+* **theme:** remove stale memo wrappers from theme context hooks ([#534](https://github.com/Gitlawb/openclaude/issues/534)) ([094f04c](https://github.com/Gitlawb/openclaude/commit/094f04c8036200eb3c51b7b7b4ec3c75ee83b3a0))
+
 ## [0.9.0](https://github.com/Gitlawb/openclaude/compare/v0.8.0...v0.9.0) (2026-05-05)
 
 
