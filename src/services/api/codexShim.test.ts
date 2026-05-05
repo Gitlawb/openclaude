@@ -6,6 +6,7 @@ import {
   codexStreamToAnthropic,
   convertAnthropicMessagesToResponsesInput,
   convertCodexResponseToAnthropicMessage,
+  convertSystemPrompt,
   convertToolsToResponsesTools,
 } from './codexShim.js'
 import { __test as webSearchToolTest } from '../../tools/WebSearchTool/WebSearchTool.js'
@@ -880,6 +881,43 @@ describe('Codex request translation', () => {
 
     expect(textDeltas.join('')).toBe(
       'I should note that the user role requires a briefly concise friendly response format.',
+    )
+  })
+})
+
+describe('convertSystemPrompt', () => {
+  test('strips Anthropic attribution header block from text-block array (#607)', () => {
+    const result = convertSystemPrompt([
+      {
+        type: 'text',
+        text:
+          'x-anthropic-billing-header: cc_version=0.8.0.abc123; ' +
+          'cc_entrypoint=cli;',
+      },
+      { type: 'text', text: 'You are Claude Code.' },
+      { type: 'text', text: 'Project context: bun + react.' },
+    ])
+
+    expect(result).not.toContain('x-anthropic-billing-header')
+    expect(result).not.toContain('cc_version=')
+    expect(result).toContain('You are Claude Code.')
+    expect(result).toContain('Project context: bun + react.')
+  })
+
+  test('returns empty string when only the attribution block is present', () => {
+    const result = convertSystemPrompt([
+      {
+        type: 'text',
+        text: 'x-anthropic-billing-header: cc_version=0.8.0.abc;',
+      },
+    ])
+
+    expect(result).toBe('')
+  })
+
+  test('passes plain string system prompts through untouched', () => {
+    expect(convertSystemPrompt('You are Claude Code.')).toBe(
+      'You are Claude Code.',
     )
   })
 })

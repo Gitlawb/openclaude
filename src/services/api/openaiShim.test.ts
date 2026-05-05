@@ -4923,3 +4923,99 @@ test('Z.AI: thinking mode enabled when requested', async () => {
   expect(requestBody?.max_completion_tokens).toBeUndefined()
   expect(requestBody?.max_tokens).toBe(1024)
 })
+
+test('strips Anthropic attribution header block from chat-completions system prompt (#607)', async () => {
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'gpt-4o',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    system: [
+      {
+        type: 'text',
+        text:
+          'x-anthropic-billing-header: cc_version=0.8.0.abc123; ' +
+          'cc_entrypoint=cli;',
+      },
+      { type: 'text', text: 'You are Claude Code, helpful assistant.' },
+      { type: 'text', text: 'Project context: bun + react.' },
+    ],
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = capturedBody?.messages as Array<{ role: string; content: string }>
+  const sysMsg = messages.find(m => m.role === 'system')
+  expect(sysMsg).toBeDefined()
+  expect(sysMsg?.content).not.toContain('x-anthropic-billing-header')
+  expect(sysMsg?.content).not.toContain('cc_version=')
+  expect(sysMsg?.content).toContain('You are Claude Code, helpful assistant.')
+  expect(sysMsg?.content).toContain('Project context: bun + react.')
+})
+
+test('strips Anthropic attribution header block from responses-API instructions (#607)', async () => {
+  process.env.OPENAI_API_FORMAT = 'responses'
+  let capturedBody: Record<string, unknown> | undefined
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'resp-1',
+        model: 'gpt-5.4',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'ok' }],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({ defaultHeaders: {} }) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'gpt-5.4',
+    system: [
+      {
+        type: 'text',
+        text: 'x-anthropic-billing-header: cc_version=0.8.0.abc123; cc_entrypoint=cli;',
+      },
+      { type: 'text', text: 'You are Claude Code.' },
+    ],
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const instructions = capturedBody?.instructions as string
+  expect(instructions).not.toContain('x-anthropic-billing-header')
+  expect(instructions).not.toContain('cc_version=')
+  expect(instructions).toContain('You are Claude Code.')
+})

@@ -121,7 +121,7 @@ function normalizeToolUseId(toolUseId: string | undefined): {
   }
 }
 
-function convertSystemPrompt(system: unknown): string {
+export function convertSystemPrompt(system: unknown): string {
   if (!system) return ''
   if (typeof system === 'string') return system
   if (Array.isArray(system)) {
@@ -129,6 +129,10 @@ function convertSystemPrompt(system: unknown): string {
       .map((block: { type?: string; text?: string }) =>
         block.type === 'text' ? (block.text ?? '') : '',
       )
+      // Drop the Anthropic billing/attribution block — Codex's Responses API
+      // doesn't parse it and the per-build fingerprint just churns the
+      // upstream prompt cache.
+      .filter(text => !text.startsWith('x-anthropic-billing-header'))
       .join('\n\n')
   }
   return String(system)

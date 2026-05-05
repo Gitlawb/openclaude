@@ -248,6 +248,11 @@ function convertSystemPrompt(
       .map((block: { type?: string; text?: string }) =>
         block.type === 'text' ? block.text ?? '' : '',
       )
+      // Drop the Anthropic billing/attribution block — it's only meaningful to
+      // Anthropic's `_parse_cc_header` and is dead weight (plus a churning
+      // per-build fingerprint that busts prefix KV cache) for OpenAI-compat
+      // providers like local Ollama / llama.cpp / Codex pass-throughs.
+      .filter(text => !text.startsWith('x-anthropic-billing-header'))
       .join('\n\n')
   }
   return String(system)
