@@ -17,6 +17,6 @@ export const SHELL_TOOL_NAMES: string[] = [BASH_TOOL_NAME, POWERSHELL_TOOL_NAME]
 export function isPowerShellToolEnabled(): boolean {
   if (getPlatform() !== 'windows') return false
   return process.env.USER_TYPE === 'ant'
-    ? !isEnvDefinedFalsy(process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL)
-    : isEnvTruthy(process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL)
+    ? !isEnvDefinedFalsy(process.env.OPENCLAUDE_USE_POWERSHELL_TOOL)
+    : isEnvTruthy(process.env.OPENCLAUDE_USE_POWERSHELL_TOOL)
 }
