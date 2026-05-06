@@ -2,40 +2,13 @@ import type { ToolModule, ToolContext, VaultToolResult } from "./registry";
 import { readNote, walk, vaultRelative } from "../vaultUtils";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { createCombinedAbortSignal } from "../../utils/combinedAbortSignal";
+import { callLLM } from "./llmUtils";
 
 interface LinkSuggestion {
   targetNote: string;
   suggestedLink: string;
   reason: string;
   occurrences: number;
-}
-
-/** Make a non-streaming LLM call and return the text response. */
-async function callLLM(prompt: string): Promise<string> {
-  const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
-  const apiKey = process.env.OPENAI_API_KEY ?? "";
-  const model = process.env.OPENCLAUDE_MODEL ?? "gpt-4o-mini";
-
-  const { signal, cleanup } = createCombinedAbortSignal(undefined, { timeoutMs: 60_000 });
-  try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      signal,
-    });
-
-    if (!res.ok) throw new Error(`LLM sub-call failed: ${res.status}`);
-    const data = await res.json() as any;
-    return data.choices?.[0]?.message?.content ?? "";
-  } finally {
-    cleanup();
-  }
 }
 
 /** Extract heading titles from all vault notes as potential link targets. */
