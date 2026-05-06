@@ -156,6 +156,17 @@ function hasGeminiApiHost(baseUrl: string | undefined): boolean {
   }
 }
 
+function hasCerebrasApiHost(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase()
+    return host === 'api.cerebras.ai' || host.endsWith('.cerebras.ai')
+  } catch {
+    return false
+  }
+}
+
 function normalizeDeepSeekReasoningEffort(
   effort: 'low' | 'medium' | 'high' | 'xhigh',
 ): 'high' | 'max' {
@@ -1594,7 +1605,8 @@ class OpenAIShimMessages {
     const shouldStripResponsesStore =
       (shimConfig.removeBodyFields ?? []).includes('store') ||
       isGeminiMode() ||
-      hasGeminiApiHost(request.baseUrl)
+      hasGeminiApiHost(request.baseUrl) ||
+      hasCerebrasApiHost(request.baseUrl)
 
     if (
       shimConfig.maxTokensField === 'max_tokens' &&
