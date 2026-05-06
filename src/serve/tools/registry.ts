@@ -38,7 +38,12 @@ export interface ToolModule {
 
 export function buildRegistry(ctx: ToolContext): ToolModule[] {
   const modules: ToolModule[] = [];
-  modules.push(...thoughtToolModules(ctx));   // always available
+  // Thought tools require the OpenAI-compatible path (CLAUDE_CODE_USE_OPENAI=1)
+  // because they make direct sub-calls to callLLM. On the Anthropic path there
+  // is no OPENAI_API_KEY and registering them would only waste agent turns on 401s.
+  if (process.env.CLAUDE_CODE_USE_OPENAI === "1") {
+    modules.push(...thoughtToolModules(ctx));
+  }
   if (ctx.vault) {
     modules.push(...vaultToolModules(ctx));
     modules.push(...formatToolModules(ctx));

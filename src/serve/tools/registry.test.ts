@@ -2,13 +2,29 @@ import { describe, it, expect } from "bun:test";
 import { buildRegistry } from "./registry";
 
 describe("buildRegistry", () => {
-  it("returns only thought tools when no vault or braveApiKey", () => {
-    const modules = buildRegistry({});
-    const names = modules.map(m => m.definition.function.name);
-    expect(names).toContain("structure_thought");
-    expect(names).toContain("refine_argument");
-    expect(names).toContain("counter_argument");
-    expect(modules.length).toBe(3);
+  it("returns empty when no vault, braveApiKey, or CLAUDE_CODE_USE_OPENAI", () => {
+    const prev = process.env.CLAUDE_CODE_USE_OPENAI;
+    delete process.env.CLAUDE_CODE_USE_OPENAI;
+    try {
+      const modules = buildRegistry({});
+      expect(modules.length).toBe(0);
+    } finally {
+      if (prev !== undefined) process.env.CLAUDE_CODE_USE_OPENAI = prev;
+    }
+  });
+
+  it("includes thought tools when CLAUDE_CODE_USE_OPENAI=1", () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+    try {
+      const modules = buildRegistry({});
+      const names = modules.map(m => m.definition.function.name);
+      expect(names).toContain("structure_thought");
+      expect(names).toContain("refine_argument");
+      expect(names).toContain("counter_argument");
+      expect(modules.length).toBe(3);
+    } finally {
+      delete process.env.CLAUDE_CODE_USE_OPENAI;
+    }
   });
 
   it("includes vault tools when vault is set", () => {

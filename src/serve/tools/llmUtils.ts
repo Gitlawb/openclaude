@@ -26,7 +26,9 @@ export async function callLLM(prompt: string): Promise<string> {
     });
     if (!res.ok) throw new Error(`LLM sub-call failed: ${res.status}`);
     const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    return data.choices?.[0]?.message?.content ?? "";
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("LLM returned empty content");
+    return content;
   } finally {
     cleanup();
   }
