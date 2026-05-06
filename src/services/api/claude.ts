@@ -836,6 +836,7 @@ export async function* executeNonStreamingRequest(
     fetchOverride?: Options['fetchOverride']
     source: string
     providerOverride?: Options['providerOverride']
+    effortValue?: EffortValue
   },
   retryOptions: {
     model: string
@@ -864,6 +865,7 @@ export async function* executeNonStreamingRequest(
         fetchOverride: clientOptions.fetchOverride,
         source: clientOptions.source,
         providerOverride: clientOptions.providerOverride,
+        effortValue: clientOptions.effortValue,
       }),
     async (anthropic, attempt, context) => {
       const start = Date.now()
@@ -1836,6 +1838,7 @@ async function* queryModel(
           fetchOverride: options.fetchOverride,
           source: options.querySource,
           providerOverride: options.providerOverride,
+          effortValue: effort,
         }),
       async (anthropic, attempt, context) => {
         attemptNumber = attempt
@@ -2604,7 +2607,7 @@ async function* queryModel(
           : 'other') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
       const result = yield* executeNonStreamingRequest(
-        { model: options.model, source: options.querySource, providerOverride: options.providerOverride },
+        { model: options.model, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
         {
           model: options.model,
           fallbackModel: options.fallbackModel,
@@ -2701,12 +2704,15 @@ async function* queryModel(
       })
 
       try {
-        // Fall back to non-streaming mode
+        // Fall back to non-streaming mode. Preserve both the provider override
+        // (route fallback calls to a specific provider when present) and the
+        // effort propagation (send reasoning_effort/effortValue when applicable).
         const result = yield* executeNonStreamingRequest(
           {
             model: options.model,
             source: options.querySource,
             providerOverride: options.providerOverride,
+            ...(typeof effort !== 'undefined' ? { effortValue: effort } : {}),
           },
           {
             model: options.model,
