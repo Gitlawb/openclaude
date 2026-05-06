@@ -11,10 +11,11 @@ import {
   isClaudeAISubscriber,
 } from './auth.js'
 import { getAPIProvider } from './model/providers.js'
-import { getClaudeCodeUserAgent } from './userAgent.js'
+import { getClaudeCodeUserAgent, getPublicBuildVersion } from './userAgent.js'
 import { getWorkload } from './workloadContext.js'
 
-// WARNING: We rely on `claude-cli` in the user agent for log filtering.
+// WARNING: Anthropic-owned endpoints rely on the `claude-cli` token for
+// backend/log filtering compatibility.
 // Please do NOT change this without making sure that logging also gets updated!
 export function getUserAgent(): string {
   const agentSdkVersion = process.env.CLAUDE_AGENT_SDK_VERSION
@@ -35,6 +36,25 @@ export function getUserAgent(): string {
   return `claude-cli/${MACRO.VERSION} (${process.env.USER_TYPE}, ${process.env.CLAUDE_CODE_ENTRYPOINT ?? 'cli'}${agentSdkVersion}${clientApp}${workloadSuffix})`
 }
 
+// Provider-routed API requests can use OpenClaude branding as long as
+// Anthropic first-party traffic keeps the compatibility token above.
+export function getProviderApiUserAgent(
+  options?: { isFirstParty?: boolean },
+): string {
+  const agentSdkVersion = process.env.CLAUDE_AGENT_SDK_VERSION
+    ? `, agent-sdk/${process.env.CLAUDE_AGENT_SDK_VERSION}`
+    : ''
+  const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
+    ? `, client-app/${process.env.CLAUDE_AGENT_SDK_CLIENT_APP}`
+    : ''
+  const workload = getWorkload()
+  const workloadSuffix = workload ? `, workload/${workload}` : ''
+  const isFirstParty = options?.isFirstParty ?? getAPIProvider() === 'firstParty'
+  const productName = isFirstParty ? 'claude-cli' : 'openclaude-cli'
+  const version = isFirstParty ? MACRO.VERSION : getPublicBuildVersion()
+  return `${productName}/${version} (${process.env.USER_TYPE}, ${process.env.CLAUDE_CODE_ENTRYPOINT ?? 'cli'}${agentSdkVersion}${clientApp}${workloadSuffix})`
+}
+
 export function getMCPUserAgent(): string {
   const parts: string[] = []
   if (process.env.CLAUDE_CODE_ENTRYPOINT) {
@@ -47,7 +67,7 @@ export function getMCPUserAgent(): string {
     parts.push(`client-app/${process.env.CLAUDE_AGENT_SDK_CLIENT_APP}`)
   }
   const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : ''
-  return `claude-code/${MACRO.VERSION}${suffix}`
+  return `claude-code/${getPublicBuildVersion()}${suffix}`
 }
 
 // User-Agent for WebFetch requests to arbitrary sites. `Claude-User` is

@@ -9,7 +9,7 @@ import {
   refreshAndGetAwsCredentials,
   refreshGcpCredentialsIfNeeded,
 } from 'src/utils/auth.js'
-import { getUserAgent } from 'src/utils/http.js'
+import { getProviderApiUserAgent } from 'src/utils/http.js'
 import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
@@ -175,10 +175,14 @@ export async function getAnthropicClient({
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
+  const shouldUseFirstPartyAuth =
+    shouldUseFirstPartyAnthropicAuth(providerOverride)
   const customHeaders = getCustomHeaders()
   const defaultHeaders: { [key: string]: string } = {
     'x-app': 'cli',
-    'User-Agent': getUserAgent(),
+    'User-Agent': getProviderApiUserAgent({
+      isFirstParty: shouldUseFirstPartyAuth,
+    }),
     'X-Claude-Code-Session-Id': getSessionId(),
     ...customHeaders,
     ...(containerId ? { 'x-claude-remote-container-id': containerId } : {}),
@@ -201,9 +205,6 @@ export async function getAnthropicClient({
   if (additionalProtectionEnabled) {
     defaultHeaders['x-anthropic-additional-protection'] = 'true'
   }
-
-  const shouldUseFirstPartyAuth =
-    shouldUseFirstPartyAnthropicAuth(providerOverride)
 
   if (shouldUseFirstPartyAuth) {
     logForDebugging('[API:auth] OAuth token check starting')

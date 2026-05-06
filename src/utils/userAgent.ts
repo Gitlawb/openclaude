@@ -5,6 +5,10 @@
  * import without pulling in auth.ts and its transitive dependency tree.
  */
 
+export function getPublicBuildVersion(): string {
+  return MACRO.DISPLAY_VERSION || MACRO.VERSION
+}
+
 export function getClaudeCodeUserAgent(): string {
   return `claude-code/${MACRO.VERSION}`
 }
