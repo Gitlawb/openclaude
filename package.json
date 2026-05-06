@@ -45,6 +45,7 @@
     "dev:code": "bun run profile:code && bun run dev:profile",
     "dev:grpc": "bun run scripts/start-grpc.ts",
     "dev:grpc:cli": "bun run scripts/grpc-cli.ts",
+    "dev:web": "bun run scripts/start-web.ts",
     "start": "node dist/cli.mjs",
     "web:dev": "bun run --cwd web dev",
     "web:build": "bun run --cwd web build",
