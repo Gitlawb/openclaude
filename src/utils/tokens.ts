@@ -1,8 +1,101 @@
+import { createHash } from 'crypto'
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { roughTokenCountEstimation, roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import type { AssistantMessage, Message } from '../types/message.js'
 import { SYNTHETIC_MESSAGES, SYNTHETIC_MODEL } from './messages.js'
 import { jsonStringify } from './slowOperations.js'
+import { InMemoryTokenCache } from './inMemoryTokenCache.js'
+
+let _inMemoryTokenCache: InMemoryTokenCache | undefined
+
+export function getInMemoryTokenCache(): InMemoryTokenCache {
+  if (!_inMemoryTokenCache) {
+    _inMemoryTokenCache = new InMemoryTokenCache(200, 48 * 60 * 60 * 1000)
+  }
+  return _inMemoryTokenCache
+}
+
+export const inMemoryTokenCache = { get cache() { return getInMemoryTokenCache() } }
+
+function cachedTokenCount(content: string): number {
+  if (content.length < 20) {
+    return roughTokenCountEstimation(content)
+  }
+  return getInMemoryTokenCache().getTokenCount(content)
+}
+
+function getMessageHash(message: Message): string {
+  return createHash('sha256')
+    .update(jsonStringify(message.message?.content ?? ''))
+    .digest('hex')
+    .slice(0, 16)
+}
+
+function cachedMessageTokenEstimate(message: Message): number {
+  const hash = getMessageHash(message)
+  const cache = getInMemoryTokenCache()
+  const existing = cache.cache.get(hash)
+  if (existing) {
+    return existing.tokenCount
+  }
+  const estimate = getMessageTokenEstimate(message)
+  cache.cache.set(hash, { contentHash: hash, contentPreview: '', tokenCount: estimate, lastUsed: Date.now(), useCount: 1 })
+  return estimate
+}
+
+function getMessageContentString(message: Message): string {
+  const content = message.message?.content
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content.map(c => {
+      if (typeof c === 'string') return c
+      if (typeof c === 'object' && c !== null) {
+        if ('text' in c) return (c as any).text ?? ''
+        if ('type' in c) return JSON.stringify(c)
+      }
+      return ''
+    }).join('\n')
+  }
+  return ''
+}
+
+function getMessageTokenEstimate(message: Message): number {
+  const content = message.message?.content
+  if (typeof content === 'string') {
+    return roughTokenCountEstimation(content)
+  }
+  if (Array.isArray(content)) {
+    let tokens = 0
+    for (const block of content) {
+      if (typeof block === 'object' && block !== null) {
+        const b = block as Record<string, unknown>
+        if (b.type === 'image') {
+          tokens += 2000
+        } else if (b.type === 'document') {
+          tokens += 500
+        } else if ('text' in b && typeof b.text === 'string') {
+          tokens += roughTokenCountEstimation(b.text)
+        } else if ('thinking' in b && typeof b.thinking === 'string') {
+          tokens += roughTokenCountEstimation(b.thinking)
+        } else if ('tool_use' in b || 'tool_result' in b) {
+          tokens += 200
+        } else {
+          tokens += roughTokenCountEstimation(JSON.stringify(block))
+        }
+      }
+    }
+    return tokens
+  }
+  return 0
+}
+
+function cachedRoughTokenCountForMessages(messages: readonly Message[]): number {
+  let total = 0
+  for (const msg of messages) {
+    total += cachedMessageTokenEstimate(msg)
+  }
+  return total
+}
 
 export function getTokenUsage(message: Message): Usage | undefined {
   if (
@@ -444,10 +537,10 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
       }
       return (
         getTokenCountFromUsage(usage) +
-        roughTokenCountEstimationForMessages(messages.slice(i + 1))
+        cachedRoughTokenCountForMessages(messages.slice(i + 1))
       )
     }
     i--
   }
-  return roughTokenCountEstimationForMessages(messages)
+  return cachedRoughTokenCountForMessages(messages)
 }
