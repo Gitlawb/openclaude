@@ -69,4 +69,39 @@ describe("POST /chat", () => {
     const done = events.find(e => e.event === "done");
     expect(done?.data.sessionId).toMatch(/^[0-9a-f-]{36}$/);
   });
+
+  it("passes conversation history to agent on second message in same session", async () => {
+    const receivedHistories: Array<Array<{ role: string; content: string }>> = [];
+
+    setMockAgent(async function* (input) {
+      receivedHistories.push(input.history ?? []);
+      yield { event: "token" as const, data: { text: "resposta do agente" } };
+      yield { event: "done" as const, data: { sessionId: input.sessionId, finishReason: "stop" } };
+    });
+
+    // First message — no prior history
+    const r1 = await fetch(`${server.url}/chat`, {
+      method: "POST",
+      headers: { ...auth(), "content-type": "application/json" },
+      body: JSON.stringify({ message: "primeira mensagem" }),
+    });
+    const events1 = await parseSse(r1.body);
+    const done1 = events1.find(e => e.event === "done");
+    const sessionId = done1?.data?.sessionId;
+
+    // Second message in same session
+    await fetch(`${server.url}/chat`, {
+      method: "POST",
+      headers: { ...auth(), "content-type": "application/json" },
+      body: JSON.stringify({ message: "segunda mensagem", sessionId }),
+    });
+
+    // First call: no history
+    expect(receivedHistories[0]).toEqual([]);
+    // Second call: history has at least the user message from first turn
+    expect(receivedHistories[1].length).toBeGreaterThan(0);
+    const firstMsg = receivedHistories[1][0];
+    expect(firstMsg.role).toBe("user");
+    expect(firstMsg.content).toContain("primeira mensagem");
+  });
 });

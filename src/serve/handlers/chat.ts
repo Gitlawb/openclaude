@@ -15,7 +15,8 @@ export type AgentEvent =
 export type AgentFn = (input: {
   message: string;
   sessionId: string;
-  context?: { activeNote?: string; vault?: string; selection?: string };
+  context?: { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string };
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
 }) => AsyncIterable<AgentEvent>;
 
 let activeAgent: AgentFn | null = null;
@@ -34,11 +35,27 @@ export function chatRoute(sm: SessionManager): Route {
         throw new ServerError(ErrorCode.VALIDATION, "body.message required");
       }
       const session = input.sessionId ? (sm.get(input.sessionId) ?? sm.create()) : sm.create();
+
+      // Build history before appending current user message (last 20 user+assistant messages)
+      const history = session.messages
+        .filter(m => m.role === "user" || m.role === "assistant")
+        .slice(-20)
+        .map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+      // Append current user message
       sm.append(session.id, { role: "user", content: input.message, ts: Date.now() });
 
       const sse = new SseWriter(res);
+      let assistantText = "";
+
       try {
-        for await (const evt of activeAgent({ message: input.message, sessionId: session.id, context: input.context })) {
+        for await (const evt of activeAgent({
+          message: input.message,
+          sessionId: session.id,
+          context: input.context,
+          history,
+        })) {
+          if (evt.event === "token") assistantText += evt.data.text;
           if (evt.event === "done") {
             sse.send(evt.event, { ...(evt.data as object), sessionId: session.id });
           } else {
@@ -48,6 +65,9 @@ export function chatRoute(sm: SessionManager): Route {
       } catch (err) {
         sse.send("error", { code: "INTERNAL", message: String(err) });
       } finally {
+        if (assistantText) {
+          sm.append(session.id, { role: "assistant", content: assistantText, ts: Date.now() });
+        }
         sse.end();
       }
     },
