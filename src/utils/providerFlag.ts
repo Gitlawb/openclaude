@@ -90,7 +90,7 @@ export function applyProviderFlagFromArgs(
  * Extract the value of --model from argv.
  * Returns null if absent.
  */
-function parseModelFlag(args: string[]): string | null {
+export function parseModelFlag(args: string[]): string | null {
   const idx = args.indexOf('--model')
   if (idx === -1) return null
   const value = args[idx + 1]
@@ -117,6 +117,49 @@ function getRouteDefaults(provider: string): {
   return {
     defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl,
     defaultModel,
+  }
+}
+
+/**
+ * Apply --model (without --provider) to process.env for the current process only.
+ *
+ * Issue #808: `openclaude --model <name>` should work standalone so users can
+ * override the session model without reconfiguring a profile or polluting the
+ * shell with OPENAI_MODEL=... Must run before the startup banner so the
+ * displayed model matches the flag, and before resolution paths that read the
+ * provider-specific *_MODEL env var directly.
+ *
+ * Routes the value to the env var matching the already-active provider
+ * (detected from CLAUDE_CODE_USE_* vars set by saved profile or env). Returns
+ * undefined when --model is absent or --provider is present (that path is
+ * handled by applyProviderFlagFromArgs).
+ */
+export function applyModelFlagFromArgs(args: string[]): void {
+  if (args.includes('--provider')) return
+  const model = parseModelFlag(args)
+  if (!model) return
+
+  const useGemini =
+    process.env.CLAUDE_CODE_USE_GEMINI === '1' ||
+    process.env.CLAUDE_CODE_USE_GEMINI === 'true'
+  const useMistral =
+    process.env.CLAUDE_CODE_USE_MISTRAL === '1' ||
+    process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
+  const useOpenAI =
+    process.env.CLAUDE_CODE_USE_OPENAI === '1' ||
+    process.env.CLAUDE_CODE_USE_OPENAI === 'true'
+  const useGithub =
+    process.env.CLAUDE_CODE_USE_GITHUB === '1' ||
+    process.env.CLAUDE_CODE_USE_GITHUB === 'true'
+
+  if (useGemini) {
+    process.env.GEMINI_MODEL = model
+  } else if (useMistral) {
+    process.env.MISTRAL_MODEL = model
+  } else if (useOpenAI || useGithub) {
+    process.env.OPENAI_MODEL = model
+  } else {
+    process.env.ANTHROPIC_MODEL = model
   }
 }
 
