@@ -29,6 +29,7 @@ export class SidebarView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.buildUI();
+    this.showStarterChips();
     this.updateContextCard();
     this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.updateContextCard()));
     this.plugin.serverManager.onStatus(this.boundStatusListener);
@@ -276,6 +277,29 @@ export class SidebarView extends ItemView {
     if (!edits.length) return;
     const { DiffPreviewModal } = await import('../modals/diff-preview-modal.js');
     new DiffPreviewModal(this.app, this.plugin, edits[0]).open();
+  }
+
+  private showStarterChips(): void {
+    const starters = [
+      'qual argumento devo desenvolver hoje?',
+      'estruture meu último pensamento',
+      'gere um contra-argumento para minha última ideia',
+      'que lacunas existem nas minhas notas de projetos?',
+    ];
+    const wrap = this.chatLog.createDiv({ cls: 'oc-starters' });
+    wrap.createDiv({ cls: 'oc-starters-label', text: 'Comece com:' });
+    const chips = wrap.createDiv({ cls: 'oc-suggestions' });
+    for (const text of starters) {
+      const chip = chips.createEl('button', { cls: 'oc-suggestion-chip', text });
+      chip.addEventListener('click', () => {
+        wrap.remove();
+        this.sendMessage(text);
+      });
+    }
+    // Remove starter chips when a new session is started
+    this.registerDomEvent(window, 'openclaude:new-session' as keyof WindowEventMap, () => {
+      wrap.remove();
+    });
   }
 
   private startPendingPoll(): void {

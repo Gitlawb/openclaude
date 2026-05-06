@@ -80,6 +80,19 @@ export class CommandHubModal extends Modal {
         icon: '🗂️', name: 'Consolidar notas similares',
         action: () => this.inject('consolide as notas similares à nota ativa'),
       },
+      // ── Argument tools ───────────────────────────────────────────────────
+      {
+        icon: '🧠', name: 'Contra-argumento',
+        action: () => this.inject('gere o melhor contra-argumento para o que acabei de dizer'),
+      },
+      {
+        icon: '🏗️', name: 'Estruturar pensamento',
+        action: () => this.inject('estruture este pensamento no formato mais adequado: ___'),
+      },
+      {
+        icon: '✏️', name: 'Refinar argumento',
+        action: () => this.inject('refine o argumento acima: ___'),
+      },
       {
         icon: '+', name: 'Nova sessão',
         action: () => {

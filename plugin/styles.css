@@ -153,3 +153,17 @@
   outline: 2px solid var(--interactive-accent);
   outline-offset: 2px;
 }
+
+/* ── Starter chips (empty state) ─────────────────────────── */
+.oc-starters {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+}
+.oc-starters-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
