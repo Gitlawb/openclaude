@@ -76,6 +76,29 @@ export function registerUpstreamProxyEnvFn(
   _getUpstreamProxyEnv = fn
 }
 
+/**
+ * Core API secrets that are ALWAYS scrubbed from subprocess environments,
+ * regardless of CLAUDE_CODE_SUBPROCESS_ENV_SCRUB. These are credentials
+ * the parent process needs for API calls but subprocesses (bash, MCP, LSP,
+ * hooks) should never have access to — prevents exfiltration via approved
+ * commands that phone home.
+ */
+const ALWAYS_SCRUB = [
+  'ANTHROPIC_API_KEY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_FOUNDRY_API_KEY',
+  'OPENAI_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'MISTRAL_API_KEY',
+  'MINIMAX_API_KEY',
+  'SPARK_API_KEY',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+  'AWS_BEARER_TOKEN_BEDROCK',
+] as const
+
 export function subprocessEnv(): NodeJS.ProcessEnv {
   // CCR upstreamproxy: inject HTTPS_PROXY + CA bundle vars so curl/gh/python
   // in agent subprocesses route through the local relay. Returns {} when the
@@ -83,17 +106,25 @@ export function subprocessEnv(): NodeJS.ProcessEnv {
   // CCR containers.
   const proxyEnv = _getUpstreamProxyEnv?.() ?? {}
 
-  if (!isEnvTruthy(process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)) {
-    return Object.keys(proxyEnv).length > 0
-      ? { ...process.env, ...proxyEnv }
-      : process.env
-  }
   const env = { ...process.env, ...proxyEnv }
-  for (const k of GHA_SUBPROCESS_SCRUB) {
-    delete env[k]
-    // GitHub Actions auto-creates INPUT_<NAME> for `with:` inputs, duplicating
-    // secrets like INPUT_ANTHROPIC_API_KEY. No-op for vars that aren't action inputs.
-    delete env[`INPUT_${k}`]
+
+  // Always scrub core API secrets — subprocesses never need these.
+  // Opt-out: CLAUDE_CODE_SUBPROCESS_KEEP_API_KEYS=1 for workflows where a
+  // subprocess legitimately needs provider API keys (e.g. a Python script
+  // calling OpenAI). Use with caution — any approved command can exfiltrate.
+  if (!isEnvTruthy(process.env.CLAUDE_CODE_SUBPROCESS_KEEP_API_KEYS)) {
+    for (const k of ALWAYS_SCRUB) {
+      delete env[k]
+    }
   }
+
+  // Extended scrub for GHA environments (OIDC tokens, artifact cache, etc.)
+  if (isEnvTruthy(process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)) {
+    for (const k of GHA_SUBPROCESS_SCRUB) {
+      delete env[k]
+      delete env[`INPUT_${k}`]
+    }
+  }
+
   return env
 }

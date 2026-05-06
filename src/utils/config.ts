@@ -110,6 +110,8 @@ export type ProjectConfig = {
 
   // Trust dialog settings
   hasTrustDialogAccepted?: boolean
+  /** Unix timestamp (ms) when trust was accepted. Used for TTL expiration. */
+  trustAcceptedAt?: number
 
   hasCompletedProjectOnboarding?: boolean
   projectOnboardingSeenCount: number
@@ -761,6 +763,20 @@ export function checkHasTrustDialogAccepted(): boolean {
   return (_trustAccepted ||= computeTrustDialogAccepted())
 }
 
+/** Default trust TTL: 90 days. Override with CLAUDE_CODE_TRUST_TTL_MS env var. */
+const DEFAULT_TRUST_TTL_MS = 90 * 24 * 60 * 60 * 1000
+
+function isTrustValid(projectConfig: ProjectConfig): boolean {
+  if (!projectConfig.hasTrustDialogAccepted) return false
+  if (projectConfig.trustAcceptedAt) {
+    const ttl =
+      parseInt(process.env.CLAUDE_CODE_TRUST_TTL_MS ?? '', 10) ||
+      DEFAULT_TRUST_TTL_MS
+    if (Date.now() - projectConfig.trustAcceptedAt > ttl) return false
+  }
+  return true
+}
+
 function computeTrustDialogAccepted(): boolean {
   // Check session-level trust (for home directory case where trust is not persisted)
   // When running from home dir, trust dialog is shown but acceptance is stored
@@ -775,7 +791,7 @@ function computeTrustDialogAccepted(): boolean {
   // This is the primary location where trust is persisted by saveCurrentProjectConfig
   const projectPath = getProjectPathForConfig()
   const projectConfig = config.projects?.[projectPath]
-  if (projectConfig?.hasTrustDialogAccepted) {
+  if (projectConfig && isTrustValid(projectConfig)) {
     return true
   }
 
@@ -786,7 +802,7 @@ function computeTrustDialogAccepted(): boolean {
   // Traverse all parent directories
   while (true) {
     const pathConfig = config.projects?.[currentPath]
-    if (pathConfig?.hasTrustDialogAccepted) {
+    if (pathConfig && isTrustValid(pathConfig)) {
       return true
     }
 
@@ -812,7 +828,8 @@ export function isPathTrusted(dir: string): boolean {
   const config = getGlobalConfig()
   let currentPath = normalizePathForConfigKey(resolve(dir))
   while (true) {
-    if (config.projects?.[currentPath]?.hasTrustDialogAccepted) return true
+    const pathConfig = config.projects?.[currentPath]
+    if (pathConfig && isTrustValid(pathConfig)) return true
     const parentPath = normalizePathForConfigKey(resolve(currentPath, '..'))
     if (parentPath === currentPath) return false
     currentPath = parentPath
