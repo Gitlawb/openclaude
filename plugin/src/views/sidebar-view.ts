@@ -296,10 +296,8 @@ export class SidebarView extends ItemView {
         this.sendMessage(text);
       });
     }
-    // Remove starter chips when a new session is started
-    this.registerDomEvent(window, 'openclaude:new-session' as keyof WindowEventMap, () => {
-      wrap.remove();
-    });
+    // No separate new-session listener needed: the existing onOpen() listener calls
+    // chatLog.empty(), which removes `wrap` as a child node automatically.
   }
 
   private startPendingPoll(): void {
