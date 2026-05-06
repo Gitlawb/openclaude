@@ -69,16 +69,15 @@
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "0.3.0",
-    "@anthropic-ai/bedrock-sdk": "0.26.4",
+    "@anthropic-ai/bedrock-sdk": "0.29.1",
     "@anthropic-ai/foundry-sdk": "0.2.3",
     "@anthropic-ai/sandbox-runtime": "0.0.46",
-    "@anthropic-ai/sdk": "0.81.0",
-    "@anthropic-ai/vertex-sdk": "0.14.4",
+    "@anthropic-ai/sdk": "0.94.0",
+    "@anthropic-ai/vertex-sdk": "0.16.0",
     "@commander-js/extra-typings": "12.1.0",
     "@growthbook/growthbook": "1.6.5",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
-    "@mendable/firecrawl-js": "4.18.1",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/api-logs": "0.214.0",
@@ -94,7 +93,7 @@
     "@vscode/ripgrep": "^1.17.1",
     "ajv": "8.18.0",
     "auto-bind": "5.0.1",
-    "axios": "1.15.0",
+    "axios": "1.16.0",
     "bidi-js": "1.0.3",
     "chalk": "5.6.2",
     "chokidar": "4.0.3",
@@ -175,6 +174,7 @@
     "access": "public"
   },
   "overrides": {
+    "ip-address": "10.2.0",
     "lodash-es": "4.18.1"
   }
 }

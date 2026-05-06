@@ -8,13 +8,25 @@ async function importFreshEffortModule(options: {
   provider: 'codex' | 'openai'
   supportsCodexReasoningEffort: boolean
 }) {
+  const actualProviderConfig = await import(
+    `../services/api/providerConfig.js?ts=${Date.now()}-${Math.random()}`
+  )
+  const actualProvidersModule = await import(
+    `./model/providers.js?ts=${Date.now()}-${Math.random()}`
+  )
+  const actualModelSupportOverrides = await import(
+    `./model/modelSupportOverrides.js?ts=${Date.now()}-${Math.random()}`
+  )
   mock.module('./model/providers.js', () => ({
+    ...actualProvidersModule,
     getAPIProvider: () => options.provider,
   }))
   mock.module('./model/modelSupportOverrides.js', () => ({
+    ...actualModelSupportOverrides,
     get3PModelCapabilityOverride: () => undefined,
   }))
   mock.module('../services/api/providerConfig.js', () => ({
+    ...actualProviderConfig,
     supportsCodexReasoningEffort: () => options.supportsCodexReasoningEffort,
   }))
 

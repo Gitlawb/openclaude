@@ -608,7 +608,11 @@ test('saveProfileFile defaults to user config instead of the working directory',
     assert.equal(filePath, join(configDir, PROFILE_FILE_NAME))
     assert.equal(getDefaultProfileFilePath(), join(configDir, PROFILE_FILE_NAME))
     assert.equal(existsSync(join(cwd, PROFILE_FILE_NAME)), false)
-    assert.equal(statSync(configDir).mode & 0o777, 0o700)
+    const configDirStat = statSync(configDir)
+    assert.equal(configDirStat.isDirectory(), true)
+    if (process.platform !== 'win32') {
+      assert.equal(configDirStat.mode & 0o777, 0o700)
+    }
     assert.deepEqual(loadProfileFile(), persisted)
   } finally {
     process.chdir(previousCwd)
@@ -801,13 +805,22 @@ test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profile
   }
 })
 
-test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profiles', () => {
+test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profiles', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-profile-'))
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-config-'))
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
   const previousCwd = process.cwd()
 
   try {
+    const providerProfileModule = await importFreshProviderProfileModule()
+    const {
+      PROFILE_FILE_NAME,
+      clearPersistedCodexOAuthProfile,
+      createProfileFile,
+      loadProfileFile,
+      saveProfileFile,
+    } = providerProfileModule
+
     process.env.CLAUDE_CONFIG_DIR = configDir
     process.chdir(cwd)
 
@@ -819,6 +832,7 @@ test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profi
     })
 
     saveProfileFile(oauthProfile)
+    assert.deepEqual(loadProfileFile(), oauthProfile)
     writeFileSync(
       join(cwd, PROFILE_FILE_NAME),
       JSON.stringify(oauthProfile, null, 2),
