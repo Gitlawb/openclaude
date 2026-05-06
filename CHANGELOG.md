@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/Gitlawb/openclaude/compare/v0.9.1...v0.9.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* **cli:** replace createRequire with static import for teammate.js ([#1026](https://github.com/Gitlawb/openclaude/issues/1026)) ([#1033](https://github.com/Gitlawb/openclaude/issues/1033)) ([c873725](https://github.com/Gitlawb/openclaude/commit/c873725d901c9fd612140603da964894ef69e510))
+
 ## [0.9.1](https://github.com/Gitlawb/openclaude/compare/v0.9.0...v0.9.1) (2026-05-05)
 
 
