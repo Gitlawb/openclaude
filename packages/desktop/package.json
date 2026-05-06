@@ -1,0 +1,71 @@
+{
+  "name": "@openclaude/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "author": {
+    "name": "OpenClaude",
+    "email": "support@openclaude.dev"
+  },
+  "description": "OpenClaude Desktop - AI coding assistant",
+  "type": "module",
+  "main": "out/main/index.cjs",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "electron-builder --dir",
+    "package:win": "electron-builder --win",
+    "package:mac": "electron-builder --mac",
+    "package:linux": "electron-builder --linux",
+    "dist": "electron-builder",
+    "ts:check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^20.17.50",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "~39.4.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.0.0",
+    "jsdom": "^26.1.0",
+    "postcss": "^8.5.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.3.4",
+    "vitest": "^3.2.1"
+  },
+  "build": {
+    "appId": "dev.openclaude.desktop",
+    "productName": "OpenClaude Desktop",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": "dmg",
+      "icon": "build/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png",
+      "category": "Development"
+    }
+  }
+}
