@@ -12,6 +12,7 @@ import {
   resolveAgentOverrides,
 } from '../../tools/AgentTool/agentDisplay.js'
 import {
+  clearAgentDefinitionsCache,
   getActiveAgentsFromList,
   getAgentDefinitionsWithOverrides,
 } from '../../tools/AgentTool/loadAgentsDir.js'
@@ -31,6 +32,10 @@ function formatAgent(agent: ResolvedAgent): string {
 
 export async function agentsHandler(): Promise<void> {
   const cwd = getCwd()
+  // Clear the memoization cache to ensure fresh agent definitions are loaded
+  // from disk. Without this, stale empty results (e.g., from before agent files
+  // were created) would be permanently cached.
+  clearAgentDefinitionsCache()
   const { allAgents } = await getAgentDefinitionsWithOverrides(cwd)
   const activeAgents = getActiveAgentsFromList(allAgents)
   const resolvedAgents = resolveAgentOverrides(allAgents, activeAgents)

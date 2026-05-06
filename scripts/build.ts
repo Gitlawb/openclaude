@@ -183,6 +183,54 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
             '../self-hosted-runner/main.js',
             'export async function selfHostedRunnerMain() { throw new Error("Self-hosted runner is unavailable in the open build."); }',
           ],
+          [
+            '../services/compact/cachedMCConfig.js',
+            'export {}',
+          ],
+          [
+            '../proactive/index.js',
+            'export {}',
+          ],
+          [
+            '../tools/DiscoverSkillsTool/prompt.js',
+            'export const DISCOVER_SKILLS_PROMPT = "";',
+          ],
+          [
+            '../services/skillSearch/featureCheck.js',
+            'export function isSkillSearchAvailable() { return false; }',
+          ],
+          [
+            '../assistant/index.js',
+            'export {}',
+          ],
+          [
+            '../assistant/gate.js',
+            'export {}',
+          ],
+          [
+            '../server/parseConnectUrl.js',
+            'export {}',
+          ],
+          [
+            '../ssh/createSSHSession.js',
+            'export {}',
+          ],
+          [
+            '../assistant/sessionDiscovery.js',
+            'export {}',
+          ],
+          [
+            '../server/server.js',
+            'export {}',
+          ],
+          [
+            '../server/sessionManager.js',
+            'export {}',
+          ],
+          [
+            '../server/backends/dangerousBackend.js',
+            'export {}',
+          ],
         ] as const)
 
         // bun:bundle feature() replacement is handled by the source
@@ -192,7 +240,7 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
         // before the JS plugin phase runs.
 
         build.onResolve(
-          { filter: /^\.\.\/(daemon\/workerRegistry|daemon\/main|cli\/bg|cli\/handlers\/templateJobs|environment-runner\/main|self-hosted-runner\/main)\.js$/ },
+          { filter: /^\.\.\/(daemon\/workerRegistry|daemon\/main|cli\/bg|cli\/handlers\/templateJobs|environment-runner\/main|self-hosted-runner\/main|services\/compact\/cachedMCConfig|proactive\/index|tools\/DiscoverSkillsTool\/prompt|services\/skillSearch\/featureCheck|assistant\/index|assistant\/gate|server\/parseConnectUrl|ssh\/createSSHSession|assistant\/sessionDiscovery|server\/server|server\/sessionManager|server\/backends\/dangerousBackend)\.js$/ },
           args => {
             if (!internalFeatureStubModules.has(args.path)) return null
             return {

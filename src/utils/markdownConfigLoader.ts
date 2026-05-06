@@ -293,6 +293,14 @@ export function getProjectDirsUpToHome(
 }
 
 /**
+ * Clear the memoization cache for loadMarkdownFilesForSubdir.
+ * Needed when agent files are added/removed and need to be discovered.
+ */
+export function clearMarkdownFilesForSubdirCache(): void {
+  loadMarkdownFilesForSubdir.cache.clear?.()
+}
+
+/**
  * Loads markdown files from managed, user, and project directories
  * @param subdir Subdirectory (eg. "agents" or "commands")
  * @param cwd Current working directory for project directory traversal
@@ -557,11 +565,10 @@ async function loadMarkdownFiles(dir: string): Promise<
   }[]
 > {
   // File search strategy:
-  // - Default: ripgrep (faster, battle-tested)
-  // - Fallback: native Node.js (when CLAUDE_CODE_USE_NATIVE_FILE_SEARCH is set)
-  //
-  // Why both? Ripgrep has poor startup performance in native builds.
-  const useNative = isEnvTruthy(process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH)
+  // - Try native Node.js first (no startup overhead, always available)
+  // - Fall back to ripgrep if native fails (rarely happens, ripgrep might be unavailable on some systems)
+  // - Can be forced to ripgrep-only via CLAUDE_CODE_USE_RIPGREP env var
+  let useNative = !isEnvTruthy(process.env.CLAUDE_CODE_USE_RIPGREP) || isEnvTruthy(process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH)
   const signal = AbortSignal.timeout(3000)
   let files: string[]
   try {
@@ -577,8 +584,25 @@ async function loadMarkdownFiles(dir: string): Promise<
     // existence (TOCTOU). findMarkdownFilesNative already catches internally;
     // ripGrep rejects on inaccessible target paths.
     if (isFsInaccessible(e)) return []
-    throw e
+    
+    // If native search failed and we're not already using ripgrep, try ripgrep as fallback
+    if (useNative && e instanceof Error) {
+      try {
+        files = await ripGrep(
+          ['--files', '--hidden', '--follow', '--no-ignore', '--glob', '*.md'],
+          dir,
+          signal,
+        )
+      } catch (ripgrepError) {
+        if (isFsInaccessible(ripgrepError)) return []
+        throw ripgrepError
+      }
+    } else {
+      throw e
+    }
   }
+
+
 
   const results = await Promise.all(
     files.map(async filePath => {
