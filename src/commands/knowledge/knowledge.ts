@@ -53,7 +53,7 @@ export const call: LocalCommandCall = async (args, _context) => {
   }
 
   if (subCommand === 'list') {
-    return { type: 'text', value: getArcSummary() };
+    return { type: 'text', value: await getArcSummary() };
   }
 
   return { 
