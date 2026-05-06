@@ -2,9 +2,13 @@ import { describe, it, expect } from "bun:test";
 import { buildRegistry } from "./registry";
 
 describe("buildRegistry", () => {
-  it("returns empty array when no vault", () => {
+  it("returns only thought tools when no vault or braveApiKey", () => {
     const modules = buildRegistry({});
-    expect(modules.length).toBe(0);
+    const names = modules.map(m => m.definition.function.name);
+    expect(names).toContain("structure_thought");
+    expect(names).toContain("refine_argument");
+    expect(names).toContain("counter_argument");
+    expect(modules.length).toBe(3);
   });
 
   it("includes vault tools when vault is set", () => {

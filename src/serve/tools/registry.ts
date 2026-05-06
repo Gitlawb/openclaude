@@ -2,6 +2,7 @@ import type { PendingEditStore } from "../pendingEditStore";
 import { vaultToolModules } from "./vaultTools";
 import { webToolModules } from "./webTools";
 import { formatToolModules } from "./formatTools";
+import { thoughtToolModules } from "./thoughtTools";
 
 export interface VaultToolResult {
   ok: boolean;
@@ -37,6 +38,7 @@ export interface ToolModule {
 
 export function buildRegistry(ctx: ToolContext): ToolModule[] {
   const modules: ToolModule[] = [];
+  modules.push(...thoughtToolModules(ctx));   // always available
   if (ctx.vault) {
     modules.push(...vaultToolModules(ctx));
     modules.push(...formatToolModules(ctx));
