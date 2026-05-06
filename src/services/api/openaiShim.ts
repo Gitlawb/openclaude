@@ -200,6 +200,276 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// ShimToolSearch — opt-in tool schema reduction for 3P providers.
+// Off by default. Modes:
+//   minify  — send every tool, but strip verbose schema prose.
+//   predict — send a predicted subset only when confident; uncertain sends all.
+//   lazy    — two-phase request_tools protocol for conversational turns.
+// ENABLE_SHIM_TOOL_SEARCH=1 is kept as a backwards-compatible alias for lazy.
+// ---------------------------------------------------------------------------
+
+type ShimToolSearchMode = 'off' | 'minify' | 'predict' | 'lazy'
+
+function getShimToolSearchMode(): ShimToolSearchMode {
+  const raw = (
+    process.env.OPENAI_SHIM_TOOL_MODE ??
+    process.env.ENABLE_SHIM_TOOL_SEARCH ??
+    ''
+  ).trim().toLowerCase()
+
+  if (!raw || raw === '0' || raw === 'false' || raw === 'off') return 'off'
+  if (raw === 'minify') return 'minify'
+  if (raw === 'predict' || raw === 'safe-predict' || raw === 'predict-safe') {
+    return 'predict'
+  }
+  if (raw === 'lazy' || raw === '1' || raw === 'true' || raw === 'on') {
+    return 'lazy'
+  }
+  return 'off'
+}
+
+function debugShimToolSearch(message: string): void {
+  if (
+    isEnvTruthy(process.env.OPENAI_SHIM_DEBUG) ||
+    isEnvTruthy(process.env.ENABLE_SHIM_TOOL_SEARCH_DEBUG)
+  ) {
+    process.stderr.write(`[ShimToolSearch] ${message}\n`)
+  }
+}
+
+/**
+ * Keep only the first sentence of a tool description (up to maxLen chars).
+ * 235B models already know what Bash/Read/Write/etc. do by name.
+ * The fat Anthropic descriptions (500–2000 words) waste tokens on 3P providers.
+ */
+function truncateToolDescription(text: string, maxLen = 200): string {
+  if (!text || text.length <= maxLen) return text
+  // Try to cut at a sentence boundary in a generous window
+  const window = text.slice(0, maxLen + 80)
+  const match = window.match(/^[\s\S]{30,}?[.!?](\s|\n|$)/)
+  if (match && match[0].length <= maxLen + 20) return match[0].trim()
+  // Fall back to word boundary
+  return text.slice(0, maxLen).replace(/\s\S*$/, '') + '…'
+}
+
+/**
+ * Strip description/title from parameter schemas while preserving structure.
+ * Models still get type/required/properties/enum — enough to generate valid calls.
+ */
+function stripParamDescriptions(schema: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(schema)) {
+    if (k === 'description' || k === 'title') continue
+    if (Array.isArray(v)) {
+      out[k] = v.map(item =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? stripParamDescriptions(item as Record<string, unknown>)
+          : item,
+      )
+    } else if (v && typeof v === 'object') {
+      out[k] = stripParamDescriptions(v as Record<string, unknown>)
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
+/**
+ * Minify tool schemas for 3P providers — dramatically reduces token usage:
+ *   Bash: 11.4KB → ~0.4KB, TodoWrite: 9.6KB → ~1.2KB, Aggregate: ~63KB → ~5KB
+ */
+function minifyToolSchemas(tools: OpenAITool[]): OpenAITool[] {
+  return tools.map(tool => ({
+    ...tool,
+    function: {
+      ...tool.function,
+      description: truncateToolDescription(tool.function.description),
+      parameters: stripParamDescriptions(tool.function.parameters as Record<string, unknown>),
+    },
+  }))
+}
+
+/** One-line descriptions for the tool directory injected during phase-1. */
+const TOOL_DIRECTORY: Record<string, string> = {
+  Bash:            'Execute shell commands (build, test, install, git, etc.)',
+  Read:            'Read file contents',
+  Write:           'Create or overwrite a file',
+  Edit:            'Make targeted edits to an existing file',
+  MultiEdit:       'Make multiple coordinated edits to an existing file',
+  Glob:            'List files matching a pattern',
+  Grep:            'Search file contents with regex',
+  WebSearch:       'Search the web for current information',
+  WebFetch:        'Fetch and read web page content',
+  NotebookEdit:    'Edit Jupyter notebook cells',
+  Skill:           'Load and use a named skill',
+  TodoWrite:       'Create/update structured task list',
+  AskUserQuestion: 'Ask the user a clarifying question',
+  Agent:           'Spawn a sub-agent to handle a complex sub-task',
+  TaskCreate:      'Create a tracked task for teammate/coordinator workflows',
+  TaskGet:         'Read a tracked task',
+  TaskUpdate:      'Update a tracked task status or ownership',
+  TaskList:        'List tracked tasks',
+  TaskOutput:      'Read output from a background task',
+  TaskStop:        'Stop a running task',
+  EnterPlanMode:   'Enter plan mode when implementation should wait',
+  ExitPlanMode:    'Exit plan mode with an implementation plan',
+  EnterWorktree:   'Enter a worktree session',
+  ExitWorktree:    'Exit a worktree session',
+  SendMessage:     'Send a message to a teammate or coordinator',
+  ListPeers:       'List connected peers or teammates',
+  LSP:             'Use language server intelligence',
+}
+
+const CORE_TOOL_NAMES = new Set([
+  'Bash',
+  'Read',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'Glob',
+  'Grep',
+  'TodoWrite',
+  'AskUserQuestion',
+  'Agent',
+])
+
+/** The single meta-tool sent during phase-1, in Anthropic tool shape. */
+const REQUEST_TOOLS_TOOL = {
+  name: 'request_tools',
+  description: 'Request the full schema for one or more tools before using them. Call this first if you need to use any tools.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      tools: {
+        type: 'array',
+        description: 'Names of the tools needed for the next step.',
+        items: {
+          type: 'string',
+        },
+      },
+      rationale: {
+        type: 'string',
+        description: 'Brief reason these tools are needed.',
+      },
+    },
+    required: ['tools'],
+    additionalProperties: false,
+  },
+}
+
+/**
+ * Keyword heuristics to predict which tools a request needs.
+ * Returns a Set of tool names, empty Set for conversational, or null if uncertain.
+ */
+function predictNeededTools(messages: unknown[]): Set<string> | null {
+  function extractUserQuery(text: string): string {
+    return text
+      .replace(/<system-reminder[\s\S]*?<\/system-reminder>/gi, '')
+      .replace(/<context[\s\S]*?<\/context>/gi, '')
+      .trim()
+  }
+
+  let lastUserText = ''
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: string; content?: unknown }
+    if (m.role !== 'user') continue
+    let rawText = ''
+    if (typeof m.content === 'string') {
+      rawText = m.content
+    } else if (Array.isArray(m.content)) {
+      const parts = (m.content as Array<{ type?: string; text?: string }>)
+        .filter(p => p.type === 'text')
+        .map(p => p.text ?? '')
+      rawText = parts.join(' ')
+    }
+    const clean = extractUserQuery(rawText)
+    if (clean) {
+      lastUserText = clean
+      break
+    }
+  }
+  if (!lastUserText) return null
+
+  const t = lastUserText.toLowerCase()
+
+  const isConversational = /^(what|who|why|how|when|where|explain|describe|tell me|is it|can you|do you|list|summarize|overview|difference between|compare|pros and cons)/.test(t.trim())
+    && !/file|code|codebase|repository|repo|project|source|module|component|function|class|test|build|run|install|create|write|edit|implement|fix|debug/.test(t)
+
+  if (isConversational) return new Set([])
+
+  const tools = new Set<string>()
+
+  if (/\brun\b|\bexecut|\bbuild|\btest\b|\binstall\b|\bnpm\b|\bpip\b|\bgit\b|\bcompil|\bscript|\bdocker|\bpython\b|\bnode\b/.test(t)) tools.add('Bash')
+  if (/\bread\b|\bshow\b|\bcontent|\blook at|\bopen\b|\bcat\b|\bwhat is in|\bwhat does.*file/.test(t)) tools.add('Read')
+  if (/\bcreate\b|\bwrite\b|\bnew file|\bgenerat|\bscaffold|\binitializ|\btouch\b/.test(t)) tools.add('Write')
+  if (/\bedit\b|\bmodif|\bchange\b|\bfix\b|\bupdat|\brefactor|\breplace|\bimpleme|\badd.*to\b|\bremove\b|\bdelet.*from/.test(t)) tools.add('Edit')
+  if (/\bsearch\b|\bfind\b|\bgrep\b|\blook for\b|\bwhere is\b|\boccurrenc|\bwhich file/.test(t)) { tools.add('Grep'); tools.add('Glob') }
+  if (/\bweb\b|\binternet\b|\bonline\b|\bsearch the web\b|\bbrowse\b|\blatest\b|\bcurrent\b|\btoday\b|\bfetch.*https?:\/\//.test(t)) { tools.add('WebSearch'); tools.add('WebFetch') }
+  if (/\blist.*file|\bfind.*file|\bfiles in|\bwhat files|\blist.*dir|\bls\b/.test(t)) tools.add('Glob')
+  if (/\bnotebook\b|\bjupyter\b|\bipynb\b/.test(t)) tools.add('NotebookEdit')
+  if (/\bskill\b|\bskills\b/.test(t)) tools.add('Skill')
+  if (/\btask\b|\bteammate\b|\bcoordinator\b|\bassign\b|\bowner\b/.test(t)) { tools.add('TaskCreate'); tools.add('TaskUpdate'); tools.add('TaskList') }
+  if (/\btodo\b|\bplan\b|\btask list|\btrack\b|\bprogress\b/.test(t)) tools.add('TodoWrite')
+
+  if (/\bimplement\b|\bbuild.*feature|\badd.*feature|\bwrite.*function|\bwrite.*class|\bcreate.*function|\bcreate.*class/.test(t)) {
+    tools.add('Bash'); tools.add('Write'); tools.add('Edit'); tools.add('Read')
+  }
+
+  if (tools.has('Edit') || tools.has('Write')) {
+    tools.add('Bash'); tools.add('Read')
+  }
+
+  return tools.size > 0 ? tools : null
+}
+
+function appendSystemPrompt(system: unknown, note: string): ShimCreateParams['system'] {
+  if (typeof system === 'string') return `${system}${note}`
+  if (Array.isArray(system)) {
+    return [
+      ...system,
+      { type: 'text', text: note.trimStart() },
+    ] as ShimCreateParams['system']
+  }
+  return `You are a helpful AI assistant.${note}`
+}
+
+function getToolDirectoryLines(tools: OpenAITool[]): string {
+  return tools
+    .map(tool => {
+      const name = tool.function.name
+      const desc = TOOL_DIRECTORY[name] ?? truncateToolDescription(tool.function.description, 120)
+      return `- ${name}: ${desc || 'Available tool'}`
+    })
+    .join('\n')
+}
+
+function selectShimToolSet(
+  converted: OpenAITool[],
+  messages: unknown[],
+  mode: Exclude<ShimToolSearchMode, 'off' | 'lazy'>,
+): OpenAITool[] {
+  if (mode === 'minify') return minifyToolSchemas(converted)
+
+  const predicted = predictNeededTools(messages)
+  if (predicted === null) {
+    return minifyToolSchemas(converted)
+  }
+  if (predicted.size === 0) {
+    return []
+  }
+
+  const wanted = new Set<string>(CORE_TOOL_NAMES)
+  for (const toolName of predicted) wanted.add(toolName)
+  const filtered = converted.filter(tool => wanted.has(tool.function.name))
+  return minifyToolSchemas(filtered.length > 0 ? filtered : converted)
+}
+
+function isRequestToolsOnly(tools: OpenAITool[]): boolean {
+  return tools.length === 1 && tools[0]?.function.name === 'request_tools'
+}
+
+// ---------------------------------------------------------------------------
 // Types — minimal subset of Anthropic SDK types we need to produce
 // ---------------------------------------------------------------------------
 
@@ -1376,6 +1646,21 @@ class OpenAIShimMessages {
 
     const promise = (async () => {
       const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
+
+      // ShimToolSearch lazy mode: for conversational turns, send only the
+      // request_tools meta-tool and let the model ask for schemas if needed.
+      const shimToolSearchMode = getShimToolSearchMode()
+      if (
+        shimToolSearchMode === 'lazy' &&
+        params.tools && (params.tools as unknown[]).length > 0
+      ) {
+        const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
+        const predicted = predictNeededTools(msgs)
+        if (predicted !== null && predicted.size === 0) {
+          return await self._shimToolSearchCreate(request, params, options)
+        }
+      }
+
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
@@ -1534,10 +1819,147 @@ class OpenAIShimMessages {
     return this._doOpenAIRequest(request, params, options)
   }
 
+  // ---------------------------------------------------------------------------
+  // ShimToolSearch — two-phase protocol
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Wrap a single OpenAI-format message as a ReadableStream<Uint8Array>
+   * mimicking a streaming SSE response, so it can be fed into the existing
+   * stream-to-Anthropic pipeline.
+   */
+  private _syntheticStream(msg: Record<string, unknown>): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder()
+    const chunk = {
+      id: `chatcmpl-shim-${Date.now()}`,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model: 'shim-tool-search',
+      choices: [{ index: 0, delta: msg, finish_reason: 'stop' }],
+    }
+    const payload = `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`
+    return new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(payload))
+        controller.close()
+      },
+    })
+  }
+
+  /**
+   * Two-phase ShimToolSearch protocol:
+   *   Phase 1 — send only the request_tools meta-tool + tool directory in the
+   *             system prompt. If the model calls request_tools, go to phase 2.
+   *   Phase 2 — re-request with only the requested tools (minified).
+   *
+   * If the model doesn't call request_tools, return a synthetic stream wrapping
+   * its conversational response.
+   */
+  private async _shimToolSearchCreate(
+    request: ReturnType<typeof resolveProviderRequest>,
+    params: ShimCreateParams,
+    options?: { signal?: AbortSignal; headers?: Record<string, string> },
+  ): Promise<OpenAIShimStream | Response> {
+    debugShimToolSearch('Phase 1: conversational prediction — sending meta-tool only')
+
+    const allConverted = convertTools(
+      params.tools as Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
+    )
+
+    // Build directory listing for the system prompt
+    const directoryLines = getToolDirectoryLines(allConverted)
+    const directoryNote = `\n\nAvailable tools (call request_tools to use any):\n${directoryLines}`
+
+    const phase1Messages = JSON.parse(JSON.stringify(params.messages)) as Array<{ role: string; content: unknown }>
+    const phase1System = appendSystemPrompt(params.system, directoryNote)
+
+    // Phase 1 request — non-streaming, single meta-tool
+    const phase1Params = {
+      ...params,
+      stream: false,
+      system: phase1System,
+      messages: phase1Messages,
+      tools: [REQUEST_TOOLS_TOOL] as typeof params.tools,
+    }
+    const phase1Response = await this._doRequest(request, phase1Params, options)
+    const phase1Json = await phase1Response.json() as {
+      choices?: Array<{
+        message?: {
+          role?: string
+          content?: string | null
+          tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>
+        }
+        finish_reason?: string
+      }>
+    }
+
+    const choice = phase1Json.choices?.[0]
+    const toolCalls = choice?.message?.tool_calls ?? []
+    const requestToolsCall = toolCalls.find(tc => tc.function?.name === 'request_tools')
+
+    if (!requestToolsCall) {
+      // Model chose to respond conversationally — return as synthetic stream
+      debugShimToolSearch('Phase 1 result: conversational (no tools requested)')
+      const msg = choice?.message ?? { role: 'assistant', content: '' }
+      if (params.stream) {
+        return new OpenAIShimStream(
+          openaiStreamToAnthropic(
+            new Response(this._syntheticStream(msg as Record<string, unknown>), {
+              status: 200,
+              headers: { 'content-type': 'text/event-stream' },
+            }),
+            request.resolvedModel,
+          ),
+        )
+      }
+      return new Response(JSON.stringify(phase1Json), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    // Model requested tools — parse and do phase 2
+    let requestedNames: string[] = []
+    let parsedRequestedNames = true
+    try {
+      const args = JSON.parse(requestToolsCall.function?.arguments ?? '{}')
+      requestedNames = Array.isArray(args.tools) ? args.tools : []
+    } catch {
+      debugShimToolSearch('Phase 1 returned malformed request_tools JSON; falling back to all tools')
+      parsedRequestedNames = false
+      requestedNames = []
+    }
+    debugShimToolSearch(`Phase 2: model requested tools: ${requestedNames.join(', ')}`)
+
+    // Build full tool set from the original params, filtered + minified
+    const wanted = new Set([...requestedNames, ...CORE_TOOL_NAMES])
+    const filtered = allConverted.filter(t => wanted.has(t.function.name))
+    const toolSet = minifyToolSchemas(
+      parsedRequestedNames && requestedNames.length > 0 && filtered.length > 0
+        ? filtered
+        : allConverted,
+    )
+    debugShimToolSearch(`Phase 2: sending ${toolSet.length} tools (${JSON.stringify(toolSet).length} chars)`)
+
+    // Phase 2 — re-request with the actual tools
+    const response = await this._doOpenAIRequest(request, params, options, toolSet)
+
+    if (params.stream) {
+      const isResponsesStream = response.url?.includes('/responses')
+      return new OpenAIShimStream(
+        (request.transport === 'codex_responses' || isResponsesStream)
+          ? codexStreamToAnthropic(response, request.resolvedModel)
+          : openaiStreamToAnthropic(response, request.resolvedModel),
+      )
+    }
+    return response
+  }
+
   private async _doOpenAIRequest(
     request: ReturnType<typeof resolveProviderRequest>,
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
+    convertedToolOverride?: OpenAITool[],
   ): Promise<Response> {
     const compressedMessages = compressToolHistory(
       params.messages as Array<{
@@ -1636,8 +2058,8 @@ class OpenAIShimMessages {
       }
     }
 
-    if (params.tools && params.tools.length > 0) {
-      const converted = convertTools(
+    if ((params.tools && params.tools.length > 0) || convertedToolOverride) {
+      const converted = convertedToolOverride ?? convertTools(
         params.tools as Array<{
           name: string
           description?: string
@@ -1645,8 +2067,25 @@ class OpenAIShimMessages {
         }>,
       )
       if (converted.length > 0) {
-        body.tools = converted
-        if (params.tool_choice) {
+        const shimToolSearchMode = getShimToolSearchMode()
+        if (convertedToolOverride || isRequestToolsOnly(converted)) {
+          body.tools = convertedToolOverride
+            ? convertedToolOverride
+            : converted
+        } else if (shimToolSearchMode === 'minify' || shimToolSearchMode === 'predict') {
+          const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
+          const toolSet = selectShimToolSet(converted, msgs, shimToolSearchMode)
+          body.tools = toolSet
+          const names = toolSet.map(t => t.function.name)
+          const totalChars = JSON.stringify(toolSet).length
+          debugShimToolSearch(`${shimToolSearchMode}: ${toolSet.length} tools (${totalChars} chars): ${names.join(', ')}`)
+        } else if (shimToolSearchMode === 'lazy') {
+          const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
+          body.tools = selectShimToolSet(converted, msgs, 'predict')
+        } else {
+          body.tools = converted
+        }
+        if (params.tool_choice && Array.isArray(body.tools) && body.tools.length > 0) {
           const tc = params.tool_choice as { type?: string; name?: string }
           if (tc.type === 'auto') {
             body.tool_choice = 'auto'
@@ -2159,10 +2598,10 @@ class OpenAIShimMessages {
           role?: string
           content?:
             | string
-            | null
-            | Array<{ type?: string; text?: string }>
-          reasoning_content?: string | null
-          tool_calls?: Array<{
+          | null
+          | Array<{ type?: string; text?: string }>
+        reasoning_content?: string | null
+        tool_calls?: Array<{
             id: string
             function: { name: string; arguments: string }
             extra_content?: Record<string, unknown>

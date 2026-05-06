@@ -33,6 +33,10 @@ const originalEnv = {
   BANKR_MODEL: process.env.BANKR_MODEL,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+  OPENAI_SHIM_TOOL_MODE: process.env.OPENAI_SHIM_TOOL_MODE,
+  ENABLE_SHIM_TOOL_SEARCH: process.env.ENABLE_SHIM_TOOL_SEARCH,
+  OPENAI_SHIM_DEBUG: process.env.OPENAI_SHIM_DEBUG,
+  ENABLE_SHIM_TOOL_SEARCH_DEBUG: process.env.ENABLE_SHIM_TOOL_SEARCH_DEBUG,
 }
 
 const originalFetch = globalThis.fetch
@@ -113,6 +117,10 @@ beforeEach(() => {
   delete process.env.BANKR_MODEL
   delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
+  delete process.env.OPENAI_SHIM_TOOL_MODE
+  delete process.env.ENABLE_SHIM_TOOL_SEARCH
+  delete process.env.OPENAI_SHIM_DEBUG
+  delete process.env.ENABLE_SHIM_TOOL_SEARCH_DEBUG
 })
 
 afterEach(() => {
@@ -144,6 +152,10 @@ afterEach(() => {
   restoreEnv('BANKR_MODEL', originalEnv.BANKR_MODEL)
   restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
   restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
+  restoreEnv('OPENAI_SHIM_TOOL_MODE', originalEnv.OPENAI_SHIM_TOOL_MODE)
+  restoreEnv('ENABLE_SHIM_TOOL_SEARCH', originalEnv.ENABLE_SHIM_TOOL_SEARCH)
+  restoreEnv('OPENAI_SHIM_DEBUG', originalEnv.OPENAI_SHIM_DEBUG)
+  restoreEnv('ENABLE_SHIM_TOOL_SEARCH_DEBUG', originalEnv.ENABLE_SHIM_TOOL_SEARCH_DEBUG)
   globalThis.fetch = originalFetch
 })
 
@@ -1164,6 +1176,296 @@ test('preserves Grep tool pattern field in OpenAI-compatible schemas', async () 
 
   expect(Object.keys(grepTool?.function?.parameters?.properties ?? {})).toContain('pattern')
   expect(grepTool?.function?.parameters?.required).toContain('pattern')
+})
+
+function makeShimToolFixtures() {
+  return [
+    {
+      name: 'Bash',
+      description: 'Execute shell commands. This long description should be truncated by shim minification because third-party providers do not need every detail.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+            description: 'The command to execute.',
+          },
+        },
+        required: ['command'],
+      },
+    },
+    {
+      name: 'Read',
+      description: 'Read file contents.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          file_path: {
+            type: 'string',
+            description: 'Path to read.',
+          },
+        },
+        required: ['file_path'],
+      },
+    },
+    {
+      name: 'WebSearch',
+      description: 'Search the web for current information.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search query.',
+          },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'WebFetch',
+      description: 'Fetch and read a web page.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          url: {
+            type: 'string',
+            description: 'URL to fetch.',
+          },
+        },
+        required: ['url'],
+      },
+    },
+    {
+      name: 'Skill',
+      description: 'Load and use a skill.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Skill name.',
+          },
+        },
+        required: ['name'],
+      },
+    },
+  ]
+}
+
+test('ShimToolSearch minify mode sends every available tool with parameter prose stripped', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  process.env.OPENAI_SHIM_TOOL_MODE = 'minify'
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-shim-minify',
+        model: 'fake-model',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'fake-model',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    tools: makeShimToolFixtures(),
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const tools = requestBody?.tools as Array<{ function: { name: string; parameters: Record<string, unknown> } }>
+  expect(tools.map(tool => tool.function.name).sort()).toEqual([
+    'Bash',
+    'Read',
+    'Skill',
+    'WebFetch',
+    'WebSearch',
+  ])
+  const bashParameters = tools.find(tool => tool.function.name === 'Bash')?.function.parameters as {
+    properties?: Record<string, Record<string, unknown>>
+  }
+  expect(bashParameters.properties?.command?.description).toBeUndefined()
+})
+
+test('ShimToolSearch predict mode sends all tools when prediction is uncertain', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  process.env.OPENAI_SHIM_TOOL_MODE = 'predict'
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-shim-predict',
+        model: 'fake-model',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'fake-model',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Investigate this repository architecture' }],
+    tools: makeShimToolFixtures(),
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const toolNames = ((requestBody?.tools ?? []) as Array<{ function: { name: string } }>)
+    .map(tool => tool.function.name)
+    .sort()
+  expect(toolNames).toEqual(['Bash', 'Read', 'Skill', 'WebFetch', 'WebSearch'])
+})
+
+test('ShimToolSearch predict mode includes web tools for current web requests', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  process.env.OPENAI_SHIM_TOOL_MODE = 'predict'
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-shim-web',
+        model: 'fake-model',
+        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'fake-model',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'Search the web for current React release notes' }],
+    tools: makeShimToolFixtures(),
+    max_tokens: 32,
+    stream: false,
+  })
+
+  const toolNames = ((requestBody?.tools ?? []) as Array<{ function: { name: string } }>)
+    .map(tool => tool.function.name)
+  expect(toolNames).toContain('WebSearch')
+  expect(toolNames).toContain('WebFetch')
+})
+
+test('ShimToolSearch lazy phase 1 sends a valid request_tools schema through system prompt', async () => {
+  const requestBodies: Array<Record<string, unknown>> = []
+  process.env.OPENAI_SHIM_TOOL_MODE = 'lazy'
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)))
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-shim-lazy',
+        model: 'fake-model',
+        choices: [{ message: { role: 'assistant', content: 'direct answer' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'fake-model',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'What is 2+2?' }],
+    tools: makeShimToolFixtures(),
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(requestBodies).toHaveLength(1)
+  const phase1Body = requestBodies[0]
+  expect((phase1Body.tools as Array<{ function: { name: string } }>)[0].function.name).toBe('request_tools')
+  const systemMessage = (phase1Body.messages as Array<{ role: string; content: string }>).find(
+    message => message.role === 'system',
+  )
+  expect(systemMessage?.content).toContain('Available tools')
+  expect(systemMessage?.content).toContain('WebSearch')
+})
+
+test('ShimToolSearch lazy phase 2 falls back to all tools on malformed request_tools JSON', async () => {
+  const requestBodies: Array<Record<string, unknown>> = []
+  process.env.OPENAI_SHIM_TOOL_MODE = 'lazy'
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)))
+
+    if (requestBodies.length === 1) {
+      return new Response(
+        JSON.stringify({
+          id: 'chatcmpl-shim-lazy-phase1',
+          model: 'fake-model',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call_request_tools',
+                    type: 'function',
+                    function: { name: 'request_tools', arguments: '{not-json' },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-shim-lazy-phase2',
+        model: 'fake-model',
+        choices: [{ message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await client.beta.messages.create({
+    model: 'fake-model',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'What is 2+2?' }],
+    tools: makeShimToolFixtures(),
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(requestBodies).toHaveLength(2)
+  const phase2ToolNames = ((requestBodies[1].tools ?? []) as Array<{ function: { name: string } }>)
+    .map(tool => tool.function.name)
+    .sort()
+  expect(phase2ToolNames).toEqual(['Bash', 'Read', 'Skill', 'WebFetch', 'WebSearch'])
 })
 
 test('does not infer Gemini mode from OPENAI_BASE_URL path substrings', async () => {
