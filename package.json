@@ -78,6 +78,7 @@
     "@growthbook/growthbook": "1.6.5",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
+    "@inquirer/prompts": "^4.3.1",
     "@mendable/firecrawl-js": "4.18.1",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@opentelemetry/api": "1.9.1",

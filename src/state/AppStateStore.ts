@@ -1,6 +1,7 @@
 import type { Notification } from 'src/context/notifications.js'
 import { isTeammate, isPlanModeRequired } from '../utils/teammate.js'
 import type { TodoList } from 'src/utils/todo/types.js'
+import type { CustomPet } from '../buddy/customPetTypes.js'
 import type { BridgePermissionCallbacks } from '../bridge/bridgePermissionCallbacks.js'
 import type { Command } from '../commands.js'
 import type { ChannelPermissionCallbacks } from '../services/mcp/channelPermissions.js'
@@ -170,6 +171,10 @@ export type AppState = DeepImmutable<{
   companionReaction?: string
   // Timestamp of last /buddy pet — CompanionSprite renders hearts while recent
   companionPetAt?: number
+  // Custom pets created by the user (persisted in config).
+  customPets: CustomPet[]
+  // ID of currently active custom pet, if any.
+  equippedCustomPetId?: string
   // TODO (ashwin): see if we can use utility-types DeepReadonly for this
   mcp: {
     clients: MCPServerConnection[]
@@ -477,6 +482,8 @@ export function getDefaultAppState(): AppState {
     coordinatorTaskIndex: -1,
     viewSelectionMode: 'none',
     footerSelection: null,
+    customPets: [],
+    equippedCustomPetId: undefined,
     kairosEnabled: false,
     remoteSessionUrl: undefined,
     remoteConnectionStatus: 'connecting',
