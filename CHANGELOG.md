@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.3](https://github.com/Gitlawb/openclaude/compare/v0.9.2...v0.9.3) (2026-05-06)
+
+
+### Bug Fixes
+
+* **agent:** ensure main agent waits for subagent completion ([#1032](https://github.com/Gitlawb/openclaude/issues/1032)) ([6af709e](https://github.com/Gitlawb/openclaude/commit/6af709e65ea61e9071cbccbdcd7c57fe87b0710e))
+* **effort:** persist xhigh and send reasoning_effort on chat_completions ([#857](https://github.com/Gitlawb/openclaude/issues/857)) ([feb5791](https://github.com/Gitlawb/openclaude/commit/feb579132016ef73dfaa5f20c073fcd3c91ecd80))
+
 ## [0.9.2](https://github.com/Gitlawb/openclaude/compare/v0.9.1...v0.9.2) (2026-05-06)
 
 
