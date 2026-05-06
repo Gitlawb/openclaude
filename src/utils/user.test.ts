@@ -6,7 +6,24 @@ async function importFreshUserModule() {
   return import(`./user.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
-function installCommonMocks(options?: {
+async function importActualUserTestDeps() {
+  const nonce = `${Date.now()}-${Math.random()}`
+  const [authModule, configModule, cwdModule, execaModule] = await Promise.all([
+    import(`./auth.js?ts=${nonce}`),
+    import(`./config.js?ts=${nonce}`),
+    import(`./cwd.js?ts=${nonce}`),
+    import('execa'),
+  ])
+
+  return {
+    authModule,
+    configModule,
+    cwdModule,
+    execaModule,
+  }
+}
+
+async function installCommonMocks(options?: {
   oauthEmail?: string
   gitEmail?: string
 }) {
@@ -16,8 +33,11 @@ function installCommonMocks(options?: {
   // every other test file that imports state.js (e.g. SDK CON-1 tests).
   // The dynamic import (importFreshUserModule) will use the real state.js,
   // which is fine — these tests only assert email, not sessionId.
+  const { authModule, configModule, cwdModule, execaModule } =
+    await importActualUserTestDeps()
 
   mock.module('./auth.js', () => ({
+    ...authModule,
     getOauthAccountInfo: () =>
       options?.oauthEmail
         ? {
@@ -31,15 +51,18 @@ function installCommonMocks(options?: {
   }))
 
   mock.module('./config.js', () => ({
+    ...configModule,
     getGlobalConfig: () => ({}),
     getOrCreateUserID: () => 'device-test',
   }))
 
   mock.module('./cwd.js', () => ({
+    ...cwdModule,
     getCwd: () => 'C:\\repo',
   }))
 
   mock.module('execa', () => ({
+    ...execaModule,
     execa: async () => ({
       exitCode: options?.gitEmail ? 0 : 1,
       stdout: options?.gitEmail ?? '',
@@ -65,7 +88,7 @@ describe('user email fallbacks', () => {
     process.env.COO_CREATOR = 'alice'
     ;(globalThis as Record<string, unknown>).MACRO = { VERSION: '0.0.0' }
 
-    installCommonMocks()
+    await installCommonMocks()
 
     const { getCoreUserData } = await importFreshUserModule()
     const result = getCoreUserData()
@@ -78,7 +101,7 @@ describe('user email fallbacks', () => {
     process.env.COO_CREATOR = 'alice'
     ;(globalThis as Record<string, unknown>).MACRO = { VERSION: '0.0.0' }
 
-    installCommonMocks({ gitEmail: 'git@example.com' })
+    await installCommonMocks({ gitEmail: 'git@example.com' })
 
     const { initUser, getCoreUserData } = await importFreshUserModule()
     await initUser()
