@@ -145,6 +145,7 @@ async function* lightweightOpenAIAgent(
   sessionId: string,
   context?: { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string },
   pendingEditStore?: PendingEditStore,
+  history?: Array<{ role: "user" | "assistant"; content: string }>,
 ): AsyncIterable<AgentEvent> {
   const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
   const apiKey  = process.env.OPENAI_API_KEY ?? "";
@@ -213,6 +214,7 @@ Os itens devem ser comandos que o usuário envia diretamente ao chat.
 
   const messages: OAIMessage[] = [
     { role: "system", content: systemPrompt },
+    ...(history ?? []).map(m => ({ role: m.role, content: m.content })),
     { role: "user",   content: userContent  },
   ];
 
@@ -394,7 +396,7 @@ export function createRealAgent(_opts: RealAgentOpts = {}): AgentFn {
     try {
       // ── External provider path (Groq / Ollama / any OpenAI-compatible) ──
       if (process.env.CLAUDE_CODE_USE_OPENAI === "1") {
-        yield* lightweightOpenAIAgent(input.message, input.sessionId, input.context, pendingEditStore);
+        yield* lightweightOpenAIAgent(input.message, input.sessionId, input.context, pendingEditStore, input.history);
         return;
       }
 
