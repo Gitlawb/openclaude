@@ -1349,10 +1349,15 @@ async function execCommandHook(
         })
         // Explicitly specify UTF-8 encoding to ensure proper handling of Unicode characters
         child.stdin.write(jsonInput + '\n', 'utf8')
-        // When requestPrompt is provided, keep stdin open for prompt responses
-        if (!requestPrompt) {
-          child.stdin.end()
-        }
+        // Always close stdin after writing the initial JSON payload. The Anthropic
+        // hook input contract (https://docs.claude.com/en/docs/claude-code/hooks#hook-input)
+        // states stdin is closed after the payload is sent, and every plugin written
+        // against that spec reads stdin until EOF. Leaving stdin open to support
+        // future prompt-response on the same channel caused every UserPromptSubmit
+        // hook to block for the full per-hook timeout (default 60s) on every user
+        // message in interactive mode, since requestPrompt is truthy whenever the
+        // REPL is mounted. See issue #825 for the full analysis.
+        child.stdin.end()
         resolve()
       })
 
