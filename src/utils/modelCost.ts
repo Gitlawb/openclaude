@@ -1,4 +1,5 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import { getModelPricing } from '../integrations/modelCatalog/catalog.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js'
 import { logEvent } from 'src/services/analytics/index.js'
 import { setHasUnknownModelCost } from '../bootstrap/state.js'
@@ -89,6 +90,18 @@ export const COST_HAIKU_45 = {
 
 const DEFAULT_UNKNOWN_MODEL_COST = COST_TIER_5_25
 
+function catalogPricingToModelCosts(
+  pricing: NonNullable<ReturnType<typeof getModelPricing>>,
+): ModelCosts {
+  return {
+    inputTokens: pricing.input,
+    outputTokens: pricing.output,
+    promptCacheWriteTokens: pricing.cacheWrite ?? 0,
+    promptCacheReadTokens: pricing.cacheRead ?? 0,
+    webSearchRequests: pricing.webSearch ?? 0,
+  }
+}
+
 /**
  * Get the cost tier for Opus 4.6 based on fast mode.
  */
@@ -146,12 +159,21 @@ function tokensToUSDCost(modelCosts: ModelCosts, usage: Usage): number {
 
 export function getModelCosts(model: string, usage: Usage): ModelCosts {
   const shortName = getCanonicalName(model)
+  const isFastMode = isFastModeEnabled() && usage.speed === 'fast'
+  const catalogPricing = getModelPricing(model, 'anthropic')
+  const variant = isFastMode ? catalogPricing?.variants?.fastMode : undefined
+
+  if (catalogPricing) {
+    return catalogPricingToModelCosts({
+      ...catalogPricing,
+      ...variant,
+    })
+  }
 
   // Check if this is an Opus 4.6 model with fast mode active.
   if (
     shortName === firstPartyNameToCanonical(CLAUDE_OPUS_4_6_CONFIG.firstParty)
   ) {
-    const isFastMode = usage.speed === 'fast'
     return getOpus46CostTier(isFastMode)
   }
 
