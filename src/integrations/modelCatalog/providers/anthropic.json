@@ -167,7 +167,7 @@
         "contextWindow": 200000,
         "maxOutputTokens": {
           "default": 32000,
-          "upperLimit": 64000
+          "upperLimit": 32000
         },
         "compactMaxOutputTokens": 20000
       },
