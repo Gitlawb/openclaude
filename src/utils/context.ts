@@ -4,6 +4,14 @@ import { getGlobalConfig } from './config.js'
 import { isEnvTruthy } from './envUtils.js'
 import { resolveModelRuntimeLimits } from '../integrations/runtimeMetadata.js'
 import {
+  getModelLimits,
+  getModelMetadata,
+} from '../integrations/modelCatalog/catalog.js'
+import type {
+  ModelLimits,
+  NormalizedModelMetadata,
+} from '../integrations/modelCatalog/types.js'
+import {
   getTransportKindForRoute,
   resolveActiveRouteIdFromEnv,
 } from '../integrations/routeMetadata.js'
@@ -54,12 +62,49 @@ export function has1mContext(model: string): boolean {
   return /\[1m\]/i.test(model)
 }
 
+function safeGetCatalogLimits(model: string): ModelLimits | undefined {
+  try {
+    return getModelLimits(model)
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('Ambiguous model lookup ')
+    ) {
+      return undefined
+    }
+    throw error
+  }
+}
+
+function safeGetCatalogMetadata(
+  model: string,
+): NormalizedModelMetadata | undefined {
+  try {
+    return getModelMetadata(model)
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('Ambiguous model lookup ')
+    ) {
+      return undefined
+    }
+    throw error
+  }
+}
+
 // @[MODEL LAUNCH]: Update this pattern if the new model supports 1M context
 export function modelSupports1M(model: string): boolean {
   if (is1mContextDisabled()) {
     return false
   }
   const canonical = getCanonicalName(model)
+  const metadata = safeGetCatalogMetadata(model)
+  if (
+    metadata?.contextUpgrade?.maxContext &&
+    metadata.contextUpgrade.maxContext >= 1_000_000
+  ) {
+    return true
+  }
   return canonical.includes('claude-sonnet-4') || canonical.includes('opus-4-6')
 }
 
@@ -115,6 +160,13 @@ export function getContextWindowForModel(
     return OPENAI_FALLBACK_CONTEXT_WINDOW
   }
 
+  if (betas?.includes(CONTEXT_1M_BETA_HEADER) && modelSupports1M(model)) {
+    return 1_000_000
+  }
+  if (getSonnet1mExpTreatmentEnabled(model)) {
+    return 1_000_000
+  }
+
   const cap = getModelCapability(model)
   if (cap?.max_input_tokens && cap.max_input_tokens >= 100_000) {
     if (
@@ -126,12 +178,6 @@ export function getContextWindowForModel(
     return cap.max_input_tokens
   }
 
-  if (betas?.includes(CONTEXT_1M_BETA_HEADER) && modelSupports1M(model)) {
-    return 1_000_000
-  }
-  if (getSonnet1mExpTreatmentEnabled(model)) {
-    return 1_000_000
-  }
   if (process.env.USER_TYPE === 'ant') {
     const antModel = resolveAntModel(model)
     if (antModel?.contextWindow) {
@@ -209,12 +255,20 @@ export function getModelMaxOutputTokens(model: string): {
   // OpenAI-compatible provider — use known output limits to avoid 400 errors
   if (shouldUseIntegrationRuntimeLimits()) {
     const runtimeLimits = resolveModelRuntimeLimits({ model })
+    if (runtimeLimits.maxOutputTokenLimits) {
+      return runtimeLimits.maxOutputTokenLimits
+    }
     if (runtimeLimits.maxOutputTokens !== undefined) {
       return {
         default: runtimeLimits.maxOutputTokens,
         upperLimit: runtimeLimits.maxOutputTokens,
       }
     }
+  }
+
+  const catalogLimits = safeGetCatalogLimits(model)
+  if (catalogLimits?.maxOutputTokens) {
+    return catalogLimits.maxOutputTokens
   }
 
   const m = getCanonicalName(model)

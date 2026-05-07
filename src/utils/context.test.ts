@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
+import { CONTEXT_1M_BETA_HEADER } from '../constants/betas.ts'
 import { getMaxOutputTokensForModel } from '../services/api/claude.ts'
 import {
   getContextWindowForModel,
@@ -15,6 +16,7 @@ const originalEnv = {
     process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   XAI_API_KEY: process.env.XAI_API_KEY,
@@ -27,6 +29,7 @@ beforeEach(() => {
   delete process.env.CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.MINIMAX_API_KEY
   delete process.env.XAI_API_KEY
@@ -71,6 +74,11 @@ afterEach(() => {
   } else {
     process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
   }
+  if (originalEnv.OPENAI_API_KEY === undefined) {
+    delete process.env.OPENAI_API_KEY
+  } else {
+    process.env.OPENAI_API_KEY = originalEnv.OPENAI_API_KEY
+  }
   if (originalEnv.MINIMAX_API_KEY === undefined) {
     delete process.env.MINIMAX_API_KEY
   } else {
@@ -94,6 +102,12 @@ test('deepseek-v4-flash uses the gateway-safe output cap by default', () => {
     upperLimit: 65_536,
   })
   expect(getMaxOutputTokensForModel('deepseek-v4-flash')).toBe(65_536)
+})
+
+test('catalog-upgraded Claude model uses 1M beta context window', () => {
+  expect(
+    getContextWindowForModel('claude-opus-4-7', [CONTEXT_1M_BETA_HEADER]),
+  ).toBe(1_000_000)
 })
 
 test('deepseek-v4-flash uses DeepSeek direct API max output cap on api.deepseek.com', () => {
@@ -492,6 +506,18 @@ test('Kimi Code kimi-for-coding uses provider-specific context and output caps',
   expect(getContextWindowForModel('kimi-for-coding')).toBe(262_144)
   expect(getModelMaxOutputTokens('kimi-for-coding')).toEqual({
     default: 32_768,
+    upperLimit: 32_768,
+  })
+})
+
+test('catalog-backed OpenCode Go model uses provider context limits', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+  process.env.OPENAI_MODEL = 'kimi-k2.6'
+
+  expect(getContextWindowForModel('kimi-k2.6')).toBe(256_000)
+  expect(getModelMaxOutputTokens('kimi-k2.6')).toEqual({
+    default: 8_192,
     upperLimit: 32_768,
   })
 })

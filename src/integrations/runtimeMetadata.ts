@@ -8,6 +8,15 @@ import {
 } from '../utils/model/openaiContextWindows.js'
 import { ensureIntegrationsLoaded } from './index.js'
 import {
+  getAllProviderCatalogs,
+  getModelLimits,
+} from './modelCatalog/catalog.js'
+import type {
+  ModelLimits,
+  ModelOutputTokenLimits,
+  ProviderCatalog,
+} from './modelCatalog/types.js'
+import {
   getAllModels,
   getCatalogEntriesForRoute,
   getModel,
@@ -176,6 +185,7 @@ export type OpenAIShimRuntimeContext = {
 export type ModelRuntimeLimits = {
   contextWindow?: number
   maxOutputTokens?: number
+  maxOutputTokenLimits?: ModelOutputTokenLimits
 }
 
 export function resolveOpenAIShimRuntimeContext(options?: {
@@ -313,6 +323,64 @@ function findCatalogEntryForApiName(
   return getCatalogEntryForModel(routeId, modelApiName)
 }
 
+function normalizeCatalogBaseUrl(value: string | undefined): string | null {
+  if (!value?.trim()) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(value)
+    parsed.hash = ''
+    parsed.search = ''
+    return parsed.toString().replace(/\/+$/, '').toLowerCase()
+  } catch {
+    return value.trim().replace(/\/+$/, '').toLowerCase() || null
+  }
+}
+
+function findCatalogProviderForBaseUrl(
+  baseUrl: string | undefined,
+): ProviderCatalog | undefined {
+  const normalizedBaseUrl = normalizeCatalogBaseUrl(baseUrl)
+  if (!normalizedBaseUrl) {
+    return undefined
+  }
+
+  return getAllProviderCatalogs().find(
+    catalog => normalizeCatalogBaseUrl(catalog.baseUrl) === normalizedBaseUrl,
+  )
+}
+
+function resolveCatalogProviderIdForRuntimeLimits(
+  routeId: string | null,
+  runtimeEnv: NodeJS.ProcessEnv,
+): string | undefined {
+  if (routeId && routeId !== 'custom') {
+    return routeId
+  }
+
+  return findCatalogProviderForBaseUrl(
+    runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE,
+  )?.provider
+}
+
+function safeGetModelLimits(
+  model: string,
+  providerId?: string,
+): ModelLimits | undefined {
+  try {
+    return getModelLimits(model, providerId)
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('Ambiguous model lookup ')
+    ) {
+      return undefined
+    }
+    throw error
+  }
+}
+
 export function resolveModelRuntimeLimits(options: {
   model: string
   processEnv?: NodeJS.ProcessEnv
@@ -328,6 +396,13 @@ export function resolveModelRuntimeLimits(options: {
   const routeId = resolveActiveRouteIdFromEnv(runtimeEnv, {
     activeProfileProvider: options.activeProfileProvider,
   })
+  const catalogProviderId = resolveCatalogProviderIdForRuntimeLimits(
+    routeId,
+    runtimeEnv,
+  )
+  const catalogLimits = catalogProviderId
+    ? safeGetModelLimits(options.model, catalogProviderId)
+    : safeGetModelLimits(options.model)
   const catalogEntry = findCatalogEntryForApiName(routeId, options.model)
   const modelDescriptor =
     getModelDescriptorForCatalogEntry(catalogEntry) ??
@@ -341,12 +416,20 @@ export function resolveModelRuntimeLimits(options: {
   return {
     contextWindow:
       externalContextWindow ??
+      catalogLimits?.contextWindow ??
       catalogEntry?.contextWindow ??
       modelDescriptor?.contextWindow,
     maxOutputTokens:
       externalMaxOutputTokens ??
+      catalogLimits?.maxOutputTokens?.upperLimit ??
       catalogEntry?.maxOutputTokens ??
       modelDescriptor?.maxOutputTokens,
+    maxOutputTokenLimits: externalMaxOutputTokens
+      ? {
+          default: externalMaxOutputTokens,
+          upperLimit: externalMaxOutputTokens,
+        }
+      : catalogLimits?.maxOutputTokens,
   }
 }
 
