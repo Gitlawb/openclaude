@@ -19,7 +19,7 @@ import {
 
 // ... (Goal, Decision, Milestone interfaces)
 
-export function finalizeArcTurn(): void {
+export async function finalizeArcTurn(): Promise<void> {
   const arc = getArc()
   if (!arc) return
 
@@ -48,7 +48,7 @@ export function finalizeArcTurn(): void {
 
   const keywords = extractKeywords(summaryContent)
   if (keywords.length > 0) {
-    addGlobalSummary(summaryContent, keywords)
+    await addGlobalSummary(summaryContent, keywords)
   }
 }
 

@@ -1898,7 +1898,7 @@ async function* queryLoop(
       getGlobalConfig().knowledgeGraphEnabled
     ) {
       const { finalizeArcTurn } = await import('./utils/conversationArc.js')
-      finalizeArcTurn()
+      await finalizeArcTurn()
     }
 
     const next: State = {

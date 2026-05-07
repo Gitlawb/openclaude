@@ -77,6 +77,28 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
     expect(entities[0].attributes.version).toBe('0.6.0')
   })
 
+  it('clears Orama database and persistence file on resetGlobalGraph', async () => {
+    const originalOrama = process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
+    process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = '1'
+    const { initOrama, getOramaPersistencePath } = await import('./knowledgeGraph.js')
+
+    await initOrama(cwd)
+    await addGlobalSummary('Orama test summary', ['orama'])
+
+    const oramaPath = getOramaPersistencePath(cwd)
+    expect(require('fs').existsSync(oramaPath)).toBe(true)
+
+    resetGlobalGraph()
+    expect(require('fs').existsSync(oramaPath)).toBe(false)
+
+    // Cleanup env
+    if (originalOrama === undefined) {
+      delete process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
+    } else {
+      process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = originalOrama
+    }
+  })
+
   describe('Feature Flag: OPENCLAUDE_KNOWLEDGE_ORAMA', () => {
     it('uses Orama when flag is enabled', async () => {
       process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = '1'

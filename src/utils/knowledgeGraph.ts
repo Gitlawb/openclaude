@@ -533,6 +533,15 @@ export function resetGlobalGraph(): void {
   try {
     rmSync(path, { force: true })
   } catch { /* ignore */ }
+
+  if (isOramaEnabled()) {
+    const oramaPath = getOramaPersistencePath(cwd)
+    try {
+      rmSync(oramaPath, { force: true })
+    } catch { /* ignore */ }
+    oramaDb = null
+  }
+
   projectGraph = null;
 }
 
