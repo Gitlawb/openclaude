@@ -1284,6 +1284,21 @@ function checkSandboxAutoAllow(
   // would return 'ask' before a prefix deny rule on a subcommand (e.g., Bash(rm:*))
   // gets checked, downgrading a deny to an ask.
   const subcommands = splitCommand(command)
+  // CC-643: Apply the same subcommand cap as bashToolHasPermission (line ~2144).
+  // splitCommand_DEPRECATED can produce exponentially many subcommands on crafted
+  // compound commands (#21405's fix may be incomplete — see comment at line ~99).
+  // Without this guard, a malicious command could cause unbounded matchingRulesForInput
+  // iterations here, starving the event loop for users with sandbox+autoAllow enabled.
+  if (subcommands.length > MAX_SUBCOMMANDS_FOR_SECURITY_CHECK) {
+    return {
+      behavior: 'ask',
+      message: createPermissionRequestMessage(BashTool.name),
+      decisionReason: {
+        type: 'other',
+        reason: `Command splits into ${subcommands.length} subcommands, too many to safety-check individually`,
+      },
+    }
+  }
   if (subcommands.length > 1) {
     let firstAskRule: PermissionRule | undefined
     for (const sub of subcommands) {
