@@ -1,0 +1,375 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaude.local/schemas/provider-catalog.schema.json",
+  "title": "ProviderCatalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "provider", "label", "endpoints", "models"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "provider": { "type": "string", "minLength": 1 },
+    "label": { "type": "string", "minLength": 1 },
+    "baseUrl": { "type": "string", "minLength": 1 },
+    "endpoints": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/endpoint" }
+    },
+    "defaults": { "$ref": "#/$defs/defaults" },
+    "templates": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/modelPartial" }
+    },
+    "models": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/model" }
+    },
+    "discovery": { "$ref": "#/$defs/discovery" }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "protocol": {
+      "enum": [
+        "openai-chat-completions",
+        "openai-responses",
+        "anthropic-messages",
+        "gemini-native",
+        "alibaba-compatible",
+        "models-list"
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxTokensField": { "enum": ["max_tokens", "max_completion_tokens"] },
+        "preserveReasoningContent": { "type": "boolean" },
+        "requireReasoningContentOnAssistantMessages": { "type": "boolean" },
+        "reasoningContentFallback": { "enum": ["", "omit"] },
+        "thinkingRequestFormat": { "enum": ["none", "deepseek-compatible"] },
+        "removeBodyFields": { "$ref": "#/$defs/stringArray" },
+        "reasoningField": { "enum": ["reasoning_effort", "thinking"] }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "protocol"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "method": { "enum": ["GET", "POST"] },
+        "protocol": { "$ref": "#/$defs/protocol" },
+        "streaming": { "type": "boolean" },
+        "request": { "$ref": "#/$defs/request" }
+      }
+    },
+    "outputTokenLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "upperLimit"],
+      "properties": {
+        "default": { "type": "integer", "minimum": 1 },
+        "upperLimit": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "outputTokenLimitsPartial": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "default": { "type": "integer", "minimum": 1 },
+        "upperLimit": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contextWindow": { "type": "integer", "minimum": 1 },
+        "maxInputTokens": { "type": "integer", "minimum": 1 },
+        "maxOutputTokens": { "$ref": "#/$defs/outputTokenLimits" },
+        "compactMaxOutputTokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "limitsPartial": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "contextWindow": { "type": "integer", "minimum": 1 },
+        "maxInputTokens": { "type": "integer", "minimum": 1 },
+        "maxOutputTokens": { "$ref": "#/$defs/outputTokenLimitsPartial" },
+        "compactMaxOutputTokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vision": { "type": "boolean" },
+        "streaming": { "type": "boolean" },
+        "functionCalling": { "type": "boolean" },
+        "jsonMode": { "type": "boolean" },
+        "structuredOutputs": { "type": "boolean" },
+        "reasoning": { "type": "boolean" },
+        "thinking": { "type": "boolean" },
+        "adaptiveThinking": { "type": "boolean" },
+        "interleavedThinking": { "type": "boolean" },
+        "contextManagement": { "type": "boolean" },
+        "promptCaching": { "type": "boolean" },
+        "preciseTokenCount": { "type": "boolean" },
+        "webSearch": { "type": "boolean" },
+        "advisor": { "type": "boolean" },
+        "advisorTarget": { "type": "boolean" },
+        "autoMode": { "type": "boolean" },
+        "fastMode": { "type": "boolean" }
+      }
+    },
+    "effort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "supported", "levels"],
+      "properties": {
+        "scheme": { "enum": ["anthropic", "openai", "numeric"] },
+        "supported": { "type": "boolean" },
+        "levels": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "defaultLevel": { "type": "string", "minLength": 1 },
+        "maxLevel": { "type": "string", "minLength": 1 },
+        "clampUnsupportedMaxTo": { "type": "string", "minLength": 1 }
+      }
+    },
+    "effortPartial": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "scheme": { "enum": ["anthropic", "openai", "numeric"] },
+        "supported": { "type": "boolean" },
+        "levels": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "defaultLevel": { "type": "string", "minLength": 1 },
+        "maxLevel": { "type": "string", "minLength": 1 },
+        "clampUnsupportedMaxTo": { "type": "string", "minLength": 1 }
+      }
+    },
+    "pricingVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cacheWrite": { "type": "number", "minimum": 0 },
+        "cacheRead": { "type": "number", "minimum": 0 },
+        "webSearch": { "type": "number", "minimum": 0 }
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cacheWrite": { "type": "number", "minimum": 0 },
+        "cacheRead": { "type": "number", "minimum": 0 },
+        "webSearch": { "type": "number", "minimum": 0 },
+        "variants": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/pricingVariant" }
+        }
+      }
+    },
+    "pricingPartial": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "input": { "type": "number", "minimum": 0 },
+        "output": { "type": "number", "minimum": 0 },
+        "cacheWrite": { "type": "number", "minimum": 0 },
+        "cacheRead": { "type": "number", "minimum": 0 },
+        "webSearch": { "type": "number", "minimum": 0 },
+        "variants": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/pricingVariant" }
+        }
+      }
+    },
+    "visibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tiers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "ant",
+              "max",
+              "teamPremium",
+              "pro",
+              "payg1p",
+              "payg3p",
+              "thirdParty"
+            ]
+          }
+        },
+        "hidden": { "type": "boolean" },
+        "order": { "type": "number" },
+        "defaultFor": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["main", "opus", "sonnet", "haiku", "smallFast", "advisor"]
+          }
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pickerLabel": { "type": "string" },
+        "pickerDescription": { "type": "string" },
+        "descriptionForModel": { "type": "string" },
+        "marketingName": { "type": "string" },
+        "upgradeHintFamily": { "type": "string" }
+      }
+    },
+    "contextUpgrade": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "label", "maxContext"],
+      "properties": {
+        "alias": { "type": "string" },
+        "label": { "type": "string" },
+        "maxContext": { "type": "integer", "minimum": 1 },
+        "multiplier": { "type": "number", "exclusiveMinimum": 0 },
+        "accessPolicy": { "enum": ["extraUsage", "always", "antOnly"] }
+      }
+    },
+    "contextUpgradePartial": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "alias": { "type": "string" },
+        "label": { "type": "string" },
+        "maxContext": { "type": "integer", "minimum": 1 },
+        "multiplier": { "type": "number", "exclusiveMinimum": 0 },
+        "accessPolicy": { "enum": ["extraUsage", "always", "antOnly"] }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "legacyIds": { "$ref": "#/$defs/stringArray" },
+        "canonicalPattern": { "type": "string", "minLength": 1 },
+        "providerModelMap": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "fallbackSuggestion": { "type": "string", "minLength": 1 },
+        "migrationAliases": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": { "type": "string", "minLength": 1 },
+        "limits": { "$ref": "#/$defs/limits" },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "effort": { "$ref": "#/$defs/effort" },
+        "pricing": { "$ref": "#/$defs/pricing" },
+        "visibility": { "$ref": "#/$defs/visibility" },
+        "ui": { "$ref": "#/$defs/ui" },
+        "request": { "$ref": "#/$defs/request" }
+      }
+    },
+    "modelPartial": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "apiName": { "type": "string", "minLength": 1 },
+        "canonicalModelId": { "type": "string", "minLength": 1 },
+        "aliases": { "$ref": "#/$defs/stringArray" },
+        "family": { "type": "string", "minLength": 1 },
+        "classification": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["chat", "reasoning", "vision", "coding"] }
+        },
+        "status": { "enum": ["active", "preview", "deprecated", "hidden"] },
+        "endpoint": { "type": "string", "minLength": 1 },
+        "apiNamePrefix": { "type": "string", "minLength": 1 },
+        "fallbackEndpoint": { "type": "string", "minLength": 1 },
+        "regionPreference": { "$ref": "#/$defs/stringArray" },
+        "extends": { "$ref": "#/$defs/stringArray" },
+        "limits": { "$ref": "#/$defs/limitsPartial" },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "effort": { "$ref": "#/$defs/effortPartial" },
+        "pricing": { "$ref": "#/$defs/pricingPartial" },
+        "visibility": { "$ref": "#/$defs/visibility" },
+        "ui": { "$ref": "#/$defs/ui" },
+        "contextUpgrade": { "$ref": "#/$defs/contextUpgradePartial" },
+        "compatibility": { "$ref": "#/$defs/compatibility" },
+        "request": { "$ref": "#/$defs/request" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "apiName": { "type": "string", "minLength": 1 },
+        "canonicalModelId": { "type": "string", "minLength": 1 },
+        "aliases": { "$ref": "#/$defs/stringArray" },
+        "family": { "type": "string", "minLength": 1 },
+        "classification": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["chat", "reasoning", "vision", "coding"] }
+        },
+        "status": { "enum": ["active", "preview", "deprecated", "hidden"] },
+        "endpoint": { "type": "string", "minLength": 1 },
+        "apiNamePrefix": { "type": "string", "minLength": 1 },
+        "fallbackEndpoint": { "type": "string", "minLength": 1 },
+        "regionPreference": { "$ref": "#/$defs/stringArray" },
+        "extends": { "$ref": "#/$defs/stringArray" },
+        "limits": { "$ref": "#/$defs/limits" },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "effort": { "$ref": "#/$defs/effort" },
+        "pricing": { "$ref": "#/$defs/pricing" },
+        "visibility": { "$ref": "#/$defs/visibility" },
+        "ui": { "$ref": "#/$defs/ui" },
+        "contextUpgrade": { "$ref": "#/$defs/contextUpgrade" },
+        "compatibility": { "$ref": "#/$defs/compatibility" },
+        "request": { "$ref": "#/$defs/request" }
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint", "parser"],
+      "properties": {
+        "endpoint": { "type": "string", "minLength": 1 },
+        "parser": { "enum": ["openai-models-list", "ollama-tags", "custom"] },
+        "cacheTtl": { "type": "string", "pattern": "^[0-9]+[mhd]$" },
+        "refreshMode": {
+          "enum": ["manual", "on-open", "background-if-stale", "startup"]
+        }
+      }
+    }
+  }
+}
