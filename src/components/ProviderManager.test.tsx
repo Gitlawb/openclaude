@@ -98,9 +98,9 @@ async function waitForCondition(
 }
 
 // Provider list is sorted from generated preset metadata by description, with
-// Codex OAuth injected into slot 7 and Custom always pinned last. Keep the
-// target-by-label indirection here so these tests survive future list edits
-// without hardcoding raw key counts.
+// Codex OAuth and Codex Device Code injected before Google Gemini and Custom
+// always pinned last. Keep the target-by-label indirection here so these tests
+// survive future list edits without hardcoding raw key counts.
 //
 // Order matches ProviderManager.renderPresetSelection() when
 // canUseCodexOAuth === true (default in mocked tests).
@@ -1757,4 +1757,5 @@ test('ProviderManager hides Codex OAuth setup in bare mode', async () => {
 
   expect(output).toContain('Set up provider')
   expect(output).not.toContain('Codex OAuth')
+  expect(output).not.toContain('Codex Device Code')
 })

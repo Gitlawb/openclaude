@@ -1542,23 +1542,28 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })
 
     if (canUseCodexOAuth) {
-      options.splice(7, 0, {
-        value: 'codex-device-code',
-        label: 'Codex Device Code',
-        description:
-          'Sign in with a device code and store Codex credentials securely',
-      })
-      options.splice(6, 0, {
-        value: 'codex-oauth',
-        label: (
-          <Text>
-            <Text>Codex OAuth </Text>
-            <Text color="success" bold>★ Recommended</Text>
-          </Text>
-        ),
-        description:
-          'Sign in with ChatGPT in your browser and store Codex credentials securely',
-      })
+      const codexInsertIndex = options.findIndex(option => option.value === 'gemini')
+      options.splice(
+        codexInsertIndex === -1 ? 6 : codexInsertIndex,
+        0,
+        {
+          value: 'codex-oauth',
+          label: (
+            <Text>
+              <Text>Codex OAuth </Text>
+              <Text color="success" bold>★ Recommended</Text>
+            </Text>
+          ),
+          description:
+            'Sign in with ChatGPT in your browser and store Codex credentials securely',
+        },
+        {
+          value: 'codex-device-code',
+          label: 'Codex Device Code',
+          description:
+            'Sign in with a device code and store Codex credentials securely',
+        },
+      )
     }
 
     if (mode === 'first-run') {
