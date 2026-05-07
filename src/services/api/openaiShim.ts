@@ -223,6 +223,17 @@ function hasCerebrasApiHost(baseUrl: string | undefined): boolean {
   }
 }
 
+function hasMistralApiHost(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase()
+    return host === 'api.mistral.ai' || host.endsWith('.mistral.ai')
+  } catch {
+    return false
+  }
+}
+
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
@@ -3145,6 +3156,7 @@ class OpenAIShimMessages {
       isGeminiMode() ||
       hasGeminiApiHost(request.baseUrl) ||
       hasCerebrasApiHost(request.baseUrl) ||
+      hasMistralApiHost(request.baseUrl) ||
       isLocal
 
     if (
