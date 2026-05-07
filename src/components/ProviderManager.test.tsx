@@ -112,6 +112,7 @@ const PRESET_ORDER = [
   'Bankr',
   'DeepSeek',
   'Codex OAuth',
+  'Codex Device Code',
   'Google Gemini',
   'Groq',
   'Hicap',

@@ -413,7 +413,7 @@ export async function getProviderValidationError(
   if (hasExplicitCodexIntent) {
     const credentials = resolveCodexApiCredentials(env)
     if (!credentials.apiKey) {
-      const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
+      const oauthHint = isBareMode() ? '' : ', choose Codex OAuth or device code in /provider'
       const authHint = credentials.authPath
         ? `${oauthHint} or put auth.json at ${credentials.authPath}`
         : oauthHint
@@ -424,7 +424,7 @@ export async function getProviderValidationError(
       return `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`
     }
     if (!credentials.accountId) {
-      return 'Codex auth is missing chatgpt_account_id. Re-login with Codex OAuth, Codex CLI, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.'
+      return 'Codex auth is missing chatgpt_account_id. Re-login with Codex OAuth, device code, Codex CLI, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.'
     }
     return null
   }

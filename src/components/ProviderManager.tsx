@@ -73,6 +73,7 @@ import {
 } from './CustomSelect/index.js'
 import { Pane } from './design-system/Pane.js'
 import TextInput from './TextInput.js'
+import { useCodexDeviceCodeFlow } from './useCodexDeviceCodeFlow.js'
 import { useCodexOAuthFlow } from './useCodexOAuthFlow.js'
 
 export type ProviderManagerResult = {
@@ -94,6 +95,7 @@ type Screen =
   | 'select-ollama-model'
   | 'select-atomic-chat-model'
   | 'codex-oauth'
+  | 'codex-device-code'
   | 'form'
   | 'select-active'
   | 'select-edit'
@@ -199,6 +201,8 @@ const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
 const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 const CODEX_OAUTH_PROVIDER_NAME = 'Codex OAuth'
 const CODEX_OAUTH_PROVIDER_MODEL = 'codexplan'
+const CODEX_DEVICE_CODE_PROVIDER_NAME = 'Codex Device Code'
+const CODEX_DEVICE_CODE_PROVIDER_MODEL = 'codexplan'
 
 type GithubCredentialSource = 'stored' | 'env' | 'none'
 
@@ -481,6 +485,88 @@ function CodexOAuthSetup({
     </Box>
   )
 }
+
+function CodexDeviceCodeSetup({
+  onBack,
+  onConfigured,
+}: {
+  onBack: () => void
+  onConfigured: (tokens: {
+    accessToken: string
+    refreshToken: string
+    accountId?: string
+    idToken?: string
+    apiKey?: string
+  }, persistCredentials: (options?: { profileId?: string }) => void) => void | Promise<void>
+}): React.ReactNode {
+  const handleAuthenticated = React.useCallback(async (tokens: {
+    accessToken: string
+    refreshToken: string
+    accountId?: string
+    idToken?: string
+    apiKey?: string
+  }, persistCredentials: (options?: { profileId?: string }) => void) => {
+    await onConfigured(tokens, persistCredentials)
+  }, [onConfigured])
+  useKeybinding('confirm:no', onBack)
+
+  const status = useCodexDeviceCodeFlow({
+    onAuthenticated: handleAuthenticated,
+  })
+
+  if (status.state === 'error') {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="error" bold>
+          Codex device-code sign-in failed
+        </Text>
+        <Text>{status.message}</Text>
+        <Text dimColor>Press Enter or Esc to go back.</Text>
+        <Select
+          options={[{ value: 'back', label: 'Back', description: 'Return to provider presets' }]}
+          onChange={onBack}
+          onCancel={onBack}
+          visibleOptionCount={1}
+        />
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Text color="remember" bold>
+        Codex Device Code
+      </Text>
+      <Text>
+        Sign in with the device code shown below. OpenClaude will poll until the
+        login completes and then store the resulting Codex credentials securely.
+      </Text>
+      {status.state === 'starting' ? (
+        <Text dimColor>Requesting your device code...</Text>
+      ) : (
+        <>
+          <Text>
+            Visit {status.verificationUriComplete ?? status.verificationUri} and enter code{' '}
+            <Text bold>{status.userCode}</Text>.
+          </Text>
+          <Text dimColor>
+            Expires in {Math.max(1, Math.ceil(status.expiresIn / 60))} minutes.
+          </Text>
+          {status.browserOpened === false ? (
+            <Text color="warning">Could not open the verification URL automatically.</Text>
+          ) : status.browserOpened === true ? (
+            <Text dimColor>Verification page opened in your browser.</Text>
+          ) : (
+            <Text dimColor>Opening the verification page...</Text>
+          )}
+          <Text>{status.verificationUriComplete ?? status.verificationUri}</Text>
+        </>
+      )}
+      <Text dimColor>Press Esc to cancel and go back.</Text>
+    </Box>
+  )
+}
+
 
 export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const setAppState = useSetAppState()
@@ -1456,6 +1542,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })
 
     if (canUseCodexOAuth) {
+      options.splice(7, 0, {
+        value: 'codex-device-code',
+        label: 'Codex Device Code',
+        description:
+          'Sign in with a device code and store Codex credentials securely',
+      })
       options.splice(6, 0, {
         value: 'codex-oauth',
         label: (
@@ -1494,6 +1586,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
             if (value === 'codex-oauth') {
               setScreen('codex-oauth')
+              return
+            }
+            if (value === 'codex-device-code') {
+              setScreen('codex-device-code')
               return
             }
             startCreateFromPreset(value as ProviderPreset)
@@ -1783,6 +1879,73 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     case 'select-atomic-chat-model':
       content = renderAtomicChatSelection()
       break
+    case 'codex-device-code':
+      content = (
+        <CodexDeviceCodeSetup
+          onBack={() => setScreen('select-preset')}
+          onConfigured={async (tokens, persistCredentials) => {
+            const payload: ProviderProfileInput = {
+              provider: 'openai',
+              name: CODEX_DEVICE_CODE_PROVIDER_NAME,
+              baseUrl: DEFAULT_CODEX_BASE_URL,
+              model: CODEX_DEVICE_CODE_PROVIDER_MODEL,
+              apiKey: '',
+            }
+
+            const saved = addProviderProfile(payload, { makeActive: false })
+            if (!saved) {
+              setErrorMessage(
+                'Codex device-code login finished, but the provider profile could not be saved.',
+              )
+              returnToMenu()
+              return
+            }
+
+            const active = setActiveProviderProfile(saved.id)
+            if (!active) {
+              setErrorMessage(
+                'Codex device-code login finished, but the provider could not be set as the startup provider.',
+              )
+              returnToMenu()
+              return
+            }
+
+            persistCredentials({ profileId: saved.id })
+            const settingsOverrideError =
+              clearStartupProviderOverrideFromUserSettings()
+            const activationWarning = await activateCodexOAuthSession(tokens)
+            setHasStoredCodexOAuthCredentials(true)
+            setStoredCodexOAuthProfileId(saved.id)
+            refreshProfiles()
+            const warnings = [
+              activationWarning,
+              settingsOverrideError
+                ? `could not clear startup provider override (${settingsOverrideError})`
+                : null,
+            ].filter((warning): warning is string => Boolean(warning))
+            const message = buildCodexOAuthActivationMessage({
+              prefix: 'Codex Device Code configured',
+              activationWarning,
+              warnings,
+            })
+
+            if (mode === 'first-run') {
+              onDone({
+                action: 'saved',
+                activeProfileId: active.id,
+                message,
+              })
+              return
+            }
+
+            setStatusMessage(message)
+            setErrorMessage(undefined)
+            returnToMenu()
+          }}
+        />
+      )
+      break
+
     case 'codex-oauth':
       content = (
         <CodexOAuthSetup

@@ -13,6 +13,7 @@ import {
 } from '../../components/CustomSelect/index.js'
 import { Dialog } from '../../components/design-system/Dialog.js'
 import { LoadingState } from '../../components/design-system/LoadingState.js'
+import { useCodexDeviceCodeFlow } from '../../components/useCodexDeviceCodeFlow.js'
 import { useCodexOAuthFlow } from '../../components/useCodexOAuthFlow.js'
 import { useTerminalSize } from '../../hooks/useTerminalSize.js'
 import { Box, Text } from '../../ink.js'
@@ -135,7 +136,7 @@ function describeOllamaReadinessIssue(
   return ''
 }
 
-type ProviderChoice = 'auto' | ProviderProfile | 'codex-oauth' | 'clear'
+type ProviderChoice = 'auto' | ProviderProfile | 'codex-oauth' | 'codex-device-code' | 'clear'
 
 type Step =
   | { name: 'choose' }
@@ -167,6 +168,7 @@ type Step =
       authMode: 'api-key' | 'access-token' | 'adc'
     }
   | { name: 'codex-oauth' }
+  | { name: 'codex-device-code' }
   | { name: 'codex-check' }
 
 type CurrentProviderSummary = {
@@ -713,6 +715,12 @@ function ProviderChooser({
             description:
               'Sign in with ChatGPT in your browser and store Codex tokens securely',
           },
+          {
+            label: 'Codex Device Code',
+            value: 'codex-device-code' as const,
+            description:
+              'Sign in with a device code and store Codex tokens securely',
+          },
         ]
       : []),
   ]
@@ -1098,6 +1106,84 @@ function OllamaModelStep({
   )
 }
 
+
+function CodexDeviceCodeStep({
+  onSave,
+  onBack,
+  onCancel,
+}: {
+  onSave: (profile: ProviderProfile, env: ProfileEnv) => void
+  onBack: () => void
+  onCancel: () => void
+}): React.ReactNode {
+  const handleAuthenticated = React.useCallback(async (
+    tokens: CodexOAuthTokens,
+    persistCredentials: (options?: { profileId?: string }) => void,
+  ) => {
+    const env = buildCodexOAuthProfileEnv(tokens)
+    if (!env) {
+      throw new Error(
+        'Codex device-code sign-in succeeded, but OpenClaude could not build a Codex profile from the stored credentials.',
+      )
+    }
+
+    persistCredentials()
+    onSave('codex', env)
+  }, [onSave])
+
+  const status = useCodexDeviceCodeFlow({
+    onAuthenticated: handleAuthenticated,
+  })
+
+  if (status.state === 'error') {
+    return (
+      <Dialog title="Codex device-code sign-in failed" onCancel={onCancel} color="warning">
+        <Box flexDirection="column" gap={1}>
+          <Text>{status.message}</Text>
+          <Select
+            options={[
+              { label: 'Back', value: 'back' },
+              { label: 'Cancel', value: 'cancel' },
+            ]}
+            onChange={(value: string) =>
+              value === 'back' ? onBack() : onCancel()
+            }
+            onCancel={onCancel}
+          />
+        </Box>
+      </Dialog>
+    )
+  }
+
+  return (
+    <Dialog title="Codex Device Code" onCancel={onBack}>
+      <Box flexDirection="column" gap={1}>
+        {status.state === 'starting' ? (
+          <LoadingState message="Starting Codex device-code sign-in..." />
+        ) : (
+          <>
+            <Text>
+              Visit {status.verificationUriComplete ?? status.verificationUri} and enter code{' '}
+              <Text bold>{status.userCode}</Text>.
+            </Text>
+            {status.browserOpened === false ? (
+              <Text color="warning">Browser did not open automatically. Visit the URL above.</Text>
+            ) : status.browserOpened === true ? (
+              <Text dimColor>Verification page opened in your browser.</Text>
+            ) : (
+              <Text dimColor>Opening your browser...</Text>
+            )}
+            <Text dimColor>
+              Expires in {Math.max(1, Math.ceil(status.expiresIn / 60))} minutes.
+            </Text>
+          </>
+        )}
+        <Text dimColor>Press Esc to cancel and go back.</Text>
+      </Box>
+    </Dialog>
+  )
+}
+
 function CodexOAuthStep({
   onSave,
   onBack,
@@ -1324,6 +1410,8 @@ export function ProviderWizard({
               })
             } else if (value === 'codex-oauth') {
               setStep({ name: 'codex-oauth' })
+            } else if (value === 'codex-device-code') {
+              setStep({ name: 'codex-device-code' })
             } else if (value === 'clear') {
               const filePath = deleteProfileFile()
               onDone(`Removed saved provider profile at ${filePath}. Restart OpenClaude to go back to normal startup.`, {
@@ -1772,6 +1860,15 @@ export function ProviderWizard({
     case 'codex-check':
       return (
         <CodexCredentialStep
+          onSave={(profile, env) => finishProfileSave(onDone, profile, env)}
+          onBack={() => setStep({ name: 'choose' })}
+          onCancel={() => onDone()}
+        />
+      )
+
+    case 'codex-device-code':
+      return (
+        <CodexDeviceCodeStep
           onSave={(profile, env) => finishProfileSave(onDone, profile, env)}
           onBack={() => setStep({ name: 'choose' })}
           onCancel={() => onDone()}
