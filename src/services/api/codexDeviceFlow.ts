@@ -14,6 +14,7 @@ import type { CodexOAuthTokens } from './codexOAuth.js'
 export const CODEX_DEVICE_CODE_URL = `${CODEX_OAUTH_ISSUER}/oauth/device/code`
 export const CODEX_DEVICE_TOKEN_GRANT =
   'urn:ietf:params:oauth:grant-type:device_code'
+const CODEX_DEVICE_FLOW_REQUEST_TIMEOUT_MS = 15_000
 
 export class CodexDeviceFlowError extends Error {
   constructor(message: string) {
@@ -32,6 +33,14 @@ export type CodexDeviceCodeResult = {
 }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
+function createRequestSignal(
+  signal?: AbortSignal,
+  timeoutMs = CODEX_DEVICE_FLOW_REQUEST_TIMEOUT_MS,
+): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(Math.max(1, Math.floor(timeoutMs)))
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+}
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -123,6 +132,8 @@ export async function requestCodexDeviceCode(options?: {
   clientId?: string
   scope?: string
   fetchImpl?: FetchLike
+  signal?: AbortSignal
+  requestTimeoutMs?: number
 }): Promise<CodexDeviceCodeResult> {
   const fetchFn = options?.fetchImpl ?? fetch
   const body = new URLSearchParams({
@@ -138,6 +149,7 @@ export async function requestCodexDeviceCode(options?: {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body,
+    signal: createRequestSignal(options?.signal, options?.requestTimeoutMs),
   })
 
   const payload = await readJsonResponse(response)
