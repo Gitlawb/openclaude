@@ -1,6 +1,6 @@
 import Ajv2020 from 'ajv/dist/2020.js'
 import schema from './schema.json'
-import type { ProviderCatalog } from './types.js'
+import type { ModelCatalogTemplate, ProviderCatalog } from './types.js'
 
 export type CatalogValidationResult = {
   valid: boolean
@@ -37,6 +37,56 @@ function validateOutputLimit(
   ) {
     errors.push(`${path}.maxOutputTokens.default must be <= upperLimit`)
   }
+}
+
+function resolveTemplateEndpoint(
+  templateId: string,
+  templates: Record<string, ModelCatalogTemplate>,
+  stack: string[] = [],
+): string | undefined {
+  if (stack.includes(templateId)) {
+    return undefined
+  }
+
+  const template = templates[templateId]
+  if (!template) {
+    return undefined
+  }
+
+  let endpoint: string | undefined
+  const extendedTemplateIds = Array.isArray(template.extends)
+    ? template.extends
+    : []
+  for (const extendedTemplateId of extendedTemplateIds) {
+    if (typeof extendedTemplateId !== 'string') {
+      continue
+    }
+
+    endpoint =
+      resolveTemplateEndpoint(extendedTemplateId, templates, [
+        ...stack,
+        templateId,
+      ]) ?? endpoint
+  }
+
+  return typeof template.endpoint === 'string' ? template.endpoint : endpoint
+}
+
+function resolveModelEndpoint(
+  model: ProviderCatalog['models'][string],
+  catalog: ProviderCatalog,
+): string | undefined {
+  if (model.endpoint) {
+    return model.endpoint
+  }
+
+  let endpoint: string | undefined
+  const templates = catalog.templates ?? {}
+  for (const templateId of model.extends ?? []) {
+    endpoint = resolveTemplateEndpoint(templateId, templates) ?? endpoint
+  }
+
+  return endpoint ?? catalog.defaults?.endpoint
 }
 
 export function validateProviderCatalog(
@@ -102,10 +152,10 @@ export function validateProviderCatalog(
 
   const aliases = new Map<string, string>()
   for (const [modelId, model] of Object.entries(typed.models)) {
-    const endpoint = model.endpoint ?? typed.defaults?.endpoint
+    const endpoint = resolveModelEndpoint(model, typed)
     if (!endpoint) {
       errors.push(
-        `model "${modelId}" must define an endpoint or inherit defaults.endpoint`,
+        `model "${modelId}" must define an endpoint or inherit one from templates/defaults`,
       )
     } else if (!endpointIds.has(endpoint)) {
       errors.push(`model "${modelId}" references missing endpoint "${endpoint}"`)

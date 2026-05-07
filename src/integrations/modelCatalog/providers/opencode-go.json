@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "provider": "opencode-go",
+  "label": "OpenCode Go",
+  "baseUrl": "https://opencode.ai/zen/go/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": { "maxTokensField": "max_tokens" }
+    },
+    "messages": {
+      "path": "/messages",
+      "protocol": "anthropic-messages",
+      "streaming": true
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": { "default": 8192, "upperLimit": 32768 }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "templates": {
+    "codingReasoning": {
+      "classification": ["chat", "reasoning", "coding"],
+      "capabilities": { "reasoning": true }
+    },
+    "longContext": {
+      "limits": { "contextWindow": 256000 }
+    }
+  },
+  "models": {
+    "kimi-k2.6": {
+      "extends": ["codingReasoning", "longContext"],
+      "label": "Kimi K2.6",
+      "aliases": ["opencode-go/kimi-k2.6"]
+    },
+    "minimax-m2.7": {
+      "extends": ["codingReasoning"],
+      "label": "MiniMax M2.7",
+      "endpoint": "messages",
+      "aliases": ["opencode-go/minimax-m2.7"]
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1d",
+    "refreshMode": "background-if-stale"
+  }
+}

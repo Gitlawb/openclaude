@@ -112,7 +112,100 @@ describe('provider catalog schema', () => {
 
     expect(result.valid).toBe(false)
     expect(result.errors).toContain(
-      'model "fixture-model" must define an endpoint or inherit defaults.endpoint',
+      'model "fixture-model" must define an endpoint or inherit one from templates/defaults',
+    )
+  })
+
+  test('accepts a model that inherits endpoint from an extended template', () => {
+    const result = validateProviderCatalog(
+      validCatalog({
+        defaults: {
+          limits: {
+            contextWindow: 128000,
+            maxOutputTokens: { default: 8192, upperLimit: 32768 },
+          },
+        },
+        templates: {
+          messagesTemplate: {
+            endpoint: 'models',
+          },
+        },
+        models: {
+          'fixture-model': {
+            label: 'Fixture Model',
+            extends: ['messagesTemplate'],
+          },
+        },
+      }),
+    )
+
+    expect(result).toEqual({
+      valid: true,
+      errors: [],
+    })
+  })
+
+  test('validates the endpoint from the last endpoint-bearing template', () => {
+    const result = validateProviderCatalog(
+      validCatalog({
+        defaults: {
+          limits: {
+            contextWindow: 128000,
+            maxOutputTokens: { default: 8192, upperLimit: 32768 },
+          },
+        },
+        templates: {
+          chatTemplate: {
+            endpoint: 'chatCompletions',
+          },
+          modelsTemplate: {
+            endpoint: 'models',
+          },
+        },
+        models: {
+          'fixture-model': {
+            label: 'Fixture Model',
+            extends: ['chatTemplate', 'modelsTemplate'],
+          },
+        },
+      }),
+    )
+
+    expect(result).toEqual({
+      valid: true,
+      errors: [],
+    })
+  })
+
+  test('rejects an invalid endpoint inherited from the last endpoint-bearing template', () => {
+    const result = validateProviderCatalog(
+      validCatalog({
+        defaults: {
+          limits: {
+            contextWindow: 128000,
+            maxOutputTokens: { default: 8192, upperLimit: 32768 },
+          },
+        },
+        templates: {
+          chatTemplate: {
+            endpoint: 'chatCompletions',
+          },
+          missingEndpointTemplate: {
+            endpoint: 'missingEndpoint',
+          },
+        } as ProviderCatalog['templates'],
+        models: {
+          'fixture-model': {
+            label: 'Fixture Model',
+            extends: ['chatTemplate', 'missingEndpointTemplate'],
+          },
+        },
+      }),
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain(
+      'model "fixture-model" references missing endpoint "missingEndpoint"',
     )
   })
 
