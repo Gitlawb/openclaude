@@ -12,6 +12,8 @@ import { resolveAntModel } from './model/antModels.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAPIProvider } from './model/providers.js'
 import { getSettingsWithErrors } from './settings/settings.js'
+import { getModelCapabilities } from '../integrations/modelCatalog/catalog.js'
+import type { ModelCapabilities } from '../integrations/modelCatalog/types.js'
 
 export type ThinkingConfig =
   | { type: 'adaptive' }
@@ -104,6 +106,40 @@ function routeCatalogSupportsThinking(model: string): boolean | undefined {
     : undefined
 }
 
+function getCatalogProviderId(): string | undefined {
+  const provider = getAPIProvider()
+  return provider === 'firstParty' ||
+    provider === 'foundry' ||
+    provider === 'bedrock' ||
+    provider === 'vertex'
+    ? 'anthropic'
+    : provider
+}
+
+function getCatalogCapabilities(
+  model: string,
+  options?: { providerScopedOnly?: boolean },
+): ModelCapabilities | undefined {
+  try {
+    const providerId = getCatalogProviderId()
+    const providerCapabilities = providerId
+      ? getModelCapabilities(model, providerId)
+      : undefined
+    if (providerCapabilities) {
+      return providerCapabilities
+    }
+    if (options?.providerScopedOnly) {
+      return undefined
+    }
+    return getModelCapabilities(model)
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Ambiguous model lookup')) {
+      return undefined
+    }
+    throw error
+  }
+}
+
 export function getRainbowColor(
   charIndex: number,
   shimmer: boolean = false,
@@ -119,6 +155,24 @@ export function modelSupportsThinking(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
+  const canonical = getCanonicalName(model)
+  const provider = getAPIProvider()
+  if (provider === 'openai') {
+    const descriptorSupportsThinking = routeCatalogSupportsThinking(model)
+    if (descriptorSupportsThinking !== undefined) {
+      return descriptorSupportsThinking
+    }
+  }
+  const catalogCapabilities = getCatalogCapabilities(model, {
+    providerScopedOnly: provider === 'openai',
+  })
+  if (
+    provider !== 'bedrock' &&
+    provider !== 'vertex' &&
+    catalogCapabilities?.thinking !== undefined
+  ) {
+    return catalogCapabilities.thinking
+  }
   if (process.env.USER_TYPE === 'ant') {
     if (resolveAntModel(model.toLowerCase())) {
       return true
@@ -126,8 +180,6 @@ export function modelSupportsThinking(model: string): boolean {
   }
   // IMPORTANT: Do not change thinking support without notifying the model
   // launch DRI and research. This can greatly affect model quality and bashing.
-  const canonical = getCanonicalName(model)
-  const provider = getAPIProvider()
   // 1P and Foundry: all Claude 4+ models (including Haiku 4.5)
   if (provider === 'foundry' || provider === 'firstParty') {
     return !canonical.includes('claude-3-')
@@ -138,12 +190,6 @@ export function modelSupportsThinking(model: string): boolean {
   ) {
     return true
   }
-  if (provider === 'openai') {
-    const descriptorSupportsThinking = routeCatalogSupportsThinking(model)
-    if (descriptorSupportsThinking !== undefined) {
-      return descriptorSupportsThinking
-    }
-  }
   // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
   return canonical.includes('sonnet-4') || canonical.includes('opus-4')
 }
@@ -153,6 +199,10 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   const supported3P = get3PModelCapabilityOverride(model, 'adaptive_thinking')
   if (supported3P !== undefined) {
     return supported3P
+  }
+  const catalogCapabilities = getCatalogCapabilities(model)
+  if (catalogCapabilities?.adaptiveThinking !== undefined) {
+    return catalogCapabilities.adaptiveThinking
   }
   const canonical = getCanonicalName(model)
   // Supported by a subset of Claude 4 models

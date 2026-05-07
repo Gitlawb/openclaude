@@ -52,7 +52,7 @@ async function importFreshEffortModule(options: {
 }
 
 test('gpt-5.4 on the ChatGPT Codex backend supports effort selection', async () => {
-  const { getAvailableEffortLevels, modelSupportsEffort } =
+  const { getAvailableEffortLevels, modelSupportsEffort, modelSupportsMaxEffort } =
     await importFreshEffortModule({
       provider: 'codex',
       supportsCodexReasoningEffort: true,
@@ -65,6 +65,7 @@ test('gpt-5.4 on the ChatGPT Codex backend supports effort selection', async () 
     'high',
     'xhigh',
   ])
+  expect(modelSupportsMaxEffort('gpt-5.4')).toBe(true)
 })
 
 test('gpt-5.4 on the OpenAI provider still supports effort selection', async () => {

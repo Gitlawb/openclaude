@@ -28,6 +28,8 @@ import {
 } from './model/model.js'
 import { getAPIProvider } from './model/providers.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
+import { getModelCapabilities } from '../integrations/modelCatalog/catalog.js'
+import type { ModelCapabilities } from '../integrations/modelCatalog/types.js'
 import {
   getInitialSettings,
   getSettingsForSource,
@@ -146,6 +148,34 @@ export function getFastModeModel(): string {
   return 'opus' + (isOpus1mMergeEnabled() ? '[1m]' : '')
 }
 
+function getCatalogProviderId(): string | undefined {
+  const provider = getAPIProvider()
+  return provider === 'firstParty' ||
+    provider === 'foundry' ||
+    provider === 'bedrock' ||
+    provider === 'vertex'
+    ? 'anthropic'
+    : provider
+}
+
+function getCatalogCapabilities(model: string): ModelCapabilities | undefined {
+  try {
+    const providerId = getCatalogProviderId()
+    const providerCapabilities = providerId
+      ? getModelCapabilities(model, providerId)
+      : undefined
+    if (providerCapabilities) {
+      return providerCapabilities
+    }
+    return getModelCapabilities(model)
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Ambiguous model lookup')) {
+      return undefined
+    }
+    throw error
+  }
+}
+
 export function getInitialFastModeSetting(model: ModelSetting): boolean {
   if (!isFastModeEnabled()) {
     return false
@@ -172,6 +202,10 @@ export function isFastModeSupportedByModel(
   }
   const model = modelSetting ?? getDefaultMainLoopModelSetting()
   const parsedModel = parseUserSpecifiedModel(model)
+  const catalogCapabilities = getCatalogCapabilities(parsedModel)
+  if (catalogCapabilities?.fastMode !== undefined) {
+    return catalogCapabilities.fastMode
+  }
   return parsedModel.toLowerCase().includes('opus-4-6')
 }
 

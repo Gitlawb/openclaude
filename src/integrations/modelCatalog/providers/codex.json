@@ -35,7 +35,8 @@
         "high",
         "xhigh"
       ],
-      "defaultLevel": "high"
+      "defaultLevel": "high",
+      "maxLevel": "xhigh"
     }
   },
   "models": {

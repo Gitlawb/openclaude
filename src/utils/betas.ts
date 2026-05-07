@@ -29,12 +29,42 @@ import { getCanonicalName } from './model/model.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAPIProvider } from './model/providers.js'
 import { getInitialSettings } from './settings/settings.js'
+import { getModelCapabilities } from '../integrations/modelCatalog/catalog.js'
+import type { ModelCapabilities } from '../integrations/modelCatalog/types.js'
 
 /**
  * SDK-provided betas that are allowed for API key users.
  * Only betas in this list can be passed via SDK options.
  */
 const ALLOWED_SDK_BETAS = [CONTEXT_1M_BETA_HEADER]
+
+function getCatalogProviderId(): string | undefined {
+  const provider = getAPIProvider()
+  return provider === 'firstParty' ||
+    provider === 'foundry' ||
+    provider === 'bedrock' ||
+    provider === 'vertex'
+    ? 'anthropic'
+    : provider
+}
+
+function getCatalogCapabilities(model: string): ModelCapabilities | undefined {
+  try {
+    const providerId = getCatalogProviderId()
+    const providerCapabilities = providerId
+      ? getModelCapabilities(model, providerId)
+      : undefined
+    if (providerCapabilities) {
+      return providerCapabilities
+    }
+    return getModelCapabilities(model)
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Ambiguous model lookup')) {
+      return undefined
+    }
+    throw error
+  }
+}
 
 /**
  * Filter betas to only include those in the allowlist.
@@ -103,6 +133,10 @@ export function modelSupportsISP(model: string): boolean {
   if (provider === 'foundry') {
     return true
   }
+  const catalogCapabilities = getCatalogCapabilities(model)
+  if (catalogCapabilities?.interleavedThinking !== undefined) {
+    return catalogCapabilities.interleavedThinking
+  }
   if (provider === 'firstParty') {
     return !canonical.includes('claude-3-')
   }
@@ -128,6 +162,10 @@ export function modelSupportsContextManagement(model: string): boolean {
   if (provider === 'foundry') {
     return true
   }
+  const catalogCapabilities = getCatalogCapabilities(model)
+  if (catalogCapabilities?.contextManagement !== undefined) {
+    return catalogCapabilities.contextManagement
+  }
   if (provider === 'firstParty') {
     return !canonical.includes('claude-3-')
   }
@@ -145,6 +183,10 @@ export function modelSupportsStructuredOutputs(model: string): boolean {
   // Structured outputs only supported on firstParty and Foundry (not Bedrock/Vertex yet)
   if (provider !== 'firstParty' && provider !== 'foundry') {
     return false
+  }
+  const catalogCapabilities = getCatalogCapabilities(model)
+  if (catalogCapabilities?.structuredOutputs !== undefined) {
+    return catalogCapabilities.structuredOutputs
   }
   return (
     canonical.includes('claude-sonnet-4-6') ||
@@ -180,6 +222,10 @@ export function modelSupportsAutoMode(model: string): boolean {
       )
     ) {
       return true
+    }
+    const catalogCapabilities = getCatalogCapabilities(model)
+    if (catalogCapabilities?.autoMode !== undefined) {
+      return catalogCapabilities.autoMode
     }
     if (process.env.USER_TYPE === 'ant') {
       // Denylist: block known-unsupported claude models, allow everything else (ant-internal models etc.)

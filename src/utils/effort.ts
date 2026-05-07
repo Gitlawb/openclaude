@@ -8,6 +8,8 @@ import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import { isEnvTruthy } from './envUtils.js'
 import type { EffortLevel } from 'src/entrypoints/sdk/runtimeTypes.js'
+import { getModelEffort } from '../integrations/modelCatalog/catalog.js'
+import type { ModelEffort } from '../integrations/modelCatalog/types.js'
 
 export type { EffortLevel }
 
@@ -28,6 +30,34 @@ export const OPENAI_EFFORT_LEVELS = [
 export type OpenAIEffortLevel = typeof OPENAI_EFFORT_LEVELS[number]
 export type EffortValue = EffortLevel | number
 
+function getCatalogProviderId(): string | undefined {
+  const provider = getAPIProvider()
+  return provider === 'firstParty' ||
+    provider === 'foundry' ||
+    provider === 'bedrock' ||
+    provider === 'vertex'
+    ? 'anthropic'
+    : provider
+}
+
+function getCatalogEffort(model: string): ModelEffort | undefined {
+  try {
+    const providerId = getCatalogProviderId()
+    const providerEffort = providerId
+      ? getModelEffort(model, providerId)
+      : undefined
+    if (providerEffort) {
+      return providerEffort
+    }
+    return getModelEffort(model)
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Ambiguous model lookup')) {
+      return undefined
+    }
+    throw error
+  }
+}
+
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
 export function modelSupportsEffort(model: string): boolean {
   const m = model.toLowerCase()
@@ -37,6 +67,10 @@ export function modelSupportsEffort(model: string): boolean {
   const supported3P = get3PModelCapabilityOverride(model, 'effort')
   if (supported3P !== undefined) {
     return supported3P
+  }
+  const catalogEffort = getCatalogEffort(model)
+  if (catalogEffort) {
+    return catalogEffort.supported
   }
   if (modelUsesOpenAIEffort(model) && supportsCodexReasoningEffort(model)) {
     return true
@@ -67,6 +101,10 @@ export function modelSupportsMaxEffort(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
+  const catalogEffort = getCatalogEffort(model)
+  if (catalogEffort?.maxLevel) {
+    return catalogEffort.maxLevel === 'max' || catalogEffort.maxLevel === 'xhigh'
+  }
   if (model.toLowerCase().includes('opus-4-6')) {
     return true
   }
@@ -92,6 +130,10 @@ export function modelUsesOpenAIEffort(model: string): boolean {
 export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIEffortLevel[] {
   if (!modelSupportsEffort(model)) {
     return []
+  }
+  const catalogEffort = getCatalogEffort(model)
+  if (catalogEffort?.supported) {
+    return catalogEffort.levels as EffortLevel[] | OpenAIEffortLevel[]
   }
   if (modelUsesOpenAIEffort(model)) {
     return [...OPENAI_EFFORT_LEVELS] as OpenAIEffortLevel[]

@@ -2,7 +2,10 @@ import type { BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messag
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import { shouldIncludeFirstPartyOnlyBetas } from './betas.js'
 import { isEnvTruthy } from './envUtils.js'
+import { getAPIProvider } from './model/providers.js'
 import { getInitialSettings } from './settings/settings.js'
+import { getModelCapabilities } from '../integrations/modelCatalog/catalog.js'
+import type { ModelCapabilities } from '../integrations/modelCatalog/types.js'
 
 // The SDK does not yet have types for advisor blocks.
 // TODO(hackyon): Migrate to the real anthropic SDK types when this feature ships publicly
@@ -57,6 +60,34 @@ function getAdvisorConfig(): AdvisorConfig {
   )
 }
 
+function getCatalogProviderId(): string | undefined {
+  const provider = getAPIProvider()
+  return provider === 'firstParty' ||
+    provider === 'foundry' ||
+    provider === 'bedrock' ||
+    provider === 'vertex'
+    ? 'anthropic'
+    : provider
+}
+
+function getCatalogCapabilities(model: string): ModelCapabilities | undefined {
+  try {
+    const providerId = getCatalogProviderId()
+    const providerCapabilities = providerId
+      ? getModelCapabilities(model, providerId)
+      : undefined
+    if (providerCapabilities) {
+      return providerCapabilities
+    }
+    return getModelCapabilities(model)
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Ambiguous model lookup')) {
+      return undefined
+    }
+    throw error
+  }
+}
+
 export function isAdvisorEnabled(): boolean {
   if (isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_ADVISOR_TOOL)) {
     return false
@@ -87,21 +118,33 @@ export function getExperimentAdvisorModels():
 // @[MODEL LAUNCH]: Add the new model if it supports the advisor tool.
 // Checks whether the main loop model supports calling the advisor tool.
 export function modelSupportsAdvisor(model: string): boolean {
+  if (process.env.USER_TYPE === 'ant') {
+    return true
+  }
+  const catalogCapabilities = getCatalogCapabilities(model)
+  if (catalogCapabilities?.advisor !== undefined) {
+    return catalogCapabilities.advisor
+  }
   const m = model.toLowerCase()
   return (
     m.includes('opus-4-6') ||
-    m.includes('sonnet-4-6') ||
-    process.env.USER_TYPE === 'ant'
+    m.includes('sonnet-4-6')
   )
 }
 
 // @[MODEL LAUNCH]: Add the new model if it can serve as an advisor model.
 export function isValidAdvisorModel(model: string): boolean {
+  if (process.env.USER_TYPE === 'ant') {
+    return true
+  }
+  const catalogCapabilities = getCatalogCapabilities(model)
+  if (catalogCapabilities?.advisorTarget !== undefined) {
+    return catalogCapabilities.advisorTarget
+  }
   const m = model.toLowerCase()
   return (
     m.includes('opus-4-6') ||
-    m.includes('sonnet-4-6') ||
-    process.env.USER_TYPE === 'ant'
+    m.includes('sonnet-4-6')
   )
 }
 

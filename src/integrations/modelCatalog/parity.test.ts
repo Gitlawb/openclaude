@@ -99,4 +99,14 @@ describe('model catalog parity', () => {
     expect(getModelEffort('gpt-5.3-codex-spark', 'codex')?.supported).toBe(false)
     expect(getModelCapabilities('gpt-5.3-codex-spark', 'codex')?.reasoning).toBe(false)
   })
+
+  test('OpenAI effort scheme exposes xhigh while standard persistence stays max', () => {
+    expect(getModelEffort('gpt-5.4', 'codex')).toEqual({
+      scheme: 'openai',
+      supported: true,
+      levels: ['low', 'medium', 'high', 'xhigh'],
+      defaultLevel: 'high',
+      maxLevel: 'xhigh',
+    })
+  })
 })

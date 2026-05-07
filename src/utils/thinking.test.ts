@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import * as actualProviders from './model/providers.js'
 import { resetSettingsCache } from './settings/settingsCache.js'
 
 const ENV_KEYS = [
@@ -46,10 +47,11 @@ afterEach(() => {
   resetSettingsCache()
 })
 
-async function importFreshThinkingModule() {
+async function importFreshThinkingModule(provider: ReturnType<typeof actualProviders.getAPIProvider> = 'openai') {
   mock.restore()
   mock.module('./model/providers.js', () => ({
-    getAPIProvider: () => 'openai',
+    ...actualProviders,
+    getAPIProvider: () => provider,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./thinking.js?ts=${nonce}`)
@@ -99,4 +101,32 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(true)
   })
+})
+
+describe('modelSupportsThinking — Anthropic provider routes', () => {
+  test('generic OpenAI-compatible routes do not inherit Anthropic Haiku thinking', async () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://custom.example/v1'
+    const { modelSupportsThinking } = await importFreshThinkingModule('openai')
+
+    expect(modelSupportsThinking('claude-haiku-4-5')).toBe(false)
+  })
+
+  test.each(['bedrock', 'vertex'] as const)(
+    '%s keeps Haiku thinking disabled',
+    async provider => {
+      const { modelSupportsThinking } = await importFreshThinkingModule(provider)
+
+      expect(modelSupportsThinking('claude-haiku-4-5')).toBe(false)
+    },
+  )
+
+  test.each(['firstParty', 'foundry'] as const)(
+    '%s keeps Haiku thinking enabled',
+    async provider => {
+      const { modelSupportsThinking } = await importFreshThinkingModule(provider)
+
+      expect(modelSupportsThinking('claude-haiku-4-5')).toBe(true)
+    },
+  )
 })
