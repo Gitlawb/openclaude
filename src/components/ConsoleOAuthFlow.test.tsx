@@ -112,8 +112,11 @@ test('third-party provider branch opens the first-run provider manager', async (
   )
 
   expect(output).toContain('Set up provider')
+  // Anthropic is pinned first and the remaining presets stay near
+  // description order, so these sentinel labels should remain visible
+  // in the 13-row test frame.
   expect(output).toContain('Anthropic')
-  expect(output).toContain('OpenAI')
-  expect(output).toContain('Ollama')
-  expect(output).toContain('LM Studio')
+  expect(output).toContain('Azure OpenAI')
+  expect(output).toContain('DeepSeek')
+  expect(output).toContain('Google Gemini')
 })

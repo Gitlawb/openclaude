@@ -32,6 +32,38 @@ export type CopilotModel = {
 }
 
 export const COPILOT_MODELS: Record<string, CopilotModel> = {
+  'gpt-5.5': {
+    id: 'gpt-5.5',
+    name: 'GPT-5.5',
+    family: 'gpt',
+    attachment: false,
+    reasoning: true,
+    tool_call: true,
+    temperature: true,
+    knowledge: '2025-05',
+    release_date: '2025-05-01',
+    last_updated: '2025-05-01',
+    modalities: { input: ['text'], output: ['text'] },
+    open_weights: false,
+    cost: { input: 0, output: 0 },
+    limit: { context: 400000, output: 32768 },
+  },
+  'gpt-5.5-mini': {
+    id: 'gpt-5.5-mini',
+    name: 'GPT-5.5 mini',
+    family: 'gpt-mini',
+    attachment: false,
+    reasoning: true,
+    tool_call: true,
+    temperature: true,
+    knowledge: '2025-05',
+    release_date: '2025-05-01',
+    last_updated: '2025-05-01',
+    modalities: { input: ['text'], output: ['text'] },
+    open_weights: false,
+    cost: { input: 0, output: 0 },
+    limit: { context: 400000, output: 32768 },
+  },
   'gpt-5.4': {
     id: 'gpt-5.4',
     name: 'GPT-5.4',

@@ -1,6 +1,8 @@
 /**
  * Polyfill for Promise.withResolvers() (ES2024, Node 22+).
- * package.json declares "engines": { "node": ">=18.0.0" } so we can't use the native one.
+ * Native on every supported runtime now that engines.node is >=22.0.0; kept as a
+ * thin wrapper so call sites stay stable and downstream embeds running older Node
+ * (despite the warning) don't crash.
  */
 export function withResolvers<T>(): PromiseWithResolvers<T> {
   let resolve!: (value: T | PromiseLike<T>) => void

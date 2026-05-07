@@ -23,6 +23,23 @@ const TIERS = [
   },
 ] as const
 
+function buildCapabilityOverrideCacheKey(
+  model: string,
+  capability: ModelCapabilityOverride,
+): string {
+  const envParts = TIERS.flatMap(tier => [
+    process.env[tier.modelEnvVar] ?? '',
+    process.env[tier.capabilitiesEnvVar] ?? '',
+  ])
+
+  return [
+    model.toLowerCase(),
+    capability,
+    getAPIProvider(),
+    ...envParts,
+  ].join('\0')
+}
+
 /**
  * Check whether a 3p model capability override is set for a model that matches one of
  * the pinned ANTHROPIC_DEFAULT_*_MODEL env vars.
@@ -46,5 +63,5 @@ export const get3PModelCapabilityOverride = memoize(
     }
     return undefined
   },
-  (model, capability) => `${model.toLowerCase()}:${capability}`,
+  buildCapabilityOverrideCacheKey,
 )

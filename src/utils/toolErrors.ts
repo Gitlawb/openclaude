@@ -12,13 +12,15 @@ export function formatError(error: unknown): string {
   const parts = getErrorParts(error)
   const fullMessage =
     parts.filter(Boolean).join('\n').trim() || 'Command failed with no output'
-  if (fullMessage.length <= 10000) {
+  // 40KB limit — enough for most command error logs (systemctl, apt, python, etc.)
+  const maxErrorLength = 40000
+  if (fullMessage.length <= maxErrorLength) {
     return fullMessage
   }
-  const halfLength = 5000
+  const halfLength = Math.floor(maxErrorLength / 2)
   const start = fullMessage.slice(0, halfLength)
   const end = fullMessage.slice(-halfLength)
-  return `${start}\n\n... [${fullMessage.length - 10000} characters truncated] ...\n\n${end}`
+  return `${start}\n\n... [${fullMessage.length - maxErrorLength} characters truncated] ...\n\n${end}`
 }
 
 export function getErrorParts(error: Error): string[] {

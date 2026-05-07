@@ -5,7 +5,7 @@ export const firecrawlProvider: SearchProvider = {
   name: 'firecrawl',
 
   isConfigured() {
-    return Boolean(process.env.FIRECRAWL_API_KEY)
+    return Boolean(process.env.FIRECRAWL_API_KEY) || Boolean(process.env.FIRECRAWL_API_URL)
   },
 
   async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
@@ -13,7 +13,10 @@ export const firecrawlProvider: SearchProvider = {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     // TODO: @mendable/firecrawl-js SDK doesn't accept AbortSignal — can't cancel in-flight searches
     const { FirecrawlClient } = await import('@mendable/firecrawl-js')
-    const app = new FirecrawlClient({ apiKey: process.env.FIRECRAWL_API_KEY! })
+    const app = new FirecrawlClient({
+      apiKey: process.env.FIRECRAWL_API_KEY,
+      apiUrl: process.env.FIRECRAWL_API_URL,
+    })
 
     let query = input.query
     if (input.blocked_domains?.length) {
@@ -21,7 +24,7 @@ export const firecrawlProvider: SearchProvider = {
       query = `${query} ${exclusions}`
     }
 
-    const data = await app.search(query, { limit: 10 })
+    const data = await app.search(query, { limit: 15 })
 
     const hits = applyDomainFilters(
       (data.web ?? []).map((r: { url: string; title?: string; description?: string }) => ({

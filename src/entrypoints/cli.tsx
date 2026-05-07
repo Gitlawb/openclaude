@@ -5,7 +5,7 @@ import {
 } from '../utils/providerProfile.js'
 import {
   getProviderValidationError,
-  validateProviderEnvOrExit,
+  validateProviderEnvForStartupOrExit,
 } from '../utils/providerValidation.js'
 
 // OpenClaude: polyfill globalThis.File for Node < 20.
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v' || args[0] === '-V')) {
     // MACRO.VERSION is inlined at build time
     // biome-ignore lint/suspicious/noConsole:: intentional console output
-    console.log(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (Open Claude)`);
+    console.log(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (OpenClaude)`);
     return;
   }
 
@@ -132,11 +132,22 @@ async function main(): Promise<void> {
     hydrateGithubModelsTokenFromSecureStorage()
   }
 
-  await validateProviderEnvOrExit()
+  await validateProviderEnvForStartupOrExit()
+
+  // #808: --model alone (no --provider) — route to the env var matching the
+  // active provider before the banner prints so the override is visible.
+  if (args.includes('--model')) {
+    const { applyModelFlagFromArgs } = await import('../utils/providerFlag.js')
+    applyModelFlagFromArgs(args)
+  }
+
+  // Parse --model early so the startup screen can display the override
+  const { eagerParseCliFlag } = await import('../utils/cliArgs.js')
+  const earlyModelFlag = eagerParseCliFlag('--model')
 
   // Print the gradient startup screen before the Ink UI loads
   const { printStartupScreen } = await import('../components/StartupScreen.js')
-  printStartupScreen()
+  printStartupScreen(earlyModelFlag)
 
   // For all other paths, load the startup profiler
   const {

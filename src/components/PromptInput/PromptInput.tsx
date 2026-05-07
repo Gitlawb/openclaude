@@ -111,7 +111,7 @@ import { BackgroundTasksDialog } from '../tasks/BackgroundTasksDialog.js';
 import { shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
 import { TeamsDialog } from '../teams/TeamsDialog.js';
 import VimTextInput from '../VimTextInput.js';
-import { getModeFromInput, getValueFromInput } from './inputModes.js';
+import { detectModeEntry, getModeFromInput, getValueFromInput } from './inputModes.js';
 import { FOOTER_TEMPORARY_STATUS_TIMEOUT, Notifications } from './Notifications.js';
 import PromptInputFooter from './PromptInputFooter.js';
 import type { SuggestionItem } from './PromptInputFooterSuggestions.js';
@@ -773,7 +773,7 @@ function PromptInput({
     if (feature('ULTRAPLAN') && ultraplanTriggers.length) {
       addNotification({
         key: 'ultraplan-active',
-        text: 'This prompt will launch an ultraplan session in Claude Code on the web',
+        text: 'This prompt will launch an ultraplan session in OpenClaude on the web',
         priority: 'immediate',
         timeoutMs: 5000
       });
@@ -878,24 +878,22 @@ function PromptInput({
     abortPromptSuggestion();
     abortSpeculation(setAppState);
 
-    // Check if this is a single character insertion at the start
-    const isSingleCharInsertion = value.length === input.length + 1;
-    const insertedAtStart = cursorOffset === 0;
-    const mode = getModeFromInput(value);
-    if (insertedAtStart && mode !== 'prompt') {
-      if (isSingleCharInsertion) {
-        onModeChange(mode);
-        return;
-      }
-      // Multi-char insertion into empty input (e.g. tab-accepting "! gcloud auth login")
-      if (input.length === 0) {
-        onModeChange(mode);
-        const valueWithoutMode = getValueFromInput(value).replaceAll('\t', '    ');
-        pushToBuffer(input, cursorOffset, pastedContents);
-        trackAndSetInput(valueWithoutMode);
-        setCursorOffset(valueWithoutMode.length);
-        return;
-      }
+    // Strip the mode character from the buffer when entering bash mode — the
+    // mode itself is shown via the prompt prefix in the UI. Without this,
+    // typing `!` into empty input would enter bash mode but leave the literal
+    // `!` in the buffer (issue #662).
+    const modeEntry = detectModeEntry({
+      value,
+      prevInputLength: input.length,
+      cursorOffset,
+    });
+    if (modeEntry) {
+      onModeChange(modeEntry.mode);
+      const cleaned = modeEntry.strippedValue.replaceAll('\t', '    ');
+      pushToBuffer(input, cursorOffset, pastedContents);
+      trackAndSetInput(cleaned);
+      setCursorOffset(cleaned.length);
+      return;
     }
     const processedValue = value.replaceAll('\t', '    ');
 

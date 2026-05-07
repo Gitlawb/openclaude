@@ -3,7 +3,6 @@
  * Extracted from TeammateTool to allow reuse by AgentTool.
  */
 
-import React from 'react'
 import {
   getChromeFlagOverride,
   getFlagSettingsPath,
@@ -43,7 +42,6 @@ import {
   TEAMMATE_COMMAND_ENV_VAR,
   TMUX_COMMAND,
 } from '../../utils/swarm/constants.js'
-import { It2SetupPrompt } from '../../utils/swarm/It2SetupPrompt.js'
 import { startInProcessTeammate } from '../../utils/swarm/inProcessRunner.js'
 import {
   type InProcessSpawnConfig,
@@ -415,6 +413,13 @@ async function handleSpawnSplitPane(
   // If in iTerm2 but it2 isn't set up, prompt the user
   if (detectionResult.needsIt2Setup && context.setToolJSX) {
     const tmuxAvailable = await isTmuxAvailable()
+
+    // Lazy-import React and It2SetupPrompt — only needed for TUI setup prompt.
+    // This keeps the SDK bundle free of React static imports.
+    const [{ default: React }, { It2SetupPrompt }] = await Promise.all([
+      import('react'),
+      import('../../utils/swarm/It2SetupPrompt.js'),
+    ])
 
     // Show the setup prompt and wait for user decision
     const setupResult = await new Promise<

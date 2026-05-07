@@ -5,13 +5,15 @@ import {
   type AutoFixCheckOptions,
 } from './autoFixRunner.js'
 
+const TEST_CWD = process.cwd()
+
 describe('runAutoFixCheck', () => {
   test('returns success when lint command exits 0', async () => {
     const result = await runAutoFixCheck({
       lint: 'echo "all clean"',
       timeout: 5000,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(false)
     expect(result.lintOutput).toContain('all clean')
@@ -23,7 +25,7 @@ describe('runAutoFixCheck', () => {
       lint: 'echo "error: unused var" && exit 1',
       timeout: 5000,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(true)
     expect(result.lintOutput).toContain('unused var')
@@ -35,7 +37,7 @@ describe('runAutoFixCheck', () => {
       test: 'echo "FAIL test_foo" && exit 1',
       timeout: 5000,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(true)
     expect(result.testOutput).toContain('FAIL test_foo')
@@ -48,7 +50,7 @@ describe('runAutoFixCheck', () => {
       test: 'echo "test ok"',
       timeout: 5000,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(false)
     expect(result.lintOutput).toContain('lint ok')
@@ -61,7 +63,7 @@ describe('runAutoFixCheck', () => {
       test: 'echo "should not run"',
       timeout: 5000,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(true)
     expect(result.lintOutput).toContain('lint error')
@@ -70,10 +72,10 @@ describe('runAutoFixCheck', () => {
 
   test('handles timeout gracefully', async () => {
     const result = await runAutoFixCheck({
-      lint: 'sleep 10',
+      lint: 'node -e "setTimeout(() => {}, 10000)"',
       timeout: 100,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(true)
     expect(result.timedOut).toBe(true)
@@ -83,7 +85,7 @@ describe('runAutoFixCheck', () => {
     const result = await runAutoFixCheck({
       timeout: 5000,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(false)
   })
@@ -93,7 +95,7 @@ describe('runAutoFixCheck', () => {
       lint: 'echo "src/foo.ts:10:5 error no-unused-vars" && exit 1',
       timeout: 5000,
 
-      cwd: '/tmp',
+      cwd: TEST_CWD,
     })
     expect(result.hasErrors).toBe(true)
     const summary = result.errorSummary

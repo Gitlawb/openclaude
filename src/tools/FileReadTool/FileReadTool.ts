@@ -74,10 +74,10 @@ import { readFileInRange } from '../../utils/readFileInRange.js'
 import { semanticNumber } from '../../utils/semanticNumber.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { BASH_TOOL_NAME } from '../BashTool/toolName.js'
+import { FILE_READ_TOOL_NAME } from './constants.js'
 import { getDefaultFileReadingLimits } from './limits.js'
 import {
   DESCRIPTION,
-  FILE_READ_TOOL_NAME,
   FILE_UNCHANGED_STUB,
   LINE_FORMAT_INSTRUCTION,
   OFFSET_INSTRUCTION_DEFAULT,
@@ -733,6 +733,9 @@ export const CYBER_RISK_MITIGATION_REMINDER =
 const MITIGATION_EXEMPT_MODELS = new Set(['claude-opus-4-6'])
 
 function shouldIncludeFileReadMitigation(): boolean {
+  if (isEnvTruthy(process.env.OPENCLAUDE_DISABLE_TOOL_REMINDERS)) {
+    return false
+  }
   const shortName = getCanonicalName(getMainLoopModel())
   return !MITIGATION_EXEMPT_MODELS.has(shortName)
 }

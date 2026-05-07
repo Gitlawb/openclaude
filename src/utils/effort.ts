@@ -5,6 +5,7 @@ import { isProSubscriber, isMaxSubscriber, isTeamSubscriber } from './auth.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
+import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import { isEnvTruthy } from './envUtils.js'
 import type { EffortLevel } from 'src/entrypoints/sdk/runtimeTypes.js'
 
@@ -36,6 +37,9 @@ export function modelSupportsEffort(model: string): boolean {
   const supported3P = get3PModelCapabilityOverride(model, 'effort')
   if (supported3P !== undefined) {
     return supported3P
+  }
+  if (modelUsesOpenAIEffort(model) && supportsCodexReasoningEffort(model)) {
+    return true
   }
   // Supported by a subset of Claude 4 models
   if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
@@ -86,6 +90,9 @@ export function modelUsesOpenAIEffort(model: string): boolean {
 }
 
 export function getAvailableEffortLevels(model: string): EffortLevel[] | OpenAIEffortLevel[] {
+  if (!modelSupportsEffort(model)) {
+    return []
+  }
   if (modelUsesOpenAIEffort(model)) {
     return [...OPENAI_EFFORT_LEVELS] as OpenAIEffortLevel[]
   }
@@ -136,7 +143,9 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
 
 /**
  * Numeric values are model-default only and not persisted.
- * 'max' is session-scoped for external users (ants can persist it).
+ * 'max' can now be persisted by all users.
+ * OpenAI-shaped 'xhigh' is normalized to its EffortLevel equivalent ('max')
+ * so any code path that leaks the OpenAI label still persists correctly.
  * Write sites call this before saving to settings so the Zod schema
  * (which only accepts string levels) never rejects a write.
  */
@@ -146,15 +155,18 @@ export function toPersistableEffort(
   if (value === 'low' || value === 'medium' || value === 'high') {
     return value
   }
-  if (value === 'max' && process.env.USER_TYPE === 'ant') {
+  if (value === 'max') {
     return value
+  }
+  if (value === 'xhigh') {
+    return 'max'
   }
   return undefined
 }
 
 export function getInitialEffortSetting(): EffortLevel | undefined {
-  // toPersistableEffort filters 'max' for non-ants on read, so a manually
-  // edited settings.json doesn't leak session-scoped max into a fresh session.
+  // toPersistableEffort validates 'max' on read, so a manually
+  // edited settings.json with an invalid level doesn't leak into a fresh session.
   return toPersistableEffort(getInitialSettings().effortLevel)
 }
 
@@ -207,8 +219,14 @@ export function resolveAppliedEffort(
   }
   const resolved =
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model)
-  // API rejects 'max' on non-Opus-4.6 models — downgrade to 'high'.
-  if (resolved === 'max' && !modelSupportsMaxEffort(model)) {
+  // API rejects 'max' on non-Opus-4.6 Anthropic models — downgrade to 'high'.
+  // OpenAI/Codex models use 'max' as the standard form of 'xhigh'; the client
+  // shim converts it back to 'xhigh' on the wire, so don't clamp it here.
+  if (
+    resolved === 'max' &&
+    !modelSupportsMaxEffort(model) &&
+    !modelUsesOpenAIEffort(model)
+  ) {
     return 'high'
   }
   return resolved

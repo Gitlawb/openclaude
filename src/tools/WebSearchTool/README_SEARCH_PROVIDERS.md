@@ -8,8 +8,9 @@ OpenClaude supports multiple search backends through a provider adapter system.
 |---|---|---|---|
 | Custom API | `WEB_SEARCH_API` | Configurable | GET/POST |
 | SearXNG | `WEB_PROVIDER=searxng` | — | GET |
-| Google | `WEB_PROVIDER=google` | `Authorization: Bearer` | GET |
-| Brave | `WEB_PROVIDER=brave` | `X-Subscription-Token` | GET |
+| Google | `WEB_PROVIDER=google` + `GOOGLE_CSE_ID` | *(query param `?key=`)* | GET |
+| Brave (preset) | `WEB_PROVIDER=brave` | `X-Subscription-Token` | GET |
+| Brave (adapter) | `BRAVE_API_KEY` | `X-Subscription-Token` | GET |
 | SerpAPI | `WEB_PROVIDER=serpapi` | `Authorization: Bearer` | GET |
 | Firecrawl | `FIRECRAWL_API_KEY` | Internal | SDK |
 | Tavily | `TAVILY_API_KEY` | `Authorization: Bearer` | POST |
@@ -30,9 +31,8 @@ export TAVILY_API_KEY=tvly-your-key
 # Exa (neural search, semantic queries)
 export EXA_API_KEY=your-exa-key
 
-# Brave (traditional web search, good coverage)
-export WEB_PROVIDER=brave
-export WEB_KEY=your-brave-key
+# Brave (independent index, good free tier)
+export BRAVE_API_KEY=your-brave-key
 
 # Bing
 export BING_API_KEY=your-bing-key
@@ -51,12 +51,13 @@ export WEB_SEARCH_API=https://search.example.com/search
 | `auto` (default) | Try all configured providers in order, fall through on failure |
 | `tavily` | Tavily only — throws on failure |
 | `exa` | Exa only — throws on failure |
+| `brave` | Brave only — throws on failure |
 | `custom` | Custom API only — throws on failure. **Not in the auto chain** — must be explicitly selected |
 | `firecrawl` | Firecrawl only — throws on failure |
 | `ddg` | DuckDuckGo only — throws on failure |
 | `native` | Anthropic native / Codex only |
 
-**Auto mode priority:** firecrawl → tavily → exa → you → jina → bing → mojeek → linkup → ddg
+**Auto mode priority:** firecrawl → tavily → exa → you → jina → brave → bing → mojeek → linkup → ddg
 
 > **Note:** The `custom` provider is excluded from the `auto` chain. It is only used when `WEB_SEARCH_PROVIDER=custom` is explicitly set. This prevents the generic outbound provider from silently becoming the default backend.
 
@@ -293,15 +294,22 @@ GET https://search.example.com/search?q=search+terms
 
 ### Google Custom Search (Built-in Preset)
 
+> ⚠️ **Sunset 2027-01-01.** Google has announced the Custom Search JSON API
+> will be discontinued and is closed to new customers. Use Brave/Tavily/Exa
+> for new setups.
+
 ```bash
 export WEB_PROVIDER=google
 export WEB_KEY=your-google-api-key
+export GOOGLE_CSE_ID=your-programmable-search-engine-id
 ```
+
+`GOOGLE_CSE_ID` is the `cx` value from your Programmable Search Engine — both
+the API key and the engine ID are required.
 
 **Request:**
 ```
-GET https://www.googleapis.com/customsearch/v1?q=search+terms
-Authorization: Bearer your-google-api-key
+GET https://www.googleapis.com/customsearch/v1?q=search+terms&key=your-google-api-key&cx=your-engine-id
 ```
 
 **Response:**
@@ -318,17 +326,28 @@ Authorization: Bearer your-google-api-key
 }
 ```
 
-### Brave (Built-in Preset)
+### Brave (First-Class Adapter)
+
+The recommended way to use Brave — auto-detected, joins the auto fallback chain.
 
 ```bash
-export WEB_PROVIDER=brave
-export WEB_KEY=your-brave-key
+export BRAVE_API_KEY=your-brave-key
 ```
 
 **Request:**
 ```
-GET https://api.search.brave.com/res/v1/web/search?q=search+terms
+GET https://api.search.brave.com/res/v1/web/search?q=search+terms&count=15
 X-Subscription-Token: your-brave-key
+```
+
+### Brave (Built-in Preset, alternative)
+
+For users who prefer the generic preset path. Functionally equivalent to the
+adapter above; either works.
+
+```bash
+export WEB_PROVIDER=brave
+export WEB_KEY=your-brave-key
 ```
 
 **Response:**

@@ -19,6 +19,7 @@ import { getSteps, shouldShowProjectOnboarding, incrementProjectOnboardingSeenCo
 import { CondensedLogo } from './CondensedLogo.js';
 import { OffscreenFreeze } from '../OffscreenFreeze.js';
 import { checkForReleaseNotesSync } from '../../utils/releaseNotes.js';
+import { publicBuildVersion } from '../../utils/version.js';
 import { getDumpPromptsPath } from 'src/services/api/dumpPrompts.js';
 import { isEnvTruthy } from 'src/utils/envUtils.js';
 import { getStartupPerfLogPath, isDetailedProfilingEnabled } from 'src/utils/startupProfiler.js';
@@ -94,7 +95,7 @@ export function LogoV2() {
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = () => {
       const currentConfig = getGlobalConfig();
-      if (currentConfig.lastReleaseNotesSeen === MACRO.VERSION) {
+      if (currentConfig.lastReleaseNotesSeen === publicBuildVersion) {
         return;
       }
       saveGlobalConfig(_temp3);
@@ -250,8 +251,8 @@ export function LogoV2() {
   }
   const layoutMode = getLayoutMode(columns);
   const userTheme = resolveThemeSetting(getGlobalConfig().theme);
-  const borderTitle = ` ${color("text", userTheme)("Open Claude")} ${color("inactive", userTheme)(`v${version}`)} `;
-  const compactBorderTitle = color("text", userTheme)(" Open Claude ");
+  const borderTitle = ` ${color("text", userTheme)("OpenClaude")} ${color("inactive", userTheme)(`v${version}`)} `;
+  const compactBorderTitle = color("text", userTheme)(" OpenClaude ");
   if (layoutMode === "compact") {
     let welcomeMessage = formatWelcomeMessage(username);
     if (stringWidth(welcomeMessage) > columns - 4) {
@@ -528,12 +529,12 @@ export function LogoV2() {
   return t41;
 }
 function _temp3(current) {
-  if (current.lastReleaseNotesSeen === MACRO.VERSION) {
+  if (current.lastReleaseNotesSeen === publicBuildVersion) {
     return current;
   }
   return {
     ...current,
-    lastReleaseNotesSeen: MACRO.VERSION
+    lastReleaseNotesSeen: publicBuildVersion
   };
 }
 function _temp2(s_0) {
