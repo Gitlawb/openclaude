@@ -1,0 +1,405 @@
+{
+  "schemaVersion": 1,
+  "provider": "minimax",
+  "label": "MiniMax",
+  "baseUrl": "https://api.minimax.io/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 8192
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "MiniMax-M2": {
+      "label": "MiniMax M2",
+      "canonicalModelId": "minimax-m2",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 204800,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "MiniMax-M2.1": {
+      "label": "MiniMax M2.1",
+      "canonicalModelId": "minimax-m2.1",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 204800,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "MiniMax-M2.1-highspeed": {
+      "label": "MiniMax M2.1 Highspeed",
+      "canonicalModelId": "minimax-m2.1-highspeed",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 204800,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "MiniMax-M2.5": {
+      "label": "MiniMax M2.5",
+      "canonicalModelId": "minimax-m2.5",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 204800,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "MiniMax-M2.5-highspeed": {
+      "label": "MiniMax M2.5 Highspeed",
+      "canonicalModelId": "minimax-m2.5-highspeed",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 204800,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      },
+      "visibility": {
+        "defaultFor": [
+          "haiku",
+          "smallFast"
+        ]
+      }
+    },
+    "MiniMax-M2.7": {
+      "label": "MiniMax M2.7",
+      "canonicalModelId": "minimax-m2.7",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 204800,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      },
+      "visibility": {
+        "defaultFor": [
+          "main",
+          "opus",
+          "sonnet"
+        ]
+      }
+    },
+    "MiniMax-M2.7-highspeed": {
+      "label": "MiniMax M2.7 Highspeed",
+      "canonicalModelId": "minimax-m2.7-highspeed",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 204800,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "MiniMax-Text-01": {
+      "label": "MiniMax Text 01",
+      "canonicalModelId": "minimax-text-01",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 524288,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "MiniMax-Text-01-Preview": {
+      "label": "MiniMax Text 01 Preview",
+      "canonicalModelId": "minimax-text-01-preview",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 262144,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "MiniMax-Vision-01": {
+      "label": "MiniMax Vision 01",
+      "canonicalModelId": "minimax-vision-01",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": false,
+        "jsonMode": false,
+        "vision": true,
+        "reasoning": false
+      }
+    },
+    "MiniMax-Vision-01-Fast": {
+      "label": "MiniMax Vision 01 Fast",
+      "canonicalModelId": "minimax-vision-01-fast",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": false,
+        "jsonMode": false,
+        "vision": true,
+        "reasoning": false
+      }
+    },
+    "abab6.5s-chat": {
+      "label": "ABAB 6.5S Chat",
+      "classification": [
+        "chat"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": false,
+        "jsonMode": false,
+        "vision": false,
+        "reasoning": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "abab6.5-chat": {
+      "label": "ABAB 6.5 Chat",
+      "classification": [
+        "chat"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": false,
+        "jsonMode": false,
+        "vision": false,
+        "reasoning": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "abab6.5g-chat": {
+      "label": "ABAB 6.5G Chat",
+      "classification": [
+        "chat"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": false,
+        "jsonMode": false,
+        "vision": false,
+        "reasoning": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "abab6-chat": {
+      "label": "ABAB 6 Chat",
+      "classification": [
+        "chat"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 8192,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": false,
+        "jsonMode": false,
+        "vision": false,
+        "reasoning": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1d",
+    "refreshMode": "background-if-stale"
+  }
+}

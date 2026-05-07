@@ -1,0 +1,488 @@
+{
+  "schemaVersion": 1,
+  "provider": "anthropic",
+  "label": "Anthropic",
+  "baseUrl": "https://api.anthropic.com",
+  "endpoints": {
+    "messages": {
+      "path": "/v1/messages",
+      "protocol": "anthropic-messages",
+      "streaming": true
+    },
+    "models": {
+      "path": "/v1/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "messages",
+    "limits": {
+      "contextWindow": 200000,
+      "maxOutputTokens": {
+        "default": 32000,
+        "upperLimit": 64000
+      },
+      "compactMaxOutputTokens": 20000
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true,
+      "vision": true,
+      "reasoning": true,
+      "thinking": true,
+      "interleavedThinking": true,
+      "contextManagement": true,
+      "promptCaching": true,
+      "webSearch": true
+    }
+  },
+  "templates": {
+    "sonnetPricing": {
+      "pricing": {
+        "input": 3,
+        "output": 15,
+        "cacheWrite": 3.75,
+        "cacheRead": 0.3,
+        "webSearch": 0.01
+      }
+    },
+    "opusLegacyPricing": {
+      "pricing": {
+        "input": 15,
+        "output": 75,
+        "cacheWrite": 18.75,
+        "cacheRead": 1.5,
+        "webSearch": 0.01
+      }
+    },
+    "opusModernPricing": {
+      "pricing": {
+        "input": 5,
+        "output": 25,
+        "cacheWrite": 6.25,
+        "cacheRead": 0.5,
+        "webSearch": 0.01
+      }
+    },
+    "haiku35Pricing": {
+      "pricing": {
+        "input": 0.8,
+        "output": 4,
+        "cacheWrite": 1,
+        "cacheRead": 0.08,
+        "webSearch": 0.01
+      }
+    },
+    "haiku45Pricing": {
+      "pricing": {
+        "input": 1,
+        "output": 5,
+        "cacheWrite": 1.25,
+        "cacheRead": 0.1,
+        "webSearch": 0.01
+      }
+    },
+    "claude4": {
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true
+      }
+    }
+  },
+  "models": {
+    "claude-sonnet-4-6": {
+      "label": "Claude Sonnet 4.6",
+      "extends": [
+        "claude4",
+        "sonnetPricing"
+      ],
+      "apiName": "claude-sonnet-4-6",
+      "aliases": [
+        "sonnet"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 128000
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "effort": {
+        "scheme": "anthropic",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "defaultLevel": "high"
+      },
+      "capabilities": {
+        "adaptiveThinking": true,
+        "structuredOutputs": true,
+        "autoMode": true
+      },
+      "visibility": {
+        "defaultFor": [
+          "main",
+          "sonnet"
+        ]
+      },
+      "contextUpgrade": {
+        "alias": "sonnet[1m]",
+        "label": "Sonnet (1M context)",
+        "maxContext": 1000000,
+        "multiplier": 5,
+        "accessPolicy": "extraUsage"
+      }
+    },
+    "claude-opus-4-7": {
+      "label": "Claude Opus 4.7",
+      "extends": [
+        "claude4",
+        "opusModernPricing"
+      ],
+      "apiName": "claude-opus-4-7",
+      "aliases": [
+        "opus",
+        "opusplan"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 64000
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "effort": {
+        "scheme": "anthropic",
+        "supported": false,
+        "levels": []
+      },
+      "capabilities": {
+        "adaptiveThinking": true,
+        "advisor": true,
+        "advisorTarget": true
+      },
+      "visibility": {
+        "defaultFor": [
+          "opus",
+          "advisor"
+        ]
+      },
+      "contextUpgrade": {
+        "alias": "opus[1m]",
+        "label": "Opus (1M context)",
+        "maxContext": 1000000,
+        "multiplier": 5,
+        "accessPolicy": "antOnly"
+      }
+    },
+    "claude-opus-4-6": {
+      "label": "Claude Opus 4.6",
+      "extends": [
+        "claude4",
+        "opusModernPricing"
+      ],
+      "apiName": "claude-opus-4-6",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 128000
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "effort": {
+        "scheme": "anthropic",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "defaultLevel": "high",
+        "maxLevel": "max"
+      },
+      "capabilities": {
+        "adaptiveThinking": true,
+        "fastMode": true,
+        "structuredOutputs": true,
+        "autoMode": true
+      },
+      "pricing": {
+        "input": 5,
+        "output": 25,
+        "cacheWrite": 6.25,
+        "cacheRead": 0.5,
+        "webSearch": 0.01,
+        "variants": {
+          "fastMode": {
+            "input": 30,
+            "output": 150,
+            "cacheWrite": 37.5,
+            "cacheRead": 3
+          }
+        }
+      },
+      "contextUpgrade": {
+        "alias": "claude-opus-4-6[1m]",
+        "label": "Opus 4.6 (1M context)",
+        "maxContext": 1000000,
+        "multiplier": 5,
+        "accessPolicy": "extraUsage"
+      }
+    },
+    "claude-haiku-4-5": {
+      "label": "Claude Haiku 4.5",
+      "extends": [
+        "haiku45Pricing"
+      ],
+      "apiName": "claude-haiku-4-5-20251001",
+      "aliases": [
+        "haiku"
+      ],
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 144000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 64000
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false,
+        "thinking": true,
+        "interleavedThinking": false,
+        "contextManagement": true,
+        "promptCaching": true,
+        "structuredOutputs": true
+      },
+      "visibility": {
+        "defaultFor": [
+          "haiku",
+          "smallFast"
+        ]
+      }
+    },
+    "claude-opus-4-5": {
+      "label": "Claude Opus 4.5",
+      "extends": [
+        "claude4",
+        "opusModernPricing"
+      ],
+      "apiName": "claude-opus-4-5-20251101",
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 64000
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "structuredOutputs": true
+      }
+    },
+    "claude-opus-4-1": {
+      "label": "Claude Opus 4.1",
+      "extends": [
+        "claude4",
+        "opusLegacyPricing"
+      ],
+      "apiName": "claude-opus-4-1-20250805",
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 32000
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "structuredOutputs": true
+      }
+    },
+    "claude-opus-4": {
+      "label": "Claude Opus 4",
+      "extends": [
+        "claude4",
+        "opusLegacyPricing"
+      ],
+      "apiName": "claude-opus-4-20250514",
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 32000
+        },
+        "compactMaxOutputTokens": 20000
+      }
+    },
+    "claude-sonnet-4-5": {
+      "label": "Claude Sonnet 4.5",
+      "extends": [
+        "claude4",
+        "sonnetPricing"
+      ],
+      "apiName": "claude-sonnet-4-5-20250929",
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 64000
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "structuredOutputs": true
+      }
+    },
+    "claude-sonnet-4": {
+      "label": "Claude Sonnet 4",
+      "extends": [
+        "claude4",
+        "sonnetPricing"
+      ],
+      "apiName": "claude-sonnet-4-20250514",
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 64000
+        },
+        "compactMaxOutputTokens": 20000
+      }
+    },
+    "claude-3-7-sonnet": {
+      "label": "Claude 3.7 Sonnet",
+      "extends": [
+        "sonnetPricing"
+      ],
+      "apiName": "claude-3-7-sonnet-20250219",
+      "status": "deprecated",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 64000
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": false,
+        "interleavedThinking": false,
+        "promptCaching": true
+      }
+    },
+    "claude-3-5-sonnet": {
+      "label": "Claude 3.5 Sonnet",
+      "extends": [
+        "sonnetPricing"
+      ],
+      "apiName": "claude-3-5-sonnet-20241022",
+      "status": "deprecated",
+      "classification": [
+        "chat",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false,
+        "thinking": false,
+        "interleavedThinking": false,
+        "promptCaching": true
+      }
+    },
+    "claude-3-5-haiku": {
+      "label": "Claude 3.5 Haiku",
+      "extends": [
+        "haiku35Pricing"
+      ],
+      "apiName": "claude-3-5-haiku-20241022",
+      "status": "deprecated",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false,
+        "thinking": false,
+        "interleavedThinking": false,
+        "promptCaching": true
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1d",
+    "refreshMode": "manual"
+  }
+}

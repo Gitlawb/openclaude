@@ -1,0 +1,2400 @@
+{
+  "schemaVersion": 1,
+  "provider": "nvidia-nim",
+  "label": "NVIDIA NIM",
+  "baseUrl": "https://integrate.api.nvidia.com/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 32768,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "nvidia/cosmos-reason2-8b": {
+      "label": "Cosmos Reason 2 8B",
+      "family": "Reasoning",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "microsoft/phi-4-mini-flash-reasoning": {
+      "label": "Phi 4 Mini Flash Reasoning",
+      "family": "Reasoning",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "qwen/qwen3-next-80b-a3b-thinking": {
+      "label": "Qwen 3 Next 80B Thinking",
+      "family": "Reasoning",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "deepseek-ai/deepseek-r1-distill-qwen-32b": {
+      "label": "DeepSeek R1 Qwen 32B",
+      "family": "Reasoning",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "deepseek-ai/deepseek-r1-distill-qwen-14b": {
+      "label": "DeepSeek R1 Qwen 14B",
+      "family": "Reasoning",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "deepseek-ai/deepseek-r1-distill-qwen-7b": {
+      "label": "DeepSeek R1 Qwen 7B",
+      "family": "Reasoning",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "deepseek-ai/deepseek-r1-distill-llama-8b": {
+      "label": "DeepSeek R1 Llama 8B",
+      "family": "Reasoning",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "qwen/qwq-32b": {
+      "label": "QwQ 32B Reasoning",
+      "family": "Reasoning",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "meta/codellama-70b": {
+      "label": "CodeLlama 70B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "bigcode/starcoder2-15b": {
+      "label": "StarCoder2 15B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "bigcode/starcoder2-7b": {
+      "label": "StarCoder2 7B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/codestral-22b-instruct-v0.1": {
+      "label": "Codestral 22B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mamba-codestral-7b-v0.1": {
+      "label": "Mamba Codestral 7B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "deepseek-ai/deepseek-coder-6.7b-instruct": {
+      "label": "DeepSeek Coder 6.7B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/codegemma-7b": {
+      "label": "CodeGemma 7B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/codegemma-1.1-7b": {
+      "label": "CodeGemma 1.1 7B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "qwen/qwen2.5-coder-32b-instruct": {
+      "label": "Qwen 2.5 Coder 32B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "qwen/qwen2.5-coder-7b-instruct": {
+      "label": "Qwen 2.5 Coder 7B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "qwen/qwen3-coder-480b-a35b-instruct": {
+      "label": "Qwen 3 Coder 480B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "ibm/granite-34b-code-instruct": {
+      "label": "Granite 34B Code",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "ibm/granite-8b-code-instruct": {
+      "label": "Granite 8B Code",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/llama-3.1-nemotron-70b-instruct": {
+      "label": "Nemotron 70B Instruct",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "main",
+          "opus",
+          "sonnet"
+        ]
+      }
+    },
+    "nvidia/llama-3.1-nemotron-51b-instruct": {
+      "label": "Nemotron 51B Instruct",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1": {
+      "label": "Nemotron Ultra 253B",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/llama-3.3-nemotron-super-49b-v1": {
+      "label": "Nemotron Super 49B v1",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5": {
+      "label": "Nemotron Super 49B v1.5",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/nemotron-4-340b-instruct": {
+      "label": "Nemotron 4 340B",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/nemotron-3-super-120b-a12b": {
+      "label": "Nemotron 3 Super 120B",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/nemotron-3-nano-30b-a3b": {
+      "label": "Nemotron 3 Nano 30B",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/nemotron-mini-4b-instruct": {
+      "label": "Nemotron Mini 4B",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/llama-3.1-nemotron-nano-8b-v1": {
+      "label": "Nemotron Nano 8B",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/llama-3.1-nemotron-nano-4b-v1.1": {
+      "label": "Nemotron Nano 4B v1.1",
+      "family": "NVIDIA Flagship",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/llama3-chatqa-1.5-70b": {
+      "label": "Llama3 ChatQA 1.5 70B",
+      "family": "Chat",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "nvidia/llama3-chatqa-1.5-8b": {
+      "label": "Llama3 ChatQA 1.5 8B",
+      "family": "Chat",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "meta/llama-3.1-405b-instruct": {
+      "label": "Llama 3.1 405B",
+      "family": "Meta Llama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "meta/llama-3.1-70b-instruct": {
+      "label": "Llama 3.1 70B",
+      "family": "Meta Llama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "meta/llama-3.1-8b-instruct": {
+      "label": "Llama 3.1 8B",
+      "family": "Meta Llama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "haiku",
+          "smallFast"
+        ]
+      }
+    },
+    "meta/llama-3.2-90b-vision-instruct": {
+      "label": "Llama 3.2 90B Vision",
+      "family": "Meta Llama",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false
+      }
+    },
+    "meta/llama-3.2-11b-vision-instruct": {
+      "label": "Llama 3.2 11B Vision",
+      "family": "Meta Llama",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false
+      }
+    },
+    "meta/llama-3.2-3b-instruct": {
+      "label": "Llama 3.2 3B",
+      "family": "Meta Llama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "meta/llama-3.2-1b-instruct": {
+      "label": "Llama 3.2 1B",
+      "family": "Meta Llama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "meta/llama-3.3-70b-instruct": {
+      "label": "Llama 3.3 70B",
+      "family": "Meta Llama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "meta/llama-4-maverick-17b-128e-instruct": {
+      "label": "Llama 4 Maverick 17B",
+      "family": "Meta Llama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "meta/llama-4-scout-17b-16e-instruct": {
+      "label": "Llama 4 Scout 17B",
+      "family": "Meta Llama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-4-31b-it": {
+      "label": "Gemma 4 31B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-3-27b-it": {
+      "label": "Gemma 3 27B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-3-12b-it": {
+      "label": "Gemma 3 12B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-3-4b-it": {
+      "label": "Gemma 3 4B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-3-1b-it": {
+      "label": "Gemma 3 1B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-3n-e4b-it": {
+      "label": "Gemma 3N E4B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-3n-e2b-it": {
+      "label": "Gemma 3N E2B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-2-27b-it": {
+      "label": "Gemma 2 27B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-2-9b-it": {
+      "label": "Gemma 2 9B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "google/gemma-2-2b-it": {
+      "label": "Gemma 2 2B",
+      "family": "Google Gemma",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-large-3-675b-instruct-2512": {
+      "label": "Mistral Large 3 675B",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-large-2-instruct": {
+      "label": "Mistral Large 2",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-large": {
+      "label": "Mistral Large",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-medium-3-instruct": {
+      "label": "Mistral Medium 3",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-small-4-119b-2603": {
+      "label": "Mistral Small 4 119B",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-small-3.1-24b-instruct-2503": {
+      "label": "Mistral Small 3.1 24B",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-small-24b-instruct": {
+      "label": "Mistral Small 24B",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-7b-instruct-v0.3": {
+      "label": "Mistral 7B v0.3",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-7b-instruct-v0.2": {
+      "label": "Mistral 7B v0.2",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mixtral-8x22b-instruct-v0.1": {
+      "label": "Mixtral 8x22B",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mixtral-8x7b-instruct-v0.1": {
+      "label": "Mixtral 8x7B",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mistral-nemotron": {
+      "label": "Mistral Nemotron",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/mathstral-7b-v0.1": {
+      "label": "Mathstral 7B",
+      "family": "Math",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/ministral-14b-instruct-2512": {
+      "label": "Ministral 14B",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/devstral-2-123b-instruct-2512": {
+      "label": "Devstral 2 123B",
+      "family": "Code",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "mistralai/magistral-small-2506": {
+      "label": "Magistral Small",
+      "family": "Mistral",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-4-multimodal-instruct": {
+      "label": "Phi 4 Multimodal",
+      "family": "Multimodal",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-4-mini-instruct": {
+      "label": "Phi 4 Mini",
+      "family": "Phi",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-3.5-mini-instruct": {
+      "label": "Phi 3.5 Mini",
+      "family": "Phi",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-3-small-128k-instruct": {
+      "label": "Phi 3 Small 128K",
+      "family": "Phi",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-3-small-8k-instruct": {
+      "label": "Phi 3 Small 8K",
+      "family": "Phi",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-3-medium-128k-instruct": {
+      "label": "Phi 3 Medium 128K",
+      "family": "Phi",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-3-medium-4k-instruct": {
+      "label": "Phi 3 Medium 4K",
+      "family": "Phi",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-3-mini-128k-instruct": {
+      "label": "Phi 3 Mini 128K",
+      "family": "Phi",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "microsoft/phi-3-mini-4k-instruct": {
+      "label": "Phi 3 Mini 4K",
+      "family": "Phi",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "qwen/qwen3.5-397b-a17b": {
+      "label": "Qwen 3.5 397B",
+      "family": "Qwen",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "qwen/qwen3.5-122b-a10b": {
+      "label": "Qwen 3.5 122B",
+      "family": "Qwen",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "qwen/qwen3-next-80b-a3b-instruct": {
+      "label": "Qwen 3 Next 80B",
+      "family": "Qwen",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "qwen/qwen2.5-7b-instruct": {
+      "label": "Qwen 2.5 7B",
+      "family": "Qwen",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "qwen/qwen2-7b-instruct": {
+      "label": "Qwen 2 7B",
+      "family": "Qwen",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "qwen/qwen3-32b": {
+      "label": "Qwen 3 32B",
+      "family": "Qwen",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "qwen/qwen3-8b": {
+      "label": "Qwen 3 8B",
+      "family": "Qwen",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "deepseek-ai/deepseek-r1": {
+      "label": "DeepSeek R1",
+      "family": "DeepSeek",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "deepseek-ai/deepseek-v3": {
+      "label": "DeepSeek V3",
+      "family": "DeepSeek",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "deepseek-ai/deepseek-v3.2": {
+      "label": "DeepSeek V3.2",
+      "family": "DeepSeek",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "deepseek-ai/deepseek-v3.1-terminus": {
+      "label": "DeepSeek V3.1 Terminus",
+      "family": "DeepSeek",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "deepseek-ai/deepseek-v3.1": {
+      "label": "DeepSeek V3.1",
+      "family": "DeepSeek",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "ibm/granite-3.3-8b-instruct": {
+      "label": "Granite 3.3 8B",
+      "family": "IBM Granite",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "ibm/granite-3.0-8b-instruct": {
+      "label": "Granite 3.0 8B",
+      "family": "IBM Granite",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "ibm/granite-3.0-3b-a800m-instruct": {
+      "label": "Granite 3.0 3B",
+      "family": "IBM Granite",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "databricks/dbrx-instruct": {
+      "label": "DBRX Instruct",
+      "family": "Other",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "01-ai/yi-large": {
+      "label": "Yi Large",
+      "family": "Other",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "ai21labs/jamba-1.5-large-instruct": {
+      "label": "Jamba 1.5 Large",
+      "family": "Other",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "ai21labs/jamba-1.5-mini-instruct": {
+      "label": "Jamba 1.5 Mini",
+      "family": "Other",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "writer/palmyra-creative-122b": {
+      "label": "Palmyra Creative 122B",
+      "family": "Other",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "writer/palmyra-fin-70b-32k": {
+      "label": "Palmyra Fin 70B 32K",
+      "family": "Other",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "writer/palmyra-med-70b": {
+      "label": "Palmyra Med 70B",
+      "family": "Other",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "writer/palmyra-med-70b-32k": {
+      "label": "Palmyra Med 70B 32K",
+      "family": "Other",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "z-ai/glm5": {
+      "label": "GLM-5",
+      "family": "Z-AI",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "z-ai/glm4.7": {
+      "label": "GLM-4.7",
+      "family": "Z-AI",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "minimaxai/minimax-m2.5": {
+      "label": "MiniMax M2.5",
+      "family": "MiniMax",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "moonshotai/kimi-k2.5": {
+      "label": "Kimi K2.5",
+      "family": "Moonshot",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "moonshotai/kimi-k2-instruct": {
+      "label": "Kimi K2 Instruct",
+      "family": "Moonshot",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "moonshotai/kimi-k2-thinking": {
+      "label": "Kimi K2 Thinking",
+      "family": "Moonshot",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "moonshotai/kimi-k2.5-thinking": {
+      "label": "Kimi K2.5 Thinking",
+      "family": "Moonshot",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "moonshotai/kimi-k2-instruct-0905": {
+      "label": "Kimi K2 Instruct 0905",
+      "family": "Moonshot",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1d",
+    "refreshMode": "manual"
+  }
+}

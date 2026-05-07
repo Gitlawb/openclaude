@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "provider": "zai",
+  "label": "Z.AI",
+  "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "preserveReasoningContent": true,
+        "requireReasoningContentOnAssistantMessages": true,
+        "reasoningContentFallback": "",
+        "thinkingRequestFormat": "deepseek-compatible",
+        "maxTokensField": "max_tokens",
+        "removeBodyFields": [
+          "store"
+        ]
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 8192
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "GLM-5.1": {
+      "label": "GLM-5.1",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      },
+      "visibility": {
+        "defaultFor": [
+          "main",
+          "opus",
+          "sonnet"
+        ]
+      }
+    },
+    "GLM-5-Turbo": {
+      "label": "GLM-5-Turbo",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "GLM-5": {
+      "label": "GLM-5",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "GLM-4.7": {
+      "label": "GLM-4.7",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": {
+          "default": 131072,
+          "upperLimit": 131072
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "GLM-4.5-Air": {
+      "label": "GLM-4.5-Air",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1d",
+    "refreshMode": "background-if-stale"
+  }
+}

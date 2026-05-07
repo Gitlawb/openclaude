@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "provider": "ollama",
+  "label": "Ollama",
+  "baseUrl": "http://localhost:11434",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/v1/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/api/tags",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true
+    }
+  },
+  "models": {
+    "llama3.1:8b": {
+      "label": "llama3.1:8b",
+      "visibility": {
+        "hidden": true,
+        "defaultFor": [
+          "main",
+          "smallFast"
+        ]
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "ollama-tags",
+    "cacheTtl": "1d",
+    "refreshMode": "background-if-stale"
+  }
+}

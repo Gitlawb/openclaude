@@ -311,6 +311,65 @@ describe('provider catalog schema', () => {
     )
   })
 
+  test('rejects duplicate normalized model references within one provider', () => {
+    const result = validateProviderCatalog(
+      validCatalog({
+        models: {
+          'Case-Model': {
+            label: 'Case Model',
+            endpoint: 'chatCompletions',
+          },
+          'case-model': {
+            label: 'Duplicate Case Model',
+            endpoint: 'chatCompletions',
+          },
+          'api-name-owner': {
+            label: 'API Name Owner',
+            endpoint: 'chatCompletions',
+            apiName: 'shared-reference',
+          },
+          'canonical-owner': {
+            label: 'Canonical Owner',
+            endpoint: 'chatCompletions',
+            canonicalModelId: 'SHARED-REFERENCE',
+          },
+          'legacy-owner': {
+            label: 'Legacy Owner',
+            endpoint: 'chatCompletions',
+            compatibility: {
+              legacyIds: ['legacy-reference'],
+              migrationAliases: ['migration-reference'],
+            },
+          },
+          'legacy-duplicate': {
+            label: 'Legacy Duplicate',
+            endpoint: 'chatCompletions',
+            aliases: ['LEGACY-REFERENCE'],
+          },
+          'migration-duplicate': {
+            label: 'Migration Duplicate',
+            endpoint: 'chatCompletions',
+            apiName: 'MIGRATION-REFERENCE',
+          },
+        },
+      }),
+    )
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain(
+      'model reference "case-model" is used by both "Case-Model" and "case-model"',
+    )
+    expect(result.errors).toContain(
+      'model reference "SHARED-REFERENCE" is used by both "api-name-owner" and "canonical-owner"',
+    )
+    expect(result.errors).toContain(
+      'model reference "LEGACY-REFERENCE" is used by both "legacy-owner" and "legacy-duplicate"',
+    )
+    expect(result.errors).toContain(
+      'model reference "MIGRATION-REFERENCE" is used by both "legacy-owner" and "migration-duplicate"',
+    )
+  })
+
   test('allows template metadata extensions', () => {
     expect(
       validateProviderCatalog(

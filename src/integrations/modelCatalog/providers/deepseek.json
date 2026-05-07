@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "provider": "deepseek",
+  "label": "DeepSeek",
+  "baseUrl": "https://api.deepseek.com/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "preserveReasoningContent": true,
+        "requireReasoningContentOnAssistantMessages": true,
+        "reasoningContentFallback": "",
+        "thinkingRequestFormat": "deepseek-compatible",
+        "maxTokensField": "max_tokens",
+        "removeBodyFields": [
+          "store"
+        ]
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 8192
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "deepseek-chat": {
+      "label": "DeepSeek Chat",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "haiku",
+          "smallFast"
+        ]
+      }
+    },
+    "deepseek-reasoner": {
+      "label": "DeepSeek Reasoner",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "deepseek-v4-flash": {
+      "label": "DeepSeek V4 Flash",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": {
+          "default": 393216,
+          "upperLimit": 393216
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "deepseek-v4-pro": {
+      "label": "DeepSeek V4 Pro",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": {
+          "default": 393216,
+          "upperLimit": 393216
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      },
+      "visibility": {
+        "defaultFor": [
+          "main",
+          "opus",
+          "sonnet"
+        ]
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1d",
+    "refreshMode": "background-if-stale"
+  }
+}

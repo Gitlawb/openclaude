@@ -1,0 +1,370 @@
+{
+  "schemaVersion": 1,
+  "provider": "codex",
+  "label": "Codex",
+  "baseUrl": "https://chatgpt.com/backend-api/codex",
+  "endpoints": {
+    "responses": {
+      "path": "/responses",
+      "protocol": "openai-responses",
+      "streaming": true
+    }
+  },
+  "defaults": {
+    "endpoint": "responses",
+    "limits": {
+      "contextWindow": 400000,
+      "maxOutputTokens": {
+        "default": 32768,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true,
+      "reasoning": true,
+      "structuredOutputs": true
+    },
+    "effort": {
+      "scheme": "openai",
+      "supported": true,
+      "levels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultLevel": "high"
+    }
+  },
+  "models": {
+    "gpt-5.5": {
+      "label": "GPT-5.5",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultLevel": "high"
+      },
+      "aliases": [
+        "codexplan"
+      ],
+      "visibility": {
+        "defaultFor": [
+          "main",
+          "opus",
+          "sonnet",
+          "haiku"
+        ]
+      }
+    },
+    "gpt-5.4": {
+      "label": "GPT-5.4",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultLevel": "high"
+      }
+    },
+    "gpt-5.3-codex": {
+      "label": "GPT-5.3 Codex",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultLevel": "high"
+      }
+    },
+    "gpt-5.3-codex-spark": {
+      "label": "GPT-5.3 Codex Spark",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": false,
+        "levels": []
+      },
+      "aliases": [
+        "codexspark"
+      ],
+      "visibility": {
+        "defaultFor": [
+          "smallFast"
+        ]
+      }
+    },
+    "gpt-5.2-codex": {
+      "label": "GPT-5.2 Codex",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultLevel": "high"
+      }
+    },
+    "gpt-5.1-codex-max": {
+      "label": "GPT-5.1 Codex Max",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultLevel": "high"
+      }
+    },
+    "gpt-5.1-codex-mini": {
+      "label": "GPT-5.1 Codex Mini",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": false,
+        "levels": []
+      }
+    },
+    "gpt-5.5-mini": {
+      "label": "GPT-5.5 Mini",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultLevel": "medium"
+      }
+    },
+    "gpt-5.4-mini": {
+      "label": "GPT-5.4 Mini",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultLevel": "medium"
+      }
+    },
+    "gpt-5.2": {
+      "label": "GPT-5.2",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 264000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultLevel": "medium"
+      }
+    }
+  }
+}

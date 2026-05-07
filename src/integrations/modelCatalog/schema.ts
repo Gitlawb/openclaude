@@ -89,6 +89,30 @@ function resolveModelEndpoint(
   return endpoint ?? catalog.defaults?.endpoint
 }
 
+function addModelReference(
+  referenceOwners: Map<string, string>,
+  owner: string,
+  value: string | undefined,
+  errors: string[],
+): void {
+  if (value === undefined) {
+    return
+  }
+
+  const normalizedValue = value.trim().toLowerCase()
+  const existingOwner = referenceOwners.get(normalizedValue)
+  if (existingOwner !== undefined) {
+    if (existingOwner !== owner) {
+      errors.push(
+        `model reference "${value}" is used by both "${existingOwner}" and "${owner}"`,
+      )
+    }
+    return
+  }
+
+  referenceOwners.set(normalizedValue, owner)
+}
+
 export function validateProviderCatalog(
   catalog: unknown,
 ): CatalogValidationResult {
@@ -151,7 +175,12 @@ export function validateProviderCatalog(
   }
 
   const aliases = new Map<string, string>()
+  const referenceOwners = new Map<string, string>()
   for (const [modelId, model] of Object.entries(typed.models)) {
+    addModelReference(referenceOwners, modelId, modelId, errors)
+    addModelReference(referenceOwners, modelId, model.apiName, errors)
+    addModelReference(referenceOwners, modelId, model.canonicalModelId, errors)
+
     const endpoint = resolveModelEndpoint(model, typed)
     if (!endpoint) {
       errors.push(
@@ -183,6 +212,13 @@ export function validateProviderCatalog(
         errors.push(`alias "${alias}" is used by both "${owner}" and "${modelId}"`)
       }
       aliases.set(normalizedAlias, modelId)
+      addModelReference(referenceOwners, modelId, alias, errors)
+    }
+    for (const legacyId of model.compatibility?.legacyIds ?? []) {
+      addModelReference(referenceOwners, modelId, legacyId, errors)
+    }
+    for (const migrationAlias of model.compatibility?.migrationAliases ?? []) {
+      addModelReference(referenceOwners, modelId, migrationAlias, errors)
     }
   }
 

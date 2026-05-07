@@ -1,0 +1,539 @@
+{
+  "schemaVersion": 1,
+  "provider": "github-copilot",
+  "label": "GitHub Copilot",
+  "baseUrl": "https://api.githubcopilot.com",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "responses": {
+      "path": "/responses",
+      "protocol": "openai-responses",
+      "streaming": true
+    },
+    "messages": {
+      "path": "/v1/messages",
+      "protocol": "anthropic-messages",
+      "streaming": true
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 32768,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "gpt-5.5": {
+      "label": "GPT-5.5",
+      "family": "gpt",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.5-mini": {
+      "label": "GPT-5.5 mini",
+      "family": "gpt-mini",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.4": {
+      "label": "GPT-5.4",
+      "family": "gpt",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.4-mini": {
+      "label": "GPT-5.4 mini",
+      "family": "gpt-mini",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.3-codex": {
+      "label": "GPT-5.3-Codex",
+      "family": "gpt-codex",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.2-codex": {
+      "label": "GPT-5.2-Codex",
+      "family": "gpt-codex",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.2": {
+      "label": "GPT-5.2",
+      "family": "gpt",
+      "classification": [
+        "chat",
+        "reasoning"
+      ],
+      "limits": {
+        "contextWindow": 264000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.1-codex": {
+      "label": "GPT-5.1-Codex",
+      "family": "gpt-codex",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.1-codex-max": {
+      "label": "GPT-5.1-Codex-max",
+      "family": "gpt-codex",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-5.1-codex-mini": {
+      "label": "GPT-5.1-Codex-mini",
+      "family": "gpt-codex",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    },
+    "gpt-4o": {
+      "label": "GPT-4o",
+      "family": "gpt",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false
+      },
+      "aliases": [
+        "github:copilot"
+      ],
+      "visibility": {
+        "defaultFor": [
+          "main",
+          "opus",
+          "sonnet",
+          "haiku",
+          "smallFast"
+        ]
+      }
+    },
+    "gpt-4.1": {
+      "label": "GPT-4.1",
+      "family": "gpt",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": false
+      }
+    },
+    "claude-opus-4.6": {
+      "label": "Claude Opus 4.6",
+      "family": "claude-opus",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 144000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "claude-opus-4.5": {
+      "label": "Claude Opus 4.5",
+      "family": "claude-opus",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 160000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "claude-sonnet-4.6": {
+      "label": "Claude Sonnet 4.6",
+      "family": "claude-sonnet",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "claude-sonnet-4.5": {
+      "label": "Claude Sonnet 4.5",
+      "family": "claude-sonnet",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 144000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "claude-haiku-4.5": {
+      "label": "Claude Haiku 4.5",
+      "family": "claude-haiku",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 144000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "gemini-3.1-pro-preview": {
+      "label": "Gemini 3.1 Pro Preview",
+      "family": "gemini-pro",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "gemini-3-flash-preview": {
+      "label": "Gemini 3 Flash",
+      "family": "gemini-flash",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "gemini-2.5-pro": {
+      "label": "Gemini 2.5 Pro",
+      "family": "gemini-pro",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false
+      }
+    },
+    "grok-code-fast-1": {
+      "label": "Grok Code Fast 1",
+      "family": "grok",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": false,
+        "reasoning": true
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1d",
+    "refreshMode": "manual"
+  }
+}
