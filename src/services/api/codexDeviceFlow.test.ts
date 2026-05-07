@@ -93,7 +93,7 @@ describe('requestCodexDeviceCode', () => {
     const controller = new AbortController()
     const fetchImpl = mock(
       async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        requestSignal = init?.signal
+        requestSignal = init?.signal ?? undefined
         await new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
             once: true,
@@ -185,7 +185,7 @@ describe('pollCodexDeviceToken', () => {
     const controller = new AbortController()
     const fetchImpl = mock(
       async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        requestSignal = init?.signal
+        requestSignal = init?.signal ?? undefined
         await new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
             once: true,
