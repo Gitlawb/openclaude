@@ -3141,12 +3141,16 @@ async function finishLoadingPluginFromPath(
       }
     }
 
-    // Supplement hooks from marketplace entry
+    // Supplement hooks from marketplace entry.
+    // CORRECTNESS: Use mergeHooksSettings() instead of object spread so that
+    // per-event matcher arrays from plugin.json and the marketplace entry are
+    // concatenated rather than the marketplace entry silently overwriting the
+    // plugin.json matchers for the same event.
     if (entry.hooks) {
-      plugin.hooksConfig = {
-        ...(plugin.hooksConfig || {}),
-        ...(entry.hooks as HooksSettings),
-      }
+      plugin.hooksConfig = mergeHooksSettings(
+        plugin.hooksConfig,
+        entry.hooks as HooksSettings,
+      )
     }
   }
 
