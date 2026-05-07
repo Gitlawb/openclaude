@@ -2,6 +2,9 @@ import { describe, expect, mock, test } from 'bun:test'
 
 import {
   CODEX_DEVICE_CODE_URL,
+  CODEX_DEVICE_REFRESH_URL,
+  CODEX_DEVICE_TOKEN_GRANT,
+  pollCodexDeviceToken,
   requestCodexDeviceCode,
 } from './codexDeviceFlow.js'
 
@@ -101,6 +104,98 @@ describe('requestCodexDeviceCode', () => {
     )
 
     const result = requestCodexDeviceCode({
+      fetchImpl,
+      signal: controller.signal,
+      requestTimeoutMs: 60_000,
+    })
+    await Bun.sleep(0)
+    controller.abort(new Error('cancelled'))
+
+    await expect(result).rejects.toThrow('cancelled')
+    expect(requestSignal?.aborted).toBe(true)
+  })
+})
+
+describe('pollCodexDeviceToken', () => {
+  test('polls with request signal and returns tokens', async () => {
+    let requestInit: RequestInit | undefined
+    const fetchImpl = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestInit = init
+      return jsonResponse({
+        access_token: 'access-token',
+        refresh_token: 'refresh-token',
+        chatgpt_account_id: 'account-id',
+      })
+    })
+
+    const result = await pollCodexDeviceToken('device-code', {
+      clientId: 'client-id',
+      fetchImpl,
+      requestTimeoutMs: 1_000,
+    })
+
+    expect(fetchImpl).toHaveBeenCalledWith(CODEX_DEVICE_REFRESH_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: expect.any(URLSearchParams),
+      signal: expect.any(AbortSignal),
+    })
+    expect((requestInit?.body as URLSearchParams).get('client_id')).toBe(
+      'client-id',
+    )
+    expect((requestInit?.body as URLSearchParams).get('grant_type')).toBe(
+      CODEX_DEVICE_TOKEN_GRANT,
+    )
+    expect((requestInit?.body as URLSearchParams).get('device_code')).toBe(
+      'device-code',
+    )
+    expect(result).toEqual({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      idToken: undefined,
+      apiKey: undefined,
+      accountId: 'account-id',
+    })
+  })
+
+  test('aborts a hanging polling request after the per-request timeout', async () => {
+    const fetchImpl = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        await new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+            once: true,
+          })
+        })
+        throw new Error('unreachable')
+      },
+    )
+
+    await expect(
+      pollCodexDeviceToken('device-code', {
+        fetchImpl,
+        requestTimeoutMs: 1,
+      }),
+    ).rejects.toThrow()
+  })
+
+  test('honors caller abort signal while polling', async () => {
+    let requestSignal: AbortSignal | undefined
+    const controller = new AbortController()
+    const fetchImpl = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        requestSignal = init?.signal
+        await new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+            once: true,
+          })
+        })
+        throw new Error('unreachable')
+      },
+    )
+
+    const result = pollCodexDeviceToken('device-code', {
       fetchImpl,
       signal: controller.signal,
       requestTimeoutMs: 60_000,

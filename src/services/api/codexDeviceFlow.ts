@@ -4,13 +4,14 @@ import {
   CODEX_OAUTH_ISSUER,
   CODEX_OAUTH_ORIGINATOR,
   CODEX_OAUTH_SCOPE,
-  CODEX_REFRESH_URL,
+  CODEX_REFRESH_URL as SHARED_CODEX_REFRESH_URL,
   exchangeCodexIdTokenForApiKey,
   getCodexOAuthClientId,
   parseChatgptAccountId,
 } from './codexOAuthShared.js'
 import type { CodexOAuthTokens } from './codexOAuth.js'
 
+export const CODEX_DEVICE_REFRESH_URL = SHARED_CODEX_REFRESH_URL
 export const CODEX_DEVICE_CODE_URL = `${CODEX_OAUTH_ISSUER}/oauth/device/code`
 export const CODEX_DEVICE_TOKEN_GRANT =
   'urn:ietf:params:oauth:grant-type:device_code'
@@ -165,6 +166,7 @@ async function pollTokenOnce(options: {
   clientId: string
   fetchImpl: FetchLike
   signal?: AbortSignal
+  requestTimeoutMs?: number
 }): Promise<
   | { state: 'pending'; interval?: number }
   | { state: 'denied' }
@@ -179,13 +181,13 @@ async function pollTokenOnce(options: {
     device_code: options.deviceCode,
   })
 
-  const response = await options.fetchImpl(CODEX_REFRESH_URL, {
+  const response = await options.fetchImpl(CODEX_DEVICE_REFRESH_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body,
-    signal: options.signal,
+    signal: createRequestSignal(options.signal, options.requestTimeoutMs),
   })
 
   const payload = await readJsonResponse(response)
@@ -257,6 +259,7 @@ export async function pollCodexDeviceToken(
     timeoutSeconds?: number
     fetchImpl?: FetchLike
     signal?: AbortSignal
+    requestTimeoutMs?: number
   },
 ): Promise<CodexOAuthTokens> {
   const fetchFn = options?.fetchImpl ?? fetch
@@ -271,6 +274,7 @@ export async function pollCodexDeviceToken(
       clientId,
       fetchImpl: fetchFn,
       signal: options?.signal,
+      requestTimeoutMs: options?.requestTimeoutMs,
     })
 
     if (result.state === 'success') {
