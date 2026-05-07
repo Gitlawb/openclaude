@@ -242,7 +242,8 @@ const externalTips: Tip[] = [
     cooldownSessions: 10,
     isRelevant: async () =>
       getPlatform() === 'windows' &&
-      process.env.OPENCLAUDE_USE_POWERSHELL_TOOL === undefined,
+      process.env.OPENCLAUDE_USE_POWERSHELL_TOOL === undefined &&
+      process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL === undefined,
   },
   {
     id: 'status-line',

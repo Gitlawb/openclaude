@@ -1,6 +1,7 @@
 import { isEnvTruthy } from '../envUtils.js'
 import { getPlatform } from '../platform.js'
 import { getInitialSettings } from '../settings/settings.js'
+import { getPowershellToolEnv } from './shellToolUtils.js'
 
 /**
  * Resolve the default shell for input-box `!` commands.
@@ -9,14 +10,15 @@ import { getInitialSettings } from '../settings/settings.js'
  *   settings.defaultShell -> (Windows + OPENCLAUDE_USE_POWERSHELL_TOOL) -> 'bash'
  *
  * Platform default is 'bash' on all platforms, unless the user has explicitly
- * opted into PowerShell via OPENCLAUDE_USE_POWERSHELL_TOOL=true on Windows.
+ * opted into PowerShell via OPENCLAUDE_USE_POWERSHELL_TOOL=true (or the legacy
+ * CLAUDE_CODE_USE_POWERSHELL_TOOL) on Windows.
  * This restores the upstream behavior where setting the env var also makes
  * PowerShell the default for ! commands without requiring a separate
  * settings.defaultShell change.
  */
 export function resolveDefaultShell(): 'bash' | 'powershell' {
   return getInitialSettings().defaultShell ??
-    (getPlatform() === 'windows' && isEnvTruthy(process.env.OPENCLAUDE_USE_POWERSHELL_TOOL)
+    (getPlatform() === 'windows' && isEnvTruthy(getPowershellToolEnv())
       ? 'powershell'
       : 'bash')
 }
