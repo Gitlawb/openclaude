@@ -11,6 +11,7 @@ import * as lockfile from './lockfile.js'
 import { logError } from './log.js'
 import { cleanupOldVersions } from './nativeInstaller/index.js'
 import { cleanupOldPastes } from './pasteStore.js'
+import { getDefaultPlansDirectory } from './plans.js'
 import { getProjectsDir } from './sessionStorage.js'
 import { getSettingsWithAllErrors } from './settings/allErrors.js'
 import {
@@ -298,8 +299,7 @@ async function cleanupSingleDirectory(
 }
 
 export function cleanupOldPlanFiles(): Promise<CleanupResult> {
-  const plansDir = join(getClaudeConfigHomeDir(), 'plans')
-  return cleanupSingleDirectory(plansDir, '.md')
+  return cleanupSingleDirectory(getDefaultPlansDirectory(), '.md')
 }
 
 export async function cleanupOldFileHistoryBackups(): Promise<CleanupResult> {
