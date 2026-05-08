@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 
 type ServerConfig = {
-  permissions: { preset: "conservador" | "balanceado" | "agressivo" };
+  permissions: { preset: "conservative" | "balanced" | "aggressive" };
   backup: { retentionDays: number };
   rateLimit: { windowMs: number; max: number };
   /** Vault padrão usado quando o plugin não envia vault no contexto. */
@@ -12,7 +12,7 @@ type ServerConfig = {
 };
 
 const DEFAULTS: ServerConfig = {
-  permissions: { preset: "balanceado" },
+  permissions: { preset: "balanced" },
   backup: { retentionDays: 30 },
   rateLimit: { windowMs: 60_000, max: 100 },
   defaultVault: "",

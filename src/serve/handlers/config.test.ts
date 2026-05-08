@@ -24,7 +24,7 @@ describe("/config", () => {
     const r = await fetch(`${server!.url}/config`, { headers: auth() });
     expect(r.status).toBe(200);
     const j = await r.json();
-    expect(j.permissions.preset).toBe("balanceado");
+    expect(j.permissions.preset).toBe("balanced");
     expect(j.backup.retentionDays).toBe(30);
   });
 
@@ -32,10 +32,10 @@ describe("/config", () => {
     const r = await fetch(`${server!.url}/config`, {
       method: "POST",
       headers: { ...auth(), "content-type": "application/json" },
-      body: JSON.stringify({ permissions: { preset: "agressivo" } }),
+      body: JSON.stringify({ permissions: { preset: "aggressive" } }),
     });
     expect(r.status).toBe(200);
     const j = await (await fetch(`${server!.url}/config`, { headers: auth() })).json();
-    expect(j.permissions.preset).toBe("agressivo");
+    expect(j.permissions.preset).toBe("aggressive");
   });
 });
