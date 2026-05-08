@@ -335,7 +335,7 @@ Os itens devem ser comandos diretos que o usuário envia ao chat.
       tool_calls: toolCalls,
     });
 
-    const effectivePreset: Preset = preset ?? "balanceado";
+    const effectivePreset: Preset = preset ?? "balanced";
     for (const tc of toolCalls) {
       let args: Record<string, unknown> = {};
       try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* bad JSON */ }

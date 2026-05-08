@@ -18,7 +18,7 @@ export type AgentFn = (input: {
   sessionId: string;
   context?: { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string };
   history?: Array<{ role: "user" | "assistant"; content: string }>;
-  preset?: "conservador" | "balanceado" | "agressivo";
+  preset?: "conservative" | "balanced" | "aggressive";
 }) => AsyncIterable<AgentEvent>;
 
 let mockAgent: AgentFn | null = null;
@@ -40,9 +40,13 @@ export function chatRoute(sm: SessionManager): Route {
     path: "/chat",
     handler: async ({ body, res }) => {
       if (!mockAgent && !realAgent) throw new ServerError(ErrorCode.INTERNAL, "no agent configured");
-      const input = body as { sessionId?: string; message: string; context?: any; preset?: "conservador" | "balanceado" | "agressivo" };
+      const VALID_PRESETS = new Set(["conservative", "balanced", "aggressive"]);
+      const input = body as { sessionId?: string; message: string; context?: any; preset?: "conservative" | "balanced" | "aggressive" };
       if (!input || typeof input.message !== "string") {
         throw new ServerError(ErrorCode.VALIDATION, "body.message required");
+      }
+      if (input.preset !== undefined && !VALID_PRESETS.has(input.preset)) {
+        throw new ServerError(ErrorCode.VALIDATION, `Invalid preset: "${input.preset}". Must be conservative, balanced, or aggressive.`);
       }
       const session = input.sessionId ? (sm.get(input.sessionId) ?? sm.create()) : sm.create();
 

@@ -2,9 +2,9 @@ import { describe, it, expect } from "bun:test";
 import { checkPermission, type Preset } from "./permissions";
 
 describe("checkPermission", () => {
-  // ── conservador ──────────────────────────────────────────
-  describe("conservador preset", () => {
-    const p: Preset = "conservador";
+  // ── conservative ──────────────────────────────────────────
+  describe("conservative preset", () => {
+    const p: Preset = "conservative";
 
     it("allows read tools", () => {
       expect(checkPermission("read_note", {}, p).allowed).toBe(true);
@@ -15,7 +15,7 @@ describe("checkPermission", () => {
     it("blocks write tools (returns allowed:false with reason)", () => {
       const r = checkPermission("write_note", {}, p);
       expect(r.allowed).toBe(false);
-      expect(r.reason).toMatch(/conservador/i);
+      expect(r.reason).toMatch(/conservative/i);
     });
 
     it("blocks delete tools", () => {
@@ -34,9 +34,9 @@ describe("checkPermission", () => {
     });
   });
 
-  // ── balanceado ───────────────────────────────────────────
-  describe("balanceado preset (default)", () => {
-    const p: Preset = "balanceado";
+  // ── balanced ─────────────────────────────────────────────
+  describe("balanced preset (default)", () => {
+    const p: Preset = "balanced";
 
     it("allows read tools", () => {
       expect(checkPermission("read_note", {}, p).allowed).toBe(true);
@@ -58,9 +58,9 @@ describe("checkPermission", () => {
     });
   });
 
-  // ── agressivo ────────────────────────────────────────────
-  describe("agressivo preset", () => {
-    const p: Preset = "agressivo";
+  // ── aggressive ───────────────────────────────────────────
+  describe("aggressive preset", () => {
+    const p: Preset = "aggressive";
 
     it("allows write without preview requirement", () => {
       const r = checkPermission("write_note", {}, p);
@@ -75,6 +75,6 @@ describe("checkPermission", () => {
 
   // ── unknown tool ─────────────────────────────────────────
   it("allows unknown tools by default (fail-open for forward compatibility)", () => {
-    expect(checkPermission("some_future_tool", {}, "balanceado").allowed).toBe(true);
+    expect(checkPermission("some_future_tool", {}, "balanced").allowed).toBe(true);
   });
 });

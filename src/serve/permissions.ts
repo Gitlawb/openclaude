@@ -1,4 +1,4 @@
-export type Preset = "conservador" | "balanceado" | "agressivo";
+export type Preset = "conservative" | "balanced" | "aggressive";
 
 export interface PermissionResult {
   allowed: boolean;
@@ -32,24 +32,24 @@ export function checkPermission(
   }
 
   switch (preset) {
-    case "conservador":
+    case "conservative":
       // Writes and moves blocked — user must apply manually via diff preview
       if (WRITE_TOOLS.has(toolName) || MOVE_TOOLS.has(toolName)) {
         return {
           allowed: false,
-          reason: `Preset "conservador": write and move operations are blocked. Describe the change and ask the user to apply it manually.`,
+          reason: `Preset "conservative": write and move operations are blocked. Describe the change and ask the user to apply it manually.`,
         };
       }
       return { allowed: true };
 
-    case "balanceado":
+    case "balanced":
       // Writes allowed but must go through PendingEditStore (diff preview)
       if (WRITE_TOOLS.has(toolName) || MOVE_TOOLS.has(toolName)) {
         return { allowed: true, requiresPreview: true };
       }
       return { allowed: true };
 
-    case "agressivo":
+    case "aggressive":
       // All writes auto-apply (they still go through PendingEditStore but are auto-approved)
       return { allowed: true };
 

@@ -478,14 +478,14 @@ Aqui está o conteúdo.
 import { checkPermission } from "./permissions";
 
 describe("permission integration smoke", () => {
-  it("checkPermission denies write_note on conservador", () => {
-    const result = checkPermission("write_note", { path: "test.md", content: "x" }, "conservador");
+  it("checkPermission denies write_note on conservative", () => {
+    const result = checkPermission("write_note", { path: "test.md", content: "x" }, "conservative");
     expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("conservador");
+    expect(result.reason).toContain("conservative");
   });
 
-  it("checkPermission allows read_note on conservador", () => {
-    const result = checkPermission("read_note", {}, "conservador");
+  it("checkPermission allows read_note on conservative", () => {
+    const result = checkPermission("read_note", {}, "conservative");
     expect(result.allowed).toBe(true);
   });
 });
