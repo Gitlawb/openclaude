@@ -161,6 +161,7 @@ Advanced and source-build guides:
 - **Images**: URL and base64 image inputs for providers that support vision
 - **Provider profiles**: Guided setup plus saved user-level provider profile support
 - **Local and remote model backends**: Cloud APIs, local servers, and Apple Silicon local inference
+- **Skills**: reusable slash-command workflows per project (`.claude/skills/`) or for every project ([user-level skills](docs/user-skills.md))
 
 ## Provider Notes
 
