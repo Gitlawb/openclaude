@@ -50,7 +50,11 @@ export function checkPermission(
       return { allowed: true };
 
     case "aggressive":
-      // All writes auto-apply (they still go through PendingEditStore but are auto-approved)
+      // Writes and moves are allowed without preview requirement.
+      // NOTE: auto-apply (bypassing the pending edit confirmation UI) is not yet implemented.
+      // The "aggressive" preset currently differs from "balanced" only in that it allows
+      // rename/move/write without setting requiresPreview:true — the pending edit flow
+      // still shows a diff and requires user confirmation.
       return { allowed: true };
 
     default: {

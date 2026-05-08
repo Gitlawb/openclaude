@@ -427,6 +427,10 @@ export function createRealAgent(_opts: RealAgentOpts = {}): AgentFn {
       }
 
       // ── Anthropic path: full Claude Code query engine ──
+      // NOTE: Permission presets (conservative/balanced/aggressive) are NOT enforced on the
+      // Anthropic-native code path. Users on the default Anthropic provider will see all
+      // write tools execute regardless of preset. This is a known limitation — preset UI
+      // should be hidden when provider.type === 'anthropic' (tracked for future fix).
       let prompt = input.message;
       const ctx = input.context;
       if (ctx) {
