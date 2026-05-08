@@ -41,6 +41,20 @@ function isOramaEnabled(): boolean {
 }
 
 let oramaDb: Orama<any> | null = null
+let oramaInitPromise: Promise<void> | null = null
+let mutationQueue: Promise<any> = Promise.resolve()
+
+async function enqueueMutation<T>(fn: () => Promise<T>): Promise<T> {
+  const result = (async () => {
+    await mutationQueue
+    return fn()
+  })()
+  mutationQueue = result.then(
+    () => {},
+    () => {},
+  )
+  return result
+}
 
 const ORAMA_SCHEMA = {
   id: 'string',
@@ -71,60 +85,82 @@ export async function initOrama(cwd: string): Promise<void> {
   if (!isOramaEnabled()) return
   if (oramaDb) return
 
-  const path = getOramaPersistencePath(cwd)
-  if (existsSync(path)) {
-    try {
-      const data = readFileSync(path)
-      oramaDb = await restore('binary', data)
-      return
-    } catch (e) {
-      console.error('Failed to restore Orama DB, renaming corrupted file:', e)
+  if (oramaInitPromise) {
+    return oramaInitPromise
+  }
+
+  oramaInitPromise = (async () => {
+    const path = getOramaPersistencePath(cwd)
+    if (existsSync(path)) {
       try {
-        renameSync(path, `${path}.corrupted.${Date.now()}`)
-      } catch (renameError) {
-        console.error('Failed to rename corrupted Orama file:', renameError)
+        const data = readFileSync(path)
+        oramaDb = await restore('binary', data)
+        return
+      } catch (e) {
+        console.error('Failed to restore Orama DB, renaming corrupted file:', e)
+        try {
+          renameSync(path, `${path}.corrupted.${Date.now()}`)
+        } catch (renameError) {
+          console.error('Failed to rename corrupted Orama file:', renameError)
+        }
       }
     }
-  }
 
-  oramaDb = await create({ schema: ORAMA_SCHEMA })
+    oramaDb = await create({ schema: ORAMA_SCHEMA })
 
-  // Initial sync from JSON if it exists (only for new DB)
-  const graph = projectGraph || loadProjectGraph(cwd)
-  for (const entity of Object.values(graph.entities)) {
-    try {
-      await remove(oramaDb, entity.id)
-    } catch { /* ignore */ }
-    await insert(oramaDb, {
-      id: entity.id,
-      type: entity.type,
-      name: entity.name,
-      content: entity.name,
-      attributes: JSON.stringify(entity.attributes),
-    })
-  }
-  for (const summary of graph.summaries) {
-    try {
-      await remove(oramaDb, summary.id)
-    } catch { /* ignore */ }
-    await insert(oramaDb, {
-      id: summary.id,
-      type: 'summary',
-      name: 'summary',
-      content: summary.content,
-      attributes: JSON.stringify({ keywords: summary.keywords }),
-    })
+    // Initial sync from JSON if it exists (only for new DB)
+    const graph = projectGraph || loadProjectGraph(cwd)
+    for (const entity of Object.values(graph.entities)) {
+      try {
+        await remove(oramaDb, entity.id)
+      } catch {
+        /* ignore if doesn't exist */
+      }
+      await insert(oramaDb, {
+        id: entity.id,
+        type: entity.type,
+        name: entity.name,
+        content: entity.name,
+        attributes: JSON.stringify(entity.attributes),
+      })
+    }
+    for (const summary of graph.summaries) {
+      try {
+        await remove(oramaDb, summary.id)
+      } catch {
+        /* ignore */
+      }
+      await insert(oramaDb, {
+        id: summary.id,
+        type: 'summary',
+        name: 'summary',
+        content: summary.content,
+        attributes: JSON.stringify({ keywords: summary.keywords }),
+      })
+    }
+  })()
+
+  try {
+    await oramaInitPromise
+  } finally {
+    oramaInitPromise = null
   }
 }
 
+let isSavingOrama = false
+
 export async function saveOrama(cwd: string): Promise<void> {
   if (!isOramaEnabled() || !oramaDb) return
+
+  isSavingOrama = true
   const path = getOramaPersistencePath(cwd)
   try {
     const data = await persist(oramaDb, 'binary')
     writeFileSync(path, data as Buffer)
   } catch (e) {
     console.error('Failed to save Orama DB:', e)
+  } finally {
+    isSavingOrama = false
   }
 }
 
@@ -171,7 +207,11 @@ export function saveProjectGraph(cwd: string): void {
 }
 
 export function getGlobalGraph(): KnowledgeGraph {
-  if (!projectGraph || (Object.keys(projectGraph.entities).length === 0 && projectGraph.summaries.length === 0)) {
+  if (
+    !projectGraph ||
+    (Object.keys(projectGraph.entities).length === 0 &&
+      projectGraph.summaries.length === 0)
+  ) {
     return loadProjectGraph(getFsImplementation().cwd())
   }
   return projectGraph
@@ -195,23 +235,26 @@ export async function addGlobalEntity(
     existingEntity.attributes = { ...existingEntity.attributes, ...attributes }
     graph.lastUpdateTime = Date.now()
     saveProjectGraph(getFsImplementation().cwd())
+
     if (isOramaEnabled()) {
-      await initOrama(getFsImplementation().cwd())
-      if (oramaDb) {
-        try {
-          await remove(oramaDb, existingEntity.id)
-        } catch {
-          /* ignore if doesn't exist */
+      await enqueueMutation(async () => {
+        await initOrama(getFsImplementation().cwd())
+        if (oramaDb) {
+          try {
+            await remove(oramaDb, existingEntity.id)
+          } catch {
+            /* ignore if doesn't exist */
+          }
+          await insert(oramaDb, {
+            id: existingEntity.id,
+            type: existingEntity.type,
+            name: existingEntity.name,
+            content: existingEntity.name,
+            attributes: JSON.stringify(existingEntity.attributes),
+          })
+          await saveOrama(getFsImplementation().cwd())
         }
-        await insert(oramaDb, {
-          id: existingEntity.id,
-          type: existingEntity.type,
-          name: existingEntity.name,
-          content: existingEntity.name,
-          attributes: JSON.stringify(existingEntity.attributes),
-        })
-        await saveOrama(getFsImplementation().cwd())
-      }
+      })
     }
     return existingEntity
   }
@@ -224,22 +267,24 @@ export async function addGlobalEntity(
   saveProjectGraph(getFsImplementation().cwd())
 
   if (isOramaEnabled()) {
-    await initOrama(getFsImplementation().cwd())
-    if (oramaDb) {
-      try {
-        await remove(oramaDb, id)
-      } catch {
-        /* ignore */
+    await enqueueMutation(async () => {
+      await initOrama(getFsImplementation().cwd())
+      if (oramaDb) {
+        try {
+          await remove(oramaDb, id)
+        } catch {
+          /* ignore */
+        }
+        await insert(oramaDb, {
+          id,
+          type,
+          name,
+          content: name,
+          attributes: JSON.stringify(attributes),
+        })
+        await saveOrama(getFsImplementation().cwd())
       }
-      await insert(oramaDb, {
-        id,
-        type,
-        name,
-        content: name,
-        attributes: JSON.stringify(attributes),
-      })
-      await saveOrama(getFsImplementation().cwd())
-    }
+    })
   }
 
   return entity
@@ -260,7 +305,10 @@ export async function addGlobalRelation(
   saveProjectGraph(getFsImplementation().cwd())
 }
 
-export async function addGlobalSummary(content: string, keywords: string[]): Promise<void> {
+export async function addGlobalSummary(
+  content: string,
+  keywords: string[],
+): Promise<void> {
   const graph = getGlobalGraph()
   const id = `summary_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
   graph.summaries.push({
@@ -273,22 +321,24 @@ export async function addGlobalSummary(content: string, keywords: string[]): Pro
   saveProjectGraph(getFsImplementation().cwd())
 
   if (isOramaEnabled()) {
-    await initOrama(getFsImplementation().cwd())
-    if (oramaDb) {
-      try {
-        await remove(oramaDb, id)
-      } catch {
-        /* ignore */
+    await enqueueMutation(async () => {
+      await initOrama(getFsImplementation().cwd())
+      if (oramaDb) {
+        try {
+          await remove(oramaDb, id)
+        } catch {
+          /* ignore */
+        }
+        await insert(oramaDb, {
+          id,
+          type: 'summary',
+          name: 'summary',
+          content,
+          attributes: JSON.stringify({ keywords }),
+        })
+        await saveOrama(getFsImplementation().cwd())
       }
-      await insert(oramaDb, {
-        id,
-        type: 'summary',
-        name: 'summary',
-        content,
-        attributes: JSON.stringify({ keywords }),
-      })
-      await saveOrama(getFsImplementation().cwd())
-    }
+    })
   }
 }
 
@@ -545,13 +595,12 @@ export function resetGlobalGraph(): void {
     rmSync(path, { force: true })
   } catch { /* ignore */ }
 
-  if (isOramaEnabled()) {
-    const oramaPath = getOramaPersistencePath(cwd)
-    try {
-      rmSync(oramaPath, { force: true })
-    } catch { /* ignore */ }
-    oramaDb = null
-  }
+  // Always attempt to clear Orama files to prevent stale data if flag is re-enabled later
+  const oramaPath = getOramaPersistencePath(cwd)
+  try {
+    rmSync(oramaPath, { force: true })
+  } catch { /* ignore */ }
+  oramaDb = null
 
   projectGraph = null;
 }

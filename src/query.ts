@@ -1584,8 +1584,11 @@ async function* queryLoop(
       feature('CONVERSATION_ARC') &&
       getGlobalConfig().knowledgeGraphEnabled
     ) {
-      const { updateArcPhase } = await import('./utils/conversationArc.js')
+      const { updateArcPhase, finalizeArcTurn } = await import(
+        './utils/conversationArc.js'
+      )
       await updateArcPhase([assistantMessage])
+      await finalizeArcTurn()
     }
 
     // Generate tool use summary after tool batch completes — passed to next recursive call
@@ -1892,14 +1895,6 @@ async function* queryLoop(
     }
 
     queryCheckpoint('query_recursive_call')
-
-    if (
-      feature('CONVERSATION_ARC') &&
-      getGlobalConfig().knowledgeGraphEnabled
-    ) {
-      const { finalizeArcTurn } = await import('./utils/conversationArc.js')
-      await finalizeArcTurn()
-    }
 
     const next: State = {
       messages: [...messagesForQuery, ...assistantMessages, ...toolResults],

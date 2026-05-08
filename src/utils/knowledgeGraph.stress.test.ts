@@ -136,4 +136,33 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
     expect(entities.length).toBe(1)
     expect(entities[0].attributes.status).toBe('updated')
   })
+
+  it('handles concurrent updates to the same entity (Orama Race Condition)', async () => {
+    // 1. Create initial entity
+    await addGlobalEntity('tool', 'concurrent-entity', { base: '1' })
+    
+    // 2. Perform 50 concurrent updates
+    const count = 50
+    const promises = []
+    for (let i = 0; i < count; i++) {
+      promises.push(addGlobalEntity('tool', 'concurrent-entity', { [`k${i}`]: String(i) }))
+    }
+    
+    // This should NOT throw DOCUMENT_ALREADY_EXISTS now
+    await Promise.all(promises)
+    
+    // 3. Verify final state in Orama
+    const result = await searchGlobalGraph('concurrent-entity')
+    // Should find the entity
+    expect(result).toContain('concurrent-entity')
+    
+    // 4. Verify all attributes are merged in JSON
+    const graph = getGlobalGraph()
+    const entity = Object.values(graph.entities).find(e => e.name === 'concurrent-entity')
+    expect(entity).toBeDefined()
+    expect(entity?.attributes.base).toBe('1')
+    for (let i = 0; i < count; i++) {
+      expect(entity?.attributes[`k${i}`]).toBe(String(i))
+    }
+  })
 })
