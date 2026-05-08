@@ -2,6 +2,7 @@ import { afterEach, expect, mock, test } from 'bun:test'
 import * as fsPromises from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
+import * as actualEnv from './env.js'
 
 const originalEnv = { ...process.env }
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
@@ -22,6 +23,7 @@ async function importFreshInstaller() {
 
 test('install command displays ~/.local/bin/openclaude on non-Windows', async () => {
   mock.module('../utils/env.js', () => ({
+    ...actualEnv,
     env: { platform: 'darwin' },
   }))
 
@@ -32,6 +34,7 @@ test('install command displays ~/.local/bin/openclaude on non-Windows', async ()
 
 test('install command displays openclaude.exe path on Windows', async () => {
   mock.module('../utils/env.js', () => ({
+    ...actualEnv,
     env: { platform: 'win32' },
   }))
 
@@ -47,6 +50,7 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
   ;(globalThis as Record<string, unknown>).MACRO = {
     PACKAGE_URL: '@gitlawb/openclaude',
   }
+  process.env.CLAUDE_CONFIG_DIR = join(homedir(), '.openclaude')
 
   mock.module('fs/promises', () => ({
     ...fsPromises,
@@ -60,11 +64,6 @@ test('cleanupNpmInstallations removes both openclaude and legacy claude local in
       code: 1,
       stderr: 'npm ERR! code E404',
     }),
-  }))
-
-  mock.module('./envUtils.js', () => ({
-    getClaudeConfigHomeDir: () => join(homedir(), '.openclaude'),
-    isEnvTruthy: (value: string | undefined) => value === '1',
   }))
 
   const { cleanupNpmInstallations } = await importFreshInstaller()

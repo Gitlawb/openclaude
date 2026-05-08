@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 async function importFreshEffortModule(options: {
-  provider: 'codex' | 'openai'
+  provider: 'bedrock' | 'codex' | 'firstParty' | 'openai'
   supportsCodexReasoningEffort: boolean
 }) {
   mock.module('./model/providers.js', () => ({
@@ -148,9 +148,20 @@ test('e2e: xhigh → persisted max → resolveAppliedEffort → wire xhigh on Op
 
 test('e2e: max on non-Opus Anthropic model still clamps to high', async () => {
   const { resolveAppliedEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
   expect(resolveAppliedEffort('claude-sonnet-4-6', 'max')).toBe('high')
+})
+
+test('catalog effort lookup uses 3P provider catalogs for provider-specific model ids', async () => {
+  const { modelSupportsEffort, modelSupportsMaxEffort } =
+    await importFreshEffortModule({
+      provider: 'bedrock',
+      supportsCodexReasoningEffort: false,
+    })
+
+  expect(modelSupportsEffort('us.anthropic.claude-opus-4-6-v1')).toBe(true)
+  expect(modelSupportsMaxEffort('us.anthropic.claude-opus-4-6-v1')).toBe(true)
 })

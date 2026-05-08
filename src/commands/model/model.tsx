@@ -59,6 +59,7 @@ import {
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js'
 import {
   getDefaultMainLoopModelSetting,
+  getMarketingNameForModel,
   isOpus1mMergeEnabled,
   renderDefaultModelSetting,
 } from '../../utils/model/model.js'
@@ -581,7 +582,7 @@ function SetModelAndClose({
 
       if (model && isOpus1mUnavailable(model)) {
         onDone(
-          'Opus 4.6 with 1M context is not available for your account. Learn more: https://code.claude.com/docs/en/model-config#extended-context-with-1m',
+          getUnavailable1mContextMessage(model, 'opus'),
           {
             display: 'system',
           },
@@ -590,7 +591,7 @@ function SetModelAndClose({
       }
       if (model && isSonnet1mUnavailable(model)) {
         onDone(
-          'Sonnet 4.6 with 1M context is not available for your account. Learn more: https://code.claude.com/docs/en/model-config#extended-context-with-1m',
+          getUnavailable1mContextMessage(model, 'sonnet'),
           {
             display: 'system',
           },
@@ -690,9 +691,20 @@ function isSonnet1mUnavailable(model: string): boolean {
   const normalized = model.toLowerCase()
   return (
     !checkSonnet1mAccess() &&
-    (normalized.includes('sonnet[1m]') ||
-      normalized.includes('sonnet-4-6[1m]'))
+    normalized.includes('sonnet') &&
+    normalized.includes('[1m]')
   )
+}
+
+function getUnavailable1mContextMessage(
+  model: string,
+  family: 'opus' | 'sonnet',
+): string {
+  const baseModel = model.replace(/\[1m\]$/i, '')
+  const displayName =
+    getMarketingNameForModel(baseModel) ??
+    family[0]!.toUpperCase() + family.slice(1)
+  return `${displayName} with 1M context is not available for your account. Learn more: https://code.claude.com/docs/en/model-config#extended-context-with-1m`
 }
 
 function ShowModelAndClose({

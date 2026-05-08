@@ -266,7 +266,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
-  // the next model launch. Keep 3P on Opus 4.6 until they roll out 4.7.
+  // the next model launch. The catalog owns the 3P Opus default.
   if (getAPIProvider() !== 'firstParty') {
     return getProviderDefaultModel('opus') || getModelStrings().opus46
   }
@@ -310,7 +310,7 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || getProviderDefaultModel('sonnet') || getDefaultHaikuModel()
   }
-  // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
+  // Use the catalog's Sonnet default for 3P since availability may lag 1P.
   if (getAPIProvider() !== 'firstParty') {
     return getProviderDefaultModel('sonnet') || getModelStrings().sonnet45
   }
@@ -355,7 +355,7 @@ export function getDefaultHaikuModel(): ModelName {
     return process.env.OPENAI_MODEL || getProviderDefaultModel('haiku') || getModelStrings().haiku45
   }
 
-  // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
+  // Haiku defaults are catalog-driven across first-party and 3P routes.
   return getProviderDefaultModel('haiku') || getModelStrings().haiku45
 }
 
@@ -393,7 +393,7 @@ export function getRuntimeMainLoopModel(params: {
  *
  * This handles the built-in default:
  * - Opus for Max and Team Premium users
- * - Sonnet 4.6 for all other users (including Team Standard, Pro, Enterprise)
+ * - the catalog Sonnet default for all other users (including Team Standard, Pro, Enterprise)
  *
  * @returns The default model setting to use
  */
@@ -758,9 +758,9 @@ export function parseUserSpecifiedModel(
 
   // Opus 4/4.1 are no longer available on the first-party API (same as
   // Claude.ai) — silently remap to the current Opus default. The 'opus'
-  // alias already resolves to 4.6, so the only users on these explicit
-  // strings pinned them in settings/env/--model/SDK before 4.5 launched.
-  // 3P providers may not yet have 4.6 capacity, so pass through unchanged.
+  // alias already resolves to the current catalog default, so the only users on
+  // these explicit strings pinned them in settings/env/--model/SDK before newer
+  // Opus launches. 3P providers may lag, so pass through unchanged.
   if (
     getAPIProvider() === 'firstParty' &&
     isLegacyOpusFirstParty(modelString) &&

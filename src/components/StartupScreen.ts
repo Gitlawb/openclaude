@@ -13,7 +13,10 @@ import {
   getRouteLabel,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
-import { getDefaultModelForProvider } from '../integrations/modelCatalog/catalog.js'
+import {
+  getDefaultModelForProvider,
+  getModelMetadata,
+} from '../integrations/modelCatalog/catalog.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
 import { parseUserSpecifiedModel } from '../utils/model/model.js'
@@ -32,8 +35,6 @@ declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
 const RESET = ANSI_RESET
 const DIM = ANSI_DIM
-const DEFAULT_ANTHROPIC_MODEL =
-  getDefaultModelForProvider('anthropic', 'sonnet') ?? ''
 const DEFAULT_OPENAI_MODEL =
   getDefaultModelForProvider('openai') ?? ''
 const DEFAULT_GITHUB_MODELS_MODEL =
@@ -42,6 +43,33 @@ const DEFAULT_ANTHROPIC_MODEL =
   getDefaultModelForProvider('anthropic') ??
   getDefaultModelForProvider('anthropic', 'sonnet') ??
   ''
+
+function resolveAnthropicStartupModel(modelSetting: string): string {
+  const has1mTag = /\[1m\]$/i.test(modelSetting)
+  const baseModel = has1mTag
+    ? modelSetting.replace(/\[1m\]$/i, '').trim()
+    : modelSetting
+
+  if (baseModel.toLowerCase() === 'opusplan') {
+    return parseUserSpecifiedModel(modelSetting)
+  }
+
+  try {
+    const metadata = getModelMetadata(baseModel, 'anthropic')
+    if (metadata) {
+      return metadata.apiName + (has1mTag ? '[1m]' : '')
+    }
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !error.message.startsWith('Ambiguous model lookup ')
+    ) {
+      throw error
+    }
+  }
+
+  return parseUserSpecifiedModel(modelSetting)
+}
 
 function lerp(a: RGB, b: RGB, t: number): RGB {
   return [
@@ -175,7 +203,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   // Default: Anthropic - check settings.model first, then env vars
   const settings = getSettings_DEPRECATED() || {}
   const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || DEFAULT_ANTHROPIC_MODEL
-  const resolvedModel = parseUserSpecifiedModel(modelSetting)
+  const resolvedModel = resolveAnthropicStartupModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)
   return { name: 'Anthropic', model: resolvedModel, baseUrl, isLocal }

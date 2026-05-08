@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import * as actualAuth from '../auth.js'
 
 async function importFreshModelOptionsModule() {
   mock.restore()
+  mock.module('../auth.js', () => ({
+    ...actualAuth,
+    getSubscriptionType: () => undefined,
+    isClaudeAISubscriber: () => false,
+    isMaxSubscriber: () => false,
+    isProSubscriber: () => false,
+    isTeamPremiumSubscriber: () => false,
+  }))
   mock.module('./providers.js', () => ({
     getAPIProvider: () => 'codex',
     getAPIProviderForStatsig: () => 'codex',

@@ -11,8 +11,6 @@ import {
 } from './generated/integrationArtifacts.generated.js'
 import {
   getBrandsForVendor,
-  getAllGateways,
-  getAllVendors,
   getCatalogEntriesForRoute,
   getModel,
   getModelsForVendor,
@@ -21,8 +19,13 @@ import {
   routeSupportsCustomHeaders,
   validateIntegrationRegistry,
 } from './index.js'
-import { getAllProviderCatalogs } from './modelCatalog/catalog.js'
-import { getRouteDefaultModel } from './routeMetadata.js'
+import {
+  getAllProviderCatalogs,
+  getDefaultModelForProvider,
+} from './modelCatalog/catalog.js'
+import {
+  getRouteCatalogEntries as getProviderCatalogEntriesForRoute,
+} from './modelCatalog/descriptorAdapters.js'
 
 describe('loaded registry validation', () => {
   test('registry is valid after loading all descriptors', () => {
@@ -49,13 +52,13 @@ describe('loaded registry validation', () => {
   })
 
   test('route defaults live in provider JSON, not route descriptors', () => {
-    const routes = [...getAllVendors(), ...getAllGateways()]
+    const routes = [...VENDOR_DESCRIPTORS, ...GATEWAY_DESCRIPTORS]
     const descriptorDefaults = routes
       .filter(route => 'defaultModel' in route && route.defaultModel !== undefined)
       .map(route => route.id)
 
     const missingCatalogDefaults = routes
-      .filter(route => getRouteDefaultModel(route.id) === undefined)
+      .filter(route => getDefaultModelForProvider(route.id) === undefined)
       .map(route => route.id)
 
     expect(descriptorDefaults).toEqual([])
@@ -115,8 +118,8 @@ describe('loaded registry validation', () => {
       'custom:local-model',
       'lmstudio:local-model',
     ])
-    const missingDescriptors = getAllGateways().flatMap(gateway =>
-      getCatalogEntriesForRoute(gateway.id)
+    const missingDescriptors = GATEWAY_DESCRIPTORS.flatMap(gateway =>
+      getProviderCatalogEntriesForRoute(gateway.id)
         .filter(entry => !descriptorOptionalEntries.has(`${gateway.id}:${entry.id}`))
         .filter(entry => !entry.modelDescriptorId)
         .map(entry => `${gateway.id}:${entry.id}`),
@@ -126,21 +129,21 @@ describe('loaded registry validation', () => {
   })
 
   test('route default models resolve from a catalog default entry', () => {
-    const missingDefaults = [...getAllVendors(), ...getAllGateways()]
+    const missingDefaults = [...VENDOR_DESCRIPTORS, ...GATEWAY_DESCRIPTORS]
       .filter(route => {
-        const defaultModel = getRouteDefaultModel(route.id)
-        return !defaultModel || !getCatalogEntriesForRoute(route.id).some(
+        const defaultModel = getDefaultModelForProvider(route.id)
+        return !defaultModel || !getProviderCatalogEntriesForRoute(route.id).some(
           entry => entry.default && entry.apiName === defaultModel,
         )
       })
-      .map(route => `${route.id}:${getRouteDefaultModel(route.id) ?? '<none>'}`)
+      .map(route => `${route.id}:${getDefaultModelForProvider(route.id) ?? '<none>'}`)
 
     expect(missingDefaults).toEqual([])
   })
 
   test('gateway modelDescriptorId references have model metadata', () => {
-    const missingModels = getAllGateways().flatMap(gateway =>
-      getCatalogEntriesForRoute(gateway.id)
+    const missingModels = GATEWAY_DESCRIPTORS.flatMap(gateway =>
+      getProviderCatalogEntriesForRoute(gateway.id)
         .filter(entry => entry.modelDescriptorId)
         .filter(entry => !getModel(entry.modelDescriptorId!))
         .map(entry => `${gateway.id}:${entry.id}:${entry.modelDescriptorId}`),

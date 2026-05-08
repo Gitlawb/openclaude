@@ -10,7 +10,7 @@ export const LIGHTNING_BOLT = '↯' // \u21af - used for fast mode indicator
 export const EFFORT_LOW = '○' // \u25cb - effort level: low
 export const EFFORT_MEDIUM = '◐' // \u25d0 - effort level: medium
 export const EFFORT_HIGH = '●' // \u25cf - effort level: high
-export const EFFORT_MAX = '◉' // \u25c9 - effort level: max (Opus 4.6 only)
+export const EFFORT_MAX = '◉' // \u25c9 - effort level: max
 
 // Media/trigger status indicators
 export const PLAY_ICON = '\u25b6' // ▶

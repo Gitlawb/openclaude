@@ -28,6 +28,7 @@ test('claude-sonnet-4-6 fallback suggestion comes from catalog metadata', async 
     getModelStrings: () => ({
       sonnet45: 'legacy-hardcoded-sonnet-fallback',
     }),
+    resolveOverriddenModel: (modelId: string) => modelId,
   }))
 
   const { get3PFallbackSuggestionForTesting } =

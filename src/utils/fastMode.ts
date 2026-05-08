@@ -153,7 +153,7 @@ function getFastModeModelDisplay(): string {
       return metadata.label.replace(/^Claude\s+/, '')
     }
   }
-  return 'Opus 4.6'
+  return 'the fast mode model'
 }
 
 export const FAST_MODE_MODEL_DISPLAY = getFastModeModelDisplay()
@@ -174,14 +174,15 @@ function getCatalogProviderId(): string | undefined {
 
 function getCatalogCapabilities(model: string): ModelCapabilities | undefined {
   try {
+    const normalizedModel = model.replace(/\[1m\]$/i, '')
     const providerId = getCatalogProviderId()
     const providerCapabilities = providerId
-      ? getModelCapabilities(model, providerId)
+      ? getModelCapabilities(normalizedModel, providerId)
       : undefined
     if (providerCapabilities) {
       return providerCapabilities
     }
-    return getModelCapabilities(model)
+    return getModelCapabilities(normalizedModel)
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('Ambiguous model lookup')) {
       return undefined
@@ -220,7 +221,7 @@ export function isFastModeSupportedByModel(
   if (catalogCapabilities?.fastMode !== undefined) {
     return catalogCapabilities.fastMode
   }
-  return parsedModel.toLowerCase().includes('opus-4-6')
+  return false
 }
 
 // --- Fast mode runtime state ---

@@ -1,4 +1,10 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import * as actualExeca from 'execa'
+import * as actualAuth from './auth.js'
+import * as actualConfig from './config.js'
+import * as actualCwd from './cwd.js'
+import * as actualEnv from './env.js'
+import * as actualEnvUtils from './envUtils.js'
 
 const originalEnv = { ...process.env }
 
@@ -18,6 +24,7 @@ function installCommonMocks(options?: {
   // which is fine — these tests only assert email, not sessionId.
 
   mock.module('./auth.js', () => ({
+    ...actualAuth,
     getOauthAccountInfo: () =>
       options?.oauthEmail
         ? {
@@ -31,25 +38,30 @@ function installCommonMocks(options?: {
   }))
 
   mock.module('./config.js', () => ({
+    ...actualConfig,
     getGlobalConfig: () => ({}),
     getOrCreateUserID: () => 'device-test',
   }))
 
   mock.module('./cwd.js', () => ({
+    ...actualCwd,
     getCwd: () => 'C:\\repo',
   }))
 
   mock.module('./env.js', () => ({
+    ...actualEnv,
     env: { platform: 'windows' },
     getHostPlatformForAnalytics: () => 'windows',
   }))
 
   mock.module('./envUtils.js', () => ({
+    ...actualEnvUtils,
     isEnvTruthy: (value: string | undefined) =>
       !!value && value !== '0' && value.toLowerCase() !== 'false',
   }))
 
   mock.module('execa', () => ({
+    ...actualExeca,
     execa: async () => ({
       exitCode: options?.gitEmail ? 0 : 1,
       stdout: options?.gitEmail ?? '',

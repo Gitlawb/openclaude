@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 
+import {
+  resetModelStringsForTestingOnly,
+  setInitialMainLoopModel,
+  setMainLoopModelOverride,
+} from '../../bootstrap/state.js'
 import { saveGlobalConfig } from '../config.js'
+import * as actualProviders from './providers.js'
 
 async function importFreshModelModule() {
-  mock.restore()
   mock.module('../auth.js', () => ({
     getSubscriptionType: () => 'max',
     isClaudeAISubscriber: () => true,
@@ -11,7 +16,8 @@ async function importFreshModelModule() {
     isProSubscriber: () => false,
     isTeamPremiumSubscriber: () => false,
   }))
-  mock.module('./providers.js', () => ({
+  const providerMock = () => ({
+    ...actualProviders,
     getAPIProvider: () => {
       if (process.env.NVIDIA_NIM) return 'nvidia-nim'
       if (process.env.MINIMAX_API_KEY) return 'minimax'
@@ -30,7 +36,9 @@ async function importFreshModelModule() {
       if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
       return 'firstParty'
     },
-  }))
+  })
+  mock.module('./providers.js', providerMock)
+  mock.module('src/utils/model/providers.js', providerMock)
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./model.js?ts=${nonce}`)
 }
@@ -47,6 +55,9 @@ const SAVED_ENV = {
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  XAI_API_KEY: process.env.XAI_API_KEY,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
   CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
 }
@@ -76,8 +87,14 @@ beforeEach(() => {
   delete process.env.MINIMAX_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_API_KEY
+  delete process.env.XAI_API_KEY
   delete process.env.CODEX_API_KEY
   delete process.env.CHATGPT_ACCOUNT_ID
+  setInitialMainLoopModel(null)
+  setMainLoopModelOverride(undefined)
+  resetModelStringsForTestingOnly()
   saveGlobalConfig(current => ({
     ...current,
     model: undefined,
@@ -93,9 +110,27 @@ afterEach(() => {
     ...current,
     model: undefined,
   }))
+  setInitialMainLoopModel(null)
+  setMainLoopModelOverride(undefined)
+  resetModelStringsForTestingOnly()
 })
 
-test('codex provider reads OPENAI_MODEL, not stale settings.model', async () => {
+function useMiniMaxProvider(model?: string): void {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.minimax.io/v1'
+  process.env.MINIMAX_API_KEY = 'minimax-test'
+  if (model) {
+    process.env.OPENAI_MODEL = model
+  }
+}
+
+function useNvidiaProvider(model: string): void {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.NVIDIA_NIM = '1'
+  process.env.OPENAI_MODEL = model
+}
+
+test.serial('codex provider reads OPENAI_MODEL, not stale settings.model', async () => {
   // Regression: switching from Moonshot (settings.model='kimi-k2.6' persisted
   // from that session) to the Codex profile. Codex profile correctly sets
   // OPENAI_MODEL=codexplan + base URL to chatgpt.com/backend-api/codex.
@@ -114,7 +149,7 @@ test('codex provider reads OPENAI_MODEL, not stale settings.model', async () => 
   expect(model).toBe('codexplan')
 })
 
-test('nvidia-nim provider reads OPENAI_MODEL, not stale settings.model', async () => {
+test.serial('nvidia-nim provider reads OPENAI_MODEL, not stale settings.model', async () => {
   saveGlobalConfig(current => ({ ...current, model: 'kimi-k2.6' }))
   process.env.NVIDIA_NIM = '1'
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -125,18 +160,16 @@ test('nvidia-nim provider reads OPENAI_MODEL, not stale settings.model', async (
   expect(model).toBe('nvidia/llama-3.1-nemotron-70b-instruct')
 })
 
-test('minimax provider reads OPENAI_MODEL, not stale settings.model', async () => {
+test.serial('minimax provider reads OPENAI_MODEL, not stale settings.model', async () => {
   saveGlobalConfig(current => ({ ...current, model: 'kimi-k2.6' }))
-  process.env.MINIMAX_API_KEY = 'minimax-test'
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_MODEL = 'MiniMax-M2.5'
+  useMiniMaxProvider('MiniMax-M2.5')
 
   const { getUserSpecifiedModelSetting } = await importFreshModelModule()
   const model = getUserSpecifiedModelSetting()
   expect(model).toBe('MiniMax-M2.5')
 })
 
-test('openai provider still reads OPENAI_MODEL (regression guard)', async () => {
+test.serial('openai provider still reads OPENAI_MODEL (regression guard)', async () => {
   saveGlobalConfig(current => ({ ...current, model: 'stale-default' }))
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_MODEL = 'gpt-4o'
@@ -146,7 +179,7 @@ test('openai provider still reads OPENAI_MODEL (regression guard)', async () => 
   expect(model).toBe('gpt-4o')
 })
 
-test('github provider still reads OPENAI_MODEL (regression guard)', async () => {
+test.serial('github provider still reads OPENAI_MODEL (regression guard)', async () => {
   saveGlobalConfig(current => ({ ...current, model: 'stale-default' }))
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_MODEL = 'github:copilot'
@@ -163,15 +196,14 @@ test('github provider still reads OPENAI_MODEL (regression guard)', async () => 
 // because queryHaiku() shipped an unknown model id to the shim endpoint.
 // ---------------------------------------------------------------------------
 
-test('getSmallFastModel returns OPENAI_MODEL for MiniMax (regression: WebFetch hang)', async () => {
-  process.env.MINIMAX_API_KEY = 'minimax-test'
-  process.env.OPENAI_MODEL = 'MiniMax-M2.5-highspeed'
+test.serial('getSmallFastModel returns OPENAI_MODEL for MiniMax (regression: WebFetch hang)', async () => {
+  useMiniMaxProvider('MiniMax-M2.5-highspeed')
 
   const { getSmallFastModel } = await importFreshModelModule()
   expect(getSmallFastModel()).toBe('MiniMax-M2.5-highspeed')
 })
 
-test('getSmallFastModel returns OPENAI_MODEL for Codex (regression)', async () => {
+test.serial('getSmallFastModel returns OPENAI_MODEL for Codex (regression)', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://chatgpt.com/backend-api/codex'
   process.env.OPENAI_MODEL = 'codexspark'
@@ -182,70 +214,67 @@ test('getSmallFastModel returns OPENAI_MODEL for Codex (regression)', async () =
   expect(getSmallFastModel()).toBe('codexspark')
 })
 
-test('getSmallFastModel returns OPENAI_MODEL for NVIDIA NIM (regression)', async () => {
-  process.env.NVIDIA_NIM = '1'
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct'
+test.serial('getSmallFastModel returns OPENAI_MODEL for NVIDIA NIM (regression)', async () => {
+  useNvidiaProvider('nvidia/llama-3.1-nemotron-70b-instruct')
 
   const { getSmallFastModel } = await importFreshModelModule()
   expect(getSmallFastModel()).toBe('nvidia/llama-3.1-nemotron-70b-instruct')
 })
 
-test('getDefaultOpusModel returns OPENAI_MODEL for MiniMax', async () => {
-  process.env.MINIMAX_API_KEY = 'minimax-test'
-  process.env.OPENAI_MODEL = 'MiniMax-M2.7'
+test.serial('getDefaultOpusModel returns OPENAI_MODEL for MiniMax', async () => {
+  useMiniMaxProvider('MiniMax-M2.7')
 
   const { getDefaultOpusModel } = await importFreshModelModule()
+  useMiniMaxProvider('MiniMax-M2.7')
   expect(getDefaultOpusModel()).toBe('MiniMax-M2.7')
 })
 
-test('getDefaultMainLoopModelSetting defaults MiniMax to M2.7', async () => {
-  process.env.MINIMAX_API_KEY = 'minimax-test'
+test.serial('getDefaultMainLoopModelSetting defaults MiniMax to M2.7', async () => {
+  useMiniMaxProvider()
 
   const {
     getDefaultMainLoopModel,
     getDefaultMainLoopModelSetting,
   } = await importFreshModelModule()
+  useMiniMaxProvider()
   expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M2.7')
   expect(getDefaultMainLoopModel()).toBe('MiniMax-M2.7')
 })
 
-test('modelDisplayString does not show Claude subscription default for MiniMax', async () => {
-  process.env.MINIMAX_API_KEY = 'minimax-test'
-  process.env.OPENAI_MODEL = 'MiniMax-M2.7'
+test.serial('modelDisplayString does not show Claude subscription default for MiniMax', async () => {
+  useMiniMaxProvider('MiniMax-M2.7')
 
   const {
     modelDisplayString,
     renderDefaultModelSetting,
   } = await importFreshModelModule()
+  useMiniMaxProvider('MiniMax-M2.7')
   expect(modelDisplayString(null)).toBe('Default (MiniMax-M2.7)')
   expect(renderDefaultModelSetting('MiniMax-M2.7')).toBe('MiniMax M2.7')
 })
 
-test('getDefaultSonnetModel returns OPENAI_MODEL for NVIDIA NIM', async () => {
-  process.env.NVIDIA_NIM = '1'
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct'
+test.serial('getDefaultSonnetModel returns OPENAI_MODEL for NVIDIA NIM', async () => {
+  useNvidiaProvider('nvidia/llama-3.1-nemotron-70b-instruct')
 
   const { getDefaultSonnetModel } = await importFreshModelModule()
+  useNvidiaProvider('nvidia/llama-3.1-nemotron-70b-instruct')
   expect(getDefaultSonnetModel()).toBe('nvidia/llama-3.1-nemotron-70b-instruct')
 })
 
-test('getDefaultHaikuModel returns OPENAI_MODEL for MiniMax', async () => {
-  process.env.MINIMAX_API_KEY = 'minimax-test'
-  process.env.OPENAI_MODEL = 'MiniMax-M2.5-highspeed'
+test.serial('getDefaultHaikuModel returns OPENAI_MODEL for MiniMax', async () => {
+  useMiniMaxProvider('MiniMax-M2.5-highspeed')
 
   const { getDefaultHaikuModel } = await importFreshModelModule()
+  useMiniMaxProvider('MiniMax-M2.5-highspeed')
   expect(getDefaultHaikuModel()).toBe('MiniMax-M2.5-highspeed')
 })
 
-test('default helpers do not leak claude-* names to shim providers', async () => {
+test.serial('default helpers do not leak claude-* names to shim providers', async () => {
   // Umbrella guard: for each OpenAI-shim provider, none of the default-model
   // helpers may return an Anthropic-branded model name. That was the source
   // of the WebFetch 60s hang — MiniMax received "claude-haiku-4-5" and sat
   // on the connection.
-  process.env.MINIMAX_API_KEY = 'minimax-test'
-  process.env.OPENAI_MODEL = 'MiniMax-M2.7'
+  useMiniMaxProvider('MiniMax-M2.7')
 
   const {
     getSmallFastModel,

@@ -36,28 +36,28 @@ export type EffortValue = EffortLevel | OpenAIEffortLevel | number
 
 function getCatalogProviderId(): string | undefined {
   const provider = getAPIProvider()
-  return provider === 'firstParty' ||
-    provider === 'foundry' ||
-    provider === 'bedrock' ||
-    provider === 'vertex'
-    ? 'anthropic'
-    : provider
+  return provider === 'firstParty' ? 'anthropic' : provider
+}
+
+function normalizeCatalogEffortModel(model: string): string {
+  return model.replace(/\[1m\]$/i, '')
 }
 
 function getCatalogEffort(model: string): ModelEffort | undefined {
   try {
+    const normalizedModel = normalizeCatalogEffortModel(model)
     const providerId = getCatalogProviderId()
     const providerEffort = providerId
-      ? getModelEffort(model, providerId)
+      ? getModelEffort(normalizedModel, providerId)
       : undefined
     if (providerEffort) {
       return providerEffort
     }
-    const anthropicEffort = getModelEffort(model, 'anthropic')
+    const anthropicEffort = getModelEffort(normalizedModel, 'anthropic')
     if (anthropicEffort) {
       return anthropicEffort
     }
-    return getModelEffort(model)
+    return getModelEffort(normalizedModel)
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('Ambiguous model lookup')) {
       return undefined
@@ -83,10 +83,6 @@ export function modelSupportsEffort(model: string): boolean {
   if (modelUsesOpenAIEffort(model) && supportsCodexReasoningEffort(model)) {
     return true
   }
-  // Supported by a subset of Claude 4 models
-  if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) {
-    return true
-  }
   // Exclude any other known legacy models (haiku, older opus/sonnet variants)
   if (m.includes('haiku') || m.includes('sonnet') || m.includes('opus')) {
     return false
@@ -103,7 +99,6 @@ export function modelSupportsEffort(model: string): boolean {
 }
 
 // Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
-// Per API docs, 'max' is Opus 4.6 only for public models — other models return an error.
 export function modelSupportsMaxEffort(model: string): boolean {
   const supported3P = get3PModelCapabilityOverride(model, 'max_effort')
   if (supported3P !== undefined) {
@@ -112,9 +107,6 @@ export function modelSupportsMaxEffort(model: string): boolean {
   const catalogEffort = getCatalogEffort(model)
   if (catalogEffort?.maxLevel) {
     return catalogEffort.maxLevel === 'max' || catalogEffort.maxLevel === 'xhigh'
-  }
-  if (model.toLowerCase().includes('opus-4-6')) {
-    return true
   }
   if (process.env.USER_TYPE === 'ant' && resolveAntModel(model)) {
     return true
@@ -346,7 +338,7 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
     case 'high':
       return 'Comprehensive implementation with extensive testing and documentation'
     case 'max':
-      return 'Maximum capability with deepest reasoning (Opus 4.6 only)'
+      return 'Maximum capability with deepest reasoning'
     case 'xhigh':
       return 'Extra high reasoning effort for complex tasks (OpenAI/Codex)'
   }
@@ -422,9 +414,9 @@ export function getDefaultEffortForModel(
   // the model launch DRI and research. Default effort is a sensitive setting
   // that can greatly affect model quality and bashing.
 
-  // Default effort on Opus 4.6 to medium for Pro.
+  // Default max-effort Anthropic public models to medium for Pro.
   // Max/Team also get medium when the tengu_grey_step2 config is enabled.
-  if (model.toLowerCase().includes('opus-4-6')) {
+  if (getCatalogEffort(model)?.maxLevel === 'max') {
     if (isProSubscriber()) {
       return 'medium'
     }
