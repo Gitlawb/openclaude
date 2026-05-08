@@ -1858,10 +1858,27 @@ class OpenAIShimMessages {
       ? getLocalProviderRetryBaseUrls(request.baseUrl)
       : []
 
+    const buildCatalogEndpointUrl = (baseUrl: string): string | undefined => {
+      const endpoint = request.catalogEndpoint
+      if (!endpoint) {
+        return undefined
+      }
+      if (
+        endpoint.protocol !== 'openai-chat-completions' &&
+        endpoint.protocol !== 'openai-responses'
+      ) {
+        throw new Error(
+          `Catalog endpoint protocol "${endpoint.protocol}" is not supported by the OpenAI-compatible shim`,
+        )
+      }
+      return `${baseUrl.replace(/\/+$/, '')}/${endpoint.path.replace(/^\/+/, '')}`
+    }
+
     const buildRequestUrl = (baseUrl: string): string =>
-      request.transport === 'responses'
+      buildCatalogEndpointUrl(baseUrl) ??
+      (request.transport === 'responses'
         ? `${baseUrl}/responses`
-        : buildChatCompletionsUrl(baseUrl)
+        : buildChatCompletionsUrl(baseUrl))
 
     let activeBaseUrl = request.baseUrl
     let requestUrl = buildRequestUrl(activeBaseUrl)

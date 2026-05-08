@@ -331,58 +331,7 @@ function getCodexSparkOption(): ModelOption {
 }
 
 function getCodexModelOptions(): ModelOption[] {
-  return [
-    {
-      value: 'gpt-5.5',
-      label: 'gpt-5.5',
-      description: 'GPT-5.5 with high reasoning',
-    },
-    {
-      value: 'gpt-5.4',
-      label: 'gpt-5.4',
-      description: 'GPT-5.4 with high reasoning',
-    },
-    {
-      value: 'gpt-5.3-codex',
-      label: 'gpt-5.3-codex',
-      description: 'GPT-5.3 Codex with high reasoning',
-    },
-    {
-      value: 'gpt-5.3-codex-spark',
-      label: 'gpt-5.3-codex-spark',
-      description: 'GPT-5.3 Codex Spark for fast tool loops',
-    },
-    {
-      value: 'codexspark',
-      label: 'codexspark',
-      description: 'GPT-5.3 Codex Spark alias for fast tool loops',
-    },
-    {
-      value: 'gpt-5.2-codex',
-      label: 'gpt-5.2-codex',
-      description: 'GPT-5.2 Codex with high reasoning',
-    },
-    {
-      value: 'gpt-5.1-codex-max',
-      label: 'gpt-5.1-codex-max',
-      description: 'GPT-5.1 Codex Max for deep reasoning',
-    },
-    {
-      value: 'gpt-5.1-codex-mini',
-      label: 'gpt-5.1-codex-mini',
-      description: 'GPT-5.1 Codex Mini - faster, cheaper',
-    },
-    {
-      value: 'gpt-5.5-mini',
-      label: 'gpt-5.5-mini',
-      description: 'GPT-5.5 Mini - faster, cheaper',
-    },
-    {
-      value: 'gpt-5.4-mini',
-      label: 'gpt-5.4-mini',
-      description: 'GPT-5.4 Mini - faster, cheaper',
-    },
-  ]
+  return getCatalogModelOptions('codex', 'thirdParty')
 }
 
 function getCopilotModelOptions(): ModelOption[] {

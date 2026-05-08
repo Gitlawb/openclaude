@@ -175,6 +175,23 @@ test('keeps Codex backend on Codex responses transport even when API format is s
   })
 })
 
+test('resolves catalog endpoint metadata for OpenCode Go models', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+  process.env.OPENAI_MODEL = 'kimi-k2.6'
+
+  expect(resolveProviderRequest()).toMatchObject({
+    transport: 'chat_completions',
+    requestedModel: 'kimi-k2.6',
+    resolvedModel: 'kimi-k2.6',
+    baseUrl: 'https://opencode.ai/zen/go/v1',
+    catalogEndpoint: {
+      path: '/chat/completions',
+      protocol: 'openai-chat-completions',
+    },
+  })
+})
+
 test('skips local model cache scope for remote openai-compatible providers', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'

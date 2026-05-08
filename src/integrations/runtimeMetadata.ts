@@ -18,6 +18,7 @@ import type {
   ModelLimits,
   ModelOutputTokenLimits,
   ProviderCatalog,
+  ResolvedModelEndpoint,
 } from './modelCatalog/types.js'
 import {
   getAllModels,
@@ -187,6 +188,7 @@ export type OpenAIShimRuntimeContext = {
   routeId: string | null
   descriptor: RouteDescriptor | null
   catalogEntry: ModelCatalogEntry | null
+  catalogEndpoint?: ResolvedModelEndpoint
   openaiShimConfig: OpenAIShimTransportConfig
 }
 
@@ -268,6 +270,7 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     routeId,
     descriptor,
     catalogEntry,
+    catalogEndpoint: routeId === 'custom' ? catalogEndpoint : undefined,
     openaiShimConfig: mergeOpenAIShimConfig(
       descriptor?.transportConfig.openaiShim,
       catalogEntry?.transportOverrides?.openaiShim,

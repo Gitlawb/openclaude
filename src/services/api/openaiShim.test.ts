@@ -5193,3 +5193,37 @@ test('emits reasoning_effort from codex alias default when no override is passed
 
   expect(requestBody?.reasoning_effort).toBe('high')
 })
+
+test('rejects catalog endpoints with unsupported Anthropic Messages protocol', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  globalThis.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'minimax-m2.7',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'minimax-m2.7',
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 16,
+      stream: false,
+    }),
+  ).rejects.toThrow(/anthropic-messages/)
+})

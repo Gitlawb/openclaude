@@ -23,6 +23,8 @@ import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
 } from '../../integrations/runtimeMetadata.js'
+import { getModelMetadata } from '../../integrations/modelCatalog/catalog.js'
+import type { ResolvedModelEndpoint } from '../../integrations/modelCatalog/types.js'
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
@@ -31,64 +33,7 @@ export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 export const DEFAULT_GITHUB_MODELS_API_MODEL = 'gpt-4o'
 const warnedUndefinedEnvNames = new Set<string>()
 
-const CODEX_ALIAS_MODELS: Record<
-  string,
-  {
-    model: string
-    reasoningEffort?: ReasoningEffort
-  }
-> = {
-  codexplan: {
-    model: 'gpt-5.5',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.5': {
-    model: 'gpt-5.5',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.4': {
-    model: 'gpt-5.4',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.3-codex': {
-    model: 'gpt-5.3-codex',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.3-codex-spark': {
-    model: 'gpt-5.3-codex-spark',
-  },
-  codexspark: {
-    model: 'gpt-5.3-codex-spark',
-  },
-  'gpt-5.2-codex': {
-    model: 'gpt-5.2-codex',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.1-codex-max': {
-    model: 'gpt-5.1-codex-max',
-    reasoningEffort: 'high',
-  },
-  'gpt-5.1-codex-mini': {
-    model: 'gpt-5.1-codex-mini',
-  },
-  'gpt-5.5-mini': {
-    model: 'gpt-5.5-mini',
-    reasoningEffort: 'medium',
-  },
-  'gpt-5.4-mini': {
-    model: 'gpt-5.4-mini',
-    reasoningEffort: 'medium',
-  },
-  'gpt-5.2': {
-    model: 'gpt-5.2',
-    reasoningEffort: 'medium',
-  },
-} as const
-
-type CodexAlias = keyof typeof CODEX_ALIAS_MODELS
 type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
-
-const OPENAI_CODEX_SHORTCUT_ALIASES = new Set(['codexplan', 'codexspark'])
 
 export type ProviderTransport = 'chat_completions' | 'responses' | 'codex_responses'
 export type OpenAICompatibleApiFormat = 'chat_completions' | 'responses'
@@ -98,6 +43,7 @@ export type ResolvedProviderRequest = {
   requestedModel: string
   resolvedModel: string
   baseUrl: string
+  catalogEndpoint?: Pick<ResolvedModelEndpoint, 'path' | 'protocol'>
   reasoning?: {
     effort: ReasoningEffort
   }
@@ -244,19 +190,42 @@ export function parseOpenAICompatibleApiFormat(
   return undefined
 }
 
+function isReasoningEffort(value: string | undefined): value is ReasoningEffort {
+  return (
+    value === 'low' ||
+    value === 'medium' ||
+    value === 'high' ||
+    value === 'xhigh'
+  )
+}
+
+function getCodexCatalogDescriptor(model: string): Omit<ModelDescriptor, 'raw'> | undefined {
+  const metadata = getModelMetadata(model, 'codex')
+  if (!metadata) {
+    return undefined
+  }
+
+  const defaultEffort =
+    metadata.effort?.supported === true &&
+    isReasoningEffort(metadata.effort.defaultLevel)
+      ? metadata.effort.defaultLevel
+      : undefined
+
+  return {
+    baseModel: metadata.apiName,
+    reasoning: defaultEffort ? { effort: defaultEffort } : undefined,
+  }
+}
+
 function parseModelDescriptor(model: string): ModelDescriptor {
   const trimmed = model.trim()
   const queryIndex = trimmed.indexOf('?')
   if (queryIndex === -1) {
-    const alias = trimmed.toLowerCase() as CodexAlias
-    const aliasConfig = CODEX_ALIAS_MODELS[alias]
-    if (aliasConfig) {
+    const catalogDescriptor = getCodexCatalogDescriptor(trimmed)
+    if (catalogDescriptor) {
       return {
         raw: trimmed,
-        baseModel: aliasConfig.model,
-        reasoning: aliasConfig.reasoningEffort
-          ? { effort: aliasConfig.reasoningEffort }
-          : undefined,
+        ...catalogDescriptor,
       }
     }
     return {
@@ -267,14 +236,11 @@ function parseModelDescriptor(model: string): ModelDescriptor {
 
   const baseModel = trimmed.slice(0, queryIndex).trim()
   const params = new URLSearchParams(trimmed.slice(queryIndex + 1))
-  const alias = baseModel.toLowerCase() as CodexAlias
-  const aliasConfig = CODEX_ALIAS_MODELS[alias]
-  const resolvedBaseModel = aliasConfig?.model ?? baseModel
+  const catalogDescriptor = getCodexCatalogDescriptor(baseModel)
+  const resolvedBaseModel = catalogDescriptor?.baseModel ?? baseModel
   const reasoning =
     parseReasoningEffort(params.get('reasoning') ?? undefined) ??
-    (aliasConfig?.reasoningEffort
-      ? { effort: aliasConfig.reasoningEffort }
-      : undefined)
+    catalogDescriptor?.reasoning
 
   return {
     raw: trimmed,
@@ -286,13 +252,14 @@ function parseModelDescriptor(model: string): ModelDescriptor {
 export function isCodexAlias(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
-  return base in CODEX_ALIAS_MODELS
+  return getCodexCatalogDescriptor(base) !== undefined
 }
 
 function isOpenAICodexShortcutAlias(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
-  return OPENAI_CODEX_SHORTCUT_ALIASES.has(base)
+  const metadata = getModelMetadata(base, 'codex')
+  return metadata?.aliases?.some(alias => alias.toLowerCase() === base) ?? false
 }
 
 export function shouldUseCodexTransport(
@@ -316,6 +283,21 @@ function shouldUseGithubResponsesApi(model: string): boolean {
   if (major < 5) return false
   if (normalized.startsWith('gpt-5-mini')) return false
   return true
+}
+
+function transportForCatalogEndpoint(
+  endpoint: Pick<ResolvedModelEndpoint, 'protocol'> | undefined,
+): ProviderTransport | undefined {
+  if (!endpoint) {
+    return undefined
+  }
+  if (endpoint.protocol === 'openai-responses') {
+    return 'responses'
+  }
+  if (endpoint.protocol === 'openai-chat-completions') {
+    return 'chat_completions'
+  }
+  return undefined
 }
 
 export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
@@ -622,26 +604,28 @@ export function resolveProviderRequest(options?: {
       ? undefined
       : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
         parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
+  const runtimeShimContext = resolveOpenAIShimRuntimeContext({
+    processEnv: process.env,
+    baseUrl: finalBaseUrl,
+    model: descriptor.baseModel,
+    treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
+  })
   const supportsRequestedApiFormat =
     requestedApiFormat !== 'responses' ||
-    (() => {
-      const runtimeShimContext = resolveOpenAIShimRuntimeContext({
-        processEnv: process.env,
-        baseUrl: finalBaseUrl,
-        model: descriptor.baseModel,
-        treatAsLocal: finalBaseUrl ? isLocalProviderUrl(finalBaseUrl) : false,
-      })
-
-      return openAIShimSupportsApiFormatForModel(
-        runtimeShimContext.openaiShimConfig,
-        'responses',
-        descriptor.baseModel,
-      )
-    })()
+    openAIShimSupportsApiFormatForModel(
+      runtimeShimContext.openaiShimConfig,
+      'responses',
+      descriptor.baseModel,
+    )
+  const catalogEndpointTransport = transportForCatalogEndpoint(
+    runtimeShimContext.catalogEndpoint,
+  )
   const transport: ProviderTransport =
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
+      : catalogEndpointTransport
+        ? catalogEndpointTransport
       : requestedApiFormat === 'responses' && supportsRequestedApiFormat
         ? 'responses'
         : 'chat_completions'
@@ -672,6 +656,12 @@ export function resolveProviderRequest(options?: {
             ? GITHUB_COPILOT_BASE_URL
             : DEFAULT_OPENAI_BASE_URL))
       ).replace(/\/+$/, ''),
+    catalogEndpoint: runtimeShimContext.catalogEndpoint
+      ? {
+          path: runtimeShimContext.catalogEndpoint.path,
+          protocol: runtimeShimContext.catalogEndpoint.protocol,
+        }
+      : undefined,
     reasoning,
   }
 }
@@ -967,17 +957,16 @@ export function resolveCodexApiCredentials(
 export function getReasoningEffortForModel(model: string): ReasoningEffort | undefined {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
-  const alias = base as CodexAlias
-  const aliasConfig = CODEX_ALIAS_MODELS[alias]
-  return aliasConfig?.reasoningEffort
+  return getCodexCatalogDescriptor(base)?.reasoning?.effort
 }
 
 export function supportsCodexReasoningEffort(model: string): boolean {
   const normalized = model.trim().toLowerCase()
   const base = normalized.split('?', 1)[0] ?? normalized
 
-  if (base === 'gpt-5.3-codex-spark' || base === 'codexspark') {
-    return false
+  const metadata = getModelMetadata(base, 'codex')
+  if (metadata?.effort) {
+    return metadata.effort.supported
   }
 
   if (getReasoningEffortForModel(base) !== undefined) {
