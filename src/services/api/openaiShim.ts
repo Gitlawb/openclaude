@@ -1613,7 +1613,8 @@ class OpenAIShimMessages {
       (shimConfig.removeBodyFields ?? []).includes('store') ||
       isGeminiMode() ||
       hasGeminiApiHost(request.baseUrl) ||
-      hasCerebrasApiHost(request.baseUrl)
+      hasCerebrasApiHost(request.baseUrl) ||
+      isLocal
 
     if (
       shimConfig.maxTokensField === 'max_tokens' &&
