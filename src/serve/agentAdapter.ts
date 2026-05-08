@@ -12,6 +12,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentFn, AgentEvent } from "./handlers/chat";
+import { checkPermission } from "./permissions.js";
+import type { Preset } from "./permissions.js";
 import type { PendingEditStore } from "./pendingEditStore";
 import { readConfig } from "./handlers/config";
 import { buildRegistry } from "./tools/registry";
@@ -146,6 +148,7 @@ async function* lightweightOpenAIAgent(
   context?: { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string },
   pendingEditStore?: PendingEditStore,
   history?: Array<{ role: "user" | "assistant"; content: string }>,
+  preset?: Preset,
 ): AsyncIterable<AgentEvent> {
   const baseUrl = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
   const apiKey  = process.env.OPENAI_API_KEY ?? "";
@@ -332,6 +335,7 @@ Os itens devem ser comandos diretos que o usuário envia ao chat.
       tool_calls: toolCalls,
     });
 
+    const effectivePreset: Preset = preset ?? "balanceado";
     for (const tc of toolCalls) {
       let args: Record<string, unknown> = {};
       try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* bad JSON */ }
@@ -340,6 +344,24 @@ Os itens devem ser comandos diretos que o usuário envia ao chat.
         event: "tool_call",
         data:  { id: tc.id, name: tc.function.name, args },
       };
+
+      const permission = checkPermission(tc.function.name, args, effectivePreset);
+      if (!permission.allowed) {
+        yield {
+          event: "tool_result",
+          data: {
+            id: tc.id ?? tc.function.name,
+            ok: false,
+            preview: permission.reason ?? "Permission denied",
+          },
+        };
+        messages.push({
+          role: "tool" as const,
+          tool_call_id: tc.id ?? tc.function.name,
+          content: permission.reason ?? "Permission denied by preset configuration.",
+        });
+        continue;
+      }
 
       const mod = registry.find(m => m.definition.function.name === tc.function.name);
       const result = mod
@@ -400,7 +422,7 @@ export function createRealAgent(_opts: RealAgentOpts = {}): AgentFn {
     try {
       // ── External provider path (Groq / Ollama / any OpenAI-compatible) ──
       if (process.env.CLAUDE_CODE_USE_OPENAI === "1") {
-        yield* lightweightOpenAIAgent(input.message, input.sessionId, input.context, pendingEditStore, input.history);
+        yield* lightweightOpenAIAgent(input.message, input.sessionId, input.context, pendingEditStore, input.history, input.preset);
         return;
       }
 

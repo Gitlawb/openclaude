@@ -18,6 +18,7 @@ export type AgentFn = (input: {
   sessionId: string;
   context?: { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string };
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  preset?: "conservador" | "balanceado" | "agressivo";
 }) => AsyncIterable<AgentEvent>;
 
 let mockAgent: AgentFn | null = null;
@@ -39,7 +40,7 @@ export function chatRoute(sm: SessionManager): Route {
     path: "/chat",
     handler: async ({ body, res }) => {
       if (!mockAgent && !realAgent) throw new ServerError(ErrorCode.INTERNAL, "no agent configured");
-      const input = body as { sessionId?: string; message: string; context?: any };
+      const input = body as { sessionId?: string; message: string; context?: any; preset?: "conservador" | "balanceado" | "agressivo" };
       if (!input || typeof input.message !== "string") {
         throw new ServerError(ErrorCode.VALIDATION, "body.message required");
       }
@@ -62,6 +63,7 @@ export function chatRoute(sm: SessionManager): Route {
           sessionId: session.id,
           context: input.context,
           history,
+          preset: input.preset,
         })) {
           if (evt.event === "token") assistantText += evt.data.text;
           if (evt.event === "done") {

@@ -474,6 +474,22 @@ Aqui está o conteúdo.
   });
 });
 
+// ─── Task 3: Permission integration smoke tests ─────────────────────────────
+import { checkPermission } from "./permissions";
+
+describe("permission integration smoke", () => {
+  it("checkPermission denies write_note on conservador", () => {
+    const result = checkPermission("write_note", { path: "test.md", content: "x" }, "conservador");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("conservador");
+  });
+
+  it("checkPermission allows read_note on conservador", () => {
+    const result = checkPermission("read_note", {}, "conservador");
+    expect(result.allowed).toBe(true);
+  });
+});
+
 describe("agentAdapter — suggestions SSE event emitted", () => {
   it("emits suggestions event before done when response contains Próximos Passos", async () => {
     const server = Bun.serve({
