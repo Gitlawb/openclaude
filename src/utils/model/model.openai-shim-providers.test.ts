@@ -219,7 +219,7 @@ test('modelDisplayString does not show Claude subscription default for MiniMax',
     renderDefaultModelSetting,
   } = await importFreshModelModule()
   expect(modelDisplayString(null)).toBe('Default (MiniMax-M2.7)')
-  expect(renderDefaultModelSetting('MiniMax-M2.7')).toBe('MiniMax-M2.7')
+  expect(renderDefaultModelSetting('MiniMax-M2.7')).toBe('MiniMax M2.7')
 })
 
 test('getDefaultSonnetModel returns OPENAI_MODEL for NVIDIA NIM', async () => {
@@ -263,4 +263,3 @@ test('default helpers do not leak claude-* names to shim providers', async () =>
     expect(model.toLowerCase()).not.toContain('claude')
   }
 })
-

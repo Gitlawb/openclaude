@@ -59,7 +59,8 @@ request execution, or response parsing behavior.
         "reasoning": true
       },
       "visibility": {
-        "tiers": ["thirdParty"]
+        "tiers": ["thirdParty"],
+        "defaultFor": ["main"]
       }
     }
   }
@@ -136,7 +137,7 @@ Avoid these patterns:
 - adding provider model facts to scattered TypeScript constants;
 - turning shared model files into provider availability lists;
 - assuming a shared model descriptor means every gateway supports it;
-- using `providerModelMap` as a substitute for provider catalog entries;
+- using compatibility maps as a substitute for provider catalog entries;
 - adding built-in model limits to `src/utils/model/openaiContextWindows.ts`;
 - adding TypeScript transport code for facts that the catalog schema can
   represent.

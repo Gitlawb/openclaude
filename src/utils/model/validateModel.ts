@@ -197,7 +197,7 @@ function handleValidationError(
   }
 }
 
-// @[MODEL LAUNCH]: Add a fallback suggestion chain for the new model → previous version
+// Catalog compatibility.fallbackSuggestion is the source of truth for new models.
 /**
  * Suggest a fallback model for 3P users when the selected model is unavailable.
  */

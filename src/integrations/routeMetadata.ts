@@ -133,14 +133,9 @@ export function getRouteDefaultModel(
     return undefined
   }
 
-  if ('defaultModel' in descriptor && descriptor.defaultModel) {
-    return descriptor.defaultModel
-  }
-
   const catalogModels =
     descriptor.catalog?.models ?? getRouteCatalogEntries(routeId)
-  const defaultEntry =
-    catalogModels.find(model => model.default) ?? catalogModels[0]
+  const defaultEntry = catalogModels.find(model => model.default)
 
   return defaultEntry?.apiName
 }

@@ -65,9 +65,9 @@
       },
       "visibility": {
         "defaultFor": [
-          "main",
           "opus",
-          "sonnet"
+          "sonnet",
+          "main"
         ]
       }
     },

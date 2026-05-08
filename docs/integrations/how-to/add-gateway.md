@@ -26,8 +26,9 @@ Typical gateway cases:
    runtime routing.
 4. Define setup and startup metadata.
    Gateways often need readiness or auto-detection hints in `startup`.
-5. Choose the catalog strategy.
-   Use `static`, `dynamic`, or `hybrid`.
+5. Choose the provider JSON catalog strategy.
+   Use `static`, `dynamic`, or `hybrid` in
+   `src/integrations/modelCatalog/providers/<id>.json`.
 6. Decide whether the gateway needs discovery cache TTL, refresh mode, and
    manual refresh.
 7. For OpenAI-compatible or local routes, add any required static headers,
@@ -46,7 +47,7 @@ Typical gateway cases:
 
 Normal gateway examples should:
 
-- use `defineGateway` and `defineCatalog`;
+- use `defineGateway`;
 - default-export the gateway descriptor;
 - default-export the catalog from any companion `*.models.ts` file;
 - avoid `registerGateway(...)` in contributor-authored examples;
@@ -79,36 +80,13 @@ know which vendor contract the gateway belongs to.
 This is the simplest hosted OpenAI-compatible gateway pattern.
 
 ```ts
-import { defineCatalog, defineGateway } from '../define.js'
-
-const catalog = defineCatalog({
-  source: 'static',
-  models: [
-    {
-      id: 'acme-hosted-fast',
-      apiName: 'acme-hosted-fast',
-      label: 'Acme Hosted Fast',
-      modelDescriptorId: 'acme-hosted-fast',
-    },
-    {
-      id: 'acme-hosted-pro',
-      apiName: 'acme-hosted-pro',
-      label: 'Acme Hosted Pro',
-      modelDescriptorId: 'acme-hosted-pro',
-      capabilities: {
-        supportsReasoning: true,
-      },
-      notes: 'Practical input limit is lower than the full context window.',
-    },
-  ],
-})
+import { defineGateway } from '../define.js'
 
 export default defineGateway({
   id: 'acme-hosted',
   label: 'Acme Hosted',
   category: 'hosted',
   defaultBaseUrl: 'https://gateway.acme.example/v1',
-  defaultModel: 'acme-hosted-fast',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -141,11 +119,52 @@ export default defineGateway({
     vendorId: 'openai',
     apiKeyEnvVars: ['ACME_HOSTED_API_KEY'],
   },
-  catalog,
   usage: {
     supported: false,
   },
 })
+```
+
+`src/integrations/modelCatalog/providers/acme-hosted.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "provider": "acme-hosted",
+  "label": "Acme Hosted",
+  "baseUrl": "https://gateway.acme.example/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "gatewayId": "acme-hosted",
+    "capabilities": {
+      "streaming": true
+    }
+  },
+  "models": {
+    "acme-hosted-fast": {
+      "label": "Acme Hosted Fast",
+      "apiName": "acme-hosted-fast",
+      "visibility": {
+        "defaultFor": ["main"]
+      }
+    },
+    "acme-hosted-pro": {
+      "label": "Acme Hosted Pro",
+      "apiName": "acme-hosted-pro",
+      "classification": ["chat", "reasoning"],
+      "capabilities": {
+        "reasoning": true
+      }
+    }
+  }
+}
 ```
 
 What this example covers:
@@ -156,10 +175,11 @@ What this example covers:
 - API mode editing disabled for a fixed hosted gateway;
 - route-owned auth with only regular custom-header prompts shown in the preset UI;
 - route-owned default auth header and Responses API model-prefix rules;
-- a static catalog;
+- a static provider JSON catalog;
 - a gateway with only its own hosted models;
 - different reasoning/context/input/output behavior across models;
-- route defaults declared once through `defaultModel`.
+- route defaults declared once in provider JSON through
+  `visibility.defaultFor`.
 
 ## Transport family examples
 
@@ -221,7 +241,6 @@ export default defineGateway({
   label: 'Acme Local',
   category: 'local',
   defaultBaseUrl: 'http://localhost:11434/v1',
-  defaultModel: 'acme-local:latest',
   supportsModelRouting: true,
   setup: {
     requiresAuth: false,
@@ -239,27 +258,60 @@ export default defineGateway({
       maxTokensField: 'max_tokens',
     },
   },
-  catalog: {
-    source: 'dynamic',
-    discovery: {
-      kind: 'openai-compatible',
-      // Set requiresAuth: false when /models is public even if inference needs auth.
-      requiresAuth: false,
-    },
-    discoveryCacheTtl: '1d',
-    discoveryRefreshMode: 'startup',
-    allowManualRefresh: true,
-  },
   usage: {
     supported: false,
   },
 })
 ```
 
+`src/integrations/modelCatalog/providers/acme-local.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "provider": "acme-local",
+  "label": "Acme Local",
+  "baseUrl": "http://localhost:11434/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "request": {
+      "maxTokensField": "max_tokens"
+    }
+  },
+  "models": {
+    "acme-local-latest": {
+      "label": "Acme Local Latest",
+      "apiName": "acme-local:latest",
+      "visibility": {
+        "defaultFor": ["main"]
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "requiresAuth": false,
+    "cacheTtl": "1d",
+    "refreshMode": "startup"
+  }
+}
+```
+
 What this example covers:
 
 - `transportConfig.kind: 'local'`;
-- `catalog.source: 'dynamic'`;
+- a provider JSON catalog with discovery metadata;
 - a local readiness/discovery flow;
 - `max_tokens` for a local/legacy-compatible token field;
 - a `startup` refresh mode example.
@@ -269,59 +321,71 @@ What this example covers:
 Use a companion `*.models.ts` file when the catalog or discovery rules are too
 large to keep inline.
 
-`src/integrations/gateways/galaxy.models.ts`
+`src/integrations/modelCatalog/providers/galaxy.json`
 
-```ts
-import { defineCatalog } from '../define.js'
-
-export default defineCatalog({
-  source: 'hybrid',
-  discovery: {
-    kind: 'openai-compatible',
+```json
+{
+  "schemaVersion": 1,
+  "provider": "galaxy",
+  "label": "Galaxy Gateway",
+  "baseUrl": "https://api.galaxy.example/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
   },
-  discoveryCacheTtl: '1h',
-  discoveryRefreshMode: 'background-if-stale',
-  allowManualRefresh: true,
-  models: [
-    {
-      id: 'galaxy-curated-default',
-      apiName: 'galaxy/gpt-5-mini',
-      label: 'GPT-5 Mini (via Galaxy)',
-      modelDescriptorId: 'gpt-5-mini',
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "gatewayId": "galaxy"
+  },
+  "models": {
+    "galaxy-curated-default": {
+      "label": "GPT-5 Mini (via Galaxy)",
+      "apiName": "galaxy/gpt-5-mini",
+      "canonicalModelId": "gpt-5-mini",
+      "visibility": {
+        "defaultFor": ["main"]
+      }
     },
-    {
-      id: 'galaxy-curated-reasoner',
-      apiName: 'galaxy/deepseek-r1',
-      label: 'DeepSeek R1 (via Galaxy)',
-      modelDescriptorId: 'deepseek-reasoner',
-      capabilities: {
-        supportsReasoning: true,
+    "galaxy-curated-reasoner": {
+      "label": "DeepSeek R1 (via Galaxy)",
+      "apiName": "galaxy/deepseek-r1",
+      "canonicalModelId": "deepseek-reasoner",
+      "capabilities": {
+        "reasoning": true
       },
-      notes: 'Practical input limit is 192k tokens on this route.',
-      transportOverrides: {
-        openaiShim: {
-          preserveReasoningContent: true,
-          requireReasoningContentOnAssistantMessages: true,
-          reasoningContentFallback: '',
-        },
-      },
-    },
-  ],
-})
+      "request": {
+        "preserveReasoningContent": true,
+        "requireReasoningContentOnAssistantMessages": true,
+        "reasoningContentFallback": ""
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1h",
+    "refreshMode": "background-if-stale"
+  }
+}
 ```
 
 `src/integrations/gateways/galaxy.ts`
 
 ```ts
 import { defineGateway } from '../define.js'
-import catalog from './galaxy.models.js'
 
 export default defineGateway({
   id: 'galaxy',
   label: 'Galaxy Gateway',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.galaxy.example/v1',
-  defaultModel: 'galaxy/gpt-5-mini',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -339,7 +403,6 @@ export default defineGateway({
       maxTokensField: 'max_completion_tokens',
     },
   },
-  catalog,
   usage: {
     supported: false,
   },
@@ -348,8 +411,8 @@ export default defineGateway({
 
 What this example covers:
 
-- a two-file gateway pattern;
-- `catalog.source: 'hybrid'`;
+- a descriptor plus provider JSON gateway pattern;
+- hybrid static-plus-discovery provider catalog behavior;
 - human-readable discovery cache TTL;
 - `background-if-stale` refresh;
 - manual refresh enabled;
@@ -362,37 +425,33 @@ that should support `/model refresh` and in-picker refresh. The shared
 discovery cache keeps curated entries visible while refreshes fail or become
 stale.
 
-## `providerModelMap` in mixed gateway catalogs
+## Provider-specific model names in mixed gateway catalogs
 
 If the gateway exposes a shared model under a route-specific API name, point
-the gateway catalog entry at a shared model descriptor and use that model
-descriptor's `providerModelMap` to record route-specific names.
+the provider JSON catalog entry at the conceptual model with
+`canonicalModelId`, and put the route-specific API name in `apiName`.
 
 Minimal pattern:
 
-```ts
-import { defineModel } from '../define.js'
-
-export default [
-  defineModel({
-    id: 'deepseek-reasoner',
-    label: 'DeepSeek Reasoner',
-    vendorId: 'deepseek',
-    classification: ['chat', 'reasoning'],
-    defaultModel: 'deepseek-reasoner',
-    providerModelMap: {
-      galaxy: 'galaxy/deepseek-r1',
-      openrouter: 'deepseek/deepseek-r1',
-    },
-    capabilities: {
-      supportsReasoning: true,
-    },
-  }),
-]
+```json
+{
+  "models": {
+    "galaxy-deepseek-r1": {
+      "label": "DeepSeek R1 (via Galaxy)",
+      "apiName": "galaxy/deepseek-r1",
+      "canonicalModelId": "deepseek-reasoner",
+      "classification": ["chat", "reasoning"],
+      "capabilities": {
+        "reasoning": true
+      }
+    }
+  }
+}
 ```
 
-The gateway still owns route availability. `providerModelMap` only helps shared
-model metadata stay reusable across multiple routes.
+The gateway provider JSON owns route availability. Shared model descriptors are
+only optional glossary metadata; they are not the place to enable a provider
+route.
 
 ## Static vs dynamic vs hybrid
 
@@ -587,7 +646,8 @@ Before calling the gateway guide complete:
 - the descriptor lives under `src/integrations/gateways/`;
 - one-file and two-file patterns are both covered where useful;
 - the gateway declares only the model subset it actually offers;
-- the route default is declared once through `defaultModel`;
+- the route default is declared once in provider JSON through
+  `visibility.defaultFor`;
 - `transportConfig.kind` is the routing contract;
 - `category` is treated as grouping/display metadata only;
 - any discovery route includes the right cache TTL, refresh mode, and manual

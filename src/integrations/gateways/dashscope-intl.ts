@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'Alibaba Coding Plan',
   category: 'hosted',
   defaultBaseUrl: 'https://coding-intl.dashscope.aliyuncs.com/v1',
-  defaultModel: 'qwen3.6-plus',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

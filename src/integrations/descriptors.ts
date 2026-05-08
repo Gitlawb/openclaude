@@ -208,7 +208,6 @@ export interface VendorDescriptor {
   label: string
   classification: 'anthropic' | 'openai-compatible' | 'native'
   defaultBaseUrl: string
-  defaultModel: string
   requiredEnvVars?: string[]
   validate?: (env: NodeJS.ProcessEnv) => string | null
   setup: SetupMetadata
@@ -227,7 +226,6 @@ export interface GatewayDescriptor {
   vendorId?: string
   category?: 'local' | 'hosted' | 'aggregating'
   defaultBaseUrl?: string
-  defaultModel?: string
   supportsModelRouting?: boolean
   setup: SetupMetadata
   startup?: StartupMetadata
@@ -243,7 +241,6 @@ export interface AnthropicProxyDescriptor {
   label: string
   classification: 'anthropic-proxy'
   defaultBaseUrl: string
-  defaultModel: string
   requiredEnvVars?: string[]
   validate?: (env: NodeJS.ProcessEnv) => string | null
   setup: SetupMetadata

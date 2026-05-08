@@ -213,7 +213,6 @@ export default defineVendor({
   label: 'Acme AI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.acme.example/v1',
-  defaultModel: 'acme-chat',
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
@@ -253,7 +252,6 @@ export default defineGateway({
   label: 'Acme Gateway',
   category: 'hosted',
   defaultBaseUrl: 'https://gateway.acme.example/v1',
-  defaultModel: 'acme-chat',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -290,7 +288,6 @@ export default defineGateway({
   label: 'Galaxy Gateway',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.galaxy.example/v1',
-  defaultModel: 'galaxy/gpt-5-mini',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,
@@ -331,7 +328,6 @@ export default defineVendor({
   label: 'Acme Unsupported',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.acme-unsupported.example/v1',
-  defaultModel: 'acme-basic',
   setup: {
     requiresAuth: true,
     authMode: 'api-key',

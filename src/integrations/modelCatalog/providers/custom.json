@@ -2673,6 +2673,38 @@
       "visibility": {
         "hidden": true
       }
+    },
+    "llama3.1:8b": {
+      "label": "Llama 3.1 8B",
+      "apiName": "llama3.1:8b",
+      "canonicalModelId": "llama3.1:8b",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true,
+        "defaultFor": [
+          "main"
+        ]
+      }
     }
   },
   "discovery": {

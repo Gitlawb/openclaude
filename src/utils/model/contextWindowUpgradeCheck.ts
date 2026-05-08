@@ -1,7 +1,7 @@
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
 import { getUserSpecifiedModelSetting } from './model.js'
 
-// @[MODEL LAUNCH]: Add a branch for the new model if it supports a 1M context upgrade path.
+// Catalog contextUpgrade owns model-specific 1M capability; aliases stay here.
 /**
  * Get available model upgrade for more context
  * Returns null if no upgrade available or user already has max context

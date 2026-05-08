@@ -1,259 +1,198 @@
+import {
+  getDefaultModelForProvider,
+  getModelMetadata,
+} from '../../integrations/modelCatalog/catalog.js'
+import type { ModelDefaultRole } from '../../integrations/modelCatalog/types.js'
 import type { ModelName } from './model.js'
 import type { LegacyAPIProvider } from './providers.js'
 
 // Transitional compatibility table keyed by the legacy provider categories
-// returned from getAPIProvider(). Descriptor-native callers should prefer
-// route/model metadata directly; this table exists for older provider-keyed
-// consumers that have not been retired yet.
+// returned from getAPIProvider(). The model strings are derived from
+// src/integrations/modelCatalog/providers/*.json so provider/model data has a
+// single source of truth.
 export type LegacyProviderModelConfig = Record<LegacyAPIProvider, ModelName>
 
 // Backward-compatible alias for existing imports.
 export type ModelConfig = LegacyProviderModelConfig
 
-// ---------------------------------------------------------------------------
-// OpenAI-compatible model mappings
-// Maps Claude model tiers to sensible defaults for popular providers.
-// Override with OPENAI_MODEL, ANTHROPIC_MODEL, or settings.model
-// ---------------------------------------------------------------------------
-export const OPENAI_MODEL_DEFAULTS = {
-  opus: 'gpt-4o',           // best reasoning
-  sonnet: 'gpt-4o-mini',    // balanced
-  haiku: 'gpt-4o-mini',     // fast & cheap
+const LEGACY_MODEL_CATALOG_IDS = {
+  haiku35: 'claude-3-5-haiku',
+  haiku45: 'claude-haiku-4-5',
+  sonnet35: 'claude-3-5-sonnet',
+  sonnet37: 'claude-3-7-sonnet',
+  sonnet40: 'claude-sonnet-4',
+  sonnet45: 'claude-sonnet-4-5',
+  sonnet46: 'claude-sonnet-4-6',
+  opus40: 'claude-opus-4',
+  opus41: 'claude-opus-4-1',
+  opus45: 'claude-opus-4-5',
+  opus46: 'claude-opus-4-6',
+  opus47: 'claude-opus-4-7',
 } as const
 
-// ---------------------------------------------------------------------------
-// Gemini model mappings
-// Maps Claude model tiers to Google Gemini equivalents.
-// Override with GEMINI_MODEL env var.
-// ---------------------------------------------------------------------------
-export const GEMINI_MODEL_DEFAULTS = {
-  opus: 'gemini-2.5-pro',   // most capable
-  sonnet: 'gemini-2.0-flash',              // balanced
-  haiku: 'gemini-2.0-flash-lite',          // fast & cheap
-} as const
+export type ModelKey = keyof typeof LEGACY_MODEL_CATALOG_IDS
 
-// @[MODEL LAUNCH]: Add a new CLAUDE_*_CONFIG constant here. Double check the correct model strings
-// here since the pattern may change.
+const MODEL_KEY_DEFAULT_ROLE: Record<ModelKey, ModelDefaultRole> = {
+  haiku35: 'haiku',
+  haiku45: 'haiku',
+  sonnet35: 'sonnet',
+  sonnet37: 'sonnet',
+  sonnet40: 'sonnet',
+  sonnet45: 'sonnet',
+  sonnet46: 'sonnet',
+  opus40: 'opus',
+  opus41: 'opus',
+  opus45: 'opus',
+  opus46: 'opus',
+  opus47: 'opus',
+}
 
-export const CLAUDE_3_7_SONNET_CONFIG = {
-  firstParty: 'claude-3-7-sonnet-20250219',
-  bedrock: 'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
-  vertex: 'claude-3-7-sonnet@20250219',
-  foundry: 'claude-3-7-sonnet',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.0-flash',
-  mistral: 'mistral-medium-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+const LEGACY_PROVIDER_CATALOG_IDS: Record<LegacyAPIProvider, string> = {
+  firstParty: 'anthropic',
+  bedrock: 'bedrock',
+  vertex: 'vertex',
+  foundry: 'foundry',
+  openai: 'openai',
+  gemini: 'gemini',
+  github: 'github-copilot',
+  codex: 'codex',
+  'nvidia-nim': 'nvidia-nim',
+  minimax: 'minimax',
+  mistral: 'mistral',
+  xai: 'xai',
+}
 
-export const CLAUDE_3_5_V2_SONNET_CONFIG = {
-  firstParty: 'claude-3-5-sonnet-20241022',
-  bedrock: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
-  vertex: 'claude-3-5-sonnet-v2@20241022',
-  foundry: 'claude-3-5-sonnet',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.0-flash',
-  mistral: 'mistral-medium-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+function requireAnthropicModel(modelId: string) {
+  const metadata = getModelMetadata(modelId, 'anthropic')
+  if (!metadata) {
+    throw new Error(`Missing Anthropic model catalog entry "${modelId}"`)
+  }
+  return metadata
+}
 
-export const CLAUDE_3_5_HAIKU_CONFIG = {
-  firstParty: 'claude-3-5-haiku-20241022',
-  bedrock: 'us.anthropic.claude-3-5-haiku-20241022-v1:0',
-  vertex: 'claude-3-5-haiku@20241022',
-  foundry: 'claude-3-5-haiku',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.0-flash-lite',
-  mistral: 'ministral-3b-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+function getProviderSpecificCatalogModel(
+  provider: LegacyAPIProvider,
+  modelId: string,
+): string | undefined {
+  const catalogProviderId = LEGACY_PROVIDER_CATALOG_IDS[provider]
+  const providerModelId = `${catalogProviderId}-${modelId}`
+  return (
+    getModelMetadata(providerModelId, catalogProviderId)?.apiName ??
+    getModelMetadata(modelId, catalogProviderId)?.apiName
+  )
+}
 
-export const CLAUDE_HAIKU_4_5_CONFIG = {
-  firstParty: 'claude-haiku-4-5-20251001',
-  bedrock: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
-  vertex: 'claude-haiku-4-5@20251001',
-  foundry: 'claude-haiku-4-5',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.0-flash-lite',
-  mistral: 'ministral-3b-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+function getEquivalentProviderModel(
+  key: ModelKey,
+  provider: LegacyAPIProvider,
+): string {
+  const modelId = LEGACY_MODEL_CATALOG_IDS[key]
+  const anthropicModel = requireAnthropicModel(modelId)
 
-export const CLAUDE_SONNET_4_CONFIG = {
-  firstParty: 'claude-sonnet-4-20250514',
-  bedrock: 'us.anthropic.claude-sonnet-4-20250514-v1:0',
-  vertex: 'claude-sonnet-4@20250514',
-  foundry: 'claude-sonnet-4',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.0-flash',
-  mistral: 'mistral-medium-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+  if (provider === 'firstParty') {
+    return anthropicModel.apiName
+  }
 
-export const CLAUDE_SONNET_4_5_CONFIG = {
-  firstParty: 'claude-sonnet-4-5-20250929',
-  bedrock: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
-  vertex: 'claude-sonnet-4-5@20250929',
-  foundry: 'claude-sonnet-4-5',
-  openai: 'gpt-4o',
-  gemini: 'gemini-2.0-flash',
-  mistral: 'mistral-medium-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+  const mappedModel = anthropicModel.compatibility?.providerModelMap?.[provider]
+  if (mappedModel) {
+    return mappedModel
+  }
 
-export const CLAUDE_OPUS_4_CONFIG = {
-  firstParty: 'claude-opus-4-20250514',
-  bedrock: 'us.anthropic.claude-opus-4-20250514-v1:0',
-  vertex: 'claude-opus-4@20250514',
-  foundry: 'claude-opus-4',
-  openai: 'gpt-4o',
-  gemini: 'gemini-2.5-pro',
-  mistral: 'devstral-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+  const providerSpecificModel = getProviderSpecificCatalogModel(provider, modelId)
+  if (providerSpecificModel) {
+    return providerSpecificModel
+  }
 
-export const CLAUDE_OPUS_4_1_CONFIG = {
-  firstParty: 'claude-opus-4-1-20250805',
-  bedrock: 'us.anthropic.claude-opus-4-1-20250805-v1:0',
-  vertex: 'claude-opus-4-1@20250805',
-  foundry: 'claude-opus-4-1',
-  openai: 'gpt-4o',
-  gemini: 'gemini-2.5-pro',
-  mistral: 'devstral-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+  const catalogProviderId = LEGACY_PROVIDER_CATALOG_IDS[provider]
+  return (
+    getDefaultModelForProvider(catalogProviderId, MODEL_KEY_DEFAULT_ROLE[key]) ??
+    getDefaultModelForProvider(catalogProviderId) ??
+    anthropicModel.apiName
+  )
+}
 
-export const CLAUDE_OPUS_4_5_CONFIG = {
-  firstParty: 'claude-opus-4-5-20251101',
-  bedrock: 'us.anthropic.claude-opus-4-5-20251101-v1:0',
-  vertex: 'claude-opus-4-5@20251101',
-  foundry: 'claude-opus-4-5',
-  openai: 'gpt-4o',
-  gemini: 'gemini-2.5-pro',
-  mistral: 'devstral-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
+function buildLegacyProviderModelConfig(key: ModelKey): LegacyProviderModelConfig {
+  return {
+    firstParty: getEquivalentProviderModel(key, 'firstParty'),
+    bedrock: getEquivalentProviderModel(key, 'bedrock'),
+    vertex: getEquivalentProviderModel(key, 'vertex'),
+    foundry: getEquivalentProviderModel(key, 'foundry'),
+    openai: getEquivalentProviderModel(key, 'openai'),
+    gemini: getEquivalentProviderModel(key, 'gemini'),
+    github: getEquivalentProviderModel(key, 'github'),
+    codex: getEquivalentProviderModel(key, 'codex'),
+    'nvidia-nim': getEquivalentProviderModel(key, 'nvidia-nim'),
+    minimax: getEquivalentProviderModel(key, 'minimax'),
+    mistral: getEquivalentProviderModel(key, 'mistral'),
+    xai: getEquivalentProviderModel(key, 'xai'),
+  }
+}
 
-export const CLAUDE_OPUS_4_6_CONFIG = {
-  firstParty: 'claude-opus-4-6',
-  bedrock: 'us.anthropic.claude-opus-4-6-v1',
-  vertex: 'claude-opus-4-6',
-  foundry: 'claude-opus-4-6',
-  openai: 'gpt-4o',
-  gemini: 'gemini-2.5-pro',
-  mistral: 'devstral-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
-
-export const CLAUDE_OPUS_4_7_CONFIG = {
-  firstParty: 'claude-opus-4-7',
-  bedrock: 'us.anthropic.claude-opus-4-7-v1',
-  vertex: 'claude-opus-4-7',
-  foundry: 'claude-opus-4-7',
-  openai: 'gpt-4o',
-  gemini: 'gemini-2.5-pro',
-  mistral: 'devstral-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
-
-export const CLAUDE_SONNET_4_6_CONFIG = {
-  firstParty: 'claude-sonnet-4-6',
-  bedrock: 'us.anthropic.claude-sonnet-4-6',
-  vertex: 'claude-sonnet-4-6',
-  foundry: 'claude-sonnet-4-6',
-  openai: 'gpt-4o',
-  gemini: 'gemini-2.0-flash',
-  mistral: 'mistral-medium-latest',
-  github: 'github:copilot',
-  codex: 'gpt-5.5',
-  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
-  minimax: 'MiniMax-M2.5',
-  xai: 'grok-4',
-} as const satisfies LegacyProviderModelConfig
-
-// @[MODEL LAUNCH]: Register the new config here.
-export const LEGACY_PROVIDER_MODEL_CONFIGS = {
-  haiku35: CLAUDE_3_5_HAIKU_CONFIG,
-  haiku45: CLAUDE_HAIKU_4_5_CONFIG,
-  sonnet35: CLAUDE_3_5_V2_SONNET_CONFIG,
-  sonnet37: CLAUDE_3_7_SONNET_CONFIG,
-  sonnet40: CLAUDE_SONNET_4_CONFIG,
-  sonnet45: CLAUDE_SONNET_4_5_CONFIG,
-  sonnet46: CLAUDE_SONNET_4_6_CONFIG,
-  opus40: CLAUDE_OPUS_4_CONFIG,
-  opus41: CLAUDE_OPUS_4_1_CONFIG,
-  opus45: CLAUDE_OPUS_4_5_CONFIG,
-  opus46: CLAUDE_OPUS_4_6_CONFIG,
-  opus47: CLAUDE_OPUS_4_7_CONFIG,
-} as const satisfies Record<string, LegacyProviderModelConfig>
+export const LEGACY_PROVIDER_MODEL_CONFIGS = Object.fromEntries(
+  (Object.keys(LEGACY_MODEL_CATALOG_IDS) as ModelKey[]).map(key => [
+    key,
+    buildLegacyProviderModelConfig(key),
+  ]),
+) as Record<ModelKey, LegacyProviderModelConfig>
 
 // Backward-compatible alias for existing imports.
 export const ALL_MODEL_CONFIGS = LEGACY_PROVIDER_MODEL_CONFIGS
 
-export type ModelKey = keyof typeof LEGACY_PROVIDER_MODEL_CONFIGS
+export const CLAUDE_3_5_HAIKU_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.haiku35
+export const CLAUDE_HAIKU_4_5_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.haiku45
+export const CLAUDE_3_5_V2_SONNET_CONFIG =
+  LEGACY_PROVIDER_MODEL_CONFIGS.sonnet35
+export const CLAUDE_3_7_SONNET_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.sonnet37
+export const CLAUDE_SONNET_4_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.sonnet40
+export const CLAUDE_SONNET_4_5_CONFIG =
+  LEGACY_PROVIDER_MODEL_CONFIGS.sonnet45
+export const CLAUDE_SONNET_4_6_CONFIG =
+  LEGACY_PROVIDER_MODEL_CONFIGS.sonnet46
+export const CLAUDE_OPUS_4_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.opus40
+export const CLAUDE_OPUS_4_1_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.opus41
+export const CLAUDE_OPUS_4_5_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.opus45
+export const CLAUDE_OPUS_4_6_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.opus46
+export const CLAUDE_OPUS_4_7_CONFIG = LEGACY_PROVIDER_MODEL_CONFIGS.opus47
 
-/** Union of all canonical first-party model IDs, e.g. 'claude-opus-4-6' | 'claude-sonnet-4-5-20250929' | … */
-export type CanonicalModelId =
-  (typeof LEGACY_PROVIDER_MODEL_CONFIGS)[ModelKey]['firstParty']
+export const OPENAI_MODEL_DEFAULTS = {
+  opus:
+    getDefaultModelForProvider('openai', 'opus') ??
+    getEquivalentProviderModel('opus46', 'openai'),
+  sonnet:
+    getDefaultModelForProvider('openai', 'sonnet') ??
+    getEquivalentProviderModel('sonnet46', 'openai'),
+  haiku:
+    getDefaultModelForProvider('openai', 'haiku') ??
+    getEquivalentProviderModel('haiku45', 'openai'),
+} as const
 
-/** Runtime list of canonical model IDs — used by comprehensiveness tests. */
-export const CANONICAL_MODEL_IDS = Object.values(LEGACY_PROVIDER_MODEL_CONFIGS).map(
-  c => c.firstParty,
+export const GEMINI_MODEL_DEFAULTS = {
+  opus:
+    getDefaultModelForProvider('gemini', 'opus') ??
+    getEquivalentProviderModel('opus46', 'gemini'),
+  sonnet:
+    getDefaultModelForProvider('gemini', 'sonnet') ??
+    getEquivalentProviderModel('sonnet46', 'gemini'),
+  haiku:
+    getDefaultModelForProvider('gemini', 'haiku') ??
+    getEquivalentProviderModel('haiku45', 'gemini'),
+} as const
+
+/** Union of canonical first-party model IDs accepted in modelOverrides. */
+export type CanonicalModelId = string
+
+/** Runtime list of canonical model IDs - used by comprehensiveness tests. */
+export const CANONICAL_MODEL_IDS = (Object.keys(
+  LEGACY_PROVIDER_MODEL_CONFIGS,
+) as ModelKey[]).map(
+  key => LEGACY_PROVIDER_MODEL_CONFIGS[key].firstParty,
 ) as [CanonicalModelId, ...CanonicalModelId[]]
 
-/** Map canonical ID → internal short key. Used to apply settings-based modelOverrides. */
+/** Map canonical ID -> internal short key. Used to apply settings-based modelOverrides. */
 export const CANONICAL_ID_TO_KEY: Record<CanonicalModelId, ModelKey> =
   Object.fromEntries(
-    (
-      Object.entries(LEGACY_PROVIDER_MODEL_CONFIGS) as [
-        ModelKey,
-        LegacyProviderModelConfig,
-      ][]
-    ).map(
-      ([key, cfg]) => [cfg.firstParty, key],
-    ),
-  ) as Record<CanonicalModelId, ModelKey>
+    (Object.keys(LEGACY_PROVIDER_MODEL_CONFIGS) as ModelKey[]).map(key => [
+      LEGACY_PROVIDER_MODEL_CONFIGS[key].firstParty,
+      key,
+    ]),
+  )

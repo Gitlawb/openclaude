@@ -62,25 +62,28 @@ Provider JSON catalogs answer where a model is offered and own provider-specific
 model facts. Shared model descriptors are optional glossary metadata for
 cross-provider identity.
 
-## Pitfall 6: Duplicating model defaults in catalog entries
+## Pitfall 6: Duplicating model defaults in descriptors
 
 Common mistake:
-Marking catalog entries with per-model `default` or `recommended` flags after
-the route already declares `defaultModel`.
+Adding a descriptor-level model default after the provider JSON catalog already
+declares the route default.
 
 Safer rule:
-Declare the route's default once with `defaultModel`. UI recommendation labels
-derive from that route default.
+Declare the route's default once in
+`src/integrations/modelCatalog/providers/<provider>.json` with
+`visibility.defaultFor: ["main"]`. UI recommendation labels derive from that
+catalog default.
 
-## Pitfall 7: Forgetting `providerModelMap` boundaries
+## Pitfall 7: Using compatibility maps as availability
 
 Common mistake:
-Assuming `providerModelMap` enables a route automatically.
+Assuming a compatibility `providerModelMap` enables a route automatically.
 
 Safer rule:
-Use `providerModelMap` only to record route-specific API names for the same
-conceptual model. The route catalog still decides whether that route exposes
-the model.
+Use provider JSON model entries to enable a route. For mixed gateways, set the
+route-specific model string in `apiName` and use `canonicalModelId` only when
+the entry should point at a shared conceptual model. Compatibility
+`providerModelMap` data is a lookup bridge, not a route availability list.
 
 ## Pitfall 8: Omitting `openaiShim.maxTokensField` on strict routes
 
@@ -192,7 +195,8 @@ Before opening or landing integration docs or descriptor changes:
 - confirm `transportConfig.kind` is doing the routing work;
 - confirm examples use `define*` helpers plus default exports;
 - confirm route catalogs own availability;
-- confirm route defaults are declared once through `defaultModel`;
+- confirm route defaults are declared once in provider JSON through
+  `visibility.defaultFor`;
 - confirm built-in model limits live in
   `src/integrations/modelCatalog/providers/*.json`;
 - confirm strict OpenAI-compatible routes specify the correct max-token field;

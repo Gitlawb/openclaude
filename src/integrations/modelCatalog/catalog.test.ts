@@ -3,7 +3,9 @@ import {
   getModelEndpoint,
   getModelOptions,
   getModelMetadata,
+  getDefaultModelForProvider,
   getAllProviderCatalogs,
+  getAllModelsForProvider,
   getProviderCatalog,
   resolveModelAlias,
 } from './catalog.js'
@@ -60,6 +62,13 @@ describe('provider model catalog loader', () => {
     expect(getProviderCatalog('opencode-go')?.label).toBe('OpenCode Go')
   })
 
+  test('returns normalized models for provider-level audits', () => {
+    const models = getAllModelsForProvider('anthropic')
+    expect(models.some(model => model.id === 'claude-opus-4-7')).toBe(true)
+    expect(models.every(model => model.provider === 'anthropic')).toBe(true)
+    expect(models.every(model => model.endpoint.length > 0)).toBe(true)
+  })
+
   test('builds model options from catalog UI and visibility metadata', () => {
     const options = getModelOptions('opencode-go', 'payg3p')
     expect(options.some(option => option.value === 'kimi-k2.6')).toBe(true)
@@ -72,6 +81,13 @@ describe('provider model catalog loader', () => {
     expect(resolveModelAlias('opencode-go/kimi-k2.6', 'opencode-go')).toBe(
       'kimi-k2.6',
     )
+  })
+
+  test('resolves provider defaults from catalog visibility roles', () => {
+    expect(getDefaultModelForProvider('openai')).toBe('gpt-5.4')
+    expect(getDefaultModelForProvider('openai', 'haiku')).toBe('gpt-4o-mini')
+    expect(getDefaultModelForProvider('openai', 'coding')).toBe('gpt-5.5')
+    expect(getDefaultModelForProvider('opencode-go')).toBe('kimi-k2.6')
   })
 
   test('merges defaults, templates, and model entries deterministically', () => {
@@ -172,14 +188,14 @@ describe('provider model catalog loader', () => {
 
   test('returns mutation-safe model metadata', () => {
     const metadata = getModelMetadata('minimax-m2.7', 'opencode-go')
-    expect(metadata?.limits?.contextWindow).toBe(128000)
+    expect(metadata?.limits?.contextWindow).toBe(204800)
 
     if (metadata?.limits) {
       metadata.limits.contextWindow = 1
     }
 
     expect(getModelMetadata('minimax-m2.7', 'opencode-go')?.limits?.contextWindow)
-      .toBe(128000)
+      .toBe(204800)
   })
 
   test('returns frozen provider catalogs', () => {

@@ -42,7 +42,7 @@ function isExtraUsageEnabled(): boolean {
   }
 }
 
-// @[MODEL LAUNCH]: Add check if the new model supports 1M context
+// Model-specific 1M eligibility lives in catalog contextUpgrade.
 export function checkOpus1mAccess(): boolean {
   if (is1mContextDisabled()) {
     return false

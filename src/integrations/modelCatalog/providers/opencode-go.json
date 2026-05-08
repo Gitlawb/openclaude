@@ -22,6 +22,7 @@
   },
   "defaults": {
     "endpoint": "chatCompletions",
+    "gatewayId": "opencode-go",
     "limits": {
       "contextWindow": 128000,
       "maxOutputTokens": { "default": 8192, "upperLimit": 32768 }
@@ -39,19 +40,144 @@
     },
     "longContext": {
       "limits": { "contextWindow": 256000 }
+    },
+    "qwenPlus": {
+      "classification": ["chat", "reasoning", "vision", "coding"],
+      "brandId": "qwen",
+      "vendorId": "openai",
+      "limits": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": { "default": 65536, "upperLimit": 65536 }
+      },
+      "capabilities": {
+        "vision": true,
+        "reasoning": true
+      }
+    },
+    "glm": {
+      "classification": ["chat", "reasoning", "coding"],
+      "brandId": "glm",
+      "vendorId": "zai",
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": { "default": 16384, "upperLimit": 16384 }
+      },
+      "capabilities": { "reasoning": true }
+    },
+    "deepseekV4": {
+      "classification": ["chat", "reasoning", "coding"],
+      "brandId": "deepseek",
+      "vendorId": "deepseek",
+      "limits": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": { "default": 393216, "upperLimit": 393216 }
+      },
+      "request": {
+        "preserveReasoningContent": true,
+        "requireReasoningContentOnAssistantMessages": true,
+        "reasoningContentFallback": "",
+        "thinkingRequestFormat": "deepseek-compatible",
+        "maxTokensField": "max_tokens",
+        "removeBodyFields": ["store"]
+      }
+    },
+    "minimaxMessages": {
+      "endpoint": "messages",
+      "classification": ["chat", "reasoning", "coding"],
+      "brandId": "minimax",
+      "vendorId": "minimax",
+      "limits": {
+        "contextWindow": 204800,
+        "maxOutputTokens": { "default": 131072, "upperLimit": 131072 }
+      },
+      "capabilities": { "reasoning": true }
+    },
+    "mimo": {
+      "classification": ["chat", "reasoning", "coding"],
+      "brandId": "minimax",
+      "vendorId": "minimax",
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": { "default": 32768, "upperLimit": 32768 }
+      },
+      "capabilities": { "reasoning": true }
     }
   },
   "models": {
+    "glm-5.1": {
+      "extends": ["glm"],
+      "label": "GLM 5.1",
+      "aliases": ["opencode-go/glm-5.1"]
+    },
+    "glm-5": {
+      "extends": ["glm"],
+      "label": "GLM 5",
+      "aliases": ["opencode-go/glm-5"]
+    },
+    "kimi-k2.5": {
+      "extends": ["codingReasoning", "longContext"],
+      "label": "Kimi K2.5",
+      "brandId": "kimi",
+      "vendorId": "moonshot",
+      "limits": {
+        "contextWindow": 262144,
+        "maxOutputTokens": { "default": 32768, "upperLimit": 32768 }
+      },
+      "aliases": ["opencode-go/kimi-k2.5"]
+    },
     "kimi-k2.6": {
       "extends": ["codingReasoning", "longContext"],
       "label": "Kimi K2.6",
-      "aliases": ["opencode-go/kimi-k2.6"]
+      "brandId": "kimi",
+      "vendorId": "moonshot",
+      "aliases": ["opencode-go/kimi-k2.6"],
+      "visibility": {
+        "defaultFor": ["main"]
+      }
+    },
+    "mimo-v2.5": {
+      "extends": ["mimo"],
+      "label": "MiMo V2.5",
+      "aliases": ["opencode-go/mimo-v2.5"]
+    },
+    "mimo-v2.5-pro": {
+      "extends": ["mimo"],
+      "label": "MiMo V2.5 Pro",
+      "aliases": ["opencode-go/mimo-v2.5-pro"]
+    },
+    "minimax-m2.5": {
+      "extends": ["minimaxMessages"],
+      "label": "MiniMax M2.5",
+      "canonicalModelId": "minimax-m2.5",
+      "aliases": ["opencode-go/minimax-m2.5"]
     },
     "minimax-m2.7": {
-      "extends": ["codingReasoning"],
+      "extends": ["minimaxMessages"],
       "label": "MiniMax M2.7",
-      "endpoint": "messages",
+      "canonicalModelId": "minimax-m2.7",
       "aliases": ["opencode-go/minimax-m2.7"]
+    },
+    "qwen3.6-plus": {
+      "extends": ["qwenPlus"],
+      "label": "Qwen 3.6 Plus",
+      "aliases": ["opencode-go/qwen3.6-plus"]
+    },
+    "qwen3.5-plus": {
+      "extends": ["qwenPlus"],
+      "label": "Qwen 3.5 Plus",
+      "aliases": ["opencode-go/qwen3.5-plus"]
+    },
+    "deepseek-v4-pro": {
+      "extends": ["deepseekV4"],
+      "label": "DeepSeek V4 Pro",
+      "aliases": ["opencode-go/deepseek-v4-pro"]
+    },
+    "deepseek-v4-flash": {
+      "extends": ["deepseekV4"],
+      "label": "DeepSeek V4 Flash",
+      "classification": ["chat", "coding"],
+      "capabilities": { "reasoning": false },
+      "aliases": ["opencode-go/deepseek-v4-flash"]
     }
   },
   "discovery": {

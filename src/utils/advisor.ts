@@ -115,8 +115,9 @@ export function getExperimentAdvisorModels():
     : undefined
 }
 
-// @[MODEL LAUNCH]: Add the new model if it supports the advisor tool.
 // Checks whether the main loop model supports calling the advisor tool.
+// Provider catalog capabilities are checked first; the fallback handles
+// unknown first-party/internal model names.
 export function modelSupportsAdvisor(model: string): boolean {
   if (process.env.USER_TYPE === 'ant') {
     return true
@@ -132,7 +133,8 @@ export function modelSupportsAdvisor(model: string): boolean {
   )
 }
 
-// @[MODEL LAUNCH]: Add the new model if it can serve as an advisor model.
+// Provider catalog capabilities are checked first; the fallback handles
+// unknown first-party/internal model names.
 export function isValidAdvisorModel(model: string): boolean {
   if (process.env.USER_TYPE === 'ant') {
     return true

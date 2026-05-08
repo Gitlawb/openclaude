@@ -25,16 +25,18 @@ aggregates models behind a separate endpoint contract.
 3. Define setup/auth metadata.
    Fill `setup.requiresAuth`, `setup.authMode`, and
    `setup.credentialEnvVars`.
-4. Set the route defaults.
-   Add `defaultBaseUrl`, `defaultModel`, and any required env vars or
-   validation metadata.
+4. Set route-level defaults.
+   Add `defaultBaseUrl` and any required env vars or validation metadata. Model
+   defaults belong in the provider JSON catalog, not in the descriptor.
 5. For OpenAI-compatible vendors, set the `/provider` UI capability flags in
    `transportConfig.openaiShim`.
    Use `supportsApiFormatSelection` for API mode editing and
    `supportsAuthHeaders` for auth/header editing.
-6. Add a catalog if the vendor exposes models directly.
-   Put the vendor's offered model subset on the vendor descriptor itself. Use
-   `modelDescriptorId` when an entry should inherit shared model metadata.
+6. Add or update the provider JSON catalog if the vendor exposes models
+   directly.
+   Put the vendor's offered model subset in
+   `src/integrations/modelCatalog/providers/<id>.json`, and mark the route
+   default there with `visibility.defaultFor: ["main"]`.
 7. Add usage metadata if the vendor has real `/usage` support.
    If `/usage` is still unsupported, keep that explicit with
    `usage: { supported: false }`.
@@ -47,7 +49,7 @@ aggregates models behind a separate endpoint contract.
 
 Normal vendor descriptor files should:
 
-- use `defineVendor` and `defineCatalog`;
+- use `defineVendor`;
 - default-export the descriptor;
 - keep registration out of the file;
 - avoid direct `registerVendor(...)` calls;
@@ -78,26 +80,13 @@ configurable from descriptor files.
 This is the common "direct hosted vendor" shape.
 
 ```ts
-import { defineCatalog, defineVendor } from '../define.js'
-
-const catalog = defineCatalog({
-  source: 'static',
-  models: [
-    {
-      id: 'acme-chat',
-      apiName: 'acme-chat',
-      label: 'Acme Chat',
-      modelDescriptorId: 'acme-chat',
-    },
-  ],
-})
+import { defineVendor } from '../define.js'
 
 export default defineVendor({
   id: 'acme',
   label: 'Acme AI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.acme.example/v1',
-  defaultModel: 'acme-chat',
   requiredEnvVars: ['ACME_API_KEY'],
   setup: {
     requiresAuth: true,
@@ -117,11 +106,44 @@ export default defineVendor({
     description: 'Acme AI API',
     apiKeyEnvVars: ['ACME_API_KEY'],
   },
-  catalog,
   usage: {
     supported: false,
   },
 })
+```
+
+`src/integrations/modelCatalog/providers/acme.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "provider": "acme",
+  "label": "Acme AI",
+  "baseUrl": "https://api.acme.example/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "vendorId": "acme",
+    "capabilities": {
+      "streaming": true
+    }
+  },
+  "models": {
+    "acme-chat": {
+      "label": "Acme Chat",
+      "apiName": "acme-chat",
+      "visibility": {
+        "defaultFor": ["main"]
+      }
+    }
+  }
+}
 ```
 
 Why this is the right shape:
@@ -132,8 +154,9 @@ Why this is the right shape:
   mode editing for this fixed direct-vendor route;
 - `supportsAuthHeaders: false` means `/provider` should only ask for the API
   key, not custom auth-header fields;
-- the vendor owns its own catalog because it exposes models directly;
-- `defaultModel` on the vendor selects the default catalog entry;
+- the vendor's provider JSON owns model availability because it exposes models
+  directly;
+- `visibility.defaultFor: ["main"]` selects the route default in that JSON;
 - the file default-exports one typed descriptor and leaves registration to the
   loader.
 
@@ -151,7 +174,6 @@ export default defineVendor({
   label: 'Acme Labs',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://labs.acme.example/v1',
-  defaultModel: 'acme-research',
   requiredEnvVars: ['ACME_LABS_API_KEY'],
   setup: {
     requiresAuth: true,
@@ -190,42 +212,13 @@ This is the OpenAI/DeepSeek-style pattern where the vendor serves multiple
 first-party models directly.
 
 ```ts
-import { defineCatalog, defineVendor } from '../define.js'
-
-const catalog = defineCatalog({
-  source: 'static',
-  models: [
-    {
-      id: 'acme-fast',
-      apiName: 'acme-fast',
-      label: 'Acme Fast',
-      modelDescriptorId: 'acme-fast',
-    },
-    {
-      id: 'acme-reasoner',
-      apiName: 'acme-reasoner',
-      label: 'Acme Reasoner',
-      modelDescriptorId: 'acme-reasoner',
-      capabilities: {
-        supportsReasoning: true,
-      },
-      transportOverrides: {
-        openaiShim: {
-          preserveReasoningContent: true,
-          requireReasoningContentOnAssistantMessages: true,
-          reasoningContentFallback: '',
-        },
-      },
-    },
-  ],
-})
+import { defineVendor } from '../define.js'
 
 export default defineVendor({
   id: 'acme-first-party',
   label: 'Acme First-Party',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.acme-first-party.example/v1',
-  defaultModel: 'acme-fast',
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
@@ -238,11 +231,57 @@ export default defineVendor({
       supportsAuthHeaders: false,
     },
   },
-  catalog,
   usage: {
     supported: false,
   },
 })
+```
+
+`src/integrations/modelCatalog/providers/acme-first-party.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "provider": "acme-first-party",
+  "label": "Acme First-Party",
+  "baseUrl": "https://api.acme-first-party.example/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "vendorId": "acme-first-party",
+    "capabilities": {
+      "streaming": true
+    }
+  },
+  "models": {
+    "acme-fast": {
+      "label": "Acme Fast",
+      "apiName": "acme-fast",
+      "visibility": {
+        "defaultFor": ["main"]
+      }
+    },
+    "acme-reasoner": {
+      "label": "Acme Reasoner",
+      "apiName": "acme-reasoner",
+      "classification": ["chat", "reasoning"],
+      "capabilities": {
+        "reasoning": true
+      },
+      "request": {
+        "preserveReasoningContent": true,
+        "requireReasoningContentOnAssistantMessages": true,
+        "reasoningContentFallback": ""
+      }
+    }
+  }
+}
 ```
 
 Use this when the vendor really is the route that serves the models. Do not
@@ -315,7 +354,8 @@ Before calling the vendor guide complete:
 - the file lives under `src/integrations/vendors/`;
 - the descriptor default-exports a `defineVendor(...)` result;
 - any direct model-serving route owns the subset of models it actually exposes;
-- the route default is declared once through `defaultModel`;
+- the route default is declared once in provider JSON through
+  `visibility.defaultFor`;
 - the transport family is expressed through `transportConfig.kind`;
 - OpenAI-compatible `/provider` UI capabilities are explicit through
   `openaiShim.supportsApiFormatSelection` and `openaiShim.supportsAuthHeaders`;

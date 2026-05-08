@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  getDefaultModelForProvider,
+  getModelMetadata,
+} from '../integrations/modelCatalog/catalog.js'
+import {
   getDefaultCommitCoAuthorEmail,
   getDefaultCommitCoAuthorName,
 } from './attribution.js'
+import { sanitizeModelName } from './commitAttribution.js'
 
 describe('getDefaultCommitCoAuthorName', () => {
   it('does not label unknown non-Claude provider models as Opus', () => {
@@ -26,13 +31,18 @@ describe('getDefaultCommitCoAuthorName', () => {
   })
 
   it('keeps the codename-safe fallback for unknown first-party models', () => {
+    const defaultOpus = getDefaultModelForProvider('anthropic', 'opus')
+    const label = defaultOpus
+      ? getModelMetadata(defaultOpus, 'anthropic')?.label
+      : undefined
+
     expect(
       getDefaultCommitCoAuthorName({
         model: 'unreleased-internal-model',
         apiProvider: 'firstParty',
         isInternalRepo: false,
       }),
-    ).toBe('Claude Opus 4.6')
+    ).toBe(label ?? 'Claude')
   })
 
   it('sanitizes unknown internal Claude co-author names', () => {
@@ -53,6 +63,15 @@ describe('getDefaultCommitCoAuthorName', () => {
         isInternalRepo: false,
       }),
     ).toBe('Claude Opus 4.6')
+  })
+
+  it('sanitizes internal model surfaces from the Anthropic catalog', () => {
+    const defaultOpus = getDefaultModelForProvider('anthropic', 'opus')
+    expect(defaultOpus).toBeDefined()
+
+    expect(
+      sanitizeModelName(`cli/${defaultOpus!.replace(/^claude-/, '')}-fast`),
+    ).toBe(defaultOpus!)
   })
 
   it('uses the OpenClaude email for commit attribution across providers', () => {

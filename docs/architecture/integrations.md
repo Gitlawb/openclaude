@@ -50,8 +50,9 @@ parallel provider matrix.
 These concerns are related, but they are not interchangeable:
 
 - metadata
-  Descriptor files declare labels, defaults, catalogs, validation hints,
-  discovery policy, and capability flags.
+  Descriptor files declare route labels, auth/setup, validation hints, and
+  transport capability flags. Provider JSON catalogs declare model defaults,
+  endpoints, discovery policy, and model capabilities.
 - routing
   Route-resolution helpers decide which descriptor is active and which runtime
   path should receive the request.
@@ -65,10 +66,11 @@ The rule of thumb is:
 - routing helpers own how current config/env state maps onto that route;
 - transport code owns how requests are executed for the active route.
 
-If a future change needs a new label, default model, setup hint, discovery
-policy, or request-shaping flag, it probably belongs in descriptor/runtime
-metadata. If it changes the actual HTTP/API contract, it probably belongs in
-transport code.
+If a future change needs a new route label or setup hint, it probably belongs
+in descriptor metadata. If it needs a model default, model endpoint, model
+limit, model capability, pricing, or request-shaping flag, it belongs in
+`src/integrations/modelCatalog/providers/<provider>.json`. If it changes the
+actual HTTP/API contract, it probably belongs in transport code.
 
 ## Gateway routing contract
 
@@ -93,25 +95,13 @@ must continue to key off `transportConfig.kind`.
 Normal descriptor files should follow the `define*` + default-export pattern:
 
 ```ts
-import { defineGateway, defineCatalog } from '../define.js'
-
-const catalog = defineCatalog({
-  source: 'static',
-  models: [
-    {
-      id: 'acme-fast',
-      apiName: 'acme/fast',
-      modelDescriptorId: 'acme-fast',
-    },
-  ],
-})
+import { defineGateway } from '../define.js'
 
 export default defineGateway({
   id: 'acme',
   label: 'Acme AI',
   category: 'hosted',
   defaultBaseUrl: 'https://api.acme.example/v1',
-  defaultModel: 'acme/fast',
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
@@ -124,8 +114,38 @@ export default defineGateway({
       supportsAuthHeaders: true,
     },
   },
-  catalog,
 })
+```
+
+The matching model catalog lives in
+`src/integrations/modelCatalog/providers/acme.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "provider": "acme",
+  "label": "Acme AI",
+  "baseUrl": "https://api.acme.example/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions"
+  },
+  "models": {
+    "acme-fast": {
+      "label": "Acme Fast",
+      "apiName": "acme/fast",
+      "visibility": {
+        "defaultFor": ["main"]
+      }
+    }
+  }
+}
 ```
 
 Contributors should not call `registerGateway`, `registerVendor`,

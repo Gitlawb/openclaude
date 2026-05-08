@@ -176,7 +176,8 @@ export function modelSupportsContextManagement(model: string): boolean {
   )
 }
 
-// @[MODEL LAUNCH]: Add the new model ID to this list if it supports structured outputs.
+// Provider catalog capabilities are the source of truth for public structured
+// output support; the fallback preserves compatibility for older/internal names.
 export function modelSupportsStructuredOutputs(model: string): boolean {
   const canonical = getCanonicalName(model)
   const provider = getAPIProvider()
@@ -198,7 +199,8 @@ export function modelSupportsStructuredOutputs(model: string): boolean {
   )
 }
 
-// @[MODEL LAUNCH]: Add the new model if it supports auto mode (specifically PI probes) — ask in #proj-claude-code-safety-research.
+// Provider catalog capabilities are the source of truth for public auto-mode
+// support; GrowthBook can still override experimental/internal names.
 export function modelSupportsAutoMode(model: string): boolean {
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     const m = getCanonicalName(model)
@@ -278,7 +280,7 @@ export function shouldUseGlobalCacheScope(): boolean {
 }
 
 export const getAllModelBetas = memoize((model: string): string[] => {
-  const betaHeaders = []
+  const betaHeaders: string[] = []
   const isHaiku = getCanonicalName(model).includes('haiku')
   const provider = getAPIProvider()
   const includeFirstPartyOnlyBetas = shouldIncludeFirstPartyOnlyBetas()

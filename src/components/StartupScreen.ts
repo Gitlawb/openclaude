@@ -5,15 +5,22 @@
  * Addresses: https://github.com/Gitlawb/openclaude/issues/55
  */
 
-import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/providerConfig.js'
+import {
+  isLocalProviderUrl,
+  resolveProviderRequest,
+} from '../services/api/providerConfig.js'
 import {
   getRouteLabel,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
+import { getDefaultModelForProvider } from '../integrations/modelCatalog/catalog.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
 import { parseUserSpecifiedModel } from '../utils/model/model.js'
-import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
+import {
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_MISTRAL_MODEL,
+} from '../utils/providerProfile.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
 import {
@@ -25,6 +32,12 @@ declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
 const RESET = ANSI_RESET
 const DIM = ANSI_DIM
+const DEFAULT_ANTHROPIC_MODEL =
+  getDefaultModelForProvider('anthropic', 'sonnet') ?? ''
+const DEFAULT_OPENAI_MODEL =
+  getDefaultModelForProvider('openai') ?? 'gpt-4o'
+const DEFAULT_GITHUB_MODELS_MODEL =
+  getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
 
 function lerp(a: RGB, b: RGB, t: number): RGB {
   return [
@@ -87,20 +100,20 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   if (useMistral) {
-    const model = modelOverride || process.env.MISTRAL_MODEL || 'devstral-latest'
+    const model = modelOverride || process.env.MISTRAL_MODEL || DEFAULT_MISTRAL_MODEL
     const baseUrl = process.env.MISTRAL_BASE_URL || 'https://api.mistral.ai/v1'
     return { name: 'Mistral', model, baseUrl, isLocal: false }
   }
 
   if (useGithub) {
-    const model = modelOverride || process.env.OPENAI_MODEL || 'github:copilot'
+    const model = modelOverride || process.env.OPENAI_MODEL || DEFAULT_GITHUB_MODELS_MODEL
     const baseUrl =
       process.env.OPENAI_BASE_URL || 'https://api.githubcopilot.com'
     return { name: 'GitHub Copilot', model, baseUrl, isLocal: false }
   }
 
   if (useOpenAI) {
-    const rawModel = modelOverride || process.env.OPENAI_MODEL || 'gpt-4o'
+    const rawModel = modelOverride || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
     const resolvedRequest = resolveProviderRequest({
       model: rawModel,
       baseUrl: process.env.OPENAI_BASE_URL,
@@ -157,7 +170,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
 
   // Default: Anthropic - check settings.model first, then env vars
   const settings = getSettings_DEPRECATED() || {}
-  const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || 'claude-sonnet-4-6'
+  const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || DEFAULT_ANTHROPIC_MODEL
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)

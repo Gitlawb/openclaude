@@ -38,7 +38,11 @@ import {
   getActiveProviderProfile,
   getProfileModelOptions,
 } from '../providerProfiles.js'
-import { getModelOptions as getCatalogModelOptions } from '../../integrations/modelCatalog/catalog.js'
+import {
+  getDefaultModelForProvider,
+  getModelMetadata,
+  getModelOptions as getCatalogModelOptions,
+} from '../../integrations/modelCatalog/catalog.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { isNvidiaNimProvider } from './nvidiaNimModels.js'
 import { isMiniMaxProvider } from './minimaxModels.js'
@@ -315,18 +319,27 @@ function getOpusPlanOption(): ModelOption {
 }
 
 function getCodexPlanOption(): ModelOption {
+  const model = getDefaultModelForProvider('codex', 'main') ?? 'gpt-5.5'
+  const metadata = getModelMetadata(model, 'codex')
   return {
-    value: 'gpt-5.5',
-    label: 'gpt-5.5',
-    description: 'GPT-5.5 on the Codex backend with high reasoning',
+    value: model,
+    label: metadata?.ui?.pickerLabel ?? metadata?.label ?? model,
+    description:
+      metadata?.ui?.pickerDescription ??
+      `${metadata?.label ?? model} on the Codex backend with high reasoning`,
   }
 }
 
 function getCodexSparkOption(): ModelOption {
+  const model =
+    getDefaultModelForProvider('codex', 'smallFast') ?? 'gpt-5.3-codex-spark'
+  const metadata = getModelMetadata(model, 'codex')
   return {
-    value: 'gpt-5.3-codex-spark',
-    label: 'gpt-5.3-codex-spark',
-    description: 'GPT-5.3 Codex Spark on the Codex backend for fast tool loops',
+    value: model,
+    label: metadata?.ui?.pickerLabel ?? metadata?.label ?? model,
+    description:
+      metadata?.ui?.pickerDescription ??
+      `${metadata?.label ?? model} on the Codex backend for fast tool loops`,
   }
 }
 
@@ -656,9 +669,9 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     return filterModelOptionsByAllowlist(options)
   } else if (customModel === 'opusplan') {
     return filterModelOptionsByAllowlist([...options, getOpusPlanOption()])
-  } else if (customModel === 'gpt-5.5') {
+  } else if (customModel === getDefaultModelForProvider('codex', 'main')) {
     return filterModelOptionsByAllowlist([...options, getCodexPlanOption()])
-  } else if (customModel === 'gpt-5.3-codex-spark') {
+  } else if (customModel === getDefaultModelForProvider('codex', 'smallFast')) {
     return filterModelOptionsByAllowlist([...options, getCodexSparkOption()])
   } else if (customModel === 'opus' && getAPIProvider() === 'firstParty') {
     return filterModelOptionsByAllowlist([

@@ -5,7 +5,6 @@ export default defineVendor({
   label: 'Moonshot AI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.moonshot.ai/v1',
-  defaultModel: 'kimi-k2.5',
   requiredEnvVars: ['MOONSHOT_API_KEY'],
   setup: {
     requiresAuth: true,

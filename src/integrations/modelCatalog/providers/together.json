@@ -62,6 +62,11 @@
         "jsonMode": true,
         "reasoning": true,
         "preciseTokenCount": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "main"
+        ]
       }
     },
     "meta/llama-3.1-405b-instruct": {

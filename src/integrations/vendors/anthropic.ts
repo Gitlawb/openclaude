@@ -5,7 +5,6 @@ export default defineVendor({
   label: 'Anthropic',
   classification: 'anthropic',
   defaultBaseUrl: 'https://api.anthropic.com',
-  defaultModel: 'claude-sonnet-4-6',
   requiredEnvVars: ['ANTHROPIC_API_KEY'],
   setup: {
     requiresAuth: true,

@@ -77,6 +77,7 @@ function toRouteCatalogEntry(
     id: metadata.id,
     apiName: metadata.apiName,
     label: metadata.label,
+    default: metadata.visibility?.defaultFor?.includes('main'),
     hidden: metadata.visibility?.hidden || metadata.status === 'hidden',
     modelDescriptorId: descriptorId,
     capabilities: toDescriptorCapabilities(metadata.capabilities),

@@ -45,7 +45,10 @@
         "chat"
       ],
       "visibility": {
-        "hidden": true
+        "hidden": true,
+        "defaultFor": [
+          "main"
+        ]
       }
     }
   }

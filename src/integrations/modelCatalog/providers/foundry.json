@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "provider": "vertex",
-  "label": "Google Vertex AI",
+  "provider": "foundry",
+  "label": "Microsoft Foundry",
   "endpoints": {
     "messages": {
       "path": "/v1/messages",
@@ -12,11 +12,12 @@
   "defaults": {
     "endpoint": "messages",
     "limits": {
-      "contextWindow": 128000,
+      "contextWindow": 200000,
       "maxOutputTokens": {
-        "default": 8192,
-        "upperLimit": 32768
-      }
+        "default": 32000,
+        "upperLimit": 64000
+      },
+      "compactMaxOutputTokens": 20000
     },
     "capabilities": {
       "streaming": true,
@@ -24,17 +25,15 @@
       "jsonMode": true
     },
     "brandId": "claude",
-    "vendorId": "anthropic",
-    "gatewayId": "vertex"
+    "vendorId": "anthropic"
   },
   "models": {
-    "vertex-claude-3-5-haiku": {
-      "label": "Claude 3.5 Haiku (Vertex)",
-      "apiName": "claude-3-5-haiku@20241022",
+    "foundry-claude-3-5-haiku": {
+      "label": "Claude 3.5 Haiku (Foundry)",
+      "apiName": "claude-3-5-haiku",
       "canonicalModelId": "claude-3-5-haiku",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "vision"
@@ -61,13 +60,12 @@
         "webSearch": true
       }
     },
-    "vertex-claude-haiku-4-5": {
-      "label": "Claude Haiku 4.5 (Vertex)",
-      "apiName": "claude-haiku-4-5@20251001",
+    "foundry-claude-haiku-4-5": {
+      "label": "Claude Haiku 4.5 (Foundry)",
+      "apiName": "claude-haiku-4-5",
       "canonicalModelId": "claude-haiku-4-5",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "vision"
@@ -75,8 +73,8 @@
       "limits": {
         "contextWindow": 144000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 64000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -100,13 +98,12 @@
         ]
       }
     },
-    "vertex-claude-3-5-sonnet": {
-      "label": "Claude 3.5 Sonnet (Vertex)",
-      "apiName": "claude-3-5-sonnet-v2@20241022",
+    "foundry-claude-3-5-sonnet": {
+      "label": "Claude 3.5 Sonnet (Foundry)",
+      "apiName": "claude-3-5-sonnet",
       "canonicalModelId": "claude-3-5-sonnet",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "vision",
@@ -134,13 +131,12 @@
         "webSearch": true
       }
     },
-    "vertex-claude-3-7-sonnet": {
-      "label": "Claude 3.7 Sonnet (Vertex)",
-      "apiName": "claude-3-7-sonnet@20250219",
+    "foundry-claude-3-7-sonnet": {
+      "label": "Claude 3.7 Sonnet (Foundry)",
+      "apiName": "claude-3-7-sonnet",
       "canonicalModelId": "claude-3-7-sonnet",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -151,8 +147,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 64000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -169,13 +165,12 @@
         "webSearch": true
       }
     },
-    "vertex-claude-sonnet-4": {
-      "label": "Claude Sonnet 4 (Vertex)",
-      "apiName": "claude-sonnet-4@20250514",
+    "foundry-claude-sonnet-4": {
+      "label": "Claude Sonnet 4 (Foundry)",
+      "apiName": "claude-sonnet-4",
       "canonicalModelId": "claude-sonnet-4",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -186,8 +181,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 64000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -204,13 +199,12 @@
         "webSearch": true
       }
     },
-    "vertex-claude-sonnet-4-5": {
-      "label": "Claude Sonnet 4.5 (Vertex)",
-      "apiName": "claude-sonnet-4-5@20250929",
+    "foundry-claude-sonnet-4-5": {
+      "label": "Claude Sonnet 4.5 (Foundry)",
+      "apiName": "claude-sonnet-4-5",
       "canonicalModelId": "claude-sonnet-4-5",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -221,8 +215,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 64000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -240,13 +234,12 @@
         "structuredOutputs": true
       }
     },
-    "vertex-claude-sonnet-4-6": {
-      "label": "Claude Sonnet 4.6 (Vertex)",
+    "foundry-claude-sonnet-4-6": {
+      "label": "Claude Sonnet 4.6 (Foundry)",
       "apiName": "claude-sonnet-4-6",
       "canonicalModelId": "claude-sonnet-4-6",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -256,8 +249,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 128000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -295,17 +288,17 @@
       },
       "visibility": {
         "defaultFor": [
-          "sonnet"
+          "sonnet",
+          "main"
         ]
       }
     },
-    "vertex-claude-opus-4": {
-      "label": "Claude Opus 4 (Vertex)",
-      "apiName": "claude-opus-4@20250514",
+    "foundry-claude-opus-4": {
+      "label": "Claude Opus 4 (Foundry)",
+      "apiName": "claude-opus-4",
       "canonicalModelId": "claude-opus-4",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -316,8 +309,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 32000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -334,13 +327,12 @@
         "webSearch": true
       }
     },
-    "vertex-claude-opus-4-1": {
-      "label": "Claude Opus 4.1 (Vertex)",
-      "apiName": "claude-opus-4-1@20250805",
+    "foundry-claude-opus-4-1": {
+      "label": "Claude Opus 4.1 (Foundry)",
+      "apiName": "claude-opus-4-1",
       "canonicalModelId": "claude-opus-4-1",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -351,8 +343,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 32000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -370,13 +362,12 @@
         "structuredOutputs": true
       }
     },
-    "vertex-claude-opus-4-5": {
-      "label": "Claude Opus 4.5 (Vertex)",
-      "apiName": "claude-opus-4-5@20251101",
+    "foundry-claude-opus-4-5": {
+      "label": "Claude Opus 4.5 (Foundry)",
+      "apiName": "claude-opus-4-5",
       "canonicalModelId": "claude-opus-4-5",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -387,8 +378,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 64000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -406,13 +397,12 @@
         "structuredOutputs": true
       }
     },
-    "vertex-claude-opus-4-6": {
-      "label": "Claude Opus 4.6 (Vertex)",
+    "foundry-claude-opus-4-6": {
+      "label": "Claude Opus 4.6 (Foundry)",
       "apiName": "claude-opus-4-6",
       "canonicalModelId": "claude-opus-4-6",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -422,8 +412,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 64000,
+          "upperLimit": 128000
         },
         "compactMaxOutputTokens": 20000
       },
@@ -464,18 +454,16 @@
       },
       "visibility": {
         "defaultFor": [
-          "opus",
-          "main"
+          "opus"
         ]
       }
     },
-    "vertex-claude-opus-4-7": {
-      "label": "Claude Opus 4.7 (Vertex)",
+    "foundry-claude-opus-4-7": {
+      "label": "Claude Opus 4.7 (Foundry)",
       "apiName": "claude-opus-4-7",
       "canonicalModelId": "claude-opus-4-7",
       "brandId": "claude",
       "vendorId": "anthropic",
-      "gatewayId": "vertex",
       "classification": [
         "chat",
         "reasoning",
@@ -485,8 +473,8 @@
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {
-          "default": 8192,
-          "upperLimit": 8192
+          "default": 32000,
+          "upperLimit": 32000
         },
         "compactMaxOutputTokens": 20000
       },

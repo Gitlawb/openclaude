@@ -62,6 +62,11 @@
         "jsonMode": true,
         "reasoning": true,
         "preciseTokenCount": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "main"
+        ]
       }
     },
     "qwen3.5-plus": {

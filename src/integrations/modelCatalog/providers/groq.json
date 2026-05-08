@@ -57,6 +57,11 @@
         "jsonMode": true,
         "reasoning": false,
         "preciseTokenCount": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "main"
+        ]
       }
     },
     "llama-3.3-70b": {

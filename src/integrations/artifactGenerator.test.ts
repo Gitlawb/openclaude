@@ -55,7 +55,6 @@ describe('integration artifact generator', () => {
   label: 'OpenAI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.openai.com/v1',
-  defaultModel: 'gpt-5-mini',
   setup: { requiresAuth: true, authMode: 'api-key', credentialEnvVars: ['OPENAI_API_KEY'] },
   transportConfig: { kind: 'openai-compatible' },
   usage: { supported: false },
@@ -75,7 +74,7 @@ describe('integration artifact generator', () => {
   },
   catalog: {
     source: 'static',
-    models: [{ id: 'acme-fast', apiName: 'acme-fast' }],
+    models: [{ id: 'acme-fast', apiName: 'acme-fast', default: true }],
   },
   usage: { supported: false },
 }
@@ -100,7 +99,6 @@ describe('integration artifact generator', () => {
   label: 'Acme First Party',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.acme.test/v1',
-  defaultModel: 'acme-fast',
   setup: { requiresAuth: true, authMode: 'api-key', credentialEnvVars: ['ACME_API_KEY'] },
   transportConfig: { kind: 'openai-compatible' },
   preset: {
@@ -110,7 +108,7 @@ describe('integration artifact generator', () => {
   },
   catalog: {
     source: 'static',
-    models: [{ id: 'acme-fast', apiName: 'acme-fast' }],
+    models: [{ id: 'acme-fast', apiName: 'acme-fast', default: true }],
   },
   usage: { supported: false },
 }
@@ -137,13 +135,13 @@ describe('integration artifact generator', () => {
   label: 'Anthropic',
   classification: 'anthropic',
   defaultBaseUrl: 'https://api.anthropic.com',
-  defaultModel: 'claude-sonnet-4-6',
   setup: { requiresAuth: true, authMode: 'api-key', credentialEnvVars: ['ANTHROPIC_API_KEY'] },
   transportConfig: { kind: 'anthropic-native' },
   preset: {
     id: 'anthropic',
     description: 'Zulu direct API',
     apiKeyEnvVars: ['ANTHROPIC_API_KEY'],
+    fallbackModel: 'claude-sonnet-4-6',
   },
   usage: { supported: false },
 }
@@ -153,7 +151,6 @@ describe('integration artifact generator', () => {
   label: 'OpenAI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.openai.com/v1',
-  defaultModel: 'gpt-5-mini',
   setup: { requiresAuth: true, authMode: 'api-key', credentialEnvVars: ['OPENAI_API_KEY'] },
   transportConfig: { kind: 'openai-compatible' },
   usage: { supported: false },

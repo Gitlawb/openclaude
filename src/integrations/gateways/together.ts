@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'Together AI',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.together.xyz/v1',
-  defaultModel: 'Qwen/Qwen3.5-9B',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

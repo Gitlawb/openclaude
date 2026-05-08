@@ -11,6 +11,7 @@ declare const MACRO: {
   DISPLAY_VERSION: string
   BUILD_TIME: string
   ISSUES_EXPLAINER: string
+  FEEDBACK_CHANNEL: string
   PACKAGE_URL: string
   NATIVE_PACKAGE_URL: string | undefined
 }

@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'Atomic Chat',
   category: 'local',
   defaultBaseUrl: 'http://127.0.0.1:1337/v1',
-  defaultModel: 'local-model',
   supportsModelRouting: true,
   setup: {
     requiresAuth: false,

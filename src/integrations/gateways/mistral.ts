@@ -14,7 +14,6 @@ export default defineGateway({
   label: 'Mistral AI',
   category: 'hosted',
   defaultBaseUrl: 'https://api.mistral.ai/v1',
-  defaultModel: 'devstral-latest',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

@@ -23,6 +23,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
 } from '../integrations/routeMetadata.js'
+import { getDefaultModelForProvider } from '../integrations/modelCatalog/catalog.js'
 import {
   maskSecretForDisplay,
   redactSecretValueForDisplay,
@@ -41,9 +42,15 @@ import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/openai'
-export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
+export const DEFAULT_GEMINI_MODEL =
+  getRouteDefaultModel('gemini') ?? 'gemini-3-flash-preview'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
-export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
+export const DEFAULT_MISTRAL_MODEL =
+  getRouteDefaultModel('mistral') ?? 'devstral-latest'
+
+function getGithubCopilotDefaultModel(): string {
+  return getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
+}
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -311,7 +318,7 @@ export function buildGithubProfileEnv(options: {
     OPENAI_MODEL:
       normalizeProfileModel(
         sanitizeProviderConfigValue(options.model),
-      ) || 'github:copilot',
+      ) || getGithubCopilotDefaultModel(),
   }
 
   const baseUrl = sanitizeProviderConfigValue(options.baseUrl)
@@ -413,7 +420,7 @@ export function buildNvidiaNimProfileEnv(options: {
       normalizeProfileModel(
         sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
       ) ||
-      'nvidia/llama-3.1-nemotron-70b-instruct',
+      getRouteDefaultModel('nvidia-nim'),
     OPENAI_API_KEY: key,
     NVIDIA_NIM: '1',
   }
@@ -661,7 +668,7 @@ export function buildBankrProfileEnv(options: {
         processEnv.BANKR_MODEL,
         { BNKR_API_KEY: key },
       ) ||
-      'claude-opus-4.6',
+      getRouteDefaultModel('bankr'),
   }
 
   const baseUrl =
@@ -690,7 +697,7 @@ function buildXaiProfileEnv(options: {
     XAI_API_KEY: key,
   }
   const defaultBaseUrl = getRouteDefaultBaseUrl('xai') ?? 'https://api.x.ai/v1'
-  const defaultModel = getRouteDefaultModel('xai') ?? 'grok-4'
+  const defaultModel = getRouteDefaultModel('xai')
   const env: ProfileEnv = {
     OPENAI_BASE_URL:
       sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
@@ -992,7 +999,7 @@ export async function buildLaunchEnv(options: {
       processEnv,
       compatibilityMode: 'github',
       profileEnv: buildGithubProfileEnv({
-        model: shellOpenAIModel || persistedOpenAIModel || 'github:copilot',
+        model: shellOpenAIModel || persistedOpenAIModel || getGithubCopilotDefaultModel(),
         baseUrl: shellOpenAIBaseUrl || persistedOpenAIBaseUrl,
       }),
     })
@@ -1182,7 +1189,8 @@ export async function buildLaunchEnv(options: {
     const getOllamaBaseUrl =
       options.getOllamaChatBaseUrl ?? (() => 'http://localhost:11434/v1')
     const resolveOllamaModel =
-      options.resolveOllamaDefaultModel ?? (async () => 'llama3.1:8b')
+      options.resolveOllamaDefaultModel ??
+      (async () => getRouteDefaultModel('ollama') ?? 'llama3.1:8b')
 
     return buildCompatibilityProcessEnv({
       processEnv,

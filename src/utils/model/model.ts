@@ -29,6 +29,15 @@ import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
+import {
+  getDefaultModelForProvider,
+  getModelMetadata,
+} from '../../integrations/modelCatalog/catalog.js'
+import type { ModelDefaultRole } from '../../integrations/modelCatalog/types.js'
+import {
+  getAntModelOverrideConfig,
+  resolveAntModel,
+} from './antModels.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -40,53 +49,77 @@ function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefin
   return trimmed.length > 0 ? trimmed : undefined
 }
 
+function getCatalogProviderForLegacyProvider(): string | undefined {
+  const provider = getAPIProvider()
+  switch (provider) {
+    case 'firstParty':
+      return 'anthropic'
+    case 'bedrock':
+    case 'vertex':
+    case 'foundry':
+      return provider
+    case 'openai':
+    case 'gemini':
+    case 'mistral':
+    case 'codex':
+    case 'nvidia-nim':
+    case 'minimax':
+    case 'xai':
+      return provider
+    case 'github':
+      return 'github-copilot'
+    default:
+      return undefined
+  }
+}
+
+function getProviderDefaultModel(role: ModelDefaultRole): string | undefined {
+  const providerId = getCatalogProviderForLegacyProvider()
+  return providerId ? getDefaultModelForProvider(providerId, role) : undefined
+}
+
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   // For Gemini provider, use a fast model
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
+    return process.env.GEMINI_MODEL || getProviderDefaultModel('smallFast') || DEFAULT_GEMINI_MODEL
   }
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
+    return process.env.MISTRAL_MODEL || getProviderDefaultModel('smallFast') || getModelStrings().haiku45
   }
   // For OpenAI provider, use OPENAI_MODEL or a sensible default
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('smallFast') || getModelStrings().haiku45
   }
   // Codex provider — OPENAI_MODEL is always set for Codex profiles; only fall
   // back to a codex-spark alias when an override env strips it.
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'codexspark'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('smallFast') || getModelStrings().haiku45
   }
   // For GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('smallFast') || getModelStrings().haiku45
   }
   // NVIDIA NIM — OPENAI_MODEL carries the user's active NIM model; use a
   // small Meta Llama variant as the conservative fallback.
   if (getAPIProvider() === 'nvidia-nim') {
-    return process.env.OPENAI_MODEL || 'meta/llama-3.1-8b-instruct'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('smallFast') || getModelStrings().haiku45
   }
   // MiniMax — OPENAI_MODEL carries the active MiniMax model; fall back to
   // the fastest tier (M2.5-highspeed) when missing.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('smallFast') || getModelStrings().haiku45
   }
   // xAI — OPENAI_MODEL carries the active Grok model; fall back to grok-3.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-3'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('smallFast') || getModelStrings().haiku45
   }
   return getDefaultHaikuModel()
 }
 
 export function isNonCustomOpusModel(model: ModelName): boolean {
-  return (
-    model === getModelStrings().opus40 ||
-    model === getModelStrings().opus41 ||
-    model === getModelStrings().opus45 ||
-    model === getModelStrings().opus46 ||
-    model === getModelStrings().opus47
-  )
+  const metadata = getModelMetadata(model, 'anthropic')
+  return metadata?.id.includes('-opus-') ?? false
 }
 
 /**
@@ -168,136 +201,136 @@ export function getBestModel(): ModelName {
   return getDefaultOpusModel()
 }
 
-// @[MODEL LAUNCH]: Update the default Opus model (3P providers may lag so keep defaults unchanged).
+// Provider-specific Opus defaults come from catalog visibility.defaultFor.
 export function getDefaultOpusModel(): ModelName {
   if (process.env.ANTHROPIC_DEFAULT_OPUS_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.5-pro'
+    return process.env.GEMINI_MODEL || getProviderDefaultModel('opus') || DEFAULT_GEMINI_MODEL
   }
   // Mistral provider
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'devstral-latest'
+    return process.env.MISTRAL_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
   // OpenAI provider: use user-specified model or default
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
   // Codex provider: use user-specified model or default to gpt-5.5
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
-    return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
   // MiniMax — flagship tier for "opus"-equivalent.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
   // xAI — flagship Grok model for "opus"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
   // the next model launch. Keep 3P on Opus 4.6 until they roll out 4.7.
   if (getAPIProvider() !== 'firstParty') {
-    return getModelStrings().opus46
+    return getProviderDefaultModel('opus') || getModelStrings().opus46
   }
-  return getModelStrings().opus47
+  return getProviderDefaultModel('opus') || getModelStrings().opus47
 }
 
-// @[MODEL LAUNCH]: Update the default Sonnet model (3P providers may lag so keep defaults unchanged).
+// Provider-specific Sonnet defaults come from catalog visibility.defaultFor.
 export function getDefaultSonnetModel(): ModelName {
   if (process.env.ANTHROPIC_DEFAULT_SONNET_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
+    return process.env.GEMINI_MODEL || getProviderDefaultModel('sonnet') || DEFAULT_GEMINI_MODEL
   }
   // Mistral provider
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'mistral-medium-latest'
+    return process.env.MISTRAL_MODEL || getProviderDefaultModel('sonnet') || getDefaultHaikuModel()
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('sonnet') || getDefaultHaikuModel()
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('sonnet') || getDefaultHaikuModel()
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('sonnet') || getDefaultHaikuModel()
   }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
-    return process.env.OPENAI_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('sonnet') || getDefaultHaikuModel()
   }
   // MiniMax — mid tier for "sonnet"-equivalent.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.5'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('sonnet') || getDefaultHaikuModel()
   }
   // xAI — flagship Grok model for "sonnet"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('sonnet') || getDefaultHaikuModel()
   }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (getAPIProvider() !== 'firstParty') {
-    return getModelStrings().sonnet45
+    return getProviderDefaultModel('sonnet') || getModelStrings().sonnet45
   }
-  return getModelStrings().sonnet46
+  return getProviderDefaultModel('sonnet') || getModelStrings().sonnet46
 }
 
-// @[MODEL LAUNCH]: Update the default Haiku model (3P providers may lag so keep defaults unchanged).
+// Provider-specific Haiku defaults come from catalog visibility.defaultFor.
 export function getDefaultHaikuModel(): ModelName {
   if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
   }
   // Mistral provider
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
+    return process.env.MISTRAL_MODEL || getProviderDefaultModel('haiku') || getModelStrings().haiku45
   }
   // OpenAI provider
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('haiku') || getModelStrings().haiku45
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('haiku') || getModelStrings().haiku45
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('haiku') || getModelStrings().haiku45
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
+    return process.env.GEMINI_MODEL || getProviderDefaultModel('haiku') || DEFAULT_GEMINI_MODEL
   }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
-    return process.env.OPENAI_MODEL || 'meta/llama-3.1-8b-instruct'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('haiku') || getModelStrings().haiku45
   }
   // MiniMax — fastest tier for "haiku"-equivalent.
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.5-highspeed'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('haiku') || getModelStrings().haiku45
   }
   // xAI — faster Grok model for "haiku"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-3'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('haiku') || getModelStrings().haiku45
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
-  return getModelStrings().haiku45
+  return getProviderDefaultModel('haiku') || getModelStrings().haiku45
 }
 
 /**
@@ -345,31 +378,32 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     return (
       normalizeModelSetting(settings.model) ||
       normalizeModelSetting(process.env.OPENAI_MODEL) ||
-      'github:copilot'
+      getProviderDefaultModel('main') ||
+      'gpt-4o'
     )
   }
   // Gemini provider: always use the configured Gemini model
   if (getAPIProvider() === 'gemini') {
-    return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
+    return process.env.GEMINI_MODEL || getProviderDefaultModel('main') || DEFAULT_GEMINI_MODEL
   }
   if (getAPIProvider() === 'mistral') {
-    return process.env.MISTRAL_MODEL || 'devstral-latest'
+    return process.env.MISTRAL_MODEL || getProviderDefaultModel('main') || getDefaultSonnetModel()
   }
   // OpenAI provider: always use the configured OpenAI model
   if (getAPIProvider() === 'openai') {
-    return process.env.OPENAI_MODEL || 'gpt-4o'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('main') || getDefaultSonnetModel()
   }
   // Codex provider: always use the configured Codex model (default gpt-5.5)
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('main') || getDefaultSonnetModel()
   }
   // xAI provider: always use the configured Grok model (default grok-4)
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('main') || getDefaultSonnetModel()
   }
   // MiniMax provider: always use the configured MiniMax model
   if (getAPIProvider() === 'minimax') {
-    return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
+    return process.env.OPENAI_MODEL || getProviderDefaultModel('main') || getDefaultSonnetModel()
   }
 
   // Ants default to defaultModel from flag config, or Opus 1M if not configured
@@ -403,7 +437,7 @@ export function getDefaultMainLoopModel(): ModelName {
   return parseUserSpecifiedModel(getDefaultMainLoopModelSetting())
 }
 
-// @[MODEL LAUNCH]: Add a canonical name mapping for the new model below.
+// Catalog entries are the source of truth; this remains a legacy substring fallback.
 /**
  * Pure string-match that strips date/provider suffixes from a first-party model
  * name. Input must already be a 1P-format ID (e.g. 'claude-3-7-sonnet-20250219',
@@ -481,24 +515,47 @@ export function getCanonicalName(fullModelName: ModelName): ModelShortName {
   return firstPartyNameToCanonical(resolveOverriddenModel(fullModelName))
 }
 
-// @[MODEL LAUNCH]: Update the default model description strings shown to users.
+// Catalog labels own model names; this only formats subscription-specific default copy.
 export function getClaudeAiUserDefaultModelDescription(
   fastMode = false,
 ): string {
+  const opusModel = getDefaultOpusModel()
+  const opusName = isOpus1mMergeEnabled()
+    ? getCatalogModelDisplayName(`${opusModel}[1m]`, 'anthropic')
+    : getCatalogModelDisplayName(opusModel, 'anthropic')
+  const inlineOpusName = opusName?.replace(
+    ' (1M context)',
+    ' with 1M context',
+  )
+  const sonnetName = getCatalogModelDisplayName(
+    getDefaultSonnetModel(),
+    'anthropic',
+  )
+
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
     if (isOpus1mMergeEnabled()) {
-      return `Opus 4.7 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+      return `${inlineOpusName ?? 'Opus with 1M context'} · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
     }
-    return `Opus 4.7 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+    return `${inlineOpusName ?? 'Opus'} · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
   }
-  return 'Sonnet 4.6 · Best for everyday tasks'
+  return `${sonnetName ?? 'Sonnet'} · Best for everyday tasks`
 }
 
 export function renderDefaultModelSetting(
   setting: ModelName | ModelAlias,
 ): string {
   if (setting === 'opusplan') {
-    return 'Opus 4.7 in plan mode, else Sonnet 4.6'
+    const opusName =
+      getCatalogModelDisplayName(
+        getDefaultModelForProvider('anthropic', 'opus') ?? 'opus',
+        'anthropic',
+      ) ?? 'Opus'
+    const sonnetName =
+      getCatalogModelDisplayName(
+        getDefaultModelForProvider('anthropic', 'sonnet') ?? 'sonnet',
+        'anthropic',
+      ) ?? 'Sonnet'
+    return `${opusName} in plan mode, else ${sonnetName}`
   }
   return renderModelName(parseUserSpecifiedModel(setting))
 }
@@ -536,10 +593,10 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
   }
   // Handle Codex models - show actual model name + resolved model
   if (setting === 'codexplan') {
-    return 'codexplan (gpt-5.5)'
+    return `codexplan (${getDefaultModelForProvider('codex', 'main') ?? 'gpt-5.5'})`
   }
   if (setting === 'codexspark') {
-    return 'codexspark (gpt-5.3-codex-spark)'
+    return `codexspark (${getDefaultModelForProvider('codex', 'smallFast') ?? 'gpt-5.3-codex-spark'})`
   }
   if (isModelAlias(setting)) {
     return capitalize(setting)
@@ -547,53 +604,58 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
   return renderModelName(setting)
 }
 
-// @[MODEL LAUNCH]: Add display name cases for the new model (base + [1m] variant if applicable).
+function getCatalogModelDisplayName(
+  model: ModelName,
+  providerId: string,
+): string | null {
+  const has1mSuffix = /\[1m\]$/i.test(model)
+  const baseModel = model.replace(/\[1m\]$/i, '')
+
+  try {
+    const metadata = getModelMetadata(baseModel, providerId)
+    const label = has1mSuffix
+      ? metadata?.contextUpgrade?.label
+      : metadata?.ui?.marketingName ?? metadata?.label
+
+    if (!label) {
+      return null
+    }
+
+    return providerId === 'anthropic'
+      ? label.replace(/^Claude\s+/i, '')
+      : label
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('Ambiguous model lookup ')
+    ) {
+      return null
+    }
+    throw error
+  }
+}
+
 /**
  * Returns a human-readable display name for known public models, or null
  * if the model is not recognized as a public model.
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
-  // For OpenAI-compatible/non-Anthropic providers, show the actual model name
-  // instead of interpreting provider-specific defaults as Claude aliases.
-  if (
-    getAPIProvider() === 'openai' ||
-    getAPIProvider() === 'gemini' ||
-    getAPIProvider() === 'codex' ||
-    getAPIProvider() === 'github' ||
-    getAPIProvider() === 'xai' ||
-    getAPIProvider() === 'minimax' ||
-    getAPIProvider() === 'nvidia-nim' ||
-    getAPIProvider() === 'mistral'
-  ) {
-    // Return display names for known GitHub Copilot models
-    const copilotModelNames: Record<string, string> = {
-      'gpt-5.5': 'GPT-5.5',
-      'gpt-5.5-mini': 'GPT-5.5 mini',
-      'gpt-5.4': 'GPT-5.4',
-      'gpt-5.4-mini': 'GPT-5.4 mini',
-      'gpt-5.3-codex': 'GPT-5.3 Codex',
-      'gpt-5.2-codex': 'GPT-5.2 Codex',
-      'gpt-5.2': 'GPT-5.2',
-      'gpt-5.1-codex': 'GPT-5.1 Codex',
-      'gpt-5.1-codex-max': 'GPT-5.1 Codex max',
-      'gpt-5.1-codex-mini': 'GPT-5.1 Codex mini',
-      'gpt-4o': 'GPT-4o',
-      'gpt-4.1': 'GPT-4.1',
-      'claude-opus-4.6': 'Claude Opus 4.6',
-      'claude-opus-4.5': 'Claude Opus 4.5',
-      'claude-sonnet-4.6': 'Claude Sonnet 4.6',
-      'claude-sonnet-4.5': 'Claude Sonnet 4.5',
-      'claude-haiku-4.5': 'Claude Haiku 4.5',
-      'gemini-3.1-pro-preview': 'Gemini 3.1 Pro Preview',
-      'gemini-3-flash-preview': 'Gemini 3 Flash',
-      'gemini-2.5-pro': 'Gemini 2.5 Pro',
-      'grok-code-fast-1': 'Grok Code Fast 1',
+  // Catalog labels are the source of truth for public/provider model names.
+  // First-party Claude labels intentionally omit the leading "Claude" here
+  // because commit attribution adds it when needed.
+  const providerId = getCatalogProviderForLegacyProvider()
+  if (providerId) {
+    const providerDisplayName = getCatalogModelDisplayName(model, providerId)
+    if (providerDisplayName) {
+      return providerDisplayName
     }
-    if (copilotModelNames[model]) {
-      return copilotModelNames[model]
-    }
-    return null
   }
+
+  const anthropicDisplayName = getCatalogModelDisplayName(model, 'anthropic')
+  if (anthropicDisplayName) {
+    return anthropicDisplayName
+  }
+
   switch (model) {
     case 'gpt-5.5':
       return 'GPT-5.5'
@@ -601,40 +663,6 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
       return 'GPT-5.4'
     case 'gpt-5.3-codex-spark':
       return 'GPT-5.3 Codex Spark'
-    case getModelStrings().opus47 + '[1m]':
-      return 'Opus 4.7 (1M context)'
-    case getModelStrings().opus47:
-      return 'Opus 4.7'
-    case getModelStrings().opus46 + '[1m]':
-      return 'Opus 4.6 (1M context)'
-    case getModelStrings().opus46:
-      return 'Opus 4.6'
-    case getModelStrings().opus45:
-      return 'Opus 4.5'
-    case getModelStrings().opus41:
-      return 'Opus 4.1'
-    case getModelStrings().opus40:
-      return 'Opus 4'
-    case getModelStrings().sonnet46 + '[1m]':
-      return 'Sonnet 4.6 (1M context)'
-    case getModelStrings().sonnet46:
-      return 'Sonnet 4.6'
-    case getModelStrings().sonnet45 + '[1m]':
-      return 'Sonnet 4.5 (1M context)'
-    case getModelStrings().sonnet45:
-      return 'Sonnet 4.5'
-    case getModelStrings().sonnet40:
-      return 'Sonnet 4'
-    case getModelStrings().sonnet40 + '[1m]':
-      return 'Sonnet 4 (1M context)'
-    case getModelStrings().sonnet37:
-      return 'Sonnet 3.7'
-    case getModelStrings().sonnet35:
-      return 'Sonnet 3.5'
-    case getModelStrings().haiku45:
-      return 'Haiku 4.5'
-    case getModelStrings().haiku35:
-      return 'Haiku 3.5'
     default:
       return null
   }
@@ -735,10 +763,13 @@ export function parseUserSpecifiedModel(
 
   // Handle Codex aliases - map to actual model names
   if (modelString === 'codexplan') {
-    return 'gpt-5.5'
+    return getDefaultModelForProvider('codex', 'main') ?? 'gpt-5.5'
   }
   if (modelString === 'codexspark') {
-    return 'gpt-5.3-codex-spark'
+    return (
+      getDefaultModelForProvider('codex', 'smallFast') ??
+      'gpt-5.3-codex-spark'
+    )
   }
 
   // Opus 4/4.1 are no longer available on the first-party API (same as
@@ -841,7 +872,6 @@ export function modelDisplayString(model: ModelSetting): string {
   return model === resolvedModel ? resolvedModel : `${model} (${resolvedModel})`
 }
 
-// @[MODEL LAUNCH]: Add a marketing name mapping for the new model below.
 export function getMarketingNameForModel(modelId: string): string | undefined {
   if (getAPIProvider() === 'foundry') {
     // deployment ID is user-defined in Foundry, so it may have no relation to the actual model
@@ -850,45 +880,17 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
 
   const has1m = modelId.toLowerCase().includes('[1m]')
   const canonical = getCanonicalName(modelId)
+  const catalogName =
+    getCatalogModelDisplayName(canonical, 'anthropic') ??
+    getCatalogModelDisplayName(modelId, 'anthropic')
 
-  if (canonical.includes('claude-opus-4-7')) {
-    return has1m ? 'Opus 4.7 (with 1M context)' : 'Opus 4.7'
-  }
-  if (canonical.includes('claude-opus-4-6')) {
-    return has1m ? 'Opus 4.6 (with 1M context)' : 'Opus 4.6'
-  }
-  if (canonical.includes('claude-opus-4-5')) {
-    return 'Opus 4.5'
-  }
-  if (canonical.includes('claude-opus-4-1')) {
-    return 'Opus 4.1'
-  }
-  if (canonical.includes('claude-opus-4')) {
-    return 'Opus 4'
-  }
-  if (canonical.includes('claude-sonnet-4-6')) {
-    return has1m ? 'Sonnet 4.6 (with 1M context)' : 'Sonnet 4.6'
-  }
-  if (canonical.includes('claude-sonnet-4-5')) {
-    return has1m ? 'Sonnet 4.5 (with 1M context)' : 'Sonnet 4.5'
-  }
-  if (canonical.includes('claude-sonnet-4')) {
-    return has1m ? 'Sonnet 4 (with 1M context)' : 'Sonnet 4'
-  }
-  if (canonical.includes('claude-3-7-sonnet')) {
-    return 'Claude 3.7 Sonnet'
-  }
-  if (canonical.includes('claude-3-5-sonnet')) {
-    return 'Claude 3.5 Sonnet'
-  }
-  if (canonical.includes('claude-haiku-4-5')) {
-    return 'Haiku 4.5'
-  }
-  if (canonical.includes('claude-3-5-haiku')) {
-    return 'Claude 3.5 Haiku'
+  if (!catalogName) {
+    return undefined
   }
 
-  return undefined
+  return has1m
+    ? catalogName.replace(' (1M context)', ' (with 1M context)')
+    : catalogName
 }
 
 export function normalizeModelStringForAPI(model: string): string {

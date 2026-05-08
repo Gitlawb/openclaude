@@ -42,7 +42,6 @@ function makeVendor(id: string, overrides?: Partial<import('./descriptors.js').V
     label: id,
     classification: 'openai-compatible',
     defaultBaseUrl: 'https://example.com',
-    defaultModel: 'model-1',
     setup: { requiresAuth: true, authMode: 'api-key' },
     transportConfig: { kind: 'openai-compatible' },
     ...overrides,
@@ -87,13 +86,19 @@ function makeAnthropicProxy(id: string, overrides?: Partial<import('./descriptor
     label: id,
     classification: 'anthropic-proxy',
     defaultBaseUrl: 'https://proxy.example.com',
-    defaultModel: 'claude-sonnet',
     setup: { requiresAuth: true, authMode: 'api-key' },
     envVarConfig: { authTokenEnvVar: 'PROXY_API_KEY', baseUrlEnvVar: 'PROXY_BASE_URL' },
     capabilities: {},
     transportConfig: { kind: 'anthropic-proxy' },
     ...overrides,
   }
+}
+
+function withLegacyDefaultModel<T extends object>(
+  descriptor: T,
+  defaultModel: string,
+): T & { defaultModel: string } {
+  return { ...descriptor, defaultModel }
 }
 
 // ---------------------------------------------------------------------------
@@ -271,21 +276,49 @@ describe('validateIntegrationRegistry', () => {
     expect(result.errors.some(e => e.includes('Duplicate catalog entry id'))).toBe(true)
   })
 
-  test('catches catalog default flags when route defaultModel is set', () => {
+  test('catches descriptor defaultModel because route defaults belong in provider JSON', () => {
     registerGateway(
-      makeGateway('gw-duplicate-default', {
-        defaultModel: 'model-1',
-        catalog: {
-          source: 'static',
-          models: [{ id: 'e1', apiName: 'model-1', default: true }],
-        },
-      }),
+      withLegacyDefaultModel(
+        makeGateway('gw-duplicate-default', {
+          catalog: {
+            source: 'static',
+            models: [{ id: 'e1', apiName: 'model-1', default: true }],
+          },
+        }),
+        'model-1',
+      ),
     )
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
     expect(
       result.errors.some(error =>
-        error.includes('must not set default because the route defines defaultModel'),
+        error.includes('must declare its default model in provider JSON'),
+      ),
+    ).toBe(true)
+  })
+
+  test('catches preset descriptor defaultModel even without inline catalog entries', () => {
+    registerVendor(
+      withLegacyDefaultModel(
+        makeVendor('vendor-legacy-default', {
+          preset: {
+            id: 'vendor-legacy-default',
+            description: 'Vendor legacy default',
+            apiKeyEnvVars: ['VENDOR_KEY'],
+          },
+          catalog: {
+            source: 'static',
+            models: [{ id: 'e1', apiName: 'model-1', default: true }],
+          },
+        }),
+        'model-1',
+      ),
+    )
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(
+      result.errors.some(error =>
+        error.includes('must declare its default model in provider JSON'),
       ),
     ).toBe(true)
   })
@@ -387,11 +420,14 @@ describe('validateIntegrationRegistry', () => {
     registerGateway(
       makeGateway('gw-missing-vendor', {
         defaultBaseUrl: 'https://gateway.example.com/v1',
-        defaultModel: 'gateway-model',
         preset: {
           id: 'gateway-preset',
           description: 'Gateway preset',
           apiKeyEnvVars: ['GATEWAY_KEY'],
+        },
+        catalog: {
+          source: 'static',
+          models: [{ id: 'gateway-model', apiName: 'gateway-model', default: true }],
         },
       }),
     )

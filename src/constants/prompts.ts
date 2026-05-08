@@ -23,6 +23,11 @@ import {
   getCanonicalName,
   getMarketingNameForModel,
 } from '../utils/model/model.js'
+import { getAntModelOverrideConfig } from '../utils/model/antModels.js'
+import {
+  getDefaultModelForProvider,
+  getModelMetadata,
+} from '../integrations/modelCatalog/catalog.js'
 import { getSkillToolCommands } from 'src/commands.js'
 import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
 import { getOutputStyleConfig } from './outputStyles.js'
@@ -63,9 +68,17 @@ import { isMcpInstructionsDeltaEnabled } from '../utils/mcpInstructionsDelta.js'
 
 // Dead code elimination: conditional imports for feature-gated modules
 /* eslint-disable @typescript-eslint/no-require-imports */
+type CachedMicrocompactConfig = {
+  enabled?: boolean
+  systemPromptSuggestSummaries?: boolean
+  supportedModels?: string[]
+  keepRecent?: number
+}
 const getCachedMCConfigForFRC = feature('CACHED_MICROCOMPACT')
   ? (
-      require('../services/compact/cachedMCConfig.js') as typeof import('../services/compact/cachedMCConfig.js')
+      require('../services/compact/cachedMCConfig.js') as {
+        getCachedMCConfig: () => CachedMicrocompactConfig | null
+      }
     ).getCachedMCConfig
   : null
 
@@ -87,13 +100,17 @@ const DISCOVER_SKILLS_TOOL_NAME: string | null = feature(
   'EXPERIMENTAL_SKILL_SEARCH',
 )
   ? (
-      require('../tools/DiscoverSkillsTool/prompt.js') as typeof import('../tools/DiscoverSkillsTool/prompt.js')
+      require('../tools/DiscoverSkillsTool/prompt.js') as {
+        DISCOVER_SKILLS_TOOL_NAME: string
+      }
     ).DISCOVER_SKILLS_TOOL_NAME
   : null
 // Capture the module (not .isSkillSearchEnabled directly) so spyOn() in tests
 // patches what we actually call — a captured function ref would point past the spy.
 const skillSearchFeatureCheck = feature('EXPERIMENTAL_SKILL_SEARCH')
-  ? (require('../services/skillSearch/featureCheck.js') as typeof import('../services/skillSearch/featureCheck.js'))
+  ? (require('../services/skillSearch/featureCheck.js') as {
+      isSkillSearchEnabled: () => boolean
+    })
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 import type { OutputStyleConfig } from './outputStyles.js'
@@ -114,8 +131,14 @@ export const CLAUDE_CODE_DOCS_MAP_URL =
 export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY =
   '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__'
 
-// @[MODEL LAUNCH]: Update the latest frontier model.
-const FRONTIER_MODEL_NAME = 'Claude Opus 4.7'
+function getFrontierModelName(): string {
+  const model = getDefaultModelForProvider('anthropic', 'opus')
+  return model
+    ? (getModelMetadata(model, 'anthropic')?.label ?? 'Claude')
+    : 'Claude'
+}
+
+const FRONTIER_MODEL_NAME = getFrontierModelName()
 
 function getHooksSection(): string {
   return `Users may configure 'hooks', shell commands that execute in response to events like tool calls, in settings. Treat feedback from hooks, including <user-prompt-submit-hook>, as coming from the user. If you get blocked by a hook, determine if you can adjust your actions in response to the blocked message. If not, ask the user to check their hooks configuration.`

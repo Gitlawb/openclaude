@@ -13,6 +13,7 @@ import { getFsImplementation } from './fsOperations.js'
 import { isGeneratedFile } from './generatedFiles.js'
 import { getRemoteUrlForDir, resolveGitDir } from './git/gitFilesystem.js'
 import { findGitRoot, gitExe } from './git.js'
+import { getAllModelsForProvider } from '../integrations/modelCatalog/catalog.js'
 import { logError } from './log.js'
 import { getCanonicalName, type ModelName } from './model/model.js'
 import { sequential } from './sequential.js'
@@ -146,23 +147,50 @@ export function sanitizeSurfaceKey(surfaceKey: string): string {
   return `${surface}/${sanitizedModel}`
 }
 
-// @[MODEL LAUNCH]: Add a mapping for the new model ID so git commit trailers show the public name.
+let claudeModelSanitizationCandidates:
+  | { token: string; publicModelId: string }[]
+  | undefined
+
+function getClaudeModelSanitizationCandidates(): {
+  token: string
+  publicModelId: string
+}[] {
+  if (claudeModelSanitizationCandidates) {
+    return claudeModelSanitizationCandidates
+  }
+
+  claudeModelSanitizationCandidates = getAllModelsForProvider('anthropic')
+    .filter(model => model.id.startsWith('claude-'))
+    .flatMap(model => {
+      const tokens = new Set([
+        model.id,
+        model.apiName,
+        model.id.replace(/^claude-/, ''),
+        model.apiName.replace(/^claude-/, ''),
+      ])
+      return [...tokens]
+        .filter(token => token.length > 0)
+        .map(token => ({
+          token: token.toLowerCase(),
+          publicModelId: model.id,
+        }))
+    })
+    .sort((left, right) => right.token.length - left.token.length)
+
+  return claudeModelSanitizationCandidates
+}
+
 /**
  * Sanitize a model name to its public equivalent.
  * Maps internal variants to their public names based on model family.
  */
 export function sanitizeModelName(shortName: string): string {
-  // Map internal variants to public equivalents based on model family
-  if (shortName.includes('opus-4-6')) return 'claude-opus-4-6'
-  if (shortName.includes('opus-4-5')) return 'claude-opus-4-5'
-  if (shortName.includes('opus-4-1')) return 'claude-opus-4-1'
-  if (shortName.includes('opus-4')) return 'claude-opus-4'
-  if (shortName.includes('sonnet-4-6')) return 'claude-sonnet-4-6'
-  if (shortName.includes('sonnet-4-5')) return 'claude-sonnet-4-5'
-  if (shortName.includes('sonnet-4')) return 'claude-sonnet-4'
-  if (shortName.includes('sonnet-3-7')) return 'claude-sonnet-3-7'
-  if (shortName.includes('haiku-4-5')) return 'claude-haiku-4-5'
-  if (shortName.includes('haiku-3-5')) return 'claude-haiku-3-5'
+  const normalizedShortName = shortName.toLowerCase()
+  const match = getClaudeModelSanitizationCandidates().find(candidate =>
+    normalizedShortName.includes(candidate.token),
+  )
+  if (match) return match.publicModelId
+
   // Unknown models get a generic name
   return 'claude'
 }

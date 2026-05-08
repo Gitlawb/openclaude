@@ -5,7 +5,6 @@ export default defineVendor({
   label: 'Z.AI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.z.ai/api/coding/paas/v4',
-  defaultModel: 'GLM-5.1',
   requiredEnvVars: ['OPENAI_API_KEY'],
   setup: {
     requiresAuth: true,

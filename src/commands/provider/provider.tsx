@@ -17,8 +17,10 @@ import { useCodexOAuthFlow } from '../../components/useCodexOAuthFlow.js'
 import { useTerminalSize } from '../../hooks/useTerminalSize.js'
 import { Box, Text } from '../../ink.js'
 import { probeRouteReadiness } from '../../integrations/discoveryService.js'
+import { getDefaultModelForProvider } from '../../integrations/modelCatalog/catalog.js'
 import {
   getProviderPresetUiMetadata,
+  getRouteDefaultModel,
   getRouteLabel,
   resolveRouteIdFromBaseUrl,
 } from '../../integrations/index.js'
@@ -77,6 +79,13 @@ import {
   getLocalOpenAICompatibleProviderLabel,
   type OllamaGenerationReadiness,
 } from '../../utils/providerDiscovery.js'
+
+const DEFAULT_OPENAI_MODEL =
+  getRouteDefaultModel('openai') ??
+  getDefaultModelForProvider('openai') ??
+  'gpt-4o'
+const DEFAULT_GITHUB_MODELS_MODEL =
+  getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
 
 export function buildProviderManagerCompletion(result?: ProviderManagerResult): {
   message: string
@@ -258,7 +267,7 @@ export function getProviderWizardDefaults(
   const secretSource = processEnv as SecretSourceEnv
   const safeOpenAIModel =
     sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource) ||
-    'gpt-4o'
+    DEFAULT_OPENAI_MODEL
   const safeOpenAIBaseUrl =
     sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
     DEFAULT_OPENAI_BASE_URL
@@ -326,7 +335,7 @@ export function buildCurrentProviderSummary(options?: {
     return {
       providerLabel: 'GitHub Models',
       modelLabel: getSafeDisplayValue(
-        processEnv.OPENAI_MODEL ?? 'github:copilot',
+        processEnv.OPENAI_MODEL ?? DEFAULT_GITHUB_MODELS_MODEL,
         secretSource,
       ),
       endpointLabel: getSafeDisplayValue(
@@ -467,7 +476,7 @@ function buildSavedProfileSummary(
           model: env.OPENAI_MODEL,
         }),
         modelLabel: getSafeDisplayValue(
-          env.OPENAI_MODEL ?? 'gpt-4o',
+          env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL,
           process.env,
           env,
         ),
@@ -771,7 +780,7 @@ function AutoGoalChooser({
     {
       label: 'Latency',
       value: 'latency',
-      description: 'Prefer faster local models or gpt-4o-mini defaults',
+      description: 'Prefer faster local models or latency-oriented OpenAI defaults',
     },
   ]
 

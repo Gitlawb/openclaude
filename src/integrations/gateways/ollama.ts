@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'Ollama',
   category: 'local',
   defaultBaseUrl: 'http://localhost:11434/v1',
-  defaultModel: 'llama3.1:8b',
   supportsModelRouting: true,
   setup: {
     requiresAuth: false,

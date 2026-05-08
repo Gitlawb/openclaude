@@ -108,8 +108,8 @@
       },
       "visibility": {
         "defaultFor": [
-          "main",
-          "sonnet"
+          "sonnet",
+          "main"
         ]
       }
     },

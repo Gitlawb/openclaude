@@ -5,7 +5,6 @@ export default defineVendor({
   label: 'xAI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.x.ai/v1',
-  defaultModel: 'grok-4',
   requiredEnvVars: ['XAI_API_KEY'],
   setup: {
     requiresAuth: true,

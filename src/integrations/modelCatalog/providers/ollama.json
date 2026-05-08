@@ -57,7 +57,10 @@
         "preciseTokenCount": false
       },
       "visibility": {
-        "hidden": true
+        "hidden": true,
+        "defaultFor": [
+          "main"
+        ]
       }
     },
     "llama3.3:70b": {

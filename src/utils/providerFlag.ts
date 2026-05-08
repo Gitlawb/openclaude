@@ -22,6 +22,7 @@ import {
   resolveProfileRoute,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
+import { getRouteDefaultModel } from '../integrations/routeMetadata.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -112,11 +113,9 @@ function getRouteDefaults(provider: string): {
     (route.gatewayId ? getGateway(route.gatewayId) : undefined) ??
     getGateway(route.routeId)
 
-  const defaultModel = gateway?.defaultModel ?? vendor?.defaultModel
-
   return {
     defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl,
-    defaultModel,
+    defaultModel: getRouteDefaultModel(route.routeId),
   }
 }
 
@@ -260,14 +259,18 @@ export function applyProviderFlag(
       if (process.env.NVIDIA_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.NVIDIA_API_KEY
       }
-      process.env.OPENAI_MODEL ??= 'nvidia/llama-3.1-nemotron-70b-instruct'
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
       if (model) process.env.OPENAI_MODEL = model
       break
 
     case 'bankr':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://llm.bankr.bot/v1'
-      process.env.OPENAI_MODEL ??= 'claude-opus-4.6'
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.BNKR_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.BNKR_API_KEY
@@ -287,8 +290,10 @@ export function applyProviderFlag(
 
     case 'xai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
-      process.env.OPENAI_MODEL ??= 'grok-4'
+      process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.x.ai/v1'
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY

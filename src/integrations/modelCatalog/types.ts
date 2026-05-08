@@ -26,6 +26,9 @@ export type ModelDefaultRole =
   | 'haiku'
   | 'smallFast'
   | 'advisor'
+  | 'latency'
+  | 'balanced'
+  | 'coding'
 
 export type EffortScheme = 'anthropic' | 'openai' | 'numeric'
 export type DiscoveryParser = 'openai-models-list' | 'ollama-tags' | 'custom'

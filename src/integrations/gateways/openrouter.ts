@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'OpenRouter',
   category: 'aggregating',
   defaultBaseUrl: 'https://openrouter.ai/api/v1',
-  defaultModel: 'openai/gpt-5-mini',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

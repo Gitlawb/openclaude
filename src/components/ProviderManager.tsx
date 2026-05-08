@@ -36,6 +36,7 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMetadata.js'
+import { getDefaultModelForProvider } from '../integrations/modelCatalog/catalog.js'
 import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
   addProviderProfile,
@@ -195,7 +196,8 @@ const FORM_STEPS: Array<{
 
 const GITHUB_PROVIDER_ID = '__github_models__'
 const GITHUB_PROVIDER_LABEL = 'GitHub Models'
-const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
+const GITHUB_PROVIDER_DEFAULT_MODEL =
+  getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
 const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 const CODEX_OAUTH_PROVIDER_NAME = 'Codex OAuth'
 const CODEX_OAUTH_PROVIDER_MODEL = 'codexplan'

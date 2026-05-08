@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'NVIDIA NIM',
   category: 'hosted',
   defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
-  defaultModel: 'nvidia/llama-3.1-nemotron-70b-instruct',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

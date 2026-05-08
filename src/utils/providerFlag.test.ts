@@ -290,7 +290,9 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
     expect(xaiResult.error).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBe('xai-live-key')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+    expect(process.env.OPENAI_BASE_URL as string | undefined).toBe(
+      'https://api.x.ai/v1',
+    )
   })
 })
 
@@ -338,7 +340,9 @@ describe('applyProviderFlag - xai', () => {
     const result = applyProviderFlag('xai', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+    expect(process.env.OPENAI_BASE_URL as string | undefined).toBe(
+      'https://api.x.ai/v1',
+    )
     expect(process.env.OPENAI_MODEL).toBe('grok-4')
   })
 
@@ -353,7 +357,7 @@ describe('applyProviderFlag - xai', () => {
 
     applyProviderFlag('xai', [])
 
-    expect(process.env.OPENAI_API_KEY).toBe('xai-secret-key')
+    expect(process.env.OPENAI_API_KEY as string | undefined).toBe('xai-secret-key')
   })
 
   test('does not override existing OPENAI_API_KEY when both keys are set', () => {

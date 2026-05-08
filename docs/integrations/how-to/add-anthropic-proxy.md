@@ -35,7 +35,7 @@ the appropriate `transportConfig.kind`.
 2. Use `defineAnthropicProxy(...)`.
 3. Set the proxy identity fields.
    Include `id`, `label`, `classification: 'anthropic-proxy'`,
-   `defaultBaseUrl`, and `defaultModel`.
+   and `defaultBaseUrl`.
 4. Fill the setup metadata.
    Add `setup.requiresAuth`, `setup.authMode`, and
    `setup.credentialEnvVars`.
@@ -92,7 +92,6 @@ export default defineAnthropicProxy({
   label: 'Acme Anthropic Proxy',
   classification: 'anthropic-proxy',
   defaultBaseUrl: 'https://anthropic-proxy.acme.example',
-  defaultModel: 'claude-sonnet-4-5',
   requiredEnvVars: ['ACME_ANTHROPIC_PROXY_TOKEN'],
   setup: {
     requiresAuth: true,
@@ -121,11 +120,51 @@ export default defineAnthropicProxy({
 })
 ```
 
+The matching provider JSON owns the model default and Claude-family model
+facts:
+
+```json
+{
+  "schemaVersion": 1,
+  "provider": "acme-anthropic-proxy",
+  "label": "Acme Anthropic Proxy",
+  "baseUrl": "https://anthropic-proxy.acme.example",
+  "endpoints": {
+    "messages": {
+      "path": "/v1/messages",
+      "protocol": "anthropic-messages",
+      "streaming": true
+    }
+  },
+  "defaults": {
+    "endpoint": "messages",
+    "capabilities": {
+      "streaming": true,
+      "vision": true,
+      "functionCalling": true,
+      "jsonMode": true,
+      "reasoning": true
+    }
+  },
+  "models": {
+    "claude-sonnet-4-5": {
+      "label": "Claude Sonnet 4.5",
+      "apiName": "claude-sonnet-4-5",
+      "canonicalModelId": "claude-sonnet-4-5",
+      "visibility": {
+        "defaultFor": ["main"]
+      }
+    }
+  }
+}
+```
+
 Why this is the right shape:
 
 - the route keeps the Anthropic-native contract instead of pretending to be
   OpenAI-compatible;
 - auth/base URL/model env wiring is explicit;
+- the model default lives in provider JSON;
 - the descriptor default-exports typed data and leaves registration to the
   loader;
 - the transport family is encoded through `transportConfig.kind`.

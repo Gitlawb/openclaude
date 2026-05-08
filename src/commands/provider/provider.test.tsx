@@ -645,7 +645,7 @@ test('getProviderWizardDefaults ignores poisoned current provider values', () =>
     GEMINI_MODEL: 'AIzaSecret12345678',
   })
 
-  expect(defaults.openAIModel).toBe('gpt-4o')
+  expect(defaults.openAIModel).toBe('gpt-5.4')
   expect(defaults.openAIBaseUrl).toBe('https://api.openai.com/v1')
   expect(defaults.geminiModel).toBe('gemini-3-flash-preview')
 })

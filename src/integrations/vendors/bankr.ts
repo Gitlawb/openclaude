@@ -5,7 +5,6 @@ export default defineVendor({
   label: 'Bankr',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://llm.bankr.bot/v1',
-  defaultModel: 'claude-opus-4.6',
   requiredEnvVars: ['BNKR_API_KEY'],
   setup: {
     requiresAuth: true,

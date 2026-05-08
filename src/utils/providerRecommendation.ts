@@ -1,3 +1,5 @@
+import { getDefaultModelForProvider } from '../integrations/modelCatalog/catalog.js'
+
 export type RecommendationGoal = 'latency' | 'balanced' | 'coding'
 
 export type OllamaModelDescriptor = {
@@ -213,15 +215,11 @@ export function normalizeRecommendationGoal(
 }
 
 export function getGoalDefaultOpenAIModel(goal: RecommendationGoal): string {
-  switch (goal) {
-    case 'latency':
-      return 'gpt-4o-mini'
-    case 'coding':
-      return 'gpt-5.5'
-    case 'balanced':
-    default:
-      return 'gpt-5.5'
-  }
+  return (
+    getDefaultModelForProvider('openai', goal) ??
+    getDefaultModelForProvider('openai') ??
+    'gpt-5.5'
+  )
 }
 
 export function rankOllamaModels(

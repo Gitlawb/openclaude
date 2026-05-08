@@ -6,19 +6,17 @@ A shared model-family identity such as Claude, GPT, Kimi, DeepSeek, Llama, or
 Qwen. Brands provide reusable family-level metadata and help related model
 descriptors stay organized.
 
-## Catalog
+## Provider Catalog
 
-The route-owned list of models that a vendor route or gateway route actually
-offers. Catalog entries should name the route-facing API model and may point at
-shared model metadata with `modelDescriptorId`. A catalog can be:
+The provider-owned JSON file under
+`src/integrations/modelCatalog/providers/<provider>.json` that declares the
+models a vendor route or gateway route actually offers. Provider catalog
+entries name the route-facing API model and own model facts such as limits,
+capabilities, effort, pricing, endpoint selection, aliases, and visibility.
 
-- `static`
-- `dynamic`
-- `hybrid`
-
-Catalog ownership lives with the route, not with the global model index. Route
-defaults live on the descriptor's `defaultModel`, not as per-entry default or
-recommended flags.
+Route defaults are explicit catalog data: set
+`visibility.defaultFor: ["main"]` on exactly one model in that provider JSON.
+Do not declare route model defaults in descriptors.
 
 ## Category
 
@@ -81,11 +79,10 @@ descriptor files should not call registry mutation helpers directly.
 The descriptive information about an integration, such as:
 
 - label
-- defaults
 - setup/auth hints
 - validation selection
-- discovery policy
-- catalog entries
+- transport flags
+- provider catalog entries
 - request-shaping flags
 
 Metadata answers what a route is and what it supports.

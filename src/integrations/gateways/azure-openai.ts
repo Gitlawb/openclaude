@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'Azure OpenAI',
   category: 'hosted',
   defaultBaseUrl: 'https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1',
-  defaultModel: 'YOUR-DEPLOYMENT-NAME',
   supportsModelRouting: false,
   setup: {
     requiresAuth: true,

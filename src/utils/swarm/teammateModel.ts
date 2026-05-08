@@ -1,10 +1,20 @@
-import { CLAUDE_OPUS_4_6_CONFIG } from '../model/configs.js'
+import { getDefaultModelForProvider } from '../../integrations/modelCatalog/catalog.js'
 import { getAPIProvider } from '../model/providers.js'
 
-// @[MODEL LAUNCH]: Update the fallback model below.
 // When the user has never set teammateDefaultModel in /config, new teammates
-// use Opus 4.6. Must be provider-aware so Bedrock/Vertex/Foundry customers get
-// the correct model ID.
+// use the provider's opus-class catalog default.
 export function getHardcodedTeammateModelFallback(): string {
-  return CLAUDE_OPUS_4_6_CONFIG[getAPIProvider()]
+  const provider = getAPIProvider()
+  const catalogProvider = provider === 'firstParty'
+    ? 'anthropic'
+    : provider === 'github'
+      ? 'github-copilot'
+      : provider
+
+  return (
+    getDefaultModelForProvider(catalogProvider, 'opus') ??
+    getDefaultModelForProvider(catalogProvider) ??
+    getDefaultModelForProvider('anthropic', 'opus') ??
+    'claude-opus-4-6'
+  )
 }

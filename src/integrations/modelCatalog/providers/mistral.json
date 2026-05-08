@@ -115,6 +115,12 @@
         "jsonMode": true,
         "reasoning": false,
         "preciseTokenCount": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "main",
+          "opus"
+        ]
       }
     },
     "ministral-3b-latest": {
@@ -142,6 +148,12 @@
         "jsonMode": true,
         "reasoning": false,
         "preciseTokenCount": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "haiku",
+          "smallFast"
+        ]
       }
     },
     "mixtral-8x7b-32768": {
@@ -223,6 +235,38 @@
         "jsonMode": true,
         "reasoning": false,
         "preciseTokenCount": false
+      }
+    },
+    "mistral-medium-latest": {
+      "label": "Mistral Medium Latest",
+      "apiName": "mistral-medium-latest",
+      "canonicalModelId": "mistral-medium-latest",
+      "brandId": "mistral",
+      "vendorId": "openai",
+      "gatewayId": "mistral",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "sonnet"
+        ]
       }
     }
   }

@@ -28,8 +28,386 @@
     "gatewayId": "bedrock"
   },
   "models": {
-    "bedrock-claude-opus": {
-      "label": "Claude Opus (Bedrock)",
+    "bedrock-claude-3-5-haiku": {
+      "label": "Claude 3.5 Haiku (Bedrock)",
+      "apiName": "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+      "canonicalModelId": "claude-3-5-haiku",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false,
+        "thinking": false,
+        "interleavedThinking": false,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true
+      }
+    },
+    "bedrock-claude-haiku-4-5": {
+      "label": "Claude Haiku 4.5 (Bedrock)",
+      "apiName": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "canonicalModelId": "claude-haiku-4-5",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 144000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false,
+        "thinking": true,
+        "interleavedThinking": false,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true,
+        "structuredOutputs": true
+      },
+      "visibility": {
+        "defaultFor": [
+          "haiku",
+          "smallFast"
+        ]
+      }
+    },
+    "bedrock-claude-3-5-sonnet": {
+      "label": "Claude 3.5 Sonnet (Bedrock)",
+      "apiName": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      "canonicalModelId": "claude-3-5-sonnet",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "vision",
+        "coding"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false,
+        "thinking": false,
+        "interleavedThinking": false,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true
+      }
+    },
+    "bedrock-claude-3-7-sonnet": {
+      "label": "Claude 3.7 Sonnet (Bedrock)",
+      "apiName": "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+      "canonicalModelId": "claude-3-7-sonnet",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": false,
+        "interleavedThinking": false,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true
+      }
+    },
+    "bedrock-claude-sonnet-4": {
+      "label": "Claude Sonnet 4 (Bedrock)",
+      "apiName": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+      "canonicalModelId": "claude-sonnet-4",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true
+      }
+    },
+    "bedrock-claude-sonnet-4-5": {
+      "label": "Claude Sonnet 4.5 (Bedrock)",
+      "apiName": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      "canonicalModelId": "claude-sonnet-4-5",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true,
+        "structuredOutputs": true
+      }
+    },
+    "bedrock-claude-sonnet-4-6": {
+      "label": "Claude Sonnet 4.6 (Bedrock)",
+      "apiName": "us.anthropic.claude-sonnet-4-6",
+      "canonicalModelId": "claude-sonnet-4-6",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true,
+        "adaptiveThinking": true,
+        "structuredOutputs": true,
+        "autoMode": true
+      },
+      "effort": {
+        "scheme": "anthropic",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "defaultLevel": "high"
+      },
+      "contextUpgrade": {
+        "alias": "sonnet[1m]",
+        "label": "Sonnet 4.6 (1M context)",
+        "maxContext": 1000000,
+        "multiplier": 5,
+        "accessPolicy": "extraUsage"
+      },
+      "visibility": {
+        "defaultFor": [
+          "sonnet"
+        ]
+      }
+    },
+    "bedrock-claude-opus-4": {
+      "label": "Claude Opus 4 (Bedrock)",
+      "apiName": "us.anthropic.claude-opus-4-20250514-v1:0",
+      "canonicalModelId": "claude-opus-4",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true
+      }
+    },
+    "bedrock-claude-opus-4-1": {
+      "label": "Claude Opus 4.1 (Bedrock)",
+      "apiName": "us.anthropic.claude-opus-4-1-20250805-v1:0",
+      "canonicalModelId": "claude-opus-4-1",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true,
+        "structuredOutputs": true
+      }
+    },
+    "bedrock-claude-opus-4-5": {
+      "label": "Claude Opus 4.5 (Bedrock)",
+      "apiName": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+      "canonicalModelId": "claude-opus-4-5",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "status": "deprecated",
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true,
+        "structuredOutputs": true
+      }
+    },
+    "bedrock-claude-opus-4-6": {
+      "label": "Claude Opus 4.6 (Bedrock)",
       "apiName": "us.anthropic.claude-opus-4-6-v1",
       "canonicalModelId": "claude-opus-4-6",
       "brandId": "claude",
@@ -46,15 +424,103 @@
         "maxOutputTokens": {
           "default": 8192,
           "upperLimit": 8192
-        }
+        },
+        "compactMaxOutputTokens": 20000
       },
       "capabilities": {
-        "vision": true,
         "streaming": true,
         "functionCalling": true,
         "jsonMode": true,
+        "vision": true,
         "reasoning": true,
-        "preciseTokenCount": false
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true,
+        "adaptiveThinking": true,
+        "fastMode": true,
+        "structuredOutputs": true,
+        "autoMode": true
+      },
+      "effort": {
+        "scheme": "anthropic",
+        "supported": true,
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "defaultLevel": "high",
+        "maxLevel": "max"
+      },
+      "contextUpgrade": {
+        "alias": "claude-opus-4-6[1m]",
+        "label": "Opus 4.6 (1M context)",
+        "maxContext": 1000000,
+        "multiplier": 5,
+        "accessPolicy": "extraUsage"
+      },
+      "visibility": {
+        "defaultFor": [
+          "opus",
+          "main"
+        ]
+      }
+    },
+    "bedrock-claude-opus-4-7": {
+      "label": "Claude Opus 4.7 (Bedrock)",
+      "apiName": "us.anthropic.claude-opus-4-7-v1",
+      "canonicalModelId": "claude-opus-4-7",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "bedrock",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        },
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": true,
+        "thinking": true,
+        "interleavedThinking": true,
+        "contextManagement": true,
+        "promptCaching": true,
+        "webSearch": true,
+        "adaptiveThinking": true,
+        "advisor": true,
+        "advisorTarget": true
+      },
+      "effort": {
+        "scheme": "anthropic",
+        "supported": false,
+        "levels": []
+      },
+      "contextUpgrade": {
+        "alias": "opus[1m]",
+        "label": "Opus 4.7 (1M context)",
+        "maxContext": 1000000,
+        "multiplier": 5,
+        "accessPolicy": "antOnly"
+      },
+      "visibility": {
+        "defaultFor": [
+          "advisor"
+        ]
       }
     }
   }

@@ -132,10 +132,13 @@ Typical helper usage:
 
 - `defineVendor`
 - `defineGateway`
-- `defineCatalog`
 - `defineModel`
 - `defineBrand`
 - `defineAnthropicProxy`
+
+`defineCatalog` remains available for legacy/test fixtures, but normal
+provider and gateway model lists should be authored in provider JSON catalogs
+under `src/integrations/modelCatalog/providers/`.
 
 Normal descriptor files should not:
 

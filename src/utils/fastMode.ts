@@ -28,7 +28,11 @@ import {
 } from './model/model.js'
 import { getAPIProvider } from './model/providers.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
-import { getModelCapabilities } from '../integrations/modelCatalog/catalog.js'
+import {
+  getModelCapabilities,
+  getModelMetadata,
+  getProviderCatalog,
+} from '../integrations/modelCatalog/catalog.js'
 import type { ModelCapabilities } from '../integrations/modelCatalog/types.js'
 import {
   getInitialSettings,
@@ -141,8 +145,18 @@ export function getFastModeUnavailableReason(): string | null {
   return null
 }
 
-// @[MODEL LAUNCH]: Update supported Fast Mode models.
-export const FAST_MODE_MODEL_DISPLAY = 'Opus 4.6'
+function getFastModeModelDisplay(): string {
+  const anthropicCatalog = getProviderCatalog('anthropic')
+  for (const modelId of Object.keys(anthropicCatalog?.models ?? {})) {
+    const metadata = getModelMetadata(modelId, 'anthropic')
+    if (metadata?.capabilities?.fastMode) {
+      return metadata.label.replace(/^Claude\s+/, '')
+    }
+  }
+  return 'Opus 4.6'
+}
+
+export const FAST_MODE_MODEL_DISPLAY = getFastModeModelDisplay()
 
 export function getFastModeModel(): string {
   return 'opus' + (isOpus1mMergeEnabled() ? '[1m]' : '')

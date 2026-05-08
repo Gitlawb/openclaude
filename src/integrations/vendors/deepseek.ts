@@ -5,7 +5,6 @@ export default defineVendor({
   label: 'DeepSeek',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.deepseek.com/v1',
-  defaultModel: 'deepseek-v4-pro',
   requiredEnvVars: ['DEEPSEEK_API_KEY'],
   setup: {
     requiresAuth: true,

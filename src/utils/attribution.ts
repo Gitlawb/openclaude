@@ -2,6 +2,10 @@ import { feature } from 'bun:bundle'
 import { stat } from 'fs/promises'
 import { getClientType } from '../bootstrap/state.js'
 import { getRemoteSessionUrl, isRemoteSessionLocal } from '../constants/product.js'
+import {
+  getDefaultModelForProvider,
+  getModelMetadata,
+} from '../integrations/modelCatalog/catalog.js'
 import { isEnvTruthy } from './envUtils.js'
 import { TERMINAL_OUTPUT_TAGS } from '../constants/xml.js'
 import type { AppState } from '../state/AppState.js'
@@ -48,8 +52,20 @@ function sanitizeCoAuthorNamePart(value: string): string {
     .trim()
 }
 
+function getAnthropicPublicModelDisplayName(model: string): string | null {
+  const has1mSuffix = /\[1m\]$/i.test(model)
+  const baseModel = model.replace(/\[1m\]$/i, '')
+  const metadata = getModelMetadata(baseModel, 'anthropic')
+  const label = has1mSuffix
+    ? metadata?.contextUpgrade?.label
+    : metadata?.ui?.marketingName ?? metadata?.label
+
+  return label?.replace(/^Claude\s+/i, '') ?? null
+}
+
 function formatClaudeCoAuthorName(model: string): string {
-  const publicName = getPublicModelDisplayName(model)
+  const publicName =
+    getAnthropicPublicModelDisplayName(model) ?? getPublicModelDisplayName(model)
   if (!publicName) {
     return sanitizeCoAuthorNamePart(getPublicModelName(model))
   }
@@ -57,6 +73,25 @@ function formatClaudeCoAuthorName(model: string): string {
     ? publicName
     : `Claude ${publicName}`
   return sanitizeCoAuthorNamePart(coAuthorName)
+}
+
+function getDefaultFirstPartyCoAuthorName(): string {
+  const model =
+    getDefaultModelForProvider('anthropic', 'opus') ??
+    getDefaultModelForProvider('anthropic', 'main')
+  if (!model) {
+    return 'Claude'
+  }
+
+  const metadata = getModelMetadata(model, 'anthropic')
+  const label = metadata?.ui?.marketingName ?? metadata?.label
+  if (!label) {
+    return formatClaudeCoAuthorName(model)
+  }
+
+  return sanitizeCoAuthorNamePart(
+    label.startsWith('Claude ') ? label : `Claude ${label}`,
+  )
 }
 
 export function getDefaultCommitCoAuthorName({
@@ -68,7 +103,9 @@ export function getDefaultCommitCoAuthorName({
   apiProvider: string
   isInternalRepo: boolean
 }): string {
-  const isKnownPublicModel = getPublicModelDisplayName(model) !== null
+  const isKnownPublicModel =
+    getAnthropicPublicModelDisplayName(model) !== null ||
+    getPublicModelDisplayName(model) !== null
   const normalizedModel = model.toLowerCase()
   const isClaudeProvider =
     apiProvider === 'firstParty' ||
@@ -85,8 +122,7 @@ export function getDefaultCommitCoAuthorName({
   // historical public fallback. OpenAI-compatible providers should identify the
   // actual configured model instead of claiming Claude Opus.
   if (apiProvider === 'firstParty') {
-    // @[MODEL LAUNCH]: Update this fallback when the default public Claude model changes.
-    return 'Claude Opus 4.6'
+    return getDefaultFirstPartyCoAuthorName()
   }
 
   const sanitizedModel = sanitizeCoAuthorNamePart(model)
@@ -444,6 +480,7 @@ export async function getEnhancedPRAttribution(
   // squash commit body verbatim — trailer lines at the end become proper git
   // trailers on the squash commit.
   if (feature('COMMIT_ATTRIBUTION') && isInternal && attributionData) {
+    // @ts-expect-error Internal-only module is present in COMMIT_ATTRIBUTION builds.
     const { buildPRTrailers } = await import('./attributionTrailer.js')
     const trailers = buildPRTrailers(attributionData, appState.attribution)
     const result = `${summary}\n\n${trailers.join('\n')}`

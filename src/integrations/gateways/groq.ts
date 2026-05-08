@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'Groq',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.groq.com/openai/v1',
-  defaultModel: 'llama-3.3-70b-versatile',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

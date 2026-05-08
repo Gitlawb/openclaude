@@ -72,6 +72,11 @@
         "removeBodyFields": [
           "store"
         ]
+      },
+      "visibility": {
+        "defaultFor": [
+          "main"
+        ]
       }
     }
   }

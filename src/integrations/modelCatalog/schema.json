@@ -228,7 +228,17 @@
           "type": "array",
           "uniqueItems": true,
           "items": {
-            "enum": ["main", "opus", "sonnet", "haiku", "smallFast", "advisor"]
+            "enum": [
+              "main",
+              "opus",
+              "sonnet",
+              "haiku",
+              "smallFast",
+              "advisor",
+              "latency",
+              "balanced",
+              "coding"
+            ]
           }
         }
       }

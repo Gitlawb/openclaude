@@ -65,6 +65,11 @@
         "jsonMode": true,
         "reasoning": true,
         "preciseTokenCount": false
+      },
+      "visibility": {
+        "defaultFor": [
+          "main"
+        ]
       }
     }
   },

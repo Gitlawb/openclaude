@@ -7,6 +7,7 @@ import type {
   ModelCatalogEntry,
   ModelCatalogTemplate,
   ModelEffort,
+  ModelDefaultRole,
   ModelLimits,
   ModelPricing,
   ModelTier,
@@ -141,6 +142,19 @@ export function getAllProviderCatalogs(): ProviderCatalog[] {
   return [...CATALOGS]
 }
 
+export function getAllModelsForProvider(
+  providerId: string,
+): NormalizedModelMetadata[] {
+  const catalog = getProviderCatalog(providerId)
+  if (!catalog) {
+    return []
+  }
+
+  return Object.entries(catalog.models).map(([modelId, entry]) =>
+    mergeModelMetadata(catalog, modelId, entry),
+  )
+}
+
 export function getModelOptions(
   providerId: string,
   tier: ModelTier,
@@ -171,6 +185,25 @@ export function getModelOptions(
       description: model.ui?.pickerDescription ?? model.label,
       descriptionForModel: model.ui?.descriptionForModel,
     }))
+}
+
+export function getDefaultModelForProvider(
+  providerId: string,
+  role: ModelDefaultRole = 'main',
+): string | undefined {
+  const catalog = getProviderCatalog(providerId)
+  if (!catalog) {
+    return undefined
+  }
+
+  const models = Object.entries(catalog.models).map(([modelId, entry]) => ({
+    metadata: mergeModelMetadata(catalog, modelId, entry),
+  }))
+  const explicitDefault = models.find(({ metadata }) =>
+    metadata.visibility?.defaultFor?.includes(role),
+  )
+
+  return explicitDefault?.metadata.apiName
 }
 
 function matchesModelReference(

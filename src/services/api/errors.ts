@@ -7,6 +7,7 @@ import type {
   BetaMessage,
   BetaStopReason,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import { getModelMetadata } from 'src/integrations/modelCatalog/catalog.js'
 import { AFK_MODE_BETA_HEADER } from 'src/constants/betas.js'
 import type { SDKAssistantMessageError } from 'src/entrypoints/agentSdkTypes.js'
 import type {
@@ -58,6 +59,15 @@ import {
 } from './openaiErrorClassification.js'
 
 export const API_ERROR_MESSAGE_PREFIX = 'API Error'
+const DEFAULT_FEEDBACK_CHANNEL = 'https://github.com/Gitlawb/openclaude/issues'
+
+function getFeedbackChannel(): string {
+  if (typeof MACRO === 'undefined') {
+    return DEFAULT_FEEDBACK_CHANNEL
+  }
+
+  return MACRO.FEEDBACK_CHANNEL ?? MACRO.ISSUES_EXPLAINER ?? DEFAULT_FEEDBACK_CHANNEL
+}
 
 function stripOpenAICompatibilityMetadata(message: string): string {
   return message
@@ -816,7 +826,7 @@ export function getAssistantMessageFromError(
     }
 
     if (process.env.USER_TYPE === 'ant') {
-      const baseMessage = `API Error: 400 ${error.message}\n\nRun /share and post the JSON file to ${MACRO.FEEDBACK_CHANNEL}.`
+      const baseMessage = `API Error: 400 ${error.message}\n\nRun /share and post the JSON file to ${getFeedbackChannel()}.`
       const rewindInstruction = getIsNonInteractiveSession()
         ? ''
         : ' Then, use /rewind to recover the conversation.'
@@ -891,8 +901,8 @@ export function getAssistantMessageFromError(
     const orgId = getOauthAccountInfo()?.organizationUuid
     const baseMsg = `[internal] Your org isn't gated into the \`${model}\` model. Either run \`claude\` with \`ANTHROPIC_MODEL=${getDefaultMainLoopModelSetting()}\``
     const msg = orgId
-      ? `${baseMsg} or share your orgId (${orgId}) in ${MACRO.FEEDBACK_CHANNEL} for help getting access.`
-      : `${baseMsg} or reach out in ${MACRO.FEEDBACK_CHANNEL} for help getting access.`
+      ? `${baseMsg} or share your orgId (${orgId}) in ${getFeedbackChannel()} for help getting access.`
+      : `${baseMsg} or reach out in ${getFeedbackChannel()} for help getting access.`
 
     return createAssistantAPIErrorMessage({
       content: msg,
@@ -1097,7 +1107,23 @@ function get3PModelFallbackSuggestion(model: string): string | undefined {
   if (getAPIProvider() === 'firstParty') {
     return undefined
   }
-  // @[MODEL LAUNCH]: Add a fallback suggestion chain for the new model → previous version for 3P
+  try {
+    const catalogSuggestion = getModelMetadata(model, 'anthropic')?.compatibility
+      ?.fallbackSuggestion
+    if (catalogSuggestion) {
+      return catalogSuggestion
+    }
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !error.message.startsWith('Ambiguous model lookup')
+    ) {
+      throw error
+    }
+  }
+
+  // Fallback for provider-specific aliases that do not exactly match the
+  // canonical Anthropic catalog id.
   const m = model.toLowerCase()
   // If the failing model looks like an Opus 4.6 variant, suggest the default Opus (4.1 for 3P)
   if (m.includes('opus-4-6') || m.includes('opus_4_6')) {

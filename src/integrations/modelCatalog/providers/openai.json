@@ -73,6 +73,12 @@
           "xhigh"
         ],
         "defaultLevel": "high"
+      },
+      "visibility": {
+        "defaultFor": [
+          "balanced",
+          "coding"
+        ]
       }
     },
     "gpt-5.5-mini": {
@@ -181,9 +187,9 @@
       },
       "visibility": {
         "defaultFor": [
-          "main",
           "opus",
-          "sonnet"
+          "sonnet",
+          "main"
         ]
       }
     },
@@ -409,7 +415,8 @@
       "visibility": {
         "defaultFor": [
           "haiku",
-          "smallFast"
+          "smallFast",
+          "latency"
         ]
       }
     },

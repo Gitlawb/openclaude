@@ -118,7 +118,20 @@
         "sonnet"
       ],
       "compatibility": {
-        "fallbackSuggestion": "claude-sonnet-4-5"
+        "fallbackSuggestion": "claude-sonnet-4-5",
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-sonnet-4-6",
+          "vertex": "claude-sonnet-4-6",
+          "foundry": "claude-sonnet-4-6",
+          "openai": "gpt-4o",
+          "gemini": "gemini-2.0-flash",
+          "mistral": "mistral-medium-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       },
       "limits": {
         "contextWindow": 200000,
@@ -145,13 +158,13 @@
       },
       "visibility": {
         "defaultFor": [
-          "main",
-          "sonnet"
+          "sonnet",
+          "main"
         ]
       },
       "contextUpgrade": {
         "alias": "sonnet[1m]",
-        "label": "Sonnet (1M context)",
+        "label": "Sonnet 4.6 (1M context)",
         "maxContext": 1000000,
         "multiplier": 5,
         "accessPolicy": "extraUsage"
@@ -194,10 +207,25 @@
       },
       "contextUpgrade": {
         "alias": "opus[1m]",
-        "label": "Opus (1M context)",
+        "label": "Opus 4.7 (1M context)",
         "maxContext": 1000000,
         "multiplier": 5,
         "accessPolicy": "antOnly"
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-opus-4-7-v1",
+          "vertex": "claude-opus-4-7",
+          "foundry": "claude-opus-4-7",
+          "openai": "gpt-4o",
+          "gemini": "gemini-2.5-pro",
+          "mistral": "devstral-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-opus-4-6": {
@@ -254,6 +282,22 @@
         "maxContext": 1000000,
         "multiplier": 5,
         "accessPolicy": "extraUsage"
+      },
+      "compatibility": {
+        "fallbackSuggestion": "claude-opus-4-1",
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-opus-4-6-v1",
+          "vertex": "claude-opus-4-6",
+          "foundry": "claude-opus-4-6",
+          "openai": "gpt-4o",
+          "gemini": "gemini-2.5-pro",
+          "mistral": "devstral-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-haiku-4-5": {
@@ -294,6 +338,21 @@
           "haiku",
           "smallFast"
         ]
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          "vertex": "claude-haiku-4-5@20251001",
+          "foundry": "claude-haiku-4-5",
+          "openai": "gpt-4o-mini",
+          "gemini": "gemini-2.0-flash-lite",
+          "mistral": "ministral-3b-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-opus-4-5": {
@@ -314,6 +373,21 @@
       },
       "capabilities": {
         "structuredOutputs": true
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-opus-4-5-20251101-v1:0",
+          "vertex": "claude-opus-4-5@20251101",
+          "foundry": "claude-opus-4-5",
+          "openai": "gpt-4o",
+          "gemini": "gemini-2.5-pro",
+          "mistral": "devstral-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-opus-4-1": {
@@ -334,6 +408,21 @@
       },
       "capabilities": {
         "structuredOutputs": true
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-opus-4-1-20250805-v1:0",
+          "vertex": "claude-opus-4-1@20250805",
+          "foundry": "claude-opus-4-1",
+          "openai": "gpt-4o",
+          "gemini": "gemini-2.5-pro",
+          "mistral": "devstral-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-opus-4": {
@@ -351,6 +440,21 @@
           "upperLimit": 32000
         },
         "compactMaxOutputTokens": 20000
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-opus-4-20250514-v1:0",
+          "vertex": "claude-opus-4@20250514",
+          "foundry": "claude-opus-4",
+          "openai": "gpt-4o",
+          "gemini": "gemini-2.5-pro",
+          "mistral": "devstral-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-sonnet-4-5": {
@@ -371,6 +475,22 @@
       },
       "capabilities": {
         "structuredOutputs": true
+      },
+      "compatibility": {
+        "fallbackSuggestion": "claude-sonnet-4",
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "vertex": "claude-sonnet-4-5@20250929",
+          "foundry": "claude-sonnet-4-5",
+          "openai": "gpt-4o",
+          "gemini": "gemini-2.0-flash",
+          "mistral": "mistral-medium-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-sonnet-4": {
@@ -388,6 +508,21 @@
           "upperLimit": 64000
         },
         "compactMaxOutputTokens": 20000
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+          "vertex": "claude-sonnet-4@20250514",
+          "foundry": "claude-sonnet-4",
+          "openai": "gpt-4o-mini",
+          "gemini": "gemini-2.0-flash",
+          "mistral": "mistral-medium-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-3-7-sonnet": {
@@ -420,6 +555,21 @@
         "thinking": false,
         "interleavedThinking": false,
         "promptCaching": true
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+          "vertex": "claude-3-7-sonnet@20250219",
+          "foundry": "claude-3-7-sonnet",
+          "openai": "gpt-4o-mini",
+          "gemini": "gemini-2.0-flash",
+          "mistral": "mistral-medium-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-3-5-sonnet": {
@@ -451,6 +601,21 @@
         "thinking": false,
         "interleavedThinking": false,
         "promptCaching": true
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+          "vertex": "claude-3-5-sonnet-v2@20241022",
+          "foundry": "claude-3-5-sonnet",
+          "openai": "gpt-4o-mini",
+          "gemini": "gemini-2.0-flash",
+          "mistral": "mistral-medium-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     },
     "claude-3-5-haiku": {
@@ -481,6 +646,21 @@
         "thinking": false,
         "interleavedThinking": false,
         "promptCaching": true
+      },
+      "compatibility": {
+        "providerModelMap": {
+          "bedrock": "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+          "vertex": "claude-3-5-haiku@20241022",
+          "foundry": "claude-3-5-haiku",
+          "openai": "gpt-4o-mini",
+          "gemini": "gemini-2.0-flash-lite",
+          "mistral": "ministral-3b-latest",
+          "github": "github:copilot",
+          "codex": "gpt-5.5",
+          "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
+          "minimax": "MiniMax-M2.5",
+          "xai": "grok-4"
+        }
       }
     }
   },

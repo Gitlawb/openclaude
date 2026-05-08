@@ -22,6 +22,7 @@ import {
   validateIntegrationRegistry,
 } from './index.js'
 import { getAllProviderCatalogs } from './modelCatalog/catalog.js'
+import { getRouteDefaultModel } from './routeMetadata.js'
 
 describe('loaded registry validation', () => {
   test('registry is valid after loading all descriptors', () => {
@@ -47,15 +48,18 @@ describe('loaded registry validation', () => {
     expect(routeSupportsCustomHeaders('minimax')).toBe(false)
   })
 
-  test('route catalogs do not duplicate defaultModel with catalog default flags', () => {
+  test('route defaults live in provider JSON, not route descriptors', () => {
     const routes = [...getAllVendors(), ...getAllGateways()]
-    expect(
-      routes.flatMap(route =>
-        (route.catalog?.models ?? [])
-          .filter(model => model.default)
-          .map(model => `${route.id}:${model.id}`),
-      ),
-    ).toEqual([])
+    const descriptorDefaults = routes
+      .filter(route => 'defaultModel' in route && route.defaultModel !== undefined)
+      .map(route => route.id)
+
+    const missingCatalogDefaults = routes
+      .filter(route => getRouteDefaultModel(route.id) === undefined)
+      .map(route => route.id)
+
+    expect(descriptorDefaults).toEqual([])
+    expect(missingCatalogDefaults).toEqual([])
   })
 
   test('route model catalogs live only in provider JSON files', () => {
@@ -106,10 +110,13 @@ describe('loaded registry validation', () => {
 
   test('static gateway catalog entries use shared model descriptors when known', () => {
     const descriptorOptionalEntries = new Set([
+      'atomic-chat:local-model',
       'azure-openai:azure-deployment',
+      'custom:local-model',
+      'lmstudio:local-model',
     ])
     const missingDescriptors = getAllGateways().flatMap(gateway =>
-      (gateway.catalog?.models ?? [])
+      getCatalogEntriesForRoute(gateway.id)
         .filter(entry => !descriptorOptionalEntries.has(`${gateway.id}:${entry.id}`))
         .filter(entry => !entry.modelDescriptorId)
         .map(entry => `${gateway.id}:${entry.id}`),
@@ -118,25 +125,15 @@ describe('loaded registry validation', () => {
     expect(missingDescriptors).toEqual([])
   })
 
-  test('gateway defaultModel values are present in their static catalog', () => {
-    const dynamicCatalogRoutes = new Set([
-      'atomic-chat',
-      'custom',
-      'lmstudio',
-      'ollama',
-    ])
-    const missingDefaults = getAllGateways()
-      .filter(gateway => gateway.defaultModel)
-      .filter(gateway => !dynamicCatalogRoutes.has(gateway.id))
-      .filter(gateway => {
-        const defaultModel = gateway.defaultModel?.trim()
-        return !getCatalogEntriesForRoute(gateway.id).some(
-          entry =>
-            entry.apiName === defaultModel ||
-            entry.modelDescriptorId === defaultModel,
+  test('route default models resolve from a catalog default entry', () => {
+    const missingDefaults = [...getAllVendors(), ...getAllGateways()]
+      .filter(route => {
+        const defaultModel = getRouteDefaultModel(route.id)
+        return !defaultModel || !getCatalogEntriesForRoute(route.id).some(
+          entry => entry.default && entry.apiName === defaultModel,
         )
       })
-      .map(gateway => `${gateway.id}:${gateway.defaultModel}`)
+      .map(route => `${route.id}:${getRouteDefaultModel(route.id) ?? '<none>'}`)
 
     expect(missingDefaults).toEqual([])
   })

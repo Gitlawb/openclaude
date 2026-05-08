@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'LM Studio',
   category: 'local',
   defaultBaseUrl: 'http://localhost:1234/v1',
-  defaultModel: 'local-model',
   supportsModelRouting: true,
   setup: {
     requiresAuth: false,

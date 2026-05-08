@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'Moonshot AI - Kimi Code',
   category: 'hosted',
   defaultBaseUrl: 'https://api.kimi.com/coding/v1',
-  defaultModel: 'kimi-for-coding',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

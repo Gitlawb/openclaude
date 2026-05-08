@@ -5,7 +5,6 @@ export default defineGateway({
   label: 'Hicap',
   category: 'aggregating',
   defaultBaseUrl: 'https://api.hicap.ai/v1',
-  defaultModel: 'claude-opus-4.7',
   supportsModelRouting: true,
   setup: {
     requiresAuth: true,

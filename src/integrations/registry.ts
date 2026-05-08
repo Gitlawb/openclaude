@@ -21,6 +21,16 @@ const _gateways = new Map<string, GatewayDescriptor>()
 const _anthropicProxies = new Map<string, AnthropicProxyDescriptor>()
 const _models = new Map<string, ModelDescriptor>()
 
+type LegacyRouteDefaultModel = {
+  defaultModel?: unknown
+}
+
+function getLegacyRouteDefaultModel(
+  route: VendorDescriptor | GatewayDescriptor | AnthropicProxyDescriptor,
+): unknown {
+  return (route as LegacyRouteDefaultModel).defaultModel
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -254,18 +264,22 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
       )
     }
 
-    const defaultModelValue =
-      'defaultModel' in route ? route.defaultModel : undefined
+    const defaultModelValue = getLegacyRouteDefaultModel(route)
+    if (defaultModelValue !== undefined) {
+      errors.push(
+        `Route "${route.id}" must declare its default model in provider JSON visibility.defaultFor, not descriptor.defaultModel`,
+      )
+    }
+    const routeCatalogEntries = getCatalogEntriesForRoute(route.id)
     const hasCatalogDefaultModel =
-      (route.catalog?.models?.find(model => model.default) ??
-        route.catalog?.models?.[0]) !== undefined
+      routeCatalogEntries.some(model => model.default)
     const hasDefaultModel =
       typeof defaultModelValue === 'string'
         ? defaultModelValue.trim().length > 0
         : hasCatalogDefaultModel
     if (!hasDefaultModel && !preset.fallbackModel) {
       errors.push(
-        `Preset route "${route.id}" must provide a defaultModel or preset.fallbackModel`,
+        `Preset route "${route.id}" must provide a provider JSON visibility.defaultFor default or preset.fallbackModel`,
       )
     }
 
@@ -296,9 +310,12 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
     let defaultCount = 0
     const routeDescriptor = _gateways.get(route.id) ?? _vendors.get(route.id)
     const explicitDefaultModel =
-      routeDescriptor &&
-      'defaultModel' in routeDescriptor &&
-      routeDescriptor.defaultModel !== undefined
+      routeDescriptor && getLegacyRouteDefaultModel(routeDescriptor) !== undefined
+    if (explicitDefaultModel) {
+      errors.push(
+        `Route "${route.id}" must declare its default model in provider JSON visibility.defaultFor, not descriptor.defaultModel`,
+      )
+    }
 
     for (const entry of catalog.models ?? []) {
       // Duplicate entry ids within route
@@ -319,7 +336,7 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
         defaultCount++
         if (explicitDefaultModel) {
           errors.push(
-            `Catalog entry "${entry.id}" in route "${route.id}" must not set default because the route defines defaultModel`,
+            `Route "${route.id}" must use provider JSON default flags instead of descriptor.defaultModel`,
           )
         }
       }

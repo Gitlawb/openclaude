@@ -8,6 +8,7 @@ import custom from './providers/custom.json'
 import dashscopeCn from './providers/dashscope-cn.json'
 import dashscopeIntl from './providers/dashscope-intl.json'
 import deepseek from './providers/deepseek.json'
+import foundry from './providers/foundry.json'
 import gemini from './providers/gemini.json'
 import githubCopilot from './providers/github-copilot.json'
 import github from './providers/github.json'
@@ -55,6 +56,7 @@ export const PROVIDER_CATALOGS = [
   xai,
   moonshot,
   deepseek,
+  foundry,
   together,
   vertex,
   zai,

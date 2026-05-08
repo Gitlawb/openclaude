@@ -23,6 +23,7 @@ import {
 } from '../../integrations/discoveryService.js'
 import {
   getRouteDescriptor,
+  getRouteDefaultModel,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
 } from '../../integrations/routeMetadata.js'
@@ -182,8 +183,7 @@ async function loadDescriptorDiscoveryContext(
   }
 
   const routeLabel = descriptor.label
-  const routeDefaultModel =
-    'defaultModel' in descriptor ? descriptor.defaultModel : undefined
+  const routeDefaultModel = getRouteDefaultModel(routeId)
   const staticEntries = catalog.models ?? []
   const trafficRestricted = isEssentialTrafficOnly()
   const canRefresh = Boolean(

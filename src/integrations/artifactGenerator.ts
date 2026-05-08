@@ -24,6 +24,10 @@ type RouteModule = {
   importPath: string
 }
 
+type LegacyRouteDefaultModel = {
+  defaultModel?: unknown
+}
+
 type BrandModule = {
   descriptor: BrandDescriptor
   importName: string
@@ -313,26 +317,18 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
     }
 
     const defaultModelValue =
-      'defaultModel' in descriptor ? descriptor.defaultModel : undefined
+      (descriptor as LegacyRouteDefaultModel).defaultModel
     const routeCatalog = descriptor.catalog ?? getRouteCatalogConfig(descriptor.id)
-    const hasCatalogDefaultModel =
-      (routeCatalog?.models?.find(model => model.default) ??
-        routeCatalog?.models?.[0]) !== undefined
-    const hasDefaultModel =
-      typeof defaultModelValue === 'string'
-        ? defaultModelValue.trim().length > 0
-        : hasCatalogDefaultModel
-    if (!hasDefaultModel && !preset.fallbackModel) {
+    if (defaultModelValue !== undefined) {
       throw new Error(
-        `Preset route "${descriptor.id}" must provide a defaultModel or preset.fallbackModel.`,
+        `Preset route "${descriptor.id}" must declare its default model in provider JSON visibility.defaultFor, not descriptor.defaultModel.`,
       )
     }
-    if (
-      defaultModelValue !== undefined &&
-      routeCatalog?.models?.some(model => model.default)
-    ) {
+    const hasCatalogDefaultModel =
+      routeCatalog?.models?.some(model => model.default) ?? false
+    if (!hasCatalogDefaultModel && !preset.fallbackModel) {
       throw new Error(
-        `Preset route "${descriptor.id}" must use defaultModel instead of catalog default flags.`,
+        `Preset route "${descriptor.id}" must provide a provider JSON visibility.defaultFor default or preset.fallbackModel.`,
       )
     }
 

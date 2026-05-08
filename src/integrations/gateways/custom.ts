@@ -4,7 +4,6 @@ export default defineGateway({
   id: 'custom',
   label: 'Custom OpenAI-compatible',
   category: 'hosted',
-  defaultModel: 'llama3.1:8b',
   supportsModelRouting: true,
   setup: {
     requiresAuth: false,
