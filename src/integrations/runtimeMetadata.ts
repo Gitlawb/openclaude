@@ -9,9 +9,12 @@ import {
 import { ensureIntegrationsLoaded } from './index.js'
 import {
   getAllProviderCatalogs,
+  getModelEndpoint,
   getModelLimits,
+  getModelMetadata,
 } from './modelCatalog/catalog.js'
 import type {
+  CatalogRequestConfig,
   ModelLimits,
   ModelOutputTokenLimits,
   ProviderCatalog,
@@ -98,19 +101,24 @@ function mergeRemoveBodyFields(
 
 function mergeOpenAIShimConfig(
   baseConfig: OpenAIShimTransportConfig | undefined,
-  entryConfig: Partial<OpenAIShimTransportConfig> | undefined,
-  inferredConfig: Partial<OpenAIShimTransportConfig> | undefined,
+  ...configs: Array<Partial<OpenAIShimTransportConfig> | undefined>
 ): OpenAIShimTransportConfig {
+  const merged = Object.assign({}, baseConfig, ...configs)
   return {
-    ...baseConfig,
-    ...entryConfig,
-    ...inferredConfig,
+    ...merged,
     removeBodyFields: mergeRemoveBodyFields(
       baseConfig?.removeBodyFields,
-      entryConfig?.removeBodyFields,
-      inferredConfig?.removeBodyFields,
+      ...configs.map(config => config?.removeBodyFields),
     ),
   }
+}
+
+function openAIShimFromCatalogRequest(
+  request: CatalogRequestConfig | undefined,
+): Partial<OpenAIShimTransportConfig> | undefined {
+  if (!request) return undefined
+  const { reasoningField: _reasoningField, ...openaiShimConfig } = request
+  return openaiShimConfig
 }
 
 function normalizePrefix(value: string): string {
@@ -188,6 +196,19 @@ export type ModelRuntimeLimits = {
   maxOutputTokenLimits?: ModelOutputTokenLimits
 }
 
+export function resolveCatalogProviderIdForRuntimeRequest(
+  routeId: string | null,
+  runtimeEnv: NodeJS.ProcessEnv,
+): string | undefined {
+  if (routeId && routeId !== 'custom') {
+    return routeId
+  }
+
+  return findCatalogProviderForBaseUrl(
+    runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE,
+  )?.provider
+}
+
 export function resolveOpenAIShimRuntimeContext(options?: {
   processEnv?: NodeJS.ProcessEnv
   baseUrl?: string
@@ -225,6 +246,17 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     descriptor && routeId
       ? getCatalogEntryForModel(routeId, options?.model)
       : null
+  const modelApiName = options?.model ?? runtimeEnv.OPENAI_MODEL ?? ''
+  const catalogProviderId = resolveCatalogProviderIdForRuntimeRequest(
+    routeId,
+    runtimeEnv,
+  )
+  const catalogMetadata = catalogProviderId
+    ? getModelMetadata(modelApiName, catalogProviderId)
+    : undefined
+  const catalogEndpoint = catalogProviderId
+    ? getModelEndpoint(modelApiName, catalogProviderId)
+    : undefined
   const inferredConfig =
     options?.treatAsLocal === true
       ? {
@@ -239,6 +271,12 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     openaiShimConfig: mergeOpenAIShimConfig(
       descriptor?.transportConfig.openaiShim,
       catalogEntry?.transportOverrides?.openaiShim,
+      routeId === 'openai'
+        ? undefined
+        : openAIShimFromCatalogRequest(catalogEndpoint?.request),
+      routeId === 'openai'
+        ? undefined
+        : openAIShimFromCatalogRequest(catalogMetadata?.request),
       inferredConfig,
     ),
   }
