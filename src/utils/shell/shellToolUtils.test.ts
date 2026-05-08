@@ -122,8 +122,12 @@ describe('isPowerShellToolEnabled (Windows)', () => {
 describe('resolveDefaultShell (Windows)', () => {
   test('returns bash by default on Windows without env var', async () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
+    mock.module('../settings/settings.js', () => ({
+      getInitialSettings: () => ({}),
+    }))
     const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
     expect(resolveDefaultShell()).toBe('bash')
+    mock.module('../settings/settings.js', () => ({}))
   })
 
   test('returns powershell when preferred env var is truthy on Windows', async () => {
