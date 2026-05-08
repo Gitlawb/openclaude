@@ -1,4 +1,5 @@
 import { statSync } from 'fs'
+import { spawn } from 'cross-spawn'
 import ignore from 'ignore'
 import * as path from 'path'
 import {
@@ -17,7 +18,6 @@ import { getGlobalConfig } from '../utils/config.js'
 import { getCwd } from '../utils/cwd.js'
 import { logForDebugging } from '../utils/debug.js'
 import { errorMessage } from '../utils/errors.js'
-import { execFileNoThrowWithCwd } from '../utils/execFileNoThrow.js'
 import { getFsImplementation } from '../utils/fsOperations.js'
 import { findGitRoot, gitExe } from '../utils/git.js'
 import {
@@ -26,7 +26,7 @@ import {
 } from '../utils/hooks.js'
 import { logError } from '../utils/log.js'
 import { expandPath } from '../utils/path.js'
-import { ripGrep } from '../utils/ripgrep.js'
+import { ripGrepStream } from '../utils/ripgrep.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
 import { createSignal } from '../utils/signal.js'
 
@@ -76,6 +76,265 @@ let lastGitIndexMtime: number | null = null
 // (e.g. `git add` of an already-tracked file bumps index mtime but not the list).
 let loadedTrackedSignature: string | null = null
 let loadedMergedSignature: string | null = null
+
+const MAX_FILE_SUGGESTION_FILES = 200_000
+const FILE_SUGGESTION_EXCLUDED_DIRS = new Set([
+  '.git',
+  '.hg',
+  '.svn',
+  'node_modules',
+  '.pnpm-store',
+  '.yarn',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  '.turbo',
+  'dist',
+  'build',
+  'out',
+  'output',
+  'coverage',
+  '.cache',
+  '__pycache__',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
+  '.tox',
+  'venv',
+  '.venv',
+  '__pypackages__',
+  'site-packages',
+  'wandb',
+  'lightning_logs',
+  'mlruns',
+])
+
+export function normalizeFileSuggestionPath(filePath: string): string {
+  if (filePath.startsWith('./') || filePath.startsWith('.\\')) {
+    return filePath.slice(2)
+  }
+  return filePath
+}
+
+export function shouldExcludeFileSuggestionPath(filePath: string): boolean {
+  const normalizedPath = normalizeFileSuggestionPath(filePath)
+  const isDirectory = /[\\/]$/.test(normalizedPath)
+  const normalized = normalizedPath
+    .replaceAll('\\', '/')
+    .replace(/\/$/, '')
+    .toLowerCase()
+  const parts = normalized.split('/').filter(Boolean)
+  const lastDirIndex = isDirectory ? parts.length : parts.length - 1
+  for (let i = 0; i < lastDirIndex; i++) {
+    if (FILE_SUGGESTION_EXCLUDED_DIRS.has(parts[i]!)) {
+      return true
+    }
+  }
+  return false
+}
+
+export function filterCandidatePathsForSuggestions(
+  filePaths: string[],
+  maxFiles = MAX_FILE_SUGGESTION_FILES,
+  ignorePatterns?: ReturnType<typeof ignore> | null,
+): { files: string[]; truncated: boolean } {
+  const files: string[] = []
+  for (const rawPath of filePaths) {
+    if (
+      tryAddFileSuggestionPath(rawPath, files, maxFiles, ignorePatterns)
+    ) {
+      return { files, truncated: true }
+    }
+  }
+  return { files, truncated: false }
+}
+
+function tryAddFileSuggestionPath(
+  rawPath: string,
+  out: string[],
+  maxFiles: number,
+  ignorePatterns?: ReturnType<typeof ignore> | null,
+): boolean {
+  if (!rawPath) return false
+  const normalizedPath = normalizeFileSuggestionPath(rawPath)
+  if (!normalizedPath) return false
+  if (ignorePatterns?.ignores(normalizedPath)) return false
+  if (shouldExcludeFileSuggestionPath(normalizedPath)) return false
+  out.push(normalizedPath)
+  return out.length >= maxFiles
+}
+
+function normalizeGitPath(
+  file: string,
+  repoRoot: string,
+  originalCwd: string,
+): string {
+  if (originalCwd === repoRoot) {
+    return file
+  }
+  return path.relative(originalCwd, path.join(repoRoot, file))
+}
+
+async function collectGitPaths(
+  gitArgs: string[],
+  params: {
+    repoRoot: string
+    cwd: string
+    abortSignal: AbortSignal
+    maxFiles: number
+    ignorePatterns?: ReturnType<typeof ignore> | null
+  },
+): Promise<{ files: string[]; truncated: boolean; code: number; stderr: string }> {
+  const { repoRoot, cwd, abortSignal, maxFiles, ignorePatterns } = params
+  const controller = new AbortController()
+  const forwardAbort = () => controller.abort()
+  if (abortSignal.aborted) {
+    controller.abort()
+  } else {
+    abortSignal.addEventListener('abort', forwardAbort, { once: true })
+  }
+
+  try {
+    return await new Promise(resolve => {
+      const child = spawn(gitExe(), gitArgs, {
+        cwd: repoRoot,
+        shell: false,
+        signal: controller.signal,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+
+      const files: string[] = []
+      let remainder = ''
+      let stderr = ''
+      let truncated = false
+      let settled = false
+
+      const finish = (result: {
+        files: string[]
+        truncated: boolean
+        code: number
+        stderr: string
+      }) => {
+        if (settled) return
+        settled = true
+        resolve(result)
+      }
+
+      const processLine = (line: string) => {
+        const normalizedPath = normalizeGitPath(line, repoRoot, cwd)
+        if (
+          tryAddFileSuggestionPath(
+            normalizedPath,
+            files,
+            maxFiles,
+            ignorePatterns,
+          )
+        ) {
+          truncated = true
+          controller.abort()
+        }
+      }
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        const data = remainder + chunk.toString('utf8')
+        const lines = data.split('\n')
+        remainder = lines.pop() ?? ''
+        for (const rawLine of lines) {
+          const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
+          if (!line) continue
+          processLine(line)
+          if (truncated) break
+        }
+      })
+
+      child.stderr?.on('data', (chunk: Buffer) => {
+        if (stderr.length >= 8192) return
+        stderr += chunk.toString('utf8').slice(0, 8192 - stderr.length)
+      })
+
+      child.on('error', error => {
+        if (truncated) {
+          finish({ files, truncated: true, code: 0, stderr })
+          return
+        }
+        if (controller.signal.aborted && abortSignal.aborted) {
+          finish({ files, truncated: false, code: 0, stderr })
+          return
+        }
+        if (controller.signal.aborted && files.length > 0) {
+          finish({ files, truncated: false, code: 0, stderr })
+          return
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        finish({ files, truncated, code: 1, stderr: stderr || message })
+      })
+
+      child.on('close', code => {
+        if (!truncated && remainder) {
+          const line = remainder.endsWith('\r')
+            ? remainder.slice(0, -1)
+            : remainder
+          if (line) {
+            processLine(line)
+          }
+        }
+
+        if (truncated) {
+          finish({ files, truncated: true, code: 0, stderr })
+          return
+        }
+
+        if (controller.signal.aborted && files.length > 0) {
+          finish({ files, truncated: false, code: 0, stderr })
+          return
+        }
+
+        finish({ files, truncated: false, code: code ?? 1, stderr })
+      })
+    })
+  } finally {
+    abortSignal.removeEventListener('abort', forwardAbort)
+  }
+}
+
+async function collectRipgrepPaths(
+  args: string[],
+  target: string,
+  abortSignal: AbortSignal,
+  maxFiles: number,
+): Promise<{ files: string[]; truncated: boolean }> {
+  const controller = new AbortController()
+  const forwardAbort = () => controller.abort()
+  if (abortSignal.aborted) {
+    controller.abort()
+  } else {
+    abortSignal.addEventListener('abort', forwardAbort, { once: true })
+  }
+
+  const files: string[] = []
+  let truncated = false
+
+  try {
+    await ripGrepStream(args, target, controller.signal, lines => {
+      for (const line of lines) {
+        if (tryAddFileSuggestionPath(line, files, maxFiles)) {
+          truncated = true
+          controller.abort()
+          break
+        }
+      }
+    })
+  } catch (error) {
+    if (!(truncated || (error as Error)?.name === 'AbortError')) {
+      throw error
+    }
+  } finally {
+    abortSignal.removeEventListener('abort', forwardAbort)
+  }
+
+  return { files, truncated }
+}
 
 /**
  * Clear all file suggestion caches.
@@ -149,20 +408,6 @@ function getGitIndexMtime(): number | null {
 /**
  * Normalize git paths relative to originalCwd
  */
-function normalizeGitPaths(
-  files: string[],
-  repoRoot: string,
-  originalCwd: string,
-): string[] {
-  if (originalCwd === repoRoot) {
-    return files
-  }
-  return files.map(f => {
-    const absolutePath = path.join(repoRoot, f)
-    return path.relative(originalCwd, absolutePath)
-  })
-}
-
 /**
  * Merge already-normalized untracked files into the cache
  */
@@ -261,14 +506,20 @@ async function getFilesUsingGit(
 
   try {
     const cwd = getCwd()
+    const ignorePatterns = await loadRipgrepIgnorePatterns(repoRoot, cwd)
 
     // Get tracked files (fast - reads from git index)
     // Run from repoRoot so paths are relative to repo root, not CWD
     const lsFilesStart = Date.now()
-    const trackedResult = await execFileNoThrowWithCwd(
-      gitExe(),
+    const trackedResult = await collectGitPaths(
       ['-c', 'core.quotepath=false', 'ls-files', '--recurse-submodules'],
-      { timeout: 5000, abortSignal, cwd: repoRoot },
+      {
+        repoRoot,
+        cwd,
+        abortSignal,
+        maxFiles: MAX_FILE_SUGGESTION_FILES,
+        ignorePatterns,
+      },
     )
     logForDebugging(
       `[FileIndex] git ls-files (tracked) took ${Date.now() - lsFilesStart}ms`,
@@ -281,20 +532,7 @@ async function getFilesUsingGit(
       return null
     }
 
-    const trackedFiles = trackedResult.stdout.trim().split('\n').filter(Boolean)
-
-    // Normalize paths relative to the current working directory
-    let normalizedTracked = normalizeGitPaths(trackedFiles, repoRoot, cwd)
-
-    // Apply .ignore/.rgignore patterns if present (faster than falling back to ripgrep)
-    const ignorePatterns = await loadRipgrepIgnorePatterns(repoRoot, cwd)
-    if (ignorePatterns) {
-      const beforeCount = normalizedTracked.length
-      normalizedTracked = ignorePatterns.filter(normalizedTracked)
-      logForDebugging(
-        `[FileIndex] applied ignore patterns: ${beforeCount} -> ${normalizedTracked.length} files`,
-      )
-    }
+    const normalizedTracked = trackedResult.files
 
     // Cache tracked files for later merge with untracked
     cachedTrackedFiles = normalizedTracked
@@ -303,6 +541,11 @@ async function getFilesUsingGit(
     logForDebugging(
       `[FileIndex] git ls-files: ${normalizedTracked.length} tracked files in ${duration}ms`,
     )
+    if (trackedResult.truncated) {
+      logForDebugging(
+        `[FileIndex] capped tracked file index at ${normalizedTracked.length} files to avoid excessive memory use`,
+      )
+    }
 
     logEvent('tengu_file_suggestions_git_ls_files', {
       file_count: normalizedTracked.length,
@@ -312,7 +555,7 @@ async function getFilesUsingGit(
     })
 
     // Start background fetch for untracked files (don't await)
-    if (!untrackedFetchPromise) {
+    if (!untrackedFetchPromise && !trackedResult.truncated) {
       const untrackedArgs = respectGitignore
         ? [
             '-c',
@@ -324,43 +567,35 @@ async function getFilesUsingGit(
         : ['-c', 'core.quotepath=false', 'ls-files', '--others']
 
       const generation = cacheGeneration
-      untrackedFetchPromise = execFileNoThrowWithCwd(gitExe(), untrackedArgs, {
-        timeout: 10000,
-        cwd: repoRoot,
+      const remainingCapacity = Math.max(
+        0,
+        MAX_FILE_SUGGESTION_FILES - normalizedTracked.length,
+      )
+      if (remainingCapacity === 0) {
+        return normalizedTracked
+      }
+      untrackedFetchPromise = collectGitPaths(untrackedArgs, {
+        repoRoot,
+        cwd,
+        abortSignal: AbortSignal.timeout(10_000),
+        maxFiles: remainingCapacity,
+        ignorePatterns,
       })
         .then(async untrackedResult => {
           if (generation !== cacheGeneration) {
             return // Cache was cleared; don't merge stale untracked files
           }
           if (untrackedResult.code === 0) {
-            const rawUntrackedFiles = untrackedResult.stdout
-              .trim()
-              .split('\n')
-              .filter(Boolean)
-
-            // Normalize paths BEFORE applying ignore patterns (consistent with tracked files)
-            let normalizedUntracked = normalizeGitPaths(
-              rawUntrackedFiles,
-              repoRoot,
-              cwd,
-            )
-
-            // Apply .ignore/.rgignore patterns to normalized untracked files
-            const ignorePatterns = await loadRipgrepIgnorePatterns(
-              repoRoot,
-              cwd,
-            )
-            if (ignorePatterns && normalizedUntracked.length > 0) {
-              const beforeCount = normalizedUntracked.length
-              normalizedUntracked = ignorePatterns.filter(normalizedUntracked)
-              logForDebugging(
-                `[FileIndex] applied ignore patterns to untracked: ${beforeCount} -> ${normalizedUntracked.length} files`,
-              )
-            }
+            const normalizedUntracked = untrackedResult.files
 
             logForDebugging(
               `[FileIndex] background untracked fetch: ${normalizedUntracked.length} files`,
             )
+            if (untrackedResult.truncated) {
+              logForDebugging(
+                `[FileIndex] capped untracked file index at ${normalizedUntracked.length} files to avoid excessive memory use`,
+              )
+            }
             // Pass already-normalized files directly to merge function
             void mergeUntrackedIntoNormalizedCache(normalizedUntracked)
           }
@@ -499,13 +734,22 @@ async function getProjectFiles(
     rgArgs.push('--no-ignore-vcs')
   }
 
-  const files = await ripGrep(rgArgs, '.', abortSignal)
-  const relativePaths = files.map(f => path.relative(getCwd(), f))
+  const { files: relativePaths, truncated } = await collectRipgrepPaths(
+    rgArgs,
+    '.',
+    abortSignal,
+    MAX_FILE_SUGGESTION_FILES,
+  )
 
   const duration = Date.now() - startTime
   logForDebugging(
     `[FileIndex] ripgrep: ${relativePaths.length} files in ${duration}ms`,
   )
+  if (truncated) {
+    logForDebugging(
+      `[FileIndex] capped ripgrep file index at ${relativePaths.length} files to avoid excessive memory use`,
+    )
+  }
 
   logEvent('tengu_file_suggestions_ripgrep', {
     file_count: relativePaths.length,
@@ -695,12 +939,14 @@ async function getTopLevelPaths(): Promise<string[]> {
 
   try {
     const entries = await fs.readdir(cwd)
-    return entries.map(entry => {
-      const fullPath = path.join(cwd, entry.name)
-      const relativePath = path.relative(cwd, fullPath)
-      // Add trailing separator for directories
-      return entry.isDirectory() ? relativePath + path.sep : relativePath
-    })
+    return entries
+      .map(entry => {
+        const fullPath = path.join(cwd, entry.name)
+        const relativePath = path.relative(cwd, fullPath)
+        // Add trailing separator for directories
+        return entry.isDirectory() ? relativePath + path.sep : relativePath
+      })
+      .filter(p => !shouldExcludeFileSuggestionPath(p))
   } catch (error) {
     logError(error as Error)
     return []
@@ -742,12 +988,16 @@ export async function generateFileSuggestions(
   const startTime = Date.now()
 
   try {
+    const hadIndex = fileIndex !== null
     // Kick a background refresh. The index is progressively queryable —
     // searches during build return partial results from ready chunks, and
     // the typeahead callback (setOnIndexBuildComplete) re-fires the search
     // when the build finishes to upgrade partial → full.
     const wasBuilding = fileListRefreshPromise !== null
     startBackgroundCacheRefresh()
+    if (!hadIndex && fileListRefreshPromise) {
+      await fileListRefreshPromise
+    }
 
     // Handle both './' and '.\'
     let normalizedPath = partialPath
