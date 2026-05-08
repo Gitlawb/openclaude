@@ -6,6 +6,24 @@ import type { ApiClient } from './api-client.js';
 export type ServerStatus = 'starting' | 'ok' | 'error';
 type StatusListener = (status: ServerStatus) => void;
 
+/** Build the env object to pass when spawning the server process.
+ *  Returns undefined for the Anthropic provider (inherit OS env as-is). */
+export function buildServerEnv(settings: PluginSettings): NodeJS.ProcessEnv | undefined {
+  const { provider, braveApiKey } = settings;
+  if (!provider || provider.type === 'anthropic') return undefined;
+
+  // For Ollama and OpenAI-compatible providers, use the OpenAI shim path.
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CLAUDE_CODE_USE_OPENAI: '1',
+  };
+  if (provider.baseUrl) env.OPENAI_BASE_URL  = provider.baseUrl;
+  if (provider.apiKey)  env.OPENAI_API_KEY   = provider.apiKey;
+  if (provider.model)   env.OPENCLAUDE_MODEL = provider.model;
+  if (braveApiKey)      env.BRAVE_API_KEY    = braveApiKey;
+  return env;
+}
+
 export class ServerManager {
   private proc: ChildProcess | null = null;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
@@ -43,7 +61,12 @@ export class ServerManager {
       ? [serverBinaryPath, 'serve', '--port', String(port)]
       : ['serve', '--port', String(port)];
 
-    this.proc = spawn(cmd, args, { stdio: 'ignore', detached: false });
+    const env = buildServerEnv(this.settings);
+    this.proc = spawn(cmd, args, {
+      stdio: 'ignore',
+      detached: false,
+      ...(env ? { env } : {}),
+    });
     this.proc.on('exit', (code) => this.onExit(code));
 
     await this.api.connect();

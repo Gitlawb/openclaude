@@ -6,7 +6,7 @@ const mockSpawn = mock(() => ({ pid: 99, killed: false, kill: mockKill, on: mock
 
 mock.module('node:child_process', () => ({ spawn: mockSpawn }));
 
-import { ServerManager } from '../src/server-manager.js';
+import { ServerManager, buildServerEnv } from '../src/server-manager.js';
 import type { PluginSettings } from '../src/types.js';
 
 const settings: PluginSettings = {
@@ -15,6 +15,9 @@ const settings: PluginSettings = {
   tokenPath: '~/.openclaude/server-token',
   autoStartServer: true,
   preset: 'balanced',
+  provider: { type: 'anthropic' },
+  vaultPathOverride: '',
+  braveApiKey: '',
 };
 
 const mockApi = {
@@ -82,5 +85,62 @@ describe('ServerManager', () => {
     await mgr.start();
     await mgr.start();
     expect(mockSpawn).toHaveBeenCalledTimes(1);
+  });
+});
+
+const BASE_SETTINGS: PluginSettings = {
+  port: 7777,
+  serverBinaryPath: '/fake/cli.mjs',
+  tokenPath: '~/.openclaude/server-token',
+  autoStartServer: true,
+  preset: 'balanced',
+  provider: { type: 'anthropic' },
+  vaultPathOverride: '',
+  braveApiKey: '',
+};
+
+describe('buildServerEnv', () => {
+  it('returns undefined for anthropic provider (inherit OS env)', () => {
+    expect(buildServerEnv({ ...BASE_SETTINGS, provider: { type: 'anthropic' } })).toBeUndefined();
+  });
+
+  it('sets OPENAI_BASE_URL and OPENAI_API_KEY for ollama', () => {
+    const env = buildServerEnv({
+      ...BASE_SETTINGS,
+      provider: {
+        type: 'ollama',
+        baseUrl: 'http://localhost:11434/v1',
+        apiKey: 'ollama',
+        model: 'qwen3-vl:235b-cloud',
+      },
+    });
+    expect(env).toBeDefined();
+    expect(env!.OPENAI_BASE_URL).toBe('http://localhost:11434/v1');
+    expect(env!.OPENAI_API_KEY).toBe('ollama');
+    expect(env!.OPENCLAUDE_MODEL).toBe('qwen3-vl:235b-cloud');
+    expect(env!.CLAUDE_CODE_USE_OPENAI).toBe('1');
+  });
+
+  it('sets OPENAI vars for openai provider type', () => {
+    const env = buildServerEnv({
+      ...BASE_SETTINGS,
+      provider: {
+        type: 'openai',
+        baseUrl: 'https://api.groq.com/openai/v1',
+        apiKey: 'gsk_test',
+        model: 'llama-3.3-70b',
+      },
+    });
+    expect(env!.OPENAI_BASE_URL).toBe('https://api.groq.com/openai/v1');
+    expect(env!.CLAUDE_CODE_USE_OPENAI).toBe('1');
+  });
+
+  it('passes BRAVE_API_KEY if braveApiKey is set', () => {
+    const env = buildServerEnv({
+      ...BASE_SETTINGS,
+      braveApiKey: 'BSAtest123',
+      provider: { type: 'ollama', baseUrl: 'http://localhost:11434/v1', apiKey: 'ollama' },
+    });
+    expect(env!.BRAVE_API_KEY).toBe('BSAtest123');
   });
 });
