@@ -32,7 +32,7 @@ afterEach(() => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Tests that do NOT use mock.module (run first — no mock interference)
+// getPowershellToolEnv — platform-agnostic, no mocks needed
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── getPowershellToolEnv ──────────────────────────────────────────────────
@@ -63,39 +63,45 @@ describe('getPowershellToolEnv', () => {
   })
 })
 
-// ── isPowerShellToolEnabled (Windows — process.platform === 'win32') ──────
+// ── isPowerShellToolEnabled (Windows) ────────────────────────────────────
 
 describe('isPowerShellToolEnabled (Windows)', () => {
   test('enabled when preferred env var is truthy (external user)', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
     expect(isPowerShellToolEnabled()).toBe(true)
   })
 
   test('enabled when only legacy env var is truthy (external user)', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = 'true'
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
     expect(isPowerShellToolEnabled()).toBe(true)
   })
 
   test('disabled when neither env var is set (external user)', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 
   test('disabled when preferred is falsy and legacy is unset (external user)', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '0'
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 
   test('enabled for ant user when env var is unset (default-on)', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.USER_TYPE = 'ant'
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
     expect(isPowerShellToolEnabled()).toBe(true)
   })
 
   test('disabled for ant user when preferred is explicitly falsy', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.USER_TYPE = 'ant'
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '0'
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
@@ -103,6 +109,7 @@ describe('isPowerShellToolEnabled (Windows)', () => {
   })
 
   test('disabled for ant user when legacy is explicitly falsy and preferred is unset', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.USER_TYPE = 'ant'
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = 'false'
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
@@ -110,15 +117,17 @@ describe('isPowerShellToolEnabled (Windows)', () => {
   })
 })
 
-// ── resolveDefaultShell (Windows — real platform) ─────────────────────────
+// ── resolveDefaultShell (Windows) ─────────────────────────────────────────
 
 describe('resolveDefaultShell (Windows)', () => {
   test('returns bash by default on Windows without env var', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
     expect(resolveDefaultShell()).toBe('bash')
   })
 
   test('returns powershell when preferred env var is truthy on Windows', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({}),
@@ -129,6 +138,7 @@ describe('resolveDefaultShell (Windows)', () => {
   })
 
   test('returns powershell when only legacy env var is truthy on Windows', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = 'true'
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({}),
@@ -139,6 +149,7 @@ describe('resolveDefaultShell (Windows)', () => {
   })
 
   test('preferred env var wins over legacy for default shell', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = '0'
     mock.module('../settings/settings.js', () => ({
@@ -150,6 +161,7 @@ describe('resolveDefaultShell (Windows)', () => {
   })
 
   test('settings.defaultShell overrides env var', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({ defaultShell: 'bash' as const }),
@@ -160,6 +172,7 @@ describe('resolveDefaultShell (Windows)', () => {
   })
 
   test('settings.defaultShell=powershell wins regardless of env var', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({ defaultShell: 'powershell' as const }),
     }))
@@ -169,25 +182,18 @@ describe('resolveDefaultShell (Windows)', () => {
   })
 })
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Tests that use mock.module for platform (MUST RUN LAST)
-// mock.module in Bun cannot be reliably restored — it leaks across tests
-// ═══════════════════════════════════════════════════════════════════════════
+// ── non-Windows tests ─────────────────────────────────────────────────────
 
 describe('isPowerShellToolEnabled (non-Windows)', () => {
   test('returns false on macOS even with env var set', async () => {
-    mock.module('../platform.js', () => ({
-      getPlatform: () => 'macos',
-    }))
+    mock.module('../platform.js', () => ({ getPlatform: () => 'macos' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 
   test('returns false on Linux even with legacy env var set', async () => {
-    mock.module('../platform.js', () => ({
-      getPlatform: () => 'linux',
-    }))
+    mock.module('../platform.js', () => ({ getPlatform: () => 'linux' }))
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = '1'
     const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
     expect(isPowerShellToolEnabled()).toBe(false)
@@ -196,10 +202,8 @@ describe('isPowerShellToolEnabled (non-Windows)', () => {
 
 describe('resolveDefaultShell (non-Windows)', () => {
   test('returns bash on non-Windows even with env var set', async () => {
+    mock.module('../platform.js', () => ({ getPlatform: () => 'macos' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
-    mock.module('../platform.js', () => ({
-      getPlatform: () => 'macos',
-    }))
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({}),
     }))
