@@ -175,6 +175,36 @@ import type {
 
 const TOOL_HOOK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
 
+function dedupeRegisteredPluginHooks(
+  registeredHooks: Array<HookCallbackMatcher | PluginHookMatcher>,
+): Array<HookCallbackMatcher | PluginHookMatcher> {
+  const seenPluginMatchers = new Set<string>()
+  const deduped: Array<HookCallbackMatcher | PluginHookMatcher> = []
+
+  for (const matcher of registeredHooks) {
+    if (!('pluginRoot' in matcher)) {
+      deduped.push(matcher)
+      continue
+    }
+
+    const pluginMatcherKey = jsonStringify({
+      pluginId: matcher.pluginId,
+      pluginName: matcher.pluginName,
+      matcher: matcher.matcher ?? null,
+      hooks: matcher.hooks,
+    })
+
+    if (seenPluginMatchers.has(pluginMatcherKey)) {
+      continue
+    }
+
+    seenPluginMatchers.add(pluginMatcherKey)
+    deduped.push(matcher)
+  }
+
+  return deduped
+}
+
 function normalizeFallbackAgentModel(
   model: string | undefined,
 ): 'sonnet' | 'opus' | 'haiku' | undefined {
@@ -1664,7 +1694,7 @@ function getHooksConfig(
   // Process registered hooks (SDK callbacks and plugin native hooks)
   const registeredHooks = getRegisteredHooks()?.[hookEvent]
   if (registeredHooks) {
-    for (const matcher of registeredHooks) {
+    for (const matcher of dedupeRegisteredPluginHooks(registeredHooks)) {
       // Skip plugin hooks when restricted to managed hooks only
       // Plugin hooks have pluginRoot set, SDK callbacks do not
       if (managedOnly && 'pluginRoot' in matcher) {

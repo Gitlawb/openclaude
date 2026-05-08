@@ -226,6 +226,14 @@ describe('MCP tool timeout fix', () => {
 // Cross-cutting: verify no regressions
 // ---------------------------------------------------------------------------
 describe('Regression checks', () => {
+  test('duplicate plugin hooks are deduplicated before execution', async () => {
+    const hooks = await file('utils/hooks.ts').text()
+
+    expect(hooks).toContain('function dedupeRegisteredPluginHooks')
+    expect(hooks).toContain('pluginId: matcher.pluginId')
+    expect(hooks).toContain('for (const matcher of dedupeRegisteredPluginHooks(registeredHooks))')
+  })
+
   test('store field remains opt-out by per-route config rather than unconditional deletion', async () => {
     const openaiShim = await file('services/api/openaiShim.ts').text()
     const runtimeMetadata = await file('integrations/runtimeMetadata.ts').text()
