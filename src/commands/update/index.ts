@@ -3,7 +3,12 @@
  * Delegates to the existing `openclaude update` CLI subcommand via child process.
  */
 import { spawn } from 'child_process'
-import type { Command, LocalCommandCall } from '../../types/command.js'
+import type {
+  Command,
+  LocalCommandCall,
+  LocalCommandResult,
+} from '../../types/command.js'
+import { getSourceBuildUpdateMessage } from '../../cli/updateMessage.js'
 import { isInBundledMode } from '../../utils/bundledMode.js'
 
 const update = {
@@ -26,7 +31,11 @@ export function resolveUpdateCommand(): { command: string; args: string[] } {
 async function call(
   _args: string,
   _context: Parameters<LocalCommandCall>[1],
-): Promise<{ type: 'text', value: string }> {
+): Promise<LocalCommandResult> {
+  if (!isInBundledMode()) {
+    return { type: 'text', value: getSourceBuildUpdateMessage() }
+  }
+
   return new Promise((resolve) => {
     const { command, args } = resolveUpdateCommand()
     const child = spawn(command, args, {
@@ -35,10 +44,11 @@ async function call(
     })
 
     child.on('close', (code) => {
-      resolve({
-        type: 'text',
-        value: code === 0 ? 'Update complete.' : `Update exited with code ${code}.`,
-      })
+      resolve(
+        code === 0
+          ? { type: 'skip' }
+          : { type: 'text', value: `Update exited with code ${code}.` },
+      )
     })
 
     child.on('error', (err) => {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { getSourceBuildUpdateMessage } from '../../cli/updateMessage.js'
 import { resolveUpdateCommand } from './index.js'
 
 describe('resolveUpdateCommand', () => {
@@ -24,5 +25,16 @@ describe('resolveUpdateCommand', () => {
       command: process.execPath,
       args: ['update'],
     })
+  })
+})
+
+describe('/update source build warning', () => {
+  test('uses the npm package install warning instead of spawning a nested REPL', () => {
+    expect(getSourceBuildUpdateMessage()).toContain(
+      'Auto-update is only available for OpenClaude npm package installs.',
+    )
+    expect(getSourceBuildUpdateMessage()).toContain(
+      'git pull && bun install && bun run build',
+    )
   })
 })

@@ -1,11 +1,6 @@
 import chalk from 'chalk'
-import { getAPIProvider } from 'src/utils/model/providers.js'
 import { logEvent } from 'src/services/analytics/index.js'
-import {
-  getLatestVersion,
-  type InstallStatus,
-  installGlobalPackage,
-} from 'src/utils/autoUpdater.js'
+import { getLatestVersion, type InstallStatus, installGlobalPackage } from 'src/utils/autoUpdater.js'
 import { regenerateCompletionCache } from 'src/utils/completionCache.js'
 import {
   getGlobalConfig,
@@ -15,38 +10,12 @@ import {
 import { logForDebugging } from 'src/utils/debug.js'
 import { getDoctorDiagnostic } from 'src/utils/doctorDiagnostic.js'
 import { gracefulShutdown } from 'src/utils/gracefulShutdown.js'
-import {
-  installOrUpdateClaudePackage,
-  localInstallationExists,
-} from 'src/utils/localInstaller.js'
-import {
-  installLatest as installLatestNative,
-  removeInstalledSymlink,
-} from 'src/utils/nativeInstaller/index.js'
-import { getPackageManager } from 'src/utils/nativeInstaller/packageManagers.js'
+import { installOrUpdateClaudePackage } from 'src/utils/localInstaller.js'
+import { getSourceBuildUpdateMessage } from './updateMessage.js'
 import { writeToStdout } from 'src/utils/process.js'
-import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
 
 export async function update() {
-  // Block updates for third-party providers. The update mechanism downloads
-  // from the first-party distribution bucket, which would silently replace the
-  // OpenClaude build (with the OpenAI shim) with the upstream Claude Code
-  // binary (without it).
-  if (getAPIProvider() !== 'firstParty') {
-    writeToStdout(
-      chalk.yellow(
-        `Auto-update is not available for third-party provider builds.\n`,
-      ) +
-        `Current version: ${MACRO.DISPLAY_VERSION}\n\n` +
-        `To update, reinstall from npm:\n` +
-        chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n\n' +
-        `Or, if you built from source, pull and rebuild:\n` +
-        chalk.bold('  git pull && bun install && bun run build') + '\n',
-    )
-    await gracefulShutdown(0)
-  }
-
   logEvent('tengu_update_check', {})
   writeToStdout(`Current version: ${MACRO.DISPLAY_VERSION}\n`)
 
@@ -92,30 +61,22 @@ export async function update() {
     }
   }
 
-  // Update config if installMethod is not set (but skip for package managers)
-  const config = getGlobalConfig()
   if (
-    !config.installMethod &&
-    diagnostic.installationType !== 'package-manager'
+    diagnostic.installationType !== 'npm-global' &&
+    diagnostic.installationType !== 'npm-local'
   ) {
     writeToStdout('\n')
-    writeToStdout('Updating configuration to track installation method...\n')
-    let detectedMethod: 'local' | 'native' | 'global' | 'unknown' = 'unknown'
+    writeToStdout(getSourceBuildUpdateMessage() + '\n')
+    await gracefulShutdown(0)
+  }
 
-    // Map diagnostic installation type to config install method
-    switch (diagnostic.installationType) {
-      case 'npm-local':
-        detectedMethod = 'local'
-        break
-      case 'native':
-        detectedMethod = 'native'
-        break
-      case 'npm-global':
-        detectedMethod = 'global'
-        break
-      default:
-        detectedMethod = 'unknown'
-    }
+  // Update config if installMethod is not set
+  const config = getGlobalConfig()
+  if (!config.installMethod) {
+    writeToStdout('\n')
+    writeToStdout('Updating configuration to track installation method...\n')
+    const detectedMethod: 'local' | 'global' =
+      diagnostic.installationType === 'npm-local' ? 'local' : 'global'
 
     saveGlobalConfig(current => ({
       ...current,
@@ -124,76 +85,10 @@ export async function update() {
     writeToStdout(`Installation method set to: ${detectedMethod}\n`)
   }
 
-  // Check if running from development build
-  if (diagnostic.installationType === 'development') {
-    writeToStdout('\n')
-    writeToStdout(
-      chalk.yellow('You are running a development build — auto-update is unavailable.') + '\n',
-    )
-    writeToStdout('To update, pull the latest source and rebuild:\n')
-    writeToStdout(chalk.bold('  git pull && bun install && bun run build') + '\n')
-    writeToStdout('\n')
-    writeToStdout('Or reinstall from npm:\n')
-    writeToStdout(chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n')
-    await gracefulShutdown(0)
-  }
-
-  // Check if running from a package manager
-  if (diagnostic.installationType === 'package-manager') {
-    const packageManager = await getPackageManager()
-    writeToStdout('\n')
-
-    if (packageManager === 'homebrew') {
-      writeToStdout('Claude is managed by Homebrew.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(chalk.bold('  brew upgrade claude-code') + '\n')
-      } else {
-        writeToStdout('Claude is up to date!\n')
-      }
-    } else if (packageManager === 'winget') {
-      writeToStdout('Claude is managed by winget.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(
-          chalk.bold('  winget upgrade Anthropic.ClaudeCode') + '\n',
-        )
-      } else {
-        writeToStdout('Claude is up to date!\n')
-      }
-    } else if (packageManager === 'apk') {
-      writeToStdout('Claude is managed by apk.\n')
-      const latest = await getLatestVersion(channel)
-      if (latest && !gte(MACRO.DISPLAY_VERSION, latest)) {
-        writeToStdout(`Update available: ${MACRO.DISPLAY_VERSION} → ${latest}\n`)
-        writeToStdout('\n')
-        writeToStdout('To update, run:\n')
-        writeToStdout(chalk.bold('  apk upgrade claude-code') + '\n')
-      } else {
-        writeToStdout('Claude is up to date!\n')
-      }
-    } else {
-      // pacman, deb, and rpm don't get specific commands because they each have
-      // multiple frontends (pacman: yay/paru/makepkg, deb: apt/apt-get/aptitude/nala,
-      // rpm: dnf/yum/zypper)
-      writeToStdout('Claude is managed by a package manager.\n')
-      writeToStdout('Please use your package manager to update.\n')
-    }
-
-    await gracefulShutdown(0)
-  }
-
-  // Check for config/reality mismatch (skip for package-manager installs)
+  // Check for config/reality mismatch
   if (
     config.installMethod &&
-    diagnostic.configInstallMethod !== 'not set' &&
-    diagnostic.installationType !== 'package-manager'
+    diagnostic.configInstallMethod !== 'not set'
   ) {
     const runningType = diagnostic.installationType
     const configExpects = diagnostic.configInstallMethod
@@ -234,60 +129,7 @@ export async function update() {
     }
   }
 
-  // Handle native installation updates first
-  if (diagnostic.installationType === 'native') {
-    logForDebugging(
-      'update: Detected native installation, using native updater',
-    )
-    try {
-      const result = await installLatestNative(channel, true)
-
-      // Handle lock contention gracefully
-      if (result.lockFailed) {
-        const pidInfo = result.lockHolderPid
-          ? ` (PID ${result.lockHolderPid})`
-          : ''
-        writeToStdout(
-          chalk.yellow(
-            `Another Claude process${pidInfo} is currently running. Please try again in a moment.`,
-          ) + '\n',
-        )
-        await gracefulShutdown(0)
-      }
-
-      if (!result.latestVersion) {
-        process.stderr.write('Failed to check for updates\n')
-        await gracefulShutdown(1)
-      }
-
-      if (result.latestVersion === MACRO.DISPLAY_VERSION) {
-        writeToStdout(
-          chalk.green(`OpenClaude is up to date (${MACRO.DISPLAY_VERSION})`) + '\n',
-        )
-      } else {
-        writeToStdout(
-          chalk.green(
-            `Successfully updated from ${MACRO.DISPLAY_VERSION} to version ${result.latestVersion}`,
-          ) + '\n',
-        )
-        await regenerateCompletionCache()
-      }
-      await gracefulShutdown(0)
-    } catch (error) {
-      process.stderr.write('Error: Failed to install native update\n')
-      process.stderr.write(String(error) + '\n')
-      process.stderr.write('Try running "openclaude doctor" for diagnostics\n')
-      await gracefulShutdown(1)
-    }
-  }
-
   // Fallback to existing JS/npm-based update logic
-  // Remove native installer symlink since we're not using native installation
-  // But only if user hasn't migrated to native installation
-  if (config.installMethod !== 'native') {
-    await removeInstalledSymlink()
-  }
-
   logForDebugging('update: Checking npm registry for latest version')
   logForDebugging(`update: Package URL: ${MACRO.PACKAGE_URL}`)
   const npmTag = channel === 'stable' ? 'stable' : 'latest'
@@ -355,24 +197,6 @@ export async function update() {
       useLocalUpdate = false
       updateMethodName = 'global'
       break
-    case 'unknown': {
-      // Fallback to detection if we can't determine installation type
-      const isLocal = await localInstallationExists()
-      useLocalUpdate = isLocal
-      updateMethodName = isLocal ? 'local' : 'global'
-      writeToStdout(
-        chalk.yellow('Warning: Could not determine installation type') + '\n',
-      )
-      writeToStdout(
-        `Attempting ${updateMethodName} update based on file detection...\n`,
-      )
-      break
-    }
-    default:
-      process.stderr.write(
-        `Error: Cannot update ${diagnostic.installationType} installation\n`,
-      )
-      await gracefulShutdown(1)
   }
 
   writeToStdout(`Using ${updateMethodName} installation update method...\n`)
