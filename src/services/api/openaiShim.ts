@@ -81,6 +81,7 @@ import {
   classifyOpenAINetworkFailure,
 } from './openaiErrorClassification.js'
 import { sanitizeSchemaForOpenAICompat } from '../../utils/schemaSanitizer.js'
+import { isOllamaProvider } from '../../utils/model/ollamaModels.js'
 import { redactSecretValueForDisplay } from '../../utils/providerProfile.js'
 import { shouldRedactUrlQueryParam } from '../../utils/urlRedaction.js'
 import {
@@ -1042,6 +1043,86 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Ollama text-based tool call parser (fix for #1053)
+//
+// When Ollama models cannot emit structured tool_calls via the OpenAI-compat
+// API, they fall back to printing the call as a JSON block in the response
+// text. This parser extracts those calls so the agent loop can execute them.
+//
+// Supported formats emitted by qwen2.5-coder, llama3.x, phi-4, gemma:
+//   ```json\n{"name":"X","arguments":{...}}\n```
+//   {"name":"X","arguments":{...}}
+//   {"type":"function","function":{"name":"X","arguments":{...}}}
+// ---------------------------------------------------------------------------
+
+const TOOL_CALL_TEXT_RE =
+  /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```|(\{"(?:name|type)"\s*:[\s\S]*?\})/g
+
+interface ParsedTextToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+}
+
+// Module-level counter ensures unique IDs across calls within a session.
+let _textToolCallCounter = 0
+
+/** Exported for unit testing only. */
+export function parseTextToolCalls(text: string): ParsedTextToolCall[] {
+  const results: ParsedTextToolCall[] = []
+  const seen = new Set<string>()
+
+  for (const match of text.matchAll(TOOL_CALL_TEXT_RE)) {
+    const raw = (match[1] ?? match[2] ?? '').trim()
+    if (!raw) continue
+
+    let obj: Record<string, unknown>
+    try {
+      obj = JSON.parse(raw)
+    } catch {
+      continue
+    }
+
+    let name: string | undefined
+    let args: Record<string, unknown> = {}
+
+    if (typeof obj['name'] === 'string') {
+      // {"name": "X", "arguments": {...}}
+      name = obj['name'] as string
+      args = (obj['arguments'] as Record<string, unknown>) ?? {}
+    } else if (
+      obj['type'] === 'function' &&
+      typeof (obj['function'] as any)?.name === 'string'
+    ) {
+      // {"type":"function","function":{"name":"X","arguments":{...}}}
+      const fn = obj['function'] as { name: string; arguments?: unknown }
+      name = fn.name
+      const rawArgs = fn.arguments
+      args =
+        typeof rawArgs === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(rawArgs)
+              } catch {
+                return {}
+              }
+            })()
+          : (rawArgs as Record<string, unknown>) ?? {}
+    }
+
+    if (!name) continue
+
+    const dedupKey = `${name}:${JSON.stringify(args)}`
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+
+    results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+  }
+
+  return results
+}
+
 /**
  * Async generator that transforms an OpenAI SSE stream into
  * Anthropic-format BetaRawMessageStreamEvent objects.
@@ -1312,6 +1393,8 @@ async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
+  // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
+  let accumulatedText = ''
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
 
@@ -1549,6 +1632,7 @@ async function* openaiStreamToAnthropic(
             hasClosedThinking = true
           }
 
+          accumulatedText += delta.content
           if (
             !hasEmittedContentStart &&
             bufferedRawToolCallsText === null &&
@@ -1750,6 +1834,38 @@ async function* openaiStreamToAnthropic(
             }
 
             yield { type: 'content_block_stop', index: tc.index }
+          }
+
+          // Ollama text-based tool call fallback (#1053):
+          // Ollama models output tool calls as JSON text instead of structured
+          // tool_calls API fields. When finish_reason=stop with no API-level
+          // tool calls, scan accumulated text for JSON tool call patterns and
+          // emit them as proper tool_use events so the agentic loop continues.
+          if (
+            choice.finish_reason === 'stop' &&
+            activeToolCalls.size === 0 &&
+            isOllamaProvider()
+          ) {
+            const textToolCalls = parseTextToolCalls(accumulatedText)
+            if (textToolCalls.length > 0) {
+              for (const tc of textToolCalls) {
+                const toolBlockIndex = contentBlockIndex
+                yield {
+                  type: 'content_block_start',
+                  index: toolBlockIndex,
+                  content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
+                }
+                contentBlockIndex++
+                yield {
+                  type: 'content_block_delta',
+                  index: toolBlockIndex,
+                  delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
+                }
+                yield { type: 'content_block_stop', index: toolBlockIndex }
+              }
+              // Override so stopReason becomes 'tool_use' and the loop continues
+              choice.finish_reason = 'tool_calls'
+            }
           }
 
           const stopReason =
