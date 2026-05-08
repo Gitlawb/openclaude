@@ -154,6 +154,39 @@
   outline-offset: 2px;
 }
 
+/* ── Thought tool blocks ──────────────────────────────────── */
+.oc-thought-block {
+  margin: 6px 0;
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+
+.oc-thought-summary {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.oc-thought-summary:hover { color: var(--text-normal); }
+
+.oc-thought-summary.oc-thought-open { color: var(--interactive-accent); }
+
+.oc-thought-body {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
 /* ── Starter chips (empty state) ─────────────────────────── */
 .oc-starters {
   padding: 8px 0;

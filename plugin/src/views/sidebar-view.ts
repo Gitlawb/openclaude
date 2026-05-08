@@ -9,6 +9,10 @@ export class SidebarView extends ItemView {
   private currentSessionId: string | undefined;
   private pendingCount = 0;
   private toolCallEls = new Map<string, HTMLElement>();
+  private thoughtBlockEls = new Map<string, HTMLElement>();  // id → body div
+  private static readonly THOUGHT_TOOLS = new Set([
+    'structure_thought', 'refine_argument', 'counter_argument',
+  ]);
   private boundStatusListener = (s: import('../server-manager.js').ServerStatus) => this.setStatus(s);
 
   // DOM refs set in buildUI()
@@ -45,6 +49,7 @@ export class SidebarView extends ItemView {
     this.registerDomEvent(window, 'openclaude:new-session' as keyof WindowEventMap, () => {
       this.currentSessionId = undefined;
       this.toolCallEls.clear();
+      this.thoughtBlockEls.clear();
       this.chatLog.empty();
     });
 
@@ -67,7 +72,7 @@ export class SidebarView extends ItemView {
     this.statusDot.dataset['status'] = 'starting';
     header.createSpan({ cls: 'openclaude-title', text: 'OpenClaude' });
     const newBtn = header.createEl('button', { cls: 'openclaude-header-btn', text: '+', attr: { title: 'New session' } });
-    newBtn.onclick = () => { this.currentSessionId = undefined; this.toolCallEls.clear(); this.chatLog.empty(); };
+    newBtn.onclick = () => { this.currentSessionId = undefined; this.toolCallEls.clear(); this.thoughtBlockEls.clear(); this.chatLog.empty(); };
 
     // Context card
     const card = root.createDiv({ cls: 'openclaude-context-card' });
@@ -169,6 +174,7 @@ export class SidebarView extends ItemView {
       this.abortController = null;
       this.inputEl.disabled = false;
       this.toolCallEls.clear();
+      this.thoughtBlockEls.clear();
       this.sendBtn.textContent = 'Send';
       this.sendBtn.onclick = () => this.sendMessage();
       // Restore status from health check
@@ -186,17 +192,48 @@ export class SidebarView extends ItemView {
       case 'tool_call': {
         const parent = contentEl.parentElement;
         if (!parent) break;
-        const el = parent.createDiv({ cls: 'oc-tool-call' });
-        const icon = evt.data.name === 'web_search' || evt.data.name === 'fetch_page' ? '🌐' : '🔧';
-        el.setText(`${icon} ${evt.data.name}…`);
-        this.toolCallEls.set(evt.data.id, el);
+
+        if (SidebarView.THOUGHT_TOOLS.has(evt.data.name)) {
+          // Expandable thought block
+          const block = parent.createDiv({ cls: 'oc-thought-block' });
+          const labels: Record<string, string> = {
+            structure_thought: '🧠 Estruturando pensamento',
+            refine_argument:   '✏️ Refinando argumento',
+            counter_argument:  '⚔️ Gerando contra-argumento',
+          };
+          const summary = block.createEl('button', {
+            cls: 'oc-thought-summary',
+            text: `${labels[evt.data.name] ?? '🧠 Processando'}…`,
+          });
+          const body = block.createDiv({ cls: 'oc-thought-body', text: '' });
+          body.style.display = 'none';
+          summary.addEventListener('click', () => {
+            const isOpen = body.style.display !== 'none';
+            body.style.display = isOpen ? 'none' : 'block';
+            summary.classList.toggle('oc-thought-open', !isOpen);
+          });
+          this.thoughtBlockEls.set(evt.data.id, body);
+          this.toolCallEls.set(evt.data.id, summary);
+        } else {
+          // Generic tool (web, vault, format)
+          const el = parent.createDiv({ cls: 'oc-tool-call' });
+          const icon = evt.data.name === 'web_search' || evt.data.name === 'fetch_page' ? '🌐' : '🔧';
+          el.setText(`${icon} ${evt.data.name}…`);
+          this.toolCallEls.set(evt.data.id, el);
+        }
         break;
       }
       case 'tool_result': {
         const el = this.toolCallEls.get(evt.data.id);
         if (el) {
-          el.setText(evt.data.ok ? `✅ ${(el.textContent ?? '').replace('…', '')}` : `❌ ${(el.textContent ?? '').replace('…', '')}`);
+          const prefix = evt.data.ok ? '✅ ' : '❌ ';
+          el.setText(prefix + (el.textContent ?? '').replace(/^[✅❌🧠✏️⚔️🔧🌐]\s*/, '').replace('…', ''));
           this.toolCallEls.delete(evt.data.id);
+        }
+        const bodyEl = this.thoughtBlockEls.get(evt.data.id);
+        if (bodyEl && evt.data.preview) {
+          bodyEl.textContent = evt.data.preview;
+          this.thoughtBlockEls.delete(evt.data.id);
         }
         break;
       }
