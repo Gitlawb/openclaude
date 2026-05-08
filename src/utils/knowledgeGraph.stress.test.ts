@@ -15,6 +15,7 @@ import { getFsImplementation } from './fsOperations.js'
 
 describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  const originalOrama = process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-stress-'))
   process.env.CLAUDE_CONFIG_DIR = configDir
   const cwd = getFsImplementation().cwd()
@@ -26,11 +27,22 @@ describe('KnowledgeGraph Phase 1 Stress & Edge Cases', () => {
 
   afterAll(() => {
     resetGlobalGraph()
+    clearMemoryOnly()
+    
+    // Restore config dir
     if (originalConfigDir === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR
     } else {
       process.env.CLAUDE_CONFIG_DIR = originalConfigDir
     }
+    
+    // Restore Orama flag
+    if (originalOrama === undefined) {
+      delete process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
+    } else {
+      process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = originalOrama
+    }
+    
     rmSync(configDir, { recursive: true, force: true })
   })
 
