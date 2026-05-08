@@ -1,0 +1,10 @@
+{
+  "id": "openclaude-obsidian",
+  "name": "OpenClaude",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "OpenClaude agent inside your Obsidian vault",
+  "author": "Alan",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}

@@ -1,0 +1,349 @@
+import { FileSystemAdapter, ItemView, MarkdownView, WorkspaceLeaf } from 'obsidian';
+import type OpenClaudePlugin from '../main.js';
+import type { SseEvent, ChatRequest } from '../types.js';
+
+export const SIDEBAR_VIEW_TYPE = 'openclaude-sidebar';
+
+export class SidebarView extends ItemView {
+  private abortController: AbortController | null = null;
+  private currentSessionId: string | undefined;
+  private pendingCount = 0;
+  private toolCallEls = new Map<string, HTMLElement>();
+  private thoughtBlockEls = new Map<string, HTMLElement>();  // id → body div
+  private static readonly THOUGHT_TOOLS = new Set([
+    'structure_thought', 'refine_argument', 'counter_argument',
+  ]);
+  private boundStatusListener = (s: import('../server-manager.js').ServerStatus) => this.setStatus(s);
+
+  // DOM refs set in buildUI()
+  private statusDot!: HTMLElement;
+  private contextTitle!: HTMLElement;
+  private chatLog!: HTMLElement;
+  private inputEl!: HTMLTextAreaElement;
+  private sendBtn!: HTMLButtonElement;
+  private pendingBadge!: HTMLElement;
+
+  constructor(leaf: WorkspaceLeaf, private readonly plugin: OpenClaudePlugin) {
+    super(leaf);
+  }
+
+  getViewType(): string { return SIDEBAR_VIEW_TYPE; }
+  getDisplayText(): string { return 'OpenClaude'; }
+  getIcon(): string { return 'brain'; }
+
+  async onOpen(): Promise<void> {
+    this.buildUI();
+    this.showStarterChips();
+    this.updateContextCard();
+    this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.updateContextCard()));
+    this.plugin.serverManager.onStatus(this.boundStatusListener);
+
+    // Handle prompts injected from CommandHubModal — populate and focus only;
+    // the user completes partial prompts (e.g. "pesquise na web sobre: ___")
+    // and presses Enter to send. Suggestion chips bypass this and call sendMessage() directly.
+    this.registerDomEvent(window, 'openclaude:inject-prompt' as keyof WindowEventMap, (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      this.inputEl.value = detail;
+      this.inputEl.focus();
+    });
+    this.registerDomEvent(window, 'openclaude:new-session' as keyof WindowEventMap, () => {
+      this.currentSessionId = undefined;
+      this.toolCallEls.clear();
+      this.thoughtBlockEls.clear();
+      this.chatLog.empty();
+    });
+
+    this.startPendingPoll();
+  }
+
+  async onClose(): Promise<void> {
+    this.plugin.serverManager.offStatus(this.boundStatusListener);
+    this.abortController?.abort();
+  }
+
+  private buildUI(): void {
+    const root = this.containerEl.children[1] as HTMLElement;
+    root.empty();
+    root.addClass('openclaude-sidebar');
+
+    // Header
+    const header = root.createDiv({ cls: 'openclaude-header' });
+    this.statusDot = header.createSpan({ cls: 'oc-status-dot' });
+    this.statusDot.dataset['status'] = 'starting';
+    header.createSpan({ cls: 'openclaude-title', text: 'OpenClaude' });
+    const newBtn = header.createEl('button', { cls: 'openclaude-header-btn', text: '+', attr: { title: 'New session' } });
+    newBtn.onclick = () => { this.currentSessionId = undefined; this.toolCallEls.clear(); this.thoughtBlockEls.clear(); this.chatLog.empty(); };
+
+    // Context card
+    const card = root.createDiv({ cls: 'openclaude-context-card' });
+    card.createSpan({ text: '📄 ' });
+    this.contextTitle = card.createSpan({ cls: 'openclaude-context-title', text: 'No note open' });
+
+    // Chat log
+    this.chatLog = root.createDiv({ cls: 'openclaude-chat-log' });
+
+    // Input area
+    const area = root.createDiv({ cls: 'openclaude-input-area' });
+    this.inputEl = area.createEl('textarea', {
+      cls: 'openclaude-input',
+      attr: { placeholder: 'Ask something… (Shift+Enter for newline)', rows: '2' },
+    });
+    this.registerDomEvent(this.inputEl, 'keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendMessage(); }
+    });
+
+    const footer = area.createDiv({ cls: 'openclaude-input-footer' });
+    this.pendingBadge = footer.createSpan({ cls: 'openclaude-pending-badge' });
+    this.pendingBadge.style.display = 'none';
+    this.pendingBadge.onclick = () => this.openFirstPendingEdit();
+
+    this.sendBtn = footer.createEl('button', { cls: 'openclaude-send-btn', text: 'Send' });
+    this.sendBtn.disabled = true;
+    this.sendBtn.onclick = () => this.sendMessage();
+  }
+
+  private updateContextCard(): void {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    this.contextTitle.setText(
+      view instanceof MarkdownView && view.file ? view.file.basename : 'No note open'
+    );
+  }
+
+  private setStatus(status: 'starting' | 'ok' | 'error'): void {
+    this.statusDot.dataset['status'] = status;
+    this.sendBtn.disabled = status !== 'ok';
+  }
+
+  private getVaultPath(): string {
+    // 1. Override manual configurado nas Settings (mais confiável)
+    const override = this.plugin.settings.vaultPathOverride?.trim();
+    if (override) return override;
+    // 2. API oficial do Obsidian para desktop (FileSystemAdapter)
+    // basePath existe em runtime mas não nos tipos públicos — cast seguro após instanceof
+    if (this.app.vault.adapter instanceof FileSystemAdapter) {
+      return (this.app.vault.adapter as FileSystemAdapter & { basePath: string }).basePath;
+    }
+    // 3. Fallback: cast antigo (compatibilidade)
+    const basePath = (this.app.vault.adapter as { basePath?: string }).basePath ?? '';
+    return basePath;
+  }
+
+  private getActiveContext(): { activeNote?: string; vault?: string; selection?: string; braveApiKey?: string } {
+    const vault = this.getVaultPath();
+    const braveApiKey = this.plugin.settings.braveApiKey || undefined;
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view?.file) return { vault, braveApiKey };   // vault sempre enviado, mesmo sem nota aberta
+    const editor = view.editor;
+    const selection = editor.getSelection() || undefined;
+    const lines = editor.getValue().split('\n').slice(0, 200).join('\n');
+    return { activeNote: lines, vault, selection, braveApiKey };
+  }
+
+  async sendMessage(overrideText?: string): Promise<void> {
+    const text = (overrideText ?? this.inputEl.value).trim();
+    if (!text || this.abortController) return;
+
+    if (overrideText === undefined) this.inputEl.value = '';
+    this.addMessage('user', text);
+    const assistantContent = this.addMessage('assistant', '');
+
+    this.abortController = new AbortController();
+    this.statusDot.dataset['status'] = 'streaming';
+    this.inputEl.disabled = true;
+    this.sendBtn.textContent = '■ Stop';
+    this.sendBtn.disabled = false;
+    this.sendBtn.onclick = () => this.abortController?.abort();
+
+    try {
+      const req: ChatRequest = {
+        message: text,
+        sessionId: this.currentSessionId,
+        context: this.getActiveContext(),
+        preset: this.plugin.settings.preset,
+      };
+      await this.plugin.api.chat(
+        req,
+        evt => this.handleEvent(evt, assistantContent),
+        this.abortController.signal,
+      );
+    } catch (err: unknown) {
+      if ((err as Error).name !== 'AbortError') {
+        this.appendText(assistantContent, `\n[Error: ${(err as Error).message}]`);
+      }
+    } finally {
+      this.abortController = null;
+      this.inputEl.disabled = false;
+      this.toolCallEls.clear();
+      this.thoughtBlockEls.clear();
+      this.sendBtn.textContent = 'Send';
+      this.sendBtn.onclick = () => this.sendMessage();
+      // Restore status from health check
+      this.plugin.api.health()
+        .then(() => this.setStatus('ok'))
+        .catch(() => this.setStatus('error'));
+    }
+  }
+
+  private handleEvent(evt: SseEvent, contentEl: HTMLElement): void {
+    switch (evt.event) {
+      case 'token':
+        this.appendText(contentEl, evt.data.text);
+        break;
+      case 'tool_call': {
+        const parent = contentEl.parentElement;
+        if (!parent) break;
+
+        if (SidebarView.THOUGHT_TOOLS.has(evt.data.name)) {
+          // Expandable thought block
+          const block = parent.createDiv({ cls: 'oc-thought-block' });
+          const labels: Record<string, string> = {
+            structure_thought: '🧠 Estruturando pensamento',
+            refine_argument:   '✏️ Refinando argumento',
+            counter_argument:  '⚔️ Gerando contra-argumento',
+          };
+          const summary = block.createEl('button', {
+            cls: 'oc-thought-summary',
+            text: `${labels[evt.data.name] ?? '🧠 Processando'}…`,
+          });
+          const body = block.createDiv({ cls: 'oc-thought-body', text: '' });
+          body.style.display = 'none';
+          summary.addEventListener('click', () => {
+            const isOpen = body.style.display !== 'none';
+            body.style.display = isOpen ? 'none' : 'block';
+            summary.classList.toggle('oc-thought-open', !isOpen);
+          });
+          this.thoughtBlockEls.set(evt.data.id, body);
+          this.toolCallEls.set(evt.data.id, summary);
+        } else {
+          // Generic tool (web, vault, format)
+          const el = parent.createDiv({ cls: 'oc-tool-call' });
+          const icon = evt.data.name === 'web_search' || evt.data.name === 'fetch_page' ? '🌐' : '🔧';
+          el.setText(`${icon} ${evt.data.name}…`);
+          this.toolCallEls.set(evt.data.id, el);
+        }
+        break;
+      }
+      case 'tool_result': {
+        const el = this.toolCallEls.get(evt.data.id);
+        if (el) {
+          const prefix = evt.data.ok ? '✅ ' : '❌ ';
+          el.setText(prefix + (el.textContent ?? '').replace(/^[✅❌🧠✏️⚔️🔧🌐]\s*/, '').replace('…', ''));
+          this.toolCallEls.delete(evt.data.id);
+        }
+        const bodyEl = this.thoughtBlockEls.get(evt.data.id);
+        if (bodyEl && evt.data.preview) {
+          bodyEl.textContent = evt.data.preview;
+          this.thoughtBlockEls.delete(evt.data.id);
+        }
+        break;
+      }
+      case 'pending_edit':
+        this.appendPendingInline(contentEl, evt.data);
+        this.pendingCount++;
+        this.refreshBadge();
+        break;
+      case 'suggestions': {
+        const parent = contentEl.parentElement;
+        if (!parent || evt.data.items.length === 0) break;
+        const container = parent.createDiv({ cls: 'oc-suggestions' });
+        for (const item of evt.data.items) {
+          const chip = container.createEl('button', { cls: 'oc-suggestion-chip', text: item });
+          chip.addEventListener('click', () => this.sendMessage(item));
+        }
+        break;
+      }
+      case 'done':
+        this.currentSessionId = evt.data.sessionId;
+        break;
+      case 'error':
+        this.appendText(contentEl, `\n[Error: ${evt.data.message}]`);
+        break;
+      case 'insight':
+        this.appendText(contentEl, `\n💡 ${evt.data.text}`);
+        break;
+      default: {
+        const _exhaustive: never = evt;
+        console.warn('[OpenClaude] unhandled SSE event:', _exhaustive);
+      }
+    }
+  }
+
+  private addMessage(role: 'user' | 'assistant', text: string): HTMLElement {
+    const wrap = this.chatLog.createDiv({ cls: `openclaude-message ${role}` });
+    wrap.createDiv({ cls: 'openclaude-message-role', text: role === 'user' ? 'You' : 'OpenClaude' });
+    const content = wrap.createDiv({ cls: 'openclaude-message-content', text });
+    this.chatLog.scrollTop = this.chatLog.scrollHeight;
+    return content;
+  }
+
+  private appendText(el: HTMLElement, text: string): void {
+    el.textContent = (el.textContent ?? '') + text;
+    this.chatLog.scrollTop = this.chatLog.scrollHeight;
+  }
+
+  private appendPendingInline(contentEl: HTMLElement, data: { id: string; file: string; reason: string }): void {
+    const row = contentEl.parentElement?.createDiv({ cls: 'openclaude-pending-inline' });
+    if (!row) return;
+    const name = data.file.split(/[\\/]/).pop() ?? data.file;
+    row.createSpan({ cls: 'openclaude-pending-inline-file', text: `📝 ${name}` });
+
+    const applyBtn = row.createEl('button', { cls: 'openclaude-pending-inline-btn apply', text: 'Apply' });
+    applyBtn.onclick = async () => {
+      const { DiffPreviewModal } = await import('../modals/diff-preview-modal.js');
+      const edits = await this.plugin.api.listPendingEdits();
+      const edit = edits.find(e => e.id === data.id);
+      if (edit) new DiffPreviewModal(this.app, this.plugin, edit).open();
+    };
+
+    const rejectBtn = row.createEl('button', { cls: 'openclaude-pending-inline-btn reject', text: 'Reject' });
+    rejectBtn.onclick = async () => {
+      await this.plugin.api.rejectEdit(data.id);
+      row.remove();
+      this.pendingCount = Math.max(0, this.pendingCount - 1);
+      this.refreshBadge();
+    };
+  }
+
+  private refreshBadge(): void {
+    this.pendingBadge.style.display = this.pendingCount > 0 ? 'inline' : 'none';
+    this.pendingBadge.textContent = String(this.pendingCount);
+  }
+
+  private async openFirstPendingEdit(): Promise<void> {
+    const edits = await this.plugin.api.listPendingEdits();
+    if (!edits.length) return;
+    const { DiffPreviewModal } = await import('../modals/diff-preview-modal.js');
+    new DiffPreviewModal(this.app, this.plugin, edits[0]).open();
+  }
+
+  private showStarterChips(): void {
+    const starters = [
+      'qual argumento devo desenvolver hoje?',
+      'estruture meu último pensamento',
+      'gere um contra-argumento para minha última ideia',
+      'que lacunas existem nas minhas notas de projetos?',
+    ];
+    const wrap = this.chatLog.createDiv({ cls: 'oc-starters' });
+    wrap.createDiv({ cls: 'oc-starters-label', text: 'Comece com:' });
+    const chips = wrap.createDiv({ cls: 'oc-suggestions' });
+    for (const text of starters) {
+      const chip = chips.createEl('button', { cls: 'oc-suggestion-chip', text });
+      chip.addEventListener('click', () => {
+        wrap.remove();
+        this.sendMessage(text);
+      });
+    }
+    // No separate new-session listener needed: the existing onOpen() listener calls
+    // chatLog.empty(), which removes `wrap` as a child node automatically.
+  }
+
+  private startPendingPoll(): void {
+    this.registerInterval(window.setInterval(async () => {
+      try {
+        const edits = await this.plugin.api.listPendingEdits();
+        this.pendingCount = edits.length;
+        this.refreshBadge();
+      } catch { /* server may be down */ }
+    }, 10_000));
+  }
+}
