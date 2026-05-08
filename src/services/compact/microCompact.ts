@@ -284,6 +284,14 @@ export async function microcompactMessages(
     }
   }
 
+  // Semantic compression check for tight contexts
+  if (feature('SEMANTIC_COMPRESSION')) {
+    const semanticResult = await maybeSemanticCompression(messages)
+    if (semanticResult) {
+      return semanticResult
+    }
+  }
+
   // Legacy microcompact path removed — tengu_cache_plum_violet is always true.
   // For contexts where cached microcompact is not available (external builds,
   // non-ant users, unsupported models, sub-agents), no compaction happens here;
@@ -526,4 +534,60 @@ function maybeTimeBasedMicrocompact(
   }
 
   return { messages: result }
+}
+
+/**
+ * Semantic compression check for tight contexts.
+ */
+async function maybeSemanticCompression(messages: Message[]): Promise<MicrocompactResult | null> {
+  const totalTokens = messages.reduce((sum, m) => {
+    const content = typeof m.message?.content === 'string'
+      ? m.message.content
+      : Array.isArray(m.message?.content)
+        ? m.message.content.map(c => typeof c === 'object' && c !== null && 'text' in c ? (c as any).text : '').join(' ')
+        : ''
+    return sum + roughTokenCountEstimation(content)
+  }, 0)
+
+  const contextWindow = 150000
+  const threshold = contextWindow * 0.85
+
+  if (totalTokens > threshold) {
+    const { semanticCompress } = await import('../../utils/semanticCompression.js')
+    const compressedMessages: Message[] = []
+
+    for (const msg of messages) {
+      if (msg.type === 'user' && typeof msg.message?.content === 'string') {
+        const content = msg.message.content
+        const contentTokens = roughTokenCountEstimation(content)
+
+        if (contentTokens > 500) {
+          const result = semanticCompress(content, { targetRatio: 0.7, preserveMeaning: true })
+
+          compressedMessages.push({
+            ...msg,
+            message: {
+              ...msg.message,
+              content: result.compressed,
+            },
+          })
+          continue
+        }
+      }
+      compressedMessages.push(msg)
+    }
+
+    const compressedTokens = compressedMessages.reduce((sum, m) => {
+      const content = typeof m.message?.content === 'string'
+        ? m.message.content
+        : ''
+      return sum + roughTokenCountEstimation(content)
+    }, 0)
+
+    if (compressedTokens < totalTokens * 0.9) {
+      return { messages: compressedMessages }
+    }
+  }
+
+  return null
 }
