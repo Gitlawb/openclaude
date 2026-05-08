@@ -42,7 +42,8 @@ the appropriate `transportConfig.kind`.
 5. Fill `envVarConfig`.
    This is the Anthropic-proxy-specific env contract.
 6. Set `transportConfig.kind: 'anthropic-proxy'`.
-7. Add capabilities and optional catalog/usage/validation metadata as needed.
+7. Add usage and validation metadata as needed. Put any model catalog data in
+   `src/integrations/modelCatalog/providers/<id>.json`.
 8. Run `bun run integrations:generate` so the generated loader picks up the
    new descriptor.
 

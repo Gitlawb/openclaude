@@ -74,6 +74,7 @@ describe('provider model catalog loader', () => {
   test('builds model options from catalog UI and visibility metadata', () => {
     const options = getModelOptions('opencode-go', 'payg3p')
     expect(options.some(option => option.value === 'kimi-k2.6')).toBe(true)
+    expect(options.some(option => option.value === 'minimax-m2.7')).toBe(false)
     expect(options.find(option => option.value === 'kimi-k2.6')?.label).toBe(
       'Kimi K2.6',
     )

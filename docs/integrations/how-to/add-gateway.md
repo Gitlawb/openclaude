@@ -16,9 +16,10 @@ Typical gateway cases:
 ## Step-by-step
 
 1. Choose the file layout.
-   Use `src/integrations/gateways/<id>.ts` for the descriptor. Add
-   `src/integrations/gateways/<id>.models.ts` only when the catalog/discovery
-   details are large enough to deserve a companion file.
+   Use `src/integrations/gateways/<id>.ts` for the descriptor and
+   `src/integrations/modelCatalog/providers/<id>.json` for model data. Add a
+   companion TypeScript helper only for runtime/discovery logic that cannot be
+   represented as catalog data.
 2. Pick the transport family.
    `transportConfig.kind` is the routing contract.
 3. Pick a `category`.
@@ -54,7 +55,8 @@ Normal gateway examples should:
 
 - use `defineGateway`;
 - default-export the gateway descriptor;
-- default-export the catalog from any companion `*.models.ts` file;
+- keep model availability, defaults, capabilities, limits, pricing, aliases,
+  and endpoint selection in the provider JSON catalog;
 - avoid `registerGateway(...)` in contributor-authored examples;
 - avoid removed legacy fields such as `targetVendorId`,
   `isOpenAICompatible`, or routing-oriented gateway `classification`.
@@ -323,10 +325,11 @@ What this example covers:
 - `max_tokens` for a local/legacy-compatible token field;
 - a `startup` refresh mode example.
 
-## Two-file example: hybrid gateway with discovery cache
+## Descriptor plus catalog example: hybrid gateway with discovery cache
 
-Use a companion `*.models.ts` file when the catalog or discovery rules are too
-large to keep inline.
+Use the provider JSON catalog for curated entries and declarative discovery
+configuration. Keep companion TypeScript files for runtime-only helpers, not for
+authored model facts.
 
 `src/integrations/modelCatalog/providers/galaxy.json`
 
@@ -642,8 +645,8 @@ Avoid these patterns:
 - `targetVendorId`, `isOpenAICompatible`, or routing-oriented gateway
   `classification`;
 - using `category` to make runtime routing decisions;
-- placing large discovery/cached-catalog logic inline when a companion
-  `*.models.ts` file would be clearer;
+- placing model availability, defaults, limits, capabilities, pricing, aliases,
+  or endpoint selection anywhere except the provider JSON catalog;
 - treating every gateway as if it exposes every shared model.
 
 ## Verification checklist

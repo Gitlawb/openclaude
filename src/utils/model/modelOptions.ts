@@ -322,7 +322,10 @@ function getOpusPlanOption(): ModelOption {
 }
 
 function getCodexPlanOption(): ModelOption {
-  const model = getDefaultModelForProvider('codex', 'main') ?? 'gpt-5.5'
+  const model =
+    getDefaultModelForProvider('codex', 'main') ??
+    getDefaultModelForProvider('codex') ??
+    ''
   const metadata = getModelMetadata(model, 'codex')
   return {
     value: model,
@@ -335,7 +338,9 @@ function getCodexPlanOption(): ModelOption {
 
 function getCodexSparkOption(): ModelOption {
   const model =
-    getDefaultModelForProvider('codex', 'smallFast') ?? 'gpt-5.3-codex-spark'
+    getDefaultModelForProvider('codex', 'smallFast') ??
+    getDefaultModelForProvider('codex') ??
+    ''
   const metadata = getModelMetadata(model, 'codex')
   return {
     value: model,

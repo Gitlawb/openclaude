@@ -21,7 +21,9 @@ request execution, or response parsing behavior.
    the same fields across every model entry.
 4. Configure endpoints in the catalog.
    Use a model-level `endpoint` when one provider exposes different model
-   families through different paths or protocols.
+   families through different paths or protocols. If the catalog can describe a
+   protocol before runtime transport support exists, keep those entries hidden
+   until the transport path is implemented.
 5. Add shared TypeScript descriptors only when needed.
    Use `src/integrations/models/` for optional shared glossary metadata across
    multiple provider catalogs. Do not use it as the first place to list a
@@ -157,6 +159,8 @@ Before calling a model update complete:
   lookups;
 - provider defaults or templates are used for repeated metadata;
 - endpoint selection is configured in JSON when the provider has multiple paths;
+- entries that require unsupported runtime protocols are hidden or left
+  non-user-facing until transport support exists;
 - shared descriptors are added only for reusable cross-provider identity;
 - no new built-in model table was added outside
   `src/integrations/modelCatalog/providers/`;

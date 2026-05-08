@@ -244,7 +244,7 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
-  // Codex provider: use user-specified model or default to gpt-5.5
+  // Codex provider: use user-specified model or catalog default.
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || getProviderDefaultModel('opus') || getDefaultSonnetModel()
   }
@@ -419,7 +419,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || getProviderDefaultModel('main') || getDefaultSonnetModel()
   }
-  // Codex provider: always use the configured Codex model (default gpt-5.5)
+  // Codex provider: always use the configured Codex model or catalog default.
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || getProviderDefaultModel('main') || getDefaultSonnetModel()
   }
@@ -617,6 +617,25 @@ function getCatalogModelDisplayName(
   }
 }
 
+const PUBLIC_MODEL_DISPLAY_FALLBACK_PROVIDERS = [
+  'anthropic',
+  'codex',
+  'openai',
+] as const
+
+function getCatalogModelDisplayNameFromFallbackProviders(
+  model: ModelName,
+): string | null {
+  for (const providerId of PUBLIC_MODEL_DISPLAY_FALLBACK_PROVIDERS) {
+    const label = getCatalogModelDisplayName(model, providerId)
+    if (label) {
+      return label
+    }
+  }
+
+  return null
+}
+
 /**
  * Returns a human-readable display name for known public models, or null
  * if the model is not recognized as a public model.
@@ -633,21 +652,7 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
     }
   }
 
-  const anthropicDisplayName = getCatalogModelDisplayName(model, 'anthropic')
-  if (anthropicDisplayName) {
-    return anthropicDisplayName
-  }
-
-  switch (model) {
-    case 'gpt-5.5':
-      return 'GPT-5.5'
-    case 'gpt-5.4':
-      return 'GPT-5.4'
-    case 'gpt-5.3-codex-spark':
-      return 'GPT-5.3 Codex Spark'
-    default:
-      return null
-  }
+  return getCatalogModelDisplayNameFromFallbackProviders(model)
 }
 
 function maskModelCodename(baseName: string): string {

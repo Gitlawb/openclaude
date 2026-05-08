@@ -218,7 +218,7 @@ export function getGoalDefaultOpenAIModel(goal: RecommendationGoal): string {
   return (
     getDefaultModelForProvider('openai', goal) ??
     getDefaultModelForProvider('openai') ??
-    'gpt-5.5'
+    ''
   )
 }
 

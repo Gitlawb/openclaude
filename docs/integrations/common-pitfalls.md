@@ -127,12 +127,14 @@ Safer rule:
 ## Pitfall 11: Hiding discovery complexity in the descriptor file
 
 Common mistake:
-Packing a large hybrid catalog or complex discovery rules inline in
-`gateways/<id>.ts`.
+Packing model availability, defaults, limits, capabilities, pricing, aliases,
+endpoint selection, or discovery configuration into `gateways/<id>.ts`.
 
 Safer rule:
-Move large catalog or discovery-specific logic into a companion
-`gateways/<id>.models.ts` file and keep the descriptor file small.
+Move declarative model data and discovery configuration into
+`src/integrations/modelCatalog/providers/<id>.json`. Use a companion TypeScript
+helper only for runtime discovery code that cannot be represented as catalog
+data.
 
 ## Pitfall 12: Rebuilding the old OpenAI context table
 

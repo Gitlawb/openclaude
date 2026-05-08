@@ -86,11 +86,13 @@
       "classification": ["chat", "reasoning", "coding"],
       "brandId": "minimax",
       "vendorId": "minimax",
+      "status": "hidden",
       "limits": {
         "contextWindow": 204800,
         "maxOutputTokens": { "default": 131072, "upperLimit": 131072 }
       },
-      "capabilities": { "reasoning": true }
+      "capabilities": { "reasoning": true },
+      "visibility": { "hidden": true }
     },
     "mimo": {
       "classification": ["chat", "reasoning", "coding"],

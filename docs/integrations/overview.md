@@ -54,8 +54,10 @@ If you are onboarding to the integration system:
 Keep these concerns separate:
 
 - metadata
-  Descriptor files declare labels, defaults, catalogs, setup requirements,
-  validation hints, and request-shaping metadata.
+  Descriptor files declare route labels, setup requirements, validation hints,
+  transport selection, and request-shaping metadata. Provider JSON catalogs
+  declare model availability, defaults, limits, capabilities, pricing, aliases,
+  and endpoint selection.
 - routing
   Route/profile helpers map user config, presets, and env state onto the active
   descriptor route.
