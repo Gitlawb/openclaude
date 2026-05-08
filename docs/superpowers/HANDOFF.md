@@ -4,11 +4,11 @@
 > *"Leia `docs/superpowers/HANDOFF.md` e retome de onde paramos."*
 > Ou copie o kick-off prompt da Seção 11.
 
-**Última atualização:** 2026-05-01 (sessão 6)
-**Branch ativa:** `feat/serve` (server) + `feat/plugin` (plugin, worktree em `.worktrees/plugin/`)
-**Tags:** `phase-1-server-complete` ✅ + **`phase-2-plugin-complete`** ✅ (a criar)
-**Plano #1 COMPLETO (20/20 tasks)** | **Plano #2 COMPLETO (10/10 tasks)**
-**Próxima tarefa:** Tag `phase-2-plugin-complete` + merge/PR + Plano #3
+**Última atualização:** 2026-05-08 (sessão 7 — sprint paralelo C concluído)
+**Branch ativa:** `feat/serve` (integrada com `feat/plugin`)
+**Tags:** `phase-1-server-complete` ✅ + `phase-2-plugin-complete` ✅ + `phase-3-complete` ✅ + `phase-4-complete` ✅
+**Planos 1-4 COMPLETOS**
+**Próxima tarefa:** PR feat/serve → main + teste beta no vault Energinova_Hub
 
 ---
 
@@ -92,12 +92,39 @@ plugin/
 └── styles.css
 ```
 
+### Plano #3 — Vault Tools + OpenAI Function Calling (`feat/serve`)
+
+**Branch:** `feat/serve` | **Tag:** `phase-3-complete` (a criar)
+**Funcionalidades entregues:**
+- ✅ OpenAI function-calling agentic loop (list_vault, read_note, search_vault, write_note)
+- ✅ delete_note / rename_note / move_note com pending edit
+- ✅ updateWikilinks automático no apply de rename/move
+- ✅ vaultUtils.ts com walk, searchVault, readNote, vaultRelative
+- ✅ Tool registry pattern (registry.ts, vaultTools.ts, webTools.ts, formatTools.ts)
+
+### Plano #4 — Second Brain Agent (`feat/serve`)
+
+**Branch:** `feat/serve` | **Tag:** `phase-4-complete` (a criar)
+**Funcionalidades entregues:**
+- ✅ Thought tools: structure_thought, refine_argument, counter_argument
+- ✅ Persona "argumentative thinking partner" (system prompt reescrito)
+- ✅ web_search + fetch_page via Brave Search API
+- ✅ summarize_notes, format_note, suggest_links (formatTools)
+- ✅ Suggestions SSE event (chips clicáveis no plugin)
+- ✅ Conversation history wiring
+- ✅ Provider agnosticism: thought tools ativados via OPENAI_API_KEY/OPENAI_BASE_URL (sem flag manual)
+- ✅ P3 permission middleware (conservador/balanceado/agressivo)
+- ✅ Plugin: server-manager passa env vars de provider automaticamente
+- ✅ Plugin: thought tools mostram blocos colapsáveis com resultado
+
 ---
 
 ## 3. Planos completos ✅
 
 **Plano #1:** 20/20 tasks. Tag `phase-1-server-complete`. Servidor HTTP pronto.
-**Plano #2:** 10/10 tasks. Tag `phase-2-plugin-complete` (a criar). Plugin Obsidian pronto para instalação.
+**Plano #2:** 10/10 tasks. Tag `phase-2-plugin-complete`. Plugin Obsidian pronto para instalação.
+**Plano #3:** Vault Tools + OpenAI Function Calling. Tag `phase-3-complete`. Agentic loop completo.
+**Plano #4:** Second Brain Agent. Tag `phase-4-complete`. Thought tools, permissions, provider agnostic.
 
 ---
 
@@ -211,8 +238,7 @@ Listadas no spec Seção 15:
 ```bash
 cd "e:/Agente_OpenClaude_Segundo_cérebro"
 git checkout feat/serve
-git log --oneline feat/serve ^main
-bun test src/serve/        # deve mostrar 19 pass
+bun test src/serve/       # ≥ 179 pass
 ```
 
 ### Rodar o servidor pra testar
@@ -238,12 +264,16 @@ Retomando projeto openclaude-obsidian.
 Contexto completo em: docs/superpowers/HANDOFF.md
 
 Estado atual:
-- Plano #1 COMPLETO: feat/serve, tag phase-1-server-complete, 93 testes
-- Plano #2 COMPLETO: feat/plugin (worktree .worktrees/plugin/), 21 testes, plugin instalável
-- Próximo: tag phase-2-plugin-complete + PR feat/plugin→main + escrever Plano #3
+- Phases 1-4 COMPLETAS (feat/serve integrado com feat/plugin)
+- Thought tools funcionam com Qwen3/Ollama (provider default)
+- Plugin exibe blocos colapsáveis para thought tools
+- P3 permission middleware ativo (preset: balanceado default)
+- Wikilinks atualizam automaticamente no rename/move
+- buildServerEnv passa OPENAI_* env vars ao spawnar servidor
+- Próximo: PR feat/serve → main + beta no vault Energinova_Hub
 
-Leia HANDOFF.md, me dê um resumo de 3 linhas confirmando o estado,
-e sugira os próximos passos (tag + PR ou instalar no vault para testar).
+Leia HANDOFF.md, me dê um resumo de 3 linhas confirmando o estado
+e sugira os próximos passos.
 
 Sem re-brainstorming. Sem re-review do design. Sem reabrir decisões fechadas.
 ```
