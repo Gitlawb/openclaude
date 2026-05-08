@@ -15,17 +15,16 @@ import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
 import { parseUserSpecifiedModel } from '../utils/model/model.js'
 import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
 import { getGlobalConfig } from '../utils/config.js'
-import { resolveLogoPalette } from './StartupScreen.palettes.js'
+import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
+import {
+  resolveLogoPalette,
+  type RGB,
+} from './StartupScreen.palettes.js'
 
 declare const MACRO: { VERSION: string; DISPLAY_VERSION?: string }
 
-const ESC = '\x1b['
-const RESET = `${ESC}0m`
-const DIM = `${ESC}2m`
-
-type RGB = [number, number, number]
-export const rgb = (r: number, g: number, b: number) => `${ESC}38;2;${r};${g};${b}m`
-export const ANSI_RESET = RESET
+const RESET = ANSI_RESET
+const DIM = ANSI_DIM
 
 function lerp(a: RGB, b: RGB, t: number): RGB {
   return [
@@ -35,7 +34,7 @@ function lerp(a: RGB, b: RGB, t: number): RGB {
   ]
 }
 
-function gradAt(stops: RGB[], t: number): RGB {
+function gradAt(stops: readonly RGB[], t: number): RGB {
   const c = Math.max(0, Math.min(1, t))
   const s = c * (stops.length - 1)
   const i = Math.floor(s)
@@ -43,12 +42,12 @@ function gradAt(stops: RGB[], t: number): RGB {
   return lerp(stops[i], stops[i + 1], s - i)
 }
 
-export function paintLine(text: string, stops: RGB[], lineT: number): string {
+export function paintLine(text: string, stops: readonly RGB[], lineT: number): string {
   let out = ''
   for (let i = 0; i < text.length; i++) {
     const t = text.length > 1 ? lineT * 0.5 + (i / (text.length - 1)) * 0.5 : lineT
     const [r, g, b] = gradAt(stops, t)
-    out += `${rgb(r, g, b)}${text[i]}`
+    out += `${ansiRgb(r, g, b)}${text[i]}`
   }
   return out + RESET
 }
@@ -169,7 +168,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
 
 function boxRow(content: string, width: number, rawLen: number, border: RGB): string {
   const pad = Math.max(0, width - 2 - rawLen)
-  return `${rgb(...border)}\u2502${RESET}${content}${' '.repeat(pad)}${rgb(...border)}\u2502${RESET}`
+  return `${ansiRgb(...border)}\u2502${RESET}${content}${' '.repeat(pad)}${ansiRgb(...border)}\u2502${RESET}`
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -179,11 +178,11 @@ export function printStartupScreen(modelOverride?: string): void {
   if (process.env.CI || !process.stdout.isTTY) return
 
   const palette = resolveLogoPalette(getGlobalConfig().logoColor)
-  const ACCENT = palette.accent as RGB
-  const CREAM = palette.cream as RGB
-  const DIMCOL = palette.dim as RGB
-  const BORDER = palette.border as RGB
-  const GRAD = palette.gradient as unknown as RGB[]
+  const ACCENT = palette.accent
+  const CREAM = palette.cream
+  const DIMCOL = palette.dim
+  const BORDER = palette.border
+  const GRAD = palette.gradient
 
   const p = detectProvider(modelOverride)
   const W = 62
@@ -206,15 +205,15 @@ export function printStartupScreen(modelOverride?: string): void {
   out.push('')
 
   // Tagline
-  out.push(`  ${rgb(...ACCENT)}\u2726${RESET} ${rgb(...CREAM)}Any model. Every tool. Zero limits.${RESET} ${rgb(...ACCENT)}\u2726${RESET}`)
+  out.push(`  ${ansiRgb(...ACCENT)}\u2726${RESET} ${ansiRgb(...CREAM)}Any model. Every tool. Zero limits.${RESET} ${ansiRgb(...ACCENT)}\u2726${RESET}`)
   out.push('')
 
   // Provider info box
-  out.push(`${rgb(...BORDER)}\u2554${'\u2550'.repeat(W - 2)}\u2557${RESET}`)
+  out.push(`${ansiRgb(...BORDER)}\u2554${'\u2550'.repeat(W - 2)}\u2557${RESET}`)
 
   const lbl = (k: string, v: string, c: RGB = CREAM): [string, number] => {
     const padK = k.padEnd(9)
-    return [` ${DIM}${rgb(...DIMCOL)}${padK}${RESET} ${rgb(...c)}${v}${RESET}`, ` ${padK} ${v}`.length]
+    return [` ${DIM}${ansiRgb(...DIMCOL)}${padK}${RESET} ${ansiRgb(...c)}${v}${RESET}`, ` ${padK} ${v}`.length]
   }
 
   const provC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
@@ -226,16 +225,16 @@ export function printStartupScreen(modelOverride?: string): void {
   ;[r, l] = lbl('Endpoint', ep)
   out.push(boxRow(r, W, l, BORDER))
 
-  out.push(`${rgb(...BORDER)}\u2560${'\u2550'.repeat(W - 2)}\u2563${RESET}`)
+  out.push(`${ansiRgb(...BORDER)}\u2560${'\u2550'.repeat(W - 2)}\u2563${RESET}`)
 
   const sC: RGB = p.isLocal ? [130, 175, 130] : ACCENT
   const sL = p.isLocal ? 'local' : 'cloud'
-  const sRow = ` ${rgb(...sC)}\u25cf${RESET} ${DIM}${rgb(...DIMCOL)}${sL}${RESET}    ${DIM}${rgb(...DIMCOL)}Ready \u2014 type ${RESET}${rgb(...ACCENT)}/help${RESET}${DIM}${rgb(...DIMCOL)} to begin${RESET}`
+  const sRow = ` ${ansiRgb(...sC)}\u25cf${RESET} ${DIM}${ansiRgb(...DIMCOL)}${sL}${RESET}    ${DIM}${ansiRgb(...DIMCOL)}Ready \u2014 type ${RESET}${ansiRgb(...ACCENT)}/help${RESET}${DIM}${ansiRgb(...DIMCOL)} to begin${RESET}`
   const sLen = ` \u25cf ${sL}    Ready \u2014 type /help to begin`.length
   out.push(boxRow(sRow, W, sLen, BORDER))
 
-  out.push(`${rgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
-  out.push(`  ${DIM}${rgb(...DIMCOL)}openclaude ${RESET}${rgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`)
+  out.push(`${ansiRgb(...BORDER)}\u255a${'\u2550'.repeat(W - 2)}\u255d${RESET}`)
+  out.push(`  ${DIM}${ansiRgb(...DIMCOL)}openclaude ${RESET}${ansiRgb(...ACCENT)}v${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}${RESET}`)
   out.push('')
 
   process.stdout.write(out.join('\n') + '\n')

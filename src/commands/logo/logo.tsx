@@ -2,6 +2,7 @@ import * as React from 'react'
 import { LogoPicker } from '../../components/LogoPicker.js'
 import {
   DEFAULT_LOGO_PALETTE,
+  LOGO_PALETTE_LABELS,
   isLogoPaletteName,
   type LogoPaletteName,
 } from '../../components/StartupScreen.palettes.js'
@@ -24,7 +25,9 @@ function LogoPickerCommand({ onDone }: Props): React.ReactElement {
   const handleSelect = React.useCallback(
     (chosen: LogoPaletteName) => {
       saveGlobalConfig(c => ({ ...c, logoColor: chosen }))
-      onDone(`Startup logo set to ${chosen}. Visible on next launch.`)
+      onDone(
+        `Startup logo set to ${LOGO_PALETTE_LABELS[chosen]}. Visible on next launch.`,
+      )
     },
     [onDone],
   )

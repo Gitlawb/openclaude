@@ -3,11 +3,11 @@
  * Selected via /logo, persisted in GlobalConfig.logoColor.
  */
 
-export type RGB = [number, number, number]
+export type RGB = readonly [number, number, number]
 
 export type LogoPalette = {
   /** Gradient stops painted top→bottom across the ASCII logo rows. */
-  gradient: RGB[]
+  gradient: readonly RGB[]
   /** Highlight color for tagline, version label, and the ✦ marker. */
   accent: RGB
   /** Soft body text color (tagline value, label values). */
@@ -61,7 +61,7 @@ export const LOGO_PALETTES = {
     dim: [90, 115, 145],
     border: [70, 90, 115],
   },
-  mono: {
+  monochrome: {
     gradient: [
       [225, 225, 225],
       [195, 195, 195],
@@ -82,6 +82,13 @@ export type LogoPaletteName = keyof typeof LOGO_PALETTES
 export const LOGO_PALETTE_NAMES = Object.keys(LOGO_PALETTES) as LogoPaletteName[]
 
 export const DEFAULT_LOGO_PALETTE: LogoPaletteName = 'sunset'
+
+export const LOGO_PALETTE_LABELS: Record<LogoPaletteName, string> = {
+  sunset: 'Sunset (default)',
+  forest: 'Forest green',
+  ocean: 'Ocean blue',
+  monochrome: 'Monochrome',
+}
 
 export function isLogoPaletteName(value: unknown): value is LogoPaletteName {
   return (
