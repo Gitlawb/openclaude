@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import {
   getModelEndpoint,
+  getModelOptions,
   getModelMetadata,
   getAllProviderCatalogs,
   getProviderCatalog,
@@ -57,6 +58,14 @@ async function importCatalogWithProviders(
 describe('provider model catalog loader', () => {
   test('loads statically imported provider catalogs', () => {
     expect(getProviderCatalog('opencode-go')?.label).toBe('OpenCode Go')
+  })
+
+  test('builds model options from catalog UI and visibility metadata', () => {
+    const options = getModelOptions('opencode-go', 'payg3p')
+    expect(options.some(option => option.value === 'kimi-k2.6')).toBe(true)
+    expect(options.find(option => option.value === 'kimi-k2.6')?.label).toBe(
+      'Kimi K2.6',
+    )
   })
 
   test('resolves aliases within a provider catalog', () => {

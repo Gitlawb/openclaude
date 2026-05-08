@@ -9,14 +9,22 @@ import {
 } from '../settings/settingsCache.js'
 
 async function importFreshModelOptionsModule() {
+  return importFreshModelOptionsModuleForProvider('github')
+}
+
+async function importFreshModelOptionsModuleForProvider(
+  provider: 'github' | 'openai',
+  setupMocks?: () => void,
+) {
   mock.restore()
   mock.module('./providers.js', () => ({
-    getAPIProvider: () => 'github',
-    getAPIProviderForStatsig: () => 'github',
+    getAPIProvider: () => provider,
+    getAPIProviderForStatsig: () => provider,
     isFirstPartyAnthropicBaseUrl: () => false,
     isGithubNativeAnthropicMode: () => false,
     usesAnthropicAccountFlow: () => false,
   }))
+  setupMocks?.()
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./modelOptions.js?ts=${nonce}`)
 }
@@ -103,4 +111,47 @@ test('GitHub provider exposes default + all Copilot models in /model options', a
   expect(nonDefault.length).toBeGreaterThan(1)
   expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-4o')).toBe(true)
   expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-5.3-codex')).toBe(true)
+})
+
+test('GitHub provider preserves catalog source order in /model options', async () => {
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+
+  const { getModelOptions } = await importFreshModelOptionsModule()
+  const nonDefault = getModelOptions(false)
+    .filter((option: { value: unknown }) => option.value !== null)
+    .map((option: { value: unknown }) => option.value)
+
+  expect(nonDefault.slice(0, 3)).toEqual([
+    'gpt-5.5',
+    'gpt-5.5-mini',
+    'gpt-5.4',
+  ])
+})
+
+test('Ollama provider exposes dynamically discovered local models', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  process.env.OPENAI_MODEL = 'llama3.1:8b'
+
+  const { getModelOptions } = await importFreshModelOptionsModuleForProvider(
+    'openai',
+    () => {
+      mock.module('./ollamaModels.js', () => ({
+        isOllamaProvider: () => true,
+        getCachedOllamaModelOptions: () => [
+          {
+            value: 'qwen2.5-coder:14b',
+            label: 'qwen2.5-coder:14b',
+            description: 'Ollama · 14B',
+          },
+        ],
+      }))
+    },
+  )
+  const values = getModelOptions(false).map(
+    (option: { value: unknown }) => option.value,
+  )
+
+  expect(values).toContain('qwen2.5-coder:14b')
 })

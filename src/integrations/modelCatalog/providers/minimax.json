@@ -320,7 +320,9 @@
         "reasoning": false
       },
       "visibility": {
-        "hidden": true
+        "tiers": [
+          "thirdParty"
+        ]
       }
     },
     "abab6.5-chat": {
@@ -344,7 +346,9 @@
         "reasoning": false
       },
       "visibility": {
-        "hidden": true
+        "tiers": [
+          "thirdParty"
+        ]
       }
     },
     "abab6.5g-chat": {
@@ -368,7 +372,9 @@
         "reasoning": false
       },
       "visibility": {
-        "hidden": true
+        "tiers": [
+          "thirdParty"
+        ]
       }
     },
     "abab6-chat": {
@@ -392,7 +398,9 @@
         "reasoning": false
       },
       "visibility": {
-        "hidden": true
+        "tiers": [
+          "thirdParty"
+        ]
       }
     }
   },

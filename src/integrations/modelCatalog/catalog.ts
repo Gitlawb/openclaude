@@ -9,6 +9,7 @@ import type {
   ModelEffort,
   ModelLimits,
   ModelPricing,
+  ModelTier,
   NormalizedModelMetadata,
   ProviderCatalog,
   ProviderCatalogDefaults,
@@ -16,6 +17,12 @@ import type {
 } from './types.js'
 
 type MergeableModelMetadata = Partial<ModelCatalogEntry>
+export type CatalogModelOption = {
+  value: string
+  label: string
+  description: string
+  descriptionForModel?: string
+}
 type ModelMatch = {
   catalog: ProviderCatalog
   modelId: string
@@ -129,6 +136,38 @@ export function getProviderCatalog(
 
 export function getAllProviderCatalogs(): ProviderCatalog[] {
   return [...CATALOGS]
+}
+
+export function getModelOptions(
+  providerId: string,
+  tier: ModelTier,
+): CatalogModelOption[] {
+  const catalog = getProviderCatalog(providerId)
+  if (!catalog) {
+    return []
+  }
+
+  return Object.entries(catalog.models)
+    .map(([modelId, entry], index) => ({
+      model: mergeModelMetadata(catalog, modelId, entry),
+      index,
+    }))
+    .filter(({ model }) => !model.visibility?.hidden && model.status !== 'hidden')
+    .filter(({ model }) => {
+      const tiers = model.visibility?.tiers
+      return !tiers || tiers.includes(tier)
+    })
+    .sort((left, right) => {
+      const leftOrder = left.model.visibility?.order ?? Number.MAX_SAFE_INTEGER
+      const rightOrder = right.model.visibility?.order ?? Number.MAX_SAFE_INTEGER
+      return leftOrder - rightOrder || left.index - right.index
+    })
+    .map(({ model }) => ({
+      value: model.apiName,
+      label: model.ui?.pickerLabel ?? model.label,
+      description: model.ui?.pickerDescription ?? model.label,
+      descriptionForModel: model.ui?.descriptionForModel,
+    }))
 }
 
 function matchesModelReference(

@@ -38,9 +38,10 @@ import {
   getActiveProviderProfile,
   getProfileModelOptions,
 } from '../providerProfiles.js'
+import { getModelOptions as getCatalogModelOptions } from '../../integrations/modelCatalog/catalog.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
-import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
-import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import { isNvidiaNimProvider } from './nvidiaNimModels.js'
+import { isMiniMaxProvider } from './minimaxModels.js'
 import { getAntModels } from './antModels.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
@@ -385,18 +386,17 @@ function getCodexModelOptions(): ModelOption[] {
   ]
 }
 
-// @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
-// Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
-
-import { getAllCopilotModels } from './copilotModels.js'
-
 function getCopilotModelOptions(): ModelOption[] {
-  return getAllCopilotModels().map(m => ({
-    value: m.id,
-    label: m.name,
-    description: `${m.family}${m.reasoning ? ' · Reasoning' : ''}${m.tool_call ? ' · Tool call' : ''} · ${Math.round(m.limit.context / 1000)}K context`,
+  return getCatalogModelOptions('github-copilot', 'thirdParty').map(option => ({
+    value: option.value,
+    label: option.label,
+    description: option.description,
+    descriptionForModel: option.descriptionForModel,
   }))
 }
+
+// @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
+// Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {
   if (getAPIProvider() === 'github') {
@@ -428,7 +428,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // When using NVIDIA NIM, show models from the NVIDIA catalog
   if (isNvidiaNimProvider()) {
     const defaultOption = getDefaultOptionForUser(fastMode)
-    const nvidiaModels = getCachedNvidiaNimModelOptions()
+    const nvidiaModels = getCatalogModelOptions('nvidia-nim', 'thirdParty')
     if (nvidiaModels.length > 0) {
       return [defaultOption, ...nvidiaModels]
     }
@@ -438,7 +438,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // When using MiniMax, show models from the MiniMax catalog
   if (isMiniMaxProvider()) {
     const defaultOption = getDefaultOptionForUser(fastMode)
-    const minimaxModels = getCachedMiniMaxModelOptions()
+    const minimaxModels = getCatalogModelOptions('minimax', 'thirdParty')
     if (minimaxModels.length > 0) {
       return [defaultOption, ...minimaxModels]
     }

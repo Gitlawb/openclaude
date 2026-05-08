@@ -22,3 +22,9 @@ test('MiniMax picker catalog includes current M2.7 models', () => {
   expect(values).toContain('MiniMax-M2.7')
   expect(values).toContain('MiniMax-M2.7-highspeed')
 })
+
+test('MiniMax picker catalog keeps legacy ABAB models for compatibility', () => {
+  const values = getCachedMiniMaxModelOptions().map(option => option.value)
+
+  expect(values).toContain('abab6.5s-chat')
+})
