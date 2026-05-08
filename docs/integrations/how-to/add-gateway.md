@@ -29,18 +29,23 @@ Typical gateway cases:
 5. Choose the provider JSON catalog strategy.
    Use `static`, `dynamic`, or `hybrid` in
    `src/integrations/modelCatalog/providers/<id>.json`.
-6. Decide whether the gateway needs discovery cache TTL, refresh mode, and
+6. Register brand-new provider catalogs with the catalog loader.
+   If `<id>.json` is new, import it in
+   `src/integrations/modelCatalog/providerCatalogs.ts` and add `<id>` to
+   `expectedProviders` in
+   `src/integrations/modelCatalog/validateCatalogs.test.ts`.
+7. Decide whether the gateway needs discovery cache TTL, refresh mode, and
    manual refresh.
-7. For OpenAI-compatible or local routes, add any required static headers,
+8. For OpenAI-compatible or local routes, add any required static headers,
    decide whether users may edit API mode and header-related settings through
    `transportConfig.openaiShim.supportsApiFormatSelection` and
    `transportConfig.openaiShim.supportsAuthHeaders`, and use
    `transportConfig.openaiShim.ui.show*` flags to choose which auth-header,
    auth-value, or custom-header prompts appear for tighter built-in preset
    flows.
-8. If the gateway should appear in preset-driven `/provider` flows, add a
+9. If the gateway should appear in preset-driven `/provider` flows, add a
    `preset` block on the descriptor.
-9. Run `bun run integrations:generate` so the generated loader and preset
+10. Run `bun run integrations:generate` so the generated loader and preset
    manifest stay in sync.
 
 ## Authoring rules
@@ -176,6 +181,8 @@ What this example covers:
 - route-owned auth with only regular custom-header prompts shown in the preset UI;
 - route-owned default auth header and Responses API model-prefix rules;
 - a static provider JSON catalog;
+- a brand-new provider JSON imported by `providerCatalogs.ts` and listed in
+  `validateCatalogs.test.ts`;
 - a gateway with only its own hosted models;
 - different reasoning/context/input/output behavior across models;
 - route defaults declared once in provider JSON through

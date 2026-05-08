@@ -30,6 +30,12 @@ request execution, or response parsing behavior.
    TypeScript transport code is for new auth, routing, request execution, or
    response parsing behavior. Plain model facts belong in provider JSON.
 
+If this is a brand-new provider catalog, also import it from
+`src/integrations/modelCatalog/providerCatalogs.ts` and add the provider id to
+`expectedProviders` in
+`src/integrations/modelCatalog/validateCatalogs.test.ts`. Updating an existing
+provider's model list does not require those two registry edits.
+
 ## Provider catalog example
 
 ```json
@@ -153,4 +159,6 @@ Before calling a model update complete:
 - shared descriptors are added only for reusable cross-provider identity;
 - no new built-in model table was added outside
   `src/integrations/modelCatalog/providers/`;
+- a brand-new provider JSON is imported by `providerCatalogs.ts` and listed in
+  the catalog inventory test;
 - catalog validation and relevant provider/model tests pass.

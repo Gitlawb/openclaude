@@ -12,6 +12,12 @@ the route, auth/setup, and transport contract. Provider JSON files define model
 availability, defaults, capabilities, limits, effort, pricing, endpoints, and
 aliases.
 
+When adding a brand-new provider JSON file, also import it in
+`src/integrations/modelCatalog/providerCatalogs.ts` and add its provider id to
+`expectedProviders` in
+`src/integrations/modelCatalog/validateCatalogs.test.ts`. Those two edits make
+the catalog visible at runtime and keep inventory validation honest.
+
 ## Sample 1: Minimal direct vendor
 
 Use this when the route is the canonical first-party vendor endpoint and does
@@ -300,6 +306,8 @@ Before promoting any sample into a real descriptor:
 
 - replace placeholder ids, labels, env vars, and URLs;
 - keep route model availability in provider JSON;
+- import brand-new provider JSON files from `providerCatalogs.ts`;
+- list brand-new provider ids in `validateCatalogs.test.ts`;
 - set exactly one provider JSON model with `visibility.defaultFor: ["main"]`;
 - keep `transportConfig.kind` as the routing contract;
 - keep `category` descriptive only;

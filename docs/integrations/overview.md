@@ -127,6 +127,9 @@ Normal descriptor files should:
 - use `src/integrations/models/` only for optional shared descriptor/glossary
   metadata that is genuinely useful across provider catalogs;
 - keep env-override compatibility helpers free of built-in model tables.
+- import brand-new provider JSON catalogs from
+  `src/integrations/modelCatalog/providerCatalogs.ts` and list their ids in
+  `src/integrations/modelCatalog/validateCatalogs.test.ts`.
 
 Typical helper usage:
 

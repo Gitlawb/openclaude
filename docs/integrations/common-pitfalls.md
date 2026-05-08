@@ -172,7 +172,20 @@ Do not hand-edit:
 Only touch remaining env-facing compatibility surfaces when the route truly
 needs them.
 
-## Pitfall 14: Using stale repo paths in docs
+## Pitfall 14: Forgetting catalog loader registration
+
+Common mistake:
+Adding `src/integrations/modelCatalog/providers/<id>.json` and assuming the
+catalog loader discovers it automatically.
+
+Safer rule:
+Brand-new provider JSON files must be imported in
+`src/integrations/modelCatalog/providerCatalogs.ts` and listed in
+`expectedProviders` in
+`src/integrations/modelCatalog/validateCatalogs.test.ts`. Existing provider
+model updates do not need these two edits.
+
+## Pitfall 15: Using stale repo paths in docs
 
 Common mistake:
 Pointing contributors at outdated files or command entrypoints.
@@ -195,6 +208,8 @@ Before opening or landing integration docs or descriptor changes:
 - confirm `transportConfig.kind` is doing the routing work;
 - confirm examples use `define*` helpers plus default exports;
 - confirm route catalogs own availability;
+- confirm brand-new provider JSON catalogs are imported and covered by the
+  catalog inventory test;
 - confirm route defaults are declared once in provider JSON through
   `visibility.defaultFor`;
 - confirm built-in model limits live in
