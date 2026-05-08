@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, renameSync } from 'fs'
 import { join } from 'path'
 import { getProjectsDir } from './envUtils.js'
 import { sanitizePath } from './sessionStoragePortable.js'
@@ -78,15 +78,23 @@ export async function initOrama(cwd: string): Promise<void> {
       oramaDb = await restore('binary', data)
       return
     } catch (e) {
-      console.error('Failed to restore Orama DB:', e)
+      console.error('Failed to restore Orama DB, renaming corrupted file:', e)
+      try {
+        renameSync(path, `${path}.corrupted.${Date.now()}`)
+      } catch (renameError) {
+        console.error('Failed to rename corrupted Orama file:', renameError)
+      }
     }
   }
 
   oramaDb = await create({ schema: ORAMA_SCHEMA })
 
-  // Initial sync from JSON if it exists
+  // Initial sync from JSON if it exists (only for new DB)
   const graph = projectGraph || loadProjectGraph(cwd)
   for (const entity of Object.values(graph.entities)) {
+    try {
+      await remove(oramaDb, entity.id)
+    } catch { /* ignore */ }
     await insert(oramaDb, {
       id: entity.id,
       type: entity.type,
@@ -96,6 +104,9 @@ export async function initOrama(cwd: string): Promise<void> {
     })
   }
   for (const summary of graph.summaries) {
+    try {
+      await remove(oramaDb, summary.id)
+    } catch { /* ignore */ }
     await insert(oramaDb, {
       id: summary.id,
       type: 'summary',
@@ -251,7 +262,7 @@ export async function addGlobalRelation(
 
 export async function addGlobalSummary(content: string, keywords: string[]): Promise<void> {
   const graph = getGlobalGraph()
-  const id = `summary_${Date.now()}`
+  const id = `summary_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
   graph.summaries.push({
     id,
     content,
