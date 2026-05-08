@@ -1,5 +1,7 @@
 import type { BetaUsage as Usage } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import {
+  getAllModelsForProvider,
+  getDefaultModelForProvider,
   getModelPricing,
   getProviderCatalog,
 } from '../integrations/modelCatalog/catalog.js'
@@ -13,7 +15,6 @@ import {
   type ModelShortName,
 } from './model/model.js'
 
-// @see https://platform.claude.com/docs/en/about-claude/pricing
 export type ModelCosts = {
   inputTokens: number
   outputTokens: number
@@ -22,61 +23,13 @@ export type ModelCosts = {
   webSearchRequests: number
 }
 
-// Standard pricing tier for Sonnet models: $3 input / $15 output per Mtok
-export const COST_TIER_3_15 = {
-  inputTokens: 3,
-  outputTokens: 15,
-  promptCacheWriteTokens: 3.75,
-  promptCacheReadTokens: 0.3,
-  webSearchRequests: 0.01,
-} as const satisfies ModelCosts
-
-// Pricing tier for Opus 4/4.1: $15 input / $75 output per Mtok
-export const COST_TIER_15_75 = {
-  inputTokens: 15,
-  outputTokens: 75,
-  promptCacheWriteTokens: 18.75,
-  promptCacheReadTokens: 1.5,
-  webSearchRequests: 0.01,
-} as const satisfies ModelCosts
-
-// Pricing tier for Opus 4.5: $5 input / $25 output per Mtok
-export const COST_TIER_5_25 = {
-  inputTokens: 5,
-  outputTokens: 25,
-  promptCacheWriteTokens: 6.25,
-  promptCacheReadTokens: 0.5,
-  webSearchRequests: 0.01,
-} as const satisfies ModelCosts
-
-// Fast mode pricing for Opus 4.6: $30 input / $150 output per Mtok
-export const COST_TIER_30_150 = {
-  inputTokens: 30,
-  outputTokens: 150,
-  promptCacheWriteTokens: 37.5,
-  promptCacheReadTokens: 3,
-  webSearchRequests: 0.01,
-} as const satisfies ModelCosts
-
-// Pricing for Haiku 3.5: $0.80 input / $4 output per Mtok
-export const COST_HAIKU_35 = {
-  inputTokens: 0.8,
-  outputTokens: 4,
-  promptCacheWriteTokens: 1,
-  promptCacheReadTokens: 0.08,
-  webSearchRequests: 0.01,
-} as const satisfies ModelCosts
-
-// Pricing for Haiku 4.5: $1 input / $5 output per Mtok
-export const COST_HAIKU_45 = {
-  inputTokens: 1,
-  outputTokens: 5,
-  promptCacheWriteTokens: 1.25,
-  promptCacheReadTokens: 0.1,
-  webSearchRequests: 0.01,
-} as const satisfies ModelCosts
-
-const DEFAULT_UNKNOWN_MODEL_COST = COST_TIER_5_25
+const ZERO_UNKNOWN_MODEL_COST: ModelCosts = {
+  inputTokens: 0,
+  outputTokens: 0,
+  promptCacheWriteTokens: 0,
+  promptCacheReadTokens: 0,
+  webSearchRequests: 0,
+}
 
 function catalogPricingToModelCosts(
   pricing: NonNullable<ReturnType<typeof getModelPricing>>,
@@ -90,14 +43,54 @@ function catalogPricingToModelCosts(
   }
 }
 
+export function getCatalogModelCosts(
+  model: string,
+  options: {
+    providerId?: string
+    variant?: string
+  } = {},
+): ModelCosts | undefined {
+  const pricing = getModelPricing(model, options.providerId ?? 'anthropic')
+  if (!pricing) {
+    return undefined
+  }
+
+  const variant = options.variant ? pricing.variants?.[options.variant] : undefined
+  return catalogPricingToModelCosts({
+    ...pricing,
+    ...variant,
+  })
+}
+
+function getDefaultUnknownModelCost(): ModelCosts {
+  const fallbackModel =
+    getDefaultModelForProvider('anthropic', 'opus') ??
+    getDefaultModelForProvider('anthropic')
+  return (
+    (fallbackModel ? getCatalogModelCosts(fallbackModel, { providerId: 'anthropic' }) : undefined) ??
+    ZERO_UNKNOWN_MODEL_COST
+  )
+}
+
+function getFastModeCatalogModel(): string | undefined {
+  return getAllModelsForProvider('anthropic').find(
+    model => model.capabilities?.fastMode,
+  )?.id
+}
+
 /**
- * Get the cost tier for Opus 4.6 based on fast mode.
+ * Legacy helper name kept for callers; pricing is resolved from provider JSON.
  */
 export function getOpus46CostTier(fastMode: boolean): ModelCosts {
-  if (isFastModeEnabled() && fastMode) {
-    return COST_TIER_30_150
-  }
-  return COST_TIER_5_25
+  const model = getFastModeCatalogModel()
+  return (
+    (model
+      ? getCatalogModelCosts(model, {
+          providerId: 'anthropic',
+          variant: isFastModeEnabled() && fastMode ? 'fastMode' : undefined,
+        })
+      : undefined) ?? getDefaultUnknownModelCost()
+  )
 }
 
 // Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
@@ -140,19 +133,12 @@ export function getModelCosts(model: string, usage: Usage): ModelCosts {
     })
   }
 
-  // Check if this is an Opus 4.6 model with fast mode active.
-  if (
-    shortName === 'claude-opus-4-6'
-  ) {
-    return getOpus46CostTier(isFastMode)
-  }
-
   const costs = MODEL_COSTS[shortName]
   if (!costs) {
     trackUnknownModelCost(model, shortName)
     return (
       MODEL_COSTS[getCanonicalName(getDefaultMainLoopModelSetting())] ??
-      DEFAULT_UNKNOWN_MODEL_COST
+      getDefaultUnknownModelCost()
     )
   }
   return costs
@@ -213,14 +199,24 @@ export function formatModelPricing(costs: ModelCosts): string {
   return `${formatPrice(costs.inputTokens)}/${formatPrice(costs.outputTokens)} per Mtok`
 }
 
+export function formatModelPricingForModel(
+  model: string,
+  options: {
+    providerId?: string
+    variant?: string
+  } = {},
+): string | undefined {
+  const costs = getCatalogModelCosts(model, options)
+  return costs ? formatModelPricing(costs) : undefined
+}
+
 /**
  * Get formatted pricing string for a model
  * Accepts either a short name or full model name
  * Returns undefined if model is not found
  */
 export function getModelPricingString(model: string): string | undefined {
-  const shortName = getCanonicalName(model)
-  const costs = MODEL_COSTS[shortName]
+  const costs = getCatalogModelCosts(model) ?? MODEL_COSTS[getCanonicalName(model)]
   if (!costs) return undefined
   return formatModelPricing(costs)
 }

@@ -41,48 +41,68 @@
   },
   "templates": {
     "sonnetPricing": {
+      "family": "sonnet",
       "pricing": {
         "input": 3,
         "output": 15,
         "cacheWrite": 3.75,
         "cacheRead": 0.3,
         "webSearch": 0.01
+      },
+      "ui": {
+        "upgradeHintFamily": "Sonnet"
       }
     },
     "opusLegacyPricing": {
+      "family": "opus",
       "pricing": {
         "input": 15,
         "output": 75,
         "cacheWrite": 18.75,
         "cacheRead": 1.5,
         "webSearch": 0.01
+      },
+      "ui": {
+        "upgradeHintFamily": "Opus"
       }
     },
     "opusModernPricing": {
+      "family": "opus",
       "pricing": {
         "input": 5,
         "output": 25,
         "cacheWrite": 6.25,
         "cacheRead": 0.5,
         "webSearch": 0.01
+      },
+      "ui": {
+        "upgradeHintFamily": "Opus"
       }
     },
     "haiku35Pricing": {
+      "family": "haiku",
       "pricing": {
         "input": 0.8,
         "output": 4,
         "cacheWrite": 1,
         "cacheRead": 0.08,
         "webSearch": 0.01
+      },
+      "ui": {
+        "upgradeHintFamily": "Haiku"
       }
     },
     "haiku45Pricing": {
+      "family": "haiku",
       "pricing": {
         "input": 1,
         "output": 5,
         "cacheWrite": 1.25,
         "cacheRead": 0.1,
         "webSearch": 0.01
+      },
+      "ui": {
+        "upgradeHintFamily": "Haiku"
       }
     },
     "claude4": {
@@ -103,6 +123,29 @@
         "contextManagement": true,
         "promptCaching": true,
         "webSearch": true
+      },
+      "ui": {
+        "knowledgeCutoff": "January 2025"
+      }
+    },
+    "claude3": {
+      "classification": [
+        "chat",
+        "vision"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "compactMaxOutputTokens": 20000
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "vision": true,
+        "reasoning": false,
+        "thinking": false,
+        "interleavedThinking": false,
+        "promptCaching": true
       }
     }
   },
@@ -155,6 +198,9 @@
         "adaptiveThinking": true,
         "structuredOutputs": true,
         "autoMode": true
+      },
+      "ui": {
+        "knowledgeCutoff": "August 2025"
       },
       "visibility": {
         "defaultFor": [
@@ -259,7 +305,8 @@
         "adaptiveThinking": true,
         "fastMode": true,
         "structuredOutputs": true,
-        "autoMode": true
+        "autoMode": true,
+        "fileReadCyberRiskMitigation": false
       },
       "pricing": {
         "input": 5,
@@ -275,6 +322,9 @@
             "cacheRead": 3
           }
         }
+      },
+      "ui": {
+        "knowledgeCutoff": "May 2025"
       },
       "contextUpgrade": {
         "alias": "claude-opus-4-6[1m]",
@@ -333,6 +383,9 @@
         "promptCaching": true,
         "structuredOutputs": true
       },
+      "ui": {
+        "knowledgeCutoff": "February 2025"
+      },
       "visibility": {
         "defaultFor": [
           "haiku",
@@ -373,6 +426,9 @@
       },
       "capabilities": {
         "structuredOutputs": true
+      },
+      "ui": {
+        "knowledgeCutoff": "May 2025"
       },
       "compatibility": {
         "providerModelMap": {
@@ -476,6 +532,13 @@
       "capabilities": {
         "structuredOutputs": true
       },
+      "contextUpgrade": {
+        "alias": "sonnet[1m]",
+        "label": "Sonnet 4.5 (1M context)",
+        "maxContext": 1000000,
+        "multiplier": 5,
+        "accessPolicy": "extraUsage"
+      },
       "compatibility": {
         "fallbackSuggestion": "claude-sonnet-4",
         "providerModelMap": {
@@ -508,6 +571,13 @@
           "upperLimit": 64000
         },
         "compactMaxOutputTokens": 20000
+      },
+      "contextUpgrade": {
+        "alias": "sonnet[1m]",
+        "label": "Sonnet 4 (1M context)",
+        "maxContext": 1000000,
+        "multiplier": 5,
+        "accessPolicy": "extraUsage"
       },
       "compatibility": {
         "providerModelMap": {
@@ -660,6 +730,48 @@
           "nvidia-nim": "nvidia/llama-3.1-nemotron-70b-instruct",
           "minimax": "MiniMax-M2.5",
           "xai": "grok-4"
+        }
+      }
+    },
+    "claude-3-opus": {
+      "label": "Claude 3 Opus",
+      "extends": [
+        "claude3"
+      ],
+      "apiName": "claude-3-opus-20240229",
+      "status": "deprecated",
+      "limits": {
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      }
+    },
+    "claude-3-sonnet": {
+      "label": "Claude 3 Sonnet",
+      "extends": [
+        "claude3"
+      ],
+      "apiName": "claude-3-sonnet-20240229",
+      "status": "deprecated",
+      "limits": {
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      }
+    },
+    "claude-3-haiku": {
+      "label": "Claude 3 Haiku",
+      "extends": [
+        "claude3"
+      ],
+      "apiName": "claude-3-haiku-20240307",
+      "status": "deprecated",
+      "limits": {
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
         }
       }
     }

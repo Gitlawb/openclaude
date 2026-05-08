@@ -15,6 +15,6 @@ export function getHardcodedTeammateModelFallback(): string {
     getDefaultModelForProvider(catalogProvider, 'opus') ??
     getDefaultModelForProvider(catalogProvider) ??
     getDefaultModelForProvider('anthropic', 'opus') ??
-    'claude-opus-4-6'
+    'opus'
   )
 }

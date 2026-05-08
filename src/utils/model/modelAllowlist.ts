@@ -11,7 +11,7 @@ function modelBelongsToFamily(model: string, family: string): boolean {
   if (model.includes(family)) {
     return true
   }
-  // Resolve aliases like "best" → "claude-opus-4-6" to check family membership
+  // Resolve aliases like "best" to check family membership.
   if (isModelAlias(model)) {
     const resolved = parseUserSpecifiedModel(model).toLowerCase()
     return resolved.includes(family)

@@ -172,18 +172,18 @@ Do not hand-edit:
 Only touch remaining env-facing compatibility surfaces when the route truly
 needs them.
 
-## Pitfall 14: Forgetting catalog loader registration
+## Pitfall 14: Forgetting to regenerate catalog artifacts
 
 Common mistake:
 Adding `src/integrations/modelCatalog/providers/<id>.json` and assuming the
-catalog loader discovers it automatically.
+checked-in generated static import list updates itself.
 
 Safer rule:
-Brand-new provider JSON files must be imported in
-`src/integrations/modelCatalog/providerCatalogs.ts` and listed in
-`expectedProviders` in
-`src/integrations/modelCatalog/validateCatalogs.test.ts`. Existing provider
-model updates do not need these two edits.
+After adding a brand-new provider JSON file, run
+`bun run integrations:generate`. Do not edit
+`src/integrations/modelCatalog/providerCatalogs.ts` by hand; it is a stable
+wrapper around the generated
+`src/integrations/modelCatalog/providerCatalogs.generated.ts` import list.
 
 ## Pitfall 15: Using stale repo paths in docs
 
@@ -208,8 +208,8 @@ Before opening or landing integration docs or descriptor changes:
 - confirm `transportConfig.kind` is doing the routing work;
 - confirm examples use `define*` helpers plus default exports;
 - confirm route catalogs own availability;
-- confirm brand-new provider JSON catalogs are imported and covered by the
-  catalog inventory test;
+- confirm brand-new provider JSON catalogs are picked up by
+  `bun run integrations:generate` and covered by the catalog inventory test;
 - confirm route defaults are declared once in provider JSON through
   `visibility.defaultFor`;
 - confirm built-in model limits live in

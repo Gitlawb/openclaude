@@ -19,10 +19,7 @@ import { TASK_CREATE_TOOL_NAME } from '../tools/TaskCreateTool/constants.js'
 import type { Tools } from '../Tool.js'
 import type { Command } from '../types/command.js'
 import { BASH_TOOL_NAME } from '../tools/BashTool/toolName.js'
-import {
-  getCanonicalName,
-  getMarketingNameForModel,
-} from '../utils/model/model.js'
+import { getMarketingNameForModel } from '../utils/model/model.js'
 import { getAntModelOverrideConfig } from '../utils/model/antModels.js'
 import {
   getDefaultModelForProvider,
@@ -722,24 +719,19 @@ export async function computeSimpleEnvInfo(
   ].join(`\n`)
 }
 
-// @[MODEL LAUNCH]: Add a knowledge cutoff date for the new model.
 function getKnowledgeCutoff(modelId: string): string | null {
-  const canonical = getCanonicalName(modelId)
-  if (canonical.includes('claude-sonnet-4-6')) {
-    return 'August 2025'
-  } else if (canonical.includes('claude-opus-4-6')) {
-    return 'May 2025'
-  } else if (canonical.includes('claude-opus-4-5')) {
-    return 'May 2025'
-  } else if (canonical.includes('claude-haiku-4')) {
-    return 'February 2025'
-  } else if (
-    canonical.includes('claude-opus-4') ||
-    canonical.includes('claude-sonnet-4')
-  ) {
-    return 'January 2025'
+  try {
+    return (
+      getModelMetadata(modelId, 'anthropic')?.ui?.knowledgeCutoff ??
+      getModelMetadata(modelId)?.ui?.knowledgeCutoff ??
+      null
+    )
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Ambiguous model lookup')) {
+      return null
+    }
+    throw error
   }
-  return null
 }
 
 function getShellInfoLine(): string {

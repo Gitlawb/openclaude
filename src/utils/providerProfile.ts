@@ -23,7 +23,10 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
 } from '../integrations/routeMetadata.js'
-import { getDefaultModelForProvider } from '../integrations/modelCatalog/catalog.js'
+import {
+  getDefaultModelForProvider,
+  getDefaultModelReferenceForProvider,
+} from '../integrations/modelCatalog/catalog.js'
 import {
   maskSecretForDisplay,
   redactSecretValueForDisplay,
@@ -43,13 +46,21 @@ export const PROFILE_FILE_NAME = '.openclaude-profile.json'
 export const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta/openai'
 export const DEFAULT_GEMINI_MODEL =
-  getRouteDefaultModel('gemini') ?? 'gemini-3-flash-preview'
+  getRouteDefaultModel('gemini') ?? getDefaultModelForProvider('gemini') ?? ''
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 export const DEFAULT_MISTRAL_MODEL =
-  getRouteDefaultModel('mistral') ?? 'devstral-latest'
+  getRouteDefaultModel('mistral') ?? getDefaultModelForProvider('mistral') ?? ''
+const DEFAULT_ANTHROPIC_MODEL =
+  getDefaultModelForProvider('anthropic') ??
+  getDefaultModelForProvider('anthropic', 'sonnet') ??
+  ''
+const DEFAULT_CODEX_MODEL =
+  getDefaultModelReferenceForProvider('codex') ??
+  getDefaultModelForProvider('codex') ??
+  ''
 
 function getGithubCopilotDefaultModel(): string {
-  return getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
+  return getDefaultModelForProvider('github-copilot') ?? ''
 }
 
 const PROFILE_ENV_KEYS = [
@@ -363,7 +374,7 @@ export function buildBedrockProfileEnv(options: {
     ANTHROPIC_MODEL:
       normalizeProfileModel(
         sanitizeProviderConfigValue(options.model),
-      ) || 'claude-sonnet-4-6',
+      ) || DEFAULT_ANTHROPIC_MODEL,
   }
 
   const baseUrl = sanitizeProviderConfigValue(options.baseUrl)
@@ -382,7 +393,7 @@ export function buildVertexProfileEnv(options: {
     ANTHROPIC_MODEL:
       normalizeProfileModel(
         sanitizeProviderConfigValue(options.model),
-      ) || 'claude-sonnet-4-6',
+      ) || DEFAULT_ANTHROPIC_MODEL,
   }
 
   const baseUrl = sanitizeProviderConfigValue(options.baseUrl)
@@ -595,7 +606,7 @@ export function buildCodexProfileEnv(options: {
 
   const env: ProfileEnv = {
     OPENAI_BASE_URL: options.baseUrl || DEFAULT_CODEX_BASE_URL,
-    OPENAI_MODEL: options.model || 'codexplan',
+    OPENAI_MODEL: options.model || DEFAULT_CODEX_MODEL,
     CODEX_CREDENTIAL_SOURCE: credentialSource,
   }
 
@@ -792,7 +803,7 @@ export function buildCodexOAuthProfileEnv(
 
   return {
     OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
-    OPENAI_MODEL: 'codexplan',
+    OPENAI_MODEL: DEFAULT_CODEX_MODEL,
     CHATGPT_ACCOUNT_ID: accountId,
     CODEX_CREDENTIAL_SOURCE: 'oauth',
   }
@@ -1027,7 +1038,7 @@ export async function buildLaunchEnv(options: {
           normalizeProfileModel(
             sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
           ) ||
-          'claude-sonnet-4-6',
+          DEFAULT_ANTHROPIC_MODEL,
         ...(anthropicApiKey
           ? { ANTHROPIC_API_KEY: anthropicApiKey }
           : {}),
@@ -1051,7 +1062,7 @@ export async function buildLaunchEnv(options: {
           normalizeProfileModel(
             sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
           ) ||
-          'claude-sonnet-4-6',
+          DEFAULT_ANTHROPIC_MODEL,
         baseUrl: bedrockBaseUrl,
       }),
     })
@@ -1073,7 +1084,7 @@ export async function buildLaunchEnv(options: {
           normalizeProfileModel(
             sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
           ) ||
-          'claude-sonnet-4-6',
+          DEFAULT_ANTHROPIC_MODEL,
         baseUrl: vertexBaseUrl,
       }),
     })
@@ -1190,7 +1201,10 @@ export async function buildLaunchEnv(options: {
       options.getOllamaChatBaseUrl ?? (() => 'http://localhost:11434/v1')
     const resolveOllamaModel =
       options.resolveOllamaDefaultModel ??
-      (async () => getRouteDefaultModel('ollama') ?? 'llama3.1:8b')
+      (async () =>
+        getRouteDefaultModel('ollama') ??
+        getDefaultModelForProvider('ollama') ??
+        '')
 
     return buildCompatibilityProcessEnv({
       processEnv,
@@ -1248,7 +1262,7 @@ export async function buildLaunchEnv(options: {
           persistedOpenAIBaseUrl && isCodexBaseUrl(persistedOpenAIBaseUrl)
             ? persistedOpenAIBaseUrl
             : DEFAULT_CODEX_BASE_URL,
-        OPENAI_MODEL: persistedOpenAIModel || 'codexplan',
+        OPENAI_MODEL: persistedOpenAIModel || DEFAULT_CODEX_MODEL,
         ...(codexKey ? { CODEX_API_KEY: codexKey } : {}),
         ...(codexAccountId ? { CHATGPT_ACCOUNT_ID: codexAccountId } : {}),
       },
@@ -1385,7 +1399,7 @@ export async function buildStartupEnvFromProfile(options?: {
       compatibilityMode: 'openai',
       profileEnv: {
         OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
-        OPENAI_MODEL: 'codexplan',
+        OPENAI_MODEL: DEFAULT_CODEX_MODEL,
       },
     })
   }

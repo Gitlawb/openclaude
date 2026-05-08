@@ -27,21 +27,69 @@ import typescriptClaudeApiFilesApi from './claude-api/typescript/claude-api/file
 import typescriptClaudeApiReadme from './claude-api/typescript/claude-api/README.md'
 import typescriptClaudeApiStreaming from './claude-api/typescript/claude-api/streaming.md'
 import typescriptClaudeApiToolUse from './claude-api/typescript/claude-api/tool-use.md'
+import {
+  getAllModelsForProvider,
+  getDefaultModelIdForProvider,
+  getModelMetadata,
+} from '../../integrations/modelCatalog/catalog.js'
+import type { ModelDefaultRole } from '../../integrations/modelCatalog/types.js'
 
-// @[MODEL LAUNCH]: Update the model IDs/names below. These are substituted into {{VAR}}
-// placeholders in the .md files at runtime before the skill prompt is sent.
-// After updating these constants, manually update the two files that still hardcode models:
-//   - claude-api/SKILL.md (Current Models pricing table)
-//   - claude-api/shared/models.md (full model catalog with legacy versions and alias mappings)
+function requireDefaultClaudeModel(role: ModelDefaultRole) {
+  const modelId = getDefaultModelIdForProvider('anthropic', role)
+  const metadata = modelId ? getModelMetadata(modelId, 'anthropic') : undefined
+  if (!metadata) {
+    throw new Error(`Missing default Anthropic catalog model for role "${role}"`)
+  }
+  return metadata
+}
+
+function getVersionParts(modelId: string): number[] {
+  return modelId.match(/\d+/g)?.map(Number) ?? []
+}
+
+function compareVersionParts(left: number[], right: number[]): number {
+  const length = Math.max(left.length, right.length)
+  for (let index = 0; index < length; index += 1) {
+    const diff = (left[index] ?? 0) - (right[index] ?? 0)
+    if (diff !== 0) {
+      return diff
+    }
+  }
+  return 0
+}
+
+function requirePreviousDefaultClaudeModel(role: ModelDefaultRole) {
+  const currentModel = requireDefaultClaudeModel(role)
+  const candidates = getAllModelsForProvider('anthropic')
+    .filter(
+      model =>
+        model.family === currentModel.family &&
+        model.id !== currentModel.id &&
+        model.status !== 'hidden',
+    )
+    .sort((left, right) =>
+      compareVersionParts(getVersionParts(right.id), getVersionParts(left.id)),
+    )
+  const previousModel = candidates[0]
+  if (!previousModel) {
+    throw new Error(`Missing previous Anthropic catalog model for role "${role}"`)
+  }
+  return previousModel
+}
+
+const opusModel = requireDefaultClaudeModel('opus')
+const sonnetModel = requireDefaultClaudeModel('sonnet')
+const haikuModel = requireDefaultClaudeModel('haiku')
+const previousSonnetModel = requirePreviousDefaultClaudeModel('sonnet')
+
 export const SKILL_MODEL_VARS = {
-  OPUS_ID: 'claude-opus-4-6',
-  OPUS_NAME: 'Claude Opus 4.6',
-  SONNET_ID: 'claude-sonnet-4-6',
-  SONNET_NAME: 'Claude Sonnet 4.6',
-  HAIKU_ID: 'claude-haiku-4-5',
-  HAIKU_NAME: 'Claude Haiku 4.5',
-  // Previous Sonnet ID — used in "do not append date suffixes" example in SKILL.md.
-  PREV_SONNET_ID: 'claude-sonnet-4-5',
+  OPUS_ID: opusModel.id,
+  OPUS_NAME: opusModel.ui?.marketingName ?? opusModel.label,
+  SONNET_ID: sonnetModel.id,
+  SONNET_NAME: sonnetModel.ui?.marketingName ?? sonnetModel.label,
+  HAIKU_ID: haikuModel.id,
+  HAIKU_NAME: haikuModel.ui?.marketingName ?? haikuModel.label,
+  PREV_SONNET_ID: previousSonnetModel.id,
 } satisfies Record<string, string>
 
 export const SKILL_PROMPT: string = skillPrompt

@@ -35,9 +35,13 @@ const DIM = ANSI_DIM
 const DEFAULT_ANTHROPIC_MODEL =
   getDefaultModelForProvider('anthropic', 'sonnet') ?? ''
 const DEFAULT_OPENAI_MODEL =
-  getDefaultModelForProvider('openai') ?? 'gpt-4o'
+  getDefaultModelForProvider('openai') ?? ''
 const DEFAULT_GITHUB_MODELS_MODEL =
-  getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
+  getDefaultModelForProvider('github-copilot') ?? ''
+const DEFAULT_ANTHROPIC_MODEL =
+  getDefaultModelForProvider('anthropic') ??
+  getDefaultModelForProvider('anthropic', 'sonnet') ??
+  ''
 
 function lerp(a: RGB, b: RGB, t: number): RGB {
   return [

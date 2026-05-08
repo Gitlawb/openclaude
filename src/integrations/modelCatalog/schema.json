@@ -125,7 +125,8 @@
         "advisor": { "type": "boolean" },
         "advisorTarget": { "type": "boolean" },
         "autoMode": { "type": "boolean" },
-        "fastMode": { "type": "boolean" }
+        "fastMode": { "type": "boolean" },
+        "fileReadCyberRiskMitigation": { "type": "boolean" }
       }
     },
     "effort": {
@@ -251,7 +252,8 @@
         "pickerDescription": { "type": "string" },
         "descriptionForModel": { "type": "string" },
         "marketingName": { "type": "string" },
-        "upgradeHintFamily": { "type": "string" }
+        "upgradeHintFamily": { "type": "string" },
+        "knowledgeCutoff": { "type": "string" }
       }
     },
     "contextUpgrade": {
@@ -330,6 +332,7 @@
         "endpoint": { "type": "string", "minLength": 1 },
         "apiNamePrefix": { "type": "string", "minLength": 1 },
         "fallbackEndpoint": { "type": "string", "minLength": 1 },
+        "regionEnvVar": { "type": "string", "minLength": 1 },
         "regionPreference": { "$ref": "#/$defs/stringArray" },
         "extends": { "$ref": "#/$defs/stringArray" },
         "limits": { "$ref": "#/$defs/limitsPartial" },
@@ -365,6 +368,7 @@
         "endpoint": { "type": "string", "minLength": 1 },
         "apiNamePrefix": { "type": "string", "minLength": 1 },
         "fallbackEndpoint": { "type": "string", "minLength": 1 },
+        "regionEnvVar": { "type": "string", "minLength": 1 },
         "regionPreference": { "$ref": "#/$defs/stringArray" },
         "extends": { "$ref": "#/$defs/stringArray" },
         "limits": { "$ref": "#/$defs/limits" },

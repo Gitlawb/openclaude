@@ -30,6 +30,7 @@ import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
 import {
+  getAllModelsForProvider,
   getDefaultModelForProvider,
   getModelMetadata,
 } from '../../integrations/modelCatalog/catalog.js'
@@ -76,6 +77,31 @@ function getCatalogProviderForLegacyProvider(): string | undefined {
 function getProviderDefaultModel(role: ModelDefaultRole): string | undefined {
   const providerId = getCatalogProviderForLegacyProvider()
   return providerId ? getDefaultModelForProvider(providerId, role) : undefined
+}
+
+function getAnthropicCatalogCanonicalName(
+  name: ModelName,
+): ModelShortName | undefined {
+  const normalizedName = name.toLowerCase()
+  const candidates = getAllModelsForProvider('anthropic')
+    .flatMap(model => [
+      { canonical: model.id, value: model.id },
+      { canonical: model.id, value: model.apiName },
+      { canonical: model.id, value: model.canonicalModelId },
+      ...(model.compatibility?.legacyIds ?? []).map(value => ({
+        canonical: model.id,
+        value,
+      })),
+    ])
+    .filter(
+      (candidate): candidate is { canonical: string; value: string } =>
+        typeof candidate.value === 'string' && candidate.value.length > 0,
+    )
+    .sort((left, right) => right.value.length - left.value.length)
+
+  return candidates.find(candidate =>
+    normalizedName.includes(candidate.value.toLowerCase()),
+  )?.canonical
 }
 
 export function getSmallFastModel(): ModelName {
@@ -379,7 +405,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
       normalizeModelSetting(settings.model) ||
       normalizeModelSetting(process.env.OPENAI_MODEL) ||
       getProviderDefaultModel('main') ||
-      'gpt-4o'
+      ''
     )
   }
   // Gemini provider: always use the configured Gemini model
@@ -440,59 +466,15 @@ export function getDefaultMainLoopModel(): ModelName {
 // Catalog entries are the source of truth; this remains a legacy substring fallback.
 /**
  * Pure string-match that strips date/provider suffixes from a first-party model
- * name. Input must already be a 1P-format ID (e.g. 'claude-3-7-sonnet-20250219',
- * 'us.anthropic.claude-opus-4-6-v1:0'). Does not touch settings, so safe at
+ * name. Input must already be a 1P-format ID (for example, a dated first-party
+ * ID or a provider-prefixed Bedrock ID). Does not touch settings, so safe at
  * module top-level (see MODEL_COSTS in modelCost.ts).
  */
 export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   name = name.toLowerCase()
-  // Special cases for Claude 4+ models to differentiate versions
-  // Order matters: check more specific versions first (4-7 before 4-6 before 4-5 before 4)
-  if (name.includes('claude-opus-4-7')) {
-    return 'claude-opus-4-7'
-  }
-  if (name.includes('claude-opus-4-6')) {
-    return 'claude-opus-4-6'
-  }
-  if (name.includes('claude-opus-4-5')) {
-    return 'claude-opus-4-5'
-  }
-  if (name.includes('claude-opus-4-1')) {
-    return 'claude-opus-4-1'
-  }
-  if (name.includes('claude-opus-4')) {
-    return 'claude-opus-4'
-  }
-  if (name.includes('claude-sonnet-4-6')) {
-    return 'claude-sonnet-4-6'
-  }
-  if (name.includes('claude-sonnet-4-5')) {
-    return 'claude-sonnet-4-5'
-  }
-  if (name.includes('claude-sonnet-4')) {
-    return 'claude-sonnet-4'
-  }
-  if (name.includes('claude-haiku-4-5')) {
-    return 'claude-haiku-4-5'
-  }
-  // Claude 3.x models use a different naming scheme (claude-3-{family})
-  if (name.includes('claude-3-7-sonnet')) {
-    return 'claude-3-7-sonnet'
-  }
-  if (name.includes('claude-3-5-sonnet')) {
-    return 'claude-3-5-sonnet'
-  }
-  if (name.includes('claude-3-5-haiku')) {
-    return 'claude-3-5-haiku'
-  }
-  if (name.includes('claude-3-opus')) {
-    return 'claude-3-opus'
-  }
-  if (name.includes('claude-3-sonnet')) {
-    return 'claude-3-sonnet'
-  }
-  if (name.includes('claude-3-haiku')) {
-    return 'claude-3-haiku'
+  const catalogCanonicalName = getAnthropicCatalogCanonicalName(name)
+  if (catalogCanonicalName) {
+    return catalogCanonicalName
   }
   const match = name.match(/(claude-(\d+-\d+-)?\w+)/)
   if (match && match[1]) {
@@ -593,10 +575,10 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
   }
   // Handle Codex models - show actual model name + resolved model
   if (setting === 'codexplan') {
-    return `codexplan (${getDefaultModelForProvider('codex', 'main') ?? 'gpt-5.5'})`
+    return `codexplan (${getDefaultModelForProvider('codex', 'main') ?? ''})`
   }
   if (setting === 'codexspark') {
-    return `codexspark (${getDefaultModelForProvider('codex', 'smallFast') ?? 'gpt-5.3-codex-spark'})`
+    return `codexspark (${getDefaultModelForProvider('codex', 'smallFast') ?? ''})`
   }
   if (isModelAlias(setting)) {
     return capitalize(setting)
@@ -763,13 +745,10 @@ export function parseUserSpecifiedModel(
 
   // Handle Codex aliases - map to actual model names
   if (modelString === 'codexplan') {
-    return getDefaultModelForProvider('codex', 'main') ?? 'gpt-5.5'
+    return getDefaultModelForProvider('codex', 'main') ?? ''
   }
   if (modelString === 'codexspark') {
-    return (
-      getDefaultModelForProvider('codex', 'smallFast') ??
-      'gpt-5.3-codex-spark'
-    )
+    return getDefaultModelForProvider('codex', 'smallFast') ?? ''
   }
 
   // Opus 4/4.1 are no longer available on the first-party API (same as
@@ -830,8 +809,8 @@ export function resolveSkillModelOverride(
   if (has1mContext(skillModel) || !has1mContext(currentModel)) {
     return skillModel
   }
-  // modelSupports1M matches on canonical IDs ('claude-opus-4-6', 'claude-sonnet-4');
-  // a bare 'opus' alias falls through getCanonicalName unmatched. Resolve first.
+  // modelSupports1M matches on canonical IDs; a bare alias falls through
+  // getCanonicalName unmatched. Resolve first.
   if (modelSupports1M(parseUserSpecifiedModel(skillModel))) {
     return skillModel + '[1m]'
   }

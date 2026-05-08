@@ -78,7 +78,7 @@ import {
 export type SDKSessionOptions = {
   /** Working directory for the session. Required. */
   cwd: string
-  /** Model to use (e.g. 'claude-sonnet-4-6'). */
+  /** Model to use (e.g. 'sonnet'). */
   model?: string
   /** Permission mode for tool access. */
   permissionMode?: QueryPermissionMode
@@ -726,7 +726,6 @@ export async function unstable_v2_resumeSession(
   return session
 }
 
-// @[MODEL LAUNCH]: Update the example model ID in this docstring.
 /**
  * V2 API - UNSTABLE
  * One-shot convenience: creates a session, sends a single prompt, collects
@@ -738,7 +737,7 @@ export async function unstable_v2_resumeSession(
  * ```typescript
  * const result = await unstable_v2_prompt("What files are here?", {
  *   cwd: '/my/project',
- *   model: 'claude-sonnet-4-6',
+ *   model: 'sonnet',
  * })
  * console.log(result.result) // text output
  * ```

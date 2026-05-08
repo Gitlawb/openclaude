@@ -63,9 +63,12 @@ export function has1mContext(model: string): boolean {
   return /\[1m\]/i.test(model)
 }
 
-function safeGetCatalogLimits(model: string): ModelLimits | undefined {
+function safeGetCatalogLimits(
+  model: string,
+  providerId?: string,
+): ModelLimits | undefined {
   try {
-    return getModelLimits(model)
+    return getModelLimits(model, providerId)
   } catch (error) {
     if (
       error instanceof Error &&
@@ -101,14 +104,17 @@ export function modelSupports1M(model: string): boolean {
   }
   const canonical = getCanonicalName(model)
   const metadata =
-    safeGetCatalogMetadata(model, 'anthropic') ?? safeGetCatalogMetadata(model)
+    safeGetCatalogMetadata(model, 'anthropic') ??
+    safeGetCatalogMetadata(canonical, 'anthropic') ??
+    safeGetCatalogMetadata(model) ??
+    safeGetCatalogMetadata(canonical)
   if (
     metadata?.contextUpgrade?.maxContext &&
     metadata.contextUpgrade.maxContext >= 1_000_000
   ) {
     return true
   }
-  return canonical.includes('claude-sonnet-4') || canonical.includes('opus-4-6')
+  return false
 }
 
 function shouldUseIntegrationRuntimeLimits(
@@ -269,54 +275,26 @@ export function getModelMaxOutputTokens(model: string): {
     }
   }
 
-  const catalogLimits = safeGetCatalogLimits(model)
+  const canonical = getCanonicalName(model)
+  const catalogLimits =
+    safeGetCatalogLimits(model, 'anthropic') ??
+    safeGetCatalogLimits(canonical, 'anthropic') ??
+    safeGetCatalogLimits(model) ??
+    safeGetCatalogLimits(canonical)
   if (catalogLimits?.maxOutputTokens) {
     return catalogLimits.maxOutputTokens
   }
 
-  const m = getCanonicalName(model)
-
-  if (m.includes('opus-4-6')) {
-    defaultTokens = 64_000
-    upperLimit = 128_000
-  } else if (m.includes('sonnet-4-6')) {
-    defaultTokens = 32_000
-    upperLimit = 128_000
-  } else if (
-    m.includes('opus-4-5') ||
-    m.includes('sonnet-4') ||
-    m.includes('haiku-4')
-  ) {
-    defaultTokens = 32_000
-    upperLimit = 64_000
-  } else if (m.includes('opus-4-1') || m.includes('opus-4')) {
-    defaultTokens = 32_000
-    upperLimit = 32_000
-  } else if (m.includes('claude-3-opus')) {
-    defaultTokens = 4_096
-    upperLimit = 4_096
-  } else if (m.includes('claude-3-sonnet')) {
-    defaultTokens = 8_192
-    upperLimit = 8_192
-  } else if (m.includes('claude-3-haiku')) {
-    defaultTokens = 4_096
-    upperLimit = 4_096
-  } else if (m.includes('3-5-sonnet') || m.includes('3-5-haiku')) {
-    defaultTokens = 8_192
-    upperLimit = 8_192
-  } else if (m.includes('3-7-sonnet')) {
-    defaultTokens = 32_000
-    upperLimit = 64_000
-  } else {
-    defaultTokens = MAX_OUTPUT_TOKENS_DEFAULT
-    upperLimit = MAX_OUTPUT_TOKENS_UPPER_LIMIT
-  }
-
   const cap = getModelCapability(model)
   if (cap?.max_tokens && cap.max_tokens >= 4_096) {
-    upperLimit = cap.max_tokens
-    defaultTokens = Math.min(defaultTokens, upperLimit)
+    return {
+      default: Math.min(MAX_OUTPUT_TOKENS_DEFAULT, cap.max_tokens),
+      upperLimit: cap.max_tokens,
+    }
   }
+
+  defaultTokens = MAX_OUTPUT_TOKENS_DEFAULT
+  upperLimit = MAX_OUTPUT_TOKENS_UPPER_LIMIT
 
   return { default: defaultTokens, upperLimit }
 }

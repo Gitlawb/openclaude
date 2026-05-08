@@ -206,6 +206,44 @@ export function getDefaultModelForProvider(
   return explicitDefault?.metadata.apiName
 }
 
+export function getDefaultModelIdForProvider(
+  providerId: string,
+  role: ModelDefaultRole = 'main',
+): string | undefined {
+  const catalog = getProviderCatalog(providerId)
+  if (!catalog) {
+    return undefined
+  }
+
+  const models = Object.entries(catalog.models).map(([modelId, entry]) => ({
+    metadata: mergeModelMetadata(catalog, modelId, entry),
+  }))
+  const explicitDefault = models.find(({ metadata }) =>
+    metadata.visibility?.defaultFor?.includes(role),
+  )
+
+  return explicitDefault?.metadata.id
+}
+
+export function getDefaultModelReferenceForProvider(
+  providerId: string,
+  role: ModelDefaultRole = 'main',
+): string | undefined {
+  const catalog = getProviderCatalog(providerId)
+  if (!catalog) {
+    return undefined
+  }
+
+  const models = Object.entries(catalog.models).map(([modelId, entry]) => ({
+    metadata: mergeModelMetadata(catalog, modelId, entry),
+  }))
+  const explicitDefault = models.find(({ metadata }) =>
+    metadata.visibility?.defaultFor?.includes(role),
+  )?.metadata
+
+  return explicitDefault?.aliases?.[0] ?? explicitDefault?.id
+}
+
 function matchesModelReference(
   input: string,
   modelId: string,

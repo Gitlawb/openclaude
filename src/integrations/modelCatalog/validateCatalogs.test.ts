@@ -7,40 +7,9 @@ import { getModelMetadata } from './catalog.js'
 import { validateProviderCatalog } from './schema.js'
 import type { ProviderCatalog } from './types.js'
 
-const expectedProviders = [
-  'anthropic',
-  'atomic-chat',
-  'azure-openai',
-  'bankr',
-  'bedrock',
-  'codex',
-  'custom',
-  'dashscope-cn',
-  'dashscope-intl',
-  'deepseek',
-  'foundry',
-  'gemini',
-  'github',
-  'github-copilot',
-  'groq',
-  'hicap',
-  'kimi-code',
-  'lmstudio',
-  'minimax',
-  'mistral',
-  'moonshot',
-  'nvidia-nim',
-  'ollama',
-  'openai',
-  'opencode-go',
-  'openrouter',
-  'together',
-  'vertex',
-  'xai',
-  'zai',
-]
-
 describe('provider catalog inventory', () => {
+  const providerDir = path.join(import.meta.dir, 'providers')
+
   function joinUrl(baseUrl: string | undefined, path: string): string | undefined {
     if (!baseUrl) {
       return undefined
@@ -52,9 +21,21 @@ describe('provider catalog inventory', () => {
   async function loadProviderCatalogs(): Promise<ProviderCatalog[]> {
     mock.restore()
     const module = await import(
-      `./providerCatalogs.js?validateCatalogs=${Date.now()}-${Math.random()}`
+      `./providerCatalogs.generated.js?validateCatalogs=${Date.now()}-${Math.random()}`
     )
     return module.PROVIDER_CATALOGS
+  }
+
+  function providerJsonFiles(): string[] {
+    return readdirSync(providerDir)
+      .filter(fileName => fileName.endsWith('.json'))
+      .sort((left, right) => left.localeCompare(right))
+  }
+
+  function loadProviderJsonCatalog(fileName: string): ProviderCatalog {
+    return JSON.parse(
+      readFileSync(path.join(providerDir, fileName), 'utf8'),
+    ) as ProviderCatalog
   }
 
   function findDuplicateJsonKeys(filePath: string): string[] {
@@ -92,12 +73,27 @@ describe('provider catalog inventory', () => {
     return duplicates
   }
 
-  test('loads every expected provider catalog', async () => {
+  test('loads every provider JSON catalog', async () => {
     const providerCatalogs = await loadProviderCatalogs()
+    const expectedProviderIdsFromJson = providerJsonFiles()
+      .map(fileName => loadProviderJsonCatalog(fileName).provider)
+      .sort()
 
     expect(providerCatalogs.map(catalog => catalog.provider).sort()).toEqual(
-      expectedProviders.sort(),
+      expectedProviderIdsFromJson,
     )
+  })
+
+  test('provider JSON file names match provider ids', () => {
+    const mismatches = providerJsonFiles().flatMap(fileName => {
+      const providerId = loadProviderJsonCatalog(fileName).provider
+      const fileProviderId = fileName.replace(/\.json$/, '')
+      return providerId === fileProviderId
+        ? []
+        : [`${fileName}: provider "${providerId}" should match file name "${fileProviderId}"`]
+    })
+
+    expect(mismatches).toEqual([])
   })
 
   test('every provider catalog validates', async () => {
@@ -114,9 +110,7 @@ describe('provider catalog inventory', () => {
   })
 
   test('provider JSON files do not contain duplicate object keys', () => {
-    const providerDir = path.join(import.meta.dir, 'providers')
-    const duplicateKeys = readdirSync(providerDir)
-      .filter(fileName => fileName.endsWith('.json'))
+    const duplicateKeys = providerJsonFiles()
       .flatMap(fileName => findDuplicateJsonKeys(path.join(providerDir, fileName)))
 
     expect(duplicateKeys).toEqual([])
@@ -205,9 +199,11 @@ describe('provider catalog inventory', () => {
     const byProvider = new Map(
       providerCatalogs.map(catalog => [catalog.provider, catalog]),
     )
-    const anthropicModelIds = Object.keys(byProvider.get('anthropic')?.models ?? {})
-      .sort()
     const failures = ['bedrock', 'vertex', 'foundry'].flatMap(providerId => {
+      const anthropicModelIds = Object.entries(byProvider.get('anthropic')?.models ?? {})
+        .filter(([, model]) => model.compatibility?.providerModelMap?.[providerId])
+        .map(([modelId]) => modelId)
+        .sort()
       const providerCanonicalIds = Object.values(
         byProvider.get(providerId)?.models ?? {},
       )

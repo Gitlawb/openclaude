@@ -36,6 +36,7 @@ import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
+import { getDefaultModelForProvider } from '../../integrations/modelCatalog/catalog.js'
 import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
 import {
   createThinkTagFilter,
@@ -1835,7 +1836,11 @@ class OpenAIShimMessages {
       // path and an api-version query parameter.
       if (isAzure) {
         const apiVersion = process.env.AZURE_OPENAI_API_VERSION ?? '2024-12-01-preview'
-        const deployment = request.resolvedModel ?? process.env.OPENAI_MODEL ?? 'gpt-4o'
+        const deployment =
+          request.resolvedModel ??
+          process.env.OPENAI_MODEL ??
+          getDefaultModelForProvider('openai') ??
+          ''
 
         // If base URL already contains /deployments/, use it as-is with api-version.
         if (/\/deployments\//i.test(baseUrl)) {

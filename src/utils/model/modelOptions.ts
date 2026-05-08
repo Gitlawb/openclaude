@@ -7,12 +7,7 @@ import {
   isTeamPremiumSubscriber,
 } from '../auth.js'
 import { getModelStrings } from './modelStrings.js'
-import {
-  COST_TIER_3_15,
-  COST_HAIKU_35,
-  COST_HAIKU_45,
-  formatModelPricing,
-} from '../modelCost.js'
+import { formatModelPricingForModel } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
 import { getAPIProvider } from './providers.js'
@@ -55,6 +50,14 @@ export type ModelOption = {
   label: string
   description: string
   descriptionForModel?: string
+}
+
+function getAnthropicPricingSuffix(model: string): string {
+  if (getAPIProvider() !== 'firstParty') {
+    return ''
+  }
+  const pricing = formatModelPricingForModel(model, { providerId: 'anthropic' })
+  return pricing ? ` · ${pricing}` : ''
 }
 
 function getScopedAdditionalModelOptions(): ModelOption[] {
@@ -112,7 +115,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
   return {
     value: null,
     label: 'Default (recommended)',
-    description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})${getAnthropicPricingSuffix(getDefaultSonnetModel())}`,
   }
 }
 
@@ -140,7 +143,7 @@ function getSonnet46Option(): ModelOption {
   return {
     value: is3P ? getModelStrings().sonnet46 : 'sonnet',
     label: 'Sonnet',
-    description: `Sonnet 4.6 · Best for everyday tasks${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Sonnet 4.6 · Best for everyday tasks${getAnthropicPricingSuffix(getModelStrings().sonnet46)}`,
     descriptionForModel:
       'Sonnet 4.6 - best for everyday tasks. Generally recommended for most coding tasks',
   }
@@ -197,7 +200,7 @@ export function getSonnet46_1MOption(): ModelOption {
   return {
     value: is3P ? getModelStrings().sonnet46 + '[1m]' : 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 4.6 for long sessions${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Sonnet 4.6 for long sessions${getAnthropicPricingSuffix(getModelStrings().sonnet46)}`,
     descriptionForModel:
       'Sonnet 4.6 with 1M context window - for long sessions with large codebases',
   }
@@ -235,7 +238,7 @@ function getHaiku45Option(): ModelOption {
   return {
     value: 'haiku',
     label: 'Haiku',
-    description: `Haiku 4.5 · Fastest for quick answers${is3P ? '' : ` · ${formatModelPricing(COST_HAIKU_45)}`}`,
+    description: `Haiku 4.5 · Fastest for quick answers${getAnthropicPricingSuffix(getModelStrings().haiku45)}`,
     descriptionForModel:
       'Haiku 4.5 - fastest for quick answers. Lower cost but less capable than Sonnet 4.6.',
   }
@@ -246,7 +249,7 @@ function getHaiku35Option(): ModelOption {
   return {
     value: 'haiku',
     label: 'Haiku',
-    description: `Haiku 3.5 for simple tasks${is3P ? '' : ` · ${formatModelPricing(COST_HAIKU_35)}`}`,
+    description: `Haiku 3.5 for simple tasks${getAnthropicPricingSuffix(getModelStrings().haiku35)}`,
     descriptionForModel:
       'Haiku 3.5 - faster and lower cost, but less capable than Sonnet. Use for simple tasks.',
   }
@@ -274,7 +277,7 @@ export function getMaxSonnet46_1MOption(): ModelOption {
   return {
     value: 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 4.6 with 1M context${billingInfo}${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Sonnet 4.6 with 1M context${billingInfo}${getAnthropicPricingSuffix(getModelStrings().sonnet46)}`,
   }
 }
 
@@ -554,37 +557,21 @@ function getModelFamilyInfo(
   model: string,
 ): { alias: string; currentVersionName: string } | null {
   const canonical = getCanonicalName(model)
+  const metadata = getModelMetadata(canonical, 'anthropic')
+  const alias = metadata?.ui?.upgradeHintFamily
+  const defaultModel =
+    metadata?.family === 'opus'
+      ? getDefaultOpusModel()
+      : metadata?.family === 'sonnet'
+        ? getDefaultSonnetModel()
+        : metadata?.family === 'haiku'
+          ? getDefaultHaikuModel()
+          : undefined
 
-  // Sonnet family
-  if (
-    canonical.includes('claude-sonnet-4-6') ||
-    canonical.includes('claude-sonnet-4-5') ||
-    canonical.includes('claude-sonnet-4-') ||
-    canonical.includes('claude-3-7-sonnet') ||
-    canonical.includes('claude-3-5-sonnet')
-  ) {
-    const currentName = getMarketingNameForModel(getDefaultSonnetModel())
+  if (alias && defaultModel) {
+    const currentName = getMarketingNameForModel(defaultModel)
     if (currentName) {
-      return { alias: 'Sonnet', currentVersionName: currentName }
-    }
-  }
-
-  // Opus family
-  if (canonical.includes('claude-opus-4')) {
-    const currentName = getMarketingNameForModel(getDefaultOpusModel())
-    if (currentName) {
-      return { alias: 'Opus', currentVersionName: currentName }
-    }
-  }
-
-  // Haiku family
-  if (
-    canonical.includes('claude-haiku') ||
-    canonical.includes('claude-3-5-haiku')
-  ) {
-    const currentName = getMarketingNameForModel(getDefaultHaikuModel())
-    if (currentName) {
-      return { alias: 'Haiku', currentVersionName: currentName }
+      return { alias, currentVersionName: currentName }
     }
   }
 

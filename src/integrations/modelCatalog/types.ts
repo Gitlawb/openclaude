@@ -70,6 +70,7 @@ export type ModelCapabilities = {
   advisorTarget?: boolean
   autoMode?: boolean
   fastMode?: boolean
+  fileReadCyberRiskMitigation?: boolean
 }
 
 export type ModelEffort = {
@@ -103,6 +104,7 @@ export type ModelUiMetadata = {
   descriptionForModel?: string
   marketingName?: string
   upgradeHintFamily?: string
+  knowledgeCutoff?: string
 }
 
 export type ModelContextUpgrade = {
@@ -180,6 +182,7 @@ export type ModelCatalogEntry = {
   endpoint?: string
   apiNamePrefix?: string
   fallbackEndpoint?: string
+  regionEnvVar?: string
   regionPreference?: string[]
   extends?: string[]
   limits?: ModelLimits

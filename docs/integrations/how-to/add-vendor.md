@@ -37,11 +37,11 @@ aggregates models behind a separate endpoint contract.
    Put the vendor's offered model subset in
    `src/integrations/modelCatalog/providers/<id>.json`, and mark the route
    default there with `visibility.defaultFor: ["main"]`.
-7. Register brand-new provider catalogs with the catalog loader.
-   If `<id>.json` is new, import it in
-   `src/integrations/modelCatalog/providerCatalogs.ts` and add `<id>` to
-   `expectedProviders` in
-   `src/integrations/modelCatalog/validateCatalogs.test.ts`.
+7. Let the generated catalog loader pick up brand-new provider catalogs.
+   If `<id>.json` is new, do not edit
+   `src/integrations/modelCatalog/providerCatalogs.ts` by hand. The generator
+   discovers JSON files and rewrites
+   `src/integrations/modelCatalog/providerCatalogs.generated.ts`.
 8. Add usage metadata if the vendor has real `/usage` support.
    If `/usage` is still unsupported, keep that explicit with
    `usage: { supported: false }`.
@@ -161,8 +161,8 @@ Why this is the right shape:
   key, not custom auth-header fields;
 - the vendor's provider JSON owns model availability because it exposes models
   directly;
-- a brand-new provider JSON is imported by `providerCatalogs.ts` and covered by
-  `validateCatalogs.test.ts`;
+- a brand-new provider JSON is picked up by `bun run integrations:generate`
+  and covered by `validateCatalogs.test.ts`;
 - `visibility.defaultFor: ["main"]` selects the route default in that JSON;
 - the file default-exports one typed descriptor and leaves registration to the
   loader.

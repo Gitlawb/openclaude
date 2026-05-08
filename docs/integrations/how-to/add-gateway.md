@@ -29,11 +29,11 @@ Typical gateway cases:
 5. Choose the provider JSON catalog strategy.
    Use `static`, `dynamic`, or `hybrid` in
    `src/integrations/modelCatalog/providers/<id>.json`.
-6. Register brand-new provider catalogs with the catalog loader.
-   If `<id>.json` is new, import it in
-   `src/integrations/modelCatalog/providerCatalogs.ts` and add `<id>` to
-   `expectedProviders` in
-   `src/integrations/modelCatalog/validateCatalogs.test.ts`.
+6. Let the generated catalog loader pick up brand-new provider catalogs.
+   If `<id>.json` is new, do not edit
+   `src/integrations/modelCatalog/providerCatalogs.ts` by hand. The generator
+   discovers JSON files and rewrites
+   `src/integrations/modelCatalog/providerCatalogs.generated.ts`.
 7. Decide whether the gateway needs discovery cache TTL, refresh mode, and
    manual refresh.
 8. For OpenAI-compatible or local routes, add any required static headers,
@@ -181,8 +181,8 @@ What this example covers:
 - route-owned auth with only regular custom-header prompts shown in the preset UI;
 - route-owned default auth header and Responses API model-prefix rules;
 - a static provider JSON catalog;
-- a brand-new provider JSON imported by `providerCatalogs.ts` and listed in
-  `validateCatalogs.test.ts`;
+- a brand-new provider JSON picked up by `bun run integrations:generate` and
+  covered by `validateCatalogs.test.ts`;
 - a gateway with only its own hosted models;
 - different reasoning/context/input/output behavior across models;
 - route defaults declared once in provider JSON through

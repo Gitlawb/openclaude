@@ -4,6 +4,8 @@ import {
   getModelOptions,
   getModelMetadata,
   getDefaultModelForProvider,
+  getDefaultModelIdForProvider,
+  getDefaultModelReferenceForProvider,
   getAllProviderCatalogs,
   getAllModelsForProvider,
   getProviderCatalog,
@@ -88,6 +90,30 @@ describe('provider model catalog loader', () => {
     expect(getDefaultModelForProvider('openai', 'haiku')).toBe('gpt-4o-mini')
     expect(getDefaultModelForProvider('openai', 'coding')).toBe('gpt-5.5')
     expect(getDefaultModelForProvider('opencode-go')).toBe('kimi-k2.6')
+    expect(getDefaultModelIdForProvider('codex')).toBe('gpt-5.5')
+    expect(getDefaultModelReferenceForProvider('codex')).toBe('codexplan')
+    expect(getDefaultModelForProvider('codex')).toBe('gpt-5.5')
+  })
+
+  test('loads prompt-facing model metadata from provider JSON', () => {
+    expect(getModelMetadata('claude-sonnet-4-6', 'anthropic')?.ui?.knowledgeCutoff)
+      .toBe('August 2025')
+    expect(getModelMetadata('claude-opus-4-6', 'anthropic')?.ui?.knowledgeCutoff)
+      .toBe('May 2025')
+    expect(getModelMetadata('claude-haiku-4-5', 'anthropic')?.ui?.knowledgeCutoff)
+      .toBe('February 2025')
+  })
+
+  test('loads legacy Claude output limits from provider JSON', () => {
+    expect(
+      getModelMetadata('claude-3-opus-20240229', 'anthropic')?.limits?.maxOutputTokens,
+    ).toEqual({ default: 4096, upperLimit: 4096 })
+    expect(
+      getModelMetadata('claude-3-sonnet-20240229', 'anthropic')?.limits?.maxOutputTokens,
+    ).toEqual({ default: 8192, upperLimit: 8192 })
+    expect(
+      getModelMetadata('claude-3-haiku-20240307', 'anthropic')?.limits?.maxOutputTokens,
+    ).toEqual({ default: 4096, upperLimit: 4096 })
   })
 
   test('merges defaults, templates, and model entries deterministically', () => {

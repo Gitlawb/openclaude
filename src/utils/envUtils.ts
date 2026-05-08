@@ -2,6 +2,7 @@ import memoize from 'lodash-es/memoize.js'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { getAllModelsForProvider } from '../integrations/modelCatalog/catalog.js'
 
 export function resolveClaudeConfigHomeDir(options?: {
   configDirEnv?: string
@@ -172,23 +173,19 @@ export function isInProtectedNamespace(): boolean {
   return false
 }
 
-// @[MODEL LAUNCH]: Add a Vertex region override env var for the new model.
-/**
- * Model prefix → env var for Vertex region overrides.
- * Order matters: more specific prefixes must come before less specific ones
- * (e.g., 'claude-opus-4-1' before 'claude-opus-4').
- */
-const VERTEX_REGION_OVERRIDES: ReadonlyArray<[string, string]> = [
-  ['claude-haiku-4-5', 'VERTEX_REGION_CLAUDE_HAIKU_4_5'],
-  ['claude-3-5-haiku', 'VERTEX_REGION_CLAUDE_3_5_HAIKU'],
-  ['claude-3-5-sonnet', 'VERTEX_REGION_CLAUDE_3_5_SONNET'],
-  ['claude-3-7-sonnet', 'VERTEX_REGION_CLAUDE_3_7_SONNET'],
-  ['claude-opus-4-1', 'VERTEX_REGION_CLAUDE_4_1_OPUS'],
-  ['claude-opus-4', 'VERTEX_REGION_CLAUDE_4_0_OPUS'],
-  ['claude-sonnet-4-6', 'VERTEX_REGION_CLAUDE_4_6_SONNET'],
-  ['claude-sonnet-4-5', 'VERTEX_REGION_CLAUDE_4_5_SONNET'],
-  ['claude-sonnet-4', 'VERTEX_REGION_CLAUDE_4_0_SONNET'],
-]
+function getVertexRegionEnvVarForModel(model: string): string | undefined {
+  const normalizedModel = model.toLowerCase()
+  return getAllModelsForProvider('vertex')
+    .filter(candidate => candidate.regionEnvVar)
+    .flatMap(candidate =>
+      [candidate.apiName, candidate.canonicalModelId, candidate.id]
+        .filter((value): value is string => typeof value === 'string')
+        .map(value => ({ value, envVar: candidate.regionEnvVar })),
+    )
+    .sort((left, right) => right.value.length - left.value.length)
+    .find(candidate => normalizedModel.startsWith(candidate.value.toLowerCase()))
+    ?.envVar
+}
 
 /**
  * Get the Vertex AI region for a specific model.
@@ -198,11 +195,9 @@ export function getVertexRegionForModel(
   model: string | undefined,
 ): string | undefined {
   if (model) {
-    const match = VERTEX_REGION_OVERRIDES.find(([prefix]) =>
-      model.startsWith(prefix),
-    )
-    if (match) {
-      return process.env[match[1]] || getDefaultVertexRegion()
+    const envVar = getVertexRegionEnvVarForModel(model)
+    if (envVar) {
+      return process.env[envVar] || getDefaultVertexRegion()
     }
   }
   return getDefaultVertexRegion()

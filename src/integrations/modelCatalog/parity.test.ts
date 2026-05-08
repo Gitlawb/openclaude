@@ -5,7 +5,7 @@ import {
   getModelLimits,
   getModelPricing,
 } from './catalog.js'
-import { getModelMaxOutputTokens } from '../../utils/context.js'
+import { getModelMaxOutputTokens, modelSupports1M } from '../../utils/context.js'
 import {
   getAvailableEffortLevels,
   modelSupportsEffort,
@@ -72,6 +72,19 @@ describe('model catalog parity', () => {
   test.each(anthropicModels)('%s output limits match context wrapper', (model) => {
     expect(getModelLimits(model, 'anthropic')?.maxOutputTokens).toEqual(
       getModelMaxOutputTokens(model),
+    )
+  })
+
+  test('provider-prefixed Claude model strings resolve limits through catalog canonicalization', () => {
+    expect(
+      getModelMaxOutputTokens('us.anthropic.claude-opus-4-6-v1:0'),
+    ).toEqual(getModelLimits('claude-opus-4-6', 'anthropic')?.maxOutputTokens)
+  })
+
+  test('legacy Sonnet 4 context upgrade support stays catalog-backed', () => {
+    expect(modelSupports1M('claude-sonnet-4-5-20250929')).toBe(true)
+    expect(modelSupports1M('us.anthropic.claude-sonnet-4-20250514-v1:0')).toBe(
+      true,
     )
   })
 

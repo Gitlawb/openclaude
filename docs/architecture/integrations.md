@@ -154,9 +154,12 @@ files. Registration is loader-owned:
 
 - the descriptor file defines typed data;
 - `bun run integrations:generate` derives
-  `src/integrations/generated/integrationArtifacts.generated.ts`;
+  `src/integrations/generated/integrationArtifacts.generated.ts` and
+  `src/integrations/modelCatalog/providerCatalogs.generated.ts`;
 - `src/integrations/index.ts` loads and registers that generated descriptor
   inventory;
+- `src/integrations/modelCatalog/providerCatalogs.ts` exposes the generated
+  provider JSON import list to the catalog loader;
 - registry helpers expose the loaded data to the rest of the app.
 
 That keeps onboarding additive and prevents descriptor files from turning back

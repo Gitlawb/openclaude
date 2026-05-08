@@ -15,6 +15,7 @@ const FIXTURE_DIRS = [
   'src/integrations/anthropicProxies',
   'src/integrations/brands',
   'src/integrations/models',
+  'src/integrations/modelCatalog/providers',
 ] as const
 
 async function withFixtureRepo(
@@ -123,6 +124,78 @@ describe('integration artifact generator', () => {
         expect(content).toContain('"preset": "acme-direct"')
         expect(content).toContain('"routeId": "acme-first-party"')
         expect(content).toContain('"vendorId": "acme-first-party"')
+      },
+    )
+  })
+
+  test('generates provider catalog static imports from provider JSON files', async () => {
+    await withFixtureRepo(
+      {
+        'src/integrations/modelCatalog/providers/zeta-provider.json': `{
+  "schemaVersion": 1,
+  "provider": "zeta-provider",
+  "label": "Zeta Provider",
+  "baseUrl": "https://zeta.example/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions"
+  },
+  "models": {
+    "zeta-fast": {
+      "label": "Zeta Fast",
+      "apiName": "zeta-fast",
+      "visibility": { "defaultFor": ["main"] }
+    }
+  }
+}
+`,
+        'src/integrations/modelCatalog/providers/alpha-provider.json': `{
+  "schemaVersion": 1,
+  "provider": "alpha-provider",
+  "label": "Alpha Provider",
+  "baseUrl": "https://alpha.example/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions"
+  },
+  "models": {
+    "alpha-fast": {
+      "label": "Alpha Fast",
+      "apiName": "alpha-fast",
+      "visibility": { "defaultFor": ["main"] }
+    }
+  }
+}
+`,
+      },
+      async repoRoot => {
+        const artifacts = await generateIntegrationArtifacts({ repoRoot })
+        const providerCatalogArtifact = artifacts.find(artifact =>
+          artifact.path.endsWith(
+            'src/integrations/modelCatalog/providerCatalogs.generated.ts',
+          ),
+        )
+
+        expect(providerCatalogArtifact).toBeDefined()
+        expect(providerCatalogArtifact?.content).toContain(
+          "import providerCatalogAlphaProvider from './providers/alpha-provider.json'",
+        )
+        expect(providerCatalogArtifact?.content).toContain(
+          "import providerCatalogZetaProvider from './providers/zeta-provider.json'",
+        )
+        expect(providerCatalogArtifact?.content).toMatch(
+          /export const PROVIDER_CATALOGS = \[\n  providerCatalogAlphaProvider,\n  providerCatalogZetaProvider,\n\] as const satisfies readonly ProviderCatalog\[\]/,
+        )
       },
     )
   })

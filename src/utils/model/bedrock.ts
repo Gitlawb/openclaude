@@ -215,7 +215,7 @@ export type BedrockRegionPrefix = (typeof BEDROCK_REGION_PREFIXES)[number]
  * For example:
  * - "eu.anthropic.claude-sonnet-4-5-20250929-v1:0" → "eu"
  * - "us.anthropic.claude-3-7-sonnet-20250219-v1:0" → "us"
- * - "arn:aws:bedrock:ap-northeast-2:123:inference-profile/global.anthropic.claude-opus-4-6-v1" → "global"
+ * - "arn:aws:bedrock:ap-northeast-2:123:inference-profile/global.anthropic.<model>-v1" → "global"
  * - "anthropic.claude-3-5-sonnet-20241022-v2:0" → undefined (foundation model)
  * - "claude-sonnet-4-5-20250929" → undefined (first-party format)
  */

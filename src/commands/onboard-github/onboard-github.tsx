@@ -18,7 +18,7 @@ import {
 import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js'
 import { getDefaultModelForProvider } from '../../integrations/modelCatalog/catalog.js'
 
-const DEFAULT_MODEL = getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
+const DEFAULT_MODEL = getDefaultModelForProvider('github-copilot') ?? ''
 const FORCE_RELOGIN_ARGS = new Set([
   'force',
   '--force',

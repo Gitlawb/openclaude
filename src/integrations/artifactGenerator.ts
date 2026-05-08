@@ -6,11 +6,10 @@ import type {
   AnthropicProxyDescriptor,
   BrandDescriptor,
   GatewayDescriptor,
-  ModelDescriptor,
   ProviderPresetMetadata,
   VendorDescriptor,
 } from './descriptors.js'
-import { getRouteCatalogConfig } from './modelCatalog/descriptorAdapters.js'
+import type { ProviderCatalog } from './modelCatalog/types.js'
 
 type RouteDescriptor =
   | VendorDescriptor
@@ -35,7 +34,6 @@ type BrandModule = {
 }
 
 type ModelModule = {
-  descriptors: ModelDescriptor[]
   importName: string
   importPath: string
 }
@@ -51,6 +49,11 @@ type GeneratedArtifact = {
   content: string
 }
 
+type LoadedProviderCatalogFile = {
+  fileName: string
+  catalog: ProviderCatalog
+}
+
 type GenerateIntegrationArtifactsOptions = {
   repoRoot?: string
 }
@@ -63,6 +66,12 @@ const PRESET_DESCRIPTION_COLLATOR = new Intl.Collator(undefined, {
 const INTEGRATIONS_DIR = ['src', 'integrations'] as const
 const GENERATED_DIR = [...INTEGRATIONS_DIR, 'generated'] as const
 const GENERATED_ARTIFACT_PATH = [...GENERATED_DIR, 'integrationArtifacts.generated.ts'] as const
+const MODEL_CATALOG_DIR = [...INTEGRATIONS_DIR, 'modelCatalog'] as const
+const MODEL_CATALOG_PROVIDER_DIR = [...MODEL_CATALOG_DIR, 'providers'] as const
+const PROVIDER_CATALOG_ARTIFACT_PATH = [
+  ...MODEL_CATALOG_DIR,
+  'providerCatalogs.generated.ts',
+] as const
 
 const VENDOR_DIR = 'vendors'
 const GATEWAY_DIR = 'gateways'
@@ -85,7 +94,7 @@ function isDescriptorFile(fileName: string): boolean {
 }
 
 function toImportIdentifier(prefix: string, fileName: string): string {
-  const baseName = fileName.replace(/\.ts$/, '')
+  const baseName = fileName.replace(/\.[^.]+$/, '')
   const words = `${prefix}-${baseName}`
     .split(/[^a-zA-Z0-9]+/)
     .filter(Boolean)
@@ -157,15 +166,38 @@ async function loadDescriptorModules(
   const modelDirectory = path.join(integrationsRoot, MODEL_DIR)
   const modelFiles = (await fs.readdir(modelDirectory)).filter(isDescriptorFile).sort()
   for (const fileName of modelFiles) {
-    const absolutePath = path.join(modelDirectory, fileName)
     modelModules.push({
-      descriptors: await loadDefaultExport<ModelDescriptor[]>(absolutePath),
       importName: toImportIdentifier('model', fileName),
       importPath: `../${MODEL_DIR}/${fileName.replace(/\.ts$/, '.js')}`,
     })
   }
 
   return { routeModules, brandModules, modelModules }
+}
+
+async function loadProviderCatalogFiles(
+  repoRoot: string,
+): Promise<LoadedProviderCatalogFile[]> {
+  const providerCatalogDirectory = path.join(
+    repoRoot,
+    ...MODEL_CATALOG_PROVIDER_DIR,
+  )
+  const entries = await fs.readdir(providerCatalogDirectory).catch(() => [])
+  const fileNames = entries
+    .filter(fileName => fileName.endsWith('.json'))
+    .sort((left, right) => left.localeCompare(right))
+
+  return Promise.all(
+    fileNames.map(async fileName => {
+      const absolutePath = path.join(providerCatalogDirectory, fileName)
+      return {
+        fileName,
+        catalog: JSON.parse(
+          await fs.readFile(absolutePath, 'utf8'),
+        ) as ProviderCatalog,
+      }
+    }),
+  )
 }
 
 function toGeneratedValue(value: unknown, indent = 0): string {
@@ -262,7 +294,18 @@ function compareProviderPresetEntries(
   return PRESET_DESCRIPTION_COLLATOR.compare(leftPreset, rightPreset)
 }
 
-function validatePresetMetadata(routeModules: RouteModule[]): void {
+function providerCatalogHasMainDefault(
+  catalog: ProviderCatalog | undefined,
+): boolean {
+  return Object.values(catalog?.models ?? {}).some(model =>
+    model.visibility?.defaultFor?.includes('main'),
+  )
+}
+
+function validatePresetMetadata(
+  routeModules: RouteModule[],
+  providerCatalogsByProvider: ReadonlyMap<string, ProviderCatalog>,
+): void {
   const presetIds = new Map<string, string>()
   const routeIds = new Set(routeModules.map(routeModule => routeModule.descriptor.id))
   const vendorIds = new Set(
@@ -318,14 +361,16 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
 
     const defaultModelValue =
       (descriptor as LegacyRouteDefaultModel).defaultModel
-    const routeCatalog = descriptor.catalog ?? getRouteCatalogConfig(descriptor.id)
+    const descriptorCatalog = descriptor.catalog
+    const providerCatalog = providerCatalogsByProvider.get(descriptor.id)
     if (defaultModelValue !== undefined) {
       throw new Error(
         `Preset route "${descriptor.id}" must declare its default model in provider JSON visibility.defaultFor, not descriptor.defaultModel.`,
       )
     }
     const hasCatalogDefaultModel =
-      routeCatalog?.models?.some(model => model.default) ?? false
+      descriptorCatalog?.models?.some(model => model.default) ??
+      providerCatalogHasMainDefault(providerCatalog)
     if (!hasCatalogDefaultModel && !preset.fallbackModel) {
       throw new Error(
         `Preset route "${descriptor.id}" must provide a provider JSON visibility.defaultFor default or preset.fallbackModel.`,
@@ -353,8 +398,9 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
 
 function renderIntegrationArtifacts(
   loadedModules: LoadedIntegrationModules,
+  providerCatalogsByProvider: ReadonlyMap<string, ProviderCatalog>,
 ): string {
-  validatePresetMetadata(loadedModules.routeModules)
+  validatePresetMetadata(loadedModules.routeModules, providerCatalogsByProvider)
 
   const vendorModules = loadedModules.routeModules
     .filter(routeModule => routeModule.kind === 'vendor')
@@ -411,17 +457,59 @@ function renderIntegrationArtifacts(
   return `${fileSections.join('\n')}\n`
 }
 
+function renderProviderCatalogArtifact(fileNames: string[]): string {
+  const providerCatalogModules = fileNames.map(fileName => ({
+    importName: toImportIdentifier('provider-catalog', fileName),
+    importPath: `./providers/${fileName}`,
+  }))
+  const importLines = providerCatalogModules.map(
+    module => `import ${module.importName} from '${module.importPath}'`,
+  )
+  const catalogList =
+    providerCatalogModules.length === 0
+      ? '[]'
+      : `[\n${providerCatalogModules
+          .map(module => `  ${module.importName}`)
+          .join(',\n')},\n]`
+
+  const fileSections = [
+    '// This file is auto-generated by scripts/generate-integrations-artifacts.ts.',
+    '// Do not edit it by hand; update provider JSON files and regenerate instead.',
+    '',
+    "import type { ProviderCatalog } from './types.js'",
+    ...importLines,
+    '',
+    `export const PROVIDER_CATALOGS = ${catalogList} as const satisfies readonly ProviderCatalog[]`,
+  ]
+
+  return `${fileSections.join('\n')}\n`
+}
+
 export async function generateIntegrationArtifacts(
   options: GenerateIntegrationArtifactsOptions = {},
 ): Promise<GeneratedArtifact[]> {
   const repoRoot = options.repoRoot ?? path.resolve(path.join(import.meta.dir, '..', '..'))
   const loadedModules = await loadDescriptorModules(repoRoot)
-  const content = renderIntegrationArtifacts(loadedModules)
+  const providerCatalogFiles = await loadProviderCatalogFiles(repoRoot)
+  const providerCatalogsByProvider = new Map(
+    providerCatalogFiles.map(({ catalog }) => [catalog.provider, catalog]),
+  )
+  const integrationArtifactContent = renderIntegrationArtifacts(
+    loadedModules,
+    providerCatalogsByProvider,
+  )
+  const providerCatalogArtifactContent = renderProviderCatalogArtifact(
+    providerCatalogFiles.map(({ fileName }) => fileName),
+  )
 
   return [
     {
       path: path.join(repoRoot, ...GENERATED_ARTIFACT_PATH),
-      content,
+      content: integrationArtifactContent,
+    },
+    {
+      path: path.join(repoRoot, ...PROVIDER_CATALOG_ARTIFACT_PATH),
+      content: providerCatalogArtifactContent,
     },
   ]
 }
@@ -431,11 +519,8 @@ export async function writeIntegrationArtifacts(
 ): Promise<GeneratedArtifact[]> {
   const artifacts = await generateIntegrationArtifacts(options)
 
-  await fs.mkdir(path.join(options.repoRoot ?? path.resolve(path.join(import.meta.dir, '..', '..')), ...GENERATED_DIR), {
-    recursive: true,
-  })
-
   for (const artifact of artifacts) {
+    await fs.mkdir(path.dirname(artifact.path), { recursive: true })
     await fs.writeFile(artifact.path, artifact.content, 'utf8')
   }
 

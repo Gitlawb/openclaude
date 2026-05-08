@@ -179,7 +179,6 @@ export function modelSupportsContextManagement(model: string): boolean {
 // Provider catalog capabilities are the source of truth for public structured
 // output support; the fallback preserves compatibility for older/internal names.
 export function modelSupportsStructuredOutputs(model: string): boolean {
-  const canonical = getCanonicalName(model)
   const provider = getAPIProvider()
   // Structured outputs only supported on firstParty and Foundry (not Bedrock/Vertex yet)
   if (provider !== 'firstParty' && provider !== 'foundry') {
@@ -189,14 +188,7 @@ export function modelSupportsStructuredOutputs(model: string): boolean {
   if (catalogCapabilities?.structuredOutputs !== undefined) {
     return catalogCapabilities.structuredOutputs
   }
-  return (
-    canonical.includes('claude-sonnet-4-6') ||
-    canonical.includes('claude-sonnet-4-5') ||
-    canonical.includes('claude-opus-4-1') ||
-    canonical.includes('claude-opus-4-5') ||
-    canonical.includes('claude-opus-4-6') ||
-    canonical.includes('claude-haiku-4-5')
-  )
+  return false
 }
 
 // Provider catalog capabilities are the source of truth for public auto-mode

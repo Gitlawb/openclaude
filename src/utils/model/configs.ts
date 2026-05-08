@@ -1,4 +1,5 @@
 import {
+  getAllModelsForProvider,
   getDefaultModelForProvider,
   getModelMetadata,
 } from '../../integrations/modelCatalog/catalog.js'
@@ -15,37 +16,7 @@ export type LegacyProviderModelConfig = Record<LegacyAPIProvider, ModelName>
 // Backward-compatible alias for existing imports.
 export type ModelConfig = LegacyProviderModelConfig
 
-const LEGACY_MODEL_CATALOG_IDS = {
-  haiku35: 'claude-3-5-haiku',
-  haiku45: 'claude-haiku-4-5',
-  sonnet35: 'claude-3-5-sonnet',
-  sonnet37: 'claude-3-7-sonnet',
-  sonnet40: 'claude-sonnet-4',
-  sonnet45: 'claude-sonnet-4-5',
-  sonnet46: 'claude-sonnet-4-6',
-  opus40: 'claude-opus-4',
-  opus41: 'claude-opus-4-1',
-  opus45: 'claude-opus-4-5',
-  opus46: 'claude-opus-4-6',
-  opus47: 'claude-opus-4-7',
-} as const
-
-export type ModelKey = keyof typeof LEGACY_MODEL_CATALOG_IDS
-
-const MODEL_KEY_DEFAULT_ROLE: Record<ModelKey, ModelDefaultRole> = {
-  haiku35: 'haiku',
-  haiku45: 'haiku',
-  sonnet35: 'sonnet',
-  sonnet37: 'sonnet',
-  sonnet40: 'sonnet',
-  sonnet45: 'sonnet',
-  sonnet46: 'sonnet',
-  opus40: 'opus',
-  opus41: 'opus',
-  opus45: 'opus',
-  opus46: 'opus',
-  opus47: 'opus',
-}
+export type ModelKey = string
 
 const LEGACY_PROVIDER_CATALOG_IDS: Record<LegacyAPIProvider, string> = {
   firstParty: 'anthropic',
@@ -61,6 +32,54 @@ const LEGACY_PROVIDER_CATALOG_IDS: Record<LegacyAPIProvider, string> = {
   mistral: 'mistral',
   xai: 'xai',
 }
+
+function getLegacyModelKey(modelId: string): ModelKey | undefined {
+  const modernMatch = /^claude-(haiku|sonnet|opus)-(\d+)(?:-(\d+))?$/.exec(
+    modelId,
+  )
+  if (modernMatch) {
+    const [, family, major, minor = '0'] = modernMatch
+    return `${family}${major}${minor}`
+  }
+
+  const claude3Match = /^claude-3-(\d+)-(haiku|sonnet|opus)$/.exec(modelId)
+  if (claude3Match) {
+    const [, minor, family] = claude3Match
+    return `${family}3${minor}`
+  }
+
+  return undefined
+}
+
+function getDefaultRoleForModelId(modelId: string): ModelDefaultRole {
+  if (modelId.includes('-opus-')) {
+    return 'opus'
+  }
+  if (modelId.includes('-sonnet-') || modelId.endsWith('-sonnet')) {
+    return 'sonnet'
+  }
+  if (modelId.includes('-haiku-') || modelId.endsWith('-haiku')) {
+    return 'haiku'
+  }
+  return 'main'
+}
+
+const LEGACY_MODEL_CATALOG_ENTRIES = getAllModelsForProvider('anthropic')
+  .filter(model => model.compatibility?.providerModelMap)
+  .flatMap(model => {
+    const key = getLegacyModelKey(model.id)
+    return key
+      ? [{ key, modelId: model.id, defaultRole: getDefaultRoleForModelId(model.id) }]
+      : []
+  })
+
+const LEGACY_MODEL_CATALOG_IDS = Object.fromEntries(
+  LEGACY_MODEL_CATALOG_ENTRIES.map(({ key, modelId }) => [key, modelId]),
+) as Record<ModelKey, string>
+
+const MODEL_KEY_DEFAULT_ROLE = Object.fromEntries(
+  LEGACY_MODEL_CATALOG_ENTRIES.map(({ key, defaultRole }) => [key, defaultRole]),
+) as Record<ModelKey, ModelDefaultRole>
 
 function requireAnthropicModel(modelId: string) {
   const metadata = getModelMetadata(modelId, 'anthropic')

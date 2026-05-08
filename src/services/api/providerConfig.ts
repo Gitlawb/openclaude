@@ -25,6 +25,7 @@ import {
 } from '../../integrations/runtimeMetadata.js'
 import {
   getDefaultModelForProvider,
+  getDefaultModelReferenceForProvider,
   getModelMetadata,
 } from '../../integrations/modelCatalog/catalog.js'
 import type { ResolvedModelEndpoint } from '../../integrations/modelCatalog/types.js'
@@ -34,7 +35,11 @@ export const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
 /** Default GitHub Copilot API model when user selects copilot / github:copilot */
 export const DEFAULT_GITHUB_MODELS_API_MODEL =
-  getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
+  getDefaultModelForProvider('github-copilot') ?? ''
+const DEFAULT_CODEX_API_MODEL =
+  getDefaultModelReferenceForProvider('codex') ??
+  getDefaultModelForProvider('codex') ??
+  ''
 const warnedUndefinedEnvNames = new Set<string>()
 
 type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
@@ -527,7 +532,7 @@ export function resolveProviderRequest(options?: {
       : process.env.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
-    (isGithubMode ? DEFAULT_GITHUB_MODELS_API_MODEL : 'codexplan')
+    (isGithubMode ? DEFAULT_GITHUB_MODELS_API_MODEL : DEFAULT_CODEX_API_MODEL)
   const descriptor = parseModelDescriptor(requestedModel)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 

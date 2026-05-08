@@ -92,7 +92,7 @@ export type QueryOptions = {
   cwd: string
   /** Additional directories the agent can access. */
   additionalDirectories?: string[]
-  /** Model to use (e.g. 'claude-sonnet-4-6'). */
+  /** Model to use (e.g. 'sonnet'). */
   model?: string
   /** Resume an existing session by ID. */
   sessionId?: string

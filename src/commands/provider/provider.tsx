@@ -17,7 +17,10 @@ import { useCodexOAuthFlow } from '../../components/useCodexOAuthFlow.js'
 import { useTerminalSize } from '../../hooks/useTerminalSize.js'
 import { Box, Text } from '../../ink.js'
 import { probeRouteReadiness } from '../../integrations/discoveryService.js'
-import { getDefaultModelForProvider } from '../../integrations/modelCatalog/catalog.js'
+import {
+  getDefaultModelForProvider,
+  getDefaultModelReferenceForProvider,
+} from '../../integrations/modelCatalog/catalog.js'
 import {
   getProviderPresetUiMetadata,
   getRouteDefaultModel,
@@ -83,9 +86,17 @@ import {
 const DEFAULT_OPENAI_MODEL =
   getRouteDefaultModel('openai') ??
   getDefaultModelForProvider('openai') ??
-  'gpt-4o'
+  ''
 const DEFAULT_GITHUB_MODELS_MODEL =
-  getDefaultModelForProvider('github-copilot') ?? 'gpt-4o'
+  getDefaultModelForProvider('github-copilot') ?? ''
+const DEFAULT_ANTHROPIC_MODEL =
+  getDefaultModelForProvider('anthropic') ??
+  getDefaultModelForProvider('anthropic', 'sonnet') ??
+  ''
+const DEFAULT_CODEX_MODEL =
+  getDefaultModelReferenceForProvider('codex') ??
+  getDefaultModelForProvider('codex') ??
+  ''
 
 export function buildProviderManagerCompletion(result?: ProviderManagerResult): {
   message: string
@@ -373,7 +384,7 @@ export function buildCurrentProviderSummary(options?: {
     modelLabel: getSafeDisplayValue(
       processEnv.ANTHROPIC_MODEL ??
         processEnv.CLAUDE_MODEL ??
-        'claude-sonnet-4-6',
+        DEFAULT_ANTHROPIC_MODEL,
       secretSource,
     ),
     endpointLabel: getSafeDisplayValue(
@@ -439,7 +450,7 @@ function buildSavedProfileSummary(
       return {
         providerLabel: 'Codex',
         modelLabel: getSafeDisplayValue(
-          env.OPENAI_MODEL ?? 'codexplan',
+          env.OPENAI_MODEL ?? DEFAULT_CODEX_MODEL,
           process.env,
           env,
         ),
@@ -1218,8 +1229,8 @@ function CodexCredentialStep({
 
   const options: OptionWithDescription<string>[] = [
     {
-      label: 'codexplan',
-      value: 'codexplan',
+      label: DEFAULT_CODEX_MODEL,
+      value: DEFAULT_CODEX_MODEL,
       description: 'GPT-5.4 with higher reasoning on the Codex backend',
     },
     {
@@ -1238,8 +1249,8 @@ function CodexCredentialStep({
         </Text>
         <Select
           options={options}
-          defaultValue="codexplan"
-          defaultFocusValue="codexplan"
+          defaultValue={DEFAULT_CODEX_MODEL}
+          defaultFocusValue={DEFAULT_CODEX_MODEL}
           inlineDescriptions
           visibleOptionCount={options.length}
           onChange={(value: string) => {
