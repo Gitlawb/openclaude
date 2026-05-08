@@ -184,9 +184,14 @@ class ShellCommandImpl implements ShellCommand {
   }
 
   #abortHandler(): void {
-    // On 'interrupt' (user submitted a new message), don't kill — let the
-    // caller background the process so the model can see partial output.
-    if (this.#abortSignal.reason === 'interrupt') {
+    // On 'interrupt' (user submitted a new message), only keep the process
+    // alive if it was already backgrounded. Synchronous hook subprocesses
+    // should be torn down promptly on interrupt instead of continuing to run
+    // against a cancelled turn.
+    if (
+      this.#abortSignal.reason === 'interrupt' &&
+      this.#status === 'backgrounded'
+    ) {
       return
     }
     this.kill()
