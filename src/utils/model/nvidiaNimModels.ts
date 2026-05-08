@@ -1,7 +1,4 @@
-/**
- * NVIDIA NIM model list for the /model picker.
- * Filtered to chat/instruct models only - embedding, reward, safety, vision, etc. excluded.
- */
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
 
 import { getModelOptions } from '../../integrations/modelCatalog/catalog.js'
 import { isEnvTruthy } from '../envUtils.js'

@@ -112,7 +112,7 @@ export function getOpus46CostTier(fastMode: boolean): ModelCosts {
   return COST_TIER_5_25
 }
 
-// @[MODEL LAUNCH]: Add a pricing entry for the new model below.
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
 // Costs from https://platform.claude.com/docs/en/about-claude/pricing
 // Web search cost: $10 per 1000 requests = $0.01 per request
 export const MODEL_COSTS: Record<ModelShortName, ModelCosts> = {

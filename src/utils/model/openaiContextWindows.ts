@@ -1,9 +1,9 @@
 /**
  * Runtime overrides for OpenAI-compatible model limits.
  *
- * Built-in model limits, including legacy aliases, live in
- * src/integrations/models. These helpers only preserve the documented JSON env
- * override path for custom/private deployments.
+ * Built-in model limits, including legacy aliases, live in provider catalogs
+ * under src/integrations/modelCatalog/providers. These helpers only preserve
+ * the documented JSON env override path for custom/private deployments.
  */
 
 type LimitEnvVar =

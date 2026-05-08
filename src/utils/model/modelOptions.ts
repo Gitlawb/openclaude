@@ -44,7 +44,7 @@ import { isNvidiaNimProvider } from './nvidiaNimModels.js'
 import { isMiniMaxProvider } from './minimaxModels.js'
 import { getAntModels } from './antModels.js'
 
-// @[MODEL LAUNCH]: Update all the available and default model option strings below.
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
 
 export type ModelOption = {
   value: ModelSetting
@@ -130,8 +130,7 @@ function getCustomSonnetOption(): ModelOption | undefined {
   }
 }
 
-// @[MODEL LAUNCH]: Update or add model option functions (getSonnetXXOption, getOpusXXOption, etc.)
-// with the new model's label and description. These appear in the /model picker.
+// Provider catalog owns model facts; first-party aliases remain compatibility logic here.
 function getSonnet46Option(): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
   return {
@@ -395,8 +394,7 @@ function getCopilotModelOptions(): ModelOption[] {
   }))
 }
 
-// @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
-// Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
+// Provider catalog owns third-party model facts; picker ordering still bridges legacy UI branches.
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {
   if (getAPIProvider() === 'github') {
@@ -584,8 +582,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   return payg3pOptions
 }
 
-// @[MODEL LAUNCH]: Add the new model ID to the appropriate family pattern below
-// so the "newer version available" hint works correctly.
+// Provider catalog owns model facts; legacy upgrade hints still map pinned names to family aliases here.
 /**
  * Map a full model name to its family alias and the marketing name of the
  * version the alias currently resolves to. Used to detect when a user has

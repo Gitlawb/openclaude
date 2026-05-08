@@ -58,7 +58,7 @@ function getCatalogEffort(model: string): ModelEffort | undefined {
   }
 }
 
-// @[MODEL LAUNCH]: Add the new model to the allowlist if it supports the effort parameter.
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
 export function modelSupportsEffort(model: string): boolean {
   const m = model.toLowerCase()
   if (isEnvTruthy(process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT)) {
@@ -94,7 +94,7 @@ export function modelSupportsEffort(model: string): boolean {
   return getAPIProvider() === 'firstParty'
 }
 
-// @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'max' effort.
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
 // Per API docs, 'max' is Opus 4.6 only for public models — other models return an error.
 export function modelSupportsMaxEffort(model: string): boolean {
   const supported3P = get3PModelCapabilityOverride(model, 'max_effort')
@@ -385,7 +385,7 @@ export function getOpusDefaultEffortConfig(): OpusDefaultEffortConfig {
   }
 }
 
-// @[MODEL LAUNCH]: Update the default effort levels for new models
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
 export function getDefaultEffortForModel(
   model: string,
 ): EffortValue | undefined {

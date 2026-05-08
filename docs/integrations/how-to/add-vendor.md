@@ -246,10 +246,11 @@ export default defineVendor({
 ```
 
 Use this when the vendor really is the route that serves the models. Do not
-move route availability into the shared model index by default. Put reusable
-context windows, output limits, and cross-route capability metadata in
-`src/integrations/models/`, then point catalog entries at those descriptors
-with `modelDescriptorId`.
+move route availability into the shared model index by default. Put provider
+model facts in `src/integrations/modelCatalog/providers/*.json`. Add shared
+descriptors in `src/integrations/models/` only when reusable cross-provider
+identity is useful, then point catalog entries at those descriptors with
+`modelDescriptorId`.
 
 ## OpenAI-compatible UI capability flags
 

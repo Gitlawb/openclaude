@@ -92,7 +92,7 @@ function safeGetCatalogMetadata(
   }
 }
 
-// @[MODEL LAUNCH]: Update this pattern if the new model supports 1M context
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
 export function modelSupports1M(model: string): boolean {
   if (is1mContextDisabled()) {
     return false
@@ -155,7 +155,7 @@ export function getContextWindowForModel(
     }
     console.error(
       `[context] Warning: model "${model}" not in integration model metadata — using conservative 128k default. ` +
-      'Add it to src/integrations/models for accurate compaction.',
+      'Add it to src/integrations/modelCatalog/providers/*.json for accurate compaction.',
     )
     return OPENAI_FALLBACK_CONTEXT_WINDOW
   }

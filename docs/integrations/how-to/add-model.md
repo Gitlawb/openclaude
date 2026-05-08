@@ -1,204 +1,155 @@
 # How To Add a Model
 
-## When to add a model descriptor
-
-Add a shared model descriptor when the metadata is useful across more than one
-route or when the model deserves a stable glossary/index entry of its own.
-
-Good reasons to add a model descriptor:
-
-- the model appears across multiple vendor or gateway catalogs;
-- the model has stable capabilities, context, or output limits worth reusing;
-- route-specific catalogs should be able to reference one shared model id;
-- you want `providerModelMap` to document route-specific API names for the same
-  conceptual model.
-
-Do add or update a shared model descriptor when the model's context window,
-output limit, or capabilities need to be available to runtime model lookup. Do
-not use model descriptors as route availability lists. Route-owned catalogs are
-still the source of truth for where a model is offered.
+Provider JSON catalogs under `src/integrations/modelCatalog/providers/` are the
+source of truth for model facts: labels, aliases, capabilities, effort, limits,
+pricing, visibility, and endpoint selection. Add or update a model there first.
+Only add TypeScript transport code when the provider needs new auth, routing,
+request execution, or response parsing behavior.
 
 ## Step-by-step
 
-1. Pick the model file.
-   Use an existing family file under `src/integrations/models/` when the model
-   belongs to a current family such as `gpt`, `claude`, or `deepseek`.
-2. Decide whether the model also needs a brand descriptor.
-   Add or update a brand descriptor only when shared model-family identity is
-   useful across multiple model descriptors.
-3. Add the `defineModel(...)` entry.
-   Include `id`, `label`, `vendorId`, `classification`, `defaultModel`, and
-   capabilities.
-4. Add optional shared metadata.
-   Include `brandId`, `contextWindow`, `maxOutputTokens`, and `cacheConfig`
-   when the data is stable enough to be reused.
-5. Add `providerModelMap` only when the same model needs route-specific API
-   names across multiple catalogs.
-6. Update route-owned catalogs only if the model should be offered by those
-   routes.
+1. Pick the provider catalog.
+   Edit the JSON file for the provider or gateway that offers the model, such as
+   `anthropic.json`, `openai.json`, `github-copilot.json`, or
+   `nvidia-nim.json`.
+2. Add or update the model entry.
+   Include the model id, label, aliases, visibility, limits, effort, pricing,
+   capabilities, compatibility metadata, and endpoint selection that apply to
+   that provider.
+3. Reuse provider defaults and templates.
+   Put shared provider behavior in `defaults` or `templates` instead of copying
+   the same fields across every model entry.
+4. Configure endpoints in the catalog.
+   Use a model-level `endpoint` when one provider exposes different model
+   families through different paths or protocols.
+5. Add shared TypeScript descriptors only when needed.
+   Use `src/integrations/models/` for optional shared glossary metadata across
+   multiple provider catalogs. Do not use it as the first place to list a
+   provider's offered models.
+6. Add transport code only for new runtime behavior.
+   TypeScript transport code is for new auth, routing, request execution, or
+   response parsing behavior. Plain model facts belong in provider JSON.
 
-## Authoring rules
+## Provider catalog example
 
-Model descriptor files should:
-
-- use `defineModel`;
-- default-export model descriptors, typically as an array for a family file;
-- act as glossary/index metadata and optional route enrichment;
-- avoid encoding gateway availability as if every route automatically exposes
-  the shared model.
-
-Normal contributor-facing examples should not call `registerModel(...)`
-directly.
-
-## Shared model descriptors vs route catalogs
-
-The important boundary is:
-
-- shared model descriptors answer what the model is;
-- route-owned catalogs answer where the model is offered.
-
-That is why gateway or direct-vendor onboarding should not normally require
-editing multiple shared model files. In the common path:
-
-- add or update the route descriptor/catalog first;
-- add a shared model descriptor only if the metadata is reusable beyond that
-  one route;
-- let the route catalog continue to own the offered subset.
-
-## When to add a brand descriptor
-
-Add or update a brand descriptor when:
-
-- multiple related models share a recognizable family identity;
-- shared defaults or capability guidance are useful across that family;
-- the docs/UI benefit from grouping those models under one brand.
-
-Skip the brand descriptor when:
-
-- the model is one-off or route-local;
-- the shared family metadata would not actually be reused;
-- the route catalog is enough on its own.
-
-## Example: model attached to a canonical vendor only
-
-This is the simplest pattern: one model, one canonical vendor, no shared
-route-name aliases needed.
-
-```ts
-import { defineModel } from '../define.js'
-
-export default [
-  defineModel({
-    id: 'acme-chat',
-    label: 'Acme Chat',
-    vendorId: 'acme',
-    classification: ['chat', 'coding'],
-    defaultModel: 'acme-chat',
-    capabilities: {
-      supportsStreaming: true,
-      supportsFunctionCalling: true,
-      supportsJsonMode: true,
-      supportsReasoning: false,
-    },
-    contextWindow: 128_000,
-    maxOutputTokens: 8_192,
-  }),
-]
+```json
+{
+  "models": {
+    "acme-chat": {
+      "label": "Acme Chat",
+      "classification": ["chat", "coding"],
+      "endpoint": "chatCompletions",
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 32768
+        }
+      },
+      "effort": {
+        "scheme": "openai",
+        "supported": true,
+        "levels": ["low", "medium", "high"],
+        "defaultLevel": "medium"
+      },
+      "capabilities": {
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true
+      },
+      "visibility": {
+        "tiers": ["thirdParty"]
+      }
+    }
+  }
+}
 ```
 
-Use this when:
+## Endpoint example
 
-- the model belongs to one canonical vendor;
-- the route does not need multiple route-specific API names recorded in the
-  shared model metadata;
-- the descriptor is mainly reusable metadata, not a route-availability table.
+Use catalog endpoints when a provider has multiple API paths.
 
-## Example: shared model across multiple routes with `providerModelMap`
-
-Use `providerModelMap` when the same conceptual model appears on multiple
-routes under different API names.
-
-```ts
-import { defineModel } from '../define.js'
-
-export default [
-  defineModel({
-    id: 'deepseek-reasoner',
-    label: 'DeepSeek Reasoner',
-    brandId: 'deepseek',
-    vendorId: 'deepseek',
-    classification: ['chat', 'reasoning', 'coding'],
-    defaultModel: 'deepseek-reasoner',
-    providerModelMap: {
-      deepseek: 'deepseek-reasoner',
-      openrouter: 'deepseek/deepseek-r1',
-      galaxy: 'galaxy/deepseek-r1',
+```json
+{
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/v1/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true
     },
-    capabilities: {
-      supportsStreaming: true,
-      supportsFunctionCalling: true,
-      supportsJsonMode: true,
-      supportsReasoning: true,
-    },
-    contextWindow: 128_000,
-    maxOutputTokens: 8_192,
-  }),
-]
+    "responses": {
+      "path": "/v1/responses",
+      "protocol": "openai-responses",
+      "streaming": true
+    }
+  },
+  "models": {
+    "acme-reasoner": {
+      "label": "Acme Reasoner",
+      "endpoint": "responses",
+      "capabilities": {
+        "reasoning": true,
+        "streaming": true
+      }
+    }
+  }
+}
 ```
 
-What `providerModelMap` is for:
+## Shared descriptors
 
-- recording route-specific API names for the same model;
-- helping route catalogs reference one shared descriptor while still using the
-  route's real API name;
-- keeping shared metadata reusable across direct vendors and gateways.
+Add or update a shared descriptor under `src/integrations/models/` only when the
+metadata is useful across multiple provider catalogs or when the model deserves
+a stable glossary entry of its own.
 
-What `providerModelMap` is not for:
+Good reasons to add a shared descriptor:
 
-- declaring route availability by itself;
-- replacing the route-owned catalog;
-- assuming every route in the map is automatically enabled.
+- the same conceptual model appears across multiple vendors or gateways;
+- multiple catalogs should share a stable `modelDescriptorId`;
+- the model needs reusable brand or family metadata beyond one provider JSON.
+
+Shared descriptors answer what the model is. Provider catalogs answer where it
+is offered and exactly how it should be called.
 
 ## Model lookup and fallback behavior
 
 Model lookup should prefer:
 
-1. route-owned catalog metadata;
-2. shared model-descriptor enrichment when a catalog entry references
-   `modelDescriptorId`;
-3. global shared model descriptors under `src/integrations/models/` for legacy
-   and custom OpenAI-compatible model names;
+1. provider catalog metadata from
+   `src/integrations/modelCatalog/providers/*.json`;
+2. shared descriptor enrichment when a catalog entry references a shared model;
+3. legacy global descriptors for custom or OpenAI-compatible compatibility
+   paths;
 4. documented env overrides from `src/utils/model/openaiContextWindows.ts`
    (`CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` and
    `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`).
 
-`openaiContextWindows.ts` is compatibility glue for user-provided env
-overrides. It should not grow a second built-in model table. Built-in model
-limits belong in model descriptor files.
+`openaiContextWindows.ts` is compatibility glue for user-provided env overrides.
+It should not grow a second built-in model table. Built-in model limits belong
+in provider JSON catalogs.
 
 ## What not to do
 
 Avoid these patterns:
 
-- turning shared model files into the default place to list every route's
-  offered subset;
+- adding provider model facts to scattered TypeScript constants;
+- turning shared model files into provider availability lists;
 - assuming a shared model descriptor means every gateway supports it;
-- using `providerModelMap` as a substitute for route catalogs;
-- adding a brand descriptor when no shared family metadata is actually useful;
-- calling `registerModel(...)` from contributor-authored examples.
-- adding built-in model limits to `src/utils/model/openaiContextWindows.ts`
-  instead of `src/integrations/models/`.
+- using `providerModelMap` as a substitute for provider catalog entries;
+- adding built-in model limits to `src/utils/model/openaiContextWindows.ts`;
+- adding TypeScript transport code for facts that the catalog schema can
+  represent.
 
 ## Verification checklist
 
-Before calling a model doc update complete:
+Before calling a model update complete:
 
-- the example uses `defineModel`;
-- the example makes clear that shared model descriptors are glossary/index
-  metadata plus optional route enrichment;
-- `providerModelMap` is shown only as a route-name mapping tool;
-- the doc explains when a brand descriptor is useful;
-- the doc explains that global lookup reads `src/integrations/models/`, while
-  `src/utils/model/openaiContextWindows.ts` only preserves env overrides;
-- the doc explains why normal gateway/direct-vendor onboarding should not
-  require editing multiple shared model files.
+- the provider JSON entry includes all model facts needed by runtime and UI
+  lookups;
+- provider defaults or templates are used for repeated metadata;
+- endpoint selection is configured in JSON when the provider has multiple paths;
+- shared descriptors are added only for reusable cross-provider identity;
+- no new built-in model table was added outside
+  `src/integrations/modelCatalog/providers/`;
+- catalog validation and relevant provider/model tests pass.

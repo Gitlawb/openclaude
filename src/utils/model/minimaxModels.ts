@@ -1,7 +1,4 @@
-/**
- * MiniMax model list for the /model picker.
- * Full model catalog from MiniMax API.
- */
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
 
 import type { ModelOption } from './modelOptions.js'
 import { getModelOptions } from '../../integrations/modelCatalog/catalog.js'

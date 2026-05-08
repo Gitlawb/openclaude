@@ -122,10 +122,11 @@ Normal descriptor files should:
 - use the `define*` helpers from `src/integrations/define.ts`;
 - default-export the descriptor object or model list;
 - keep registration out of the descriptor file;
-- keep route-owned catalogs with the route unless shared model metadata is
-  genuinely useful;
-- put built-in model limits and capabilities in `src/integrations/models/`,
-  not in env-override compatibility helpers.
+- put provider model facts in
+  `src/integrations/modelCatalog/providers/*.json`;
+- use `src/integrations/models/` only for optional shared descriptor/glossary
+  metadata that is genuinely useful across provider catalogs;
+- keep env-override compatibility helpers free of built-in model tables.
 
 Typical helper usage:
 
@@ -167,8 +168,10 @@ Normal contributor flow for new preset-participating routes is:
 
 ## Compatibility Layer
 
-The descriptor system is the source of truth, but a compatibility layer still
-exists for older env/config/public-callers.
+Provider catalogs and descriptors feed the compatibility layer for older
+env/config/public-callers. Provider model facts come from
+`src/integrations/modelCatalog/providers/*.json`; descriptors still own
+transport and shared route metadata.
 
 Important compatibility surfaces include:
 

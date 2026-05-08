@@ -93,9 +93,9 @@ Metadata answers what a route is and what it supports.
 ## Model Descriptor
 
 A shared model metadata record under `src/integrations/models/`. Model
-descriptors own reusable model identity, family metadata, capabilities, context
-windows, output limits, cache behavior, and route-specific API aliases through
-`providerModelMap`.
+descriptors own optional reusable model identity and family metadata. Provider
+JSON catalogs own provider-specific capabilities, context windows, output
+limits, cache behavior, endpoint selection, and route-specific API names.
 
 Model descriptors do not declare route availability by themselves. Routes still
 declare their offered subset in their catalogs.

@@ -35,7 +35,10 @@ The primary source of truth now lives in these layers:
 4. `src/integrations/runtimeMetadata.ts`
    Derives request-time OpenAI-shim behavior from the active route plus the
    selected model/catalog entry.
-5. Discovery, validation, and provider-profile helpers
+5. `src/integrations/modelCatalog/providers/*.json`
+   Authored provider model catalogs. These own model facts and feed
+   descriptor/runtime compatibility layers.
+6. Discovery, validation, and provider-profile helpers
    Consume descriptor metadata instead of owning their own provider lists.
 
 In other words: descriptor metadata should decide which route exists and what

@@ -58,8 +58,9 @@ Treating `src/integrations/models/*.ts` as the main place to say where a model
 is available.
 
 Safer rule:
-Shared model descriptors answer what a model is. Route-owned catalogs answer
-where it is offered.
+Provider JSON catalogs answer where a model is offered and own provider-specific
+model facts. Shared model descriptors are optional glossary metadata for
+cross-provider identity.
 
 ## Pitfall 6: Duplicating model defaults in catalog entries
 
@@ -137,8 +138,10 @@ Adding built-in context or output limits to
 `src/utils/model/openaiContextWindows.ts`.
 
 Safer rule:
-Put built-in model metadata in `src/integrations/models/`. Keep
-`openaiContextWindows.ts` focused on documented env overrides such as
+Put built-in model metadata in
+`src/integrations/modelCatalog/providers/*.json`. Keep
+`src/integrations/models/` limited to optional shared descriptor/glossary
+metadata. Keep `openaiContextWindows.ts` focused on documented env overrides such as
 `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` and
 `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`.
 
@@ -190,7 +193,8 @@ Before opening or landing integration docs or descriptor changes:
 - confirm examples use `define*` helpers plus default exports;
 - confirm route catalogs own availability;
 - confirm route defaults are declared once through `defaultModel`;
-- confirm built-in model limits live in `src/integrations/models/`;
+- confirm built-in model limits live in
+  `src/integrations/modelCatalog/providers/*.json`;
 - confirm strict OpenAI-compatible routes specify the correct max-token field;
 - confirm `/usage` docs match the actual current resolver/UI behavior;
 - confirm any illustrative sample is clearly marked as illustrative.

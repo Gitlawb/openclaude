@@ -1,3 +1,5 @@
+// Model metadata source of truth: src/integrations/modelCatalog/providers/*.json
+
 import {
   getModelMetadata,
   getProviderCatalog,
