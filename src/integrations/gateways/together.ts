@@ -24,11 +24,5 @@ export default defineGateway({
     apiKeyEnvVars: ['TOGETHER_API_KEY'],
     vendorId: 'openai',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'together-qwen-3.5-9b', apiName: 'Qwen/Qwen3.5-9B', label: 'Qwen 3.5 9B', modelDescriptorId: 'Qwen/Qwen3.5-9B' },
-    ],
-  },
   usage: { supported: false },
 })

@@ -22,6 +22,7 @@ import type {
   AtomicChatReadiness,
   OllamaGenerationReadiness,
 } from '../utils/providerDiscovery.js'
+import { getRouteCatalogConfig } from './modelCatalog/descriptorAdapters.js'
 import {
   listOpenAICompatibleModels,
   probeOllamaModelCatalog,
@@ -56,7 +57,7 @@ function shouldSkipNonessentialDiscoveryTraffic(): boolean {
 }
 
 function getRouteCatalog(routeId: string): ModelCatalogConfig | null {
-  return getRouteDescriptor(routeId)?.catalog ?? null
+  return getRouteDescriptor(routeId)?.catalog ?? getRouteCatalogConfig(routeId) ?? null
 }
 
 export function resolveDiscoveryRouteIdFromBaseUrl(
@@ -68,7 +69,7 @@ export function resolveDiscoveryRouteIdFromBaseUrl(
 function getCatalogEntries(
   routeId: string,
 ): ModelCatalogEntry[] {
-  return getRouteCatalog(routeId)?.models ?? []
+  return getRouteCatalog(routeId)?.models?.filter(entry => !entry.hidden) ?? []
 }
 
 function getDiscoveryCacheTtlMs(
@@ -101,7 +102,10 @@ function normalizeDiscoveryCacheHeaders(
   headers: Record<string, string> | undefined,
 ): Array<[string, string]> {
   return Object.entries(headers ?? {})
-    .map(([name, value]) => [name.trim().toLowerCase(), value.trim()] as const)
+    .map(([name, value]): [string, string] => [
+      name.trim().toLowerCase(),
+      value.trim(),
+    ])
     .filter(([name, value]) => name && value)
     .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
 }

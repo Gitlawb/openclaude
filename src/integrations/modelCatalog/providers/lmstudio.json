@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "provider": "lmstudio",
+  "label": "LM Studio",
+  "baseUrl": "http://localhost:1234/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "local-model": {
+      "label": "Local model",
+      "apiName": "local-model",
+      "classification": [
+        "chat"
+      ],
+      "visibility": {
+        "hidden": true
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "requiresAuth": false,
+    "cacheTtl": "1d",
+    "refreshMode": "startup"
+  }
+}

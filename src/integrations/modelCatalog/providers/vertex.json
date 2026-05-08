@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "provider": "vertex",
+  "label": "Google Vertex AI",
+  "endpoints": {
+    "messages": {
+      "path": "/v1/messages",
+      "protocol": "anthropic-messages",
+      "streaming": true
+    }
+  },
+  "defaults": {
+    "endpoint": "messages",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    },
+    "brandId": "claude",
+    "vendorId": "anthropic",
+    "gatewayId": "vertex"
+  },
+  "models": {
+    "vertex-claude-opus": {
+      "label": "Claude Opus (Vertex)",
+      "apiName": "claude-opus-4-6",
+      "canonicalModelId": "claude-opus-4-6",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "vertex",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    }
+  }
+}

@@ -30,7 +30,9 @@
       "streaming": true,
       "functionCalling": true,
       "jsonMode": true
-    }
+    },
+    "brandId": "minimax",
+    "vendorId": "minimax"
   },
   "models": {
     "MiniMax-M2": {

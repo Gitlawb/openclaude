@@ -31,22 +31,5 @@ export default defineVendor({
     missingCredentialMessage:
       'XAI_API_KEY is required for the xAI provider.',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      {
-        id: 'grok-4',
-        apiName: 'grok-4',
-        label: 'Grok 4',
-        modelDescriptorId: 'grok-4',
-      },
-      {
-        id: 'grok-3',
-        apiName: 'grok-3',
-        label: 'Grok 3',
-        modelDescriptorId: 'grok-3',
-      },
-    ],
-  },
   usage: { supported: false },
 })

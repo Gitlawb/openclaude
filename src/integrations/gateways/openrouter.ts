@@ -27,15 +27,5 @@ export default defineGateway({
     apiKeyEnvVars: ['OPENROUTER_API_KEY'],
     vendorId: 'openai',
   },
-  catalog: {
-    source: 'hybrid',
-    discovery: { kind: 'openai-compatible' },
-    discoveryCacheTtl: '1d',
-    discoveryRefreshMode: 'background-if-stale',
-    allowManualRefresh: true,
-    models: [
-      { id: 'openrouter-gpt-5-mini', apiName: 'openai/gpt-5-mini', label: 'GPT-5 Mini (via OpenRouter)', modelDescriptorId: 'gpt-5-mini' },
-    ],
-  },
   usage: { supported: false },
 })

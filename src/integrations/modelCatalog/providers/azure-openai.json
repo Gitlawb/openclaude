@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "provider": "azure-openai",
+  "label": "Azure OpenAI",
+  "baseUrl": "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "responses": {
+      "path": "/responses",
+      "protocol": "openai-responses",
+      "streaming": true
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "azure-deployment": {
+      "label": "Azure Deployment",
+      "apiName": "YOUR-DEPLOYMENT-NAME",
+      "classification": [
+        "chat"
+      ],
+      "visibility": {
+        "hidden": true
+      }
+    }
+  }
+}

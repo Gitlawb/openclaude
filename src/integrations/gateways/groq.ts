@@ -25,11 +25,5 @@ export default defineGateway({
     apiKeyEnvVars: ['GROQ_API_KEY'],
     vendorId: 'openai',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'groq-llama-3.3-70b', apiName: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', modelDescriptorId: 'llama-3.3-70b-versatile' },
-    ],
-  },
   usage: { supported: false },
 })

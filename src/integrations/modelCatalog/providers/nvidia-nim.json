@@ -30,7 +30,10 @@
       "streaming": true,
       "functionCalling": true,
       "jsonMode": true
-    }
+    },
+    "brandId": "openai-compatible-alias",
+    "vendorId": "openai",
+    "gatewayId": "nvidia-nim"
   },
   "models": {
     "nvidia/cosmos-reason2-8b": {

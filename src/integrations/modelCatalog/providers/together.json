@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "provider": "together",
+  "label": "Together AI",
+  "baseUrl": "https://api.together.xyz/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    },
+    "vendorId": "openai",
+    "gatewayId": "together"
+  },
+  "models": {
+    "together-qwen-3.5-9b": {
+      "label": "Qwen 3.5 9B",
+      "apiName": "Qwen/Qwen3.5-9B",
+      "canonicalModelId": "Qwen/Qwen3.5-9B",
+      "brandId": "qwen",
+      "vendorId": "openai",
+      "gatewayId": "together",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    },
+    "meta/llama-3.1-405b-instruct": {
+      "label": "Meta Llama 3.1 405B Instruct",
+      "apiName": "meta/llama-3.1-405b-instruct",
+      "canonicalModelId": "meta/llama-3.1-405b-instruct",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "together",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "meta/llama-3.1-70b-instruct": {
+      "label": "Meta Llama 3.1 70B Instruct",
+      "apiName": "meta/llama-3.1-70b-instruct",
+      "canonicalModelId": "meta/llama-3.1-70b-instruct",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "together",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "meta/llama-3.1-8b-instruct": {
+      "label": "Meta Llama 3.1 8B Instruct",
+      "apiName": "meta/llama-3.1-8b-instruct",
+      "canonicalModelId": "meta/llama-3.1-8b-instruct",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "together",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "meta/llama-3.2-90b-instruct": {
+      "label": "Meta Llama 3.2 90B Instruct",
+      "apiName": "meta/llama-3.2-90b-instruct",
+      "canonicalModelId": "meta/llama-3.2-90b-instruct",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "together",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "meta/llama-3.2-3b-instruct": {
+      "label": "Meta Llama 3.2 3B Instruct",
+      "apiName": "meta/llama-3.2-3b-instruct",
+      "canonicalModelId": "meta/llama-3.2-3b-instruct",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "together",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "meta/llama-3.2-1b-instruct": {
+      "label": "Meta Llama 3.2 1B Instruct",
+      "apiName": "meta/llama-3.2-1b-instruct",
+      "canonicalModelId": "meta/llama-3.2-1b-instruct",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "together",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "meta/llama-3.3-70b-instruct": {
+      "label": "Meta Llama 3.3 70B Instruct",
+      "apiName": "meta/llama-3.3-70b-instruct",
+      "canonicalModelId": "meta/llama-3.3-70b-instruct",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "together",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    }
+  }
+}

@@ -24,11 +24,5 @@ export default defineGateway({
     apiKeyEnvVars: ['DASHSCOPE_API_KEY'],
     vendorId: 'openai',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'qwen-intl-3.6-plus', apiName: 'qwen3.6-plus', label: 'Qwen 3.6 Plus', modelDescriptorId: 'qwen3.6-plus' },
-    ],
-  },
   usage: { supported: false },
 })

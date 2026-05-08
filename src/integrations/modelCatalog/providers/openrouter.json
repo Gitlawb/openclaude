@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "provider": "openrouter",
+  "label": "OpenRouter",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "openrouter-gpt-5-mini": {
+      "label": "GPT-5 Mini (via OpenRouter)",
+      "apiName": "openai/gpt-5-mini",
+      "canonicalModelId": "gpt-5-mini",
+      "brandId": "gpt",
+      "vendorId": "openai",
+      "gatewayId": "openrouter",
+      "classification": [
+        "chat",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": true
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "cacheTtl": "1d",
+    "refreshMode": "background-if-stale"
+  }
+}

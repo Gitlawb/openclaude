@@ -15,6 +15,7 @@ import {
   getTransportKindForRoute,
   resolveActiveRouteIdFromEnv,
 } from '../integrations/routeMetadata.js'
+import { resolveAntModel } from './model/antModels.js'
 import { getCanonicalName } from './model/model.js'
 import { getModelCapability } from './model/modelCapabilities.js'
 
@@ -78,9 +79,10 @@ function safeGetCatalogLimits(model: string): ModelLimits | undefined {
 
 function safeGetCatalogMetadata(
   model: string,
+  providerId?: string,
 ): NormalizedModelMetadata | undefined {
   try {
-    return getModelMetadata(model)
+    return getModelMetadata(model, providerId)
   } catch (error) {
     if (
       error instanceof Error &&
@@ -98,7 +100,8 @@ export function modelSupports1M(model: string): boolean {
     return false
   }
   const canonical = getCanonicalName(model)
-  const metadata = safeGetCatalogMetadata(model)
+  const metadata =
+    safeGetCatalogMetadata(model, 'anthropic') ?? safeGetCatalogMetadata(model)
   if (
     metadata?.contextUpgrade?.maxContext &&
     metadata.contextUpgrade.maxContext >= 1_000_000

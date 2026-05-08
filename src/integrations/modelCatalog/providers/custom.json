@@ -1,0 +1,2685 @@
+{
+  "schemaVersion": 1,
+  "provider": "custom",
+  "label": "Custom OpenAI-compatible",
+  "baseUrl": "http://localhost:11434/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "local-model": {
+      "label": "Local model",
+      "apiName": "local-model",
+      "classification": [
+        "chat"
+      ],
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-v4-flash": {
+      "label": "DeepSeek V4 Flash",
+      "apiName": "deepseek-v4-flash",
+      "canonicalModelId": "deepseek-v4-flash",
+      "brandId": "deepseek",
+      "vendorId": "deepseek",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-v4-pro": {
+      "label": "DeepSeek V4 Pro",
+      "apiName": "deepseek-v4-pro",
+      "canonicalModelId": "deepseek-v4-pro",
+      "brandId": "deepseek",
+      "vendorId": "deepseek",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 1048576,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "glm-5": {
+      "label": "GLM 5",
+      "apiName": "glm-5",
+      "canonicalModelId": "glm-5",
+      "brandId": "glm",
+      "vendorId": "zai",
+      "gatewayId": "custom",
+      "compatibility": {
+        "matchCaseSensitive": true
+      },
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "glm-4.7": {
+      "label": "GLM 4.7",
+      "apiName": "glm-4.7",
+      "canonicalModelId": "glm-4.7",
+      "brandId": "glm",
+      "vendorId": "zai",
+      "gatewayId": "custom",
+      "compatibility": {
+        "matchCaseSensitive": true
+      },
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "glm-5.1": {
+      "label": "GLM 5.1",
+      "apiName": "glm-5.1",
+      "canonicalModelId": "glm-5.1",
+      "brandId": "glm",
+      "vendorId": "zai",
+      "gatewayId": "custom",
+      "compatibility": {
+        "matchCaseSensitive": true
+      },
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "glm-5-turbo": {
+      "label": "GLM 5 Turbo",
+      "apiName": "glm-5-turbo",
+      "canonicalModelId": "glm-5-turbo",
+      "brandId": "glm",
+      "vendorId": "zai",
+      "gatewayId": "custom",
+      "compatibility": {
+        "matchCaseSensitive": true
+      },
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 202752,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "glm-4.5-air": {
+      "label": "GLM 4.5 Air",
+      "apiName": "glm-4.5-air",
+      "canonicalModelId": "glm-4.5-air",
+      "brandId": "glm",
+      "vendorId": "zai",
+      "gatewayId": "custom",
+      "compatibility": {
+        "matchCaseSensitive": true
+      },
+      "classification": [
+        "chat",
+        "reasoning",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot": {
+      "label": "GitHub Copilot",
+      "apiName": "github:copilot",
+      "canonicalModelId": "github:copilot",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:claude-sonnet-4": {
+      "label": "GitHub Copilot Claude Sonnet 4",
+      "apiName": "github:copilot:claude-sonnet-4",
+      "canonicalModelId": "github:copilot:claude-sonnet-4",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 216000,
+        "maxOutputTokens": {
+          "default": 16000,
+          "upperLimit": 16000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:claude-haiku-4": {
+      "label": "GitHub Copilot Claude Haiku 4",
+      "apiName": "github:copilot:claude-haiku-4",
+      "canonicalModelId": "github:copilot:claude-haiku-4",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:claude-haiku-4.5": {
+      "label": "GitHub Copilot Claude Haiku 4.5",
+      "apiName": "github:copilot:claude-haiku-4.5",
+      "canonicalModelId": "github:copilot:claude-haiku-4.5",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 144000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:claude-sonnet-4.5": {
+      "label": "GitHub Copilot Claude Sonnet 4.5",
+      "apiName": "github:copilot:claude-sonnet-4.5",
+      "canonicalModelId": "github:copilot:claude-sonnet-4.5",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 32000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:claude-sonnet-4.6": {
+      "label": "GitHub Copilot Claude Sonnet 4.6",
+      "apiName": "github:copilot:claude-sonnet-4.6",
+      "canonicalModelId": "github:copilot:claude-sonnet-4.6",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 32000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:claude-opus-4": {
+      "label": "GitHub Copilot Claude Opus 4",
+      "apiName": "github:copilot:claude-opus-4",
+      "canonicalModelId": "github:copilot:claude-opus-4",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 32000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:claude-opus-4.6": {
+      "label": "GitHub Copilot Claude Opus 4.6",
+      "apiName": "github:copilot:claude-opus-4.6",
+      "canonicalModelId": "github:copilot:claude-opus-4.6",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 32000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-3.5-turbo": {
+      "label": "GitHub Copilot GPT-3.5 Turbo",
+      "apiName": "github:copilot:gpt-3.5-turbo",
+      "canonicalModelId": "github:copilot:gpt-3.5-turbo",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-4": {
+      "label": "GitHub Copilot GPT-4",
+      "apiName": "github:copilot:gpt-4",
+      "canonicalModelId": "github:copilot:gpt-4",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-4-0125-preview": {
+      "label": "GitHub Copilot GPT-4 0125 Preview",
+      "apiName": "github:copilot:gpt-4-0125-preview",
+      "canonicalModelId": "github:copilot:gpt-4-0125-preview",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-4-o-preview": {
+      "label": "GitHub Copilot GPT-4o Preview",
+      "apiName": "github:copilot:gpt-4-o-preview",
+      "canonicalModelId": "github:copilot:gpt-4-o-preview",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-4.1": {
+      "label": "GitHub Copilot GPT-4.1",
+      "apiName": "github:copilot:gpt-4.1",
+      "canonicalModelId": "github:copilot:gpt-4.1",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-4o": {
+      "label": "GitHub Copilot GPT-4o",
+      "apiName": "github:copilot:gpt-4o",
+      "canonicalModelId": "github:copilot:gpt-4o",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-4o-2024-08-06": {
+      "label": "GitHub Copilot GPT-4o 2024-08-06",
+      "apiName": "github:copilot:gpt-4o-2024-08-06",
+      "canonicalModelId": "github:copilot:gpt-4o-2024-08-06",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-4o-2024-11-20": {
+      "label": "GitHub Copilot GPT-4o 2024-11-20",
+      "apiName": "github:copilot:gpt-4o-2024-11-20",
+      "canonicalModelId": "github:copilot:gpt-4o-2024-11-20",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-4o-mini": {
+      "label": "GitHub Copilot GPT-4o Mini",
+      "apiName": "github:copilot:gpt-4o-mini",
+      "canonicalModelId": "github:copilot:gpt-4o-mini",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5-mini": {
+      "label": "GitHub Copilot GPT-5 Mini",
+      "apiName": "github:copilot:gpt-5-mini",
+      "canonicalModelId": "github:copilot:gpt-5-mini",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 264000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5.1": {
+      "label": "GitHub Copilot GPT-5.1",
+      "apiName": "github:copilot:gpt-5.1",
+      "canonicalModelId": "github:copilot:gpt-5.1",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 264000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5.2": {
+      "label": "GitHub Copilot GPT-5.2",
+      "apiName": "github:copilot:gpt-5.2",
+      "canonicalModelId": "github:copilot:gpt-5.2",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 128000,
+          "upperLimit": 128000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5.2-codex": {
+      "label": "GitHub Copilot GPT-5.2 Codex",
+      "apiName": "github:copilot:gpt-5.2-codex",
+      "canonicalModelId": "github:copilot:gpt-5.2-codex",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 128000,
+          "upperLimit": 128000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5.3-codex": {
+      "label": "GitHub Copilot GPT-5.3 Codex",
+      "apiName": "github:copilot:gpt-5.3-codex",
+      "canonicalModelId": "github:copilot:gpt-5.3-codex",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 128000,
+          "upperLimit": 128000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5.5": {
+      "label": "GitHub Copilot GPT-5.5",
+      "apiName": "github:copilot:gpt-5.5",
+      "canonicalModelId": "github:copilot:gpt-5.5",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5.5-mini": {
+      "label": "GitHub Copilot GPT-5.5 Mini",
+      "apiName": "github:copilot:gpt-5.5-mini",
+      "canonicalModelId": "github:copilot:gpt-5.5-mini",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5.4": {
+      "label": "GitHub Copilot GPT-5.4",
+      "apiName": "github:copilot:gpt-5.4",
+      "canonicalModelId": "github:copilot:gpt-5.4",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 128000,
+          "upperLimit": 128000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gpt-5.4-mini": {
+      "label": "GitHub Copilot GPT-5.4 Mini",
+      "apiName": "github:copilot:gpt-5.4-mini",
+      "canonicalModelId": "github:copilot:gpt-5.4-mini",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 128000,
+          "upperLimit": 128000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gemini-2.5-pro": {
+      "label": "GitHub Copilot Gemini 2.5 Pro",
+      "apiName": "github:copilot:gemini-2.5-pro",
+      "canonicalModelId": "github:copilot:gemini-2.5-pro",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gemini-3-flash-preview": {
+      "label": "GitHub Copilot Gemini 3 Flash Preview",
+      "apiName": "github:copilot:gemini-3-flash-preview",
+      "canonicalModelId": "github:copilot:gemini-3-flash-preview",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:gemini-3.1-pro-preview": {
+      "label": "GitHub Copilot Gemini 3.1 Pro Preview",
+      "apiName": "github:copilot:gemini-3.1-pro-preview",
+      "canonicalModelId": "github:copilot:gemini-3.1-pro-preview",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github:copilot:grok-code-fast-1": {
+      "label": "GitHub Copilot Grok Code Fast 1",
+      "apiName": "github:copilot:grok-code-fast-1",
+      "canonicalModelId": "github:copilot:grok-code-fast-1",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/claude-sonnet-4.6": {
+      "label": "GitHub Copilot Claude Sonnet 4.6",
+      "apiName": "github_copilot/claude-sonnet-4.6",
+      "canonicalModelId": "github_copilot/claude-sonnet-4.6",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 32000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/claude-opus-4.6": {
+      "label": "GitHub Copilot Claude Opus 4.6",
+      "apiName": "github_copilot/claude-opus-4.6",
+      "canonicalModelId": "github_copilot/claude-opus-4.6",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32000,
+          "upperLimit": 32000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/claude-haiku-4.5": {
+      "label": "GitHub Copilot Claude Haiku 4.5",
+      "apiName": "github_copilot/claude-haiku-4.5",
+      "canonicalModelId": "github_copilot/claude-haiku-4.5",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 144000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gpt-4.1": {
+      "label": "GitHub Copilot GPT-4.1",
+      "apiName": "github_copilot/gpt-4.1",
+      "canonicalModelId": "github_copilot/gpt-4.1",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gpt-4o": {
+      "label": "GitHub Copilot GPT-4o",
+      "apiName": "github_copilot/gpt-4o",
+      "canonicalModelId": "github_copilot/gpt-4o",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gpt-5-mini": {
+      "label": "GitHub Copilot GPT-5 Mini",
+      "apiName": "github_copilot/gpt-5-mini",
+      "canonicalModelId": "github_copilot/gpt-5-mini",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 264000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gpt-5.5": {
+      "label": "GitHub Copilot GPT-5.5",
+      "apiName": "github_copilot/gpt-5.5",
+      "canonicalModelId": "github_copilot/gpt-5.5",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gpt-5.5-mini": {
+      "label": "GitHub Copilot GPT-5.5 Mini",
+      "apiName": "github_copilot/gpt-5.5-mini",
+      "canonicalModelId": "github_copilot/gpt-5.5-mini",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gpt-5.4": {
+      "label": "GitHub Copilot GPT-5.4",
+      "apiName": "github_copilot/gpt-5.4",
+      "canonicalModelId": "github_copilot/gpt-5.4",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 128000,
+          "upperLimit": 128000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gpt-5.4-mini": {
+      "label": "GitHub Copilot GPT-5.4 Mini",
+      "apiName": "github_copilot/gpt-5.4-mini",
+      "canonicalModelId": "github_copilot/gpt-5.4-mini",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 400000,
+        "maxOutputTokens": {
+          "default": 128000,
+          "upperLimit": 128000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gemini-2.5-pro": {
+      "label": "GitHub Copilot Gemini 2.5 Pro",
+      "apiName": "github_copilot/gemini-2.5-pro",
+      "canonicalModelId": "github_copilot/gemini-2.5-pro",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/gemini-3-flash": {
+      "label": "GitHub Copilot Gemini 3 Flash",
+      "apiName": "github_copilot/gemini-3-flash",
+      "canonicalModelId": "github_copilot/gemini-3-flash",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "github_copilot/grok-code-fast-1": {
+      "label": "GitHub Copilot Grok Code Fast 1",
+      "apiName": "github_copilot/grok-code-fast-1",
+      "canonicalModelId": "github_copilot/grok-code-fast-1",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 64000,
+          "upperLimit": 64000
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1": {
+      "label": "NVIDIA Llama 3.1 Nemotron Ultra 253B",
+      "apiName": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+      "canonicalModelId": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "nvidia/nemotron-mini-4b-instruct": {
+      "label": "NVIDIA Nemotron Mini 4B Instruct",
+      "apiName": "nvidia/nemotron-mini-4b-instruct",
+      "canonicalModelId": "nvidia/nemotron-mini-4b-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "google/gemma-2-27b-it": {
+      "label": "Google Gemma 2 27B IT",
+      "apiName": "google/gemma-2-27b-it",
+      "canonicalModelId": "google/gemma-2-27b-it",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 8192,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "google/gemma-2-9b-it": {
+      "label": "Google Gemma 2 9B IT",
+      "apiName": "google/gemma-2-9b-it",
+      "canonicalModelId": "google/gemma-2-9b-it",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 8192
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "google/gemma-3-27b-it": {
+      "label": "Google Gemma 3 27B IT",
+      "apiName": "google/gemma-3-27b-it",
+      "canonicalModelId": "google/gemma-3-27b-it",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 131072,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "google/gemma-3-12b-it": {
+      "label": "Google Gemma 3 12B IT",
+      "apiName": "google/gemma-3-12b-it",
+      "canonicalModelId": "google/gemma-3-12b-it",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 131072,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "google/gemma-3-4b-it": {
+      "label": "Google Gemma 3 4B IT",
+      "apiName": "google/gemma-3-4b-it",
+      "canonicalModelId": "google/gemma-3-4b-it",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 131072
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-ai/deepseek-r1": {
+      "label": "DeepSeek R1",
+      "apiName": "deepseek-ai/deepseek-r1",
+      "canonicalModelId": "deepseek-ai/deepseek-r1",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-ai/deepseek-v3": {
+      "label": "DeepSeek V3",
+      "apiName": "deepseek-ai/deepseek-v3",
+      "canonicalModelId": "deepseek-ai/deepseek-v3",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-ai/deepseek-v3.2": {
+      "label": "DeepSeek V3.2",
+      "apiName": "deepseek-ai/deepseek-v3.2",
+      "canonicalModelId": "deepseek-ai/deepseek-v3.2",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen/qwen3-32b": {
+      "label": "Qwen 3 32B",
+      "apiName": "qwen/qwen3-32b",
+      "canonicalModelId": "qwen/qwen3-32b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen/qwen3-8b": {
+      "label": "Qwen 3 8B",
+      "apiName": "qwen/qwen3-8b",
+      "canonicalModelId": "qwen/qwen3-8b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen/qwen2.5-7b-instruct": {
+      "label": "Qwen 2.5 7B Instruct",
+      "apiName": "qwen/qwen2.5-7b-instruct",
+      "canonicalModelId": "qwen/qwen2.5-7b-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "mistralai/mistral-large-3-675b-instruct-2512": {
+      "label": "Mistral Large 3 675B Instruct 2512",
+      "apiName": "mistralai/mistral-large-3-675b-instruct-2512",
+      "canonicalModelId": "mistralai/mistral-large-3-675b-instruct-2512",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "mistralai/mistral-large-2-instruct": {
+      "label": "Mistral Large 2 Instruct",
+      "apiName": "mistralai/mistral-large-2-instruct",
+      "canonicalModelId": "mistralai/mistral-large-2-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "mistralai/mistral-small-3.1-24b-instruct-2503": {
+      "label": "Mistral Small 3.1 24B Instruct 2503",
+      "apiName": "mistralai/mistral-small-3.1-24b-instruct-2503",
+      "canonicalModelId": "mistralai/mistral-small-3.1-24b-instruct-2503",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "mistralai/mixtral-8x7b-instruct-v0.1": {
+      "label": "Mixtral 8x7B Instruct v0.1",
+      "apiName": "mistralai/mixtral-8x7b-instruct-v0.1",
+      "canonicalModelId": "mistralai/mixtral-8x7b-instruct-v0.1",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "microsoft/phi-4-mini-instruct": {
+      "label": "Microsoft Phi 4 Mini Instruct",
+      "apiName": "microsoft/phi-4-mini-instruct",
+      "canonicalModelId": "microsoft/phi-4-mini-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "microsoft/phi-3.5-mini-instruct": {
+      "label": "Microsoft Phi 3.5 Mini Instruct",
+      "apiName": "microsoft/phi-3.5-mini-instruct",
+      "canonicalModelId": "microsoft/phi-3.5-mini-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "microsoft/phi-3-mini-128k-instruct": {
+      "label": "Microsoft Phi 3 Mini 128K Instruct",
+      "apiName": "microsoft/phi-3-mini-128k-instruct",
+      "canonicalModelId": "microsoft/phi-3-mini-128k-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "ibm/granite-3.3-8b-instruct": {
+      "label": "IBM Granite 3.3 8B Instruct",
+      "apiName": "ibm/granite-3.3-8b-instruct",
+      "canonicalModelId": "ibm/granite-3.3-8b-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 8192,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "ibm/granite-8b-code-instruct": {
+      "label": "IBM Granite 8B Code Instruct",
+      "apiName": "ibm/granite-8b-code-instruct",
+      "canonicalModelId": "ibm/granite-8b-code-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 8192
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "z-ai/glm5": {
+      "label": "Z.ai GLM-5",
+      "apiName": "z-ai/glm5",
+      "canonicalModelId": "z-ai/glm5",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "z-ai/glm4.7": {
+      "label": "Z.ai GLM-4.7",
+      "apiName": "z-ai/glm4.7",
+      "canonicalModelId": "z-ai/glm4.7",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "moonshotai/kimi-k2.5": {
+      "label": "Moonshot Kimi K2.5",
+      "apiName": "moonshotai/kimi-k2.5",
+      "canonicalModelId": "moonshotai/kimi-k2.5",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "moonshotai/kimi-k2-instruct": {
+      "label": "Moonshot Kimi K2 Instruct",
+      "apiName": "moonshotai/kimi-k2-instruct",
+      "canonicalModelId": "moonshotai/kimi-k2-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "databricks/dbrx-instruct": {
+      "label": "Databricks DBRX Instruct",
+      "apiName": "databricks/dbrx-instruct",
+      "canonicalModelId": "databricks/dbrx-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 131072,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "ai21labs/jamba-1.5-large-instruct": {
+      "label": "AI21 Jamba 1.5 Large Instruct",
+      "apiName": "ai21labs/jamba-1.5-large-instruct",
+      "canonicalModelId": "ai21labs/jamba-1.5-large-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "ai21labs/jamba-1.5-mini-instruct": {
+      "label": "AI21 Jamba 1.5 Mini Instruct",
+      "apiName": "ai21labs/jamba-1.5-mini-instruct",
+      "canonicalModelId": "ai21labs/jamba-1.5-mini-instruct",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "01-ai/yi-large": {
+      "label": "01.AI Yi Large",
+      "apiName": "01-ai/yi-large",
+      "canonicalModelId": "01-ai/yi-large",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen2.5-coder:32b": {
+      "label": "Qwen 2.5 Coder 32B",
+      "apiName": "qwen2.5-coder:32b",
+      "canonicalModelId": "qwen2.5-coder:32b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen2.5-coder:7b": {
+      "label": "Qwen 2.5 Coder 7B",
+      "apiName": "qwen2.5-coder:7b",
+      "canonicalModelId": "qwen2.5-coder:7b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-coder-v2:16b": {
+      "label": "DeepSeek Coder V2 16B",
+      "apiName": "deepseek-coder-v2:16b",
+      "canonicalModelId": "deepseek-coder-v2:16b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 163840,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-r1:14b": {
+      "label": "DeepSeek R1 14B",
+      "apiName": "deepseek-r1:14b",
+      "canonicalModelId": "deepseek-r1:14b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 65536,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "phi4:14b": {
+      "label": "Phi 4 14B",
+      "apiName": "phi4:14b",
+      "canonicalModelId": "phi4:14b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "gemma2:27b": {
+      "label": "Gemma 2 27B",
+      "apiName": "gemma2:27b",
+      "canonicalModelId": "gemma2:27b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 8192,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "codellama:13b": {
+      "label": "Code Llama 13B",
+      "apiName": "codellama:13b",
+      "canonicalModelId": "codellama:13b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen3:8b": {
+      "label": "Qwen 3 8B",
+      "apiName": "qwen3:8b",
+      "canonicalModelId": "qwen3:8b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen3-max-2026-01-23": {
+      "label": "Qwen 3 Max 2026-01-23",
+      "apiName": "qwen3-max-2026-01-23",
+      "canonicalModelId": "qwen3-max-2026-01-23",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "custom",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 262144,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "requiresAuth": false,
+    "cacheTtl": "1d",
+    "refreshMode": "background-if-stale"
+  }
+}

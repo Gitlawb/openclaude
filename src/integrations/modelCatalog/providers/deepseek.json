@@ -37,7 +37,9 @@
       "streaming": true,
       "functionCalling": true,
       "jsonMode": true
-    }
+    },
+    "brandId": "deepseek",
+    "vendorId": "deepseek"
   },
   "models": {
     "deepseek-chat": {

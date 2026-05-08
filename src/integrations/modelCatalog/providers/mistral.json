@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "provider": "mistral",
+  "label": "Mistral AI",
+  "baseUrl": "https://api.mistral.ai/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    },
+    "brandId": "mistral",
+    "vendorId": "openai",
+    "gatewayId": "mistral"
+  },
+  "models": {
+    "mistral-large-latest": {
+      "label": "Mistral Large Latest",
+      "apiName": "mistral-large-latest",
+      "canonicalModelId": "mistral-large-latest",
+      "brandId": "mistral",
+      "vendorId": "openai",
+      "gatewayId": "mistral",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "mistral-small-latest": {
+      "label": "Mistral Small Latest",
+      "apiName": "mistral-small-latest",
+      "canonicalModelId": "mistral-small-latest",
+      "brandId": "mistral",
+      "vendorId": "openai",
+      "gatewayId": "mistral",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "devstral-latest": {
+      "label": "Devstral Latest",
+      "apiName": "devstral-latest",
+      "canonicalModelId": "devstral-latest",
+      "brandId": "mistral",
+      "vendorId": "openai",
+      "gatewayId": "mistral",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "ministral-3b-latest": {
+      "label": "Ministral 3B Latest",
+      "apiName": "ministral-3b-latest",
+      "canonicalModelId": "ministral-3b-latest",
+      "brandId": "mistral",
+      "vendorId": "openai",
+      "gatewayId": "mistral",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 256000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "mixtral-8x7b-32768": {
+      "label": "Mixtral 8x7B 32768",
+      "apiName": "mixtral-8x7b-32768",
+      "canonicalModelId": "mixtral-8x7b-32768",
+      "brandId": "mistral",
+      "vendorId": "openai",
+      "gatewayId": "mistral",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "codestral": {
+      "label": "Codestral",
+      "apiName": "codestral",
+      "canonicalModelId": "codestral",
+      "brandId": "mistral",
+      "vendorId": "openai",
+      "gatewayId": "mistral",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "mistral:7b": {
+      "label": "Mistral 7B",
+      "apiName": "mistral:7b",
+      "canonicalModelId": "mistral:7b",
+      "brandId": "mistral",
+      "vendorId": "openai",
+      "gatewayId": "mistral",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    }
+  }
+}

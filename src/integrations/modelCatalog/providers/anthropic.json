@@ -35,7 +35,9 @@
       "contextManagement": true,
       "promptCaching": true,
       "webSearch": true
-    }
+    },
+    "brandId": "claude",
+    "vendorId": "anthropic"
   },
   "templates": {
     "sonnetPricing": {

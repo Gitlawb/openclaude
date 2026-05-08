@@ -30,11 +30,5 @@ export default defineGateway({
     apiKeyEnvVars: ['KIMI_API_KEY'],
     vendorId: 'openai',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'kimi-for-coding', apiName: 'kimi-for-coding', label: 'Kimi for Coding', modelDescriptorId: 'kimi-for-coding' },
-    ],
-  },
   usage: { supported: false },
 })

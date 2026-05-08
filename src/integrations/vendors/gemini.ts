@@ -31,12 +31,5 @@ export default defineVendor({
     missingCredentialMessage:
       'GEMINI_API_KEY, GOOGLE_API_KEY, GEMINI_ACCESS_TOKEN, or Google ADC credentials are required when CLAUDE_CODE_USE_GEMINI=1.',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'gemini-3-flash-preview', apiName: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
-      { id: 'gemini-2.5-pro', apiName: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    ],
-  },
   usage: { supported: false },
 })

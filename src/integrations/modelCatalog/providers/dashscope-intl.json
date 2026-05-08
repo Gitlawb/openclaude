@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "provider": "dashscope-intl",
+  "label": "Alibaba Coding Plan",
+  "baseUrl": "https://coding-intl.dashscope.aliyuncs.com/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    },
+    "brandId": "qwen",
+    "vendorId": "openai",
+    "gatewayId": "dashscope-intl"
+  },
+  "models": {
+    "qwen3.6-plus": {
+      "label": "Qwen 3.6 Plus",
+      "apiName": "qwen3.6-plus",
+      "canonicalModelId": "qwen3.6-plus",
+      "brandId": "qwen",
+      "vendorId": "openai",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    },
+    "qwen3.5-plus": {
+      "label": "Qwen 3.5 Plus",
+      "apiName": "qwen3.5-plus",
+      "canonicalModelId": "qwen3.5-plus",
+      "brandId": "qwen",
+      "vendorId": "openai",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    },
+    "qwen3-coder-plus": {
+      "label": "Qwen 3 Coder Plus",
+      "apiName": "qwen3-coder-plus",
+      "canonicalModelId": "qwen3-coder-plus",
+      "brandId": "qwen",
+      "vendorId": "openai",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 1000000,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    },
+    "qwen3-coder-next": {
+      "label": "Qwen 3 Coder Next",
+      "apiName": "qwen3-coder-next",
+      "canonicalModelId": "qwen3-coder-next",
+      "brandId": "qwen",
+      "vendorId": "openai",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 262144,
+        "maxOutputTokens": {
+          "default": 65536,
+          "upperLimit": 65536
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    },
+    "qwen3-max": {
+      "label": "Qwen 3 Max",
+      "apiName": "qwen3-max",
+      "canonicalModelId": "qwen3-max",
+      "brandId": "qwen",
+      "vendorId": "openai",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 262144,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    }
+  }
+}

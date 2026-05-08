@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "provider": "kimi-code",
+  "label": "Moonshot AI - Kimi Code",
+  "baseUrl": "https://api.kimi.com/coding/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    },
+    "brandId": "kimi",
+    "vendorId": "moonshot",
+    "gatewayId": "kimi-code"
+  },
+  "models": {
+    "kimi-for-coding": {
+      "label": "Kimi for Coding",
+      "apiName": "kimi-for-coding",
+      "canonicalModelId": "kimi-for-coding",
+      "brandId": "kimi",
+      "vendorId": "moonshot",
+      "gatewayId": "kimi-code",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 262144,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      },
+      "request": {
+        "preserveReasoningContent": true,
+        "requireReasoningContentOnAssistantMessages": true,
+        "reasoningContentFallback": "",
+        "maxTokensField": "max_tokens",
+        "removeBodyFields": [
+          "store"
+        ]
+      }
+    }
+  }
+}

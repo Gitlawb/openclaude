@@ -116,6 +116,7 @@ export type ModelCompatibility = {
   providerModelMap?: Record<string, string>
   fallbackSuggestion?: string
   migrationAliases?: string[]
+  matchCaseSensitive?: boolean
 }
 
 export type CatalogRequestConfig = Partial<
@@ -143,12 +144,16 @@ export type CatalogEndpoint = {
 export type ProviderDiscoveryConfig = {
   endpoint: string
   parser: DiscoveryParser
+  requiresAuth?: boolean
   cacheTtl?: DurationString
   refreshMode?: DiscoveryRefreshMode
 }
 
 export type ProviderCatalogDefaults = {
   endpoint?: string
+  brandId?: string
+  vendorId?: string
+  gatewayId?: string
   limits?: ModelLimits
   capabilities?: ModelCapabilities
   effort?: ModelEffort
@@ -162,6 +167,9 @@ export type ModelCatalogEntry = {
   label: string
   apiName?: string
   canonicalModelId?: string
+  brandId?: string
+  vendorId?: string
+  gatewayId?: string
   aliases?: string[]
   family?: string
   classification?: ModelClassification[]

@@ -32,13 +32,359 @@
   },
   "models": {
     "llama3.1:8b": {
-      "label": "llama3.1:8b",
+      "label": "Llama 3.1 8B",
+      "apiName": "llama3.1:8b",
+      "canonicalModelId": "llama3.1:8b",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
       "visibility": {
-        "hidden": true,
-        "defaultFor": [
-          "main",
-          "smallFast"
-        ]
+        "hidden": true
+      }
+    },
+    "llama3.3:70b": {
+      "label": "Llama 3.3 70B",
+      "apiName": "llama3.3:70b",
+      "canonicalModelId": "llama3.3:70b",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "llama3.2:3b": {
+      "label": "Llama 3.2 3B",
+      "apiName": "llama3.2:3b",
+      "canonicalModelId": "llama3.2:3b",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "llama3.2:1b": {
+      "label": "Llama 3.2 1B",
+      "apiName": "llama3.2:1b",
+      "canonicalModelId": "llama3.2:1b",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen2.5-coder:32b": {
+      "label": "Qwen 2.5 Coder 32B",
+      "apiName": "qwen2.5-coder:32b",
+      "canonicalModelId": "qwen2.5-coder:32b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen2.5-coder:7b": {
+      "label": "Qwen 2.5 Coder 7B",
+      "apiName": "qwen2.5-coder:7b",
+      "canonicalModelId": "qwen2.5-coder:7b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 32768,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-coder-v2:16b": {
+      "label": "DeepSeek Coder V2 16B",
+      "apiName": "deepseek-coder-v2:16b",
+      "canonicalModelId": "deepseek-coder-v2:16b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 163840,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "deepseek-r1:14b": {
+      "label": "DeepSeek R1 14B",
+      "apiName": "deepseek-r1:14b",
+      "canonicalModelId": "deepseek-r1:14b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 65536,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "phi4:14b": {
+      "label": "Phi 4 14B",
+      "apiName": "phi4:14b",
+      "canonicalModelId": "phi4:14b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "gemma2:27b": {
+      "label": "Gemma 2 27B",
+      "apiName": "gemma2:27b",
+      "canonicalModelId": "gemma2:27b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 8192,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "codellama:13b": {
+      "label": "Code Llama 13B",
+      "apiName": "codellama:13b",
+      "canonicalModelId": "codellama:13b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 16384,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
+      }
+    },
+    "qwen3:8b": {
+      "label": "Qwen 3 8B",
+      "apiName": "qwen3:8b",
+      "canonicalModelId": "qwen3:8b",
+      "brandId": "openai-compatible-alias",
+      "vendorId": "openai",
+      "gatewayId": "ollama",
+      "classification": [
+        "chat",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      },
+      "visibility": {
+        "hidden": true
       }
     }
   },

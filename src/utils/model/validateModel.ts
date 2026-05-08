@@ -202,12 +202,12 @@ function handleValidationError(
  * Suggest a fallback model for 3P users when the selected model is unavailable.
  */
 function get3PFallbackSuggestion(model: string): string | undefined {
-  if (getAPIProvider() === 'firstParty') {
-    return undefined
-  }
   const catalogFallback = getCatalogFallbackSuggestion(model)
   if (catalogFallback) {
     return catalogFallback
+  }
+  if (getAPIProvider() === 'firstParty') {
+    return undefined
   }
   const lowerModel = model.toLowerCase()
   if (lowerModel.includes('opus-4-7') || lowerModel.includes('opus_4_7')) {

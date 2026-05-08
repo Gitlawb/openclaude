@@ -49,20 +49,5 @@ export default defineGateway({
     missingCredentialMessage:
       'Set HICAP_API_KEY or OPENAI_API_KEY for the Hicap provider.',
   },
-  catalog: {
-    source: 'hybrid',
-    discovery: { kind: 'openai-compatible', requiresAuth: false },
-    discoveryCacheTtl: '1d',
-    discoveryRefreshMode: 'background-if-stale',
-    allowManualRefresh: true,
-    models: [
-      {
-        id: 'hicap-claude-opus-4.7',
-        apiName: 'claude-opus-4.7',
-        label: 'Claude Opus 4.7',
-        modelDescriptorId: 'claude-opus-4-7',
-      },
-    ],
-  },
   usage: { supported: false },
 })

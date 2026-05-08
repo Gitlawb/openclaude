@@ -30,11 +30,5 @@ export default defineVendor({
     missingCredentialMessage:
       'Bankr auth is required. Set BNKR_API_KEY or OPENAI_API_KEY.',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'claude-opus-4.6', apiName: 'claude-opus-4.6', label: 'Claude Opus 4.6' },
-    ],
-  },
   usage: { supported: false },
 })

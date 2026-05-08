@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "provider": "hicap",
+  "label": "Hicap",
+  "baseUrl": "https://api.hicap.ai/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "responses": {
+      "path": "/responses",
+      "protocol": "openai-responses",
+      "streaming": true
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "hicap-claude-opus-4.7": {
+      "label": "Claude Opus 4.7",
+      "apiName": "claude-opus-4.7",
+      "canonicalModelId": "claude-opus-4-7",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "hicap",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    }
+  },
+  "discovery": {
+    "endpoint": "models",
+    "parser": "openai-models-list",
+    "requiresAuth": false,
+    "cacheTtl": "1d",
+    "refreshMode": "background-if-stale"
+  }
+}

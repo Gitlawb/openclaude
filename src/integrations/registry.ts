@@ -10,6 +10,10 @@ import type {
   RegistryValidationResult,
   VendorDescriptor,
 } from './descriptors.js'
+import {
+  getRouteCatalogConfig,
+  getRouteCatalogEntries,
+} from './modelCatalog/descriptorAdapters.js'
 
 const _brands = new Map<string, BrandDescriptor>()
 const _vendors = new Map<string, VendorDescriptor>()
@@ -108,12 +112,16 @@ export function getAllModels(): ModelDescriptor[] {
 // Catalog helpers
 // ---------------------------------------------------------------------------
 
-export function getCatalogForGateway(gatewayId: string): import('./descriptors.js').ModelCatalogConfig | undefined {
-  return _gateways.get(gatewayId)?.catalog
+export function getCatalogForGateway(
+  gatewayId: string,
+): import('./descriptors.js').ModelCatalogConfig | undefined {
+  return _gateways.get(gatewayId)?.catalog ?? getRouteCatalogConfig(gatewayId)
 }
 
-export function getCatalogForVendor(vendorId: string): import('./descriptors.js').ModelCatalogConfig | undefined {
-  return _vendors.get(vendorId)?.catalog
+export function getCatalogForVendor(
+  vendorId: string,
+): import('./descriptors.js').ModelCatalogConfig | undefined {
+  return _vendors.get(vendorId)?.catalog ?? getRouteCatalogConfig(vendorId)
 }
 
 export function getCatalogEntriesForRoute(routeId: string): ModelCatalogEntry[] {
@@ -125,7 +133,7 @@ export function getCatalogEntriesForRoute(routeId: string): ModelCatalogEntry[] 
   if (vendor?.catalog?.models) {
     return vendor.catalog.models
   }
-  return []
+  return getRouteCatalogEntries(routeId)
 }
 
 export function getModelsForBrand(brandId: string): ModelDescriptor[] {
@@ -276,8 +284,8 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
 
   // Validate catalog entries on gateways and vendors
   const routes: Array<{ id: string; catalog?: import('./descriptors.js').ModelCatalogConfig }> = [
-    ...allGateways.map(g => ({ id: g.id, catalog: g.catalog })),
-    ...allVendors.map(v => ({ id: v.id, catalog: v.catalog })),
+    ...allGateways.map(g => ({ id: g.id, catalog: getCatalogForGateway(g.id) })),
+    ...allVendors.map(v => ({ id: v.id, catalog: getCatalogForVendor(v.id) })),
   ]
 
   for (const route of routes) {

@@ -24,11 +24,5 @@ export default defineGateway({
     apiKeyEnvVars: ['AZURE_OPENAI_API_KEY'],
     vendorId: 'openai',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'azure-deployment', apiName: 'YOUR-DEPLOYMENT-NAME', label: 'Azure Deployment' },
-    ],
-  },
   usage: { supported: false },
 })

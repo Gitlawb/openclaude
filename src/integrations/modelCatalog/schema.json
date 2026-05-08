@@ -278,7 +278,8 @@
           "additionalProperties": { "type": "string", "minLength": 1 }
         },
         "fallbackSuggestion": { "type": "string", "minLength": 1 },
-        "migrationAliases": { "$ref": "#/$defs/stringArray" }
+        "migrationAliases": { "$ref": "#/$defs/stringArray" },
+        "matchCaseSensitive": { "type": "boolean" }
       }
     },
     "defaults": {
@@ -286,6 +287,9 @@
       "additionalProperties": false,
       "properties": {
         "endpoint": { "type": "string", "minLength": 1 },
+        "brandId": { "type": "string", "minLength": 1 },
+        "vendorId": { "type": "string", "minLength": 1 },
+        "gatewayId": { "type": "string", "minLength": 1 },
         "limits": { "$ref": "#/$defs/limits" },
         "capabilities": { "$ref": "#/$defs/capabilities" },
         "effort": { "$ref": "#/$defs/effort" },
@@ -302,6 +306,9 @@
         "label": { "type": "string", "minLength": 1 },
         "apiName": { "type": "string", "minLength": 1 },
         "canonicalModelId": { "type": "string", "minLength": 1 },
+        "brandId": { "type": "string", "minLength": 1 },
+        "vendorId": { "type": "string", "minLength": 1 },
+        "gatewayId": { "type": "string", "minLength": 1 },
         "aliases": { "$ref": "#/$defs/stringArray" },
         "family": { "type": "string", "minLength": 1 },
         "classification": {
@@ -334,6 +341,9 @@
         "label": { "type": "string", "minLength": 1 },
         "apiName": { "type": "string", "minLength": 1 },
         "canonicalModelId": { "type": "string", "minLength": 1 },
+        "brandId": { "type": "string", "minLength": 1 },
+        "vendorId": { "type": "string", "minLength": 1 },
+        "gatewayId": { "type": "string", "minLength": 1 },
         "aliases": { "$ref": "#/$defs/stringArray" },
         "family": { "type": "string", "minLength": 1 },
         "classification": {
@@ -365,6 +375,7 @@
       "properties": {
         "endpoint": { "type": "string", "minLength": 1 },
         "parser": { "enum": ["openai-models-list", "ollama-tags", "custom"] },
+        "requiresAuth": { "type": "boolean" },
         "cacheTtl": { "type": "string", "pattern": "^[0-9]+[mhd]$" },
         "refreshMode": {
           "enum": ["manual", "on-open", "background-if-stale", "startup"]

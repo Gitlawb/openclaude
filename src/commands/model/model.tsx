@@ -14,6 +14,10 @@ import {
 } from '../../integrations/discoveryCache.js'
 import type { ModelCatalogConfig } from '../../integrations/descriptors.js'
 import {
+  getCatalogForGateway,
+  getCatalogForVendor,
+} from '../../integrations/index.js'
+import {
   discoverModelsForRoute,
   getDiscoveryCacheKey,
 } from '../../integrations/discoveryService.js'
@@ -47,7 +51,10 @@ import {
   checkSonnet1mAccess,
 } from '../../utils/model/check1mAccess.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
-import { buildRouteCatalogModelOptions, mergeRouteCatalogEntries } from '../../utils/model/routeCatalogOptions.js'
+import {
+  buildRouteCatalogModelOptions,
+  mergeRouteCatalogEntries,
+} from '../../utils/model/routeCatalogOptions.js'
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js'
 import {
   getDefaultMainLoopModelSetting,
@@ -162,7 +169,10 @@ async function loadDescriptorDiscoveryContext(
   routeId: string,
 ): Promise<ModelDiscoveryContext | null> {
   const descriptor = getRouteDescriptor(routeId)
-  const catalog = descriptor?.catalog
+  const catalog =
+    descriptor?.catalog ??
+    getCatalogForGateway(routeId) ??
+    getCatalogForVendor(routeId)
   if (!descriptor || !catalog) {
     return null
   }

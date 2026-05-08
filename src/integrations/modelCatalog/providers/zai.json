@@ -37,7 +37,9 @@
       "streaming": true,
       "functionCalling": true,
       "jsonMode": true
-    }
+    },
+    "brandId": "glm",
+    "vendorId": "zai"
   },
   "models": {
     "GLM-5.1": {

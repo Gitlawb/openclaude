@@ -96,6 +96,9 @@ function defaultsToModelMetadata(
 
   return {
     endpoint: defaults.endpoint,
+    brandId: defaults.brandId,
+    vendorId: defaults.vendorId,
+    gatewayId: defaults.gatewayId,
     limits: defaults.limits,
     capabilities: defaults.capabilities,
     effort: defaults.effort,
@@ -176,6 +179,8 @@ function matchesModelReference(
   model: ModelCatalogEntry,
 ): boolean {
   const normalizedInput = normalizeComparable(input)
+  const trimmedInput = input.trim()
+  const matchCaseSensitive = model.compatibility?.matchCaseSensitive === true
   const comparableValues = [
     modelId,
     model.apiName,
@@ -185,10 +190,14 @@ function matchesModelReference(
     ...(model.compatibility?.migrationAliases ?? []),
   ]
 
-  return comparableValues.some(
-    (value) =>
-      typeof value === 'string' && normalizeComparable(value) === normalizedInput,
-  )
+  return comparableValues.some((value) => {
+    if (typeof value !== 'string') {
+      return false
+    }
+    return matchCaseSensitive
+      ? value.trim() === trimmedInput
+      : normalizeComparable(value) === normalizedInput
+  })
 }
 
 function findTemplateCycleErrors(catalog: ProviderCatalog): string[] {

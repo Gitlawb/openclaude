@@ -28,12 +28,5 @@ export default defineGateway({
     modelEnvVars: ['OPENAI_MODEL'],
     vendorId: 'openai',
   },
-  catalog: {
-    source: 'dynamic',
-    discovery: { kind: 'openai-compatible' },
-    discoveryCacheTtl: '1d',
-    discoveryRefreshMode: 'background-if-stale',
-    allowManualRefresh: true,
-  },
   usage: { supported: false },
 })

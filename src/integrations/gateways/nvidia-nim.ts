@@ -34,11 +34,5 @@ export default defineGateway({
       matchDefaultBaseUrl: true,
     },
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'nvidia-llama-3.1-nemotron-70b', apiName: 'nvidia/llama-3.1-nemotron-70b-instruct', label: 'Llama 3.1 Nemotron 70B', modelDescriptorId: 'nvidia/llama-3.1-nemotron-70b-instruct' },
-    ],
-  },
   usage: { supported: false },
 })

@@ -35,7 +35,9 @@
       "streaming": true,
       "functionCalling": true,
       "jsonMode": true
-    }
+    },
+    "brandId": "gpt",
+    "vendorId": "openai"
   },
   "models": {
     "gpt-5.5": {

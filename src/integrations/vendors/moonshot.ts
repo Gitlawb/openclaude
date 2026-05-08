@@ -31,12 +31,5 @@ export default defineVendor({
     name: 'Moonshot AI - API',
     apiKeyEnvVars: ['MOONSHOT_API_KEY'],
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'kimi-k2.5', apiName: 'kimi-k2.5', label: 'Kimi K2.5' },
-      { id: 'kimi-k2.6', apiName: 'kimi-k2.6', label: 'Kimi K2.6' },
-    ],
-  },
   usage: { supported: false },
 })

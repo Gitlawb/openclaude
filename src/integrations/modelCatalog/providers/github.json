@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "provider": "github",
+  "label": "GitHub Copilot",
+  "baseUrl": "https://api.githubcopilot.com",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true,
+      "request": {
+        "maxTokensField": "max_tokens"
+      }
+    },
+    "responses": {
+      "path": "/responses",
+      "protocol": "openai-responses",
+      "streaming": true
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    },
+    "messages": {
+      "path": "/v1/messages",
+      "protocol": "anthropic-messages",
+      "streaming": true
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    }
+  },
+  "models": {
+    "github-claude-sonnet": {
+      "label": "Claude Sonnet (GitHub)",
+      "apiName": "claude-sonnet-4-6",
+      "canonicalModelId": "claude-sonnet-4-6",
+      "brandId": "claude",
+      "vendorId": "anthropic",
+      "gatewayId": "github",
+      "classification": [
+        "chat",
+        "reasoning",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 200000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": true,
+        "preciseTokenCount": false
+      }
+    },
+    "github-gpt-4o": {
+      "label": "GPT-4o (GitHub)",
+      "apiName": "gpt-4o",
+      "canonicalModelId": "gpt-4o",
+      "brandId": "gpt",
+      "vendorId": "openai",
+      "gatewayId": "github",
+      "classification": [
+        "chat",
+        "vision",
+        "coding"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 16384,
+          "upperLimit": 16384
+        }
+      },
+      "capabilities": {
+        "vision": true,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": true
+      }
+    }
+  }
+}

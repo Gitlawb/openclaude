@@ -4,6 +4,10 @@ import { getInitialSettings } from './settings/settings.js'
 import { isProSubscriber, isMaxSubscriber, isTeamSubscriber } from './auth.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { getAPIProvider } from './model/providers.js'
+import {
+  getAntModelOverrideConfig,
+  resolveAntModel,
+} from './model/antModels.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -28,7 +32,7 @@ export const OPENAI_EFFORT_LEVELS = [
 ] as const
 
 export type OpenAIEffortLevel = typeof OPENAI_EFFORT_LEVELS[number]
-export type EffortValue = EffortLevel | number
+export type EffortValue = EffortLevel | OpenAIEffortLevel | number
 
 function getCatalogProviderId(): string | undefined {
   const provider = getAPIProvider()
@@ -48,6 +52,10 @@ function getCatalogEffort(model: string): ModelEffort | undefined {
       : undefined
     if (providerEffort) {
       return providerEffort
+    }
+    const anthropicEffort = getModelEffort(model, 'anthropic')
+    if (anthropicEffort) {
+      return anthropicEffort
     }
     return getModelEffort(model)
   } catch (error) {

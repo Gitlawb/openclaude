@@ -44,11 +44,5 @@ export default defineGateway({
     missingCredentialMessage:
       'MISTRAL_API_KEY is required when CLAUDE_CODE_USE_MISTRAL=1.',
   },
-  catalog: {
-    source: 'static',
-    models: [
-      { id: 'mistral-devstral', apiName: 'devstral-latest', label: 'Devstral Latest', modelDescriptorId: 'devstral-latest' },
-    ],
-  },
   usage: { supported: false },
 })

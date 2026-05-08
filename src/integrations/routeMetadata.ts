@@ -12,6 +12,10 @@ import {
   getVendor,
   resolveProfileRoute,
 } from './index.js'
+import {
+  getRouteCatalogConfig,
+  getRouteCatalogEntries,
+} from './modelCatalog/descriptorAdapters.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 
 export type RouteDescriptor = GatewayDescriptor | VendorDescriptor
@@ -133,7 +137,8 @@ export function getRouteDefaultModel(
     return descriptor.defaultModel
   }
 
-  const catalogModels = descriptor.catalog?.models ?? []
+  const catalogModels =
+    descriptor.catalog?.models ?? getRouteCatalogEntries(routeId)
   const defaultEntry =
     catalogModels.find(model => model.default) ?? catalogModels[0]
 
@@ -447,7 +452,9 @@ export function resolveRouteIdFromBaseUrl(
   }
 
   const routes = getAllRoutes().filter(route =>
-    options?.requireDiscovery ? Boolean(route.catalog?.discovery) : true,
+    options?.requireDiscovery
+      ? Boolean(route.catalog?.discovery ?? getRouteCatalogConfig(route.id)?.discovery)
+      : true,
   )
 
   for (const route of routes) {

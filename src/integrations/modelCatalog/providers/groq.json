@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "provider": "groq",
+  "label": "Groq",
+  "baseUrl": "https://api.groq.com/openai/v1",
+  "endpoints": {
+    "chatCompletions": {
+      "path": "/chat/completions",
+      "protocol": "openai-chat-completions",
+      "streaming": true
+    },
+    "models": {
+      "path": "/models",
+      "protocol": "models-list"
+    }
+  },
+  "defaults": {
+    "endpoint": "chatCompletions",
+    "limits": {
+      "contextWindow": 128000,
+      "maxOutputTokens": {
+        "default": 8192,
+        "upperLimit": 32768
+      }
+    },
+    "capabilities": {
+      "streaming": true,
+      "functionCalling": true,
+      "jsonMode": true
+    },
+    "brandId": "llama",
+    "vendorId": "openai",
+    "gatewayId": "groq"
+  },
+  "models": {
+    "llama-3.3-70b-versatile": {
+      "label": "Llama 3.3 70B Versatile",
+      "apiName": "llama-3.3-70b-versatile",
+      "canonicalModelId": "llama-3.3-70b-versatile",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "groq",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 32768,
+          "upperLimit": 32768
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "llama-3.3-70b": {
+      "label": "Llama 3.3 70B",
+      "apiName": "llama-3.3-70b",
+      "canonicalModelId": "llama-3.3-70b",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "groq",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "llama-3.1-8b-instant": {
+      "label": "Llama 3.1 8B Instant",
+      "apiName": "llama-3.1-8b-instant",
+      "canonicalModelId": "llama-3.1-8b-instant",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "groq",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 8192,
+          "upperLimit": 8192
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    },
+    "llama-3.1-8b": {
+      "label": "Llama 3.1 8B",
+      "apiName": "llama-3.1-8b",
+      "canonicalModelId": "llama-3.1-8b",
+      "brandId": "llama",
+      "vendorId": "openai",
+      "gatewayId": "groq",
+      "classification": [
+        "chat"
+      ],
+      "limits": {
+        "contextWindow": 128000,
+        "maxOutputTokens": {
+          "default": 4096,
+          "upperLimit": 4096
+        }
+      },
+      "capabilities": {
+        "vision": false,
+        "streaming": true,
+        "functionCalling": true,
+        "jsonMode": true,
+        "reasoning": false,
+        "preciseTokenCount": false
+      }
+    }
+  }
+}

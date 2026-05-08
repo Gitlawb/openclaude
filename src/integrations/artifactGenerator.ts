@@ -10,6 +10,7 @@ import type {
   ProviderPresetMetadata,
   VendorDescriptor,
 } from './descriptors.js'
+import { getRouteCatalogConfig } from './modelCatalog/descriptorAdapters.js'
 
 type RouteDescriptor =
   | VendorDescriptor
@@ -313,9 +314,10 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
 
     const defaultModelValue =
       'defaultModel' in descriptor ? descriptor.defaultModel : undefined
+    const routeCatalog = descriptor.catalog ?? getRouteCatalogConfig(descriptor.id)
     const hasCatalogDefaultModel =
-      (descriptor.catalog?.models?.find(model => model.default) ??
-        descriptor.catalog?.models?.[0]) !== undefined
+      (routeCatalog?.models?.find(model => model.default) ??
+        routeCatalog?.models?.[0]) !== undefined
     const hasDefaultModel =
       typeof defaultModelValue === 'string'
         ? defaultModelValue.trim().length > 0
@@ -327,7 +329,7 @@ function validatePresetMetadata(routeModules: RouteModule[]): void {
     }
     if (
       defaultModelValue !== undefined &&
-      descriptor.catalog?.models?.some(model => model.default)
+      routeCatalog?.models?.some(model => model.default)
     ) {
       throw new Error(
         `Preset route "${descriptor.id}" must use defaultModel instead of catalog default flags.`,

@@ -30,7 +30,9 @@
       "streaming": true,
       "functionCalling": true,
       "jsonMode": true
-    }
+    },
+    "brandId": "xai",
+    "vendorId": "xai"
   },
   "models": {
     "grok-4": {

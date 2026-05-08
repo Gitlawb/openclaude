@@ -422,6 +422,34 @@ function safeGetModelLimits(
   }
 }
 
+function shouldUseGatewaySafeModelLimitsFallback(
+  providerId: string | undefined,
+): boolean {
+  return (
+    providerId !== undefined &&
+    !['custom', 'deepseek', 'zai'].includes(providerId)
+  )
+}
+
+function resolveCatalogLimitsForRuntime(
+  model: string,
+  providerId: string | undefined,
+): ModelLimits | undefined {
+  const providerLimits = providerId
+    ? safeGetModelLimits(model, providerId)
+    : safeGetModelLimits(model)
+
+  if (providerLimits) {
+    return providerLimits
+  }
+
+  if (shouldUseGatewaySafeModelLimitsFallback(providerId)) {
+    return safeGetModelLimits(model, 'custom')
+  }
+
+  return undefined
+}
+
 export function resolveModelRuntimeLimits(options: {
   model: string
   processEnv?: NodeJS.ProcessEnv
@@ -441,9 +469,10 @@ export function resolveModelRuntimeLimits(options: {
     routeId,
     runtimeEnv,
   )
-  const catalogLimits = catalogProviderId
-    ? safeGetModelLimits(options.model, catalogProviderId)
-    : safeGetModelLimits(options.model)
+  const catalogLimits = resolveCatalogLimitsForRuntime(
+    options.model,
+    catalogProviderId,
+  )
   const catalogEntry = findCatalogEntryForApiName(routeId, options.model)
   const modelDescriptor =
     getModelDescriptorForCatalogEntry(catalogEntry) ??

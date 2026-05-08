@@ -28,9 +28,5 @@ export default defineGateway({
     fallbackBaseUrl: 'http://localhost:11434/v1',
     vendorId: 'openai',
   },
-  catalog: {
-    source: 'static',
-    models: [],
-  },
   usage: { supported: false },
 })

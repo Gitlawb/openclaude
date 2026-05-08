@@ -36,7 +36,9 @@
       "streaming": true,
       "functionCalling": true,
       "jsonMode": true
-    }
+    },
+    "brandId": "kimi",
+    "vendorId": "moonshot"
   },
   "models": {
     "kimi-for-coding": {
