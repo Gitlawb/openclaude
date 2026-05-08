@@ -18,6 +18,10 @@ async function importFreshLocalInstaller() {
   return import(`./localInstaller.ts?ts=${Date.now()}-${Math.random()}`)
 }
 
+async function importFreshPlans() {
+  return import(`./plans.ts?ts=${Date.now()}-${Math.random()}`)
+}
+
 afterEach(() => {
   process.env = { ...originalEnv }
   process.argv = [...originalArgv]
@@ -49,6 +53,39 @@ describe('OpenClaude paths', () => {
         legacyClaudeExists: true,
       }),
     ).toBe(join(homedir(), '.claude'))
+  })
+
+  test('default plans directory uses ~/.openclaude/plans', async () => {
+    delete process.env.CLAUDE_CONFIG_DIR
+    const { getDefaultPlansDirectory } = await importFreshPlans()
+
+    expect(getDefaultPlansDirectory({ homeDir: homedir() })).toBe(
+      join(homedir(), '.openclaude', 'plans'),
+    )
+  })
+
+  test('default plans directory respects explicit CLAUDE_CONFIG_DIR', async () => {
+    const { getDefaultPlansDirectory } = await importFreshPlans()
+
+    expect(
+      getDefaultPlansDirectory({ configDirEnv: '/tmp/custom-openclaude' }),
+    ).toBe(join('/tmp/custom-openclaude', 'plans'))
+  })
+
+  test('default plans directory normalizes generated path to NFC', async () => {
+    const { getDefaultPlansDirectory } = await importFreshPlans()
+
+    expect(
+      getDefaultPlansDirectory({ homeDir: '/tmp/cafe\u0301' }),
+    ).toBe(join('/tmp/caf\u00e9', '.openclaude', 'plans'))
+  })
+
+  test('default plans directory normalizes explicit CLAUDE_CONFIG_DIR to NFC', async () => {
+    const { getDefaultPlansDirectory } = await importFreshPlans()
+
+    expect(
+      getDefaultPlansDirectory({ configDirEnv: '/tmp/cafe\u0301-openclaude' }),
+    ).toBe(join('/tmp/caf\u00e9-openclaude', 'plans'))
   })
 
   test('uses CLAUDE_CONFIG_DIR override when provided', async () => {
