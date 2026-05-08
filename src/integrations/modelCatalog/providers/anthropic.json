@@ -115,6 +115,9 @@
       "aliases": [
         "sonnet"
       ],
+      "compatibility": {
+        "fallbackSuggestion": "claude-sonnet-4-5"
+      },
       "limits": {
         "contextWindow": 200000,
         "maxOutputTokens": {

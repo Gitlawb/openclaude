@@ -11,8 +11,12 @@ import {
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
-import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
-import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
+import { isNvidiaNimProvider } from './nvidiaNimModels.js'
+import { isMiniMaxProvider } from './minimaxModels.js'
+import {
+  getModelMetadata,
+  getModelOptions as getCatalogModelOptions,
+} from '../../integrations/modelCatalog/catalog.js'
 
 // Cache valid models to avoid repeated API calls
 const validModelCache = new Map<string, boolean>()
@@ -49,9 +53,9 @@ export async function validateModel(
     // If cache is empty, fall through to API validation
   }
 
-  // For NVIDIA NIM provider, validate against cached model list
+  // For NVIDIA NIM provider, validate against the static catalog
   if (isNvidiaNimProvider()) {
-    const nvidiaModels = getCachedNvidiaNimModelOptions()
+    const nvidiaModels = getCatalogModelOptions('nvidia-nim', 'thirdParty')
     const found = nvidiaModels.some(m => m.value === normalizedModel)
     if (found) {
       validModelCache.set(normalizedModel, true)
@@ -66,9 +70,9 @@ export async function validateModel(
     }
   }
 
-  // For MiniMax provider, validate against cached model list
+  // For MiniMax provider, validate against the static catalog
   if (isMiniMaxProvider()) {
-    const minimaxModels = getCachedMiniMaxModelOptions()
+    const minimaxModels = getCatalogModelOptions('minimax', 'thirdParty')
     const found = minimaxModels.some(m => m.value === normalizedModel)
     if (found) {
       validModelCache.set(normalizedModel, true)
@@ -201,6 +205,10 @@ function get3PFallbackSuggestion(model: string): string | undefined {
   if (getAPIProvider() === 'firstParty') {
     return undefined
   }
+  const catalogFallback = getCatalogFallbackSuggestion(model)
+  if (catalogFallback) {
+    return catalogFallback
+  }
   const lowerModel = model.toLowerCase()
   if (lowerModel.includes('opus-4-7') || lowerModel.includes('opus_4_7')) {
     return getModelStrings().opus46
@@ -216,3 +224,9 @@ function get3PFallbackSuggestion(model: string): string | undefined {
   }
   return undefined
 }
+
+function getCatalogFallbackSuggestion(model: string): string | undefined {
+  return getModelMetadata(model, 'anthropic')?.compatibility?.fallbackSuggestion
+}
+
+export const get3PFallbackSuggestionForTesting = get3PFallbackSuggestion
