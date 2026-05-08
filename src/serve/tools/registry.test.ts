@@ -1,20 +1,37 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { buildRegistry } from "./registry";
+import type { ToolContext } from "./registry";
+
+const BASE_CTX: ToolContext = {
+  vault: "/fake-vault",
+  braveApiKey: undefined,
+  pendingEditStore: undefined,
+  sessionId: "test",
+};
 
 describe("buildRegistry", () => {
-  it("returns empty when no vault, braveApiKey, or CLAUDE_CODE_USE_OPENAI", () => {
-    const prev = process.env.CLAUDE_CODE_USE_OPENAI;
+  it("returns empty when no vault, braveApiKey, OPENAI_API_KEY, or OPENAI_BASE_URL", () => {
+    const prevKey  = process.env.OPENAI_API_KEY;
+    const prevBase = process.env.OPENAI_BASE_URL;
+    const prevOld  = process.env.CLAUDE_CODE_USE_OPENAI;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
     delete process.env.CLAUDE_CODE_USE_OPENAI;
     try {
       const modules = buildRegistry({});
       expect(modules.length).toBe(0);
     } finally {
-      if (prev !== undefined) process.env.CLAUDE_CODE_USE_OPENAI = prev;
+      if (prevKey  !== undefined) process.env.OPENAI_API_KEY  = prevKey;  else delete process.env.OPENAI_API_KEY;
+      if (prevBase !== undefined) process.env.OPENAI_BASE_URL = prevBase; else delete process.env.OPENAI_BASE_URL;
+      if (prevOld  !== undefined) process.env.CLAUDE_CODE_USE_OPENAI = prevOld; else delete process.env.CLAUDE_CODE_USE_OPENAI;
     }
   });
 
-  it("includes thought tools when CLAUDE_CODE_USE_OPENAI=1", () => {
-    process.env.CLAUDE_CODE_USE_OPENAI = "1";
+  it("includes thought tools when OPENAI_API_KEY is set", () => {
+    const prevKey  = process.env.OPENAI_API_KEY;
+    const prevBase = process.env.OPENAI_BASE_URL;
+    delete process.env.OPENAI_BASE_URL;
+    process.env.OPENAI_API_KEY = "sk-test";
     try {
       const modules = buildRegistry({});
       const names = modules.map(m => m.definition.function.name);
@@ -23,7 +40,8 @@ describe("buildRegistry", () => {
       expect(names).toContain("counter_argument");
       expect(modules.length).toBe(3);
     } finally {
-      delete process.env.CLAUDE_CODE_USE_OPENAI;
+      if (prevKey  !== undefined) process.env.OPENAI_API_KEY  = prevKey;  else delete process.env.OPENAI_API_KEY;
+      if (prevBase !== undefined) process.env.OPENAI_BASE_URL = prevBase; else delete process.env.OPENAI_BASE_URL;
     }
   });
 
@@ -65,5 +83,50 @@ describe("buildRegistry", () => {
       expect(mod).toHaveProperty("run");
       expect(typeof mod.run).toBe("function");
     }
+  });
+});
+
+describe("buildRegistry — thought tools availability", () => {
+  let savedBase: string | undefined;
+  let savedKey: string | undefined;
+  let savedOld: string | undefined;
+
+  beforeEach(() => {
+    savedBase = process.env.OPENAI_BASE_URL;
+    savedKey  = process.env.OPENAI_API_KEY;
+    savedOld  = process.env.CLAUDE_CODE_USE_OPENAI;
+    delete process.env.OPENAI_BASE_URL;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.CLAUDE_CODE_USE_OPENAI;
+  });
+
+  afterEach(() => {
+    if (savedBase !== undefined) process.env.OPENAI_BASE_URL = savedBase; else delete process.env.OPENAI_BASE_URL;
+    if (savedKey  !== undefined) process.env.OPENAI_API_KEY  = savedKey;  else delete process.env.OPENAI_API_KEY;
+    if (savedOld  !== undefined) process.env.CLAUDE_CODE_USE_OPENAI = savedOld; else delete process.env.CLAUDE_CODE_USE_OPENAI;
+  });
+
+  it("includes thought tools when OPENAI_API_KEY is set", () => {
+    process.env.OPENAI_API_KEY = "ollama";
+    const modules = buildRegistry(BASE_CTX);
+    const names = modules.map(m => m.definition.function.name);
+    expect(names).toContain("structure_thought");
+    expect(names).toContain("refine_argument");
+    expect(names).toContain("counter_argument");
+  });
+
+  it("includes thought tools when OPENAI_BASE_URL is set (Ollama without key)", () => {
+    process.env.OPENAI_BASE_URL = "http://localhost:11434/v1";
+    const modules = buildRegistry(BASE_CTX);
+    const names = modules.map(m => m.definition.function.name);
+    expect(names).toContain("structure_thought");
+  });
+
+  it("excludes thought tools when neither OPENAI_API_KEY nor OPENAI_BASE_URL are set", () => {
+    const modules = buildRegistry(BASE_CTX);
+    const names = modules.map(m => m.definition.function.name);
+    expect(names).not.toContain("structure_thought");
+    expect(names).not.toContain("refine_argument");
+    expect(names).not.toContain("counter_argument");
   });
 });

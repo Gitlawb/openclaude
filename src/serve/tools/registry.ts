@@ -36,12 +36,17 @@ export interface ToolModule {
   run: (args: Record<string, unknown>, ctx: ToolContext) => Promise<VaultToolResult>;
 }
 
+/** Returns true if an OpenAI-compatible endpoint is configured at runtime. */
+function hasOpenAICompatibleProvider(): boolean {
+  return !!(process.env.OPENAI_API_KEY || process.env.OPENAI_BASE_URL);
+}
+
 export function buildRegistry(ctx: ToolContext): ToolModule[] {
   const modules: ToolModule[] = [];
-  // Thought tools require the OpenAI-compatible path (CLAUDE_CODE_USE_OPENAI=1)
-  // because they make direct sub-calls to callLLM. On the Anthropic path there
-  // is no OPENAI_API_KEY and registering them would only waste agent turns on 401s.
-  if (process.env.CLAUDE_CODE_USE_OPENAI === "1") {
+  // Thought tools require an OpenAI-compatible endpoint because they make direct
+  // sub-calls to callLLM. We detect this by checking OPENAI_API_KEY or OPENAI_BASE_URL
+  // (covers both standard OpenAI keys and local Ollama/compatible servers).
+  if (hasOpenAICompatibleProvider()) {
     modules.push(...thoughtToolModules(ctx));
   }
   if (ctx.vault) {
