@@ -5,9 +5,11 @@ import { afterEach, describe, expect, test } from 'bun:test'
 
 import { setInlinePlugins } from '../../bootstrap/state.js'
 import type { LoadedPlugin } from '../../types/plugin.js'
+import type { HooksSettings } from '../settings/types.js'
 import {
   clearPluginCache,
   createPluginFromPath,
+  mergeHooksSettings,
   mergePluginSources,
   resolveExistingPluginComponentPath,
   resolvePluginComponentPath,
@@ -35,6 +37,59 @@ function marketplacePlugin(
     enabled,
   }
 }
+
+// ---------------------------------------------------------------------------
+// mergeHooksSettings — validates the marketplace supplement loader path
+// (createPluginFromPath:~2919). Before this fix, the supplement used object
+// spread ({...plugin.hooksConfig, ...entry.hooks}) which silently overwrote
+// same-event matcher arrays from plugin.json with the marketplace arrays.
+// ---------------------------------------------------------------------------
+describe('mergeHooksSettings', () => {
+  test('appends marketplace matchers to plugin.json matchers for the same event', () => {
+    // Simulates plugin.json defining a PostToolUse hook
+    const pluginJsonHooks: HooksSettings = {
+      PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'plugin-json-hook' }] }],
+    }
+    // Simulates marketplace entry supplementing the same event
+    const marketplaceHooks: HooksSettings = {
+      PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'marketplace-hook' }] }],
+    }
+
+    const merged = mergeHooksSettings(pluginJsonHooks, marketplaceHooks)
+
+    // Both matchers must be present — marketplace must not overwrite plugin.json
+    expect(merged.PostToolUse).toHaveLength(2)
+    const commands = merged.PostToolUse!.map(
+      (m: { hooks: Array<{ command?: string }> }) => m.hooks[0]?.command,
+    )
+    expect(commands).toContain('plugin-json-hook')
+    expect(commands).toContain('marketplace-hook')
+  })
+
+  test('adds marketplace event when plugin.json has no hook for it', () => {
+    const pluginJsonHooks: HooksSettings = {
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'pre-hook' }] }],
+    }
+    const marketplaceHooks: HooksSettings = {
+      PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'post-hook' }] }],
+    }
+
+    const merged = mergeHooksSettings(pluginJsonHooks, marketplaceHooks)
+
+    expect(merged.PreToolUse).toHaveLength(1)
+    expect(merged.PostToolUse).toHaveLength(1)
+  })
+
+  test('returns marketplace hooks when plugin.json has no hooks at all', () => {
+    const marketplaceHooks: HooksSettings = {
+      PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'mkt-hook' }] }],
+    }
+
+    const merged = mergeHooksSettings(undefined, marketplaceHooks)
+
+    expect(merged).toEqual(marketplaceHooks)
+  })
+})
 
 describe('mergePluginSources', () => {
   test('keeps the enabled copy when duplicate marketplace plugins disagree on enabled state', () => {

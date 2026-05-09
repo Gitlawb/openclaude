@@ -2022,9 +2022,12 @@ async function loadPluginSettings(
 }
 
 /**
- * Merge two HooksSettings objects
+ * Merge two HooksSettings objects, appending matchers for shared events.
+ * Exported for targeted unit tests of the marketplace supplement loader path
+ * (see createPluginFromPath:~2919). Callers outside this module should not
+ * depend on this export.
  */
-function mergeHooksSettings(
+export function mergeHooksSettings(
   base: HooksSettings | undefined,
   additional: HooksSettings,
 ): HooksSettings {
