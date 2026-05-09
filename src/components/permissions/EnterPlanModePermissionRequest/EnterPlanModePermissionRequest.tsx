@@ -1,6 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { handlePlanModeTransition } from '../../../bootstrap/state.js';
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import { Box, Text } from '../../../ink.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../../services/analytics/index.js';
 import { useAppState } from '../../../state/AppState.js';
@@ -49,14 +50,14 @@ export function EnterPlanModePermissionRequest(t0) {
   const handleResponse = t1;
   let t2;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t2 = <Text>OpenClaude wants to enter plan mode to explore and design an implementation approach.</Text>;
+    t2 = <Text>{PRODUCT_DISPLAY_NAME} wants to enter plan mode to explore and design an implementation approach.</Text>;
     $[5] = t2;
   } else {
     t2 = $[5];
   }
   let t3;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-    t3 = <Box marginTop={1} flexDirection="column"><Text dimColor={true}>In plan mode, OpenClaude will:</Text><Text dimColor={true}> · Explore the codebase thoroughly</Text><Text dimColor={true}> · Identify existing patterns</Text><Text dimColor={true}> · Design an implementation strategy</Text><Text dimColor={true}> · Present a plan for your approval</Text></Box>;
+    t3 = <Box marginTop={1} flexDirection="column"><Text dimColor={true}>In plan mode, {PRODUCT_DISPLAY_NAME} will:</Text><Text dimColor={true}> · Explore the codebase thoroughly</Text><Text dimColor={true}> · Identify existing patterns</Text><Text dimColor={true}> · Design an implementation strategy</Text><Text dimColor={true}> · Present a plan for your approval</Text></Box>;
     $[6] = t3;
   } else {
     t3 = $[6];

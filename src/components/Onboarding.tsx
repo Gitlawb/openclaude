@@ -2,8 +2,9 @@ import { c as _c } from "react-compiler-runtime";
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
 import { setupTerminal, shouldOfferTerminalSetup } from '../commands/terminalSetup/terminalSetup.js';
+import { PRODUCT_DISPLAY_NAME } from '../constants/product.js';
 import { useExitOnCtrlCDWithKeybindings } from '../hooks/useExitOnCtrlCDWithKeybindings.js';
-import { Box, Link, Newline, Text, useTheme } from '../ink.js';
+import { Box, Newline, Text, useTheme } from '../ink.js';
 import { useKeybindings } from '../keybindings/useKeybinding.js';
 import { isAnthropicAuthEnabled } from '../utils/auth.js';
 import { normalizeApiKeyForConfig } from '../utils/authPortable.js';
@@ -18,7 +19,6 @@ import { Select } from './CustomSelect/select.js';
 import { WelcomeV2 } from './LogoV2/WelcomeV2.js';
 import { PressEnterToContinue } from './PressEnterToContinue.js';
 import { ThemePicker } from './ThemePicker.js';
-import { OrderedList } from './ui/OrderedList.js';
 type StepId = 'preflight' | 'theme' | 'oauth' | 'api-key' | 'security' | 'terminal-setup';
 interface OnboardingStep {
   id: StepId;
@@ -63,33 +63,15 @@ export function Onboarding({
     />
     </Box>;
   const securityStep = <Box flexDirection="column" gap={1} paddingLeft={1}>
-      <Text bold>Security notes:</Text>
+      <Text bold>Security note:</Text>
       <Box flexDirection="column" width={70}>
-        {/**
-         * OrderedList misnumbers items when rendering conditionally,
-         * so put all items in the if/else
-         */}
-        <OrderedList>
-          <OrderedList.Item>
-            <Text>Claude can make mistakes</Text>
-            <Text dimColor wrap="wrap">
-              You should always review Claude&apos;s responses, especially when
-              <Newline />
-              running code.
-              <Newline />
-            </Text>
-          </OrderedList.Item>
-          <OrderedList.Item>
-            <Text>
-              Due to prompt injection risks, only use it with code you trust
-            </Text>
-            <Text dimColor wrap="wrap">
-              For more details see:
-              <Newline />
-              <Link url="https://code.claude.com/docs/en/security" />
-            </Text>
-          </OrderedList.Item>
-        </OrderedList>
+        <Text>{PRODUCT_DISPLAY_NAME} can make mistakes</Text>
+        <Text dimColor wrap="wrap">
+          You should always review {PRODUCT_DISPLAY_NAME}&apos;s responses,
+          especially when
+          <Newline />
+          running code.
+        </Text>
       </Box>
       <PressEnterToContinue />
     </Box>;
@@ -146,7 +128,7 @@ export function Onboarding({
     steps.push({
       id: 'terminal-setup',
       component: <Box flexDirection="column" gap={1} paddingLeft={1}>
-          <Text bold>Use OpenClaude&apos;s terminal setup?</Text>
+          <Text bold>Use {PRODUCT_DISPLAY_NAME}&apos;s terminal setup?</Text>
           <Box flexDirection="column" width={70} gap={1}>
             <Text>
               For the optimal coding experience, enable the recommended settings

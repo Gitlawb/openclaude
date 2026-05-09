@@ -4,6 +4,7 @@ import { removeSandboxViolationTags } from 'src/utils/sandbox/sandbox-ui-utils.j
 import FullWidthRow from '../../components/design-system/FullWidthRow.js';
 import { KeyboardShortcutHint } from '../../components/design-system/KeyboardShortcutHint.js';
 import { MessageResponse } from '../../components/MessageResponse.js';
+import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import { OutputLine } from '../../components/shell/OutputLine.js';
 import { ShellTimeDisplay } from '../../components/shell/ShellTimeDisplay.js';
 import { Box, Text } from '../../ink.js';
@@ -101,7 +102,7 @@ export default function BashToolResultMessage(t0) {
       if (isImage) {
         let t8;
         if ($[11] === Symbol.for("react.memo_cache_sentinel")) {
-          t8 = <MessageResponse height={1}><FullWidthRow><Text dimColor={true}>[Image data detected and sent to Claude]</Text></FullWidthRow></MessageResponse>;
+          t8 = <MessageResponse height={1}><FullWidthRow><Text dimColor={true}>[Image data detected and sent to {PRODUCT_DISPLAY_NAME}]</Text></FullWidthRow></MessageResponse>;
           $[11] = t8;
         } else {
           t8 = $[11];
