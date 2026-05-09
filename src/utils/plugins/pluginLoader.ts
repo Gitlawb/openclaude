@@ -1279,15 +1279,12 @@ async function validatePluginPaths(
   contextLabel: string,
   errors: PluginError[],
 ): Promise<string[]> {
-  // Parallelize the async pathExists checks
+  // Parallelize the async path checks
   const checks = await Promise.all(
-    relPaths.map(async relPath => {
-      const fullPath = resolvePluginComponentPath(pluginPath, relPath)
-      if (!fullPath) {
-        return { relPath, fullPath, exists: false, outOfBounds: true }
-      }
-      return { relPath, fullPath, exists: await pathExists(fullPath) }
-    }),
+    relPaths.map(async relPath => ({
+      relPath,
+      ...(await resolveExistingPluginComponentPath(pluginPath, relPath)),
+    })),
   )
   // Process results in original order to keep error/log ordering deterministic
   const validPaths: string[] = []
@@ -1347,6 +1344,48 @@ export function resolvePluginComponentPath(
   }
 
   return fullPath
+}
+
+type ResolvedPluginComponentPath =
+  | { fullPath: null; exists: false; outOfBounds: true }
+  | { fullPath: string; exists: false; outOfBounds: false }
+  | { fullPath: string; exists: true; outOfBounds: false }
+  | { fullPath: string; exists: true; outOfBounds: true }
+
+export async function resolveExistingPluginComponentPath(
+  pluginPath: string,
+  componentPath: string,
+): Promise<ResolvedPluginComponentPath> {
+  const fullPath = resolvePluginComponentPath(pluginPath, componentPath)
+  if (!fullPath) {
+    return { fullPath: null, exists: false, outOfBounds: true }
+  }
+
+  if (!(await pathExists(fullPath))) {
+    return { fullPath, exists: false, outOfBounds: false }
+  }
+
+  const root = resolve(pluginPath)
+  const [realRoot, realTarget] = await Promise.all([
+    realpath(root),
+    realpath(fullPath),
+  ])
+
+  return {
+    fullPath,
+    exists: true,
+    outOfBounds: !isPathInside(realRoot, realTarget),
+  }
+}
+
+function isPathInside(rootPath: string, targetPath: string): boolean {
+  const relativePath = relative(rootPath, targetPath)
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith(`..${sep}`) &&
+      relativePath !== '..' &&
+      !isAbsolute(relativePath))
+  )
 }
 
 /**
@@ -1457,26 +1496,14 @@ export async function createPluginFromPath(
             return { commandName, metadata, kind: 'skip' as const }
           }
           if (metadata.source) {
-            const fullPath = resolvePluginComponentPath(
-              pluginPath,
-              metadata.source,
-            )
-            if (!fullPath) {
-              return {
-                commandName,
-                metadata,
-                kind: 'source' as const,
-                fullPath,
-                exists: false,
-                outOfBounds: true,
-              }
-            }
             return {
               commandName,
               metadata,
               kind: 'source' as const,
-              fullPath,
-              exists: await pathExists(fullPath),
+              ...(await resolveExistingPluginComponentPath(
+                pluginPath,
+                metadata.source,
+              )),
             }
           }
           if (metadata.content) {
@@ -1549,15 +1576,10 @@ export async function createPluginFromPath(
           if (typeof cmdPath !== 'string') {
             return { cmdPath, kind: 'invalid' as const }
           }
-          const fullPath = resolvePluginComponentPath(pluginPath, cmdPath)
-          if (!fullPath) {
-            return { cmdPath, kind: 'out-of-bounds' as const }
-          }
           return {
             cmdPath,
             kind: 'path' as const,
-            fullPath,
-            exists: await pathExists(fullPath),
+            ...(await resolveExistingPluginComponentPath(pluginPath, cmdPath)),
           }
         }),
       )
@@ -1570,7 +1592,7 @@ export async function createPluginFromPath(
           )
           continue
         }
-        if (check.kind === 'out-of-bounds') {
+        if (check.outOfBounds) {
           logForDebugging(
             `Command path ${check.cmdPath} specified in manifest resolves outside plugin directory ${pluginPath} for ${manifest.name}`,
             { level: 'warn' },
@@ -2565,26 +2587,14 @@ async function finishLoadingPluginFromPath(
             if (!metadata || typeof metadata !== 'object' || !metadata.source) {
               return { commandName, metadata, skip: true as const }
             }
-            const fullPath = resolvePluginComponentPath(
-              pluginPath,
-              metadata.source,
-            )
-            if (!fullPath) {
-              return {
-                commandName,
-                metadata,
-                skip: false as const,
-                fullPath,
-                exists: false,
-                outOfBounds: true,
-              }
-            }
             return {
               commandName,
               metadata,
               skip: false as const,
-              fullPath,
-              exists: await pathExists(fullPath),
+              ...(await resolveExistingPluginComponentPath(
+                pluginPath,
+                metadata.source,
+              )),
             }
           }),
         )
@@ -2642,15 +2652,10 @@ async function finishLoadingPluginFromPath(
             if (typeof cmdPath !== 'string') {
               return { cmdPath, kind: 'invalid' as const }
             }
-            const fullPath = resolvePluginComponentPath(pluginPath, cmdPath)
-            if (!fullPath) {
-              return { cmdPath, kind: 'out-of-bounds' as const }
-            }
             return {
               cmdPath,
               kind: 'path' as const,
-              fullPath,
-              exists: await pathExists(fullPath),
+              ...(await resolveExistingPluginComponentPath(pluginPath, cmdPath)),
             }
           }),
         )
@@ -2663,7 +2668,7 @@ async function finishLoadingPluginFromPath(
             )
             continue
           }
-          if (check.kind === 'out-of-bounds') {
+          if (check.outOfBounds) {
             logForDebugging(
               `Command path ${check.cmdPath} from marketplace entry resolves outside plugin directory ${pluginPath} for ${entry.name}`,
               { level: 'warn' },
@@ -2740,11 +2745,10 @@ async function finishLoadingPluginFromPath(
       // (once in a debug log template, once in the if) — now called once.
       const checks = await Promise.all(
         skillPaths.map(async skillPath => {
-          const fullPath = resolvePluginComponentPath(pluginPath, skillPath)
-          if (!fullPath) {
-            return { skillPath, fullPath, exists: false, outOfBounds: true }
+          return {
+            skillPath,
+            ...(await resolveExistingPluginComponentPath(pluginPath, skillPath)),
           }
-          return { skillPath, fullPath, exists: await pathExists(fullPath) }
         }),
       )
       const validPaths: string[] = []
@@ -2874,26 +2878,14 @@ async function finishLoadingPluginFromPath(
             if (!metadata || typeof metadata !== 'object' || !metadata.source) {
               return { commandName, metadata, skip: true as const }
             }
-            const fullPath = resolvePluginComponentPath(
-              pluginPath,
-              metadata.source,
-            )
-            if (!fullPath) {
-              return {
-                commandName,
-                metadata,
-                skip: false as const,
-                fullPath,
-                exists: false,
-                outOfBounds: true,
-              }
-            }
             return {
               commandName,
               metadata,
               skip: false as const,
-              fullPath,
-              exists: await pathExists(fullPath),
+              ...(await resolveExistingPluginComponentPath(
+                pluginPath,
+                metadata.source,
+              )),
             }
           }),
         )
@@ -2954,15 +2946,10 @@ async function finishLoadingPluginFromPath(
             if (typeof cmdPath !== 'string') {
               return { cmdPath, kind: 'invalid' as const }
             }
-            const fullPath = resolvePluginComponentPath(pluginPath, cmdPath)
-            if (!fullPath) {
-              return { cmdPath, kind: 'out-of-bounds' as const }
-            }
             return {
               cmdPath,
               kind: 'path' as const,
-              fullPath,
-              exists: await pathExists(fullPath),
+              ...(await resolveExistingPluginComponentPath(pluginPath, cmdPath)),
             }
           }),
         )
@@ -2975,7 +2962,7 @@ async function finishLoadingPluginFromPath(
             )
             continue
           }
-          if (check.kind === 'out-of-bounds') {
+          if (check.outOfBounds) {
             logForDebugging(
               `Command path ${check.cmdPath} from marketplace entry resolves outside plugin directory ${pluginPath} for ${entry.name}`,
               { level: 'warn' },

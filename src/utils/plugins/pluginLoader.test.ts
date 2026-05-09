@@ -1,8 +1,12 @@
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join, resolve } from 'path'
 import { describe, expect, test } from 'bun:test'
 
 import type { LoadedPlugin } from '../../types/plugin.js'
 import {
   mergePluginSources,
+  resolveExistingPluginComponentPath,
   resolvePluginComponentPath,
 } from './pluginLoader.js'
 
@@ -75,8 +79,10 @@ describe('mergePluginSources', () => {
 
 describe('resolvePluginComponentPath', () => {
   test('keeps relative component paths inside the plugin directory', () => {
-    expect(resolvePluginComponentPath('/tmp/plugin', 'commands/build.md')).toBe(
-      '/tmp/plugin/commands/build.md',
+    const pluginRoot = resolve(tmpdir(), 'plugin')
+
+    expect(resolvePluginComponentPath(pluginRoot, 'commands/build.md')).toBe(
+      resolve(pluginRoot, 'commands/build.md'),
     )
   })
 
@@ -89,5 +95,71 @@ describe('resolvePluginComponentPath', () => {
 
   test('rejects absolute component paths outside the plugin directory', () => {
     expect(resolvePluginComponentPath('/tmp/plugin', '/etc/passwd')).toBeNull()
+  })
+
+  test('rejects file symlink component paths whose real target escapes the plugin directory', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
+    try {
+      const pluginRoot = join(tempRoot, 'plugin')
+      const commandsDir = join(pluginRoot, 'commands')
+      const outsideFile = join(tempRoot, 'secret.md')
+      const linkPath = join(commandsDir, 'link-to-secret.md')
+
+      await mkdir(commandsDir, { recursive: true })
+      await writeFile(outsideFile, '# secret\n')
+      try {
+        await symlink(outsideFile, linkPath)
+      } catch {
+        // Some Windows environments require elevated privileges for symlinks.
+        return
+      }
+
+      await expect(
+        resolveExistingPluginComponentPath(
+          pluginRoot,
+          'commands/link-to-secret.md',
+        ),
+      ).resolves.toMatchObject({
+        fullPath: linkPath,
+        exists: true,
+        outOfBounds: true,
+      })
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects directory symlink skill paths whose SKILL.md real target escapes the plugin directory', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
+    try {
+      const pluginRoot = join(tempRoot, 'plugin')
+      const skillsDir = join(pluginRoot, 'skills')
+      const outsideSkillDir = join(tempRoot, 'outside-skill')
+      const linkPath = join(skillsDir, 'linked-skill')
+      const skillPath = join(linkPath, 'SKILL.md')
+
+      await mkdir(skillsDir, { recursive: true })
+      await mkdir(outsideSkillDir, { recursive: true })
+      await writeFile(join(outsideSkillDir, 'SKILL.md'), '# escaped skill\n')
+      try {
+        await symlink(outsideSkillDir, linkPath, 'dir')
+      } catch {
+        // Some Windows environments require elevated privileges for symlinks.
+        return
+      }
+
+      await expect(
+        resolveExistingPluginComponentPath(
+          pluginRoot,
+          'skills/linked-skill/SKILL.md',
+        ),
+      ).resolves.toMatchObject({
+        fullPath: skillPath,
+        exists: true,
+        outOfBounds: true,
+      })
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
   })
 })
