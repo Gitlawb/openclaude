@@ -163,6 +163,7 @@ import {
 } from './hooks/sessionHooks.js'
 import type { AppState } from '../state/AppState.js'
 import { jsonStringify, jsonParse } from './slowOperations.js'
+import { stableStringify } from './stableStringify.js'
 import { isEnvTruthy } from './envUtils.js'
 import { errorMessage, getErrnoCode } from './errors.js'
 import { getAgentName, getTeamName, getTeammateColor } from './teammate.js'
@@ -174,20 +175,6 @@ import type {
 } from './hookChains.js'
 
 const TOOL_HOOK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
-
-function stableSerializeHookValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stableSerializeHookValue)
-  }
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, stableSerializeHookValue(nested)]),
-    )
-  }
-  return value
-}
 
 function dedupeRegisteredPluginHooks(
   registeredHooks: Array<HookCallbackMatcher | PluginHookMatcher>,
@@ -203,12 +190,12 @@ function dedupeRegisteredPluginHooks(
       continue
     }
 
-    const pluginMatcherKey = jsonStringify({
+    const pluginMatcherKey = stableStringify({
       pluginId: matcher.pluginId,
       pluginName: matcher.pluginName,
       pluginRoot: matcher.pluginRoot,
       matcher: matcher.matcher ?? null,
-      hooks: stableSerializeHookValue(matcher.hooks),
+      hooks: matcher.hooks,
     })
 
     if (seenPluginMatchers.has(pluginMatcherKey)) {
