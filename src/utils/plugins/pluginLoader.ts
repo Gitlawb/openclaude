@@ -1349,7 +1349,6 @@ export function resolvePluginComponentPath(
   const relativePath = relative(root, fullPath)
 
   if (
-    relativePath === '' ||
     relativePath === '..' ||
     relativePath.startsWith(`..${sep}`) ||
     isAbsolute(relativePath)

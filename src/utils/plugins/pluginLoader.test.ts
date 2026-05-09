@@ -98,6 +98,27 @@ describe('resolvePluginComponentPath', () => {
     )
   })
 
+  test('keeps plugin-root component paths inside the plugin directory', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
+    try {
+      const pluginRoot = join(tempRoot, 'plugin')
+      await mkdir(pluginRoot, { recursive: true })
+
+      expect(resolvePluginComponentPath(pluginRoot, './')).toBe(
+        resolve(pluginRoot),
+      )
+      await expect(
+        resolveExistingPluginComponentPath(pluginRoot, './'),
+      ).resolves.toMatchObject({
+        fullPath: resolve(pluginRoot),
+        exists: true,
+        outOfBounds: false,
+      })
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
   test('rejects component paths that traverse outside the plugin directory', () => {
     expect(resolvePluginComponentPath('/tmp/plugin', '../secret.md')).toBeNull()
     expect(
