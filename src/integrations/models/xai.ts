@@ -18,7 +18,7 @@ export default [
     classification: ['chat', 'reasoning', 'vision', 'coding'],
     defaultModel: 'grok-4.3',
     capabilities: grokCapabilities,
-    contextWindow: 2_000_000,
+    contextWindow: 1_000_000,
     maxOutputTokens: 32_768,
   }),
   defineModel({
