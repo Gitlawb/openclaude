@@ -386,7 +386,7 @@ async function* queryLoop(
       messagesForQuery.length > 0
     ) {
       const { updateArcPhase } = await import('./utils/conversationArc.js')
-      updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
+      await updateArcPhase([messagesForQuery[messagesForQuery.length - 1]])
     }
 
     let tracking = autoCompactTracking
@@ -489,7 +489,7 @@ async function* queryLoop(
             ? lastMessage.message.content
             : ''
         const { getArcSummary } = await import('./utils/conversationArc.js')
-        const arcSummary = getArcSummary(userQueryText)
+        const arcSummary = await getArcSummary(userQueryText)
         if (arcSummary) {
           promptWithArc = [...systemPrompt, arcSummary]
         }
@@ -1584,8 +1584,11 @@ async function* queryLoop(
       feature('CONVERSATION_ARC') &&
       getGlobalConfig().knowledgeGraphEnabled
     ) {
-      const { updateArcPhase } = await import('./utils/conversationArc.js')
-      updateArcPhase([assistantMessage])
+      const { updateArcPhase, finalizeArcTurn } = await import(
+        './utils/conversationArc.js'
+      )
+      await updateArcPhase([assistantMessage])
+      await finalizeArcTurn()
     }
 
     // Generate tool use summary after tool batch completes — passed to next recursive call
@@ -1892,14 +1895,6 @@ async function* queryLoop(
     }
 
     queryCheckpoint('query_recursive_call')
-
-    if (
-      feature('CONVERSATION_ARC') &&
-      getGlobalConfig().knowledgeGraphEnabled
-    ) {
-      const { finalizeArcTurn } = await import('./utils/conversationArc.js')
-      finalizeArcTurn()
-    }
 
     const next: State = {
       messages: [...messagesForQuery, ...assistantMessages, ...toolResults],

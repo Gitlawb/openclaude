@@ -43,6 +43,10 @@ export function getTeamsDir(): string {
   return join(getClaudeConfigHomeDir(), 'teams')
 }
 
+export function getProjectsDir(): string {
+  return join(getClaudeConfigHomeDir(), 'projects')
+}
+
 /**
  * Check if NODE_OPTIONS contains a specific flag.
  * Splits on whitespace and checks for exact match to avoid false positives.

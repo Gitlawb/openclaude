@@ -91,6 +91,8 @@
     "@opentelemetry/sdk-trace-base": "2.6.1",
     "@opentelemetry/sdk-trace-node": "2.6.1",
     "@opentelemetry/semantic-conventions": "1.40.0",
+    "@orama/orama": "^3.1.18",
+    "@orama/plugin-data-persistence": "^3.1.18",
     "@vscode/ripgrep": "^1.17.1",
     "ajv": "8.18.0",
     "auto-bind": "5.0.1",
