@@ -1015,8 +1015,10 @@ function repairPossiblyTruncatedObjectJson(raw: string): string | null {
 //   {"type":"function","function":{"name":"X","arguments":{...}}}
 // ---------------------------------------------------------------------------
 
-const TOOL_CALL_TEXT_RE =
-  /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```|(\{"(?:name|type)"\s*:[\s\S]*?\})/g
+// Fenced code block arm: non-greedy is safe because ``` acts as terminator.
+const FENCED_TOOL_CALL_RE = /```(?:json)?\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g
+// Bare JSON arm: marks candidate start positions only; balanced extraction follows.
+const BARE_TOOL_CALL_START_RE = /\{"(?:name|type)"\s*:/g
 
 interface ParsedTextToolCall {
   id: string
@@ -1027,56 +1029,101 @@ interface ParsedTextToolCall {
 // Module-level counter ensures unique IDs across calls within a session.
 let _textToolCallCounter = 0
 
+// Walks forward from `start` (which must be `{`) tracking string/escape/brace
+// state and returns the substring up to and including the matching `}`, or
+// null if the braces are never balanced (truncated input).
+function extractBalancedJson(text: string, start: number): string | null {
+  let depth = 0
+  let inString = false
+  let escape = false
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]!
+    if (escape) { escape = false; continue }
+    if (c === '\\' && inString) { escape = true; continue }
+    if (c === '"') { inString = !inString; continue }
+    if (inString) continue
+    if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
+function parseAndAdd(
+  raw: string,
+  results: ParsedTextToolCall[],
+  seen: Set<string>,
+): void {
+  let obj: Record<string, unknown>
+  try {
+    obj = JSON.parse(raw)
+  } catch {
+    return
+  }
+
+  let name: string | undefined
+  let args: Record<string, unknown> = {}
+
+  if (typeof obj['name'] === 'string') {
+    // {"name": "X", "arguments": {...}}
+    name = obj['name'] as string
+    args = (obj['arguments'] as Record<string, unknown>) ?? {}
+  } else if (
+    obj['type'] === 'function' &&
+    typeof (obj['function'] as any)?.name === 'string'
+  ) {
+    // {"type":"function","function":{"name":"X","arguments":{...}}}
+    const fn = obj['function'] as { name: string; arguments?: unknown }
+    name = fn.name
+    const rawArgs = fn.arguments
+    args =
+      typeof rawArgs === 'string'
+        ? (() => {
+            try {
+              return JSON.parse(rawArgs)
+            } catch {
+              return {}
+            }
+          })()
+        : (rawArgs as Record<string, unknown>) ?? {}
+  }
+
+  if (!name) return
+
+  const dedupKey = `${name}:${JSON.stringify(args)}`
+  if (seen.has(dedupKey)) return
+  seen.add(dedupKey)
+
+  results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
+}
+
 /** Exported for unit testing only. */
 export function parseTextToolCalls(text: string): ParsedTextToolCall[] {
   const results: ParsedTextToolCall[] = []
   const seen = new Set<string>()
+  const fencedRanges: Array<[number, number]> = []
 
-  for (const match of text.matchAll(TOOL_CALL_TEXT_RE)) {
-    const raw = (match[1] ?? match[2] ?? '').trim()
-    if (!raw) continue
+  // Pass 1: fenced code blocks — regex is safe, ``` bounds the non-greedy match.
+  for (const match of text.matchAll(FENCED_TOOL_CALL_RE)) {
+    const raw = (match[1] ?? '').trim()
+    fencedRanges.push([match.index!, match.index! + match[0].length])
+    if (raw) parseAndAdd(raw, results, seen)
+  }
 
-    let obj: Record<string, unknown>
-    try {
-      obj = JSON.parse(raw)
-    } catch {
-      continue
+  // Pass 2: bare JSON — use the brace scanner so nested objects are captured fully.
+  // processedRanges grows as we extract; inner objects nested inside an outer
+  // tool call are skipped because their start falls inside an already-extracted range.
+  const processedRanges: Array<[number, number]> = [...fencedRanges]
+  for (const match of text.matchAll(BARE_TOOL_CALL_START_RE)) {
+    const start = match.index!
+    if (processedRanges.some(([s, e]) => start >= s && start < e)) continue
+    const raw = extractBalancedJson(text, start)
+    if (raw) {
+      processedRanges.push([start, start + raw.length])
+      parseAndAdd(raw, results, seen)
     }
-
-    let name: string | undefined
-    let args: Record<string, unknown> = {}
-
-    if (typeof obj['name'] === 'string') {
-      // {"name": "X", "arguments": {...}}
-      name = obj['name'] as string
-      args = (obj['arguments'] as Record<string, unknown>) ?? {}
-    } else if (
-      obj['type'] === 'function' &&
-      typeof (obj['function'] as any)?.name === 'string'
-    ) {
-      // {"type":"function","function":{"name":"X","arguments":{...}}}
-      const fn = obj['function'] as { name: string; arguments?: unknown }
-      name = fn.name
-      const rawArgs = fn.arguments
-      args =
-        typeof rawArgs === 'string'
-          ? (() => {
-              try {
-                return JSON.parse(rawArgs)
-              } catch {
-                return {}
-              }
-            })()
-          : (rawArgs as Record<string, unknown>) ?? {}
-    }
-
-    if (!name) continue
-
-    const dedupKey = `${name}:${JSON.stringify(args)}`
-    if (seen.has(dedupKey)) continue
-    seen.add(dedupKey)
-
-    results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
   }
 
   return results
