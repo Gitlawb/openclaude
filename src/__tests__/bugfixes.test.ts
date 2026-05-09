@@ -10,6 +10,12 @@
 
 import { describe, test, expect } from 'bun:test'
 import { resolve } from 'path'
+import {
+  clearRegisteredHooks,
+  registerHookCallbacks,
+} from '../bootstrap/state.js'
+import { getMatchingHooks } from '../utils/hooks.js'
+import type { PluginHookMatcher } from '../utils/settings/types.js'
 
 const SRC = resolve(import.meta.dir, '..')
 const file = (relative: string) => Bun.file(resolve(SRC, relative))
@@ -227,11 +233,64 @@ describe('MCP tool timeout fix', () => {
 // ---------------------------------------------------------------------------
 describe('Regression checks', () => {
   test('duplicate plugin hooks are deduplicated before execution', async () => {
-    const hooks = await file('utils/hooks.ts').text()
+    clearRegisteredHooks()
 
-    expect(hooks).toContain('function dedupeRegisteredPluginHooks')
-    expect(hooks).toContain('pluginId: matcher.pluginId')
-    expect(hooks).toContain('for (const matcher of dedupeRegisteredPluginHooks(registeredHooks))')
+    const hookA: PluginHookMatcher = {
+      pluginId: 'claude-mem@thedotmack',
+      pluginName: 'claude-mem',
+      pluginRoot: '/plugins/claude-mem-a',
+      matcher: 'startup',
+      hooks: [
+        {
+          async: true,
+          command: 'node hook.js',
+          statusMessage: 'warming cache',
+          type: 'command',
+        },
+      ],
+    }
+    const hookB: PluginHookMatcher = {
+      pluginId: 'claude-mem@thedotmack',
+      pluginName: 'claude-mem',
+      pluginRoot: '/plugins/claude-mem-a',
+      matcher: 'startup',
+      hooks: [
+        {
+          command: 'node hook.js',
+          type: 'command',
+          statusMessage: 'warming cache',
+          async: true,
+        },
+      ],
+    }
+    const hookDifferentRoot: PluginHookMatcher = {
+      ...hookA,
+      pluginRoot: '/plugins/claude-mem-b',
+    }
+
+    try {
+      registerHookCallbacks({
+        SessionStart: [hookA, hookB, hookDifferentRoot],
+      })
+
+      const matched = await getMatchingHooks(
+        undefined,
+        'test-session',
+        'SessionStart',
+        {
+          hook_event_name: 'SessionStart',
+          source: 'startup',
+        } as never,
+      )
+
+      expect(matched).toHaveLength(2)
+      expect(matched.map(hook => hook.pluginRoot)).toEqual([
+        '/plugins/claude-mem-a',
+        '/plugins/claude-mem-b',
+      ])
+    } finally {
+      clearRegisteredHooks()
+    }
   })
 
   test('store field remains opt-out by per-route config rather than unconditional deletion', async () => {

@@ -175,6 +175,20 @@ import type {
 
 const TOOL_HOOK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
 
+function stableSerializeHookValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableSerializeHookValue)
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, stableSerializeHookValue(nested)]),
+    )
+  }
+  return value
+}
+
 function dedupeRegisteredPluginHooks(
   registeredHooks: Array<HookCallbackMatcher | PluginHookMatcher>,
 ): Array<HookCallbackMatcher | PluginHookMatcher> {
@@ -182,6 +196,8 @@ function dedupeRegisteredPluginHooks(
   const deduped: Array<HookCallbackMatcher | PluginHookMatcher> = []
 
   for (const matcher of registeredHooks) {
+    // SDK callback hooks are intentionally not deduped. Their callbacks are
+    // runtime values, so structural comparison would be lossy and unsafe.
     if (!('pluginRoot' in matcher)) {
       deduped.push(matcher)
       continue
@@ -190,8 +206,9 @@ function dedupeRegisteredPluginHooks(
     const pluginMatcherKey = jsonStringify({
       pluginId: matcher.pluginId,
       pluginName: matcher.pluginName,
+      pluginRoot: matcher.pluginRoot,
       matcher: matcher.matcher ?? null,
-      hooks: matcher.hooks,
+      hooks: stableSerializeHookValue(matcher.hooks),
     })
 
     if (seenPluginMatchers.has(pluginMatcherKey)) {
@@ -1157,7 +1174,15 @@ async function execCommandHook(
   // Hooks use pipe mode — stdout must be streamed into JS so we can parse
   // the first response line to detect async hooks ({"async": true}).
   const hookTaskOutput = new TaskOutput(`hook_${child.pid}`, null)
-  const shellCommand = wrapSpawn(child, signal, hookTimeoutMs, hookTaskOutput)
+  const shellCommand = wrapSpawn(
+    child,
+    signal,
+    hookTimeoutMs,
+    hookTaskOutput,
+    false,
+    undefined,
+    { keepAliveOnInterrupt: hook.asyncRewake === true },
+  )
   // Track whether shellCommand ownership was transferred (e.g., to async hook registry)
   let shellCommandTransferred = false
   // Track whether stdin has already been written (to avoid "write after end" errors)

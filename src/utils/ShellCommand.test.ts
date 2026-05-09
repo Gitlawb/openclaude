@@ -58,3 +58,27 @@ test('interrupt does not kill backgrounded shell commands', async () => {
   expect(result.code).toBe(0)
   expect(result.backgroundTaskId).toBe('bg-task')
 })
+
+test('interrupt does not kill keep-alive commands used by asyncRewake hooks', async () => {
+  const child = createMockChildProcess()
+  const controller = new AbortController()
+  const command = wrapSpawn(
+    child as never,
+    controller.signal,
+    30_000,
+    new TaskOutput('shellcommand-test-keepalive', null),
+    false,
+    undefined,
+    { keepAliveOnInterrupt: true },
+  )
+
+  controller.abort('interrupt')
+
+  await Promise.resolve()
+  expect(command.status).toBe('running')
+
+  child.emit('exit', 2, null)
+  const result = await command.result
+  expect(result.code).toBe(2)
+  expect(result.interrupted).toBe(false)
+})
