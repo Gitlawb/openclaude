@@ -10,6 +10,7 @@ import {
   getAllModels,
   getAllVendors,
   getBrand,
+  getCatalogForAnthropicProxy,
   getCatalogEntriesForRoute,
   getGateway,
   getModelsForBrand,
@@ -203,6 +204,24 @@ describe('catalog helpers', () => {
     expect(entries[0]!.id).toBe('m1')
   })
 
+  test('getCatalogEntriesForRoute returns anthropic proxy catalog models', () => {
+    registerAnthropicProxy(
+      makeAnthropicProxy('proxy-1', {
+        catalog: {
+          source: 'static',
+          models: [
+            { id: 'claude-proxy-sonnet', apiName: 'claude-sonnet' },
+          ],
+        },
+      }),
+    )
+
+    expect(getCatalogForAnthropicProxy('proxy-1')?.source).toBe('static')
+    const entries = getCatalogEntriesForRoute('proxy-1')
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.id).toBe('claude-proxy-sonnet')
+  })
+
   test('getModelsForGateway enriches with shared model descriptors', () => {
     registerGateway(
       makeGateway('gw-1', {
@@ -254,6 +273,86 @@ describe('validateIntegrationRegistry', () => {
     expect(result.errors.some(e => e.includes('missing-model'))).toBe(true)
   })
 
+  test('does not run entry semantic validation after catalog shape errors', () => {
+    registerGateway(
+      makeGateway('gw-malformed', {
+        catalog: {
+          source: 'static',
+          models: [{ id: 'e1' }],
+        } as never,
+      }),
+    )
+
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(e => e.includes('/models/0'))).toBe(true)
+  })
+
+  test('returns schema errors instead of throwing for malformed preset catalog models', () => {
+    registerVendor(makeVendor('openai'))
+    registerGateway(
+      makeGateway('gw-malformed-preset-catalog', {
+        defaultBaseUrl: 'https://gateway.example.com/v1',
+        preset: {
+          id: 'gateway-preset',
+          description: 'Gateway preset',
+          vendorId: 'openai',
+          apiKeyEnvVars: ['GATEWAY_KEY'],
+        },
+        catalog: {
+          source: 'static',
+          models: { id: 'not-an-array' },
+        } as never,
+      }),
+    )
+
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(
+      result.errors.some(error =>
+        error.includes('/models') && error.includes('array'),
+      ),
+    ).toBe(true)
+  })
+
+  test('catches non-function discovery mapModel values in route catalogs', () => {
+    registerGateway(
+      makeGateway('gw-bad-map-model', {
+        catalog: {
+          source: 'dynamic',
+          discovery: { kind: 'custom', mapModel: 'not-a-function' },
+        } as never,
+      }),
+    )
+
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain(
+      'Catalog discovery mapModel must be a function when provided',
+    )
+  })
+
+  test('validates anthropic proxy catalog references', () => {
+    registerAnthropicProxy(
+      makeAnthropicProxy('proxy-bad', {
+        catalog: {
+          source: 'static',
+          models: [
+            {
+              id: 'e1',
+              apiName: 'claude',
+              modelDescriptorId: 'missing-proxy-model',
+            },
+          ],
+        },
+      }),
+    )
+
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(e => e.includes('missing-proxy-model'))).toBe(true)
+  })
+
   test('catches duplicate catalog entry ids within same route', () => {
     registerGateway(
       makeGateway('gw-dup', {
@@ -269,6 +368,24 @@ describe('validateIntegrationRegistry', () => {
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
     expect(result.errors.some(e => e.includes('Duplicate catalog entry id'))).toBe(true)
+  })
+
+  test('catches duplicate catalog api names within same route', () => {
+    registerGateway(
+      makeGateway('gw-dup-api', {
+        catalog: {
+          source: 'static',
+          models: [
+            { id: 'e1', apiName: 'provider/model' },
+            { id: 'e2', apiName: ' Provider/Model ' },
+          ],
+        },
+      }),
+    )
+
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(e => e.includes('Duplicate catalog apiName'))).toBe(true)
   })
 
   test('catches catalog default flags when route defaultModel is set', () => {

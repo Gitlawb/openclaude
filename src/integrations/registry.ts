@@ -10,6 +10,7 @@ import type {
   RegistryValidationResult,
   VendorDescriptor,
 } from './descriptors.js'
+import { validateModelCatalogConfig } from './modelCatalog/schema.js'
 
 const _brands = new Map<string, BrandDescriptor>()
 const _vendors = new Map<string, VendorDescriptor>()
@@ -116,6 +117,10 @@ export function getCatalogForVendor(vendorId: string): import('./descriptors.js'
   return _vendors.get(vendorId)?.catalog
 }
 
+export function getCatalogForAnthropicProxy(anthropicProxyId: string): import('./descriptors.js').ModelCatalogConfig | undefined {
+  return _anthropicProxies.get(anthropicProxyId)?.catalog
+}
+
 export function getCatalogEntriesForRoute(routeId: string): ModelCatalogEntry[] {
   const gateway = _gateways.get(routeId)
   if (gateway?.catalog?.models) {
@@ -124,6 +129,10 @@ export function getCatalogEntriesForRoute(routeId: string): ModelCatalogEntry[] 
   const vendor = _vendors.get(routeId)
   if (vendor?.catalog?.models) {
     return vendor.catalog.models
+  }
+  const anthropicProxy = _anthropicProxies.get(routeId)
+  if (anthropicProxy?.catalog?.models) {
+    return anthropicProxy.catalog.models
   }
   return []
 }
@@ -248,9 +257,11 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
 
     const defaultModelValue =
       'defaultModel' in route ? route.defaultModel : undefined
+    const catalogModels = route.catalog?.models
     const hasCatalogDefaultModel =
-      (route.catalog?.models?.find(model => model.default) ??
-        route.catalog?.models?.[0]) !== undefined
+      Array.isArray(catalogModels) &&
+      (catalogModels.find(model => model.default) ?? catalogModels[0]) !==
+        undefined
     const hasDefaultModel =
       typeof defaultModelValue === 'string'
         ? defaultModelValue.trim().length > 0
@@ -278,15 +289,29 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
   const routes: Array<{ id: string; catalog?: import('./descriptors.js').ModelCatalogConfig }> = [
     ...allGateways.map(g => ({ id: g.id, catalog: g.catalog })),
     ...allVendors.map(v => ({ id: v.id, catalog: v.catalog })),
+    ...allAnthropicProxies.map(p => ({ id: p.id, catalog: p.catalog })),
   ]
 
   for (const route of routes) {
     if (!route.catalog) continue
 
     const catalog = route.catalog
-    const entryIds = new Set<string>()
+    const catalogShapeValidation = validateModelCatalogConfig(catalog, {
+      routeId: route.id,
+      validateSemantics: false,
+    })
+    if (!catalogShapeValidation.valid) {
+      errors.push(...catalogShapeValidation.errors)
+      continue
+    }
+
+    const entryIds = new Map<string, string>()
+    const entryApiNames = new Map<string, string>()
     let defaultCount = 0
-    const routeDescriptor = _gateways.get(route.id) ?? _vendors.get(route.id)
+    const routeDescriptor =
+      _gateways.get(route.id) ??
+      _vendors.get(route.id) ??
+      _anthropicProxies.get(route.id)
     const explicitDefaultModel =
       routeDescriptor &&
       'defaultModel' in routeDescriptor &&
@@ -294,10 +319,25 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
 
     for (const entry of catalog.models ?? []) {
       // Duplicate entry ids within route
-      if (entryIds.has(entry.id)) {
-        errors.push(`Duplicate catalog entry id "${entry.id}" in route "${route.id}"`)
+      const normalizedEntryId = normalizeCatalogReference(entry.id)
+      const previousEntryId = entryIds.get(normalizedEntryId)
+      if (previousEntryId) {
+        errors.push(
+          `Duplicate catalog entry id "${entry.id}" in route "${route.id}"; first used by "${previousEntryId}"`,
+        )
+      } else {
+        entryIds.set(normalizedEntryId, entry.id)
       }
-      entryIds.add(entry.id)
+
+      const normalizedApiName = normalizeCatalogReference(entry.apiName)
+      const previousApiName = entryApiNames.get(normalizedApiName)
+      if (previousApiName) {
+        errors.push(
+          `Duplicate catalog apiName "${entry.apiName}" in route "${route.id}"; first used by "${previousApiName}"`,
+        )
+      } else {
+        entryApiNames.set(normalizedApiName, entry.id)
+      }
 
       // modelDescriptorId must point to existing shared model
       if (entry.modelDescriptorId && !_models.has(entry.modelDescriptorId)) {
@@ -375,6 +415,10 @@ export function validateIntegrationRegistry(): RegistryValidationResult {
     errors,
     warnings,
   }
+}
+
+function normalizeCatalogReference(value: string): string {
+  return value.trim().toLowerCase()
 }
 
 // ---------------------------------------------------------------------------

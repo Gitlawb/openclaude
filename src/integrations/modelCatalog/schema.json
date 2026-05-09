@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaude.local/schemas/modelCatalogConfig.schema.json",
+  "title": "ModelCatalogConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source"],
+  "properties": {
+    "source": {
+      "enum": ["static", "dynamic", "hybrid"]
+    },
+    "discovery": {
+      "$ref": "#/$defs/ModelDiscoveryConfig"
+    },
+    "discoveryCacheTtl": {
+      "oneOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+[mhd]$"
+        }
+      ]
+    },
+    "discoveryRefreshMode": {
+      "enum": ["manual", "on-open", "background-if-stale", "startup"]
+    },
+    "allowManualRefresh": {
+      "type": "boolean"
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ModelCatalogEntry"
+      }
+    }
+  },
+  "$defs": {
+    "ModelDiscoveryConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["openai-compatible", "ollama", "custom"]
+        },
+        "requiresAuth": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "parse": {
+          "enum": ["openai-models-list", "ollama-tags", "custom"]
+        },
+        "mapModel": {}
+      }
+    },
+    "ModelCatalogEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "apiName"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "apiName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "default": {
+          "type": "boolean"
+        },
+        "hidden": {
+          "type": "boolean"
+        },
+        "modelDescriptorId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilities": {
+          "$ref": "#/$defs/CapabilityFlags"
+        },
+        "contextWindow": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "maxOutputTokens": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "transportOverrides": {
+          "$ref": "#/$defs/CatalogTransportOverrides"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "CapabilityFlags": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "supportsVision": {
+          "type": "boolean"
+        },
+        "supportsStreaming": {
+          "type": "boolean"
+        },
+        "supportsFunctionCalling": {
+          "type": "boolean"
+        },
+        "supportsJsonMode": {
+          "type": "boolean"
+        },
+        "supportsReasoning": {
+          "type": "boolean"
+        },
+        "supportsPreciseTokenCount": {
+          "type": "boolean"
+        },
+        "supportsEmbeddings": {
+          "type": "boolean"
+        }
+      }
+    },
+    "CatalogTransportOverrides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "openaiShim": {
+          "$ref": "#/$defs/OpenAIShimTransportConfig"
+        }
+      }
+    },
+    "OpenAIShimTransportConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "supportsApiFormatSelection": {
+          "type": "boolean"
+        },
+        "supportsAuthHeaders": {
+          "type": "boolean"
+        },
+        "ui": {
+          "$ref": "#/$defs/OpenAIShimUiConfig"
+        },
+        "defaultAuthHeader": {
+          "$ref": "#/$defs/OpenAIShimAuthHeaderConfig"
+        },
+        "responsesApiModelPrefixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preserveReasoningContent": {
+          "type": "boolean"
+        },
+        "requireReasoningContentOnAssistantMessages": {
+          "type": "boolean"
+        },
+        "reasoningContentFallback": {
+          "enum": ["", "omit"]
+        },
+        "thinkingRequestFormat": {
+          "enum": ["none", "deepseek-compatible"]
+        },
+        "maxTokensField": {
+          "enum": ["max_tokens", "max_completion_tokens"]
+        },
+        "removeBodyFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "OpenAIShimAuthHeaderConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scheme": {
+          "enum": ["bearer", "raw"]
+        }
+      }
+    },
+    "OpenAIShimUiConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "showAuthHeader": {
+          "type": "boolean"
+        },
+        "showAuthHeaderValue": {
+          "type": "boolean"
+        },
+        "showCustomHeaders": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
