@@ -59,8 +59,8 @@ let cachedConfigFiles: string[] = []
 // recompute ~270k path.dirname() calls on each merge
 let cachedTrackedDirs: string[] = []
 
-// Cache for .ignore/.rgignore patterns (keyed by repoRoot:cwd)
-let ignorePatternsCache: ReturnType<typeof ignore> | null = null
+// Cache for .ignore/.rgignore matchers (keyed by repoRoot:cwd)
+let ignorePatternsCache: FileSuggestionIgnoreMatcher | null = null
 let ignorePatternsCacheKey: string | null = null
 
 // Throttle state for background refresh. .git/index mtime triggers an
@@ -77,6 +77,15 @@ let lastGitIndexMtime: number | null = null
 // (e.g. `git add` of an already-tracked file bumps index mtime but not the list).
 let loadedTrackedSignature: string | null = null
 let loadedMergedSignature: string | null = null
+
+type FileSuggestionIgnoreMatcher = {
+  ignores(filePath: string): boolean
+}
+
+type FileSuggestionIgnoreSource = {
+  root: string
+  patterns: string
+}
 
 const MAX_FILE_SUGGESTION_FILES = 200_000
 const FILE_SUGGESTION_EXCLUDED_DIRS = new Set([
@@ -137,7 +146,7 @@ export function shouldExcludeFileSuggestionPath(filePath: string): boolean {
 export function filterCandidatePathsForSuggestions(
   filePaths: string[],
   maxFiles = MAX_FILE_SUGGESTION_FILES,
-  ignorePatterns?: ReturnType<typeof ignore> | null,
+  ignorePatterns?: FileSuggestionIgnoreMatcher | null,
 ): { files: string[]; truncated: boolean } {
   const files: string[] = []
   for (const rawPath of filePaths) {
@@ -154,15 +163,82 @@ function tryAddFileSuggestionPath(
   rawPath: string,
   out: string[],
   maxFiles: number,
-  ignorePatterns?: ReturnType<typeof ignore> | null,
+  ignorePatterns?: FileSuggestionIgnoreMatcher | null,
 ): boolean {
   if (!rawPath) return false
   const normalizedPath = normalizeFileSuggestionPath(rawPath)
   if (!normalizedPath) return false
-  if (ignorePatterns?.ignores(normalizedPath)) return false
+  if (shouldIgnoreFileSuggestionPath(normalizedPath, ignorePatterns)) {
+    return false
+  }
   if (shouldExcludeFileSuggestionPath(normalizedPath)) return false
   out.push(normalizedPath)
   return out.length >= maxFiles
+}
+
+function shouldIgnoreFileSuggestionPath(
+  filePath: string,
+  ignorePatterns?: FileSuggestionIgnoreMatcher | null,
+): boolean {
+  if (!ignorePatterns) return false
+  try {
+    return ignorePatterns.ignores(filePath)
+  } catch {
+    return false
+  }
+}
+
+function isPathWithinIgnoreRoot(relativePath: string): boolean {
+  return (
+    relativePath !== '..' &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath)
+  )
+}
+
+function normalizePathForIgnoreMatcher(filePath: string): string {
+  return normalizeFileSuggestionPath(filePath).replaceAll('\\', '/')
+}
+
+function createFileSuggestionIgnoreMatcherFromSources(
+  cwd: string,
+  sources: FileSuggestionIgnoreSource[],
+): FileSuggestionIgnoreMatcher | null {
+  const rootedMatchers = sources.flatMap(source => {
+    if (!source.patterns) return []
+    const matcher = ignore()
+    matcher.add(source.patterns)
+    return [{ root: source.root, matcher }]
+  })
+
+  if (rootedMatchers.length === 0) {
+    return null
+  }
+
+  return {
+    ignores(filePath: string): boolean {
+      const normalizedPath = normalizePathForIgnoreMatcher(filePath)
+      if (!normalizedPath) return false
+
+      const absolutePath = path.resolve(cwd, normalizedPath)
+      for (const { root, matcher } of rootedMatchers) {
+        const relativePath = path.relative(root, absolutePath)
+        if (!isPathWithinIgnoreRoot(relativePath)) continue
+        if (matcher.ignores(normalizePathForIgnoreMatcher(relativePath))) {
+          return true
+        }
+      }
+
+      return false
+    },
+  }
+}
+
+export function createFileSuggestionIgnoreMatcher(
+  cwd: string,
+  sources: FileSuggestionIgnoreSource[],
+): FileSuggestionIgnoreMatcher | null {
+  return createFileSuggestionIgnoreMatcherFromSources(cwd, sources)
 }
 
 function normalizeGitPath(
@@ -183,12 +259,16 @@ async function collectGitPaths(
     cwd: string
     abortSignal: AbortSignal
     maxFiles: number
-    ignorePatterns?: ReturnType<typeof ignore> | null
+    ignorePatterns?: FileSuggestionIgnoreMatcher | null
   },
 ): Promise<{ files: string[]; truncated: boolean; code: number; stderr: string }> {
   const { repoRoot, cwd, abortSignal, maxFiles, ignorePatterns } = params
   const controller = new AbortController()
-  const forwardAbort = () => controller.abort()
+  let abortedExternally = abortSignal.aborted
+  const forwardAbort = () => {
+    abortedExternally = true
+    controller.abort()
+  }
   if (abortSignal.aborted) {
     controller.abort()
   } else {
@@ -259,12 +339,14 @@ async function collectGitPaths(
           finish({ files, truncated: true, code: 0, stderr })
           return
         }
-        if (controller.signal.aborted && abortSignal.aborted) {
-          finish({ files, truncated: false, code: 0, stderr })
-          return
-        }
-        if (controller.signal.aborted && files.length > 0) {
-          finish({ files, truncated: false, code: 0, stderr })
+        if (abortedExternally) {
+          const message = error instanceof Error ? error.message : String(error)
+          finish({
+            files,
+            truncated: false,
+            code: 1,
+            stderr: stderr || message || 'aborted',
+          })
           return
         }
         const message = error instanceof Error ? error.message : String(error)
@@ -272,7 +354,7 @@ async function collectGitPaths(
       })
 
       child.on('close', code => {
-        if (!truncated && remainder) {
+        if (!truncated && !abortedExternally && remainder) {
           const line = remainder.endsWith('\r')
             ? remainder.slice(0, -1)
             : remainder
@@ -286,8 +368,8 @@ async function collectGitPaths(
           return
         }
 
-        if (controller.signal.aborted && files.length > 0) {
-          finish({ files, truncated: false, code: 0, stderr })
+        if (abortedExternally) {
+          finish({ files, truncated: false, code: 1, stderr: stderr || 'aborted' })
           return
         }
 
@@ -306,7 +388,11 @@ async function collectRipgrepPaths(
   maxFiles: number,
 ): Promise<{ files: string[]; truncated: boolean }> {
   const controller = new AbortController()
-  const forwardAbort = () => controller.abort()
+  let abortedExternally = abortSignal.aborted
+  const forwardAbort = () => {
+    abortedExternally = true
+    controller.abort()
+  }
   if (abortSignal.aborted) {
     controller.abort()
   } else {
@@ -327,7 +413,7 @@ async function collectRipgrepPaths(
       }
     })
   } catch (error) {
-    if (!(truncated || (error as Error)?.name === 'AbortError')) {
+    if (!(truncated && !abortedExternally)) {
       throw error
     }
   } finally {
@@ -448,7 +534,7 @@ async function mergeUntrackedIntoNormalizedCache(
 async function loadRipgrepIgnorePatterns(
   repoRoot: string,
   cwd: string,
-): Promise<ReturnType<typeof ignore> | null> {
+): Promise<FileSuggestionIgnoreMatcher | null> {
   const cacheKey = `${repoRoot}:${cwd}`
 
   // Return cached result if available
@@ -460,8 +546,7 @@ async function loadRipgrepIgnorePatterns(
   const ignoreFiles = ['.ignore', '.rgignore']
   const directories = [...new Set([repoRoot, cwd])]
 
-  const ig = ignore()
-  let hasPatterns = false
+  const sources: FileSuggestionIgnoreSource[] = []
 
   const paths = directories.flatMap(dir =>
     ignoreFiles.map(f => path.join(dir, f)),
@@ -471,16 +556,40 @@ async function loadRipgrepIgnorePatterns(
   )
   for (const [i, content] of contents.entries()) {
     if (content === null) continue
-    ig.add(content)
-    hasPatterns = true
     logForDebugging(`[FileIndex] loaded ignore patterns from ${paths[i]}`)
+    sources.push({
+      root: path.dirname(paths[i]!),
+      patterns: content,
+    })
   }
 
-  const result = hasPatterns ? ig : null
+  const result = createFileSuggestionIgnoreMatcherFromSources(cwd, sources)
   ignorePatternsCache = result
   ignorePatternsCacheKey = cacheKey
 
   return result
+}
+
+export async function collectGitPathsForTesting(
+  gitArgs: string[],
+  params: {
+    repoRoot: string
+    cwd: string
+    abortSignal: AbortSignal
+    maxFiles: number
+    ignorePatterns?: FileSuggestionIgnoreMatcher | null
+  },
+): Promise<{ files: string[]; truncated: boolean; code: number; stderr: string }> {
+  return collectGitPaths(gitArgs, params)
+}
+
+export async function collectRipgrepPathsForTesting(
+  args: string[],
+  target: string,
+  abortSignal: AbortSignal,
+  maxFiles: number,
+): Promise<{ files: string[]; truncated: boolean }> {
+  return collectRipgrepPaths(args, target, abortSignal, maxFiles)
 }
 
 /**
