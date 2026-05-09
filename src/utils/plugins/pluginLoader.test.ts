@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test'
 
 import type { LoadedPlugin } from '../../types/plugin.js'
 import {
+  createPluginFromPath,
   mergePluginSources,
   resolveExistingPluginComponentPath,
   resolvePluginComponentPath,
@@ -77,6 +78,17 @@ describe('mergePluginSources', () => {
   })
 })
 
+async function createDirectoryLink(
+  target: string,
+  linkPath: string,
+): Promise<void> {
+  await symlink(
+    target,
+    linkPath,
+    process.platform === 'win32' ? 'junction' : 'dir',
+  )
+}
+
 describe('resolvePluginComponentPath', () => {
   test('keeps relative component paths inside the plugin directory', () => {
     const pluginRoot = resolve(tmpdir(), 'plugin')
@@ -141,12 +153,7 @@ describe('resolvePluginComponentPath', () => {
       await mkdir(skillsDir, { recursive: true })
       await mkdir(outsideSkillDir, { recursive: true })
       await writeFile(join(outsideSkillDir, 'SKILL.md'), '# escaped skill\n')
-      try {
-        await symlink(outsideSkillDir, linkPath, 'dir')
-      } catch {
-        // Some Windows environments require elevated privileges for symlinks.
-        return
-      }
+      await createDirectoryLink(outsideSkillDir, linkPath)
 
       await expect(
         resolveExistingPluginComponentPath(
@@ -158,6 +165,69 @@ describe('resolvePluginComponentPath', () => {
         exists: true,
         outOfBounds: true,
       })
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects auto-detected component directories whose real targets escape the plugin directory', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
+    try {
+      const pluginRoot = join(tempRoot, 'plugin')
+      await mkdir(pluginRoot, { recursive: true })
+
+      const linkedDirectories = [
+        'commands',
+        'agents',
+        'skills',
+        'output-styles',
+      ] as const
+      for (const directory of linkedDirectories) {
+        const outsideDirectory = join(tempRoot, `outside-${directory}`)
+        await mkdir(outsideDirectory, { recursive: true })
+        await createDirectoryLink(outsideDirectory, join(pluginRoot, directory))
+      }
+
+      const { plugin, errors } = await createPluginFromPath(
+        pluginRoot,
+        'test-source',
+        true,
+        'test-plugin',
+      )
+
+      expect(plugin.commandsPath).toBeUndefined()
+      expect(plugin.agentsPath).toBeUndefined()
+      expect(plugin.skillsPath).toBeUndefined()
+      expect(plugin.outputStylesPath).toBeUndefined()
+      expect(errors).toHaveLength(4)
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'generic-error',
+            error: expect.stringContaining(
+              'Command directory commands resolves outside plugin directory',
+            ),
+          }),
+          expect.objectContaining({
+            type: 'generic-error',
+            error: expect.stringContaining(
+              'Agent directory agents resolves outside plugin directory',
+            ),
+          }),
+          expect.objectContaining({
+            type: 'generic-error',
+            error: expect.stringContaining(
+              'Skill directory skills resolves outside plugin directory',
+            ),
+          }),
+          expect.objectContaining({
+            type: 'generic-error',
+            error: expect.stringContaining(
+              'Output style directory output-styles resolves outside plugin directory',
+            ),
+          }),
+        ]),
+      )
     } finally {
       await rm(tempRoot, { recursive: true, force: true })
     }

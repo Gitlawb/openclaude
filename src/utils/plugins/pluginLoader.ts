@@ -1326,6 +1326,20 @@ async function validatePluginPaths(
   return validPaths
 }
 
+async function resolveDefaultPluginComponentDirectory(
+  pluginPath: string,
+  relPath: string,
+  componentLabel: string,
+): Promise<
+  ResolvedPluginComponentPath & { relPath: string; componentLabel: string }
+> {
+  return {
+    relPath,
+    componentLabel,
+    ...(await resolveExistingPluginComponentPath(pluginPath, relPath)),
+  }
+}
+
 export function resolvePluginComponentPath(
   pluginPath: string,
   componentPath: string,
@@ -1453,23 +1467,60 @@ export async function createPluginFromPath(
   }
 
   // Step 3: Auto-detect optional directories in parallel
-  const [
-    commandsDirExists,
-    agentsDirExists,
-    skillsDirExists,
-    outputStylesDirExists,
-  ] = await Promise.all([
-    !manifest.commands ? pathExists(join(pluginPath, 'commands')) : false,
-    !manifest.agents ? pathExists(join(pluginPath, 'agents')) : false,
-    !manifest.skills ? pathExists(join(pluginPath, 'skills')) : false,
+  const defaultDirectoryChecks = await Promise.all([
+    !manifest.commands
+      ? resolveDefaultPluginComponentDirectory(
+          pluginPath,
+          'commands',
+          'Command',
+        )
+      : null,
+    !manifest.agents
+      ? resolveDefaultPluginComponentDirectory(pluginPath, 'agents', 'Agent')
+      : null,
+    !manifest.skills
+      ? resolveDefaultPluginComponentDirectory(pluginPath, 'skills', 'Skill')
+      : null,
     !manifest.outputStyles
-      ? pathExists(join(pluginPath, 'output-styles'))
-      : false,
+      ? resolveDefaultPluginComponentDirectory(
+          pluginPath,
+          'output-styles',
+          'Output style',
+        )
+      : null,
   ])
 
-  const commandsPath = join(pluginPath, 'commands')
-  if (commandsDirExists) {
-    plugin.commandsPath = commandsPath
+  for (const check of defaultDirectoryChecks) {
+    if (!check) continue
+    if (check.outOfBounds) {
+      logForDebugging(
+        `${check.componentLabel} directory ${check.relPath} resolves outside plugin directory ${pluginPath} for ${manifest.name}`,
+        { level: 'warn' },
+      )
+      errors.push({
+        type: 'generic-error',
+        source,
+        plugin: manifest.name,
+        error: `${check.componentLabel} directory ${check.relPath} resolves outside plugin directory for ${manifest.name}`,
+      })
+      continue
+    }
+    if (!check.exists) continue
+
+    switch (check.relPath) {
+      case 'commands':
+        plugin.commandsPath = check.fullPath
+        break
+      case 'agents':
+        plugin.agentsPath = check.fullPath
+        break
+      case 'skills':
+        plugin.skillsPath = check.fullPath
+        break
+      case 'output-styles':
+        plugin.outputStylesPath = check.fullPath
+        break
+    }
   }
 
   // Step 3a: Process additional command paths from manifest
@@ -1633,13 +1684,7 @@ export async function createPluginFromPath(
     }
   }
 
-  // Step 4: Register agents directory if detected
-  const agentsPath = join(pluginPath, 'agents')
-  if (agentsDirExists) {
-    plugin.agentsPath = agentsPath
-  }
-
-  // Step 4a: Process additional agent paths from manifest
+  // Step 4: Process additional agent paths from manifest
   if (manifest.agents) {
     const agentPaths = Array.isArray(manifest.agents)
       ? manifest.agents
@@ -1661,13 +1706,7 @@ export async function createPluginFromPath(
     }
   }
 
-  // Step 4b: Register skills directory if detected
-  const skillsPath = join(pluginPath, 'skills')
-  if (skillsDirExists) {
-    plugin.skillsPath = skillsPath
-  }
-
-  // Step 4c: Process additional skill paths from manifest
+  // Step 5: Process additional skill paths from manifest
   if (manifest.skills) {
     const skillPaths = Array.isArray(manifest.skills)
       ? manifest.skills
@@ -1689,13 +1728,7 @@ export async function createPluginFromPath(
     }
   }
 
-  // Step 4d: Register output-styles directory if detected
-  const outputStylesPath = join(pluginPath, 'output-styles')
-  if (outputStylesDirExists) {
-    plugin.outputStylesPath = outputStylesPath
-  }
-
-  // Step 4e: Process additional output style paths from manifest
+  // Step 6: Process additional output style paths from manifest
   if (manifest.outputStyles) {
     const outputStylePaths = Array.isArray(manifest.outputStyles)
       ? manifest.outputStyles
@@ -1717,7 +1750,7 @@ export async function createPluginFromPath(
     }
   }
 
-  // Step 5: Load hooks configuration
+  // Step 7: Load hooks configuration
   let mergedHooks: HooksSettings | undefined
   const loadedHookPaths = new Set<string>() // Track loaded hook files
 
@@ -1865,7 +1898,7 @@ export async function createPluginFromPath(
     plugin.hooksConfig = mergedHooks
   }
 
-  // Step 6: Load plugin settings
+  // Step 8: Load plugin settings
   // Settings can come from settings.json in the plugin directory or from manifest.settings
   // Only allowlisted keys are kept (currently: agent)
   const pluginSettings = await loadPluginSettings(pluginPath, manifest)
