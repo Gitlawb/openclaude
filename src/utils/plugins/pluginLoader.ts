@@ -2593,7 +2593,7 @@ async function loadPluginFromMarketplaceEntry(
  * entry supplementation — is identical. Extracted so the cache-only path
  * doesn't duplicate ~500 lines.
  */
-async function finishLoadingPluginFromPath(
+export async function finishLoadingPluginFromPath(
   entry: PluginMarketplaceEntry,
   pluginId: string,
   enabled: boolean,

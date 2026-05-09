@@ -1,14 +1,17 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
-import { join, resolve } from 'path'
-import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { setInlinePlugins } from '../../bootstrap/state.js'
 import type { LoadedPlugin } from '../../types/plugin.js'
 import type { HooksSettings } from '../settings/types.js'
+import type { PluginMarketplaceEntry } from './schemas.js'
 import {
   clearPluginCache,
   createPluginFromPath,
+  finishLoadingPluginFromPath,
   mergeHooksSettings,
   mergePluginSources,
   resolveExistingPluginComponentPath,
@@ -498,5 +501,68 @@ describe('resolvePluginComponentPath', () => {
     } finally {
       await rm(tempRoot, { recursive: true, force: true })
     }
+  })
+})
+
+describe('finishLoadingPluginFromPath — marketplace hook supplement', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'openclaude-plugin-test-'))
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  test('concatenates marketplace entry hooks with plugin.json hooks for the same event', async () => {
+    // Arrange: write a minimal plugin on disk with a PreToolUse hook
+    await mkdir(join(tmpDir, '.claude-plugin'), { recursive: true })
+    await writeFile(
+      join(tmpDir, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'test-plugin', version: '1.0.0' }),
+    )
+    await mkdir(join(tmpDir, 'hooks'), { recursive: true })
+    await writeFile(
+      join(tmpDir, 'hooks', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo from-plugin-json' }] },
+          ],
+        },
+      }),
+    )
+
+    // Marketplace entry supplements PreToolUse with an additional matcher
+    const entry = {
+      name: 'test-plugin',
+      source: 'test-source',
+      strict: true,
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Write', hooks: [{ type: 'command', command: 'echo from-marketplace' }] },
+        ],
+      },
+    } as unknown as PluginMarketplaceEntry
+
+    const errors: Parameters<typeof finishLoadingPluginFromPath>[3] = []
+
+    // Act: run the actual loader path
+    const plugin = await finishLoadingPluginFromPath(
+      entry,
+      'test-plugin@marketplace',
+      true,
+      errors,
+      tmpDir,
+    )
+
+    // Assert: both matchers are present in order — plugin.json first, marketplace second
+    expect(plugin).not.toBeNull()
+    const preToolUse = plugin!.hooksConfig?.PreToolUse as Array<{ matcher: string }>
+    expect(preToolUse).toHaveLength(2)
+    expect(preToolUse[0]!.matcher).toBe('Bash')
+    expect(preToolUse[1]!.matcher).toBe('Write')
+    expect(errors).toHaveLength(0)
   })
 })
