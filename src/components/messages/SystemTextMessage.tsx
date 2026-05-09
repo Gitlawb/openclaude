@@ -295,7 +295,7 @@ function StopHookSummaryMessage(t0) {
     const t3 = hookCount === 1 ? "hook" : "hooks";
     let t4;
     if ($[5] !== hookCount || $[6] !== message.hookLabel || $[7] !== t3 || $[8] !== totalStr) {
-      t4 = <Text dimColor={true}>{"  \u23BF  "}Ran {hookCount} {message.hookLabel}{" "}{t3}{totalStr}</Text>;
+      t4 = <Text dimColor={true}>{"  \u2514  "}Ran {hookCount} {message.hookLabel}{" "}{t3}{totalStr}</Text>;
       $[5] = hookCount;
       $[6] = message.hookLabel;
       $[7] = t3;
@@ -421,7 +421,7 @@ function _temp3(info_0, idx_0) {
 }
 function _temp2(info, idx) {
   const durationStr = false && info.durationMs !== undefined ? ` (${formatSecondsShort(info.durationMs)})` : "";
-  return <Text key={`cmd-${idx}`} dimColor={true}>{"     \u23BF "}{info.command === "prompt" ? `prompt: ${info.promptText || ""}` : info.command}{durationStr}</Text>;
+  return <Text key={`cmd-${idx}`} dimColor={true}>{"     \u2514 "}{info.command === "prompt" ? `prompt: ${info.promptText || ""}` : info.command}{durationStr}</Text>;
 }
 function _temp(sum, h) {
   return sum + (h.durationMs ?? 0);

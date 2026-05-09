@@ -71,7 +71,7 @@ function IndentedContent(t0) {
   }
   let t1;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = <Text dimColor={true}>{"  \u23BF  "}</Text>;
+    t1 = <Text dimColor={true}>{"  \u2514  "}</Text>;
     $[2] = t1;
   } else {
     t1 = $[2];
@@ -148,7 +148,7 @@ function CloudLaunchContent(t0) {
   }
   let t6;
   if ($[14] !== rest) {
-    t6 = rest && <FullWidthRow><Text dimColor={true}>{"  \u23BF  "}</Text><Text dimColor={true}>{rest}</Text></FullWidthRow>;
+    t6 = rest && <FullWidthRow><Text dimColor={true}>{"  \u2514  "}</Text><Text dimColor={true}>{rest}</Text></FullWidthRow>;
     $[14] = rest;
     $[15] = t6;
   } else {
