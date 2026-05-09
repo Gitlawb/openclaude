@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { LoadedPlugin } from '../../types/plugin.js'
-import { mergePluginSources } from './pluginLoader.js'
+import {
+  mergePluginSources,
+  resolvePluginComponentPath,
+} from './pluginLoader.js'
 
 function marketplacePlugin(
   name: string,
@@ -67,5 +70,24 @@ describe('mergePluginSources', () => {
       source: legacy.source,
       plugin: legacy.name,
     })
+  })
+})
+
+describe('resolvePluginComponentPath', () => {
+  test('keeps relative component paths inside the plugin directory', () => {
+    expect(resolvePluginComponentPath('/tmp/plugin', 'commands/build.md')).toBe(
+      '/tmp/plugin/commands/build.md',
+    )
+  })
+
+  test('rejects component paths that traverse outside the plugin directory', () => {
+    expect(resolvePluginComponentPath('/tmp/plugin', '../secret.md')).toBeNull()
+    expect(
+      resolvePluginComponentPath('/tmp/plugin', 'commands/../../secret.md'),
+    ).toBeNull()
+  })
+
+  test('rejects absolute component paths outside the plugin directory', () => {
+    expect(resolvePluginComponentPath('/tmp/plugin', '/etc/passwd')).toBeNull()
   })
 })

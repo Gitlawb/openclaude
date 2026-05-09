@@ -45,7 +45,7 @@ import {
   symlink,
 } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
-import { basename, dirname, join, relative, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { getInlinePlugins } from '../../bootstrap/state.js'
 import {
   BUILTIN_MARKETPLACE_NAME,
@@ -1282,15 +1282,31 @@ async function validatePluginPaths(
   // Parallelize the async pathExists checks
   const checks = await Promise.all(
     relPaths.map(async relPath => {
-      const fullPath = join(pluginPath, relPath)
+      const fullPath = resolvePluginComponentPath(pluginPath, relPath)
+      if (!fullPath) {
+        return { relPath, fullPath, exists: false, outOfBounds: true }
+      }
       return { relPath, fullPath, exists: await pathExists(fullPath) }
     }),
   )
   // Process results in original order to keep error/log ordering deterministic
   const validPaths: string[] = []
-  for (const { relPath, fullPath, exists } of checks) {
+  for (const { relPath, fullPath, exists, outOfBounds } of checks) {
+    if (outOfBounds) {
+      logForDebugging(
+        `${componentLabel} path ${relPath} ${contextLabel} resolves outside plugin directory ${pluginPath} for ${pluginName}`,
+        { level: 'warn' },
+      )
+      errors.push({
+        type: 'generic-error',
+        source,
+        plugin: pluginName,
+        error: `${componentLabel} path ${relPath} resolves outside plugin directory for ${pluginName}`,
+      })
+      continue
+    }
     if (exists) {
-      validPaths.push(fullPath)
+      validPaths.push(fullPath!)
     } else {
       logForDebugging(
         `${componentLabel} path ${relPath} ${contextLabel} not found at ${fullPath} for ${pluginName}`,
@@ -1305,12 +1321,32 @@ async function validatePluginPaths(
         type: 'path-not-found',
         source,
         plugin: pluginName,
-        path: fullPath,
+        path: fullPath!,
         component,
       })
     }
   }
   return validPaths
+}
+
+export function resolvePluginComponentPath(
+  pluginPath: string,
+  componentPath: string,
+): string | null {
+  const root = resolve(pluginPath)
+  const fullPath = resolve(root, componentPath)
+  const relativePath = relative(root, fullPath)
+
+  if (
+    relativePath === '' ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    return null
+  }
+
+  return fullPath
 }
 
 /**
@@ -1421,7 +1457,20 @@ export async function createPluginFromPath(
             return { commandName, metadata, kind: 'skip' as const }
           }
           if (metadata.source) {
-            const fullPath = join(pluginPath, metadata.source)
+            const fullPath = resolvePluginComponentPath(
+              pluginPath,
+              metadata.source,
+            )
+            if (!fullPath) {
+              return {
+                commandName,
+                metadata,
+                kind: 'source' as const,
+                fullPath,
+                exists: false,
+                outOfBounds: true,
+              }
+            }
             return {
               commandName,
               metadata,
@@ -1444,8 +1493,21 @@ export async function createPluginFromPath(
           continue
         }
         // kind === 'source'
+        if ('outOfBounds' in check && check.outOfBounds) {
+          logForDebugging(
+            `Command ${check.commandName} path ${check.metadata.source} specified in manifest resolves outside plugin directory ${pluginPath} for ${manifest.name}`,
+            { level: 'warn' },
+          )
+          errors.push({
+            type: 'generic-error',
+            source,
+            plugin: manifest.name,
+            error: `Command ${check.commandName} path ${check.metadata.source} resolves outside plugin directory for ${manifest.name}`,
+          })
+          continue
+        }
         if (check.exists) {
-          validPaths.push(check.fullPath)
+          validPaths.push(check.fullPath!)
           commandsMetadata[check.commandName] = check.metadata
         } else {
           logForDebugging(
@@ -1461,7 +1523,7 @@ export async function createPluginFromPath(
             type: 'path-not-found',
             source,
             plugin: manifest.name,
-            path: check.fullPath,
+            path: check.fullPath!,
             component: 'commands',
           })
         }
@@ -1487,7 +1549,10 @@ export async function createPluginFromPath(
           if (typeof cmdPath !== 'string') {
             return { cmdPath, kind: 'invalid' as const }
           }
-          const fullPath = join(pluginPath, cmdPath)
+          const fullPath = resolvePluginComponentPath(pluginPath, cmdPath)
+          if (!fullPath) {
+            return { cmdPath, kind: 'out-of-bounds' as const }
+          }
           return {
             cmdPath,
             kind: 'path' as const,
@@ -1503,6 +1568,19 @@ export async function createPluginFromPath(
             `Unexpected command format in manifest for ${manifest.name}`,
             { level: 'error' },
           )
+          continue
+        }
+        if (check.kind === 'out-of-bounds') {
+          logForDebugging(
+            `Command path ${check.cmdPath} specified in manifest resolves outside plugin directory ${pluginPath} for ${manifest.name}`,
+            { level: 'warn' },
+          )
+          errors.push({
+            type: 'generic-error',
+            source,
+            plugin: manifest.name,
+            error: `Command path ${check.cmdPath} resolves outside plugin directory for ${manifest.name}`,
+          })
           continue
         }
         if (check.exists) {
@@ -2487,7 +2565,20 @@ async function finishLoadingPluginFromPath(
             if (!metadata || typeof metadata !== 'object' || !metadata.source) {
               return { commandName, metadata, skip: true as const }
             }
-            const fullPath = join(pluginPath, metadata.source)
+            const fullPath = resolvePluginComponentPath(
+              pluginPath,
+              metadata.source,
+            )
+            if (!fullPath) {
+              return {
+                commandName,
+                metadata,
+                skip: false as const,
+                fullPath,
+                exists: false,
+                outOfBounds: true,
+              }
+            }
             return {
               commandName,
               metadata,
@@ -2499,8 +2590,21 @@ async function finishLoadingPluginFromPath(
         )
         for (const check of checks) {
           if (check.skip) continue
+          if ('outOfBounds' in check && check.outOfBounds) {
+            logForDebugging(
+              `Command ${check.commandName} path ${check.metadata.source} from marketplace entry resolves outside plugin directory ${pluginPath} for ${entry.name}`,
+              { level: 'warn' },
+            )
+            errors.push({
+              type: 'generic-error',
+              source: pluginId,
+              plugin: entry.name,
+              error: `Command ${check.commandName} path ${check.metadata.source} resolves outside plugin directory for ${entry.name}`,
+            })
+            continue
+          }
           if (check.exists) {
-            validPaths.push(check.fullPath)
+            validPaths.push(check.fullPath!)
             commandsMetadata[check.commandName] = check.metadata
           } else {
             logForDebugging(
@@ -2516,7 +2620,7 @@ async function finishLoadingPluginFromPath(
               type: 'path-not-found',
               source: pluginId,
               plugin: entry.name,
-              path: check.fullPath,
+              path: check.fullPath!,
               component: 'commands',
             })
           }
@@ -2538,7 +2642,10 @@ async function finishLoadingPluginFromPath(
             if (typeof cmdPath !== 'string') {
               return { cmdPath, kind: 'invalid' as const }
             }
-            const fullPath = join(pluginPath, cmdPath)
+            const fullPath = resolvePluginComponentPath(pluginPath, cmdPath)
+            if (!fullPath) {
+              return { cmdPath, kind: 'out-of-bounds' as const }
+            }
             return {
               cmdPath,
               kind: 'path' as const,
@@ -2554,6 +2661,19 @@ async function finishLoadingPluginFromPath(
               `Unexpected command format in marketplace entry for ${entry.name}`,
               { level: 'error' },
             )
+            continue
+          }
+          if (check.kind === 'out-of-bounds') {
+            logForDebugging(
+              `Command path ${check.cmdPath} from marketplace entry resolves outside plugin directory ${pluginPath} for ${entry.name}`,
+              { level: 'warn' },
+            )
+            errors.push({
+              type: 'generic-error',
+              source: pluginId,
+              plugin: entry.name,
+              error: `Command path ${check.cmdPath} resolves outside plugin directory for ${entry.name}`,
+            })
             continue
           }
           if (check.exists) {
@@ -2620,17 +2740,33 @@ async function finishLoadingPluginFromPath(
       // (once in a debug log template, once in the if) — now called once.
       const checks = await Promise.all(
         skillPaths.map(async skillPath => {
-          const fullPath = join(pluginPath, skillPath)
+          const fullPath = resolvePluginComponentPath(pluginPath, skillPath)
+          if (!fullPath) {
+            return { skillPath, fullPath, exists: false, outOfBounds: true }
+          }
           return { skillPath, fullPath, exists: await pathExists(fullPath) }
         }),
       )
       const validPaths: string[] = []
-      for (const { skillPath, fullPath, exists } of checks) {
+      for (const { skillPath, fullPath, exists, outOfBounds } of checks) {
+        if (outOfBounds) {
+          logForDebugging(
+            `Skill path ${skillPath} from marketplace entry resolves outside plugin directory ${pluginPath} for ${entry.name}`,
+            { level: 'warn' },
+          )
+          errors.push({
+            type: 'generic-error',
+            source: pluginId,
+            plugin: entry.name,
+            error: `Skill path ${skillPath} resolves outside plugin directory for ${entry.name}`,
+          })
+          continue
+        }
         logForDebugging(
           `Checking skill path: ${skillPath} -> ${fullPath} (exists: ${exists})`,
         )
         if (exists) {
-          validPaths.push(fullPath)
+          validPaths.push(fullPath!)
         } else {
           logForDebugging(
             `Skill path ${skillPath} from marketplace entry not found at ${fullPath} for ${entry.name}`,
@@ -2645,7 +2781,7 @@ async function finishLoadingPluginFromPath(
             type: 'path-not-found',
             source: pluginId,
             plugin: entry.name,
-            path: fullPath,
+            path: fullPath!,
             component: 'skills',
           })
         }
@@ -2738,7 +2874,20 @@ async function finishLoadingPluginFromPath(
             if (!metadata || typeof metadata !== 'object' || !metadata.source) {
               return { commandName, metadata, skip: true as const }
             }
-            const fullPath = join(pluginPath, metadata.source)
+            const fullPath = resolvePluginComponentPath(
+              pluginPath,
+              metadata.source,
+            )
+            if (!fullPath) {
+              return {
+                commandName,
+                metadata,
+                skip: false as const,
+                fullPath,
+                exists: false,
+                outOfBounds: true,
+              }
+            }
             return {
               commandName,
               metadata,
@@ -2750,8 +2899,21 @@ async function finishLoadingPluginFromPath(
         )
         for (const check of checks) {
           if (check.skip) continue
+          if ('outOfBounds' in check && check.outOfBounds) {
+            logForDebugging(
+              `Command ${check.commandName} path ${check.metadata.source} from marketplace entry resolves outside plugin directory ${pluginPath} for ${entry.name}`,
+              { level: 'warn' },
+            )
+            errors.push({
+              type: 'generic-error',
+              source: pluginId,
+              plugin: entry.name,
+              error: `Command ${check.commandName} path ${check.metadata.source} resolves outside plugin directory for ${entry.name}`,
+            })
+            continue
+          }
           if (check.exists) {
-            validPaths.push(check.fullPath)
+            validPaths.push(check.fullPath!)
             commandsMetadata[check.commandName] = check.metadata
           } else {
             logForDebugging(
@@ -2767,7 +2929,7 @@ async function finishLoadingPluginFromPath(
               type: 'path-not-found',
               source: pluginId,
               plugin: entry.name,
-              path: check.fullPath,
+              path: check.fullPath!,
               component: 'commands',
             })
           }
@@ -2792,7 +2954,10 @@ async function finishLoadingPluginFromPath(
             if (typeof cmdPath !== 'string') {
               return { cmdPath, kind: 'invalid' as const }
             }
-            const fullPath = join(pluginPath, cmdPath)
+            const fullPath = resolvePluginComponentPath(pluginPath, cmdPath)
+            if (!fullPath) {
+              return { cmdPath, kind: 'out-of-bounds' as const }
+            }
             return {
               cmdPath,
               kind: 'path' as const,
@@ -2808,6 +2973,19 @@ async function finishLoadingPluginFromPath(
               `Unexpected command format in marketplace entry for ${entry.name}`,
               { level: 'error' },
             )
+            continue
+          }
+          if (check.kind === 'out-of-bounds') {
+            logForDebugging(
+              `Command path ${check.cmdPath} from marketplace entry resolves outside plugin directory ${pluginPath} for ${entry.name}`,
+              { level: 'warn' },
+            )
+            errors.push({
+              type: 'generic-error',
+              source: pluginId,
+              plugin: entry.name,
+              error: `Command path ${check.cmdPath} resolves outside plugin directory for ${entry.name}`,
+            })
             continue
           }
           if (check.exists) {
