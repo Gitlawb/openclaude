@@ -22,9 +22,9 @@ describe('/update command registration', () => {
     expect(names).toContain('self-update')
   })
 
-  test('marks update as bridge-safe', () => {
-    expect(BRIDGE_SAFE_COMMANDS).toContain(update)
-    expect(isBridgeSafeCommand(update)).toBe(true)
+  test('does not mark update as bridge-safe (spawns local installer)', () => {
+    expect(BRIDGE_SAFE_COMMANDS).not.toContain(update)
+    expect(isBridgeSafeCommand(update)).toBe(false)
   })
 
   test('resolves update by alias', () => {

@@ -681,7 +681,6 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     cost, // Show session cost
     summary, // Summarize conversation
     releaseNotes, // Show changelog
-    update, // Update CLI to latest version
     files, // List tracked files
   ].filter((c): c is Command => c !== null),
 )

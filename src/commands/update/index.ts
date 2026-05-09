@@ -8,7 +8,6 @@ import type {
   LocalCommandCall,
   LocalCommandResult,
 } from '../../types/command.js'
-import { getSourceBuildUpdateMessage } from '../../cli/updateMessage.js'
 import { isInBundledMode } from '../../utils/bundledMode.js'
 
 const update = {
@@ -32,10 +31,6 @@ async function call(
   _args: string,
   _context: Parameters<LocalCommandCall>[1],
 ): Promise<LocalCommandResult> {
-  if (!isInBundledMode()) {
-    return { type: 'text', value: getSourceBuildUpdateMessage() }
-  }
-
   return new Promise((resolve) => {
     const { command, args } = resolveUpdateCommand()
     const child = spawn(command, args, {

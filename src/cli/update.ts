@@ -1,5 +1,6 @@
 import chalk from 'chalk'
 import { logEvent } from 'src/services/analytics/index.js'
+import { getAPIProvider } from 'src/utils/model/providers.js'
 import { getLatestVersion, type InstallStatus, installGlobalPackage } from 'src/utils/autoUpdater.js'
 import { regenerateCompletionCache } from 'src/utils/completionCache.js'
 import {
@@ -32,6 +33,15 @@ export async function update() {
     `update: Config install method: ${diagnostic.configInstallMethod}`,
   )
 
+  // Block updates for third-party providers to prevent replacing the
+  // OpenClaude/provider-shim build with an incompatible upstream binary
+  if (getAPIProvider() !== 'firstParty') {
+    writeToStdout(
+      'Auto-update is only available for first-party OpenClaude installs.\n',
+    )
+    await gracefulShutdown(0)
+  }
+
   // Check for multiple installations
   if (diagnostic.multipleInstallations.length > 1) {
     writeToStdout('\n')
@@ -62,8 +72,8 @@ export async function update() {
   }
 
   if (
-    diagnostic.installationType !== 'npm-global' &&
-    diagnostic.installationType !== 'npm-local'
+    diagnostic.installationType === 'development' ||
+    diagnostic.installationType === 'unknown'
   ) {
     writeToStdout('\n')
     writeToStdout(getSourceBuildUpdateMessage() + '\n')
@@ -196,6 +206,12 @@ export async function update() {
     case 'npm-global':
       useLocalUpdate = false
       updateMethodName = 'global'
+      break
+    case 'native':
+      updateMethodName = 'native'
+      break
+    case 'package-manager':
+      updateMethodName = diagnostic.packageManager || 'package manager'
       break
   }
 
