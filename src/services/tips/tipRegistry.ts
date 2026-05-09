@@ -390,7 +390,7 @@ const externalTips: Tip[] = [
   {
     id: 'custom-commands',
     content: async () =>
-      'Skills let you create personal slash commands. Add a skill-name/SKILL.md to .claude/skills/ in your project, or to ~/.claude/skills/ (create the folder if it doesn\'t exist) to make it available in every project. Run /skills to see what\'s loaded.',
+      'Skills let you create personal slash commands. Add a skill-name/SKILL.md to .claude/skills/ in your project, or to ~/.openclaude/skills/ (create the folder if it doesn\'t exist) to make it available in every project. Run /skills to see what\'s loaded.',
     cooldownSessions: 15,
     async isRelevant() {
       const config = getGlobalConfig()
