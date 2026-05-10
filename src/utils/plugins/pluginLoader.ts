@@ -1755,18 +1755,33 @@ export async function createPluginFromPath(
 
   // Load from standard hooks/hooks.json if it exists
   const standardHooksPath = join(pluginPath, 'hooks', 'hooks.json')
-  if (await pathExists(standardHooksPath)) {
+  const standardHooks = await resolveExistingPluginComponentPath(
+    pluginPath,
+    join('hooks', 'hooks.json'),
+  )
+  if (standardHooks.outOfBounds) {
+    logForDebugging(
+      `Hooks path hooks/hooks.json resolves outside plugin directory ${pluginPath} for ${manifest.name}`,
+      { level: 'warn' },
+    )
+    errors.push({
+      type: 'generic-error',
+      source,
+      plugin: manifest.name,
+      error: `Hooks path hooks/hooks.json resolves outside plugin directory for ${manifest.name}`,
+    })
+  } else if (standardHooks.exists && standardHooks.fullPath) {
     try {
-      mergedHooks = await loadPluginHooks(standardHooksPath, manifest.name)
+      mergedHooks = await loadPluginHooks(standardHooks.fullPath, manifest.name)
       // Track the normalized path to prevent duplicate loading
       try {
-        loadedHookPaths.add(await realpath(standardHooksPath))
+        loadedHookPaths.add(await realpath(standardHooks.fullPath))
       } catch {
         // If realpathSync fails, use original path
-        loadedHookPaths.add(standardHooksPath)
+        loadedHookPaths.add(standardHooks.fullPath)
       }
       logForDebugging(
-        `Loaded hooks from standard location for plugin ${manifest.name}: ${standardHooksPath}`,
+        `Loaded hooks from standard location for plugin ${manifest.name}: ${standardHooks.fullPath}`,
       )
     } catch (error) {
       const errorMsg = errorMessage(error)
@@ -1781,7 +1796,7 @@ export async function createPluginFromPath(
         type: 'hook-load-failed',
         source,
         plugin: manifest.name,
-        hookPath: standardHooksPath,
+        hookPath: standardHooks.fullPath ?? standardHooksPath,
         reason: errorMsg,
       })
     }
@@ -1796,8 +1811,27 @@ export async function createPluginFromPath(
     for (const hookSpec of manifestHooksArray) {
       if (typeof hookSpec === 'string') {
         // Path to additional hooks file
-        const hookFilePath = join(pluginPath, hookSpec)
-        if (!(await pathExists(hookFilePath))) {
+        const resolvedHookFile = await resolveExistingPluginComponentPath(
+          pluginPath,
+          hookSpec,
+        )
+        const hookFilePath =
+          resolvedHookFile.fullPath ?? join(pluginPath, hookSpec)
+        if (resolvedHookFile.outOfBounds) {
+          logForDebugging(
+            `Hooks file ${hookSpec} specified in manifest resolves outside plugin directory ${pluginPath} for ${manifest.name}`,
+            { level: 'warn' },
+          )
+          errors.push({
+            type: 'generic-error',
+            source,
+            plugin: manifest.name,
+            error: `Hooks path ${hookSpec} resolves outside plugin directory for ${manifest.name}`,
+          })
+          continue
+        }
+
+        if (!resolvedHookFile.exists) {
           logForDebugging(
             `Hooks file ${hookSpec} specified in manifest but not found at ${hookFilePath} for ${manifest.name}`,
             { level: 'error' },

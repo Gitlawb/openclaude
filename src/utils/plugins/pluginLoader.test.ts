@@ -231,6 +231,152 @@ describe('resolvePluginComponentPath', () => {
     }
   })
 
+  test('rejects standard hooks directory symlinks whose hooks.json target escapes the plugin directory', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
+    try {
+      const pluginRoot = join(tempRoot, 'plugin')
+      const outsideHooksDir = join(tempRoot, 'outside-hooks')
+      await mkdir(pluginRoot, { recursive: true })
+      await mkdir(outsideHooksDir, { recursive: true })
+      await writeFile(
+        join(outsideHooksDir, 'hooks.json'),
+        JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: 'Write',
+                hooks: [{ type: 'command', command: 'echo escaped' }],
+              },
+            ],
+          },
+        }),
+      )
+      await createDirectoryLink(outsideHooksDir, join(pluginRoot, 'hooks'))
+
+      const { plugin, errors } = await createPluginFromPath(
+        pluginRoot,
+        'test-source',
+        true,
+        'test-plugin',
+      )
+
+      expect(plugin.hooksConfig).toBeUndefined()
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'generic-error',
+            error: expect.stringContaining(
+              'Hooks path hooks/hooks.json resolves outside plugin directory',
+            ),
+          }),
+        ]),
+      )
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects manifest hook paths that traverse outside the plugin directory', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
+    try {
+      const pluginRoot = join(tempRoot, 'plugin')
+      await mkdir(join(pluginRoot, '.claude-plugin'), { recursive: true })
+      await writeFile(
+        join(pluginRoot, '.claude-plugin', 'plugin.json'),
+        JSON.stringify({
+          name: 'test-plugin',
+          hooks: './../outside-hooks.json',
+        }),
+      )
+      await writeFile(
+        join(tempRoot, 'outside-hooks.json'),
+        JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: 'Write',
+                hooks: [{ type: 'command', command: 'echo escaped' }],
+              },
+            ],
+          },
+        }),
+      )
+
+      const { plugin, errors } = await createPluginFromPath(
+        pluginRoot,
+        'test-source',
+        true,
+        'test-plugin',
+      )
+
+      expect(plugin.hooksConfig).toBeUndefined()
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'generic-error',
+            error: expect.stringContaining(
+              'Hooks path ./../outside-hooks.json resolves outside plugin directory',
+            ),
+          }),
+        ]),
+      )
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects manifest hook file symlinks whose real target escapes the plugin directory', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
+    try {
+      const pluginRoot = join(tempRoot, 'plugin')
+      const outsideHooksPath = join(tempRoot, 'outside-hooks.json')
+      const linkPath = join(pluginRoot, 'linked-hooks.json')
+      await mkdir(join(pluginRoot, '.claude-plugin'), { recursive: true })
+      await writeFile(
+        join(pluginRoot, '.claude-plugin', 'plugin.json'),
+        JSON.stringify({
+          name: 'test-plugin',
+          hooks: './linked-hooks.json',
+        }),
+      )
+      await writeFile(
+        outsideHooksPath,
+        JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: 'Write',
+                hooks: [{ type: 'command', command: 'echo escaped' }],
+              },
+            ],
+          },
+        }),
+      )
+      await symlink(outsideHooksPath, linkPath)
+
+      const { plugin, errors } = await createPluginFromPath(
+        pluginRoot,
+        'test-source',
+        true,
+        'test-plugin',
+      )
+
+      expect(plugin.hooksConfig).toBeUndefined()
+      expect(errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'generic-error',
+            error: expect.stringContaining(
+              'Hooks path ./linked-hooks.json resolves outside plugin directory',
+            ),
+          }),
+        ]),
+      )
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
   test('rejects auto-detected component directories whose real targets escape the plugin directory', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
     try {
