@@ -1,15 +1,24 @@
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 
+import { setInlinePlugins } from '../../bootstrap/state.js'
 import type { LoadedPlugin } from '../../types/plugin.js'
 import {
+  clearPluginCache,
   createPluginFromPath,
   mergePluginSources,
   resolveExistingPluginComponentPath,
   resolvePluginComponentPath,
 } from './pluginLoader.js'
+import { clearPluginSkillsCache, getPluginSkills } from './loadPluginCommands.js'
+
+afterEach(() => {
+  setInlinePlugins([])
+  clearPluginCache('pluginLoader.test cleanup')
+  clearPluginSkillsCache()
+})
 
 function marketplacePlugin(
   name: string,
@@ -186,6 +195,37 @@ describe('resolvePluginComponentPath', () => {
         exists: true,
         outOfBounds: true,
       })
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('skips nested symlinked skill directories that resolve outside the plugin directory', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'plugin-paths-'))
+    try {
+      const pluginRoot = join(tempRoot, 'plugin')
+      const skillsDir = join(pluginRoot, 'skills')
+      const safeSkillDir = join(skillsDir, 'safe-skill')
+      const outsideSkillDir = join(tempRoot, 'outside-skill')
+      const linkedSkillDir = join(skillsDir, 'linked-skill')
+
+      await mkdir(safeSkillDir, { recursive: true })
+      await mkdir(outsideSkillDir, { recursive: true })
+      await writeFile(join(safeSkillDir, 'SKILL.md'), '# Safe skill\n')
+      await writeFile(join(outsideSkillDir, 'SKILL.md'), '# Escaped skill\n')
+      await createDirectoryLink(outsideSkillDir, linkedSkillDir)
+
+      setInlinePlugins([pluginRoot])
+      clearPluginCache('nested symlinked skill test')
+      clearPluginSkillsCache()
+
+      const skills = await getPluginSkills()
+
+      expect(
+        skills
+          .map(skill => skill.name)
+          .filter(name => name.startsWith('plugin:')),
+      ).toEqual(['plugin:safe-skill'])
     } finally {
       await rm(tempRoot, { recursive: true, force: true })
     }
