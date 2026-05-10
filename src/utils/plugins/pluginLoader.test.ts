@@ -352,7 +352,12 @@ describe('resolvePluginComponentPath', () => {
           },
         }),
       )
-      await symlink(outsideHooksPath, linkPath)
+      try {
+        await symlink(outsideHooksPath, linkPath)
+      } catch {
+        // Some Windows environments require elevated privileges for symlinks.
+        return
+      }
 
       const { plugin, errors } = await createPluginFromPath(
         pluginRoot,
