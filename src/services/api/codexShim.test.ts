@@ -505,6 +505,26 @@ describe('Codex request translation', () => {
     expect(valueSchema.description).toBe('Any JSON value')
   })
 
+  test('drops orphan required keys when Ruflo MCP schema has no properties', () => {
+    const tools = convertToolsToResponsesTools([
+      {
+        name: 'mcp__ruflo__daa_workflow_create',
+        description: 'Create a Ruflo DAA workflow',
+        input_schema: {
+          type: 'object',
+          required: ['steps'],
+        },
+      },
+    ])
+
+    expect(tools[0].parameters).toEqual({
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    })
+  })
+
   test('infers object type for untyped schemas with nested properties', () => {
     const tools = convertToolsToResponsesTools([
       {

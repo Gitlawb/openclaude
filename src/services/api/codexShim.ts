@@ -394,7 +394,6 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
       !Array.isArray(record.properties)
     ) {
       const props = record.properties as Record<string, unknown>
-      const allKeys = Object.keys(props)
 
       const enforcedProps: Record<string, unknown> = {}
       for (const [key, value] of Object.entries(props)) {
@@ -417,7 +416,8 @@ function enforceStrictSchema(schema: unknown): Record<string, unknown> {
       record.properties = enforcedProps
       record.required = Object.keys(enforcedProps)
     } else {
-      // No properties — empty required array
+      // No properties — empty object schema with empty required array
+      record.properties = {}
       record.required = []
     }
   }
