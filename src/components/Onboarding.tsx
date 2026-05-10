@@ -19,6 +19,7 @@ import { Select } from './CustomSelect/select.js';
 import { WelcomeV2 } from './LogoV2/WelcomeV2.js';
 import { PressEnterToContinue } from './PressEnterToContinue.js';
 import { ThemePicker } from './ThemePicker.js';
+import { OrderedList } from './ui/OrderedList.js';
 type StepId = 'preflight' | 'theme' | 'oauth' | 'api-key' | 'security' | 'terminal-setup';
 interface OnboardingStep {
   id: StepId;
@@ -63,15 +64,33 @@ export function Onboarding({
     />
     </Box>;
   const securityStep = <Box flexDirection="column" gap={1} paddingLeft={1}>
-      <Text bold>Security note:</Text>
+      <Text bold>Security notes:</Text>
       <Box flexDirection="column" width={70}>
-        <Text>{PRODUCT_DISPLAY_NAME} can make mistakes</Text>
-        <Text dimColor wrap="wrap">
-          You should always review {PRODUCT_DISPLAY_NAME}&apos;s responses,
-          especially when
-          <Newline />
-          running code.
-        </Text>
+        {/**
+         * OrderedList misnumbers items when rendering conditionally,
+         * so put all items in the if/else
+         */}
+        <OrderedList>
+          <OrderedList.Item>
+            <Text>{PRODUCT_DISPLAY_NAME} can make mistakes</Text>
+            <Text dimColor wrap="wrap">
+              You should always review {PRODUCT_DISPLAY_NAME}&apos;s responses,
+              especially when
+              <Newline />
+              running code.
+              <Newline />
+            </Text>
+          </OrderedList.Item>
+          <OrderedList.Item>
+            <Text>
+              Due to prompt injection risks, only use it with code you trust
+            </Text>
+            <Text dimColor wrap="wrap">
+              Repository files and tool output can contain instructions that try
+              to steer {PRODUCT_DISPLAY_NAME} toward unsafe tool use.
+            </Text>
+          </OrderedList.Item>
+        </OrderedList>
       </Box>
       <PressEnterToContinue />
     </Box>;
