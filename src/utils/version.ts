@@ -54,3 +54,7 @@ export const publicBuildVersion = normalizePublicVersion(
 export function getReleaseTagUrl(version: string = publicBuildVersion): string {
   return `${OPENCLAUDE_RELEASES_URL}/tag/v${normalizePublicVersion(version)}`
 }
+
+export function getPublicBuildVersion(): string {
+  return MACRO.DISPLAY_VERSION ?? MACRO.VERSION
+}

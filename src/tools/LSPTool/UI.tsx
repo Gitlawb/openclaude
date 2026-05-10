@@ -104,7 +104,7 @@ function LSPResultSummary(t0) {
   if (verbose) {
     let t4;
     if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
-      t4 = <Text dimColor={true}>  ⎿  </Text>;
+      t4 = <Text dimColor={true}>  └  </Text>;
       $[9] = t4;
     } else {
       t4 = $[9];

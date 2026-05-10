@@ -1,4 +1,5 @@
 import type { Notification } from 'src/context/notifications.js'
+import { isTeammate, isPlanModeRequired } from '../utils/teammate.js'
 import type { TodoList } from 'src/utils/todo/types.js'
 import type { BridgePermissionCallbacks } from '../bridge/bridgePermissionCallbacks.js'
 import type { Command } from '../commands.js'
@@ -456,13 +457,8 @@ export type AppStateStore = Store<AppState>
 
 export function getDefaultAppState(): AppState {
   // Determine initial permission mode for teammates spawned with plan_mode_required
-  // Use lazy require to avoid circular dependency with teammate.ts
-  /* eslint-disable @typescript-eslint/no-require-imports */
-  const teammateUtils =
-    require('../utils/teammate.js') as typeof import('../utils/teammate.js')
-  /* eslint-enable @typescript-eslint/no-require-imports */
   const initialMode: PermissionMode =
-    teammateUtils.isTeammate() && teammateUtils.isPlanModeRequired()
+    isTeammate() && isPlanModeRequired()
       ? 'plan'
       : 'default'
 

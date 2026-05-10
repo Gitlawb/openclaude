@@ -280,6 +280,11 @@ function convertSystemPrompt(
       .map((block: { type?: string; text?: string }) =>
         block.type === 'text' ? block.text ?? '' : '',
       )
+      // Drop the Anthropic billing/attribution block — it's only meaningful to
+      // Anthropic's `_parse_cc_header` and is dead weight (plus a churning
+      // per-build fingerprint that busts prefix KV cache) for OpenAI-compat
+      // providers like local Ollama / llama.cpp / Codex pass-throughs.
+      .filter(text => !text.startsWith('x-anthropic-billing-header'))
       .join('\n\n')
   }
   return String(system)
@@ -1538,6 +1543,13 @@ class OpenAIShimMessages {
       stream: params.stream ?? false,
       store: false,
     }
+    // Emit reasoning_effort for chat_completions when the resolved provider
+     // request carries a reasoning effort (set via /effort, model alias default,
+     // or `?reasoning=<level>` query on the model string). OpenAI, Codex, and
+     // most OpenAI-compatible endpoints read it from this top-level field.
+    if (request.reasoning) {
+      body.reasoning_effort = request.reasoning.effort
+    }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.
     // Azure OpenAI requires max_completion_tokens and does not accept max_tokens.
     // Ensure max_tokens is a valid positive number before using it.
@@ -1782,6 +1794,11 @@ class OpenAIShimMessages {
       } else if (isBankr) {
         // Bankr uses X-API-Key header instead of Bearer token
         headers['X-API-Key'] = authValue
+      } else if (shimConfig.defaultAuthHeader?.name) {
+        headers[shimConfig.defaultAuthHeader.name] =
+          shimConfig.defaultAuthHeader.scheme === 'bearer'
+            ? `Bearer ${authValue}`
+            : authValue
       } else {
         headers.Authorization = `Bearer ${authValue}`
       }

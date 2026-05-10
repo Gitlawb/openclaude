@@ -19,6 +19,7 @@ import gatewayDashscopeCn from '../gateways/dashscope-cn.js'
 import gatewayDashscopeIntl from '../gateways/dashscope-intl.js'
 import gatewayGithub from '../gateways/github.js'
 import gatewayGroq from '../gateways/groq.js'
+import gatewayHicap from '../gateways/hicap.js'
 import gatewayKimiCode from '../gateways/kimi-code.js'
 import gatewayLmstudio from '../gateways/lmstudio.js'
 import gatewayMistral from '../gateways/mistral.js'
@@ -155,6 +156,20 @@ export const PROVIDER_PRESET_MANIFEST = [
     "description": "Groq OpenAI-compatible endpoint",
     "apiKeyEnvVars": [
       "GROQ_API_KEY"
+    ]
+  },
+  {
+    "preset": "hicap",
+    "routeKind": "gateway",
+    "routeId": "hicap",
+    "vendorId": "openai",
+    "gatewayId": "hicap",
+    "description": "Hicap OpenAI-compatible gateway",
+    "apiKeyEnvVars": [
+      "HICAP_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
     ]
   },
   {
@@ -348,6 +363,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "deepseek",
   "gemini",
   "groq",
+  "hicap",
   "lmstudio",
   "atomic-chat",
   "ollama",

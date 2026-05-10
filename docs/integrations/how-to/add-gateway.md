@@ -30,10 +30,13 @@ Typical gateway cases:
    Use `static`, `dynamic`, or `hybrid`.
 6. Decide whether the gateway needs discovery cache TTL, refresh mode, and
    manual refresh.
-7. For OpenAI-compatible or local routes, add any required static headers and
-   decide whether users may edit API mode and auth/header fields through
+7. For OpenAI-compatible or local routes, add any required static headers,
+   decide whether users may edit API mode and header-related settings through
    `transportConfig.openaiShim.supportsApiFormatSelection` and
-   `transportConfig.openaiShim.supportsAuthHeaders`.
+   `transportConfig.openaiShim.supportsAuthHeaders`, and use
+   `transportConfig.openaiShim.ui.show*` flags to choose which auth-header,
+   auth-value, or custom-header prompts appear for tighter built-in preset
+   flows.
 8. If the gateway should appear in preset-driven `/provider` flows, add a
    `preset` block on the descriptor.
 9. Run `bun run integrations:generate` so the generated loader and preset
@@ -120,6 +123,15 @@ export default defineGateway({
       },
       supportsApiFormatSelection: false,
       supportsAuthHeaders: true,
+      ui: {
+        showAuthHeader: false,
+        showAuthHeaderValue: false,
+        showCustomHeaders: true,
+      },
+      // Optional: use a non-Authorization default auth header.
+      defaultAuthHeader: { name: 'api-key', scheme: 'raw' },
+      // Optional: restrict Responses API mode to model ids with these prefixes.
+      responsesApiModelPrefixes: ['gpt-'],
       maxTokensField: 'max_completion_tokens',
     },
   },
@@ -142,7 +154,8 @@ What this example covers:
 - hosted OpenAI-compatible routing;
 - required static custom headers;
 - API mode editing disabled for a fixed hosted gateway;
-- optional user-supplied auth/header fields enabled;
+- route-owned auth with only regular custom-header prompts shown in the preset UI;
+- route-owned default auth header and Responses API model-prefix rules;
 - a static catalog;
 - a gateway with only its own hosted models;
 - different reasoning/context/input/output behavior across models;
@@ -230,6 +243,8 @@ export default defineGateway({
     source: 'dynamic',
     discovery: {
       kind: 'openai-compatible',
+      // Set requiresAuth: false when /models is public even if inference needs auth.
+      requiresAuth: false,
     },
     discoveryCacheTtl: '1d',
     discoveryRefreshMode: 'startup',
@@ -472,8 +487,8 @@ transportConfig: {
 For OpenAI-compatible or local routes, required static headers belong in
 `transportConfig.openaiShim.headers`.
 
-Optional user-editable API mode and auth/header fields should be allowed only
-when the route really supports them:
+Optional user-editable API mode, auth header, auth-value, and custom-header
+fields should be allowed only when the route really supports them:
 
 ```ts
 transportConfig: {
@@ -484,14 +499,23 @@ transportConfig: {
     },
     supportsApiFormatSelection: false,
     supportsAuthHeaders: true,
+    ui: {
+      showAuthHeader: false,
+      showAuthHeaderValue: false,
+      showCustomHeaders: true,
+    },
   },
 }
 ```
 
 Do not use custom headers as a substitute for transport-family selection.
-Set these flags explicitly. When `supportsAuthHeaders` is false, `/provider
-add` and `/provider edit` should only expose the route's normal credential
-fields. When `supportsApiFormatSelection` is false, `/provider add` and
+Set these flags explicitly. `supportsAuthHeaders` enables header customization
+in general, including auth header prompts and arbitrary custom headers.
+When it is false, `/provider add` and `/provider edit` should only expose the
+route's normal credential fields. When it is true, the
+`openaiShim.ui.showAuthHeader`, `showAuthHeaderValue`, and
+`showCustomHeaders` flags decide which header-related prompts are visible.
+When `supportsApiFormatSelection` is false, `/provider add` and
 `/provider edit` should not expose the API mode picker.
 
 Use:
@@ -501,10 +525,21 @@ Use:
 - `supportsApiFormatSelection: false`
   for fixed hosted or local routes where the descriptor owns the API contract.
 - `supportsAuthHeaders: true`
-  for gateways that support user-provided custom auth/header fields.
+  for gateways that support any user-configurable header behavior, including
+  auth header names, auth header values, or arbitrary custom headers.
 - `supportsAuthHeaders: false`
   for gateways that require a fixed auth contract and should only collect the
   configured credential.
+- `ui.showAuthHeader: false`
+  when the route has descriptor-owned auth and the preset flow should not ask
+  users for an auth header name. Pair this with `defaultAuthHeader` when the
+  descriptor should route the collected API key to a nonstandard auth header.
+- `ui.showAuthHeaderValue: false`
+  when the preset flow should collect only the header name and reuse the API key
+  as the header value.
+- `ui.showCustomHeaders: false`
+  when the route supports gateway header behavior but the built-in preset should
+  not expose arbitrary extra headers.
 
 ## Presets and user-facing gateway onboarding
 

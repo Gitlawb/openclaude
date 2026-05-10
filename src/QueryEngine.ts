@@ -1293,6 +1293,22 @@ export class QueryEngine {
   setThinkingConfig(config: ThinkingConfig): void {
     this.config.thinkingConfig = config
   }
+
+  /**
+   * Get MCP server connections. Returns a readonly array to prevent
+   * external mutation (use setMcpClients or updateTools to modify).
+   */
+  getMcpClients(): readonly MCPServerConnection[] {
+    return this.config.mcpClients
+  }
+
+  /**
+   * Set MCP server connections. Replaces the entire mcpClients array.
+   * Used by SDK to inject session-scoped MCP servers after connection.
+   */
+  setMcpClients(clients: MCPServerConnection[]): void {
+    this.config.mcpClients = clients
+  }
 }
 
 /**

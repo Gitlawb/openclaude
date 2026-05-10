@@ -9,6 +9,12 @@ import {
   refreshAndGetAwsCredentials,
   refreshGcpCredentialsIfNeeded,
 } from 'src/utils/auth.js'
+import {
+  convertEffortValueToLevel,
+  type EffortValue,
+  standardEffortToOpenAI,
+  type OpenAIEffortLevel,
+} from 'src/utils/effort.js'
 import { getUserAgent } from 'src/utils/http.js'
 import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
@@ -164,6 +170,7 @@ export async function getAnthropicClient({
   fetchOverride,
   source,
   providerOverride,
+  effortValue,
 }: {
   apiKey?: string
   maxRetries: number
@@ -171,7 +178,14 @@ export async function getAnthropicClient({
   fetchOverride?: ClientOptions['fetch']
   source?: string
   providerOverride?: ProviderOverride
+  effortValue?: EffortValue
 }): Promise<Anthropic> {
+  // Convert the runtime effort value to the OpenAI-shaped enum the shim
+  // expects. Undefined → shim falls back to descriptor/alias defaults.
+  const shimReasoningEffort: OpenAIEffortLevel | undefined =
+    effortValue !== undefined
+      ? standardEffortToOpenAI(convertEffortValueToLevel(effortValue))
+      : undefined
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
@@ -248,6 +262,7 @@ export async function getAnthropicClient({
       maxRetries,
       timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
       providerOverride,
+      reasoningEffort: shimReasoningEffort,
     }) as unknown as Anthropic
   }
   // GitHub provider in native Anthropic API mode: send requests in Anthropic
@@ -292,6 +307,7 @@ export async function getAnthropicClient({
       defaultHeaders,
       maxRetries,
       timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
+      reasoningEffort: shimReasoningEffort,
     }) as unknown as Anthropic
   }
   if (isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)) {

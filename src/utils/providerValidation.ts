@@ -14,6 +14,7 @@ import {
   getRouteCredentialEnvVars,
   getRouteCredentialValue,
   getRouteDescriptor,
+  getRouteDefaultModel,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
@@ -22,6 +23,7 @@ import {
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
+  shouldUseCodexTransport,
 } from '../services/api/providerConfig.js'
 import { getGlobalClaudeFile } from './env.js'
 import { isBareMode } from './envUtils.js'
@@ -203,6 +205,7 @@ function getRuntimeValidationTarget(
   const request = resolveProviderRequest({
     model: env.OPENAI_MODEL,
     baseUrl: env.OPENAI_BASE_URL,
+    fallbackModel: getRouteDefaultModel('openai'),
   })
 
   const baseUrlMatchedTarget = validationTargets.find(target => {
@@ -391,6 +394,7 @@ export async function getProviderValidationError(
   const request = resolveProviderRequest({
     model: env.OPENAI_MODEL,
     baseUrl: env.OPENAI_BASE_URL,
+    fallbackModel: getRouteDefaultModel('openai'),
   })
   const genericRouteValidation = getGenericRouteCredentialValidationError(
     env,
@@ -399,7 +403,14 @@ export async function getProviderValidationError(
 
   // Codex auth depends on transport resolution plus local auth/account state,
   // so it intentionally stays procedural instead of moving into descriptors.
-  if (request.transport === 'codex_responses') {
+  const explicitBaseUrl =
+    env.OPENAI_BASE_URL?.trim() || env.OPENAI_API_BASE?.trim()
+  const hasExplicitCodexIntent =
+    (env.OPENAI_MODEL?.trim()
+      ? shouldUseCodexTransport(env.OPENAI_MODEL, explicitBaseUrl)
+      : false) || Boolean(explicitBaseUrl && shouldUseCodexTransport('', explicitBaseUrl))
+
+  if (hasExplicitCodexIntent) {
     const credentials = resolveCodexApiCredentials(env)
     if (!credentials.apiKey) {
       const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
@@ -407,6 +418,7 @@ export async function getProviderValidationError(
         ? `${oauthHint} or put auth.json at ${credentials.authPath}`
         : oauthHint
       const safeModel =
+        redactSecretValueForDisplay(env.OPENAI_MODEL, secretSource) ??
         redactSecretValueForDisplay(request.requestedModel, secretSource) ??
         'the requested model'
       return `Codex auth is required for ${safeModel}. Set CODEX_API_KEY${authHint}.`

@@ -903,7 +903,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function closeWithCancelled(message: string): void {
-    onDone({ action: 'cancelled', message })
+    onDone({
+      action: 'cancelled',
+      message:
+        message === 'Provider manager closed' && statusMessage
+          ? statusMessage
+          : message,
+    })
   }
 
   function activateGithubProvider(): string | null {
@@ -1093,17 +1099,26 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       editingProfileId
         ? `Updated provider: ${saved.name}`
         : `Added provider: ${saved.name} (now active)`
+    const adjustedApiFormat =
+      requestedResponses && saved.apiFormat !== 'responses'
+    const routeLabel =
+      getRouteDescriptor(routeId)?.label ?? getRouteProviderTypeLabel(routeId)
+    const responseModelSetLabel = getResponsesApiModelSetLabel(routeId)
+    const apiFormatMessage = adjustedApiFormat
+      ? `. ${routeLabel} only supports the Responses API for ${responseModelSetLabel}, so this profile was saved using Chat Completions.`
+      : ''
+    const finalSuccessMessage = `${successMessage}${apiFormatMessage}`
     setStatusMessage(
       settingsOverrideError
-        ? `${successMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
-        : successMessage,
+        ? `${finalSuccessMessage}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+        : finalSuccessMessage,
     )
 
     if (mode === 'first-run') {
       onDone({
         action: 'saved',
         activeProfileId: saved.id,
-        message: `Provider configured: ${saved.name}`,
+        message: `Provider configured: ${saved.name}${apiFormatMessage}`,
       })
       return
     }

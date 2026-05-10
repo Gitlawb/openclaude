@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,6 +16,7 @@ const originalCwd = process.cwd()
 const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+  'CLAUDE_CONFIG_DIR',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_MISTRAL',
@@ -57,6 +58,7 @@ const RESTORED_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'HICAP_API_KEY',
 ] as const
 
 type MockConfigState = {
@@ -80,6 +82,7 @@ function createMockConfigState(): MockConfigState {
 }
 
 let mockConfigState: MockConfigState = createMockConfigState()
+let testConfigDir: string | null = null
 
 function saveMockGlobalConfig(
   updater: (current: MockConfigState) => MockConfigState,
@@ -91,6 +94,8 @@ beforeEach(() => {
   for (const key of RESTORED_KEYS) {
     delete process.env[key]
   }
+  testConfigDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+  process.env.CLAUDE_CONFIG_DIR = testConfigDir
 })
 
 afterEach(() => {
@@ -105,6 +110,10 @@ afterEach(() => {
   mock.restore()
   mockConfigState = createMockConfigState()
   process.chdir(originalCwd)
+  if (testConfigDir) {
+    rmSync(testConfigDir, { recursive: true, force: true })
+    testConfigDir = null
+  }
 })
 
 async function importFreshProviderProfileModules() {
@@ -411,7 +420,7 @@ describe('applyProviderProfileToProcessEnv', () => {
       buildProfile({
         provider: 'openai',
         baseUrl: 'https://api.hicap.ai/v1',
-        model: 'claude-opus-4.6',
+        model: 'claude-opus-4.7',
         authHeader: 'api-key',
         authScheme: 'raw',
         authHeaderValue: 'hicap-header-value',
@@ -645,6 +654,22 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(applied).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5:3b')
+  })
+
+  beforeEach(() => {
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_USE_MISTRAL
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env.CLAUDE_CODE_USE_BEDROCK
+    delete process.env.CLAUDE_CODE_USE_VERTEX
+    delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
   })
 
   test('applies active profile when a bare CLAUDE_CODE_USE_OPENAI flag is stale (no BASE_URL/MODEL)', async () => {
@@ -1002,6 +1027,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
+  test('hicap preset defaults to the Hicap endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.HICAP_API_KEY = 'hicap-live-key'
+
+    const defaults = getProviderPresetDefaults('hicap')
+
+    expect(defaults.provider).toBe('hicap')
+    expect(defaults.name).toBe('Hicap')
+    expect(defaults.baseUrl).toBe('https://api.hicap.ai/v1')
+    expect(defaults.model).toBe('claude-opus-4.7')
+    expect(defaults.apiKey).toBe('hicap-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('minimax preset defaults to MiniMax M2.7', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
@@ -1029,35 +1068,44 @@ describe('getProviderPresetDefaults', () => {
 
 describe('setActiveProviderProfile', () => {
   test('sets OPENAI_MODEL env var when switching to an openai-type provider', async () => {
-    const { setActiveProviderProfile } =
-      await importFreshProviderProfileModules()
-    const openaiProfile = buildProfile({
-      id: 'openai_prof',
-      name: 'OpenAI Provider',
-      provider: 'openai',
-      baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o',
-    })
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
-    saveMockGlobalConfig(current => ({
-      ...current,
-      providerProfiles: [openaiProfile],
-    }))
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const openaiProfile = buildProfile({
+        id: 'openai_prof',
+        name: 'OpenAI Provider',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      })
 
-    const result = setActiveProviderProfile('openai_prof')
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [openaiProfile],
+      }))
 
-    expect(result?.id).toBe('openai_prof')
-    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
-    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
-    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
-      'openai_prof',
-    )
+      const result = setActiveProviderProfile('openai_prof')
+
+      expect(result?.id).toBe('openai_prof')
+      expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+      expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+      expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+      expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBe(
+        'openai_prof',
+      )
+    } finally {
+      rmSync(configDir, { recursive: true, force: true })
+    }
   })
 
   test('persists no-key openai-compatible profiles for restart fallback', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.OPENAI_API_KEY = 'sk-shell-should-not-persist'
 
     try {
@@ -1079,10 +1127,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('ollama_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('ollama_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('openai')
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'http://localhost:11434/v1',
@@ -1091,12 +1140,15 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
   test('persists primary model for keyed openai-compatible multi-model profiles', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
     try {
       const { setActiveProviderProfile } =
@@ -1118,10 +1170,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('deepseek_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('deepseek_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('openai')
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
@@ -1131,12 +1184,15 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
   test('persists descriptor-backed direct vendors using a legacy-compatible openai startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
     try {
       const { setActiveProviderProfile } =
@@ -1157,10 +1213,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('deepseek_vendor_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('deepseek_vendor_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('openai')
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
@@ -1170,12 +1227,15 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
   test('persists bedrock profiles using a dedicated startup profile kind', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
     try {
       const { setActiveProviderProfile } =
@@ -1195,10 +1255,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('bedrock_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('bedrock_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('bedrock')
       expect(persisted.env).toEqual({
         ANTHROPIC_MODEL: 'claude-sonnet-4-6',
@@ -1207,12 +1268,15 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
   test('persists anthropic profiles using a dedicated anthropic startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
 
     try {
       const { setActiveProviderProfile } =
@@ -1233,10 +1297,11 @@ describe('setActiveProviderProfile', () => {
 
       const result = setActiveProviderProfile('anthro_persisted_prof')
       const persisted = JSON.parse(
-        readFileSync(join(tempDir, '.openclaude-profile.json'), 'utf8'),
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
       )
 
       expect(result?.id).toBe('anthro_persisted_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
       expect(persisted.profile).toBe('anthropic')
       expect(persisted.env).toEqual({
         ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
@@ -1246,6 +1311,7 @@ describe('setActiveProviderProfile', () => {
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
   })
 
@@ -1384,6 +1450,22 @@ describe('setActiveProviderProfile', () => {
 })
 
 describe('deleteProviderProfile', () => {
+  beforeEach(() => {
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+    delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+    delete process.env.CLAUDE_CODE_USE_OPENAI
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_USE_MISTRAL
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env.CLAUDE_CODE_USE_BEDROCK
+    delete process.env.CLAUDE_CODE_USE_VERTEX
+    delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
+    delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_FORMAT
+  })
+
   test('deleting final profile clears provider env when active profile applied it', async () => {
     const {
       applyProviderProfileToProcessEnv,
@@ -1505,6 +1587,43 @@ describe('getProfileModelOptions', () => {
     ])
   })
 
+  test('appends discovered model cache entries for the same profile without duplicates', async () => {
+    const { getProfileModelOptions } =
+      await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      openaiAdditionalModelOptionsCacheByProfile: {
+        provider_test: [
+          {
+            value: 'glm-4.7-flash',
+            label: 'glm-4.7-flash',
+            description: 'Discovered from API',
+          },
+          {
+            value: 'glm-4.7-plus',
+            label: 'glm-4.7-plus',
+            description: 'Discovered from API',
+          },
+        ],
+      },
+    }
+
+    const options = getProfileModelOptions(
+      buildProfile({
+        id: 'provider_test',
+        name: 'Test Provider',
+        model: 'glm-4.7, glm-4.7-flash',
+      }),
+    )
+
+    expect(options).toEqual([
+      { value: 'glm-4.7', label: 'glm-4.7', description: 'Provider: Test Provider' },
+      { value: 'glm-4.7-flash', label: 'glm-4.7-flash', description: 'Provider: Test Provider' },
+      { value: 'glm-4.7-plus', label: 'glm-4.7-plus', description: 'Discovered from API' },
+    ])
+  })
+
   test('returns empty array for empty model field', async () => {
     const { getProfileModelOptions } =
       await importFreshProviderProfileModules()
@@ -1546,5 +1665,141 @@ describe('setActiveProviderProfile model cache', () => {
     expect(cacheValues).toContain('glm-4.7')
     expect(cacheValues).toContain('glm-4.7-flash')
     expect(cacheValues).toContain('glm-4.7-plus')
+  })
+
+  test('merges configured profile models with discovered cache on activation', async () => {
+    const {
+      setActiveProviderProfile,
+      getActiveOpenAIModelOptionsCache,
+    } = await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [
+        buildProfile({
+          id: 'multi_provider',
+          name: 'Multi Provider',
+          model: 'glm-4.7, glm-4.7-flash',
+          baseUrl: 'https://api.example.com/v1',
+        }),
+      ],
+      openaiAdditionalModelOptionsCacheByProfile: {
+        multi_provider: [
+          {
+            value: 'glm-4.7-plus',
+            label: 'glm-4.7-plus',
+            description: 'Discovered from API',
+          },
+          {
+            value: 'glm-4.7-flash',
+            label: 'glm-4.7-flash',
+            description: 'Discovered from API',
+          },
+        ],
+      },
+    }
+
+    setActiveProviderProfile('multi_provider')
+
+    expect(getActiveOpenAIModelOptionsCache()).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Discovered from API',
+      },
+    ])
+  })
+
+  test('merges configured profile models with discovered cache during refresh writes', async () => {
+    const {
+      setActiveOpenAIModelOptionsCache,
+      getActiveOpenAIModelOptionsCache,
+    } = await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [
+        buildProfile({
+          id: 'multi_provider',
+          name: 'Multi Provider',
+          model: 'glm-4.7, glm-4.7-flash',
+          baseUrl: 'https://api.example.com/v1',
+        }),
+      ],
+      activeProviderProfileId: 'multi_provider',
+    }
+
+    setActiveOpenAIModelOptionsCache([
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Discovered from API',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Discovered from API',
+      },
+    ])
+
+    expect(getActiveOpenAIModelOptionsCache()).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-plus',
+        label: 'glm-4.7-plus',
+        description: 'Discovered from API',
+      },
+    ])
+  })
+
+  test('falls back to configured profile models when no discovery cache exists yet', async () => {
+    const {
+      getActiveOpenAIModelOptionsCache,
+    } = await importFreshProviderProfileModules()
+
+    mockConfigState = {
+      ...createMockConfigState(),
+      providerProfiles: [
+        buildProfile({
+          id: 'multi_provider',
+          name: 'Multi Provider',
+          model: 'glm-4.7, glm-4.7-flash',
+          baseUrl: 'https://api.example.com/v1',
+        }),
+      ],
+      activeProviderProfileId: 'multi_provider',
+    }
+
+    expect(getActiveOpenAIModelOptionsCache()).toEqual([
+      {
+        value: 'glm-4.7',
+        label: 'glm-4.7',
+        description: 'Provider: Multi Provider',
+      },
+      {
+        value: 'glm-4.7-flash',
+        label: 'glm-4.7-flash',
+        description: 'Provider: Multi Provider',
+      },
+    ])
   })
 })

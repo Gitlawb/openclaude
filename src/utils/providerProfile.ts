@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_CODEX_BASE_URL,
   DEFAULT_OPENAI_BASE_URL,
@@ -17,6 +17,7 @@ import { readGeminiAccessToken } from './geminiCredentials.js'
 import { getOllamaChatBaseUrl } from './providerDiscovery.js'
 import { getPrimaryModel } from './providerModels.js'
 import { getProviderValidationError } from './providerValidation.js'
+import { getErrnoCode } from './errors.js'
 import {
   maskSecretForDisplay,
   redactSecretValueForDisplay,
@@ -157,12 +158,82 @@ type ProfileFileLocation = {
   filePath?: string
 }
 
+export function getDefaultProfileFilePath(): string {
+  return join(getClaudeConfigHomeDir(), PROFILE_FILE_NAME)
+}
+
+function resolveLegacyProfileFilePath(cwd = process.cwd()): string {
+  return resolve(cwd, PROFILE_FILE_NAME)
+}
+
 function resolveProfileFilePath(options?: ProfileFileLocation): string {
   if (options?.filePath) {
     return options.filePath
   }
 
-  return resolve(options?.cwd ?? process.cwd(), PROFILE_FILE_NAME)
+  if (options?.cwd) {
+    return resolveLegacyProfileFilePath(options.cwd)
+  }
+
+  return getDefaultProfileFilePath()
+}
+
+function resolveProfileFileReadPaths(options?: ProfileFileLocation): string[] {
+  const primary = resolveProfileFilePath(options)
+  if (options?.filePath || options?.cwd) {
+    return [primary]
+  }
+
+  if (existsSync(primary)) {
+    return [primary]
+  }
+
+  const legacy = resolveLegacyProfileFilePath()
+  return legacy === primary ? [primary] : [primary, legacy]
+}
+
+function resolveProfileFileCleanupPaths(options?: ProfileFileLocation): string[] {
+  const primary = resolveProfileFilePath(options)
+  if (options?.filePath || options?.cwd) {
+    return [primary]
+  }
+
+  const legacy = resolveLegacyProfileFilePath()
+  return legacy === primary ? [primary] : [primary, legacy]
+}
+
+function ensureProfileDirectory(filePath: string): void {
+  try {
+    mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 })
+  } catch (error) {
+    if (getErrnoCode(error) !== 'EEXIST') {
+      throw error
+    }
+  }
+}
+
+function readProfileFile(filePath: string): ProfileFile | null {
+  if (!existsSync(filePath)) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<ProfileFile>
+    if (!isProviderProfile(parsed.profile) || !parsed.env || typeof parsed.env !== 'object') {
+      return null
+    }
+
+    return {
+      profile: parsed.profile,
+      env: parsed.env,
+      createdAt:
+        typeof parsed.createdAt === 'string'
+          ? parsed.createdAt
+          : new Date().toISOString(),
+    }
+  } catch {
+    return null
+  }
 }
 
 function normalizeProfileModel(
@@ -586,37 +657,28 @@ export function isPersistedCodexOAuthProfile(
 export function clearPersistedCodexOAuthProfile(
   options?: ProfileFileLocation,
 ): string | null {
-  const persisted = loadProfileFile(options)
-  if (!isPersistedCodexOAuthProfile(persisted)) {
-    return null
+  let removedPath: string | null = null
+
+  for (const filePath of resolveProfileFileCleanupPaths(options)) {
+    const persisted = readProfileFile(filePath)
+    if (isPersistedCodexOAuthProfile(persisted)) {
+      rmSync(filePath, { force: true })
+      removedPath ??= filePath
+    }
   }
 
-  return deleteProfileFile(options)
+  return removedPath
 }
 
 export function loadProfileFile(options?: ProfileFileLocation): ProfileFile | null {
-  const filePath = resolveProfileFilePath(options)
-  if (!existsSync(filePath)) {
-    return null
+  for (const filePath of resolveProfileFileReadPaths(options)) {
+    const profile = readProfileFile(filePath)
+    if (profile) {
+      return profile
+    }
   }
 
-  try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<ProfileFile>
-    if (!isProviderProfile(parsed.profile) || !parsed.env || typeof parsed.env !== 'object') {
-      return null
-    }
-
-    return {
-      profile: parsed.profile,
-      env: parsed.env,
-      createdAt:
-        typeof parsed.createdAt === 'string'
-          ? parsed.createdAt
-          : new Date().toISOString(),
-    }
-  } catch {
-    return null
-  }
+  return null
 }
 
 export function saveProfileFile(
@@ -624,6 +686,7 @@ export function saveProfileFile(
   options?: ProfileFileLocation,
 ): string {
   const filePath = resolveProfileFilePath(options)
+  ensureProfileDirectory(filePath)
   writeFileSync(filePath, JSON.stringify(profileFile, null, 2), {
     encoding: 'utf8',
     mode: 0o600,
@@ -634,6 +697,12 @@ export function saveProfileFile(
 export function deleteProfileFile(options?: ProfileFileLocation): string {
   const filePath = resolveProfileFilePath(options)
   rmSync(filePath, { force: true })
+  if (!options?.filePath && !options?.cwd) {
+    const legacyPath = resolveLegacyProfileFilePath()
+    if (legacyPath !== filePath) {
+      rmSync(legacyPath, { force: true })
+    }
+  }
   return filePath
 }
 
@@ -1096,7 +1165,7 @@ export async function buildStartupEnvFromProfile(options?: {
 
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
 
-  // The legacy single-profile file (~/.openclaude-profile.json) is a
+  // The single-profile file in the user config directory is a
   // first-run / fallback mechanism. The newer plural provider-profile
   // system (`/provider` presets + activeProviderProfileId in config) is
   // applied earlier in the bootstrap via applyActiveProviderProfileFromConfig
@@ -1117,7 +1186,26 @@ export async function buildStartupEnvFromProfile(options?: {
   }
 
   if (!persisted) {
-    return processEnv
+    // No saved profile — default to Codex OAuth / GPT 5.5.
+    // If Codex credentials are available (OAuth or existing), use Codex.
+    // Otherwise inject the Codex env defaults so the provider picker
+    // shows GPT 5.5 as the default model when the user lands on it.
+    const codexEnv = buildCodexProfileEnv({})
+    if (codexEnv) {
+      return buildCompatibilityProcessEnv({
+        processEnv,
+        compatibilityMode: 'openai',
+        profileEnv: codexEnv,
+      })
+    }
+    return buildCompatibilityProcessEnv({
+      processEnv,
+      compatibilityMode: 'openai',
+      profileEnv: {
+        OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+        OPENAI_MODEL: 'codexplan',
+      },
+    })
   }
 
   return buildLaunchEnv({

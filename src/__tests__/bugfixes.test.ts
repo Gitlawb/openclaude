@@ -10,6 +10,12 @@
 
 import { describe, test, expect } from 'bun:test'
 import { resolve } from 'path'
+import {
+  clearRegisteredHooks,
+  registerHookCallbacks,
+} from '../bootstrap/state.js'
+import { getMatchingHooks } from '../utils/hooks.js'
+import type { PluginHookMatcher } from '../utils/settings/types.js'
 
 const SRC = resolve(import.meta.dir, '..')
 const file = (relative: string) => Bun.file(resolve(SRC, relative))

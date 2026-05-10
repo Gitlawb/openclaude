@@ -235,18 +235,18 @@ export function CollapsedReadSearchContent({
       })}
         {message.hookInfos && message.hookInfos.length > 0 && <>
             <Text dimColor>
-              {'  ⎿  '}Ran {message.hookCount} PreToolUse{' '}
+              {'  └  '}Ran {message.hookCount} PreToolUse{' '}
               {message.hookCount === 1 ? 'hook' : 'hooks'} (
               {formatSecondsShort(message.hookTotalMs ?? 0)})
             </Text>
             {message.hookInfos.map((info, idx) => <Text key={`hook-${idx}`} dimColor>
-                {'     ⎿ '}
+                {'     └ '}
                 {info.command} ({formatSecondsShort(info.durationMs ?? 0)})
               </Text>)}
           </>}
         {message.relevantMemories?.map(m => <Box key={m.path} flexDirection="column" marginTop={1}>
             <Text dimColor>
-              {'  ⎿  '}Recalled {basename(m.path)}
+              {'  └  '}Recalled {basename(m.path)}
             </Text>
             <Box paddingLeft={5}>
               <Text>
@@ -460,12 +460,12 @@ export function CollapsedReadSearchContent({
         </Text>
       </Box>
       {isActiveGroup && displayedHint !== undefined &&
-    // Row layout: 5-wide gutter for ⎿, then a flex column for the text.
+    // Row layout: 5-wide gutter for └, then a flex column for the text.
     // Ink's wrap stays inside the right column so continuation lines
-    // indent under ⎿. MAX_HINT_CHARS in commandAsHint caps total at ~5 lines.
+    // indent under └. MAX_HINT_CHARS in commandAsHint caps total at ~5 lines.
     <Box flexDirection="row">
           <Box width={5} flexShrink={0}>
-            <Text dimColor>{'  ⎿  '}</Text>
+            <Text dimColor>{'  └  '}</Text>
           </Box>
           <Box flexDirection="column" flexGrow={1}>
             {displayedHint.split('\n').map((line, i, arr) => <Text key={`hint-${i}`} dimColor>
@@ -475,7 +475,7 @@ export function CollapsedReadSearchContent({
           </Box>
         </Box>}
       {message.hookTotalMs !== undefined && message.hookTotalMs > 0 && <Text dimColor>
-          {'  ⎿  '}Ran {message.hookCount} PreToolUse{' '}
+          {'  └  '}Ran {message.hookCount} PreToolUse{' '}
           {message.hookCount === 1 ? 'hook' : 'hooks'} (
           {formatSecondsShort(message.hookTotalMs)})
         </Text>}
