@@ -1,3 +1,4 @@
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import { BASH_TOOL_NAME } from '../../../tools/BashTool/toolName.js';
 import { extractOutputRedirections } from '../../../utils/bash/commands.js';
 import { isClassifierPermissionsEnabled } from '../../../utils/permissions/bashClassifier.js';
@@ -64,7 +65,7 @@ export function bashToolUseOptions({
       type: 'input',
       label: 'Yes',
       value: 'yes',
-      placeholder: 'and tell Claude what to do next',
+      placeholder: `and tell ${PRODUCT_DISPLAY_NAME} what to do next`,
       onChange: onAcceptFeedbackChange,
       allowEmptySubmitToCancel: true
     });
@@ -132,7 +133,7 @@ export function bashToolUseOptions({
       type: 'input',
       label: 'No',
       value: 'no',
-      placeholder: 'and tell Claude what to do differently',
+      placeholder: `and tell ${PRODUCT_DISPLAY_NAME} what to do differently`,
       onChange: onRejectFeedbackChange,
       allowEmptySubmitToCancel: true
     });

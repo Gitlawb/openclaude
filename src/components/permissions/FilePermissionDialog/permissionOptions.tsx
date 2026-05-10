@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import { basename, join, sep } from 'path';
 import React, { type ReactNode } from 'react';
 import { getOriginalCwd } from '../../../bootstrap/state.js';
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import { Text } from '../../../ink.js';
 import { getShortcutDisplay } from '../../../keybindings/shortcutFormat.js';
 import type { ToolPermissionContext } from '../../../Tool.js';
@@ -76,7 +77,7 @@ export function getFilePermissionOptions({
       type: 'input',
       label: 'Yes',
       value: 'yes',
-      placeholder: 'and tell Claude what to do next',
+      placeholder: `and tell ${PRODUCT_DISPLAY_NAME} what to do next`,
       onChange: onAcceptFeedbackChange,
       allowEmptySubmitToCancel: true,
       option: {
@@ -104,7 +105,7 @@ export function getFilePermissionOptions({
   // persisted permission rules.
   if ((inClaudeFolder || inGlobalClaudeFolder) && operationType !== 'read') {
     options.push({
-      label: 'Yes, and allow OpenClaude to edit its own settings for this session',
+      label: `Yes, and allow ${PRODUCT_DISPLAY_NAME} to edit its own settings for this session`,
       value: 'yes-claude-folder',
       option: {
         type: 'accept-session',
@@ -155,7 +156,7 @@ export function getFilePermissionOptions({
       type: 'input',
       label: 'No',
       value: 'no',
-      placeholder: 'and tell Claude what to do differently',
+      placeholder: `and tell ${PRODUCT_DISPLAY_NAME} what to do differently`,
       onChange: onRejectFeedbackChange,
       allowEmptySubmitToCancel: true,
       option: {

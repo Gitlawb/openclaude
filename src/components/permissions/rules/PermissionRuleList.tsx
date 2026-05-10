@@ -8,6 +8,7 @@ import { applyPermissionUpdate, persistPermissionUpdate } from 'src/utils/permis
 import type { PermissionUpdateDestination } from 'src/utils/permissions/PermissionUpdateSchema.js';
 import type { CommandResultDisplay } from '../../../commands.js';
 import { Select } from '../../../components/CustomSelect/select.js';
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import { useExitOnCtrlCDWithKeybindings } from '../../../hooks/useExitOnCtrlCDWithKeybindings.js';
 import { useSearchInput } from '../../../hooks/useSearchInput.js';
 import type { KeyboardEvent } from '../../../ink/events/keyboard-event.js';
@@ -388,9 +389,9 @@ function PermissionRulesTab(t0) {
     let t8;
     if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
       t8 = {
-        allow: "OpenClaude won't ask before using allowed tools.",
-        ask: "OpenClaude will always ask for confirmation before using these tools.",
-        deny: "OpenClaude will always reject requests to use denied tools."
+        allow: `${PRODUCT_DISPLAY_NAME} won't ask before using allowed tools.`,
+        ask: `${PRODUCT_DISPLAY_NAME} will always ask for confirmation before using these tools.`,
+        deny: `${PRODUCT_DISPLAY_NAME} will always reject requests to use denied tools.`
       };
       $[10] = t8;
     } else {
@@ -1098,7 +1099,7 @@ export function PermissionRuleList(t0) {
   }
   let t28;
   if ($[89] === Symbol.for("react.memo_cache_sentinel")) {
-    t28 = <Text>OpenClaude can read files in the workspace, and make edits when auto-accept edits is on.</Text>;
+    t28 = <Text>{PRODUCT_DISPLAY_NAME} can read files in the workspace, and make edits when auto-accept edits is on.</Text>;
     $[89] = t28;
   } else {
     t28 = $[89];
