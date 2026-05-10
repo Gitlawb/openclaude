@@ -657,7 +657,7 @@ function renderNodeToOutput(
       // 'from-left-edge' extends the exclusion from col 0 so any
       // upstream indentation (tool prefix, tree lines) is covered too
       // — a multi-row drag over a diff gutter shouldn't pick up the
-      // `  ⎿  ` prefix on row 0 or the blank cells under it on row 1+.
+      // `  └  ` prefix on row 0 or the blank cells under it on row 1+.
       if (node.style.noSelect) {
         const boxX = Math.floor(x)
         const fromEdge = node.style.noSelect === 'from-left-edge'

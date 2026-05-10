@@ -44,7 +44,7 @@ export function applySearchHighlight(
     // extractRowText (selection.ts):
     //   - SpacerTail: 2nd cell of a wide char, no char of its own
     //   - SpacerHead: end-of-line padding when a wide char wraps
-    //   - noSelect: gutters (⎿, line numbers) — same exclusion as
+    //   - noSelect: gutters (└, line numbers) — same exclusion as
     //     applySelectionOverlay. "Highlight what you see" still holds for
     //     content; gutters aren't search targets.
     // Lowercasing per-char (not on the joined string at the end) means
