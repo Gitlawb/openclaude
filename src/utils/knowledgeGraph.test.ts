@@ -127,5 +127,14 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
       expect(result).toContain('rebuild-test')
       expect(existsSync(oramaPath)).toBe(true)
     })
+
+    it('returns an empty string for no-hit searches even if rules exist', async () => {
+      const { addGlobalRule } = await import('./knowledgeGraph.js')
+      resetGlobalGraph()
+      await addGlobalRule('Always use TypeScript.')
+      
+      const result = await searchGlobalGraph('definitely-no-memory-matches')
+      expect(result).toBe('')
+    })
   })
 })

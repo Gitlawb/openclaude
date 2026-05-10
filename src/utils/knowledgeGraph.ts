@@ -107,7 +107,7 @@ async function updateOramaSyncMetadata(cwd: string, graph: KnowledgeGraph): Prom
   if (!oramaDb) return
   try {
     await remove(oramaDb, 'meta:sync')
-  } catch { /* ignore */ }
+  } catch { /* ignore if not found */ }
   
   await insert(oramaDb, {
     id: 'meta:sync',
@@ -434,44 +434,53 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
     return getGlobalGraphSummary()
   }
 
+  // Primary: Orama Search
   if (!oramaDb) await initOrama(getFsImplementation().cwd())
   
   if (oramaDb) {
     try {
       const results = await search(oramaDb, { term: query, limit: 20 })
-      let output = '\n--- [PERSISTENT PROJECT MEMORY (ORAMA RAG)] ---\n'
-
-      if (graph.rules.length > 0) {
-        output += 'Active Project Rules:\n'
-        graph.rules.forEach(r => (output += `- ${r}\n`))
-      }
+      let visibleHits = 0
+      let hitsContent = ''
 
       if (results.count > 0) {
-        output += '\nRelevant Technical Entities & History:\n'
         for (const hit of results.hits) {
           const doc = hit.document as any
           if (doc.id === 'meta:sync') continue
           
+          visibleHits++
           if (doc.type === 'summary') {
-            output += `- ${doc.content}\n`
+            hitsContent += `- ${doc.content}\n`
           } else {
             try {
               const attrs = JSON.parse(doc.attributes)
-              output += `- [${doc.type}] ${doc.name}: ${Object.entries(attrs)
+              hitsContent += `- [${doc.type}] ${doc.name}: ${Object.entries(attrs)
                 .map(([k, v]) => `${k}: ${v}`)
                 .join(', ')}\n`
             } catch {
-              output += `- [${doc.type}] ${doc.name}: ${doc.attributes}\n`
+              hitsContent += `- [${doc.type}] ${doc.name}: ${doc.attributes}\n`
             }
           }
         }
       }
-      return output + '------------------------------------------------\n'
+
+      if (visibleHits > 0) {
+        let output = '\n--- [PERSISTENT PROJECT MEMORY (ORAMA RAG)] ---\n'
+        if (graph.rules.length > 0) {
+          output += 'Active Project Rules:\n'
+          graph.rules.forEach(r => (output += `- ${r}\n`))
+          output += '\n'
+        }
+        output += 'Relevant Technical Entities & History:\n'
+        output += hitsContent
+        return output + '------------------------------------------------\n'
+      }
     } catch (e) {
       console.error('Orama search failed, falling back to native search:', e)
     }
   }
 
+  // Tier 1: Exact Entity Matches (Native Fallback)
   const matchingEntities = Object.values(graph.entities)
     .filter(e => {
       const eName = e.name.toLowerCase()
@@ -512,27 +521,32 @@ export async function getOrchestratedMemory(query: string): Promise<string> {
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
 
-  let output = '\n--- [PERSISTENT PROJECT MEMORY (NATIVE RAG)] ---\n'
-  if (graph.rules.length > 0) {
-    output += 'Active Project Rules:\n'
-    graph.rules.forEach(r => (output += `- ${r}\n`))
-  }
-
-  if (matchingEntities.length > 0) {
-    output += '\nRelevant Technical Entities:\n'
-    for (const e of matchingEntities) {
-      output += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k, v]) => `${k}: ${v}`).join(', ')}\n`
+  if (matchingEntities.length > 0 || scoredSummaries.length > 0) {
+    let output = '\n--- [PERSISTENT PROJECT MEMORY (NATIVE RAG)] ---\n'
+    if (graph.rules.length > 0) {
+      output += 'Active Project Rules:\n'
+      graph.rules.forEach(r => (output += `- ${r}\n`))
+      output += '\n'
     }
-  }
 
-  if (scoredSummaries.length > 0) {
-    output += '\nContextual Project History (Ranked):\n'
-    for (const s of scoredSummaries) {
-      output += `- ${s.content}\n`
+    if (matchingEntities.length > 0) {
+      output += 'Relevant Technical Entities:\n'
+      for (const e of matchingEntities) {
+        output += `- [${e.type}] ${e.name}: ${Object.entries(e.attributes).map(([k, v]) => `${k}: ${v}`).join(', ')}\n`
+      }
+      if (scoredSummaries.length > 0) output += '\n'
     }
+
+    if (scoredSummaries.length > 0) {
+      output += 'Contextual Project History (Ranked):\n'
+      for (const s of scoredSummaries) {
+        output += `- ${s.content}\n`
+      }
+    }
+    return output + '------------------------------------------------\n'
   }
 
-  return output + '------------------------------------------------\n'
+  return ''
 }
 
 export async function searchGlobalGraph(query: string): Promise<string> {
