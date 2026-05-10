@@ -690,7 +690,7 @@ function buildXaiProfileEnv(options: {
     XAI_API_KEY: key,
   }
   const defaultBaseUrl = getRouteDefaultBaseUrl('xai') ?? 'https://api.x.ai/v1'
-  const defaultModel = getRouteDefaultModel('xai') ?? 'grok-4'
+  const defaultModel = getRouteDefaultModel('xai') ?? 'grok-4.3'
   const env: ProfileEnv = {
     OPENAI_BASE_URL:
       sanitizeProviderConfigValue(options.baseUrl, secretSource) ||

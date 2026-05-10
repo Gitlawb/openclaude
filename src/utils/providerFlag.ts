@@ -288,7 +288,7 @@ export function applyProviderFlag(
     case 'xai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
-      process.env.OPENAI_MODEL ??= 'grok-4'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.3'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
