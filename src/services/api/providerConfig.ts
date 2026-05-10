@@ -622,6 +622,10 @@ export function resolveProviderRequest(options?: {
       ? undefined
       : parseOpenAICompatibleApiFormat(options?.apiFormat) ??
         parseOpenAICompatibleApiFormat(process.env.OPENAI_API_FORMAT)
+  const normalizedBaseModel = descriptor.baseModel.trim().toLowerCase()
+  const shouldForceResponsesApi =
+    normalizedBaseModel === 'gpt-5.5' ||
+    normalizedBaseModel === 'gpt-5.5-mini'
   const supportsRequestedApiFormat =
     requestedApiFormat !== 'responses' ||
     (() => {
@@ -642,7 +646,7 @@ export function resolveProviderRequest(options?: {
     shouldUseCodexTransport(requestedModel, finalBaseUrl) ||
       (isGithubCopilot && shouldUseGithubResponsesApi(githubResolvedModel))
       ? 'codex_responses'
-      : requestedApiFormat === 'responses' && supportsRequestedApiFormat
+      : (requestedApiFormat === 'responses' || shouldForceResponsesApi) && supportsRequestedApiFormat
         ? 'responses'
         : 'chat_completions'
 
