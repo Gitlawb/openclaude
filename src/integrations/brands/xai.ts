@@ -13,6 +13,7 @@ export default defineBrand({
     supportsPreciseTokenCount: false,
   },
   modelIds: [
+    'grok-4.3',
     'grok-4',
     'grok-3',
   ],

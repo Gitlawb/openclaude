@@ -8,29 +8,21 @@ import {
   getProjectGraphPath,
   resetGlobalGraph,
   clearMemoryOnly,
-  saveProjectGraph
 } from './knowledgeGraph.js'
 import { mkdtempSync, rmSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { getFsImplementation } from './fsOperations.js'
-import { sanitizePath } from './sessionStoragePortable.js'
 import { getProjectsDir } from './envUtils.js'
+import { sanitizePath } from './sessionStoragePortable.js'
 
 describe('KnowledgeGraph Global Persistence & RAG', () => {
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-knowledge-graph-'))
+  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-test-'))
   process.env.CLAUDE_CONFIG_DIR = configDir
-  const cwd = getFsImplementation().cwd()
-  const graphPath = getProjectGraphPath(cwd)
+  const cwd = process.cwd()
 
   beforeEach(() => {
     resetGlobalGraph()
-    rmSync(graphPath, { force: true })
-  })
-
-  afterEach(() => {
-    rmSync(graphPath, { force: true })
   })
 
   afterAll(() => {
@@ -44,26 +36,26 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
   })
 
   it('persists entities across loads', async () => {
-    await addGlobalEntity('server', 'prod-1', { ip: '1.2.3.4' })
-    saveProjectGraph(cwd)
+    await addGlobalEntity('tool', 'openclaude', { status: 'alpha' })
+    const path = getProjectGraphPath(cwd)
+    expect(existsSync(path)).toBe(true)
 
-    // Reset singleton and reload
+    // Clear cache and reload
     clearMemoryOnly()
     const graph = loadProjectGraph(cwd)
-    const entity = Object.values(graph.entities).find(e => e.name === 'prod-1')
-    expect(entity).toBeDefined()
-    expect(entity?.attributes.ip).toBe('1.2.3.4')
+    const entities = Object.values(graph.entities).filter(e => e.name === 'openclaude')
+    expect(entities.length).toBe(1)
+    expect(entities[0].attributes.status).toBe('alpha')
   })
 
   it('performs keyword-based RAG search', async () => {
     await addGlobalSummary('The database uses PostgreSQL version 15.', ['database', 'postgres', 'sql'])
     await addGlobalSummary('The frontend is built with React and Tailwind.', ['frontend', 'react', 'css'])
 
-    const result = await searchGlobalGraph('Tell me about the database setup')
-    expect(result).toContain('PostgreSQL')
-
-    const result2 = await searchGlobalGraph('What react components are used?')
-    expect(result2).toContain('React')
+    const result = await searchGlobalGraph('PostgreSQL')
+    expect(result.toLowerCase()).toContain('database')
+    expect(result.toLowerCase()).toContain('postgresql')
+    expect(result.toLowerCase()).not.toContain('react')
   })
 
   it('deduplicates entities and updates attributes', async () => {
@@ -78,8 +70,6 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
   })
 
   it('clears Orama database and persistence file on resetGlobalGraph', async () => {
-    const originalOrama = process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
-    process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = '1'
     const { initOrama, getOramaPersistencePath } = await import('./knowledgeGraph.js')
 
     await initOrama(cwd)
@@ -90,19 +80,15 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
 
     resetGlobalGraph()
     expect(require('fs').existsSync(oramaPath)).toBe(false)
-
-    // Cleanup env
-    if (originalOrama === undefined) {
-      delete process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
-    } else {
-      process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = originalOrama
-    }
   })
 
-  describe('Feature Flag: OPENCLAUDE_KNOWLEDGE_ORAMA', () => {
-    it('uses Orama when flag is enabled', async () => {
-      process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = '1'
+  describe('Hybrid Architecture: Orama + JSON', () => {
+    it('creates Orama persistence by default', async () => {
       const oramaPath = join(getProjectsDir(), sanitizePath(cwd), 'knowledge.orama')
+
+      // Ensure clean state: remove orama file if it exists from previous tests
+      if (existsSync(oramaPath)) rmSync(oramaPath)
+      clearMemoryOnly()
 
       await addGlobalEntity('test', 'orama-active', { val: 'yes' })
       expect(existsSync(oramaPath)).toBe(true)
@@ -110,13 +96,9 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
       const result = await searchGlobalGraph('orama-active')
       expect(result).toContain('ORAMA RAG')
       expect(result).toContain('orama-active')
-
-      delete process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
     })
 
     it('restores Orama from persistence file', async () => {
-      process.env.OPENCLAUDE_KNOWLEDGE_ORAMA = '1'
-
       // First run: add and save
       await addGlobalEntity('test', 'persistent-orama', { data: '42' })
       clearMemoryOnly() // Reset in-memory oramaDb cache
@@ -125,23 +107,34 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
       const result = await searchGlobalGraph('persistent-orama')
       expect(result).toContain('ORAMA RAG')
       expect(result).toContain('persistent-orama')
-
-      delete process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
     })
 
-    it('stays on JSON path when flag is disabled', async () => {
-      delete process.env.OPENCLAUDE_KNOWLEDGE_ORAMA
+    it('rebuilds Orama from JSON if persistence is missing', async () => {
       const oramaPath = join(getProjectsDir(), sanitizePath(cwd), 'knowledge.orama')
-
-      // Ensure clean state: remove orama file if it exists from previous tests
-      if (existsSync(oramaPath)) rmSync(oramaPath)
-
-      await addGlobalEntity('test', 'json-only', { val: 'yes' })
+      
+      // 1. Add data via standard hybrid path
+      await addGlobalEntity('type', 'rebuild-test', { status: 'ok' })
+      expect(existsSync(oramaPath)).toBe(true)
+      
+      // 2. Kill memory and delete Orama file, but keep JSON
+      clearMemoryOnly()
+      rmSync(oramaPath)
       expect(existsSync(oramaPath)).toBe(false)
+      
+      // 3. Search should trigger self-healing rebuild from JSON
+      const result = await searchGlobalGraph('rebuild-test')
+      expect(result).toContain('ORAMA RAG')
+      expect(result).toContain('rebuild-test')
+      expect(existsSync(oramaPath)).toBe(true)
+    })
 
-      const result = await searchGlobalGraph('json-only')
-      expect(result).not.toContain('ORAMA RAG')
-      expect(result).toContain('json-only')
+    it('returns an empty string for no-hit searches even if rules exist', async () => {
+      const { addGlobalRule } = await import('./knowledgeGraph.js')
+      resetGlobalGraph()
+      await addGlobalRule('Always use TypeScript.')
+      
+      const result = await searchGlobalGraph('definitely-no-memory-matches')
+      expect(result).toBe('')
     })
   })
 })

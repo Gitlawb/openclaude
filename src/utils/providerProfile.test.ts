@@ -171,7 +171,7 @@ test('xai launch uses descriptor defaults and persisted xAI key', async () => {
 
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.x.ai/v1')
-  assert.equal(env.OPENAI_MODEL, 'grok-4')
+  assert.equal(env.OPENAI_MODEL, 'grok-4.3')
   assert.equal(env.OPENAI_API_KEY, 'xai-persisted-key')
   assert.equal(env.XAI_API_KEY, 'xai-persisted-key')
 })

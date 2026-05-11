@@ -8,6 +8,7 @@ import { useAppState, useAppStateStore, useSetAppState } from 'src/state/AppStat
 import { getSdkBetas, getSessionId, isSessionPersistenceDisabled, setHasExitedPlanMode, setNeedsAutoModeExitAttachment, setNeedsPlanModeExitAttachment } from '../../../bootstrap/state.js';
 import { generateSessionName } from '../../../commands/rename/generateSessionName.js';
 import { launchUltraplan } from '../../../commands/ultraplan.js';
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import type { KeyboardEvent } from '../../../ink/events/keyboard-event.js';
 import { Box, Text } from '../../../ink.js';
 import type { AppState } from '../../../state/AppStateStore.js';
@@ -155,6 +156,7 @@ export function ExitPlanModePermissionRequest({
     usedPercent: showClearContext ? getContextUsedPercent(usage, mode) : null,
     isAutoModeAvailable,
     isBypassPermissionsModeAvailable,
+    assistantDisplayName: PRODUCT_DISPLAY_NAME,
     planAuthorName,
     onFeedbackChange: setPlanFeedback
   }), [showClearContext, showUltraplan, usage, mode, isAutoModeAvailable, isBypassPermissionsModeAvailable, planAuthorName]);
@@ -602,7 +604,7 @@ export function ExitPlanModePermissionRequest({
     }
     return <PermissionDialog color="planMode" title="Exit plan mode?" workerBadge={workerBadge}>
         <Box flexDirection="column" paddingX={1} marginTop={1}>
-          <Text>OpenClaude wants to exit plan mode</Text>
+          <Text>{PRODUCT_DISPLAY_NAME} wants to exit plan mode</Text>
           <Box marginTop={1}>
             <Select options={[{
             label: 'Yes',
@@ -679,6 +681,7 @@ export function buildPlanApprovalOptions({
   usedPercent,
   isAutoModeAvailable,
   isBypassPermissionsModeAvailable,
+  assistantDisplayName,
   planAuthorName,
   onFeedbackChange
 }: {
@@ -687,6 +690,7 @@ export function buildPlanApprovalOptions({
   usedPercent: number | null;
   isAutoModeAvailable: boolean | undefined;
   isBypassPermissionsModeAvailable: boolean | undefined;
+  assistantDisplayName: string;
   planAuthorName: string;
   onFeedbackChange: (v: string) => void;
 }): OptionWithDescription<ResponseValue>[] {
@@ -734,7 +738,7 @@ export function buildPlanApprovalOptions({
   });
   if (showUltraplan) {
     options.push({
-      label: 'No, refine with Ultraplan on OpenClaude on the web',
+      label: `No, refine with Ultraplan on ${assistantDisplayName} on the web`,
       value: 'ultraplan'
     });
   }

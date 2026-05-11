@@ -609,6 +609,10 @@ function isProcessEnvAlignedWithProfile(
     (profile.baseUrl?.toLowerCase().includes('x.ai')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
+      : true) &&
+    (profile.baseUrl?.toLowerCase().includes('api.venice.ai')
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.VENICE_API_KEY, profile.apiKey)
       : true)
   )
 }
@@ -1064,6 +1068,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('x.ai')) {
       env.XAI_API_KEY = activeProfile.apiKey
+    }
+    if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
+      env.VENICE_API_KEY = activeProfile.apiKey
     }
   } else {
     delete env.OPENAI_API_KEY

@@ -570,6 +570,22 @@ export function stripSafeHeredocSubstitutions(command: string): string | null {
     }
   }
   if (!found) return null
+
+  // SECURITY: Reject nested matches — same logic as isSafeHeredoc.
+  // When one range is nested inside another, processing in reverse order leaves
+  // outer.end stale after the inner strip. result.slice(outer.end) then skips
+  // any suffix after the outer heredoc (e.g., `; rm -rf /`), silently dropping
+  // it from the remaining text and hiding it from downstream validators.
+  // Return null so callers fall back to full command validation.
+  for (const outer of ranges) {
+    for (const inner of ranges) {
+      if (inner === outer) continue
+      if (inner.start > outer.start && inner.start < outer.end) {
+        return null
+      }
+    }
+  }
+
   for (let i = ranges.length - 1; i >= 0; i--) {
     const r = ranges[i]!
     result = result.slice(0, r.start) + result.slice(r.end)
@@ -2220,10 +2236,14 @@ function validateZshDangerousCommands(
     }
   }
 
-  // Check for `fc -e` which allows executing arbitrary commands via editor
+  // Check for `fc -e` which allows executing arbitrary commands via editor.
   // fc without -e is safe (just lists history), but -e specifies an editor
-  // to run on the command, effectively an eval
-  if (baseCmd === 'fc' && /\s-\S*e/.test(trimmed)) {
+  // to run on the command, effectively an eval. The regex requires `e` to
+  // be the last letter in a short POSIX-style flag bundle (matches `-e`,
+  // `-le`, `-lne`) and caps the bundle at 4 chars total so unrelated
+  // long-style flags like `-reset`, `-reverse`, or `-message` do not
+  // false-positive on `e` appearing mid-flag or at the end of a long word.
+  if (baseCmd === 'fc' && /\s-[a-zA-Z]{0,3}e(?:\s|$)/.test(trimmed)) {
     logEvent('tengu_bash_security_check_triggered', {
       checkId: BASH_SECURITY_CHECK_IDS.ZSH_DANGEROUS_COMMANDS,
       subId: 2,

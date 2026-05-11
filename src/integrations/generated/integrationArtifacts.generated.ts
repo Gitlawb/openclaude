@@ -9,6 +9,7 @@ import vendorGemini from '../vendors/gemini.js'
 import vendorMinimax from '../vendors/minimax.js'
 import vendorMoonshot from '../vendors/moonshot.js'
 import vendorOpenai from '../vendors/openai.js'
+import vendorVenice from '../vendors/venice.js'
 import vendorXai from '../vendors/xai.js'
 import vendorZai from '../vendors/zai.js'
 import gatewayAtomicChat from '../gateways/atomic-chat.js'
@@ -304,6 +305,19 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "venice",
+    "routeKind": "vendor",
+    "routeId": "venice",
+    "vendorId": "venice",
+    "description": "Venice OpenAI-compatible endpoint",
+    "apiKeyEnvVars": [
+      "VENICE_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "xai",
     "routeKind": "vendor",
     "routeId": "xai",
@@ -376,6 +390,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "openrouter",
   "ollama-cloud",
   "together",
+  "venice",
   "xai",
   "zai",
   "custom"

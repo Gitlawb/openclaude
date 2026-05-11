@@ -1,5 +1,6 @@
 import { c as _c } from "react-compiler-runtime";
 import React, { type ReactNode } from 'react';
+import { PRODUCT_DISPLAY_NAME } from '../../../../constants/product.js';
 import type { KeyboardEvent } from '../../../../ink/events/keyboard-event.js';
 import { Box, Text } from '../../../../ink.js';
 import { useKeybinding } from '../../../../keybindings/useKeybinding.js';
@@ -216,7 +217,7 @@ export function ConfirmStep(t0) {
     }
     t11 = memoryDisplayElement;
     if ($[54] === Symbol.for("react.memo_cache_sentinel")) {
-      t12 = <Box marginTop={1}><Text><Text bold={true}>Description</Text> (tells Claude when to use this agent):</Text></Box>;
+      t12 = <Box marginTop={1}><Text><Text bold={true}>Description</Text> (tells {PRODUCT_DISPLAY_NAME} when to use this agent):</Text></Box>;
       $[54] = t12;
     } else {
       t12 = $[54];

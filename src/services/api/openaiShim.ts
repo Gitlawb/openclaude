@@ -54,6 +54,7 @@ import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import {
+  getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
   isLikelyOllamaEndpoint,
@@ -61,6 +62,7 @@ import {
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
+  type LocalFastPathConfig,
 } from './providerConfig.js'
 import {
   buildOpenAICompatibilityErrorMessage,
@@ -106,19 +108,6 @@ const COPILOT_HEADERS: Record<string, string> = {
   'Editor-Plugin-Version': 'copilot-chat/0.26.7',
   'Copilot-Integration-Id': 'vscode-chat',
 }
-
-const SENSITIVE_URL_QUERY_PARAM_NAMES = [
-  'api_key',
-  'key',
-  'token',
-  'access_token',
-  'refresh_token',
-  'signature',
-  'sig',
-  'secret',
-  'password',
-  'authorization',
-]
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
@@ -197,11 +186,6 @@ function normalizeDeepSeekReasoningEffort(
 function formatRetryAfterHint(response: Response): string {
   const ra = response.headers.get('retry-after')
   return ra ? ` (Retry-After: ${ra})` : ''
-}
-
-function shouldRedactUrlQueryParam(name: string): boolean {
-  const lower = name.toLowerCase()
-  return SENSITIVE_URL_QUERY_PARAM_NAMES.some(token => lower.includes(token))
 }
 
 function redactUrlForDiagnostics(url: string): string {
@@ -782,8 +766,13 @@ function normalizeSchemaForOpenAI(
 
 function convertTools(
   tools: Array<{ name: string; description?: string; input_schema?: Record<string, unknown> }>,
+  options: { skipStrict?: boolean } = {},
 ): OpenAITool[] {
   const isGemini = isGeminiMode()
+  const strict =
+    !isGemini &&
+    !isEnvTruthy(process.env.OPENCLAUDE_DISABLE_STRICT_TOOLS) &&
+    !options.skipStrict
 
   return tools
     .filter(t => t.name !== 'ToolSearchTool') // Not relevant for OpenAI
@@ -806,10 +795,7 @@ function convertTools(
         function: {
           name: t.name,
           description: t.description ?? '',
-          parameters: normalizeSchemaForOpenAI(
-            schema,
-            !isGemini && !isEnvTruthy(process.env.OPENCLAUDE_DISABLE_STRICT_TOOLS),
-          ),
+          parameters: normalizeSchemaForOpenAI(schema, strict),
         },
       }
     })
@@ -1660,6 +1646,7 @@ class OpenAIShimMessages {
           description?: string
           input_schema?: Record<string, unknown>
         }>,
+        { skipStrict: fastPath.skipStrictTools },
       )
       if (converted.length > 0) {
         body.tools = converted

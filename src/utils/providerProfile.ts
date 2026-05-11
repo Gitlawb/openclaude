@@ -391,6 +391,46 @@ export function buildMiniMaxProfileEnv(options: {
   }
 }
 
+export function buildVeniceProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.VENICE_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('venice')
+  const defaultModel = getRouteDefaultModel('venice')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('Venice route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    VENICE_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    VENICE_API_KEY: key,
+  }
+}
+
 export function buildGeminiProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null

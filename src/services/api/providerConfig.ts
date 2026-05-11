@@ -357,6 +357,70 @@ export function isLocalProviderUrl(baseUrl: string | undefined): boolean {
   }
 }
 
+// Fast-path opt-outs that are safe (and beneficial) when the provider is a
+// local OpenAI-compatible endpoint. These features are designed for cloud
+// behaviours that do not exist on local backends:
+//   - byte-stable serialization (`stableStringify`) targets implicit prefix
+//     caching on OpenAI/Kimi/DeepSeek/Codex; local backends do not hash
+//     request prefixes, so the deep key-sort is pure CPU overhead.
+//   - strict tool-schema normalization rewrites Anthropic schemas to the
+//     `additionalProperties: false` shape required by Groq/Azure; local
+//     llama.cpp/vLLM accept either form, so the recursive walk is wasted.
+//   - tool-result compression tiers tool_result blocks for stateless cloud
+//     providers; on a single-user local box where the conversation lives
+//     in RAM, the tier-walk is wasted unless the user opts back in.
+//
+// Issue #1016 traced cumulative client-side overhead as the dominant cause
+// of v0.5+ regressions against ~45 tok/s local models: against a 200ms cloud
+// API the layers are invisible, but against multi-second local round-trips
+// they multiply per-call.
+//
+// Set `OPENCLAUDE_LOCAL_FAST_PATH=1` to force it on, `=0` to force off, or
+// leave it unset to let `isLocalProviderUrl` decide. The opt-out is intended
+// to be conservative: if the env var is set explicitly, callers can audit
+// regressions; if not, behaviour only changes for hosts already classified
+// as local by the existing detector (loopback, RFC1918, .local, ULA/LL).
+const LOCAL_FAST_PATH_ENV = 'OPENCLAUDE_LOCAL_FAST_PATH'
+
+export type LocalFastPathConfig = {
+  enabled: boolean
+  skipStableStringify: boolean
+  skipStrictTools: boolean
+  skipToolHistoryCompression: boolean
+}
+
+const LOCAL_FAST_PATH_OFF: LocalFastPathConfig = {
+  enabled: false,
+  skipStableStringify: false,
+  skipStrictTools: false,
+  skipToolHistoryCompression: false,
+}
+
+const LOCAL_FAST_PATH_ON: LocalFastPathConfig = {
+  enabled: true,
+  skipStableStringify: true,
+  skipStrictTools: true,
+  skipToolHistoryCompression: true,
+}
+
+function parseLocalFastPathOverride(raw: string | undefined): boolean | undefined {
+  if (raw === undefined) return undefined
+  const v = raw.trim().toLowerCase()
+  if (v === '' || v === 'auto') return undefined
+  if (v === '0' || v === 'false' || v === 'off' || v === 'no') return false
+  if (v === '1' || v === 'true' || v === 'on' || v === 'yes') return true
+  return undefined
+}
+
+export function getLocalFastPathConfig(
+  baseUrl: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): LocalFastPathConfig {
+  const override = parseLocalFastPathOverride(env[LOCAL_FAST_PATH_ENV])
+  const enabled = override ?? isLocalProviderUrl(baseUrl)
+  return enabled ? LOCAL_FAST_PATH_ON : LOCAL_FAST_PATH_OFF
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
 }
