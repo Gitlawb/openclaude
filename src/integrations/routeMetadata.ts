@@ -203,6 +203,18 @@ export function isXaiBaseUrl(value: string | undefined): boolean {
   }
 }
 
+export function isVeniceBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'api.venice.ai'
+  } catch {
+    return false
+  }
+}
 export function getMiniMaxBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -285,15 +297,32 @@ export function hasMiniMaxEnvOnlyProviderIntent(
   )
 }
 
+export function hasVeniceEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isVeniceBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'xai' | 'minimax' | null {
+): 'xai' | 'minimax' | 'venice' | null {
   if (hasXaiEnvOnlyProviderIntent(processEnv)) {
     return 'xai'
   }
 
   if (hasMiniMaxEnvOnlyProviderIntent(processEnv)) {
     return 'minimax'
+  }
+
+  if (hasVeniceEnvOnlyProviderIntent(processEnv)) {
+    return 'venice'
   }
 
   return null

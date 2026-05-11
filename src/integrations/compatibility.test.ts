@@ -35,6 +35,7 @@ const EXPECTED_PRESETS = [
   'nvidia-nim',
   'minimax',
   'xai',
+  'venice',
   'zai',
   'bankr',
   'atomic-chat',

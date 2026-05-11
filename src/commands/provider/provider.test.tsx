@@ -350,6 +350,25 @@ test('buildProfileSaveMessage labels descriptor-backed gateway profiles consiste
   expect(message).not.toContain('sk-secret-12345678')
 })
 
+test('buildProfileSaveMessage labels descriptor-backed Venice profiles consistently', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEY: 'sk-venice-secret-12345678',
+      VENICE_API_KEY: 'sk-venice-secret-12345678',
+      OPENAI_MODEL: 'venice-uncensored',
+      OPENAI_BASE_URL: 'https://api.venice.ai/api/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved Venice profile.')
+  expect(message).toContain('Model: venice-uncensored')
+  expect(message).toContain('Endpoint: https://api.venice.ai/api/v1')
+  expect(message).toContain('Credentials: configured')
+  expect(message).not.toContain('sk-venice-secret-12345678')
+})
+
 test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly', () => {
   const message = buildProfileSaveMessage(
     'gemini',
@@ -571,6 +590,22 @@ test('buildCurrentProviderSummary recognizes descriptor-backed openai-compatible
   expect(summary.providerLabel).toBe('OpenRouter')
   expect(summary.modelLabel).toBe('openai/gpt-5-mini')
   expect(summary.endpointLabel).toBe('https://openrouter.ai/api/v1')
+})
+
+test('buildCurrentProviderSummary recognizes Venice routes', () => {
+  const summary = buildCurrentProviderSummary({
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_MODEL: 'venice-uncensored',
+      OPENAI_BASE_URL: 'https://api.venice.ai/api/v1',
+      VENICE_API_KEY: 'sk-venice-secret',
+    },
+    persisted: null,
+  })
+
+  expect(summary.providerLabel).toBe('Venice')
+  expect(summary.modelLabel).toBe('venice-uncensored')
+  expect(summary.endpointLabel).toBe('https://api.venice.ai/api/v1')
 })
 
 test('buildCurrentProviderSummary does not relabel local gpt-5.4 providers as Codex when custom base URL is set', () => {
