@@ -22,6 +22,7 @@ import {
 } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
 import { isLocalShellTask } from '../../tasks/LocalShellTask/guards.js'
 import { asAgentId } from '../../types/ids.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import type { Message } from '../../types/message.js'
 import { createEmptyAttributionState } from '../../utils/commitAttribution.js'
 import type { FileStateCache } from '../../utils/fileStateCache.js'
@@ -66,12 +67,19 @@ export async function clearConversation({
   // Execute SessionEnd hooks before clearing (bounded by
   // CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS, default 1.5s)
   const sessionEndTimeoutMs = getSessionEndHookTimeoutMs()
-  await executeSessionEndHooks('clear', {
-    getAppState,
-    setAppState,
-    signal: AbortSignal.timeout(sessionEndTimeoutMs),
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
     timeoutMs: sessionEndTimeoutMs,
   })
+  try {
+    await executeSessionEndHooks('clear', {
+      getAppState,
+      setAppState,
+      signal,
+      timeoutMs: sessionEndTimeoutMs,
+    })
+  } finally {
+    cleanup()
+  }
 
   // Signal to inference that this conversation's cache can be evicted.
   const lastRequestId = getLastMainRequestId()

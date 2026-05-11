@@ -15,6 +15,7 @@ import {
   getCodexOAuthClientId,
   parseChatgptAccountId,
 } from './codexOAuthShared.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 
 type CodexOAuthTokenResponse = {
   id_token?: string
@@ -127,27 +128,34 @@ async function exchangeAuthorizationCode(options: {
     code_verifier: options.codeVerifier,
   })
 
-  const response = await fetch(`${CODEX_OAUTH_ISSUER}/oauth/token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-    signal: options.signal
-      ? AbortSignal.any([options.signal, AbortSignal.timeout(15_000)])
-      : AbortSignal.timeout(15_000),
+  const { signal, cleanup } = createCombinedAbortSignal(options.signal, {
+    timeoutMs: 15_000,
   })
+  let payload: CodexOAuthTokenResponse
+  try {
+    const response = await fetch(`${CODEX_OAUTH_ISSUER}/oauth/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+      signal,
+    })
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '')
-    throw new Error(
-      errorText.trim()
-        ? `Codex OAuth token exchange failed (${response.status}): ${errorText.trim()}`
-        : `Codex OAuth token exchange failed with status ${response.status}.`,
-    )
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '')
+      throw new Error(
+        errorText.trim()
+          ? `Codex OAuth token exchange failed (${response.status}): ${errorText.trim()}`
+          : `Codex OAuth token exchange failed with status ${response.status}.`,
+      )
+    }
+
+    payload = (await response.json()) as CodexOAuthTokenResponse
+  } finally {
+    cleanup()
   }
 
-  const payload = (await response.json()) as CodexOAuthTokenResponse
   const accessToken = asTrimmedString(payload.access_token)
   const refreshToken = asTrimmedString(payload.refresh_token)
   if (!accessToken || !refreshToken) {

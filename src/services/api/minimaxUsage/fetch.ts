@@ -1,3 +1,4 @@
+import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js'
 import { logForDebugging } from '../../../utils/debug.js'
 import { getClaudeCodeUserAgent } from '../../../utils/userAgent.js'
 import {
@@ -86,42 +87,49 @@ export async function fetchMiniMaxUsage(): Promise<MiniMaxUsageData> {
 
   for (const usageUrl of usageUrls) {
     let response: Response
+    const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+      timeoutMs: 5000,
+    })
     try {
-      response = await fetch(usageUrl, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'User-Agent': getClaudeCodeUserAgent(),
-        },
-        signal: AbortSignal.timeout(5000),
-      })
-    } catch (error) {
-      logForDebugging(
-        `[minimax] usage request failed for ${usageUrl}: ${error instanceof Error ? error.message : String(error)}`,
-        { level: 'warn' },
-      )
-      lastFatalError =
-        error instanceof Error ? error : new Error(String(error))
-      continue
-    }
-
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '')
-      if ([400, 401, 403, 404].includes(response.status)) {
-        nonFatalFailures.push({ status: response.status, body: errorBody })
+      try {
+        response = await fetch(usageUrl, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'User-Agent': getClaudeCodeUserAgent(),
+          },
+          signal,
+        })
+      } catch (error) {
+        logForDebugging(
+          `[minimax] usage request failed for ${usageUrl}: ${error instanceof Error ? error.message : String(error)}`,
+          { level: 'warn' },
+        )
+        lastFatalError =
+          error instanceof Error ? error : new Error(String(error))
         continue
       }
-      lastFatalError = new Error(
-        `MiniMax usage error ${response.status}: ${errorBody || 'unknown error'}`,
-      )
-      continue
-    }
 
-    const normalized = normalizeMiniMaxUsagePayload(await response.json())
-    if (normalized.availability === 'available') {
-      return normalized
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => '')
+        if ([400, 401, 403, 404].includes(response.status)) {
+          nonFatalFailures.push({ status: response.status, body: errorBody })
+          continue
+        }
+        lastFatalError = new Error(
+          `MiniMax usage error ${response.status}: ${errorBody || 'unknown error'}`,
+        )
+        continue
+      }
+
+      const normalized = normalizeMiniMaxUsagePayload(await response.json())
+      if (normalized.availability === 'available') {
+        return normalized
+      }
+    } finally {
+      cleanup()
     }
   }
 

@@ -33,6 +33,7 @@ import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getP
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
+import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
 import { consumeEarlyInput } from '../utils/earlyInput.js';
@@ -1804,12 +1805,19 @@ export function REPL({
       // Fire SessionEnd hooks for the current session before starting the
       // resumed one, mirroring the /clear flow in conversation.ts.
       const sessionEndTimeoutMs = getSessionEndHookTimeoutMs();
-      await executeSessionEndHooks('resume', {
-        getAppState: () => store.getState(),
-        setAppState,
-        signal: AbortSignal.timeout(sessionEndTimeoutMs),
-        timeoutMs: sessionEndTimeoutMs
+      const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+        timeoutMs: sessionEndTimeoutMs,
       });
+      try {
+        await executeSessionEndHooks('resume', {
+          getAppState: () => store.getState(),
+          setAppState,
+          signal,
+          timeoutMs: sessionEndTimeoutMs
+        });
+      } finally {
+        cleanup();
+      }
 
       // Process session start hooks for resume
       const hookMessages = await processSessionStartHooks('resume', {

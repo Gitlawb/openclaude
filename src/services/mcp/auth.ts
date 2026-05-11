@@ -33,6 +33,7 @@ import { parse } from 'url'
 import xss from 'xss'
 import { MCP_CLIENT_METADATA_URL } from '../../constants/oauth.js'
 import { openBrowser } from '../../utils/browser.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { errorMessage, getErrnoCode } from '../../utils/errors.js'
 import * as lockfile from '../../utils/lockfile.js'
@@ -265,41 +266,16 @@ export async function normalizeOAuthErrorBody(
  */
 function createAuthFetch(): FetchLike {
   return async (url: string | URL, init?: RequestInit) => {
-    const timeoutSignal = AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS)
     const isPost = init?.method?.toUpperCase() === 'POST'
-
-    // No existing signal - just use timeout
-    if (!init?.signal) {
-      // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
-      const response = await fetch(url, { ...init, signal: timeoutSignal })
-      return isPost ? normalizeOAuthErrorBody(response) : response
-    }
-
-    // Combine signals: abort when either fires
-    const controller = new AbortController()
-    const abort = () => controller.abort()
-
-    init.signal.addEventListener('abort', abort)
-    timeoutSignal.addEventListener('abort', abort)
-
-    // Cleanup to prevent event listener leaks after fetch completes
-    const cleanup = () => {
-      init.signal?.removeEventListener('abort', abort)
-      timeoutSignal.removeEventListener('abort', abort)
-    }
-
-    if (init.signal.aborted) {
-      controller.abort()
-    }
-
+    const { signal, cleanup } = createCombinedAbortSignal(init?.signal, {
+      timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+    })
     try {
       // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
-      const response = await fetch(url, { ...init, signal: controller.signal })
+      const response = await fetch(url, { ...init, signal })
+      return isPost ? await normalizeOAuthErrorBody(response) : response
+    } finally {
       cleanup()
-      return isPost ? normalizeOAuthErrorBody(response) : response
-    } catch (error) {
-      cleanup()
-      throw error
     }
   }
 }

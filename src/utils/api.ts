@@ -40,6 +40,7 @@ import {
   modelSupportsStructuredOutputs,
   shouldUseGlobalCacheScope,
 } from './betas.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -554,11 +555,19 @@ export async function logContextMetrics(
     ignorePatternsByRoot,
     currentDir,
   )
-  const fileCount = await countFilesRoundedRg(
-    currentDir,
-    AbortSignal.timeout(1000),
-    normalizedIgnorePatterns,
-  )
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: 1000,
+  })
+  let fileCount: number
+  try {
+    fileCount = await countFilesRoundedRg(
+      currentDir,
+      signal,
+      normalizedIgnorePatterns,
+    )
+  } finally {
+    cleanup()
+  }
 
   // Calculate tool metrics
   let mcpToolsCount = 0

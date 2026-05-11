@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { fileSuffixForOauthConfig } from '../constants/oauth.js'
 import { isRunningWithBun } from './bundledMode.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import {
   getClaudeConfigHomeDir,
   isEnvTruthy,
@@ -72,10 +73,17 @@ export const getGlobalClaudeFile = memoize((): string => {
 const hasInternetAccess = memoize(async (): Promise<boolean> => {
   try {
     const { default: axiosClient } = await import('axios')
-    await axiosClient.head('http://1.1.1.1', {
-      signal: AbortSignal.timeout(1000),
+    const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+      timeoutMs: 1000,
     })
-    return true
+    try {
+      await axiosClient.head('http://1.1.1.1', {
+        signal,
+      })
+      return true
+    } finally {
+      cleanup()
+    }
   } catch {
     return false
   }
