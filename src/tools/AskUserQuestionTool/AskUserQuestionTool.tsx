@@ -1,6 +1,6 @@
 import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
-import { getAllowedChannels, getQuestionPreviewFormat } from 'src/bootstrap/state.js';
+import { getChannelModeEnabled, getQuestionPreviewFormat } from 'src/bootstrap/state.js';
 import { MessageResponse } from 'src/components/MessageResponse.js';
 import { BLACK_CIRCLE } from 'src/constants/figures.js';
 import { getModeColor } from 'src/utils/permissions/PermissionMode.js';
@@ -137,7 +137,7 @@ export const AskUserQuestionTool: Tool<InputSchema, Output> = buildTool({
     // the keyboard. Channel permission relay already skips
     // requiresUserInteraction() tools (interactiveHandler.ts) so there's
     // no alternate approval path.
-    if (true /* channels enabled */ && getAllowedChannels().length > 0) {
+    if (getChannelModeEnabled()) {
       return false;
     }
     return true;

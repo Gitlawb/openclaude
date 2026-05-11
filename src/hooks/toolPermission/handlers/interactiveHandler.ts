@@ -2,7 +2,7 @@ import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
 import { randomUUID } from 'crypto'
 import { logForDebugging } from 'src/utils/debug.js'
-import { getAllowedChannels } from '../../../bootstrap/state.js'
+import { getAllowedChannels, getChannelModeEnabled } from '../../../bootstrap/state.js'
 import type { BridgePermissionCallbacks } from '../../../bridge/bridgePermissionCallbacks.js'
 import { getTerminalFocused } from '../../../ink/terminal-focus-state.js'
 import {
@@ -13,7 +13,6 @@ import {
 import type { ChannelPermissionCallbacks } from '../../../services/mcp/channelPermissions.js'
 import {
   filterPermissionRelayClients,
-  isChannelPermissionRelayEnabled,
   shortRequestId,
   truncateForPreview,
 } from '../../../services/mcp/channelPermissions.js'
@@ -315,7 +314,7 @@ function handleInteractivePermission(
   // the subscription never fires and another racer wins. Graceful degradation
   // — the local dialog is always there as the floor.
   if (
-    isChannelPermissionRelayEnabled() &&
+    getChannelModeEnabled() &&
     channelCallbacks &&
     !ctx.tool.requiresUserInteraction?.()
   ) {
