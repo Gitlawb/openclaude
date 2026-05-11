@@ -7,6 +7,7 @@ import { formatCreditAmount, getCachedReferrerReward } from '../../services/api/
 import type { LogOption } from '../../types/logs.js';
 import { getCwd } from '../../utils/cwd.js';
 import { formatRelativeTimeAgo } from '../../utils/format.js';
+import { getReleaseSectionHeaderTitle, isReleaseSectionHeader } from '../../utils/releaseNotes.js';
 import type { FeedConfig, FeedLine } from './Feed.js';
 export function createRecentActivityFeed(activities: LogOption[]): FeedConfig {
   const lines: FeedLine[] = activities.map(log => {
@@ -34,6 +35,11 @@ export function createWhatsNewFeed(releaseNotes: string[]): FeedConfig {
           text: match[2] || ''
         };
       }
+    }
+    if (isReleaseSectionHeader(note)) {
+      return {
+        text: `${getReleaseSectionHeaderTitle(note)}:`
+      };
     }
     return {
       text: note

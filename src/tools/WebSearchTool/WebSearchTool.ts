@@ -2,6 +2,7 @@ import type {
   BetaContentBlock,
   BetaWebSearchTool20250305,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import { PRODUCT_DISPLAY_NAME } from 'src/constants/product.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
 
@@ -113,6 +114,32 @@ function formatProviderOutput(po: ProviderOutput, query: string): Output {
     query,
     results,
     durationSeconds: po.durationSeconds,
+  }
+}
+
+function buildEmptyAdapterResultHint(provider: string, providerName: string): string {
+  return (
+    `No results from "${providerName}" search backend for provider "${provider}". ` +
+    `The default DuckDuckGo backend is rate-limited from many networks (datacenter IPs, VPNs, repeated requests) and returns 0 results when blocked. ` +
+    `For reliable web search on this provider, set one of: ` +
+    `FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, JINA_API_KEY, BING_API_KEY, MOJEEK_API_KEY, LINKUP_API_KEY, YOU_API_KEY — ` +
+    `or switch to an Anthropic / Vertex / Foundry provider that supports the native web_search tool.`
+  )
+}
+
+function formatProviderOutputWithEmptyHint(
+  po: ProviderOutput,
+  query: string,
+  provider: string,
+): Output {
+  const base = formatProviderOutput(po, query)
+  // Replace the "No results found." placeholder with a diagnostic hint when
+  // we know the next layer (native Anthropic web_search) will also produce
+  // 0 silently for this provider. Hits-present case is unchanged.
+  if (po.hits.length > 0) return base
+  return {
+    ...base,
+    results: [buildEmptyAdapterResultHint(provider, po.providerName)],
   }
 }
 
@@ -326,6 +353,8 @@ function makeOutputFromCodexWebSearchResponse(
 
 export const __test = {
   makeOutputFromCodexWebSearchResponse,
+  buildEmptyAdapterResultHint,
+  formatProviderOutputWithEmptyHint,
 }
 
 async function runCodexWebSearch(
@@ -528,7 +557,7 @@ export const WebSearchTool = buildTool({
   maxResultSizeChars: 100_000,
   shouldDefer: true,
   async description(input) {
-    return `Claude wants to search the web for: ${input.query}`
+    return `${PRODUCT_DISPLAY_NAME} wants to search the web for: ${input.query}`
   },
   userFacingName() {
     return 'Web Search'
@@ -663,7 +692,24 @@ export const WebSearchTool = buildTool({
         if (isExplicitAdapter || providerOutput.hits.length > 0) {
           return { data: formatProviderOutput(providerOutput, input.query) }
         }
-        // Auto mode with 0 hits: fall through to native
+        // Auto mode with 0 hits: only fall through to native when a real
+        // native fallback exists. For openai-shim providers (minimax,
+        // moonshot, nvidia-nim, github copilot, etc.) the native path
+        // silently returns "Did 0 searches" because those providers do
+        // not support Anthropic's web_search_20250305 tool — same root
+        // cause as the catch branch below. Surface the empty result with
+        // an actionable note so users see why nothing came back.
+        if (!hasNativeSearchFallback()) {
+          return {
+            data: formatProviderOutputWithEmptyHint(
+              providerOutput,
+              input.query,
+              getAPIProvider(),
+            ),
+          }
+        }
+        // Auto mode + 0 hits + native fallback available: fall through to
+        // native (Anthropic/Vertex/Foundry/Codex) and let it try.
       } catch (err) {
         // Explicit adapter: throw the real error (no silent native fallback)
         if (isExplicitAdapter) throw err

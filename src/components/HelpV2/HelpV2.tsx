@@ -7,6 +7,7 @@ import { useIsInsideModal } from '../../context/modalContext.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { Box, Link, Text } from '../../ink.js';
 import { useKeybinding } from '../../keybindings/useKeybinding.js';
+import { getPublicBuildVersion } from '../../utils/version.js';
 import { Pane } from '../design-system/Pane.js';
 import { Tab, Tabs } from '../design-system/Tabs.js';
 import { Commands } from './Commands.js';
@@ -136,48 +137,42 @@ export function HelpV2(t0) {
     tabs = $[15];
   }
   const t5 = insideModal ? undefined : maxHeight;
+  const publicBuildVersion = getPublicBuildVersion();
   let t6;
-  if ($[31] !== tabs) {
-    t6 = <Tabs title={false ? "/help" : `OpenClaude v${MACRO.VERSION}`} color="professionalBlue" defaultTab="general">{tabs}</Tabs>;
-    $[31] = tabs;
-    $[32] = t6;
+  if ($[31] !== publicBuildVersion || $[32] !== tabs) {
+    t6 = <Tabs title={false ? "/help" : `OpenClaude v${publicBuildVersion}`} color="professionalBlue" defaultTab="general">{tabs}</Tabs>;
+    $[31] = publicBuildVersion;
+    $[32] = tabs;
+    $[33] = t6;
   } else {
-    t6 = $[32];
+    t6 = $[33];
   }
   let t7;
-  if ($[33] === Symbol.for("react.memo_cache_sentinel")) {
+  if ($[34] === Symbol.for("react.memo_cache_sentinel")) {
     t7 = <Box marginTop={1}><Text>For more help:{" "}<Link url="https://github.com/Gitlawb/openclaude" /></Text></Box>;
-    $[33] = t7;
+    $[34] = t7;
   } else {
-    t7 = $[33];
+    t7 = $[34];
   }
   let t8;
-  if ($[34] !== dismissShortcut || $[35] !== exitState.keyName || $[36] !== exitState.pending) {
+  if ($[35] !== dismissShortcut || $[36] !== exitState.keyName || $[37] !== exitState.pending) {
     t8 = <Box marginTop={1}><Text dimColor={true}>{exitState.pending ? <>Press {exitState.keyName} again to exit</> : <Text italic={true}>{dismissShortcut} to cancel</Text>}</Text></Box>;
-    $[34] = dismissShortcut;
-    $[35] = exitState.keyName;
-    $[36] = exitState.pending;
-    $[37] = t8;
+    $[35] = dismissShortcut;
+    $[36] = exitState.keyName;
+    $[37] = exitState.pending;
+    $[38] = t8;
   } else {
-    t8 = $[37];
+    t8 = $[38];
   }
   let t9;
-  if ($[38] !== t6 || $[39] !== t8) {
+  if ($[39] !== t6 || $[40] !== t8) {
     t9 = <Pane color="professionalBlue">{t6}{t7}{t8}</Pane>;
-    $[38] = t6;
-    $[39] = t8;
-    $[40] = t9;
+    $[39] = t6;
+    $[40] = t8;
+    $[41] = t9;
   } else {
-    t9 = $[40];
+    t9 = $[41];
   }
-  let t10;
-  if ($[41] !== t5 || $[42] !== t9) {
-    t10 = <Box flexDirection="column" height={t5}>{t9}</Box>;
-    $[41] = t5;
-    $[42] = t9;
-    $[43] = t10;
-  } else {
-    t10 = $[43];
-  }
+  const t10 = <Box flexDirection="column" height={t5}>{t9}</Box>;
   return t10;
 }

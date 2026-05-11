@@ -189,6 +189,6 @@ test('coding goal recognizes codestral and devstral families', () => {
 
 test('goal defaults choose sensible openai models', () => {
   assert.equal(getGoalDefaultOpenAIModel('latency'), 'gpt-4o-mini')
-  assert.equal(getGoalDefaultOpenAIModel('balanced'), 'gpt-4o')
-  assert.equal(getGoalDefaultOpenAIModel('coding'), 'gpt-4o')
+  assert.equal(getGoalDefaultOpenAIModel('balanced'), 'gpt-5.5')
+  assert.equal(getGoalDefaultOpenAIModel('coding'), 'gpt-5.5')
 })

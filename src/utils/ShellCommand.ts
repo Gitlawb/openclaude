@@ -46,6 +46,10 @@ export type ShellCommand = {
   taskOutput: TaskOutput
 }
 
+type ShellCommandOptions = {
+  keepAliveOnInterrupt?: boolean
+}
+
 const SIGKILL = 137
 const SIGTERM = 143
 
@@ -127,6 +131,7 @@ class ShellCommandImpl implements ShellCommand {
     | undefined
   #timeout: number
   #shouldAutoBackground: boolean
+  #keepAliveOnInterrupt: boolean
   #resultResolver: ((result: ExecResult) => void) | null = null
   #exitCodeResolver: ((code: number) => void) | null = null
   #boundAbortHandler: (() => void) | null = null
@@ -152,12 +157,14 @@ class ShellCommandImpl implements ShellCommand {
     taskOutput: TaskOutput,
     shouldAutoBackground = false,
     maxOutputBytes = MAX_TASK_OUTPUT_BYTES,
+    options?: ShellCommandOptions,
   ) {
     this.#childProcess = childProcess
     this.#abortSignal = abortSignal
     this.#timeout = timeout
     this.#shouldAutoBackground = shouldAutoBackground
     this.#maxOutputBytes = maxOutputBytes
+    this.#keepAliveOnInterrupt = options?.keepAliveOnInterrupt === true
     this.taskOutput = taskOutput
 
     // In file mode (bash commands), both stdout and stderr go to the
@@ -184,9 +191,13 @@ class ShellCommandImpl implements ShellCommand {
   }
 
   #abortHandler(): void {
-    // On 'interrupt' (user submitted a new message), don't kill — let the
-    // caller background the process so the model can see partial output.
-    if (this.#abortSignal.reason === 'interrupt') {
+    // On 'interrupt' (user submitted a new message), keep explicit survivors
+    // alive: already-backgrounded commands and asyncRewake hook processes
+    // that must finish in-memory to emit or enqueue their response.
+    if (
+      this.#abortSignal.reason === 'interrupt' &&
+      (this.#status === 'backgrounded' || this.#keepAliveOnInterrupt)
+    ) {
       return
     }
     this.kill()
@@ -391,6 +402,7 @@ export function wrapSpawn(
   taskOutput: TaskOutput,
   shouldAutoBackground = false,
   maxOutputBytes = MAX_TASK_OUTPUT_BYTES,
+  options?: ShellCommandOptions,
 ): ShellCommand {
   return new ShellCommandImpl(
     childProcess,
@@ -399,6 +411,7 @@ export function wrapSpawn(
     taskOutput,
     shouldAutoBackground,
     maxOutputBytes,
+    options,
   )
 }
 

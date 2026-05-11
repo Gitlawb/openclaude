@@ -2,12 +2,15 @@ import { afterEach, expect, mock, test } from 'bun:test'
 
 const originalEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
   CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   MISTRAL_BASE_URL: process.env.MISTRAL_BASE_URL,
   MISTRAL_MODEL: process.env.MISTRAL_MODEL,
+  GEMINI_BASE_URL: process.env.GEMINI_BASE_URL,
+  GEMINI_MODEL: process.env.GEMINI_MODEL,
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -20,12 +23,15 @@ function restoreEnv(key: string, value: string | undefined): void {
 
 afterEach(() => {
   restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
+  restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
   restoreEnv('CLAUDE_CODE_USE_MISTRAL', originalEnv.CLAUDE_CODE_USE_MISTRAL)
   restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
   restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
   restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
   restoreEnv('MISTRAL_BASE_URL', originalEnv.MISTRAL_BASE_URL)
   restoreEnv('MISTRAL_MODEL', originalEnv.MISTRAL_MODEL)
+  restoreEnv('GEMINI_BASE_URL', originalEnv.GEMINI_BASE_URL)
+  restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
   mock.restore()
 })
 
@@ -104,4 +110,27 @@ test('uses OPENAI_API_BASE as fallback in mistral mode when MISTRAL_BASE_URL is 
 
   expect(resolved.baseUrl).toBe('http://127.0.0.1:11434/v1')
   expect(debugSpy.mock.calls).toHaveLength(0)
+})
+
+test('uses descriptor-backed Gemini default model when GEMINI_MODEL is unset', async () => {
+  const debugSpy = mock(() => {})
+  mock.module('../../utils/debug.js', () => ({
+    logForDebugging: debugSpy,
+  }))
+
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  process.env.CLAUDE_CODE_USE_GEMINI = '1'
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.OPENAI_MODEL
+  delete process.env.OPENAI_API_BASE
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { resolveProviderRequest } = await import(`./providerConfig.ts?ts=${nonce}`)
+
+  const resolved = resolveProviderRequest()
+
+  expect(resolved.resolvedModel).toBe('gemini-3-flash-preview')
+  expect(resolved.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta/openai')
 })

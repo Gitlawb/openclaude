@@ -1,0 +1,6 @@
+# npm publish only ships what the `files` field in package.json allows.
+# This .npmignore is a safety net: if `files` is ever removed or expanded,
+# nothing in this list can be published.
+
+# Marketing / landing site — never ship with the CLI package.
+web/

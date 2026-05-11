@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
+import { CLI_EXTERNALS, SDK_EXTERNALS } from './externals.js'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const version = pkg.version
@@ -117,9 +118,12 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
+let result: Awaited<ReturnType<typeof Bun.build>> | undefined
+let sdkResult: Awaited<ReturnType<typeof Bun.build>> | undefined
+
 try {
 
-const result = await Bun.build({
+result = await Bun.build({
   entrypoints: ['./src/entrypoints/cli.tsx'],
   outdir: './dist',
   target: 'node',
@@ -137,7 +141,9 @@ const result = await Bun.build({
     'MACRO.DISPLAY_VERSION': JSON.stringify(version),
     'MACRO.BUILD_TIME': JSON.stringify(new Date().toISOString()),
     'MACRO.ISSUES_EXPLAINER':
-      JSON.stringify('report the issue at https://github.com/anthropics/claude-code/issues'),
+      JSON.stringify('report the issue at https://github.com/Gitlawb/openclaude/issues'),
+    'MACRO.FEEDBACK_CHANNEL':
+      JSON.stringify('https://github.com/Gitlawb/openclaude/issues'),
     'MACRO.PACKAGE_URL': JSON.stringify('@gitlawb/openclaude'),
     'MACRO.NATIVE_PACKAGE_URL': 'undefined',
   },
@@ -442,37 +448,7 @@ ${exports}
       },
     },
   ],
-  external: [
-    // OpenTelemetry — too many named exports to stub, kept external
-    '@opentelemetry/api',
-    '@opentelemetry/api-logs',
-    '@opentelemetry/core',
-    '@opentelemetry/exporter-trace-otlp-grpc',
-    '@opentelemetry/exporter-trace-otlp-http',
-    '@opentelemetry/exporter-trace-otlp-proto',
-    '@opentelemetry/exporter-logs-otlp-http',
-    '@opentelemetry/exporter-logs-otlp-proto',
-    '@opentelemetry/exporter-logs-otlp-grpc',
-    '@opentelemetry/exporter-metrics-otlp-proto',
-    '@opentelemetry/exporter-metrics-otlp-grpc',
-    '@opentelemetry/exporter-metrics-otlp-http',
-    '@opentelemetry/exporter-prometheus',
-    '@opentelemetry/resources',
-    '@opentelemetry/sdk-trace-base',
-    '@opentelemetry/sdk-trace-node',
-    '@opentelemetry/sdk-logs',
-    '@opentelemetry/sdk-metrics',
-    '@opentelemetry/semantic-conventions',
-    // Native image processing
-    'sharp',
-    // Cloud provider SDKs
-    '@aws-sdk/client-bedrock',
-    '@aws-sdk/client-bedrock-runtime',
-    '@aws-sdk/client-sts',
-    '@aws-sdk/credential-providers',
-    '@azure/identity',
-    'google-auth-library',
-  ],
+  external: CLI_EXTERNALS,
 })
 
 if (!result.success) {
@@ -485,8 +461,474 @@ if (!result.success) {
   console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
 }
 
+// ── SDK Bundle Build ──────────────────────────────────────────────────────
+// SDK is a separate bundle for npm consumption - must NOT bundle React/Ink
+console.log('Building SDK bundle...')
+
+sdkResult = await Bun.build({
+  entrypoints: ['./src/entrypoints/sdk/index.ts'],
+  outdir: './dist',
+  target: 'node',
+  format: 'esm',
+  splitting: false,
+  sourcemap: 'external',
+  minify: false,
+  naming: 'sdk.mjs',
+  define: {
+    'MACRO.VERSION': JSON.stringify(version),
+    'MACRO.DISPLAY_VERSION': JSON.stringify(version),
+    'MACRO.BUILD_TIME': JSON.stringify(new Date().toISOString()),
+    'MACRO.ISSUES_EXPLAINER':
+      JSON.stringify('report the issue at https://github.com/Gitlawb/openclaude/issues'),
+    'MACRO.FEEDBACK_CHANNEL':
+      JSON.stringify('https://github.com/Gitlawb/openclaude/issues'),
+    'MACRO.PACKAGE_URL': JSON.stringify('@gitlawb/openclaude'),
+    'MACRO.NATIVE_PACKAGE_URL': 'undefined',
+  },
+  // External: everything TUI-related + native modules
+  external: SDK_EXTERNALS,
+  plugins: [
+    noTelemetryPlugin,
+    // Stub missing internal/optional modules (same pattern as CLI build)
+    {
+      name: 'sdk-missing-stub',
+      setup(build) {
+        const missingModules = [
+          '@anthropic-ai/mcpb',
+          '@ant/claude-for-chrome-mcp',
+          '@ant/computer-use-mcp',
+          '@ant/computer-use-swift',
+          '@ant/computer-use-input',
+          '@anthropic-ai/sandbox-runtime',
+          'audio-capture-napi', 'audio-capture.node',
+          'image-processor-napi', 'modifiers-napi', 'url-handler-napi', 'color-diff-napi',
+          'asciichart', 'plist', 'cacache', 'fuse', 'code-excerpt', 'stack-utils',
+        ]
+        for (const mod of missingModules) {
+          const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({
+            path: mod,
+            namespace: 'sdk-missing-stub',
+          }))
+        }
+        // Stub relative imports to TUI directories
+        // Use (\.\.?\/)+ to match multiple ../ prefixes like ../../components/
+        build.onResolve({ filter: /^(\.\.?\/)+components\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^(\.\.?\/)+ink\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^(\.\.?\/)+commands\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^(\.\.?\/)+cli\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub relative imports to state/ directory EXCEPT for store.js and AppStateStore.js
+        // which are React-free utilities needed by the SDK for state management.
+        build.onResolve({ filter: /^(\.\.?\/)+state\// }, (args) => {
+          // Exclude React-free state utilities from stubbing
+          const isReactFreeStateModule =
+            args.path.endsWith('store.js') ||
+            args.path.endsWith('AppStateStore.js') ||
+            args.path.endsWith('store.ts') ||
+            args.path.endsWith('AppStateStore.ts')
+          if (isReactFreeStateModule) {
+            return null // Let Bun resolve normally
+          }
+          return {
+            path: args.path,
+            namespace: 'sdk-missing-stub',
+          }
+        })
+        build.onResolve({ filter: /^(\.\.?\/)+context\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub root ink.js barrel imports (../ink.js, ../../ink.js, ./ink.js)
+        // These are TUI entry points that import React directly.
+        build.onResolve({ filter: /^(\.\.?\/)+ink\.js$/ }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Also stub ./ paths used by re-exports in src/ink.ts, src/components/, etc.
+        build.onResolve({ filter: /^\.\/components\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^\.\/ink\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^\.\/commands\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^\.\/cli\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub tool UI.js imports from within src/tools/ subdirectories.
+        // Tool UI modules render React/TUI components that are not needed
+        // in the SDK (headless) bundle. Only stub when the importer is
+        // inside src/tools/ to avoid blind-matching other UI.js files.
+        build.onResolve({ filter: /(?:^|\/)UI\.js$/ }, (args) => {
+          // Normalize path separators for cross-platform matching
+          const importer = (args.importer || '').replace(/\\/g, '/')
+          if (importer.includes('src/tools/')) {
+            return {
+              path: args.path,
+              namespace: 'sdk-missing-stub',
+            }
+          }
+          return null
+        })
+
+        // Stub src/ alias imports that resolve to TUI directories
+        // These are used by require('src/components/...') style imports
+        build.onResolve({ filter: /^src\/components\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^src\/ink\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub src/ink.js root barrel import (used by some files via 'src/ink.js')
+        build.onResolve({ filter: /^src\/ink\.js$/ }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^src\/commands\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^src\/cli\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // src/state/ contains AppState.tsx with React hooks, but store.ts and AppStateStore.ts
+        // are React-free utilities needed by the SDK - exclude them from stubbing.
+        build.onResolve({ filter: /^src\/state\// }, (args) => {
+          // Exclude React-free state utilities from stubbing
+          const isReactFreeStateModule =
+            args.path.endsWith('store.js') ||
+            args.path.endsWith('AppStateStore.js') ||
+            args.path.endsWith('store.ts') ||
+            args.path.endsWith('AppStateStore.ts')
+          if (isReactFreeStateModule) {
+            return null // Let Bun resolve normally
+          }
+          return {
+            path: args.path,
+            namespace: 'sdk-missing-stub',
+          }
+        })
+        build.onResolve({ filter: /^src\/context\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub src/keybindings/ — React-dependent keybinding system not needed in SDK
+        build.onResolve({ filter: /^src\/keybindings\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        build.onResolve({ filter: /^(\.\.?\/)+keybindings\// }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub react-compiler-runtime — not needed in SDK bundle
+        build.onResolve({ filter: /^react-compiler-runtime$/ }, () => ({
+          path: 'react-compiler-runtime',
+          namespace: 'sdk-missing-stub',
+        }))
+        // Stub TUI-only React hook files that leak into SDK via tool imports.
+        // These are imported transitively through spawnMultiAgent → It2SetupPrompt
+        // and through keybinding hooks. The SDK doesn't use TUI features.
+        for (const hookPath of [
+          'useDoublePress.js', 'useExitOnCtrlCD.js', 'useExitOnCtrlCDWithKeybindings.js',
+          'useTerminalSize.js', 'useShortcutDisplay.js',
+        ]) {
+          const escaped = hookPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`(^|/)${escaped}$`) }, (args) => ({
+            path: args.path,
+            namespace: 'sdk-missing-stub',
+          }))
+        }
+        // Stub It2SetupPrompt.tsx — TUI component pulled in by spawnMultiAgent
+        build.onResolve({ filter: /It2SetupPrompt\.js$/ }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-missing-stub',
+        }))
+
+        // Stub react/jsx-dev-runtime with local no-op — tool .tsx files compile
+        // to jsxDEV() calls that are never rendered in SDK headless mode.
+        // This eliminates the external react/jsx-dev-runtime import entirely.
+        build.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({
+          path: 'react/jsx-dev-runtime',
+          namespace: 'sdk-jsx-stub',
+        }))
+        build.onLoad({ filter: /.*/, namespace: 'sdk-jsx-stub' }, () => ({
+          contents: `
+// No-op jsxDEV: returns null (SDK never renders JSX)
+export function jsxDEV(type, props, key, isStaticChildren, source, self) {
+  return null;
+}
+// No-op Fragment: returns null (never used in SDK rendering)
+export const Fragment = null;
+`,
+          loader: 'js',
+        }))
+
+        // Resolve .md and .txt file imports (used by yolo-classifier etc.) to empty string stubs
+        build.onResolve({ filter: /\.(md|txt)$/, namespace: 'file' }, (args) => ({
+          path: args.path,
+          namespace: 'sdk-text-stub',
+        }))
+        build.onLoad(
+          { filter: /.*/, namespace: 'sdk-text-stub' },
+          () => ({
+            contents: `export default '';`,
+            loader: 'js',
+          }),
+        )
+
+        // Stub require() calls to modules that don't exist on disk.
+        // These are feature-gated lazy imports (e.g. cachedMCConfig, VerifyPlanExecutionTool,
+        // mcpSkills) that only resolve when the feature flag is enabled at build time.
+        // Pre-scan source files for require('...') to non-existent .js paths.
+        const sdkRequireScanDir = require('path').resolve(__dirname, '..', 'src')
+        const sdkMissingRequires = new Set<string>()
+        const sdkPathMod = require('path')
+        const sdkFs = require('fs')
+        function scanSdkRequireImports() {
+          function walkRequireScan(dir: string) {
+            for (const ent of sdkFs.readdirSync(dir, { withFileTypes: true })) {
+              const full = sdkPathMod.join(dir, ent.name)
+              if (ent.isDirectory()) { walkRequireScan(full); continue }
+              if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const fileDir = sdkPathMod.dirname(full)
+              const rawCode: string = sdkFs.readFileSync(full, 'utf-8')
+              // Strip comments
+              const code = rawCode
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/\/\/.*$/gm, '')
+              // Collect require('...') calls for relative .js paths
+              for (const m of code.matchAll(/require\(\s*['"](\.\.?\/[^'"]+\.js)['"]\s*\)/g)) {
+                const specifier = m[1]
+                const resolved = sdkPathMod.resolve(fileDir, specifier)
+                const tsVariant = resolved.replace(/\.js$/, '.ts')
+                if (!sdkFs.existsSync(resolved) && !sdkFs.existsSync(tsVariant)) {
+                  sdkMissingRequires.add(specifier)
+                }
+              }
+            }
+          }
+          walkRequireScan(sdkRequireScanDir)
+        }
+        scanSdkRequireImports()
+        for (const mod of sdkMissingRequires) {
+          const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          build.onResolve({ filter: new RegExp(`^${escaped}$`) }, () => ({
+            path: mod,
+            namespace: 'sdk-missing-stub',
+          }))
+        }
+
+        // Pre-scan: find all named imports for each stubbed module so we can
+        // generate matching exports dynamically (avoids the whack-a-mole of
+        // static export lists that break whenever a new import is added).
+        const fs = require('fs')
+        const pathMod = require('path')
+        const srcDir = pathMod.resolve(__dirname, '..', 'src')
+        const sdkStubExports = new Map<string, Set<string>>() // module path → set of imported names
+
+        function scanSdkStubImports() {
+          function register(specifier: string, namedPart: string) {
+            const rawNames = namedPart.split(',')
+              .map((s: string) => s.trim().replace(/^type\s+/, ''))
+              .filter((s: string) => s && !s.startsWith('type '))
+            if (rawNames.length === 0) return
+            if (!sdkStubExports.has(specifier)) sdkStubExports.set(specifier, new Set())
+            const names = sdkStubExports.get(specifier)!
+            for (const s of rawNames) {
+              // Handle "originalName as localName" — export BOTH names
+              // because Bun validates the original export name exists
+              const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/)
+              if (asMatch) {
+                names.add(asMatch[1]) // original name
+                names.add(asMatch[2]) // aliased name
+              } else {
+                names.add(s)
+              }
+            }
+          }
+          const isStubbedSpecifier = (s: string) =>
+            missingModules.includes(s) ||
+            /^(\.\.?\/)+(components|ink|commands|cli|context|state|keybindings)\//.test(s) ||
+            /^(\.\.?\/)+ink\.js$/.test(s) ||
+            /^src\/(components|ink|commands|cli|state|context|keybindings)\//.test(s) ||
+            /^src\/ink\.js$/.test(s) ||
+            /(?:^|\/)UI\.js$/.test(s) ||
+            s === 'react-compiler-runtime' ||
+            /(?:^|\/)It2SetupPrompt\.js$/.test(s) ||
+            /(?:^|\/)(useDoublePress|useExitOnCtrlCD|useExitOnCtrlCDWithKeybindings|useTerminalSize|useShortcutDisplay)\.js$/.test(s)
+          function walk(dir: string) {
+            for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = pathMod.join(dir, ent.name)
+              if (ent.isDirectory()) { walk(full); continue }
+              if (!/\.(ts|tsx)$/.test(ent.name)) continue
+              const fileDir = pathMod.dirname(full)
+              const rawCode: string = fs.readFileSync(full, 'utf-8')
+              // Strip comments
+              const code = rawCode
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/\/\/.*$/gm, '')
+              // Collect static imports: import { X } from '...'
+              for (const m of code.matchAll(/import\s+(?:\{([^}]*)\}|(\w+))?\s*(?:,\s*\{([^}]*)\})?\s*from\s+['"](.*?)['"]/g)) {
+                const specifier = m[4]
+                if (isStubbedSpecifier(specifier)) {
+                  register(specifier, m[1] || m[3] || '')
+                }
+              }
+              // Collect re-exports: export { X, Y } from '...'
+              for (const m of code.matchAll(/export\s+\{([^}]*)\}\s*from\s+['"](.*?)['"]/g)) {
+                const specifier = m[2]
+                if (isStubbedSpecifier(specifier)) {
+                  register(specifier, m[1])
+                }
+              }
+              // Collect star re-exports: export * from '...'
+              // These re-export all named exports from the source module.
+              // For stubbed modules, we need to scan the re-exported module
+              // to find its exports and register them under the stubbed specifier.
+              for (const m of code.matchAll(/export\s+\*\s+from\s+['"](.*?)['"]/g)) {
+                const specifier = m[1]
+                if (isStubbedSpecifier(specifier)) {
+                  // The re-exported module might itself be stubbed, so we need
+                  // to find its exports. Parse the relative path and scan it.
+                  const reexportPath = pathMod.resolve(fileDir, specifier)
+                  const reexportBase = reexportPath.replace(/\.js$/, '')
+                  const candidates = [
+                    `${reexportBase}.ts`,
+                    `${reexportBase}.tsx`,
+                    reexportPath,
+                    `${reexportPath}.ts`,
+                    `${reexportPath}.tsx`,
+                  ]
+                  for (const candidate of candidates) {
+                    if (fs.existsSync(candidate)) {
+                      const reexportCode = fs.readFileSync(candidate, 'utf-8')
+                        .replace(/\/\*[\s\S]*?\*\//g, '')
+                        .replace(/\/\/.*$/gm, '')
+                      // Collect exports from the re-exported module
+                      for (const exp of reexportCode.matchAll(/export\s+(?:const|let|var|function|class|type|interface)\s+(\w+)/g)) {
+                        register(specifier, exp[1])
+                      }
+                      for (const exp of reexportCode.matchAll(/export\s+\{([^}]*)\}/g)) {
+                        register(specifier, exp[1])
+                      }
+                      break
+                    }
+                  }
+                }
+              }
+            }
+          }
+          walk(srcDir)
+        }
+        scanSdkStubImports()
+
+        // Special default exports for known modules
+        const defaultExportOverrides: Record<string, string> = {
+          'stringWidth': '(s) => s?.length || 0',
+          'wrapAnsi': '(s) => s',
+          'instances': 'new Map()',
+          'selectableUserMessagesFilter': '() => true',
+          'messagesAfterAreOnlySynthetic': '() => false',
+          'SandboxManager': 'class { static isSupportedPlatform = () => false; static create = noop; static Version = \'\'; }',
+          'SandboxRuntimeConfigSchema': '{ parse: noop }',
+          'SandboxViolationStore': 'null',
+          'BaseSandboxManager': 'class { static isSupportedPlatform = () => false; }',
+          'ExportResultCode': '{ SUCCESS: 0, FAILED: 1 }',
+          'linkifyUrlsInText': '(s) => s',
+        }
+
+        build.onLoad({ filter: /.*/, namespace: 'sdk-missing-stub' }, (args) => {
+          const names = sdkStubExports.get(args.path) ?? new Set()
+          const parts: string[] = []
+          for (const n of names) {
+            if (n === 'default') continue // handled by `export default noop` below
+            const val = defaultExportOverrides[n] ?? 'noop'
+            parts.push(`export const ${n} = ${val};`)
+          }
+          return {
+            contents: `
+const noop = () => null;
+export default noop;
+export const __stub = true;
+${parts.join('\n')}
+`,
+            loader: 'js',
+          }
+        })
+      },
+    },
+  ],
+})
+
+if (!sdkResult.success) {
+  console.error('SDK build failed:')
+  for (const log of sdkResult.logs) {
+    console.error(log)
+  }
+  process.exitCode = 1
+} else {
+  console.log(`✓ Built SDK bundle → dist/sdk.mjs`)
+}
+
 } finally {
   // Always restore source files, even if Bun.build() throws
   restoreModifiedFiles()
   console.log(`  🔄 feature-flags: pre-processed ${numModified} files (restored)`)
+}
+
+// ── Validate SDK bundle for React/Ink leakage ──────────────────────────────
+if (sdkResult?.success) {
+  const sdkBundle = readFileSync('./dist/sdk.mjs', 'utf-8')
+  // Patterns that indicate React/Ink code leaked into the SDK bundle.
+  const reactInkPatterns = [
+    /from\s+["']react["']/,               // direct react import
+    /from\s+["']ink["']/,                 // direct ink import
+    /from\s+["']react\/jsx-dev-runtime["']/, // JSX runtime (must be stubbed, not external)
+  ]
+  const leaks: string[] = []
+  for (const pattern of reactInkPatterns) {
+    const match = sdkBundle.match(pattern)
+    if (match) leaks.push(match[0])
+  }
+  if (leaks.length > 0) {
+    console.error(`\n❌ SDK bundle contains React/Ink imports (must be stubbed):`)
+    for (const leak of leaks) console.error(`   - ${leak}`)
+    process.exitCode = 1
+  } else {
+    console.log(`✓ SDK bundle: no React/Ink leakage detected`)
+  }
+}
+
+// ── Validate external lists ──────────────────────────────────────────────
+if (result?.success && sdkResult?.success) {
+  console.log('\nValidating external lists...')
+  const validation = Bun.spawnSync(['bun', 'run', 'scripts/validate-externals.ts'], {
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+  if (validation.exitCode !== 0) {
+    process.exitCode = 1
+  }
 }

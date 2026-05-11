@@ -580,7 +580,7 @@ async function getMessagesForSlashCommand(commandName: string, args: string, set
 
               // In fullscreen the command just showed as a centered modal
               // pane — the transient notification is enough feedback. The
-              // "❯ /config" + "⎿ dismissed" transcript entries are
+              // "❯ /config" + "└ dismissed" transcript entries are
               // type:system subtype:local_command (user-visible but NOT sent
               // to the model), so skipping them doesn't affect model context.
               // Outside fullscreen keep them so scrollback shows what ran.

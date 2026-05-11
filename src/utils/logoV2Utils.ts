@@ -9,7 +9,11 @@ import {
   truncateToWidth,
   truncateToWidthNoEllipsis,
 } from './format.js'
-import { getStoredChangelogFromMemory, parseChangelog } from './releaseNotes.js'
+import {
+  getStoredChangelogFromMemory,
+  parseChangelog,
+  sliceReleaseNotesForDisplay,
+} from './releaseNotes.js'
 import { gt } from './semver.js'
 import { loadMessageLogs } from './sessionStorage.js'
 import { getInitialSettings } from './settings/settings.js'
@@ -345,6 +349,5 @@ export function getRecentReleaseNotesSync(maxItems: number): string[] {
     }
   }
 
-  // Return raw notes without filtering or premature truncation
-  return allNotes.slice(0, maxItems)
+  return sliceReleaseNotesForDisplay(allNotes, maxItems)
 }

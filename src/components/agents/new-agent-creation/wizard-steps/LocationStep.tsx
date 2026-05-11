@@ -1,6 +1,8 @@
 import { c as _c } from "react-compiler-runtime";
+import { join } from 'path';
 import React, { type ReactNode } from 'react';
 import { Box } from '../../../../ink.js';
+import { getClaudeConfigHomeDir } from '../../../../utils/envUtils.js';
 import type { SettingSource } from '../../../../utils/settings/constants.js';
 import { ConfigurableShortcutHint } from '../../../ConfigurableShortcutHint.js';
 import { Select } from '../../../CustomSelect/select.js';
@@ -19,24 +21,17 @@ export function LocationStep() {
   let t0;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t0 = {
-      label: "Project (.claude/agents/)",
+      label: "Project (.openclaude/agents/)",
       value: "projectSettings" as SettingSource
     };
     $[0] = t0;
   } else {
     t0 = $[0];
   }
-  let t1;
-  if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = [t0, {
-      label: "Personal (~/.claude/agents/)",
-      value: "userSettings" as SettingSource
-    }];
-    $[1] = t1;
-  } else {
-    t1 = $[1];
-  }
-  const locationOptions = t1;
+  const locationOptions = [t0, {
+    label: `Personal (${join(getClaudeConfigHomeDir(), 'agents')})`,
+    value: "userSettings" as SettingSource
+  }];
   let t2;
   if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = <Byline><KeyboardShortcutHint shortcut={"\u2191\u2193"} action="navigate" /><KeyboardShortcutHint shortcut="Enter" action="select" /><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" /></Byline>;

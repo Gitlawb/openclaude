@@ -1,4 +1,4 @@
-import { saveGlobalConfig } from './config.js'
+import { saveGlobalConfig, type GlobalConfig } from './config.js'
 import { updateSettingsForSource } from './settings/settings.js'
 
 export const STARTUP_PROVIDER_OVERRIDE_ENV_KEYS = [
@@ -19,6 +19,7 @@ export const STARTUP_PROVIDER_OVERRIDE_ENV_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_CUSTOM_HEADERS',
   'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
   'GEMINI_BASE_URL',
@@ -51,10 +52,17 @@ const DELETE_SETTINGS_ENV_VALUE = undefined as unknown as string
 
 export function clearStartupProviderOverrides(options?: {
   updateUserSettings?: typeof updateSettingsForSource
-  saveConfig?: typeof saveGlobalConfig
+  saveConfig?: (
+    updater: (current: GlobalConfigWithEnv) => GlobalConfigWithEnv,
+  ) => unknown
 }): string | null {
   const updateUserSettings = options?.updateUserSettings ?? updateSettingsForSource
-  const saveConfig = options?.saveConfig ?? saveGlobalConfig
+  const saveConfig =
+    options?.saveConfig ??
+    ((updater: (current: GlobalConfigWithEnv) => GlobalConfigWithEnv) =>
+      saveGlobalConfig(
+        updater as unknown as (currentConfig: GlobalConfig) => GlobalConfig,
+      ))
   const envPatch = Object.fromEntries(
     STARTUP_PROVIDER_OVERRIDE_ENV_KEYS.map(key => [
       key,

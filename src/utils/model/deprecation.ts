@@ -4,7 +4,7 @@
  * Contains information about deprecated models and their retirement dates.
  */
 
-import { type APIProvider, getAPIProvider } from './providers.js'
+import { type LegacyAPIProvider, getAPIProvider } from './providers.js'
 
 type DeprecatedModelInfo = {
   isDeprecated: true
@@ -21,8 +21,8 @@ type DeprecationInfo = DeprecatedModelInfo | NotDeprecatedInfo
 type DeprecationEntry = {
   /** Human-readable model name */
   modelName: string
-  /** Retirement dates by provider (null = not deprecated for that provider) */
-  retirementDates: Record<APIProvider, string | null>
+  /** Retirement dates by legacy provider category (null = not deprecated there) */
+  retirementDates: Record<LegacyAPIProvider, string | null>
 }
 
 /**
@@ -38,6 +38,13 @@ const DEPRECATED_MODELS: Record<string, DeprecationEntry> = {
       bedrock: 'January 15, 2026',
       vertex: 'January 5, 2026',
       foundry: 'January 5, 2026',
+      openai: null,
+      gemini: null,
+      github: null,
+      codex: null,
+      'nvidia-nim': null,
+      minimax: null,
+      mistral: null,
     },
   },
   'claude-3-7-sonnet': {
@@ -47,6 +54,13 @@ const DEPRECATED_MODELS: Record<string, DeprecationEntry> = {
       bedrock: 'April 28, 2026',
       vertex: 'May 11, 2026',
       foundry: 'February 19, 2026',
+      openai: null,
+      gemini: null,
+      github: null,
+      codex: null,
+      'nvidia-nim': null,
+      minimax: null,
+      mistral: null,
     },
   },
   'claude-3-5-haiku': {
@@ -56,6 +70,13 @@ const DEPRECATED_MODELS: Record<string, DeprecationEntry> = {
       bedrock: null,
       vertex: null,
       foundry: null,
+      openai: null,
+      gemini: null,
+      github: null,
+      codex: null,
+      'nvidia-nim': null,
+      minimax: null,
+      mistral: null,
     },
   },
 }

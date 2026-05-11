@@ -2,6 +2,7 @@ import { APIError } from '@anthropic-ai/sdk'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
 import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
+import { stableStringify } from '../../utils/stableStringify.js'
 import type {
   ResolvedCodexCredentials,
   ResolvedProviderRequest,
@@ -120,7 +121,7 @@ function normalizeToolUseId(toolUseId: string | undefined): {
   }
 }
 
-function convertSystemPrompt(system: unknown): string {
+export function convertSystemPrompt(system: unknown): string {
   if (!system) return ''
   if (typeof system === 'string') return system
   if (Array.isArray(system)) {
@@ -128,6 +129,10 @@ function convertSystemPrompt(system: unknown): string {
       .map((block: { type?: string; text?: string }) =>
         block.type === 'text' ? (block.text ?? '') : '',
       )
+      // Drop the Anthropic billing/attribution block — Codex's Responses API
+      // doesn't parse it and the per-build fingerprint just churns the
+      // upstream prompt cache.
+      .filter(text => !text.startsWith('x-anthropic-billing-header'))
       .join('\n\n')
   }
   return String(system)
@@ -559,7 +564,9 @@ export async function performCodexRequest(options: {
     {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      // WHY: byte-identity required for implicit prefix caching on
+      // OpenAI Responses API. See src/utils/stableStringify.ts.
+      body: stableStringify(body),
       signal: options.signal,
     },
   )

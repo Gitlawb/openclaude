@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDebounceCallback } from 'usehooks-ts';
 import { addDirHelpMessage, validateDirectoryForWorkspace } from '../../../commands/add-dir/validation.js';
 import TextInput from '../../../components/TextInput.js';
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import type { KeyboardEvent } from '../../../ink/events/keyboard-event.js';
 import { Box, Text } from '../../../ink.js';
 import { useKeybinding } from '../../../keybindings/useKeybinding.js';
@@ -40,7 +41,7 @@ function PermissionDescription() {
   const $ = _c(1);
   let t0;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t0 = <Text dimColor={true}>OpenClaude will be able to read files in this directory and make edits when auto-accept edits is on.</Text>;
+    t0 = <Text dimColor={true}>{PRODUCT_DISPLAY_NAME} will be able to read files in this directory and make edits when auto-accept edits is on.</Text>;
     $[0] = t0;
   } else {
     t0 = $[0];

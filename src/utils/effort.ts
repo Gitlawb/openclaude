@@ -144,6 +144,8 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
 /**
  * Numeric values are model-default only and not persisted.
  * 'max' can now be persisted by all users.
+ * OpenAI-shaped 'xhigh' is normalized to its EffortLevel equivalent ('max')
+ * so any code path that leaks the OpenAI label still persists correctly.
  * Write sites call this before saving to settings so the Zod schema
  * (which only accepts string levels) never rejects a write.
  */
@@ -155,6 +157,9 @@ export function toPersistableEffort(
   }
   if (value === 'max') {
     return value
+  }
+  if (value === 'xhigh') {
+    return 'max'
   }
   return undefined
 }
@@ -214,8 +219,14 @@ export function resolveAppliedEffort(
   }
   const resolved =
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model)
-  // API rejects 'max' on non-Opus-4.6 models — downgrade to 'high'.
-  if (resolved === 'max' && !modelSupportsMaxEffort(model)) {
+  // API rejects 'max' on non-Opus-4.6 Anthropic models — downgrade to 'high'.
+  // OpenAI/Codex models use 'max' as the standard form of 'xhigh'; the client
+  // shim converts it back to 'xhigh' on the wire, so don't clamp it here.
+  if (
+    resolved === 'max' &&
+    !modelSupportsMaxEffort(model) &&
+    !modelUsesOpenAIEffort(model)
+  ) {
     return 'high'
   }
   return resolved

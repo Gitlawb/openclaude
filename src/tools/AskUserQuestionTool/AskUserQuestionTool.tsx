@@ -4,6 +4,7 @@ import * as React from 'react';
 import { getAllowedChannels, getQuestionPreviewFormat } from 'src/bootstrap/state.js';
 import { MessageResponse } from 'src/components/MessageResponse.js';
 import { BLACK_CIRCLE } from 'src/constants/figures.js';
+import { PRODUCT_DISPLAY_NAME } from 'src/constants/product.js';
 import { getModeColor } from 'src/utils/permissions/PermissionMode.js';
 import { z } from 'zod/v4';
 import { Box, Text } from '../../ink.js';
@@ -87,7 +88,7 @@ function AskUserQuestionResultMessage(t0) {
   } = t0;
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = <Box flexDirection="row"><Text color={getModeColor("default")}>{BLACK_CIRCLE} </Text><Text>User answered Claude's questions:</Text></Box>;
+    t1 = <Box flexDirection="row"><Text color={getModeColor("default")}>{BLACK_CIRCLE} </Text><Text>User answered {PRODUCT_DISPLAY_NAME}&apos;s questions:</Text></Box>;
     $[0] = t1;
   } else {
     t1 = $[0];

@@ -211,6 +211,6 @@ export function getCommandName(cmd: CommandBase): string {
 }
 
 /** Resolves whether the command is enabled, defaulting to true. */
-export function isCommandEnabled(cmd: CommandBase): boolean {
-  return cmd.isEnabled?.() ?? true
+export function isCommandEnabled(cmd: CommandBase | null | undefined): boolean {
+  return cmd?.isEnabled?.() ?? true
 }

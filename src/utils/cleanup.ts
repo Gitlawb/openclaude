@@ -4,14 +4,14 @@ import { join } from 'path'
 import { logEvent } from '../services/analytics/index.js'
 import { CACHE_PATHS } from './cachePaths.js'
 import { logForDebugging } from './debug.js'
-import { getClaudeConfigHomeDir } from './envUtils.js'
+import { getClaudeConfigHomeDir, getProjectsDir } from './envUtils.js'
 import { type FsOperations, getFsImplementation } from './fsOperations.js'
 import { cleanupOldImageCaches } from './imageStore.js'
 import * as lockfile from './lockfile.js'
 import { logError } from './log.js'
 import { cleanupOldVersions } from './nativeInstaller/index.js'
 import { cleanupOldPastes } from './pasteStore.js'
-import { getProjectsDir } from './sessionStorage.js'
+import { getDefaultPlansDirectory } from './plans.js'
 import { getSettingsWithAllErrors } from './settings/allErrors.js'
 import {
   getSettings_DEPRECATED,
@@ -298,8 +298,7 @@ async function cleanupSingleDirectory(
 }
 
 export function cleanupOldPlanFiles(): Promise<CleanupResult> {
-  const plansDir = join(getClaudeConfigHomeDir(), 'plans')
-  return cleanupSingleDirectory(plansDir, '.md')
+  return cleanupSingleDirectory(getDefaultPlansDirectory(), '.md')
 }
 
 export async function cleanupOldFileHistoryBackups(): Promise<CleanupResult> {

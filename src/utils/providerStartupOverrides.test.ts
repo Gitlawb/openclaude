@@ -21,7 +21,7 @@ describe('clearStartupProviderOverrides', () => {
 
     const error = clearStartupProviderOverrides({
       updateUserSettings,
-      saveConfig,
+      saveConfig: saveConfig as any,
     })
 
     expect(error).toBeNull()
@@ -36,6 +36,8 @@ describe('clearStartupProviderOverrides', () => {
         }),
       }),
     )
-    expect(saveConfig.mock.results[0]?.value.env).toEqual({ KEEP_ME: '1' })
+    expect(
+      (saveConfig.mock.results[0]?.value as { env: Record<string, string> }).env,
+    ).toEqual({ KEEP_ME: '1' })
   })
 })

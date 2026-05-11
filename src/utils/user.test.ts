@@ -10,9 +10,12 @@ function installCommonMocks(options?: {
   oauthEmail?: string
   gitEmail?: string
 }) {
-  mock.module('../bootstrap/state.js', () => ({
-    getSessionId: () => 'session-test',
-  }))
+  // NOTE: Do NOT mock ../bootstrap/state.js here.
+  // mock.module() is process-global in bun:test and mock.restore() does NOT
+  // undo it. Mocking state.js leaks getSessionId = () => 'session-test' into
+  // every other test file that imports state.js (e.g. SDK CON-1 tests).
+  // The dynamic import (importFreshUserModule) will use the real state.js,
+  // which is fine — these tests only assert email, not sessionId.
 
   mock.module('./auth.js', () => ({
     getOauthAccountInfo: () =>

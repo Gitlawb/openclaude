@@ -1,6 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import figures from 'figures';
 import * as React from 'react';
+import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import type { KeyboardEvent } from '../../ink/events/keyboard-event.js';
 import { Box, Text } from '../../ink.js';
 import { useKeybinding } from '../../keybindings/useKeybinding.js';
@@ -92,7 +93,7 @@ export function AgentDetail(t0) {
   }
   let t10;
   if ($[9] === Symbol.for("react.memo_cache_sentinel")) {
-    t10 = <Text><Text bold={true}>Description</Text> (tells Claude when to use this agent):</Text>;
+    t10 = <Text><Text bold={true}>Description</Text> (tells {PRODUCT_DISPLAY_NAME} when to use this agent):</Text>;
     $[9] = t10;
   } else {
     t10 = $[9];

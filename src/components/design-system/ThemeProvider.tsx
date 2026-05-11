@@ -1,4 +1,3 @@
-import { c as _c } from "react-compiler-runtime";
 import { feature } from 'bun:bundle';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import useStdin from '../../ink/hooks/use-stdin.js';
@@ -120,21 +119,8 @@ export function ThemeProvider({
  * accepts any ThemeSetting (including 'auto').
  */
 export function useTheme() {
-  const $ = _c(3);
-  const {
-    currentTheme,
-    setThemeSetting
-  } = useContext(ThemeContext);
-  let t0;
-  if ($[0] !== currentTheme || $[1] !== setThemeSetting) {
-    t0 = [currentTheme, setThemeSetting];
-    $[0] = currentTheme;
-    $[1] = setThemeSetting;
-    $[2] = t0;
-  } else {
-    t0 = $[2];
-  }
-  return t0;
+  const { currentTheme, setThemeSetting } = useContext(ThemeContext);
+  return [currentTheme, setThemeSetting] as const;
 }
 
 /**
@@ -145,25 +131,10 @@ export function useThemeSetting() {
   return useContext(ThemeContext).themeSetting;
 }
 export function usePreviewTheme() {
-  const $ = _c(4);
-  const {
+  const { setPreviewTheme, savePreview, cancelPreview } = useContext(ThemeContext);
+  return {
     setPreviewTheme,
     savePreview,
-    cancelPreview
-  } = useContext(ThemeContext);
-  let t0;
-  if ($[0] !== cancelPreview || $[1] !== savePreview || $[2] !== setPreviewTheme) {
-    t0 = {
-      setPreviewTheme,
-      savePreview,
-      cancelPreview
-    };
-    $[0] = cancelPreview;
-    $[1] = savePreview;
-    $[2] = setPreviewTheme;
-    $[3] = t0;
-  } else {
-    t0 = $[3];
-  }
-  return t0;
+    cancelPreview,
+  };
 }

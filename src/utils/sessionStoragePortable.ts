@@ -9,7 +9,7 @@
 import type { UUID } from 'crypto'
 import { open as fsOpen, readdir, realpath, stat } from 'fs/promises'
 import { join } from 'path'
-import { getClaudeConfigHomeDir } from './envUtils.js'
+import { getClaudeConfigHomeDir, getProjectsDir } from './envUtils.js'
 import { getWorktreePathsPortable } from './getWorktreePathsPortable.js'
 import { djb2Hash } from './hash.js'
 
@@ -321,10 +321,6 @@ export function sanitizePath(name: string): string {
 // ---------------------------------------------------------------------------
 // Project directory discovery (shared by listSessions & getSessionMessages)
 // ---------------------------------------------------------------------------
-
-export function getProjectsDir(): string {
-  return join(getClaudeConfigHomeDir(), 'projects')
-}
 
 export function getProjectDir(projectDir: string): string {
   return join(getProjectsDir(), sanitizePath(projectDir))

@@ -5,7 +5,7 @@ import sliceAnsi from './sliceAnsi.js'
 
 // Text rendering utilities for terminal display
 const MAX_LINES_TO_SHOW = 3
-// Account for MessageResponse prefix ("  ⎿ " = 5 chars) + parent width
+// Account for MessageResponse prefix ("  └ " = 5 chars) + parent width
 // reduction (columns - 5 in tool result rendering)
 const PADDING_TO_PREVENT_OVERFLOW = 10
 

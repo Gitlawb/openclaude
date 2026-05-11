@@ -7,7 +7,6 @@ import { Text } from '../../ink.js';
 import { getInitializationStatus, getLspServerManager } from '../../services/lsp/manager.js';
 import { useSetAppState } from '../../state/AppState.js';
 import { logForDebugging } from '../../utils/debug.js';
-import { isEnvTruthy } from '../../utils/envUtils.js';
 const LSP_POLL_INTERVAL_MS = 5000;
 
 /**
@@ -17,7 +16,7 @@ const LSP_POLL_INTERVAL_MS = 5000;
  *
  * Also adds errors to appState.plugins.errors for /doctor display.
  *
- * Only active when ENABLE_LSP_TOOL is set.
+ * Active in normal REPL sessions. The manager itself no-ops in --bare mode.
  */
 export function useLspInitializationNotification() {
   const $ = _c(10);
@@ -138,5 +137,5 @@ function _temp2(e) {
   return `${e.type}:${e.source}`;
 }
 function _temp() {
-  return isEnvTruthy("true");
+  return true;
 }

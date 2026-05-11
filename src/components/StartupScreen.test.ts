@@ -1,7 +1,28 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { detectProvider } from './StartupScreen.js'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+
+const actualSettings = await import('../utils/settings/settings.js')
+
+beforeAll(() => {
+  mock.module('../utils/settings/settings.js', () => ({
+    ...actualSettings,
+    getSettings_DEPRECATED: () => ({}),
+  }))
+})
+
+afterAll(() => {
+  mock.restore()
+})
+
+import stripAnsi from 'strip-ansi'
+import { detectProvider, printStartupScreen } from './StartupScreen.js'
+import { saveGlobalConfig } from '../utils/config.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from '../utils/settings/settingsCache.js'
 
 const ENV_KEYS = [
+  'CI',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GEMINI',
   'CLAUDE_CODE_USE_GITHUB',
@@ -17,18 +38,42 @@ const ENV_KEYS = [
   'CLAUDE_MODEL',
   'NVIDIA_NIM',
   'MINIMAX_API_KEY',
+  'XAI_API_KEY',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_BASE_URL',
 ]
 
 const originalEnv: Record<string, string | undefined> = {}
+const originalMacro = (globalThis as Record<string, unknown>).MACRO
+const originalIsTTY = process.stdout.isTTY
+const originalWrite = process.stdout.write
 
 beforeEach(() => {
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key]
     delete process.env[key]
   }
+  setSessionSettingsCache({ settings: {}, errors: [] })
+  saveGlobalConfig(current => ({
+    ...current,
+    model: undefined,
+  }))
 })
 
 afterEach(() => {
+  resetSettingsCache()
+  saveGlobalConfig(current => ({
+    ...current,
+    model: undefined,
+  }))
+  ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+  Object.defineProperty(process.stdout, 'isTTY', {
+    configurable: true,
+    value: originalIsTTY,
+  })
+  process.stdout.write = originalWrite
   for (const key of ENV_KEYS) {
     if (originalEnv[key] === undefined) {
       delete process.env[key]
@@ -44,6 +89,30 @@ function setupOpenAIMode(baseUrl: string, model: string): void {
   process.env.OPENAI_MODEL = model
   process.env.OPENAI_API_KEY = 'test-key'
 }
+
+describe('printStartupScreen logo', () => {
+  test('renders CLAUDE with a D-shaped D instead of an O-shaped block', () => {
+    ;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
+    Object.defineProperty(process.stdout, 'isTTY', {
+      configurable: true,
+      value: true,
+    })
+
+    let output = ''
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      output += chunk.toString()
+      return true
+    }) as typeof process.stdout.write
+
+    printStartupScreen()
+
+    const plainOutput = stripAnsi(output)
+    expect(plainOutput).toContain('███████╗ ████████╗')
+    expect(plainOutput).toContain('██╔═══██╗ ██╔═════╝')
+    expect(plainOutput).toContain('███████╔╝ ████████╗')
+    expect(plainOutput).not.toContain('████████║ ████████╗')
+  })
+})
 
 // --- Issue #855: aggregator URL must win over vendor-prefixed model name ---
 
@@ -112,14 +181,14 @@ describe('detectProvider — direct vendor endpoints', () => {
     expect(detectProvider().name).toBe('Moonshot AI - API')
   })
 
-  test('api.mistral.ai labels as Mistral', () => {
+  test('api.mistral.ai labels from descriptor route metadata', () => {
     setupOpenAIMode('https://api.mistral.ai/v1', 'mistral-large-latest')
-    expect(detectProvider().name).toBe('Mistral')
+    expect(detectProvider().name).toBe('Mistral AI')
   })
 
-  test('api.z.ai labels as Z.AI GLM', () => {
+  test('api.z.ai labels from descriptor route metadata', () => {
     setupOpenAIMode('https://api.z.ai/api/coding/paas/v4', 'GLM-5.1')
-    expect(detectProvider().name).toBe('Z.AI - GLM')
+    expect(detectProvider().name).toBe('Z.AI')
   })
 
   test('default OpenAI URL + gpt-4o labels as OpenAI', () => {
@@ -156,9 +225,9 @@ describe('detectProvider — rawModel fallback when URL is generic', () => {
     expect(detectProvider().name).toBe('Mistral')
   })
 
-  test('custom proxy + exact uppercase GLM ID falls back to Z.AI GLM', () => {
+  test('custom proxy + exact uppercase GLM ID stays generic without route metadata', () => {
     setupOpenAIMode('https://my-proxy.internal/v1', 'GLM-5.1')
-    expect(detectProvider().name).toBe('Z.AI - GLM')
+    expect(detectProvider().name).toBe('OpenAI')
   })
 
   test('custom proxy + lowercase glm ID stays generic OpenAI', () => {
@@ -244,12 +313,14 @@ describe('detectProvider — modelOverride from --model flag', () => {
   })
 
   test('undefined modelOverride preserves default behavior', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
     const result = detectProvider(undefined)
     expect(result.name).toBe('Anthropic')
     expect(result.model).toContain('sonnet')
   })
 
   test('no argument preserves default behavior', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
     const result = detectProvider()
     expect(result.name).toBe('Anthropic')
     expect(result.model).toContain('sonnet')

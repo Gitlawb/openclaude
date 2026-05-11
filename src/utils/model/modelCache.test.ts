@@ -1,9 +1,5 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { isModelCacheValid, getCachedModelsFromDisk, saveModelsToCache } from '../model/modelCache.js'
-
-vi.mock('../model/ollamaModels.js', () => ({
-  isOllamaProvider: vi.fn(() => true),
-}))
 
 describe('modelCache', () => {
   const mockModel = { value: 'llama3', label: 'Llama 3', description: 'Test model' }

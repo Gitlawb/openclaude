@@ -2,6 +2,7 @@ import { c as _c } from "react-compiler-runtime";
 import * as React from 'react';
 import { useCallback } from 'react';
 import { Select } from '../../../components/CustomSelect/select.js';
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import { Box, Text } from '../../../ink.js';
 import type { ToolPermissionContext } from '../../../Tool.js';
 import { applyPermissionUpdate } from '../../../utils/permissions/PermissionUpdate.js';
@@ -68,7 +69,7 @@ export function RemoveWorkspaceDirectory(t0) {
   }
   let t4;
   if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = <Text>OpenClaude will no longer have access to files in this directory.</Text>;
+    t4 = <Text>{PRODUCT_DISPLAY_NAME} will no longer have access to files in this directory.</Text>;
     $[10] = t4;
   } else {
     t4 = $[10];

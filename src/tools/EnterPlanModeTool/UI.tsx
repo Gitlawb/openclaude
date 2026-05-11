@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { BLACK_CIRCLE } from 'src/constants/figures.js';
+import { PRODUCT_DISPLAY_NAME } from 'src/constants/product.js';
 import { getModeColor } from 'src/utils/permissions/PermissionMode.js';
 import { Box, Text } from '../../ink.js';
 import type { ToolProgressData } from '../../Tool.js';
@@ -19,7 +20,7 @@ export function renderToolResultMessage(_output: Output, _progressMessagesForMes
       </Box>
       <Box paddingLeft={2}>
         <Text dimColor>
-          Claude is now exploring and designing an implementation approach.
+          {PRODUCT_DISPLAY_NAME} is now exploring and designing an implementation approach.
         </Text>
       </Box>
     </Box>;

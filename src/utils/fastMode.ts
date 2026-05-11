@@ -81,14 +81,14 @@ export function getFastModeUnavailableReason(): string | null {
     return 'Fast mode is not available'
   }
 
-  const statigReason = getFeatureValue_CACHED_MAY_BE_STALE(
+  const statsigReason = getFeatureValue_CACHED_MAY_BE_STALE(
     'tengu_penguins_off',
     null,
   )
   // Statsig reason has priority over other reasons.
-  if (statigReason !== null) {
-    logForDebugging(`Fast mode unavailable: ${statigReason}`)
-    return statigReason
+  if (typeof statsigReason === 'string') {
+    logForDebugging(`Fast mode unavailable: ${statsigReason}`)
+    return statsigReason
   }
 
   // Previously, fast mode required the native binary (bun build). This is no

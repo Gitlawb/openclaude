@@ -1,8 +1,7 @@
 import { isPDFSupported } from '../../utils/pdfUtils.js'
 import { BASH_TOOL_NAME } from '../BashTool/toolName.js'
-
-// Use a string constant for tool names to avoid circular dependencies
-export const FILE_READ_TOOL_NAME = 'Read'
+import { FILE_READ_TOOL_NAME } from './constants.js'
+export { FILE_READ_TOOL_NAME } from './constants.js'
 
 export const FILE_UNCHANGED_STUB =
   'File unchanged since last read. The content from the earlier Read tool_result in this conversation is still current — refer to that instead of re-reading.'

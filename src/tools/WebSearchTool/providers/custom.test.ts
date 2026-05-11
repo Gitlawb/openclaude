@@ -174,6 +174,131 @@ describe('buildAuthHeadersForPreset direct assertions', () => {
     const { buildAuthHeadersForPreset } = require('./custom.js')
     expect(buildAuthHeadersForPreset({ urlTemplate: '', queryParam: 'q', authHeader: 'Authorization' })).toEqual({})
   })
+
+  test('preset authScheme="" sends bare token (Brave-style)', () => {
+    process.env.WEB_KEY = 'brv-test-123'
+    delete process.env.WEB_AUTH_HEADER
+    delete process.env.WEB_AUTH_SCHEME
+    const { buildAuthHeadersForPreset } = require('./custom.js')
+    const result = buildAuthHeadersForPreset({
+      urlTemplate: '',
+      queryParam: 'q',
+      authHeader: 'X-Subscription-Token',
+      authScheme: '',
+    })
+    // Bare token, no leading space, no "Bearer" prefix
+    expect(result).toEqual({ 'X-Subscription-Token': 'brv-test-123' })
+  })
+
+  test('preset authQueryParam suppresses auth headers entirely (Google-style)', () => {
+    process.env.WEB_KEY = 'gck-test-123'
+    delete process.env.WEB_AUTH_HEADER
+    const { buildAuthHeadersForPreset } = require('./custom.js')
+    const result = buildAuthHeadersForPreset({
+      urlTemplate: '',
+      queryParam: 'q',
+      authQueryParam: 'key',
+    })
+    expect(result).toEqual({})
+  })
+
+  test('explicit WEB_AUTH_HEADER overrides authQueryParam suppression', () => {
+    process.env.WEB_KEY = 'gck-test-123'
+    process.env.WEB_AUTH_HEADER = 'X-Custom-Auth'
+    const { buildAuthHeadersForPreset } = require('./custom.js')
+    const result = buildAuthHeadersForPreset({
+      urlTemplate: '',
+      queryParam: 'q',
+      authQueryParam: 'key',
+    })
+    // User overrode → still emit the header
+    expect(result).toEqual({ 'X-Custom-Auth': 'Bearer gck-test-123' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Built-in presets — end-to-end request shape (with mocked fetch)
+// ---------------------------------------------------------------------------
+
+describe('built-in preset request shapes', () => {
+  const PRESET_ENV_KEYS = [
+    'WEB_PROVIDER', 'WEB_KEY', 'WEB_AUTH_HEADER', 'WEB_AUTH_SCHEME',
+    'WEB_SEARCH_API', 'WEB_URL_TEMPLATE', 'WEB_PARAMS', 'GOOGLE_CSE_ID',
+  ]
+  const savedEnv: Record<string, string | undefined> = {}
+  const originalFetch = globalThis.fetch
+
+  beforeEach(() => {
+    for (const k of PRESET_ENV_KEYS) savedEnv[k] = process.env[k]
+  })
+
+  afterEach(() => {
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    globalThis.fetch = originalFetch
+  })
+
+  test('google preset sends ?key= and ?cx= as query params, no auth header', async () => {
+    process.env.WEB_PROVIDER = 'google'
+    process.env.WEB_KEY = 'gck-test-key'
+    process.env.GOOGLE_CSE_ID = 'cse-test-id'
+    delete process.env.WEB_AUTH_HEADER
+
+    let capturedUrl = ''
+    let capturedHeaders: Record<string, string> = {}
+    globalThis.fetch = (async (input: any, init: any) => {
+      capturedUrl = typeof input === 'string' ? input : input.toString()
+      capturedHeaders = (init?.headers ?? {}) as Record<string, string>
+      return new Response(JSON.stringify({ items: [] }), { status: 200 })
+    }) as typeof fetch
+
+    const { customProvider } = require('./custom.js')
+    await customProvider.search({ query: 'hello world' })
+
+    expect(capturedUrl).toContain('https://www.googleapis.com/customsearch/v1')
+    expect(capturedUrl).toContain('key=gck-test-key')
+    expect(capturedUrl).toContain('cx=cse-test-id')
+    expect(capturedUrl).toContain('q=hello+world')
+    expect(capturedHeaders.Authorization).toBeUndefined()
+  })
+
+  test('google preset throws clear error when GOOGLE_CSE_ID is missing', async () => {
+    process.env.WEB_PROVIDER = 'google'
+    process.env.WEB_KEY = 'gck-test-key'
+    delete process.env.GOOGLE_CSE_ID
+
+    const { customProvider } = require('./custom.js')
+    await expect(customProvider.search({ query: 'q' })).rejects.toThrow(/GOOGLE_CSE_ID/)
+  })
+
+  test('google preset throws clear error when WEB_KEY is missing', async () => {
+    process.env.WEB_PROVIDER = 'google'
+    process.env.GOOGLE_CSE_ID = 'cse-test-id'
+    delete process.env.WEB_KEY
+
+    const { customProvider } = require('./custom.js')
+    await expect(customProvider.search({ query: 'q' })).rejects.toThrow(/WEB_KEY/)
+  })
+
+  test('brave preset sends bare token in X-Subscription-Token (no Bearer prefix)', async () => {
+    process.env.WEB_PROVIDER = 'brave'
+    process.env.WEB_KEY = 'brv-test-key'
+    delete process.env.WEB_AUTH_HEADER
+    delete process.env.WEB_AUTH_SCHEME
+
+    let capturedHeaders: Record<string, string> = {}
+    globalThis.fetch = (async (_input: any, init: any) => {
+      capturedHeaders = (init?.headers ?? {}) as Record<string, string>
+      return new Response(JSON.stringify({ web: { results: [] } }), { status: 200 })
+    }) as typeof fetch
+
+    const { customProvider } = require('./custom.js')
+    await customProvider.search({ query: 'q' })
+
+    expect(capturedHeaders['X-Subscription-Token']).toBe('brv-test-key')
+  })
 })
 
 // ---------------------------------------------------------------------------

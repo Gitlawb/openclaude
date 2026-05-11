@@ -3,6 +3,7 @@ import * as React from 'react';
 import { KeyboardShortcutHint } from '../../components/design-system/KeyboardShortcutHint.js';
 import { FallbackToolUseErrorMessage } from '../../components/FallbackToolUseErrorMessage.js';
 import { MessageResponse } from '../../components/MessageResponse.js';
+import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import { OutputLine } from '../../components/shell/OutputLine.js';
 import { ShellProgressMessage } from '../../components/shell/ShellProgressMessage.js';
 import { ShellTimeDisplay } from '../../components/shell/ShellTimeDisplay.js';
@@ -98,7 +99,7 @@ export function renderToolResultMessage(content: Out, progressMessagesForMessage
   } = content;
   if (isImage) {
     return <MessageResponse height={1}>
-        <Text dimColor>[Image data detected and sent to Claude]</Text>
+        <Text dimColor>[Image data detected and sent to {PRODUCT_DISPLAY_NAME}]</Text>
       </MessageResponse>;
   }
   return <Box flexDirection="column">

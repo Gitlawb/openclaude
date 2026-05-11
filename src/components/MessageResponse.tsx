@@ -19,7 +19,7 @@ export function MessageResponse(t0) {
   }
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = <NoSelect fromLeftEdge={true} flexShrink={0}><Text dimColor={true}>{"  "}⎿  </Text></NoSelect>;
+    t1 = <NoSelect fromLeftEdge={true} flexShrink={0}><Text dimColor={true}>{"  "}└  </Text></NoSelect>;
     $[0] = t1;
   } else {
     t1 = $[0];
@@ -58,7 +58,7 @@ export function MessageResponse(t0) {
 
 // This is a context that is used to determine if the message response
 // is rendered as a descendant of another MessageResponse. We use it
-// to avoid rendering nested ⎿ characters.
+// to avoid rendering nested └ characters.
 const MessageResponseContext = React.createContext(false);
 function MessageResponseProvider(t0) {
   const $ = _c(2);

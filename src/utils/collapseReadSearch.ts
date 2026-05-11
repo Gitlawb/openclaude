@@ -118,9 +118,9 @@ function isMemoryWriteOrEdit(toolName: string, toolInput: unknown): boolean {
 const MAX_HINT_CHARS = 300
 
 /**
- * Format a bash command for the ⎿ hint. Drops blank lines, collapses runs of
+ * Format a bash command for the └ hint. Drops blank lines, collapses runs of
  * inline whitespace, then caps total length. Newlines are preserved so the
- * renderer can indent continuation lines under ⎿.
+ * renderer can indent continuation lines under └.
  */
 function commandAsHint(command: string): string {
   const cleaned =
@@ -921,7 +921,7 @@ export function collapseReadSearchGroups(
       // This preserves the visual ordering where the collapsed badge appears at the position
       // of the first tool use, not displaced by intervening skippable messages.
       // Exception: nested_memory attachments are pushed through even during a group so
-      // ⎿ Loaded lines cluster tightly instead of being split by the badge's marginTop.
+      // └ Loaded lines cluster tightly instead of being split by the badge's marginTop.
       if (
         currentGroup.messages.length > 0 &&
         !(msg.type === 'attachment' && msg.attachment.type === 'nested_memory')

@@ -143,3 +143,4 @@ npm uninstall -g @gitlawb/openclaude
 Use:
 
 - [Advanced Setup](advanced-setup.md)
+  For Codex, Gemini, Mistral, LiteLLM, provider profiles, and runtime diagnostics.

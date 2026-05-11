@@ -153,6 +153,7 @@ export const KEYBINDING_ACTIONS = [
   // Model picker actions (internal-only)
   'modelPicker:decreaseEffort',
   'modelPicker:increaseEffort',
+  'modelPicker:refresh',
   // Select component actions (distinct from confirm: to avoid collisions)
   'select:next',
   'select:previous',

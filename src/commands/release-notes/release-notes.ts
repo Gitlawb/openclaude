@@ -1,50 +1,52 @@
 import type { LocalCommandResult } from '../../types/command.js'
 import {
-  CHANGELOG_URL,
+  fetchReleaseNotesForVersion,
   fetchAndStoreChangelog,
-  getAllReleaseNotes,
+  formatReleaseNotesForDisplay,
+  getReleaseNotesForVersion,
   getStoredChangelog,
 } from '../../utils/releaseNotes.js'
+import { getReleaseTagUrl, publicBuildVersion } from '../../utils/version.js'
 
-function formatReleaseNotes(notes: Array<[string, string[]]>): string {
-  return notes
-    .map(([version, notes]) => {
-      const header = `Version ${version}:`
-      const bulletPoints = notes.map(note => `· ${note}`).join('\n')
-      return `${header}\n${bulletPoints}`
-    })
-    .join('\n\n')
-}
-
-export async function call(): Promise<LocalCommandResult> {
-  // Try to fetch the latest changelog with a 500ms timeout
-  let freshNotes: Array<[string, string[]]> = []
+async function getCurrentReleaseNotes(): Promise<string[]> {
+  try {
+    const freshNotes = await fetchReleaseNotesForVersion(publicBuildVersion)
+    if (freshNotes.length > 0) {
+      return freshNotes
+    }
+  } catch {
+    // Fall back to cached notes below.
+  }
 
   try {
     const timeoutPromise = new Promise<void>((_, reject) => {
-      setTimeout(rej => rej(new Error('Timeout')), 500, reject)
+      setTimeout(rej => rej(new Error('Timeout')), 1500, reject)
     })
 
     await Promise.race([fetchAndStoreChangelog(), timeoutPromise])
-    freshNotes = getAllReleaseNotes(await getStoredChangelog())
   } catch {
-    // Either fetch failed or timed out - just use cached notes
+    // Fall back to cached notes below.
   }
 
-  // If we have fresh notes from the quick fetch, use those
-  if (freshNotes.length > 0) {
-    return { type: 'text', value: formatReleaseNotes(freshNotes) }
+  return getReleaseNotesForVersion(
+    publicBuildVersion,
+    await getStoredChangelog(),
+  )
+}
+
+export async function call(): Promise<LocalCommandResult> {
+  const url = getReleaseTagUrl(publicBuildVersion)
+  const notes = await getCurrentReleaseNotes()
+
+  if (notes.length > 0) {
+    return {
+      type: 'text',
+      value: `Release notes for ${publicBuildVersion}:\n${formatReleaseNotesForDisplay(notes)}\n\nFull release page: ${url}`,
+    }
   }
 
-  // Otherwise check cached notes
-  const cachedNotes = getAllReleaseNotes(await getStoredChangelog())
-  if (cachedNotes.length > 0) {
-    return { type: 'text', value: formatReleaseNotes(cachedNotes) }
-  }
-
-  // Nothing available, show link
   return {
     type: 'text',
-    value: `See the full changelog at: ${CHANGELOG_URL}`,
+    value: `Release notes: ${url}`,
   }
 }
