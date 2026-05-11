@@ -24,6 +24,7 @@ const ENV_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
+  'VENICE_API_KEY',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
 ]
@@ -53,6 +54,7 @@ const RESET_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'MINIMAX_API_KEY',
+  'VENICE_API_KEY',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
 ] as const
@@ -119,6 +121,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('openrouter')
     expect(VALID_PROVIDERS).toContain('atomic-chat')
     expect(VALID_PROVIDERS).toContain('zai')
+    expect(VALID_PROVIDERS).toContain('venice')
   })
 })
 
@@ -330,6 +333,20 @@ describe('applyProviderFlag - zai', () => {
   })
 })
 
+describe('applyProviderFlag - venice', () => {
+  test('sets Venice OpenAI-compatible defaults and mirrors VENICE_API_KEY', () => {
+    process.env.VENICE_API_KEY = 'venice-secret-key'
+
+    const result = applyProviderFlag('venice', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.venice.ai/api/v1')
+    expect(process.env.OPENAI_MODEL).toBe('venice-uncensored')
+    expect(process.env.OPENAI_API_KEY).toBe('venice-secret-key')
+  })
+})
+
 describe('applyProviderFlag - xai', () => {
   test('sets CLAUDE_CODE_USE_OPENAI=1 with xAI defaults when unset', () => {
     delete process.env.OPENAI_BASE_URL
@@ -338,7 +355,7 @@ describe('applyProviderFlag - xai', () => {
     const result = applyProviderFlag('xai', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+    expect(process.env.OPENAI_BASE_URL as string | undefined).toBe('https://api.x.ai/v1')
     expect(process.env.OPENAI_MODEL).toBe('grok-4.3')
   })
 
@@ -353,7 +370,7 @@ describe('applyProviderFlag - xai', () => {
 
     applyProviderFlag('xai', [])
 
-    expect(process.env.OPENAI_API_KEY).toBe('xai-secret-key')
+    expect(process.env.OPENAI_API_KEY as string | undefined).toBe('xai-secret-key')
   })
 
   test('does not override existing OPENAI_API_KEY when both keys are set', () => {

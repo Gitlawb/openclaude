@@ -3,8 +3,11 @@ import { expect, test } from 'bun:test'
 import {
   getRouteCredentialEnvVars,
   getRouteCredentialValue,
+  getRouteDefaultBaseUrl,
+  getRouteDefaultModel,
   getRouteProviderTypeLabel,
   resolveActiveRouteIdFromEnv,
+  resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
 
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {
@@ -41,7 +44,10 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
     'HICAP_API_KEY',
     'OPENAI_API_KEY',
   ])
-  expect(getRouteCredentialEnvVars('custom')).toEqual(['OPENAI_API_KEY'])
+  expect(getRouteCredentialEnvVars('venice')).toEqual([
+    'VENICE_API_KEY',
+    'OPENAI_API_KEY',
+  ])
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {
@@ -57,6 +63,13 @@ test('getRouteCredentialValue reads the first configured route credential', () =
   ).toBe('sk-openai-fallback')
 })
 
+test('Venice route metadata uses official OpenAI-compatible defaults', () => {
+  expect(getRouteDefaultBaseUrl('venice')).toBe('https://api.venice.ai/api/v1')
+  expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
+  expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1')).toBe('venice')
+  expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
+})
+
 test('resolveActiveRouteIdFromEnv treats MiniMax credential-only env as MiniMax', () => {
   expect(
     resolveActiveRouteIdFromEnv({
@@ -65,6 +78,13 @@ test('resolveActiveRouteIdFromEnv treats MiniMax credential-only env as MiniMax'
   ).toBe('minimax')
 })
 
+test('resolveActiveRouteIdFromEnv treats Venice credential-only env as Venice', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      VENICE_API_KEY: 'venice-key',
+    }),
+  ).toBe('venice')
+})
 test('resolveActiveRouteIdFromEnv treats xAI credential-only env as xAI', () => {
   expect(
     resolveActiveRouteIdFromEnv({
@@ -109,6 +129,7 @@ test.each([
   ['OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-5-mini', 'openrouter'],
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
+  ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
 ])(
   'resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL',
   (_label, baseUrl, model, expectedRouteId) => {

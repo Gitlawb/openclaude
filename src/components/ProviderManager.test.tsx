@@ -126,6 +126,7 @@ const PRESET_ORDER = [
   'OpenAI',
   'OpenRouter',
   'Together AI',
+  'Venice',
   'xAI',
   'Z.AI - GLM Coding Plan',
   'Custom',

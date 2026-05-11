@@ -58,6 +58,7 @@ const RESTORED_KEYS = [
   'BNKR_API_KEY',
   'BANKR_MODEL',
   'XAI_API_KEY',
+  'VENICE_API_KEY',
   'HICAP_API_KEY',
 ] as const
 
@@ -176,6 +177,17 @@ function buildXaiProfile(overrides: Partial<ProviderProfile> = {}): ProviderProf
     baseUrl: 'https://api.x.ai/v1',
     model: 'grok-4',
     apiKey: 'xai-test-key',
+    ...overrides,
+  })
+}
+
+function buildVeniceProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'venice',
+    name: 'Venice',
+    baseUrl: 'https://api.venice.ai/api/v1',
+    model: 'venice-uncensored',
+    apiKey: 'venice-test-key',
     ...overrides,
   })
 }
@@ -463,6 +475,25 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
     expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
   })
+
+  test('venice profile applies OpenAI-compatible env with VENICE_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildVeniceProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.venice.ai/api/v1')
+    expect(process.env.OPENAI_MODEL).toBe('venice-uncensored')
+    expect(process.env.OPENAI_API_KEY).toBe('venice-test-key')
+    expect(process.env.VENICE_API_KEY).toBe('venice-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
+  })
+
 
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -1053,6 +1084,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
+  test('venice preset defaults to the official Venice endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.VENICE_API_KEY = 'venice-live-key'
+
+    const defaults = getProviderPresetDefaults('venice')
+
+    expect(defaults.provider).toBe('venice')
+    expect(defaults.name).toBe('Venice')
+    expect(defaults.baseUrl).toBe('https://api.venice.ai/api/v1')
+    expect(defaults.model).toBe('venice-uncensored')
+    expect(defaults.apiKey).toBe('venice-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('zai preset defaults to Z.AI GLM Coding Plan endpoint', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 
@@ -1223,6 +1268,46 @@ describe('setActiveProviderProfile', () => {
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
         OPENAI_MODEL: 'deepseek-chat',
         OPENAI_API_KEY: 'sk-deepseek-live',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists Venice profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const veniceProfile = buildVeniceProfile({
+        id: 'venice_prof',
+        model: 'venice-uncensored, venice-coding',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [veniceProfile],
+      }))
+
+      const result = setActiveProviderProfile('venice_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('venice_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://api.venice.ai/api/v1',
+        OPENAI_MODEL: 'venice-uncensored',
+        OPENAI_API_KEY: 'venice-test-key',
+        VENICE_API_KEY: 'venice-test-key',
       })
     } finally {
       process.chdir(originalCwd)
