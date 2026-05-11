@@ -1,4 +1,3 @@
-import { feature } from 'bun:bundle';
 import { stat } from 'fs/promises';
 import { OUTPUT_FILE_TAG, STATUS_TAG, SUMMARY_TAG, TASK_ID_TAG, TASK_NOTIFICATION_TAG, TOOL_USE_ID_TAG } from '../../constants/xml.js';
 import { abortSpeculation } from '../../services/PromptSuggestion/speculation.js';
@@ -102,6 +101,26 @@ The command is likely blocked on an interactive prompt. Kill this task and re-ru
     clearInterval(timer);
   };
 }
+/**
+ * Enqueue a streaming output event for a Monitor task.
+ *
+ * Unlike completion notifications, stream events carry NO <status> tag —
+ * they are progress pings that don't close the task. The print loop and
+ * collapse transform both skip status-less notifications.
+ */
+export function enqueueStreamEvent(
+  _taskId: string,
+  _description: string,
+  _content: string,
+  _toolUseId: string | undefined,
+  _agentId: AgentId | undefined,
+): void {
+  // Output is written to disk by the shell process. Between turns,
+  // generateTaskAttachments() in framework.ts feeds the delta to the model
+  // as a task attachment. No user-visible notification — Monitor output is
+  // for the model, not the user.
+}
+
 function enqueueShellNotification(taskId: string, description: string, status: 'completed' | 'failed' | 'killed', exitCode: number | undefined, setAppState: SetAppState, toolUseId?: string, kind: BashTaskKind = 'bash', agentId?: AgentId): void {
   // Atomically check and set notified flag to prevent duplicate notifications.
   // If the task was already marked as notified (e.g., by TaskStopTool), skip
@@ -126,7 +145,7 @@ function enqueueShellNotification(taskId: string, description: string, status: '
   // preserved; only the pre-computed response is discarded.
   abortSpeculation(setAppState);
   let summary: string;
-  if (feature('MONITOR_TOOL') && kind === 'monitor') {
+  if (true && kind === 'monitor') {
     // Monitor is streaming-only (post-#22764) — the script exiting means
     // the stream ended, not "condition met". Distinct from the bash prefix
     // so Monitor completions don't fold into the "N background commands
@@ -166,7 +185,7 @@ function enqueueShellNotification(taskId: string, description: string, status: '
   enqueuePendingNotification({
     value: message,
     mode: 'task-notification',
-    priority: feature('MONITOR_TOOL') ? 'next' : 'later',
+    priority: true ? 'next' : 'later',
     agentId
   });
 }
@@ -219,6 +238,11 @@ export async function spawnShellTask(input: LocalShellSpawnInput & {
   // Just transition to backgrounded state so the process keeps running.
   shellCommand.background(taskId);
   const cancelStallWatchdog = startStallWatchdog(taskId, description, kind, toolUseId, agentId);
+
+  // Monitor output is written to disk by the shell process. Between turns,
+  // generateTaskAttachments() in framework.ts reads deltas and attaches them
+  // to the model context. No user-visible streaming — Monitor is for the AI.
+
   void shellCommand.result.then(async result => {
     cancelStallWatchdog();
     await flushAndCleanup(shellCommand);

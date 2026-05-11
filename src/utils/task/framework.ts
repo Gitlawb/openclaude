@@ -193,6 +193,15 @@ export async function generateTaskAttachments(state: AppState): Promise<{
       )
       if (delta.content) {
         updatedTaskOffsets[taskState.id] = delta.newOffset
+        attachments.push({
+          type: 'task_status',
+          taskId: taskState.id,
+          toolUseId: taskState.toolUseId,
+          taskType: taskState.taskType,
+          status: 'running',
+          description: taskState.description,
+          deltaSummary: delta.content,
+        })
       }
     }
 
