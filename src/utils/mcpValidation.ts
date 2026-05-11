@@ -172,8 +172,9 @@ export async function mcpContentNeedsTruncation(
     return !!(tokenCount && tokenCount > getMaxMcpOutputTokens())
   } catch (error) {
     logError(error)
-    // Assume no truncation needed on error
-    return false
+    // Fail-closed: if token count is unavailable, assume truncation is needed
+    // to prevent oversized MCP output from bypassing the token limit.
+    return true
   }
 }
 
@@ -186,11 +187,15 @@ export async function truncateMcpContent(
   const truncationMsg = getTruncationMessage()
 
   if (typeof content === 'string') {
-    return truncateString(content, maxChars) + truncationMsg
+    // Reserve space for the truncation message so total stays within maxChars.
+    const budget = Math.max(0, maxChars - truncationMsg.length)
+    return truncateString(content, budget) + truncationMsg
   } else {
+    // Same reservation for block content.
+    const budget = Math.max(0, maxChars - truncationMsg.length)
     const truncatedBlocks = await truncateContentBlocks(
       content as ContentBlockParam[],
-      maxChars,
+      budget,
     )
     truncatedBlocks.push({ type: 'text', text: truncationMsg })
     return truncatedBlocks
