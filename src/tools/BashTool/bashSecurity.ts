@@ -570,6 +570,22 @@ export function stripSafeHeredocSubstitutions(command: string): string | null {
     }
   }
   if (!found) return null
+
+  // SECURITY: Reject nested matches — same logic as isSafeHeredoc.
+  // When one range is nested inside another, processing in reverse order leaves
+  // outer.end stale after the inner strip. result.slice(outer.end) then skips
+  // any suffix after the outer heredoc (e.g., `; rm -rf /`), silently dropping
+  // it from the remaining text and hiding it from downstream validators.
+  // Return null so callers fall back to full command validation.
+  for (const outer of ranges) {
+    for (const inner of ranges) {
+      if (inner === outer) continue
+      if (inner.start > outer.start && inner.start < outer.end) {
+        return null
+      }
+    }
+  }
+
   for (let i = ranges.length - 1; i >= 0; i--) {
     const r = ranges[i]!
     result = result.slice(0, r.start) + result.slice(r.end)
