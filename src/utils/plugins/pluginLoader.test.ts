@@ -43,9 +43,10 @@ function marketplacePlugin(
 
 // ---------------------------------------------------------------------------
 // mergeHooksSettings — validates the marketplace supplement loader path
-// (createPluginFromPath:~2919). Before this fix, the supplement used object
-// spread ({...plugin.hooksConfig, ...entry.hooks}) which silently overwrote
-// same-event matcher arrays from plugin.json with the marketplace arrays.
+// (finishLoadingPluginFromPath, marketplace hook supplement block). Before
+// this fix, the supplement used object spread ({...plugin.hooksConfig,
+// ...entry.hooks}) which silently overwrote same-event matcher arrays from
+// plugin.json with the marketplace arrays.
 // ---------------------------------------------------------------------------
 describe('mergeHooksSettings', () => {
   test('appends marketplace matchers to plugin.json matchers for the same event', () => {
