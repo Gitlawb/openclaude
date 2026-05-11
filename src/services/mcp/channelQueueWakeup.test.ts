@@ -1,9 +1,9 @@
-﻿/**
- * Tests for the headless queue wakeup path â€” when a channel notification
+/**
+ * Tests for the headless queue wakeup path — when a channel notification
  * arrives, it's enqueued via enqueue() which triggers subscribeToCommandQueue
  * callbacks. In headless mode (print.ts), the callback calls run() if idle.
  *
- * We test the pattern directly (signal â†’ subscriber â†’ run) rather than
+ * We test the pattern directly (signal → subscriber → run) rather than
  * importing the real messageQueueManager which has deep dependencies that
  * conflict with module mocks from adjacent test files.
  */
@@ -91,7 +91,7 @@ describe('headless queue wakeup path', () => {
     unsub()
   })
 
-  test('simulated headless wakeup: idle â†’ run on first message, skip while running', () => {
+  test('simulated headless wakeup: idle → run on first message, skip while running', () => {
     const q = createTestQueue()
     // Simulate the headless mode pattern from print.ts:
     //   subscribeToCommandQueue(() => {
@@ -111,12 +111,12 @@ describe('headless queue wakeup path', () => {
       }
     })
 
-    // idle â†’ message arrives â†’ should trigger run
+    // idle → message arrives → should trigger run
     q.enqueue({ value: 'wake up!', priority: 'next' })
     expect(runCalled).toBe(1)
     expect(running).toBe(true)
 
-    // already running â†’ second message â†’ should NOT trigger run again
+    // already running → second message → should NOT trigger run again
     q.enqueue({ value: 'another msg', priority: 'next' })
     expect(runCalled).toBe(1) // still 1
 

@@ -1,5 +1,5 @@
-﻿/**
- * Tests for channelAutoAllow â€” the trust boundary that controls which
+/**
+ * Tests for channelAutoAllow — the trust boundary that controls which
  * tool permission rules are auto-granted for channel servers.
  *
  * Validates:
@@ -41,7 +41,7 @@ describe('computeChannelAutoAllowRules', () => {
       marketplace: 'claude-plugins-official',
     }
     const rules = computeChannelAutoAllowRules('plugin:telegram:abc', entry)
-    // "plugin:telegram:abc" normalised: colons â†’ underscores
+    // "plugin:telegram:abc" normalised: colons → underscores
     expect(rules[0]).toContain('plugin_telegram_abc')
   })
 
@@ -77,7 +77,7 @@ describe('computeChannelAutoAllowRules', () => {
     expect(rules).toEqual([])
   })
 
-  test('only produces reply â€” no broader server-level rule', () => {
+  test('only produces reply — no broader server-level rule', () => {
     const entry: ChannelEntry = {
       kind: 'plugin',
       name: 'telegram',
@@ -91,7 +91,7 @@ describe('computeChannelAutoAllowRules', () => {
       expect(parts.length).toBeGreaterThanOrEqual(3)
       expect(parts[parts.length - 1]).toBeTruthy() // non-empty tool name
     }
-    // Ensure only reply â€” send goes through normal permission prompt
+    // Ensure only reply — send goes through normal permission prompt
     const toolNames = rules.map(r => r.split('__').pop())
     expect(toolNames).toEqual(['reply'])
   })
@@ -142,7 +142,7 @@ describe('mergeAutoAllowRules', () => {
     expect(afterFirst).toHaveLength(1)
 
     const afterSecond = mergeAutoAllowRules(afterFirst, rules)
-    expect(afterSecond).toBeNull() // no change â€” idempotent
+    expect(afterSecond).toBeNull() // no change — idempotent
   })
 
   test('different servers get separate rules without duplication', () => {

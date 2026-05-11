@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Focused tests for the channel notification trust-sensitive paths:
  *   - gateChannelServer(): approved plugin, dev channel, non-allowlisted,
  *     server-kind, marketplace verification
@@ -24,7 +24,7 @@ import {
 } from '../../bootstrap/state.js'
 
 // ---------------------------------------------------------------------------
-// Module-level mocks â€” isolate from real global state
+// Module-level mocks — isolate from real global state
 // ---------------------------------------------------------------------------
 
 let mockChannelsEnabled = true
@@ -55,7 +55,7 @@ afterEach(() => {
   setAllowedChannels([])
 })
 
-// Dynamic import to pick up mocks â€” bust module cache each time
+// Dynamic import to pick up mocks — bust module cache each time
 async function loadModule() {
   return await import(`./channelNotification.ts?ts=${Date.now()}`)
 }
@@ -113,10 +113,10 @@ describe('findChannelEntry', () => {
 })
 
 // ---------------------------------------------------------------------------
-// gateChannelServer â€” capability check
+// gateChannelServer — capability check
 // ---------------------------------------------------------------------------
 
-describe('gateChannelServer â€” capability check', () => {
+describe('gateChannelServer — capability check', () => {
   test('skips servers without claude/channel capability', async () => {
     const { gateChannelServer } = await loadModule()
     const result = gateChannelServer('plugin:telegram:abc', NO_CHANNEL_CAP, 'telegram@claude-plugins-official')
@@ -141,10 +141,10 @@ describe('gateChannelServer â€” capability check', () => {
 })
 
 // ---------------------------------------------------------------------------
-// gateChannelServer â€” runtime disabled
+// gateChannelServer — runtime disabled
 // ---------------------------------------------------------------------------
 
-describe('gateChannelServer â€” runtime disabled', () => {
+describe('gateChannelServer — runtime disabled', () => {
   test('skips when channels feature is disabled', async () => {
     mockChannelsEnabled = false
     const { gateChannelServer } = await loadModule()
@@ -155,10 +155,10 @@ describe('gateChannelServer â€” runtime disabled', () => {
 })
 
 // ---------------------------------------------------------------------------
-// gateChannelServer â€” approved plugin path
+// gateChannelServer — approved plugin path
 // ---------------------------------------------------------------------------
 
-describe('gateChannelServer â€” approved plugin path', () => {
+describe('gateChannelServer — approved plugin path', () => {
   test('registers an approved plugin that is in --channels list', async () => {
     const { gateChannelServer } = await loadModule()
     setAllowedChannels([{ kind: 'plugin', name: 'telegram', marketplace: 'claude-plugins-official' }])
@@ -206,10 +206,10 @@ describe('gateChannelServer â€” approved plugin path', () => {
 })
 
 // ---------------------------------------------------------------------------
-// gateChannelServer â€” non-allowlisted plugin
+// gateChannelServer — non-allowlisted plugin
 // ---------------------------------------------------------------------------
 
-describe('gateChannelServer â€” non-allowlisted plugin', () => {
+describe('gateChannelServer — non-allowlisted plugin', () => {
   test('skips a plugin not on the approved allowlist', async () => {
     const { gateChannelServer } = await loadModule()
     // Plugin in session list but NOT in hardcoded allowlist
@@ -249,10 +249,10 @@ describe('gateChannelServer â€” non-allowlisted plugin', () => {
 })
 
 // ---------------------------------------------------------------------------
-// gateChannelServer â€” marketplace verification
+// gateChannelServer — marketplace verification
 // ---------------------------------------------------------------------------
 
-describe('gateChannelServer â€” marketplace verification', () => {
+describe('gateChannelServer — marketplace verification', () => {
   test('rejects when installed marketplace does not match entry', async () => {
     const { gateChannelServer } = await loadModule()
     setAllowedChannels([{ kind: 'plugin', name: 'telegram', marketplace: 'claude-plugins-official' }])
@@ -280,10 +280,10 @@ describe('gateChannelServer â€” marketplace verification', () => {
 })
 
 // ---------------------------------------------------------------------------
-// gateChannelServer â€” server-kind path
+// gateChannelServer — server-kind path
 // ---------------------------------------------------------------------------
 
-describe('gateChannelServer â€” server-kind entries', () => {
+describe('gateChannelServer — server-kind entries', () => {
   test('rejects server-kind entry WITHOUT dev flag', async () => {
     const { gateChannelServer } = await loadModule()
     setAllowedChannels([{ kind: 'server', name: 'my-bridge' }])
@@ -304,7 +304,7 @@ describe('gateChannelServer â€” server-kind entries', () => {
 
   test('server-kind dev entry is not blocked by allowlist', async () => {
     const { gateChannelServer } = await loadModule()
-    // "my-bridge" is not on the hardcoded plugin allowlist â€” doesn't matter,
+    // "my-bridge" is not on the hardcoded plugin allowlist — doesn't matter,
     // server-kind with dev=true bypasses the plugin allowlist entirely
     setAllowedChannels([{ kind: 'server', name: 'my-bridge', dev: true }])
     const result = gateChannelServer('my-bridge', CHANNEL_CAP, undefined)
@@ -313,10 +313,10 @@ describe('gateChannelServer â€” server-kind entries', () => {
 })
 
 // ---------------------------------------------------------------------------
-// gateChannelServer â€” dev channel path (plugin with dev flag)
+// gateChannelServer — dev channel path (plugin with dev flag)
 // ---------------------------------------------------------------------------
 
-describe('gateChannelServer â€” dev channel path', () => {
+describe('gateChannelServer — dev channel path', () => {
   test('dev plugin bypasses allowlist entirely', async () => {
     const { gateChannelServer } = await loadModule()
     setAllowedChannels([{ kind: 'plugin', name: 'my-custom', marketplace: 'my-custom-marketplace', dev: true }])

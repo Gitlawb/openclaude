@@ -1,9 +1,9 @@
-﻿/**
- * Channel notifications â€” lets an MCP server push user messages into the
+/**
+ * Channel notifications — lets an MCP server push user messages into the
  * conversation. A "channel" (Discord, Slack, SMS, etc.) is just an MCP server
  * that:
- *   - exposes tools for outbound messages (e.g. `send_message`) â€” standard MCP
- *   - sends `notifications/claude/channel` notifications for inbound â€” this file
+ *   - exposes tools for outbound messages (e.g. `send_message`) — standard MCP
+ *   - sends `notifications/claude/channel` notifications for inbound — this file
  *
  * The notification handler wraps the content in a <channel> tag and
  * enqueues it. SleepTool polls hasCommandsInQueue() and wakes within 1s.
@@ -11,7 +11,7 @@
  * with (the channel's MCP tool, SendUserMessage, or both).
  *
  * feature('KAIROS') || feature('KAIROS_CHANNELS') (replaced with true in
- * OpenClaude build). Runtime gate via isChannelsEnabled() â€” always true
+ * OpenClaude build). Runtime gate via isChannelsEnabled() — always true
  * in OpenClaude. No OAuth or org policy requirement.
  *
  * OpenClaude: allowlisted plugins (telegram, discord, imessage, fakechat)
@@ -42,7 +42,7 @@ export const ChannelMessageNotificationSchema = lazySchema(() =>
     method: z.literal('notifications/claude/channel'),
     params: z.object({
       content: z.string(),
-      // Opaque passthrough â€” thread_id, user, whatever the channel wants the
+      // Opaque passthrough — thread_id, user, whatever the channel wants the
       // model to see. Rendered as attributes on the <channel> tag.
       meta: z.record(z.string(), z.string()).optional(),
     }),
@@ -53,13 +53,13 @@ export const ChannelMessageNotificationSchema = lazySchema(() =>
  * Structured permission reply from a channel server. Servers that support
  * this declare `capabilities.experimental['claude/channel/permission']` and
  * emit this event INSTEAD of relaying "yes tbxkq" as text via
- * notifications/claude/channel. Explicit opt-in per server â€” a channel that
+ * notifications/claude/channel. Explicit opt-in per server — a channel that
  * just wants to relay text never becomes a permission surface by accident.
  *
  * The server parses the user's reply (spec: /^\s*(y|yes|n|no)\s+([a-km-z]{5})\s*$/i)
  * and emits {request_id, behavior}. CC matches request_id against its
  * pending map. Unlike the regex-intercept approach, text in the general
- * channel can never accidentally match â€” approval requires the server
+ * channel can never accidentally match — approval requires the server
  * to deliberately emit this specific event.
  */
 export const CHANNEL_PERMISSION_METHOD =
@@ -75,14 +75,14 @@ export const ChannelPermissionNotificationSchema = lazySchema(() =>
 )
 
 /**
- * Outbound: CC â†’ server. Fired from interactiveHandler.ts when a
+ * Outbound: CC → server. Fired from interactiveHandler.ts when a
  * permission dialog opens and the server has declared the permission
  * capability. Server formats the message for its platform (Telegram
  * markdown, iMessage rich text, Discord embed) and sends it to the
  * human. When the human replies "yes tbxkq", the server parses that
  * against PERMISSION_REPLY_RE and emits the inbound schema above.
  *
- * Not a zod schema â€” CC SENDS this, doesn't validate it. A type here
+ * Not a zod schema — CC SENDS this, doesn't validate it. A type here
  * keeps both halves of the protocol documented side by side.
  */
 export const CHANNEL_PERMISSION_REQUEST_METHOD =
@@ -91,14 +91,14 @@ export type ChannelPermissionRequestParams = {
   request_id: string
   tool_name: string
   description: string
-  /** JSON-stringified tool input, truncated to 200 chars with â€¦. Full
+  /** JSON-stringified tool input, truncated to 200 chars with …. Full
    *  input is in the local terminal dialog; this is a phone-sized
    *  preview. Server decides whether/how to show it. */
   input_preview: string
 }
 
 /**
- * Meta keys become XML attribute NAMES â€” a crafted key like
+ * Meta keys become XML attribute NAMES — a crafted key like
  * `x="" injected="y` would break out of the attribute structure. Only
  * accept keys that look like plain identifiers. This is stricter than
  * the XML spec (which allows `:`, `.`, `-`) but channel servers only
@@ -157,13 +157,13 @@ export type ChannelGateResult =
  * Match a connected MCP server against the user's parsed --channels entries.
  * server-kind is exact match on bare name; plugin-kind matches on the second
  * segment of plugin:X:Y. Returns the matching entry so callers can read its
- * kind â€” that's the user's trust declaration, not inferred from runtime shape.
+ * kind — that's the user's trust declaration, not inferred from runtime shape.
  */
 export function findChannelEntry(
   serverName: string,
   channels: readonly ChannelEntry[],
 ): ChannelEntry | undefined {
-  // split unconditionally â€” for a bare name like 'slack', parts is ['slack']
+  // split unconditionally — for a bare name like 'slack', parts is ['slack']
   // and the plugin-kind branch correctly never matches (parts[0] !== 'plugin').
   const parts = serverName.split(':')
   return channels.find(c =>
@@ -176,8 +176,8 @@ export function findChannelEntry(
 /**
  * Gate an MCP server's channel-notification path. Caller checks
  * feature('KAIROS') || feature('KAIROS_CHANNELS') first (build-time
- * elimination). Gate order: capability â†’ runtime gate (isChannelsEnabled) â†’
- * session --channels â†’ marketplace verification â†’ allowlist.
+ * elimination). Gate order: capability → runtime gate (isChannelsEnabled) →
+ * session --channels → marketplace verification → allowlist.
  *
  * OpenClaude: OAuth and org policy gates removed. The session allowlist
  * (--channels flag) and capability check remain as the security boundary.
@@ -187,7 +187,7 @@ export function findChannelEntry(
  *             Connection stays up; handler not registered.
  *   register  Subscribe to notifications/claude/channel.
  *
- * Which servers can connect at all is governed by allowedMcpServers â€”
+ * Which servers can connect at all is governed by allowedMcpServers —
  * this gate only decides whether the notification handler registers.
  */
 export function gateChannelServer(
@@ -196,7 +196,7 @@ export function gateChannelServer(
   pluginSource: string | undefined,
 ): ChannelGateResult {
   // Channel servers declare `experimental['claude/channel']: {}` (MCP's
-  // presence-signal idiom â€” same as `tools: {}`). Truthy covers `{}` and
+  // presence-signal idiom — same as `tools: {}`). Truthy covers `{}` and
   // `true`; absent/undefined/explicit-`false` all fail. Key matches the
   // notification method namespace (notifications/claude/channel).
   if (!capabilities?.experimental?.['claude/channel']) {
@@ -227,7 +227,7 @@ export function gateChannelServer(
   // capability check remain as the security boundary.
 
   // User-level session opt-in. A server must be explicitly listed in
-  // --channels to push inbound this session â€” protects against a trusted
+  // --channels to push inbound this session — protects against a trusted
   // server surprise-adding the capability.
   // OpenClaude: allowlisted channel plugins auto-register when they connect,
   // so users don't need the --channels flag for approved plugins.
@@ -255,10 +255,10 @@ export function gateChannelServer(
 
   if (entry.kind === 'plugin') {
     // Marketplace verification: the tag is intent (plugin:slack@anthropic),
-    // the runtime name is just plugin:slack:X â€” could be slack@anthropic or
+    // the runtime name is just plugin:slack:X — could be slack@anthropic or
     // slack@evil depending on what's installed. Verify they match before
     // trusting the tag for the allowlist check below. Source is stashed on
-    // the config at addPluginScopeToServers â€” undefined (non-plugin server,
+    // the config at addPluginScopeToServers — undefined (non-plugin server,
     // shouldn't happen for plugin-kind entry) or @-less (builtin/inline)
     // both fail the comparison.
     const actual = pluginSource
@@ -274,7 +274,7 @@ export function gateChannelServer(
 
     // Approved-plugin allowlist. Marketplace gate already verified
     // tag == reality, so this is a pure entry check. entry.dev (per-entry,
-    // not the session-wide bit) bypasses â€” so accepting the dev dialog for
+    // not the session-wide bit) bypasses — so accepting the dev dialog for
     // one entry doesn't leak allowlist-bypass to --channels entries.
     if (!entry.dev) {
       // OpenClaude: use hardcoded allowlist from getChannelAllowlist()
