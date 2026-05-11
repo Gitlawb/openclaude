@@ -1140,8 +1140,23 @@ function parseAndAdd(
   results.push({ id: `ollama_tc_${++_textToolCallCounter}`, name, arguments: args })
 }
 
+/** Removes character ranges from `text`, returning the remaining content. */
+function stripRanges(text: string, ranges: Array<[number, number]>): string {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0])
+  let result = ''
+  let pos = 0
+  for (const [s, e] of sorted) {
+    result += text.slice(pos, s)
+    pos = e
+  }
+  return result + text.slice(pos)
+}
+
 /** Exported for unit testing only. */
-export function parseTextToolCalls(text: string): ParsedTextToolCall[] {
+export function parseTextToolCalls(text: string): {
+  calls: ParsedTextToolCall[]
+  toolCallRanges: Array<[number, number]>
+} {
   const results: ParsedTextToolCall[] = []
   const seen = new Set<string>()
   const fencedRanges: Array<[number, number]> = []
@@ -1162,12 +1177,16 @@ export function parseTextToolCalls(text: string): ParsedTextToolCall[] {
     if (processedRanges.some(([s, e]) => start >= s && start < e)) continue
     const raw = extractBalancedJson(text, start)
     if (raw) {
+      // Context guard: if non-whitespace, non-`{` text immediately follows the JSON
+      // the model is likely explaining, not calling — skip to avoid false positives.
+      const after = text.slice(start + raw.length).trimStart()
+      if (after.length > 0 && !after.startsWith('{')) continue
       processedRanges.push([start, start + raw.length])
       parseAndAdd(raw, results, seen)
     }
   }
 
-  return results
+  return { calls: results, toolCallRanges: processedRanges }
 }
 
 /**
@@ -1442,6 +1461,10 @@ async function* openaiStreamToAnthropic(
   let hasProcessedFinishReason = false
   // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
   let accumulatedText = ''
+  const isOllamaStream = isOllamaProvider()
+  // Buffer Ollama text deltas so raw tool-call JSON is never emitted as text_delta
+  // before extraction at finish_reason=stop (P2 fix for #1053).
+  let ollamaTextBuffer = ''
   const streamState = createStreamState()
   let bufferedRawToolCallsText: string | null = null
 
@@ -1680,7 +1703,12 @@ async function* openaiStreamToAnthropic(
           }
 
           accumulatedText += delta.content
-          if (
+          if (isOllamaStream) {
+            const visible = thinkFilter.feed(delta.content)
+            if (visible) {
+              ollamaTextBuffer += visible
+            }
+          } else if (
             !hasEmittedContentStart &&
             bufferedRawToolCallsText === null &&
             couldBeRawToolCallsRequestedPrefix(delta.content)
@@ -1806,6 +1834,56 @@ async function* openaiStreamToAnthropic(
             contentBlockIndex++
             hasClosedThinking = true
           }
+          // Ollama text-based tool call fallback (#1053):
+          // Must run before closeActiveContentBlock so the text buffer can be flushed
+          // with tool-call JSON stripped (P2). Ollama models emit tool calls as raw
+          // JSON text; scan accumulated text when finish_reason=stop with no API tool calls.
+          let ollamaClosedContentBlock = false
+          if (
+            choice.finish_reason === 'stop' &&
+            activeToolCalls.size === 0 &&
+            isOllamaStream
+          ) {
+            const { calls: textToolCalls, toolCallRanges } = parseTextToolCalls(accumulatedText)
+            if (textToolCalls.length > 0) {
+              ollamaClosedContentBlock = true
+              if (hasEmittedContentStart) {
+                const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
+                if (stripped) {
+                  yield {
+                    type: 'content_block_delta',
+                    index: contentBlockIndex,
+                    delta: { type: 'text_delta', text: stripped },
+                  }
+                }
+                yield* closeActiveContentBlock()
+              }
+              for (const tc of textToolCalls) {
+                const toolBlockIndex = contentBlockIndex
+                yield {
+                  type: 'content_block_start',
+                  index: toolBlockIndex,
+                  content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
+                }
+                contentBlockIndex++
+                yield {
+                  type: 'content_block_delta',
+                  index: toolBlockIndex,
+                  delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
+                }
+                yield { type: 'content_block_stop', index: toolBlockIndex }
+              }
+              choice.finish_reason = 'tool_calls'
+            } else if (ollamaTextBuffer && hasEmittedContentStart) {
+              yield {
+                type: 'content_block_delta',
+                index: contentBlockIndex,
+                delta: { type: 'text_delta', text: ollamaTextBuffer },
+              }
+            }
+          }
+
+          // Flush bufferedRawToolCallsText for non-Ollama providers
           const parsedBufferedToolCalls = bufferedRawToolCallsText
             ? parseRawToolCallsRequestedText(bufferedRawToolCallsText)
             : null
@@ -1816,8 +1894,9 @@ async function* openaiStreamToAnthropic(
             yield* emitTextDelta(bufferedRawToolCallsText)
             bufferedRawToolCallsText = null
           }
-          // Close any open content blocks
-          if (hasEmittedContentStart) {
+
+          // Close any open content blocks (skipped when Ollama already closed it above)
+          if (hasEmittedContentStart && !ollamaClosedContentBlock) {
             yield* closeActiveContentBlock()
           }
           // Close active tool calls
@@ -1881,38 +1960,6 @@ async function* openaiStreamToAnthropic(
             }
 
             yield { type: 'content_block_stop', index: tc.index }
-          }
-
-          // Ollama text-based tool call fallback (#1053):
-          // Ollama models output tool calls as JSON text instead of structured
-          // tool_calls API fields. When finish_reason=stop with no API-level
-          // tool calls, scan accumulated text for JSON tool call patterns and
-          // emit them as proper tool_use events so the agentic loop continues.
-          if (
-            choice.finish_reason === 'stop' &&
-            activeToolCalls.size === 0 &&
-            isOllamaProvider()
-          ) {
-            const textToolCalls = parseTextToolCalls(accumulatedText)
-            if (textToolCalls.length > 0) {
-              for (const tc of textToolCalls) {
-                const toolBlockIndex = contentBlockIndex
-                yield {
-                  type: 'content_block_start',
-                  index: toolBlockIndex,
-                  content_block: { type: 'tool_use', id: tc.id, name: tc.name, input: {} },
-                }
-                contentBlockIndex++
-                yield {
-                  type: 'content_block_delta',
-                  index: toolBlockIndex,
-                  delta: { type: 'input_json_delta', partial_json: JSON.stringify(tc.arguments) },
-                }
-                yield { type: 'content_block_stop', index: toolBlockIndex }
-              }
-              // Override so stopReason becomes 'tool_use' and the loop continues
-              choice.finish_reason = 'tool_calls'
-            }
           }
 
           const stopReason =
