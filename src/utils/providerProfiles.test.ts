@@ -1098,6 +1098,22 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
+  test('xai preset ignores stale generic OpenAI model when creating defaults', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.OPENAI_MODEL = 'gpt-5.4'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    process.env.XAI_API_KEY = 'xai-live-key'
+
+    const defaults = getProviderPresetDefaults('xai')
+
+    expect(defaults.provider).toBe('xai')
+    expect(defaults.name).toBe('xAI')
+    expect(defaults.baseUrl).toBe('https://api.x.ai/v1')
+    expect(defaults.model).toBe('grok-4.3')
+    expect(defaults.apiKey).toBe('xai-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('zai preset defaults to Z.AI GLM Coding Plan endpoint', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
 

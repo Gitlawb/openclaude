@@ -284,11 +284,17 @@ export function getProviderPresetDefaults(
   preset: ProviderPreset,
 ): ProviderPresetDefaults {
   const metadata = getProviderPresetUiMetadata(preset)
+  // Keep preset-pinned endpoints/models even when generic OpenAI env values
+  // are present, but still read provider-specific credential env vars above.
+  const routeDefaults =
+    preset === 'custom'
+      ? metadata
+      : getProviderPresetUiMetadata(preset, {})
   return {
     provider: metadata.provider,
     name: metadata.name,
-    baseUrl: metadata.baseUrl,
-    model: metadata.model,
+    baseUrl: routeDefaults.baseUrl,
+    model: routeDefaults.model,
     apiKey: metadata.apiKey,
     requiresApiKey: metadata.requiresApiKey,
   }
