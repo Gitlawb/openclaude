@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
+// ── cache-bust helper ──────────────────────────────────────────────────────
+// When the full test suite runs, other files may import shellToolUtils /
+// platform / settings before us. Those cached modules already have their
+// imports resolved to the real modules. mock.module replaces the registry
+// entry but can't rewire already-resolved static imports inside cached
+// modules. Cache-busting query strings force a fresh module evaluation
+// that resolves imports through the mock registry.
+let cacheBust = 0
+function fresh(file: string) {
+  return `${file}?t=${cacheBust++}`
+}
+
 // ── env hygiene ────────────────────────────────────────────────────────────
 const originalEnv = {
   OPENCLAUDE_USE_POWERSHELL_TOOL: process.env.OPENCLAUDE_USE_POWERSHELL_TOOL,
@@ -31,34 +43,30 @@ afterEach(() => {
   }
 })
 
-// ═══════════════════════════════════════════════════════════════════════════
-// getPowershellToolEnv — platform-agnostic, no mocks needed
-// ═══════════════════════════════════════════════════════════════════════════
-
 // ── getPowershellToolEnv ──────────────────────────────────────────────────
 
 describe('getPowershellToolEnv', () => {
   test('returns undefined when neither env var is set', async () => {
-    const { getPowershellToolEnv } = await import('./shellToolUtils.js')
+    const { getPowershellToolEnv } = await import(fresh('./shellToolUtils.js'))
     expect(getPowershellToolEnv()).toBeUndefined()
   })
 
   test('returns preferred when OPENCLAUDE_USE_POWERSHELL_TOOL is set', async () => {
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
-    const { getPowershellToolEnv } = await import('./shellToolUtils.js')
+    const { getPowershellToolEnv } = await import(fresh('./shellToolUtils.js'))
     expect(getPowershellToolEnv()).toBe('1')
   })
 
   test('returns legacy fallback when only CLAUDE_CODE_USE_POWERSHELL_TOOL is set', async () => {
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = 'true'
-    const { getPowershellToolEnv } = await import('./shellToolUtils.js')
+    const { getPowershellToolEnv } = await import(fresh('./shellToolUtils.js'))
     expect(getPowershellToolEnv()).toBe('true')
   })
 
   test('preferred wins when both env vars are set', async () => {
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = '0'
-    const { getPowershellToolEnv } = await import('./shellToolUtils.js')
+    const { getPowershellToolEnv } = await import(fresh('./shellToolUtils.js'))
     expect(getPowershellToolEnv()).toBe('1')
   })
 })
@@ -69,34 +77,34 @@ describe('isPowerShellToolEnabled (Windows)', () => {
   test('enabled when preferred env var is truthy (external user)', async () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(true)
   })
 
   test('enabled when only legacy env var is truthy (external user)', async () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = 'true'
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(true)
   })
 
   test('disabled when neither env var is set (external user)', async () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 
   test('disabled when preferred is falsy and legacy is unset (external user)', async () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '0'
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 
   test('enabled for ant user when env var is unset (default-on)', async () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.USER_TYPE = 'ant'
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(true)
   })
 
@@ -104,7 +112,7 @@ describe('isPowerShellToolEnabled (Windows)', () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.USER_TYPE = 'ant'
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '0'
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 
@@ -112,12 +120,17 @@ describe('isPowerShellToolEnabled (Windows)', () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'windows' }))
     process.env.USER_TYPE = 'ant'
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = 'false'
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 })
 
 // ── resolveDefaultShell (Windows) ─────────────────────────────────────────
+// resolveDefaultShell statically imports getPowershellToolEnv from
+// shellToolUtils. If shellToolUtils was cached by a prior test file, its
+// static import of platform is already resolved to the real module —
+// mock.module can't rewire it. We break the chain by mocking shellToolUtils
+// itself with a fresh getPowershellToolEnv closure over process.env.
 
 describe('resolveDefaultShell (Windows)', () => {
   test('returns bash by default on Windows without env var', async () => {
@@ -125,9 +138,15 @@ describe('resolveDefaultShell (Windows)', () => {
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({}),
     }))
-    const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
+    mock.module('./shellToolUtils.js', () => ({
+      getPowershellToolEnv: () =>
+        process.env.OPENCLAUDE_USE_POWERSHELL_TOOL ??
+        process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL,
+    }))
+    const { resolveDefaultShell } = await import(fresh('./resolveDefaultShell.js'))
     expect(resolveDefaultShell()).toBe('bash')
     mock.module('../settings/settings.js', () => ({}))
+    mock.module('./shellToolUtils.js', () => ({}))
   })
 
   test('returns powershell when preferred env var is truthy on Windows', async () => {
@@ -136,9 +155,15 @@ describe('resolveDefaultShell (Windows)', () => {
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({}),
     }))
-    const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
+    mock.module('./shellToolUtils.js', () => ({
+      getPowershellToolEnv: () =>
+        process.env.OPENCLAUDE_USE_POWERSHELL_TOOL ??
+        process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL,
+    }))
+    const { resolveDefaultShell } = await import(fresh('./resolveDefaultShell.js'))
     expect(resolveDefaultShell()).toBe('powershell')
     mock.module('../settings/settings.js', () => ({}))
+    mock.module('./shellToolUtils.js', () => ({}))
   })
 
   test('returns powershell when only legacy env var is truthy on Windows', async () => {
@@ -147,9 +172,15 @@ describe('resolveDefaultShell (Windows)', () => {
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({}),
     }))
-    const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
+    mock.module('./shellToolUtils.js', () => ({
+      getPowershellToolEnv: () =>
+        process.env.OPENCLAUDE_USE_POWERSHELL_TOOL ??
+        process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL,
+    }))
+    const { resolveDefaultShell } = await import(fresh('./resolveDefaultShell.js'))
     expect(resolveDefaultShell()).toBe('powershell')
     mock.module('../settings/settings.js', () => ({}))
+    mock.module('./shellToolUtils.js', () => ({}))
   })
 
   test('preferred env var wins over legacy for default shell', async () => {
@@ -159,9 +190,15 @@ describe('resolveDefaultShell (Windows)', () => {
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({}),
     }))
-    const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
+    mock.module('./shellToolUtils.js', () => ({
+      getPowershellToolEnv: () =>
+        process.env.OPENCLAUDE_USE_POWERSHELL_TOOL ??
+        process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL,
+    }))
+    const { resolveDefaultShell } = await import(fresh('./resolveDefaultShell.js'))
     expect(resolveDefaultShell()).toBe('powershell')
     mock.module('../settings/settings.js', () => ({}))
+    mock.module('./shellToolUtils.js', () => ({}))
   })
 
   test('settings.defaultShell overrides env var', async () => {
@@ -170,9 +207,15 @@ describe('resolveDefaultShell (Windows)', () => {
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({ defaultShell: 'bash' as const }),
     }))
-    const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
+    mock.module('./shellToolUtils.js', () => ({
+      getPowershellToolEnv: () =>
+        process.env.OPENCLAUDE_USE_POWERSHELL_TOOL ??
+        process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL,
+    }))
+    const { resolveDefaultShell } = await import(fresh('./resolveDefaultShell.js'))
     expect(resolveDefaultShell()).toBe('bash')
     mock.module('../settings/settings.js', () => ({}))
+    mock.module('./shellToolUtils.js', () => ({}))
   })
 
   test('settings.defaultShell=powershell wins regardless of env var', async () => {
@@ -180,9 +223,15 @@ describe('resolveDefaultShell (Windows)', () => {
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({ defaultShell: 'powershell' as const }),
     }))
-    const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
+    mock.module('./shellToolUtils.js', () => ({
+      getPowershellToolEnv: () =>
+        process.env.OPENCLAUDE_USE_POWERSHELL_TOOL ??
+        process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL,
+    }))
+    const { resolveDefaultShell } = await import(fresh('./resolveDefaultShell.js'))
     expect(resolveDefaultShell()).toBe('powershell')
     mock.module('../settings/settings.js', () => ({}))
+    mock.module('./shellToolUtils.js', () => ({}))
   })
 })
 
@@ -192,14 +241,14 @@ describe('isPowerShellToolEnabled (non-Windows)', () => {
   test('returns false on macOS even with env var set', async () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'macos' }))
     process.env.OPENCLAUDE_USE_POWERSHELL_TOOL = '1'
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 
   test('returns false on Linux even with legacy env var set', async () => {
     mock.module('../platform.js', () => ({ getPlatform: () => 'linux' }))
     process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL = '1'
-    const { isPowerShellToolEnabled } = await import('./shellToolUtils.js')
+    const { isPowerShellToolEnabled } = await import(fresh('./shellToolUtils.js'))
     expect(isPowerShellToolEnabled()).toBe(false)
   })
 })
@@ -211,7 +260,12 @@ describe('resolveDefaultShell (non-Windows)', () => {
     mock.module('../settings/settings.js', () => ({
       getInitialSettings: () => ({}),
     }))
-    const { resolveDefaultShell } = await import('./resolveDefaultShell.js')
+    mock.module('./shellToolUtils.js', () => ({
+      getPowershellToolEnv: () =>
+        process.env.OPENCLAUDE_USE_POWERSHELL_TOOL ??
+        process.env.CLAUDE_CODE_USE_POWERSHELL_TOOL,
+    }))
+    const { resolveDefaultShell } = await import(fresh('./resolveDefaultShell.js'))
     expect(resolveDefaultShell()).toBe('bash')
   })
 })
