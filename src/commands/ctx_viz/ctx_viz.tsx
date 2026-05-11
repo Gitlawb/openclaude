@@ -3,18 +3,14 @@ import chalk from 'chalk'
 import figures from 'figures'
 import * as React from 'react'
 import type { LocalJSXCommandContext } from '../../commands.js'
-import {
-  getEffectiveContextWindowSize,
-  getAutoCompactThreshold,
-  isAutoCompactEnabled,
-} from '../../services/compact/autoCompact.js'
+import { microcompactMessages } from '../../services/compact/microCompact.js'
 import type { LocalJSXCommandOnDone } from '../../types/command.js'
 import type { Message } from '../../types/message.js'
+import { analyzeContextUsage } from '../../utils/analyzeContext.js'
 import { getContextWindowForModel, getModelMaxOutputTokens } from '../../utils/context.js'
 import { formatNumber, formatDuration } from '../../utils/format.js'
 import { getMessagesAfterCompactBoundary } from '../../utils/messages.js'
 import { getCanonicalName } from '../../utils/model/model.js'
-import { getCurrentUsage } from '../../utils/tokens.js'
 import {
   getSdkBetas,
   getModelUsage,
@@ -28,6 +24,11 @@ import {
   getTotalLinesAdded,
   getTotalLinesRemoved,
 } from '../../bootstrap/state.js'
+import {
+  getEffectiveContextWindowSize,
+  getAutoCompactThreshold,
+  isAutoCompactEnabled,
+} from '../../services/compact/autoCompact.js'
 
 function toApiView(messages: Message[]): Message[] {
   let view = getMessagesAfterCompactBoundary(messages)
@@ -40,34 +41,50 @@ function toApiView(messages: Message[]): Message[] {
   return view
 }
 
-function colorFn(c: 'green' | 'yellow' | 'red' | 'cyan' | 'blue'): (text: string) => string {
-  const map: Record<string, (text: string) => string> = {
-    green: chalk.green,
-    yellow: chalk.yellow,
-    red: chalk.red,
-    cyan: chalk.cyan,
-    blue: chalk.blue,
-  }
-  return map[c] ?? chalk.white
+function themeColorToChalk(themeColor: string): (text: string) => string {
+  if (themeColor === 'error') return chalk.red
+  if (themeColor === 'warning') return chalk.yellow
+  if (themeColor === 'success') return chalk.green
+  if (themeColor === 'info' || themeColor === 'subtle') return chalk.cyan
+  return chalk.blue
 }
 
-function bar(filled: number, total: number, width: number, c: 'green' | 'yellow' | 'red' | 'cyan' | 'blue'): string {
+function bar(filled: number, total: number, width: number, c: string): string {
   const ratio = total > 0 ? Math.min(filled / total, 1) : 0
   const filledW = Math.round(ratio * width)
   const emptyW = width - filledW
-  return colorFn(c)('\u2588'.repeat(filledW)) + chalk.gray('\u2591'.repeat(emptyW))
+  return themeColorToChalk(c)('\u2588'.repeat(filledW)) + chalk.gray('\u2591'.repeat(emptyW))
 }
 
-function categoryLine(label: string, tokens: number, maxTokens: number, width: number, c: 'green' | 'yellow' | 'red' | 'cyan' | 'blue'): string {
+function categoryLine(label: string, tokens: number, maxTokens: number, width: number, c: string): string {
   const pct = maxTokens > 0 ? ((tokens / maxTokens) * 100).toFixed(1) : '0.0'
   const b = bar(tokens, maxTokens, width, c)
   return `  ${chalk.bold(formatNumber(tokens)).padStart(12)}  ${pct.padStart(6)}%  ${b}  ${label}`
 }
 
 export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXCommandContext): Promise<React.ReactNode> {
-  const { messages, options: { mainLoopModel } } = context
+  const {
+    messages,
+    getAppState,
+    options: { mainLoopModel, tools },
+  } = context
+  const appState = getAppState()
 
   const apiView = toApiView(messages)
+  const { messages: compactedMessages } = await microcompactMessages(apiView)
+  const terminalWidth = process.stdout.columns || 80
+
+  const data = await analyzeContextUsage(
+    compactedMessages,
+    mainLoopModel,
+    async () => appState.toolPermissionContext,
+    tools,
+    appState.agentDefinitions,
+    terminalWidth,
+    context,
+    undefined,
+    apiView,
+  )
 
   const model = mainLoopModel
   const contextWindow = getContextWindowForModel(model, getSdkBetas())
@@ -76,13 +93,6 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
   const maxOutput = getModelMaxOutputTokens(model)
   const canonicalName = getCanonicalName(model)
   const autoCompactEnabled = isAutoCompactEnabled()
-
-  const currentUsage = getCurrentUsage(apiView)
-  const turnInput = currentUsage?.input_tokens ?? 0
-  const turnOutput = currentUsage?.output_tokens ?? 0
-  const turnCacheRead = currentUsage?.cache_read_input_tokens ?? 0
-  const turnCacheCreation = currentUsage?.cache_creation_input_tokens ?? 0
-  const turnTotal = turnInput + turnOutput + turnCacheRead + turnCacheCreation
 
   const sessionInput = getTotalInputTokens()
   const sessionOutput = getTotalOutputTokens()
@@ -94,7 +104,6 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
   const linesAdded = getTotalLinesAdded()
   const linesRemoved = getTotalLinesRemoved()
   const modelUsageMap = getModelUsage()
-  const sessionTotalTokens = sessionInput + sessionOutput + sessionCacheRead + sessionCacheCreation
 
   const barWidth = 30
   const lines: string[] = []
@@ -113,22 +122,29 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
   lines.push('')
 
   lines.push(chalk.bold('  Current Context (what the model sees)'))
-  if (turnTotal > 0) {
-    lines.push(categoryLine('Input', turnInput, contextWindow, barWidth, 'blue'))
-    lines.push(categoryLine('Output', turnOutput, contextWindow, barWidth, 'green'))
-    if (turnCacheRead > 0) {
-      lines.push(categoryLine('Cache read', turnCacheRead, contextWindow, barWidth, 'cyan'))
+  lines.push(`    Total: ${chalk.bold(formatNumber(data.totalTokens))} / ${formatNumber(contextWindow)} tokens (${chalk.bold(`${data.percentage}%`)} used)`)
+  lines.push('')
+
+  for (const cat of data.categories) {
+    if (cat.tokens > 0) {
+      lines.push(categoryLine(cat.name, cat.tokens, contextWindow, barWidth, cat.color))
     }
-    if (turnCacheCreation > 0) {
-      lines.push(categoryLine('Cache write', turnCacheCreation, contextWindow, barWidth, 'yellow'))
-    }
-    lines.push(`  ${'Total:'.padStart(14)}  ${chalk.bold(formatNumber(turnTotal))} tokens`)
-    const pctUsed = contextWindow > 0 ? ((turnTotal / contextWindow) * 100).toFixed(1) : '0.0'
-    lines.push(`  ${'Window used:'.padStart(14)}  ${chalk.bold(pctUsed)}%`)
-  } else {
-    lines.push(chalk.dim('  No API responses yet'))
   }
   lines.push('')
+
+  if (data.apiUsage) {
+    const u = data.apiUsage
+    lines.push(chalk.bold('  Last API Response'))
+    lines.push(`    ${figures.bullet} Input:       ${chalk.bold(formatNumber(u.input_tokens))} tokens`)
+    lines.push(`    ${figures.bullet} Output:      ${chalk.bold(formatNumber(u.output_tokens))} tokens`)
+    if (u.cache_read_input_tokens > 0) {
+      lines.push(`    ${figures.bullet} Cache read:  ${chalk.bold(formatNumber(u.cache_read_input_tokens))} tokens`)
+    }
+    if (u.cache_creation_input_tokens > 0) {
+      lines.push(`    ${figures.bullet} Cache write: ${chalk.bold(formatNumber(u.cache_creation_input_tokens))} tokens`)
+    }
+    lines.push('')
+  }
 
   if (Object.keys(modelUsageMap).length > 0) {
     lines.push(chalk.bold('  Per-Model Session Totals'))
@@ -143,7 +159,7 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
     lines.push('')
   }
 
-  if (sessionTotalTokens > 0 || sessionCost > 0) {
+  if (sessionCost > 0 || sessionInput > 0) {
     lines.push(chalk.bold('  Session Summary'))
     if (sessionCost > 0) {
       lines.push(`    ${figures.bullet} Cost:          ${chalk.bold(chalk.yellow(`$${sessionCost.toFixed(4)}`))}`)
@@ -160,7 +176,7 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
     lines.push('')
   }
 
-  lines.push(chalk.dim(`  ${figures.info} Run /context for detailed context breakdown, /cost for pricing, /stats for history`))
+  lines.push(chalk.dim(`  ${figures.info} Run /context for detailed grid view, /cost for pricing, /stats for history`))
   lines.push('')
 
   const output = lines.join('\n')
