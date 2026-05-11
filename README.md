@@ -1,4 +1,4 @@
-﻿# OpenClaude
+# OpenClaude
 
 OpenClaude is an open-source coding-agent CLI for cloud and local model providers.
 
@@ -124,7 +124,7 @@ If you have [Ollama](https://ollama.com) installed, you can skip the env var set
 ollama launch openclaude --model qwen2.5-coder:7b
 ```
 
-This automatically sets `ANTHROPIC_BASE_URL`, model routing, and auth so all API traffic goes through your local Ollama instance. Works with any model you have pulled â€” local or cloud.
+This automatically sets `ANTHROPIC_BASE_URL`, model routing, and auth so all API traffic goes through your local Ollama instance. Works with any model you have pulled — local or cloud.
 
 ## Setup Guides
 
@@ -165,7 +165,7 @@ Advanced and source-build guides:
 
 ## Channels (Telegram, Discord, etc.)
 
-OpenClaude can receive messages from external messaging platforms and reply through them â€” all inside your terminal session.
+OpenClaude can receive messages from external messaging platforms and reply through them — all inside your terminal session.
 
 ### How it works
 
@@ -187,7 +187,7 @@ Inside OpenClaude:
 1. Run `/install-plugin telegram` to install the Telegram channel plugin
 2. Run `/telegram:configure` to set your bot token (create one via [@BotFather](https://t.me/BotFather))
 3. Restart OpenClaude or run `/reload-plugins`
-4. Send a message to your bot on Telegram â€” Claude will receive and reply
+4. Send a message to your bot on Telegram — Claude will receive and reply
 
 Approved channel plugins (Telegram, Discord, iMessage) are auto-registered when they connect. No `--channels` flag needed for these official plugins.
 
@@ -200,7 +200,7 @@ For custom or unsigned channel servers, use the `--channels` flag:
 openclaude --channels plugin:my-channel@my-marketplace
 
 # Local development server
-openclaude --dangerously-load-development-channels --channels server:my-local-server
+openclaude --dangerously-load-development-channels server:my-local-server
 ```
 
 ### Permissions

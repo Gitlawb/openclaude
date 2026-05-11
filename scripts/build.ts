@@ -1,10 +1,10 @@
-﻿/**
- * OpenClaude build script â€” bundles the TypeScript source into a single
+/**
+ * OpenClaude build script — bundles the TypeScript source into a single
  * distributable JS file using Bun's bundler.
  *
  * Handles:
  * - bun:bundle feature() flags for the open build
- * - MACRO.* globals â†’ inlined version/build-time constants
+ * - MACRO.* globals → inlined version/build-time constants
  * - src/ path aliases
  */
 
@@ -20,7 +20,7 @@ const version = pkg.version
 // Most Anthropic-internal features stay off; open-build features can be
 // selectively enabled here when their full source exists in the mirror.
 const featureFlags: Record<string, boolean> = {
-  // â”€â”€ Disabled: require Anthropic infrastructure or missing source â”€â”€â”€â”€â”€
+  // ── Disabled: require Anthropic infrastructure or missing source ─────
   VOICE_MODE: false,              // Push-to-talk STT via claude.ai OAuth endpoint
   PROACTIVE: false,               // Autonomous agent mode (missing proactive/ module)
   KAIROS: false,                  // Persistent assistant/session mode (cloud backend)
@@ -37,7 +37,7 @@ const featureFlags: Record<string, boolean> = {
   COWORKER_TYPE_TELEMETRY: false, // Telemetry for agent/coworker type classification
   MCP_SKILLS: false,              // Dynamic MCP skill discovery
 
-  // â”€â”€ Enabled: upstream defaults â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Enabled: upstream defaults ──────────────────────────────────────
   COORDINATOR_MODE: true,             // Multi-agent coordinator with worker delegation
   BUILTIN_EXPLORE_PLAN_AGENTS: true,  // Built-in Explore/Plan specialized subagents
   BUDDY: true,                        // Buddy mode for paired programming
@@ -45,12 +45,12 @@ const featureFlags: Record<string, boolean> = {
   TEAMMEM: true,                      // Team memory management
   MESSAGE_ACTIONS: true,              // Message action buttons in the UI
 
-  // â”€â”€ Enabled: new activations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Enabled: new activations ────────────────────────────────────────
   DUMP_SYSTEM_PROMPT: true,           // --dump-system-prompt CLI flag for debugging
   CACHED_MICROCOMPACT: true,          // Cache-aware tool result truncation optimization
   AWAY_SUMMARY: true,                 // "While you were away" recap after 5min blur
   TRANSCRIPT_CLASSIFIER: true,        // Auto-approval classifier for safe tool uses
-  ULTRATHINK: true,                   // Deep thinking mode â€” type "ultrathink" to boost reasoning
+  ULTRATHINK: true,                   // Deep thinking mode — type "ultrathink" to boost reasoning
   TOKEN_BUDGET: true,                 // Token budget tracking with usage warnings
   HISTORY_PICKER: true,               // Enhanced interactive prompt history picker
   QUICK_SEARCH: true,                 // Ctrl+G quick search across prompts
@@ -63,11 +63,11 @@ const featureFlags: Record<string, boolean> = {
   KAIROS_CHANNELS: true,              // Channel messaging (Telegram, Discord, iMessage) via MCP
 }
 
-// â”€â”€ Pre-process: replace feature() calls with boolean literals â”€â”€â”€â”€â”€â”€
+// ── Pre-process: replace feature() calls with boolean literals ──────
 // Bun v1.3.9+ resolves `import { feature } from 'bun:bundle'` natively
 // before plugins can intercept it via onResolve. The bun: namespace is
 // handled by Bun's C++ resolver which runs before the JS plugin phase,
-// so the previous onResolve/onLoad shim was silently ineffective â€” ALL
+// so the previous onResolve/onLoad shim was silently ineffective — ALL
 // feature() calls evaluated to false regardless of the featureFlags map.
 //
 // Fix: pre-process source files to strip the bun:bundle import and
@@ -77,7 +77,7 @@ const featureFlags: Record<string, boolean> = {
 // Match feature('FLAG') calls, including multi-line: feature(\n  'FLAG',\n)
 const featureCallRe = /\bfeature\(\s*['"](\w+)['"][,\s]*\)/gs
 const featureImportRe = /import\s*\{[^}]*\bfeature\b[^}]*\}\s*from\s*['"]bun:bundle['"];?\s*\n?/g
-const modifiedFiles = new Map<string, string>() // path â†’ original content
+const modifiedFiles = new Map<string, string>() // path → original content
 
 function preProcessFeatureFlags(dir: string) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
@@ -406,7 +406,7 @@ export const SeverityNumber = {};
                 checkAndRegister(m[4], fileDir, m[1] || m[3] || '')
               }
 
-              // Collect dynamic requires: require('...') â€” these are used
+              // Collect dynamic requires: require('...') — these are used
               // behind feature() gates and become live when flags are enabled.
               for (const m of code.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
                 checkAndRegister(m[1], fileDir, '')
@@ -459,10 +459,10 @@ if (!result.success) {
   }
   process.exitCode = 1
 } else {
-  console.log(`âœ“ Built openclaude v${version} â†’ dist/cli.mjs`)
+  console.log(`✓ Built openclaude v${version} → dist/cli.mjs`)
 }
 
-// â”€â”€ SDK Bundle Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── SDK Bundle Build ──────────────────────────────────────────────────────
 // SDK is a separate bundle for npm consumption - must NOT bundle React/Ink
 console.log('Building SDK bundle...')
 
@@ -634,7 +634,7 @@ sdkResult = await Bun.build({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        // Stub src/keybindings/ â€” React-dependent keybinding system not needed in SDK
+        // Stub src/keybindings/ — React-dependent keybinding system not needed in SDK
         build.onResolve({ filter: /^src\/keybindings\// }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
@@ -643,13 +643,13 @@ sdkResult = await Bun.build({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
-        // Stub react-compiler-runtime â€” not needed in SDK bundle
+        // Stub react-compiler-runtime — not needed in SDK bundle
         build.onResolve({ filter: /^react-compiler-runtime$/ }, () => ({
           path: 'react-compiler-runtime',
           namespace: 'sdk-missing-stub',
         }))
         // Stub TUI-only React hook files that leak into SDK via tool imports.
-        // These are imported transitively through spawnMultiAgent â†’ It2SetupPrompt
+        // These are imported transitively through spawnMultiAgent → It2SetupPrompt
         // and through keybinding hooks. The SDK doesn't use TUI features.
         for (const hookPath of [
           'useDoublePress.js', 'useExitOnCtrlCD.js', 'useExitOnCtrlCDWithKeybindings.js',
@@ -661,13 +661,13 @@ sdkResult = await Bun.build({
             namespace: 'sdk-missing-stub',
           }))
         }
-        // Stub It2SetupPrompt.tsx â€” TUI component pulled in by spawnMultiAgent
+        // Stub It2SetupPrompt.tsx — TUI component pulled in by spawnMultiAgent
         build.onResolve({ filter: /It2SetupPrompt\.js$/ }, (args) => ({
           path: args.path,
           namespace: 'sdk-missing-stub',
         }))
 
-        // Stub react/jsx-dev-runtime with local no-op â€” tool .tsx files compile
+        // Stub react/jsx-dev-runtime with local no-op — tool .tsx files compile
         // to jsxDEV() calls that are never rendered in SDK headless mode.
         // This eliminates the external react/jsx-dev-runtime import entirely.
         build.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({
@@ -747,7 +747,7 @@ export const Fragment = null;
         const fs = require('fs')
         const pathMod = require('path')
         const srcDir = pathMod.resolve(__dirname, '..', 'src')
-        const sdkStubExports = new Map<string, Set<string>>() // module path â†’ set of imported names
+        const sdkStubExports = new Map<string, Set<string>>() // module path → set of imported names
 
         function scanSdkStubImports() {
           function register(specifier: string, namedPart: string) {
@@ -758,7 +758,7 @@ export const Fragment = null;
             if (!sdkStubExports.has(specifier)) sdkStubExports.set(specifier, new Set())
             const names = sdkStubExports.get(specifier)!
             for (const s of rawNames) {
-              // Handle "originalName as localName" â€” export BOTH names
+              // Handle "originalName as localName" — export BOTH names
               // because Bun validates the original export name exists
               const asMatch = s.match(/^(\w+)\s+as\s+(\w+)$/)
               if (asMatch) {
@@ -890,16 +890,16 @@ if (!sdkResult.success) {
   }
   process.exitCode = 1
 } else {
-  console.log(`âœ“ Built SDK bundle â†’ dist/sdk.mjs`)
+  console.log(`✓ Built SDK bundle → dist/sdk.mjs`)
 }
 
 } finally {
   // Always restore source files, even if Bun.build() throws
   restoreModifiedFiles()
-  console.log(`  ðŸ”„ feature-flags: pre-processed ${numModified} files (restored)`)
+  console.log(`  🔄 feature-flags: pre-processed ${numModified} files (restored)`)
 }
 
-// â”€â”€ Validate SDK bundle for React/Ink leakage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Validate SDK bundle for React/Ink leakage ──────────────────────────────
 if (sdkResult?.success) {
   const sdkBundle = readFileSync('./dist/sdk.mjs', 'utf-8')
   // Patterns that indicate React/Ink code leaked into the SDK bundle.
@@ -914,15 +914,15 @@ if (sdkResult?.success) {
     if (match) leaks.push(match[0])
   }
   if (leaks.length > 0) {
-    console.error(`\nâŒ SDK bundle contains React/Ink imports (must be stubbed):`)
+    console.error(`\n❌ SDK bundle contains React/Ink imports (must be stubbed):`)
     for (const leak of leaks) console.error(`   - ${leak}`)
     process.exitCode = 1
   } else {
-    console.log(`âœ“ SDK bundle: no React/Ink leakage detected`)
+    console.log(`✓ SDK bundle: no React/Ink leakage detected`)
   }
 }
 
-// â”€â”€ Validate external lists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Validate external lists ──────────────────────────────────────────────
 if (result?.success && sdkResult?.success) {
   console.log('\nValidating external lists...')
   const validation = Bun.spawnSync(['bun', 'run', 'scripts/validate-externals.ts'], {
