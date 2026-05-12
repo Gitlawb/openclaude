@@ -29,11 +29,21 @@ export default defineGateway({
     vendorId: 'openai',
   },
   catalog: {
-    source: 'dynamic',
+    source: 'hybrid',
     discovery: { kind: 'ollama' },
     discoveryCacheTtl: '1d',
     discoveryRefreshMode: 'background-if-stale',
     allowManualRefresh: true,
+    models: [
+      {
+        id: 'ollama-qwen3-coder-next-cloud',
+        apiName: 'qwen3-coder-next:cloud',
+        label: 'Qwen 3 Coder Next (Ollama Cloud)',
+        modelDescriptorId: 'qwen3-coder-next',
+        maxOutputTokens: 32_768,
+        notes: 'Ollama Cloud rejects requests above 32768 output tokens for this model.',
+      },
+    ],
   },
   usage: { supported: false },
 })

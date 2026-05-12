@@ -458,6 +458,18 @@ test('DashScope qwen3-coder-next uses provider-specific context and output caps'
   })
 })
 
+test('Ollama qwen3-coder-next cloud variant uses gateway-specific output cap', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('qwen3-coder-next:cloud')).toBe(262_144)
+  expect(getModelMaxOutputTokens('qwen3-coder-next:cloud')).toEqual({
+    default: 32_768,
+    upperLimit: 32_768,
+  })
+})
+
 test('DashScope qwen3-max uses provider-specific context and output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
