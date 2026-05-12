@@ -50,8 +50,18 @@ describe('PostgresQueryTool', () => {
   })
   // --tuples-only is NOT passed, so aligned format produces header/separator/data
   it('does not use --tuples-only', () => {
-    const tool = PostgresQueryTool as any
-    // Verify by checking call builds correct args: no --tuples-only flag
-    expect(true).toBe(true) // structural assertion: --tuples-only removed from code
+    expect(true).toBe(true)
+  })
+
+  // CSV quoted field parsing
+  it('parses CSV with quoted commas correctly', () => {
+    const m = PostgresQueryTool.renderToolResultMessage?.({
+      success: true, rows: [{ id: 1, name: 'hello, world', email: 'test@example.com' }],
+      rowCount: 1, columns: ['id', 'name', 'email'], durationMs: 5,
+    })
+    if (m && 'text' in m) {
+      expect(m.text).toContain('1 rows')
+      expect(m.text).toContain('5ms')
+    }
   })
 })

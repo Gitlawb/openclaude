@@ -61,11 +61,22 @@ function parseAligned(stdout: string): { rows: Record<string, unknown>[]; column
 }
 
 function parseCsv(stdout: string): { rows: Record<string, unknown>[]; columns: string[] } {
+  function splitCsvLine(line: string): string[] {
+    const vals: string[] = []; let cur = ''; let inQ = false
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i]
+      if (c === '"') { if (inQ && i + 1 < line.length && line[i + 1] === '"') { cur += '"'; i++ } else inQ = !inQ }
+      else if (c === ',' && !inQ) { vals.push(cur.trim()); cur = '' }
+      else cur += c
+    }
+    vals.push(cur.trim()); return vals
+  }
+
   const lines = stdout.trim().split('\n').filter(l => l.trim())
   if (lines.length < 1) return { rows: [], columns: [] }
-  const columns = lines[0].split(',').map(c => c.trim().replace(/^"(.*)"$/, '$1'))
+  const columns = splitCsvLine(lines[0])
   const rows = lines.slice(1).map(line => {
-    const vals = line.split(',').map(v => v.trim().replace(/^"(.*)"$/, '$1'))
+    const vals = splitCsvLine(line)
     const row: Record<string, unknown> = {}
     columns.forEach((col, i) => { row[col] = vals[i] || null })
     return row
@@ -113,16 +124,22 @@ export const PostgresQueryTool = buildTool({
   },
   async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?) {
     const startTime = Date.now()
+    // Connection priority: explicit string > PGDATABASE_URL > individual PG* env vars (libpq default)
     const connStr = input.connection || process.env.PGDATABASE_URL || ''
-    if (!connStr) return { data: { success: false, durationMs: Date.now() - startTime, error: 'No PostgreSQL connection configured.' } }
+    const hasPgEnv = !connStr && (process.env.PGHOST || process.env.PGPORT || process.env.PGUSER || process.env.PGPASSWORD || process.env.PGDATABASE)
+    if (!connStr && !hasPgEnv) return { data: { success: false, durationMs: Date.now() - startTime, error: 'No PostgreSQL connection configured. Provide a connection parameter or set PGDATABASE_URL / PGHOST / PGPORT / PGUSER / PGPASSWORD / PGDATABASE.' } }
 
     try {
       const args: string[] = ['--no-psqlrc']
-      // --tuples-only strips headers — omit for table/csv so parsers get column names
       if (input.format === 'csv') { args.push('--csv') } else { args.push('--aligned') }
-      args.push('-c', input.query, connStr)
+      if (connStr) args.push('-c', input.query, connStr)
+      else args.push('-c', input.query)
 
-      const result = spawnSync('psql', args, { timeout: (input.timeout ?? 30) * 1000, maxBuffer: MAX_RESULT_CHARS, encoding: 'utf-8', env: { ...process.env, PGCONNECT_TIMEOUT: String(input.timeout ?? 30), PGSSLMODE: 'require' } })
+      // Preserve existing PGSSLMODE; only set PG* env vars that are user-configured
+      const spawnEnv: Record<string, string> = { ...process.env as Record<string, string>, PGCONNECT_TIMEOUT: String(input.timeout ?? 30) }
+      if (process.env.PGSSLMODE === undefined) delete spawnEnv.PGSSLMODE // don't force SSL
+
+      const result = spawnSync('psql', args, { timeout: (input.timeout ?? 30) * 1000, maxBuffer: MAX_RESULT_CHARS, encoding: 'utf-8', env: spawnEnv })
       const stdout = (result.stdout ?? '').trim()
       const stderr = (result.stderr ?? '').trim()
 
