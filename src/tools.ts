@@ -72,6 +72,9 @@ import { TaskCreateTool } from './tools/TaskCreateTool/TaskCreateTool.js'
 import { TaskGetTool } from './tools/TaskGetTool/TaskGetTool.js'
 import { TaskUpdateTool } from './tools/TaskUpdateTool/TaskUpdateTool.js'
 import { TaskListTool } from './tools/TaskListTool/TaskListTool.js'
+import { HttpRequestTool } from './tools/HttpRequestTool/HttpRequestTool.js'
+import { GraphqlTool } from './tools/GraphqlTool/GraphqlTool.js'
+import { NetworkDiagnosticTool } from './tools/NetworkDiagnosticTool/NetworkDiagnosticTool.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { isToolSearchEnabledOptimistic } from './utils/toolSearch.js'
 import { isTodoV2Enabled } from './utils/tasks.js'
@@ -194,6 +197,9 @@ export function getAllBaseTools(): Tools {
     FileWriteTool,
     NotebookEditTool,
     WebFetchTool,
+    HttpRequestTool,
+    GraphqlTool,
+    NetworkDiagnosticTool,
     TodoWriteTool,
     WebSearchTool,
     TaskStopTool,
