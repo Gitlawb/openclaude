@@ -22,6 +22,23 @@ describe('loaded registry validation', () => {
     expect(result.errors).toHaveLength(0)
   })
 
+  test('Qiniu has shared brand and model descriptors wired to its route catalog', () => {
+    expect(getBrandsForVendor('qiniu').map(brand => brand.id)).toContain(
+      'qiniu',
+    )
+    expect(getModelsForVendor('qiniu').map(model => model.id)).toContain(
+      'deepseek-v3',
+    )
+    expect(
+      getCatalogEntriesForRoute('qiniu').every(entry =>
+        Boolean(entry.modelDescriptorId),
+      ),
+    ).toBe(true)
+    expect(routeSupportsApiFormatSelection('qiniu')).toBe(false)
+    expect(routeSupportsAuthHeaders('qiniu')).toBe(false)
+    expect(routeSupportsCustomHeaders('qiniu')).toBe(false)
+  })
+
   test('MiniMax has shared brand and model descriptors wired to its route catalog', () => {
     expect(getBrandsForVendor('minimax').map(brand => brand.id)).toContain(
       'minimax',

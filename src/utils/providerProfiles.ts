@@ -19,6 +19,7 @@ import {
   buildGithubProfileEnv,
   buildMiniMaxProfileEnv,
   buildMistralProfileEnv,
+  buildQiniuProfileEnv,
   buildNvidiaNimProfileEnv,
   buildOpenAIProfileEnv,
   buildVeniceProfileEnv,
@@ -629,6 +630,9 @@ export function applyProviderProfileToProcessEnv(profile: ProviderProfile): void
       if (route.vendorId === 'minimax' || profile.baseUrl.toLowerCase().includes('minimax')) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
       }
+      if (route.vendorId === 'qiniu' || profile.baseUrl.toLowerCase().includes('qnaigc')) {
+        openAIProfileEnv.QINIU_API_KEY = profile.apiKey
+      }
       if (
         route.gatewayId === 'nvidia-nim' ||
         profile.baseUrl.toLowerCase().includes('nvidia') ||
@@ -1058,6 +1062,19 @@ function buildStartupProfileFromActiveProfile(
           }) ?? null
         return env
           ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
+
+      if (route.vendorId === 'qiniu') {
+        const env =
+          buildQiniuProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'qiniu', env: applySupportedProfileCustomHeaders(activeProfile, env) }
           : null
       }
 

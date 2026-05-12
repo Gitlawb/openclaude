@@ -9,6 +9,7 @@ const originalEnv = {
   CLAUDE_CODE_USE_FOUNDRY: process.env.CLAUDE_CODE_USE_FOUNDRY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+  QINIU_API_KEY: process.env.QINIU_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
@@ -24,6 +25,7 @@ afterEach(() => {
   process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
   process.env.NVIDIA_NIM = originalEnv.NVIDIA_NIM
   process.env.MINIMAX_API_KEY = originalEnv.MINIMAX_API_KEY
+  process.env.QINIU_API_KEY = originalEnv.QINIU_API_KEY
   process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
   process.env.OPENAI_API_BASE = originalEnv.OPENAI_API_BASE
   process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
@@ -43,6 +45,7 @@ function clearProviderEnv(): void {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
   delete process.env.MINIMAX_API_KEY
+  delete process.env.QINIU_API_KEY
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
@@ -199,6 +202,24 @@ test('env-only MiniMax API key resolves to the minimax provider', async () => {
 
   const { getAPIProvider } = await importFreshProvidersModule()
   expect(getAPIProvider()).toBe('minimax')
+})
+
+test('descriptor-backed Qiniu routes keep the legacy qiniu provider category', async () => {
+  clearProviderEnv()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.qnaigc.com/v1'
+  process.env.QINIU_API_KEY = 'qiniu-key'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('qiniu')
+})
+
+test('env-only Qiniu API key resolves to the qiniu provider', async () => {
+  clearProviderEnv()
+  process.env.QINIU_API_KEY = 'qiniu-key'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('qiniu')
 })
 
 test('conflicting OpenAI base prevents env-only MiniMax provider label', async () => {

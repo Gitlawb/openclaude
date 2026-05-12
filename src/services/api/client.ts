@@ -36,6 +36,7 @@ import {
 } from '../../utils/envUtils.js'
 import {
   getMiniMaxBaseUrlOverride,
+  getQiniuBaseUrlOverride,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
@@ -157,6 +158,22 @@ function applyXaiEnvOnlyDefaults(): void {
       : undefined) ??
     getRouteDefaultModel('xai')
   process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
+function applyQiniuEnvOnlyDefaults(): void {
+  const baseUrlOverride = getQiniuBaseUrlOverride()
+  const modelOverride = process.env.OPENAI_MODEL?.trim() || undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('qiniu')
+  process.env.OPENAI_MODEL =
+    modelOverride ?? getRouteDefaultModel('qiniu')
+  process.env.OPENAI_API_KEY = process.env.QINIU_API_KEY
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
@@ -287,16 +304,21 @@ export async function getAnthropicClient({
   const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
   const useXaiEnvOnlyProvider = envOnlyProviderRouteId === 'xai'
   const useMiniMaxEnvOnlyProvider = envOnlyProviderRouteId === 'minimax'
+  const useQiniuEnvOnlyProvider = envOnlyProviderRouteId === 'qiniu'
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults()
   }
   if (useXaiEnvOnlyProvider) {
     applyXaiEnvOnlyDefaults()
   }
+  if (useQiniuEnvOnlyProvider) {
+    applyQiniuEnvOnlyDefaults()
+  }
 
   if (
     useMiniMaxEnvOnlyProvider ||
     useXaiEnvOnlyProvider ||
+    useQiniuEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

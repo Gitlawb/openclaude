@@ -26,7 +26,8 @@ async function readPropertyValue(
     | 'openai'
     | 'codex'
     | 'nvidia-nim'
-    | 'minimax',
+    | 'minimax'
+    | 'qiniu',
 ): Promise<unknown> {
   mock.restore()
   mock.module('./model/providers.js', () => ({
@@ -72,6 +73,19 @@ test('buildAPIProviderProperties labels MiniMax sessions', async () => {
     'https://api.minimax.chat/v1',
   )
   expect(await readPropertyValue('Model', 'minimax')).toBe('MiniMax-M2.5')
+})
+
+test('buildAPIProviderProperties labels Qiniu sessions', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.QINIU_API_KEY = 'qiniu-key'
+  process.env.OPENAI_BASE_URL = 'https://api.qnaigc.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek-v3'
+
+  expect(await readPropertyValue('API provider', 'qiniu')).toBe('Qiniu')
+  expect(await readPropertyValue('Qiniu base URL', 'qiniu')).toBe(
+    'https://api.qnaigc.com/v1',
+  )
+  expect(await readPropertyValue('Model', 'qiniu')).toBe('deepseek-v3')
 })
 
 test('buildAPIProviderProperties keeps Codex-specific labels on the shared OpenAI-compatible path', async () => {

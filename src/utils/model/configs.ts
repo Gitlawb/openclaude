@@ -48,6 +48,7 @@ export const CLAUDE_3_7_SONNET_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_3_5_V2_SONNET_CONFIG = {
@@ -63,6 +64,7 @@ export const CLAUDE_3_5_V2_SONNET_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_3_5_HAIKU_CONFIG = {
@@ -78,6 +80,7 @@ export const CLAUDE_3_5_HAIKU_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_HAIKU_4_5_CONFIG = {
@@ -93,6 +96,7 @@ export const CLAUDE_HAIKU_4_5_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_CONFIG = {
@@ -108,6 +112,7 @@ export const CLAUDE_SONNET_4_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_5_CONFIG = {
@@ -123,6 +128,7 @@ export const CLAUDE_SONNET_4_5_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_CONFIG = {
@@ -138,6 +144,7 @@ export const CLAUDE_OPUS_4_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_1_CONFIG = {
@@ -153,6 +160,7 @@ export const CLAUDE_OPUS_4_1_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_5_CONFIG = {
@@ -168,6 +176,7 @@ export const CLAUDE_OPUS_4_5_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_6_CONFIG = {
@@ -183,6 +192,7 @@ export const CLAUDE_OPUS_4_6_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_OPUS_4_7_CONFIG = {
@@ -198,6 +208,7 @@ export const CLAUDE_OPUS_4_7_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 export const CLAUDE_SONNET_4_6_CONFIG = {
@@ -213,6 +224,7 @@ export const CLAUDE_SONNET_4_6_CONFIG = {
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   xai: 'grok-4.3',
+  qiniu: 'deepseek-v3',
 } as const satisfies LegacyProviderModelConfig
 
 // @[MODEL LAUNCH]: Register the new config here.

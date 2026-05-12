@@ -308,6 +308,17 @@ describe('applyProviderFlag - minimax', () => {
   })
 })
 
+describe('applyProviderFlag - qiniu', () => {
+  test('preserves Qiniu default base URL and model semantics', () => {
+    const result = applyProviderFlag('qiniu', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.qnaigc.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v3')
+  })
+})
+
 describe('applyProviderFlag - nvidia-nim', () => {
   test('maps NVIDIA_API_KEY into the OPENAI-compatible auth env when present', () => {
     process.env.NVIDIA_API_KEY = 'nvidia-live-key'

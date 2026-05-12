@@ -40,6 +40,7 @@ const API_PROVIDER_LABELS: Partial<Record<APIProvider, string>> = {
   minimax: 'MiniMax',
   mistral: 'Mistral',
   xai: 'xAI',
+  qiniu: 'Qiniu',
 };
 
 const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
@@ -64,6 +65,9 @@ const OPENAI_COMPATIBLE_STATUS_METADATA: Partial<
   },
   minimax: {
     baseUrlLabel: 'MiniMax base URL',
+  },
+  qiniu: {
+    baseUrlLabel: 'Qiniu base URL',
   },
   xai: {
     baseUrlLabel: 'xAI base URL',

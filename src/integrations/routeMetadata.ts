@@ -215,6 +215,19 @@ export function isVeniceBaseUrl(value: string | undefined): boolean {
     return false
   }
 }
+
+export function isQiniuBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'api.qnaigc.com'
+  } catch {
+    return false
+  }
+}
 export function getMiniMaxBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -241,6 +254,22 @@ export function getXaiBaseUrlOverride(
 
   const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
   if (isXaiBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
+}
+
+export function getQiniuBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isQiniuBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isQiniuBaseUrl(openAIApiBase)) {
     return openAIApiBase
   }
 
@@ -305,14 +334,29 @@ export function hasVeniceEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.QINIU_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isVeniceBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
+export function hasQiniuEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.QINIU_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.OPENAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isQiniuBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
 }
 
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
-): 'xai' | 'minimax' | 'venice' | null {
+): 'xai' | 'minimax' | 'venice' | 'qiniu' | null {
   if (hasXaiEnvOnlyProviderIntent(processEnv)) {
     return 'xai'
   }
@@ -323,6 +367,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasVeniceEnvOnlyProviderIntent(processEnv)) {
     return 'venice'
+  }
+
+  if (hasQiniuEnvOnlyProviderIntent(processEnv)) {
+    return 'qiniu'
   }
 
   return null

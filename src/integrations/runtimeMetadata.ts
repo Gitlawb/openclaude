@@ -366,6 +366,7 @@ export function usesAnthropicNativeMessageFormat(options?: {
     | 'nvidia-nim'
     | 'minimax'
     | 'mistral'
+    | 'qiniu'
 }): boolean {
   const processEnv = options?.processEnv ?? process.env
   const providerCategory = options?.providerCategory

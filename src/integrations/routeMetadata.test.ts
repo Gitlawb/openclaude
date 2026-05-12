@@ -48,6 +48,10 @@ test('getRouteCredentialEnvVars keeps descriptor env vars and openai fallback fo
     'VENICE_API_KEY',
     'OPENAI_API_KEY',
   ])
+  expect(getRouteCredentialEnvVars('qiniu')).toEqual([
+    'QINIU_API_KEY',
+    'OPENAI_API_KEY',
+  ])
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {
@@ -70,6 +74,15 @@ test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
 })
 
+test('Qiniu route metadata uses official OpenAI-compatible defaults', () => {
+  expect(getRouteDefaultBaseUrl('qiniu')).toBe('https://api.qnaigc.com/v1')
+  expect(getRouteDefaultModel('qiniu')).toBe('deepseek-v3')
+  expect(resolveRouteIdFromBaseUrl('https://api.qnaigc.com/v1')).toBe('qiniu')
+  expect(resolveRouteIdFromBaseUrl('https://api.qnaigc.com/v1/chat/completions')).toBe(
+    'qiniu',
+  )
+})
+
 test('resolveActiveRouteIdFromEnv treats MiniMax credential-only env as MiniMax', () => {
   expect(
     resolveActiveRouteIdFromEnv({
@@ -84,6 +97,14 @@ test('resolveActiveRouteIdFromEnv treats Venice credential-only env as Venice', 
       VENICE_API_KEY: 'venice-key',
     }),
   ).toBe('venice')
+})
+
+test('resolveActiveRouteIdFromEnv treats Qiniu credential-only env as Qiniu', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      QINIU_API_KEY: 'qiniu-key',
+    }),
+  ).toBe('qiniu')
 })
 test('resolveActiveRouteIdFromEnv treats xAI credential-only env as xAI', () => {
   expect(
@@ -130,6 +151,7 @@ test.each([
   ['DeepSeek', 'https://api.deepseek.com/v1', 'deepseek-v4-pro', 'deepseek'],
   ['Hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.7', 'hicap'],
   ['Venice', 'https://api.venice.ai/api/v1', 'venice-uncensored', 'venice'],
+  ['Qiniu', 'https://api.qnaigc.com/v1', 'deepseek-v3', 'qiniu'],
 ])(
   'resolveActiveRouteIdFromEnv refines generic OpenAI profile by %s base URL',
   (_label, baseUrl, model, expectedRouteId) => {

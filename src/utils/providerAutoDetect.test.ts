@@ -112,6 +112,22 @@ describe('detectProviderFromEnv — priority order', () => {
     })
   })
 
+  test('QINIU_API_KEY detected', () => {
+    expect(scan({ QINIU_API_KEY: 'qn-x' })).toEqual({
+      kind: 'qiniu',
+      source: 'QINIU_API_KEY set',
+    })
+  })
+
+  test('MINIMAX_API_KEY wins over QINIU_API_KEY', () => {
+    expect(
+      scan({
+        MINIMAX_API_KEY: 'mm-x',
+        QINIU_API_KEY: 'qn-x',
+      }),
+    ).toEqual({ kind: 'minimax', source: 'MINIMAX_API_KEY set' })
+  })
+
   test('XAI_API_KEY detected', () => {
     expect(scan({ XAI_API_KEY: 'xai-x' })).toEqual({
       kind: 'xai',

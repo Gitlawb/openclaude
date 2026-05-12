@@ -76,6 +76,9 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-3'
   }
+  if (getAPIProvider() === 'qiniu') {
+    return process.env.OPENAI_MODEL || 'deepseek-v3'
+  }
   return getDefaultHaikuModel()
 }
 
@@ -126,7 +129,8 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       provider === 'github' ||
       provider === 'nvidia-nim' ||
       provider === 'minimax' ||
-      provider === 'xai'
+      provider === 'xai' ||
+      provider === 'qiniu'
     specifiedModel =
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
@@ -205,6 +209,9 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-4.3'
   }
+  if (getAPIProvider() === 'qiniu') {
+    return process.env.OPENAI_MODEL || 'deepseek-v3'
+  }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
   // the next model launch. Keep 3P on Opus 4.6 until they roll out 4.7.
@@ -251,6 +258,9 @@ export function getDefaultSonnetModel(): ModelName {
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-4.3'
   }
+  if (getAPIProvider() === 'qiniu') {
+    return process.env.OPENAI_MODEL || 'deepseek-v3'
+  }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (getAPIProvider() !== 'firstParty') {
     return getModelStrings().sonnet45
@@ -294,6 +304,9 @@ export function getDefaultHaikuModel(): ModelName {
   // xAI — faster Grok model for "haiku"-equivalent.
   if (getAPIProvider() === 'xai') {
     return process.env.OPENAI_MODEL || 'grok-3'
+  }
+  if (getAPIProvider() === 'qiniu') {
+    return process.env.OPENAI_MODEL || 'deepseek-v3'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -370,6 +383,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   // MiniMax provider: always use the configured MiniMax model
   if (getAPIProvider() === 'minimax') {
     return process.env.OPENAI_MODEL || 'MiniMax-M2.7'
+  }
+  if (getAPIProvider() === 'qiniu') {
+    return process.env.OPENAI_MODEL || 'deepseek-v3'
   }
 
   // Ants default to defaultModel from flag config, or Opus 1M if not configured
@@ -562,6 +578,7 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
     getAPIProvider() === 'github' ||
     getAPIProvider() === 'xai' ||
     getAPIProvider() === 'minimax' ||
+    getAPIProvider() === 'qiniu' ||
     getAPIProvider() === 'nvidia-nim' ||
     getAPIProvider() === 'mistral'
   ) {

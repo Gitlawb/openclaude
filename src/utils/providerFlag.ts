@@ -38,6 +38,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'nvidia-nim',
   'minimax',
   'venice',
+  'qiniu',
 ] as const
 
 function buildValidProviders(): string[] {
@@ -197,9 +198,12 @@ export function applyProviderFlag(
               process.env.OPENAI_API_KEY === process.env.VENICE_API_KEY
             ? 'venice'
             : process.env.OPENAI_API_KEY !== undefined &&
-                process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
-              ? 'minimax'
-              : null
+                process.env.OPENAI_API_KEY === process.env.QINIU_API_KEY
+              ? 'qiniu'
+              : process.env.OPENAI_API_KEY !== undefined &&
+                  process.env.OPENAI_API_KEY === process.env.MINIMAX_API_KEY
+                ? 'minimax'
+                : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI

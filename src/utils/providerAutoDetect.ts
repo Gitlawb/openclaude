@@ -16,9 +16,10 @@
  *   5. GEMINI_API_KEY or GOOGLE_API_KEY
  *   6. MISTRAL_API_KEY
  *   7. MINIMAX_API_KEY
- *   8. XAI_API_KEY
- *   9. Local Ollama reachable (default localhost:11434)
- *  10. Local LM Studio reachable (default localhost:1234)
+ *   8. QINIU_API_KEY
+ *   9. XAI_API_KEY
+ *  10. Local Ollama reachable (default localhost:11434)
+ *  11. Local LM Studio reachable (default localhost:1234)
  *
  * Local-service probes are parallelized and cheap (short timeout, no
  * request body). Env scans are synchronous and run first so we don't make
@@ -41,6 +42,7 @@ export type DetectedProviderKind =
   | 'gemini'
   | 'mistral'
   | 'minimax'
+  | 'qiniu'
   | 'xai'
   | 'ollama'
   | 'lm-studio'
@@ -159,6 +161,10 @@ export function detectProviderFromEnv(
 
   if (envHasNonEmpty(env, 'MINIMAX_API_KEY')) {
     return { kind: 'minimax', source: 'MINIMAX_API_KEY set' }
+  }
+
+  if (envHasNonEmpty(env, 'QINIU_API_KEY')) {
+    return { kind: 'qiniu', source: 'QINIU_API_KEY set' }
   }
 
   if (envHasNonEmpty(env, 'XAI_API_KEY')) {

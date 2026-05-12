@@ -22,6 +22,7 @@ export type LegacyAPIProvider =
   | 'minimax'
   | 'mistral'
   | 'xai'
+  | 'qiniu'
 
 // Backward-compatible public alias. Keep importing APIProvider where callers
 // intentionally consume the legacy category surface.
@@ -51,6 +52,8 @@ export function getAPIProvider(): LegacyAPIProvider {
       return 'minimax'
     case 'xai':
       return 'xai'
+    case 'qiniu':
+      return 'qiniu'
     case 'openai':
     case 'custom':
       if (isEnvTruthy(process.env.NVIDIA_NIM)) {

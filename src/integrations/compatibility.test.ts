@@ -36,6 +36,7 @@ const EXPECTED_PRESETS = [
   'minimax',
   'xai',
   'venice',
+  'qiniu',
   'zai',
   'bankr',
   'atomic-chat',

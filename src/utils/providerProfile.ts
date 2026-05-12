@@ -91,6 +91,7 @@ const PROFILE_ENV_KEYS = [
   'BANKR_MODEL',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'QINIU_API_KEY',
 ] as const
 
 export type CompatibilityProfileMode =
@@ -114,6 +115,7 @@ const SECRET_ENV_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'QINIU_API_KEY',
 ] as const
 
 export type ProviderProfile =
@@ -130,6 +132,7 @@ export type ProviderProfile =
   | 'bedrock'
   | 'vertex'
   | 'xai'
+  | 'qiniu'
 
 export type ProfileEnv = {
   ANTHROPIC_BASE_URL?: string
@@ -169,6 +172,7 @@ export type ProfileEnv = {
   BANKR_MODEL?: string
   XAI_API_KEY?: string
   VENICE_API_KEY?: string
+  QINIU_API_KEY?: string
 }
 
 export type ProfileFile = {
@@ -189,7 +193,8 @@ type SecretValueSource = Partial<
     | 'MISTRAL_API_KEY'
     | 'BNKR_API_KEY'
     | 'XAI_API_KEY'
-    | 'VENICE_API_KEY',
+    | 'VENICE_API_KEY'
+    | 'QINIU_API_KEY',
     string | undefined
   >
 >
@@ -303,7 +308,8 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'github' ||
     value === 'bedrock' ||
     value === 'vertex' ||
-    value === 'xai'
+    value === 'xai' ||
+    value === 'qiniu'
   )
 }
 
@@ -499,6 +505,46 @@ export function buildVeniceProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     VENICE_API_KEY: key,
+  }
+}
+
+export function buildQiniuProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.QINIU_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('qiniu')
+  const defaultModel = getRouteDefaultModel('qiniu')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('Qiniu route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    QINIU_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    QINIU_API_KEY: key,
   }
 }
 
