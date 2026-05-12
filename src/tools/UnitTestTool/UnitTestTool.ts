@@ -109,6 +109,9 @@ export const UnitTestTool: ToolDef<InputSchema, Output> = {
       else if (input.filter) args.push('--test-name-pattern', input.filter)
 
       const result = spawnSync(fw.binary, args, { cwd: targetPath, timeout: (input.timeout ?? 300) * 1000, maxBuffer: 200_000, encoding: 'utf-8' })
+
+      if (result.error) return { data: { success: false, framework: fwName, passed: 0, failed: 0, total: 0, durationMs: Date.now() - startTime, error: `Failed to run ${fw.binary}: ${result.error.message}` } }
+
       const stdout = result.stdout ?? ''
       const stderr = result.stderr ?? ''
       const status = result.status ?? 1

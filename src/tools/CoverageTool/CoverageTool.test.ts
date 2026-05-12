@@ -11,12 +11,8 @@ describe('CoverageTool', () => {
     expect((await CoverageTool.description()).length).toBeGreaterThan(0)
   })
 
-  it('is read-only by default', () => {
+  it('is always read-only', () => {
     expect(CoverageTool.isReadOnly?.()).toBe(true)
-  })
-
-  it('is not read-only with runTests', () => {
-    expect(CoverageTool.isReadOnly?.({ runTests: true })).toBe(false)
   })
 
   it('validates always passes', async () => {
@@ -29,16 +25,10 @@ describe('CoverageTool', () => {
     expect(block.type).toBe('tool_result')
   })
 
-  it('renders tool use message (read)', () => {
-    const msg = CoverageTool.renderToolUseMessage?.({ path: '.', runTests: false })
+  it('renders tool use message', () => {
+    const msg = CoverageTool.renderToolUseMessage?.({ path: '.' })
     expect(msg).toBeDefined()
     if (msg && 'text' in msg) expect(msg.text).toContain('Reading')
-  })
-
-  it('renders tool use message (generate)', () => {
-    const msg = CoverageTool.renderToolUseMessage?.({ path: '.', runTests: true })
-    expect(msg).toBeDefined()
-    if (msg && 'text' in msg) expect(msg.text).toContain('Generating')
   })
 
   it('renders success result', () => {

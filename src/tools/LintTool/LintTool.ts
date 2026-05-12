@@ -146,8 +146,12 @@ export const LintTool: ToolDef<InputSchema, Output> = {
       const binary = LINTERS[toolName].binary
       const result = spawnSync(binary, args, { cwd: targetPath, timeout: 120_000, maxBuffer: 100_000, encoding: 'utf-8' })
 
+      if (result.error) return { data: { success: false, tool: toolName, errors: 0, warnings: 0, findings: [], durationMs: Date.now() - startTime, error: `Failed to run ${binary}: ${result.error.message}` } }
+
       const stdout = result.stdout ?? ''
       const stderr = result.stderr ?? ''
+
+      if (result.status !== 0 && !stdout && !stderr) return { data: { success: false, tool: toolName, errors: 0, warnings: 0, findings: [], durationMs: Date.now() - startTime, error: `${binary} exited with code ${result.status} (no output)` } }
 
       let findings: Output['findings'] = []
       if (toolName === 'eslint') { findings = parseEslintOutput(stdout) }

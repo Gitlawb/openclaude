@@ -10,7 +10,6 @@ const inputSchema = lazySchema(() =>
   z.strictObject({
     path: z.string().optional().default('.').describe('Project directory with coverage reports.'),
     format: z.enum(['lcov', 'auto']).optional().default('auto').describe('Coverage report format. Only lcov is supported.'),
-    runTests: z.boolean().optional().default(false).describe('Run tests with coverage first.'),
     threshold: z.number().min(0).max(100).optional().describe('Minimum coverage percentage.'),
   }),
 )
@@ -74,9 +73,9 @@ export const CoverageTool: ToolDef<InputSchema, Output> = {
   get inputSchema(): InputSchema { return inputSchema() },
   get outputSchema(): OutputSchema { return outputSchema() },
   userFacingName: () => 'Coverage',
-  isReadOnly(input) { return input ? !input.runTests : true },
+  isReadOnly() { return true },
   isDestructive() { return false },
-  toAutoClassifierInput(input) { return `${input.format ?? 'auto'} ${input.path}${input.runTests ? ' +run' : ''}` },
+  toAutoClassifierInput(input) { return `${input.format ?? 'auto'} ${input.path}` },
   async description() { return DESCRIPTION },
   async prompt() { return PROMPT },
   async validateInput() { return { result: true } },
@@ -84,8 +83,7 @@ export const CoverageTool: ToolDef<InputSchema, Output> = {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
   },
   renderToolUseMessage(input) {
-    const mode = input.runTests ? 'Generating' : 'Reading'
-    return { type: 'text', text: `${mode} coverage report at ${input.path}` }
+    return { type: 'text', text: `Reading coverage report at ${input.path}` }
   },
   renderToolResultMessage(output) {
     if (!output.success) return { type: 'text', text: `Coverage analysis failed: ${output.error}` }
