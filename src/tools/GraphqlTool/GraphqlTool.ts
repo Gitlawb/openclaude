@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef, type ToolResult } from '../../Tool.js'
+import { buildTool } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { DESCRIPTION, GRAPHQL_TOOL_NAME, PROMPT } from './prompt.js'
 
@@ -29,7 +29,7 @@ export type Output = z.infer<OutputSchema>
 
 const MAX_RESPONSE_CHARS = 100_000
 
-export const GraphqlTool: ToolDef<InputSchema, Output> = {
+export const GraphqlTool = buildTool({
   name: GRAPHQL_TOOL_NAME,
   searchHint: 'execute GraphQL queries and mutations',
   maxResultSizeChars: MAX_RESPONSE_CHARS,
@@ -51,6 +51,11 @@ export const GraphqlTool: ToolDef<InputSchema, Output> = {
     try { new URL(input.endpoint) } catch { return { result: false, message: 'Invalid endpoint URL', errorCode: 1 } }
     return { result: true }
   },
+  async checkPermissions(input) {
+    const isMut = String(input.query).trim().match(/^\s*(mutation|subscription)\s/i)
+    if (isMut) return { behavior: 'ask', askReason: `Send ${isMut[1].toUpperCase()} to ${input.endpoint}?`, updatedInput: input }
+    return { behavior: 'allow', updatedInput: input }
+  },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
   },
@@ -63,28 +68,19 @@ export const GraphqlTool: ToolDef<InputSchema, Output> = {
     if (output.errors?.length) return { type: 'text', text: `GraphQL returned ${output.errors.length} error(s) in ${output.durationMs}ms` }
     return { type: 'text', text: `GraphQL query succeeded in ${output.durationMs}ms` }
   },
-  async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
+  async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?) {
     const startTime = Date.now()
     try {
       const body: Record<string, unknown> = { query: input.query }
       if (input.variables) body.variables = input.variables
       if (input.operationName) body.operationName = input.operationName
-
-      const resp = await fetch(input.endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...input.headers },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout((input.timeout ?? 30) * 1000),
-      })
-
+      const resp = await fetch(input.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...input.headers }, body: JSON.stringify(body), signal: AbortSignal.timeout((input.timeout ?? 30) * 1000) })
       const text = await resp.text()
       if (text.length > MAX_RESPONSE_CHARS) return { data: { success: false, durationMs: Date.now() - startTime, error: 'Response too large' } }
-
       const parsed = JSON.parse(text) as { data?: unknown; errors?: Array<{ message: string; locations?: Array<{ line: number; column: number }> }> }
       return { data: { success: !(parsed.errors?.length), data: parsed.data, errors: parsed.errors, durationMs: Date.now() - startTime } }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { data: { success: false, durationMs: Date.now() - startTime, error: msg } }
+      return { data: { success: false, durationMs: Date.now() - startTime, error: err instanceof Error ? err.message : String(err) } }
     }
   },
-}
+})

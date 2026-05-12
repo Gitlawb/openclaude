@@ -1,5 +1,5 @@
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef, type ToolResult } from '../../Tool.js'
+import { buildTool, type ToolDef } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { DESCRIPTION, HTTP_REQUEST_TOOL_NAME, PROMPT } from './prompt.js'
 
@@ -12,7 +12,6 @@ const inputSchema = lazySchema(() =>
     body: z.union([z.string(), z.record(z.unknown()), z.array(z.unknown())]).optional().describe('Request body'),
     timeout: z.number().min(1).max(300).optional().default(30).describe('Request timeout in seconds'),
     followRedirects: z.boolean().optional().default(true).describe('Follow redirects'),
-    maxRedirects: z.number().min(0).max(20).optional().default(5).describe('Maximum redirects'),
   }),
 )
 type InputSchema = ReturnType<typeof inputSchema>
@@ -30,8 +29,9 @@ type OutputSchema = ReturnType<typeof outputSchema>
 export type Output = z.infer<OutputSchema>
 
 const MAX_BODY_CHARS = 50_000
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
-export const HttpRequestTool: ToolDef<InputSchema, Output> = {
+export const HttpRequestTool = buildTool({
   name: HTTP_REQUEST_TOOL_NAME,
   searchHint: 'make HTTP requests to test REST APIs',
   maxResultSizeChars: MAX_BODY_CHARS,
@@ -39,7 +39,7 @@ export const HttpRequestTool: ToolDef<InputSchema, Output> = {
   get inputSchema(): InputSchema { return inputSchema() },
   get outputSchema(): OutputSchema { return outputSchema() },
   userFacingName: () => 'HTTP Request',
-  isReadOnly() { return true },
+  isReadOnly(input) { return input ? SAFE_METHODS.has(input.method) : true },
   isDestructive() { return false },
   toAutoClassifierInput(input) { return `${input.method} ${input.url}` },
   async description() { return DESCRIPTION },
@@ -48,6 +48,10 @@ export const HttpRequestTool: ToolDef<InputSchema, Output> = {
     if (!input.url) return { result: false, message: 'Missing required parameter: url', errorCode: 1 }
     try { new URL(input.url) } catch { return { result: false, message: 'Invalid URL format', errorCode: 1 } }
     return { result: true }
+  },
+  async checkPermissions(input) {
+    if (!SAFE_METHODS.has(input.method)) return { behavior: 'ask', askReason: `Send ${input.method} to ${input.url}?`, updatedInput: input }
+    return { behavior: 'allow', updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
@@ -61,37 +65,27 @@ export const HttpRequestTool: ToolDef<InputSchema, Output> = {
     const icon = output.response.status >= 200 && output.response.status < 300 ? '✅' : output.response.status >= 400 ? '❌' : '⚠️'
     return { type: 'text', text: `${icon} ${output.response.status} ${output.response.statusText} (${output.durationMs}ms)` }
   },
-  async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
+  async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?) {
     const startTime = Date.now()
     try {
       const urlObj = new URL(input.url)
       if (input.query) for (const [k, v] of Object.entries(input.query)) urlObj.searchParams.set(k, v)
-
       const headers: Record<string, string> = { ...input.headers }
+      const fetchOpts: RequestInit = { method: input.method, headers, redirect: input.followRedirects ? 'follow' : 'manual', signal: AbortSignal.timeout((input.timeout ?? 30) * 1000) }
       if (input.body) {
         const bodyStr = typeof input.body === 'string' ? input.body : JSON.stringify(input.body)
-        if (!Object.keys(headers ?? {}).some(k => k.toLowerCase() === 'content-type')) {
-          headers['Content-Type'] = typeof input.body === 'string' && !(input.body as string).startsWith('{') && !(input.body as string).startsWith('[') ? 'text/plain' : 'application/json'
-        }
-        const resp = await fetch(urlObj.toString(), { method: input.method, headers, body: bodyStr, redirect: input.followRedirects ? 'follow' : 'manual', signal: AbortSignal.timeout((input.timeout ?? 30) * 1000) })
-        let bodyText = await resp.text()
-        const bodyTruncated = bodyText.length > MAX_BODY_CHARS
-        if (bodyTruncated) bodyText = bodyText.slice(0, MAX_BODY_CHARS)
-        const respHeaders: Record<string, string> = {}
-        resp.headers.forEach((v, k) => { respHeaders[k] = v })
-        return { data: { success: true, response: { status: resp.status, statusText: resp.statusText, headers: respHeaders, body: bodyText, bodyTruncated }, durationMs: Date.now() - startTime } }
-      } else {
-        const resp = await fetch(urlObj.toString(), { method: input.method, headers, redirect: input.followRedirects ? 'follow' : 'manual', signal: AbortSignal.timeout((input.timeout ?? 30) * 1000) })
-        let bodyText = await resp.text()
-        const bodyTruncated = bodyText.length > MAX_BODY_CHARS
-        if (bodyTruncated) bodyText = bodyText.slice(0, MAX_BODY_CHARS)
-        const respHeaders: Record<string, string> = {}
-        resp.headers.forEach((v, k) => { respHeaders[k] = v })
-        return { data: { success: true, response: { status: resp.status, statusText: resp.statusText, headers: respHeaders, body: bodyText, bodyTruncated }, durationMs: Date.now() - startTime } }
+        if (!Object.keys(headers).some(k => k.toLowerCase() === 'content-type')) headers['Content-Type'] = typeof input.body === 'string' && !(input.body as string).startsWith('{') && !(input.body as string).startsWith('[') ? 'text/plain' : 'application/json'
+        fetchOpts.body = bodyStr
       }
+      const resp = await fetch(urlObj.toString(), fetchOpts)
+      let bodyText = await resp.text()
+      const bodyTruncated = bodyText.length > MAX_BODY_CHARS
+      if (bodyTruncated) bodyText = bodyText.slice(0, MAX_BODY_CHARS)
+      const respHeaders: Record<string, string> = {}
+      resp.headers.forEach((v, k) => { respHeaders[k] = v })
+      return { data: { success: true, response: { status: resp.status, statusText: resp.statusText, headers: respHeaders, body: bodyText, bodyTruncated }, durationMs: Date.now() - startTime } }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { data: { success: false, durationMs: Date.now() - startTime, error: msg } }
+      return { data: { success: false, durationMs: Date.now() - startTime, error: err instanceof Error ? err.message : String(err) } }
     }
   },
-}
+})

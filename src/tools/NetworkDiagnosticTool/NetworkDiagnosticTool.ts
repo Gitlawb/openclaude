@@ -1,6 +1,6 @@
 import { spawnSync } from 'child_process'
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef, type ToolResult } from '../../Tool.js'
+import { buildTool } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { DESCRIPTION, NETWORK_DIAGNOSTIC_TOOL_NAME, PROMPT } from './prompt.js'
 
@@ -31,7 +31,7 @@ export type Output = z.infer<OutputSchema>
 const MAX_OUTPUT_CHARS = 20_000
 const SAFE_TARGET = /^[a-zA-Z0-9.\-_:]+$/
 
-export const NetworkDiagnosticTool: ToolDef<InputSchema, Output> = {
+export const NetworkDiagnosticTool = buildTool({
   name: NETWORK_DIAGNOSTIC_TOOL_NAME,
   searchHint: 'run network diagnostics (ping, dns, traceroute)',
   maxResultSizeChars: MAX_OUTPUT_CHARS,
@@ -50,6 +50,9 @@ export const NetworkDiagnosticTool: ToolDef<InputSchema, Output> = {
     if (!SAFE_TARGET.test(input.target)) return { result: false, message: 'Invalid characters in target', errorCode: 1 }
     return { result: true }
   },
+  async checkPermissions(input) {
+    return { behavior: 'ask', askReason: `Run ${input.action} on ${input.target}${input.port ? `:${input.port}` : ''}?`, updatedInput: input }
+  },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
   },
@@ -60,59 +63,26 @@ export const NetworkDiagnosticTool: ToolDef<InputSchema, Output> = {
     if (!output.success) return { type: 'text', text: `${output.action} to ${output.target} failed: ${output.error}` }
     return { type: 'text', text: `${output.action} to ${output.target} completed in ${output.durationMs}ms` }
   },
-  async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
+  async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?) {
     const startTime = Date.now()
     const timeout = (input.timeout ?? 15) * 1000
-
     try {
-      let binary = ''
-      const args: string[] = []
-
+      let binary = ''; const args: string[] = []
       switch (input.action) {
-        case 'ping':
-          binary = 'ping'
-          args.push(process.platform === 'win32' ? '-n' : '-c', '4')
-          if (process.platform !== 'win32') args.push('-W', String(input.timeout ?? 15))
-          args.push(input.target)
-          break
-        case 'dns':
-          binary = process.platform === 'win32' ? 'nslookup' : 'dig'
-          if (process.platform !== 'win32') args.push(input.target, input.recordType ?? 'A', `+timeout=${input.timeout ?? 15}`)
-          else args.push('-type=' + (input.recordType ?? 'A'), input.target)
-          break
-        case 'traceroute':
-          binary = process.platform === 'win32' ? 'tracert' : 'traceroute'
-          if (process.platform !== 'win32') args.push('-m', '15', '-w', String(Math.min(input.timeout ?? 15, 5)))
-          else args.push('-h', '15')
-          args.push(input.target)
-          break
-        case 'port-check':
-          binary = 'bash'
-          args.push('-c', `echo > /dev/tcp/${input.target}/${input.port} 2>&1 && echo 'Port ${input.port} is open' || echo 'Port ${input.port} is closed/blocked'`)
-          break
-        case 'ssl-cert':
-          binary = 'openssl'
-          args.push('s_client', '-connect', `${input.target}:${input.port ?? 443}`, '-servername', input.target)
-          args.push('-verify_return_error')
-          break
-        case 'http-status':
-          binary = 'curl'
-          args.push('-sI', '-o', '/dev/null', '-w', '%{http_code} %{size_download}B %{time_total}s', '--max-time', String(input.timeout ?? 10), `https://${input.target}${input.port ? `:${input.port}` : ''}`)
-          break
-        case 'latency':
-          binary = 'bash'
-          args.push('-c', `T0=$(date +%s%N); echo > /dev/tcp/${input.target}/${input.port ?? 80} 2>/dev/null; echo $((($(date +%s%N)-T0)/1000000)) ms`)
-          break
+        case 'ping': binary = 'ping'; args.push(process.platform === 'win32' ? '-n' : '-c', '4'); if (process.platform !== 'win32') args.push('-W', String(input.timeout ?? 15)); args.push(input.target); break
+        case 'dns': binary = process.platform === 'win32' ? 'nslookup' : 'dig'; if (process.platform !== 'win32') args.push(input.target, input.recordType ?? 'A', `+timeout=${input.timeout ?? 15}`); else args.push('-type=' + (input.recordType ?? 'A'), input.target); break
+        case 'traceroute': binary = process.platform === 'win32' ? 'tracert' : 'traceroute'; if (process.platform !== 'win32') args.push('-m', '15', '-w', String(Math.min(input.timeout ?? 15, 5))); else args.push('-h', '15'); args.push(input.target); break
+        case 'port-check': binary = 'bash'; args.push('-c', `echo > /dev/tcp/${input.target}/${input.port} 2>&1 && echo 'open' || echo 'closed'`); break
+        case 'ssl-cert': binary = 'openssl'; args.push('s_client', '-connect', `${input.target}:${input.port ?? 443}`, '-servername', input.target); break
+        case 'http-status': binary = 'curl'; args.push('-sI', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', String(input.timeout ?? 10), `https://${input.target}${input.port ? `:${input.port}` : ''}`); break
+        case 'latency': binary = 'bash'; args.push('-c', `T0=$(date +%s%N); echo > /dev/tcp/${input.target}/${input.port ?? 80} 2>/dev/null; echo $((($(date +%s%N)-T0)/1000000)) ms`); break
       }
-
       const result = spawnSync(binary, args, { timeout, maxBuffer: MAX_OUTPUT_CHARS, encoding: 'utf-8' })
       const stdout = (result.stdout ?? '').slice(0, MAX_OUTPUT_CHARS)
       const stderr = (result.stderr ?? '').slice(0, 2000)
-
       return { data: { success: (result.status ?? 1) === 0, action: input.action, target: input.target, output: stdout || stderr || 'No output', durationMs: Date.now() - startTime, error: stderr || undefined } }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { data: { success: false, action: input.action, target: input.target, output: msg, durationMs: Date.now() - startTime, error: msg } }
+      return { data: { success: false, action: input.action, target: input.target, output: err instanceof Error ? err.message : String(err), durationMs: Date.now() - startTime, error: err instanceof Error ? err.message : String(err) } }
     }
   },
-}
+})
