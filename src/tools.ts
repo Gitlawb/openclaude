@@ -72,6 +72,9 @@ import { TaskCreateTool } from './tools/TaskCreateTool/TaskCreateTool.js'
 import { TaskGetTool } from './tools/TaskGetTool/TaskGetTool.js'
 import { TaskUpdateTool } from './tools/TaskUpdateTool/TaskUpdateTool.js'
 import { TaskListTool } from './tools/TaskListTool/TaskListTool.js'
+import { LintTool } from './tools/LintTool/LintTool.js'
+import { UnitTestTool } from './tools/UnitTestTool/UnitTestTool.js'
+import { CoverageTool } from './tools/CoverageTool/CoverageTool.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { isToolSearchEnabledOptimistic } from './utils/toolSearch.js'
 import { isTodoV2Enabled } from './utils/tasks.js'
@@ -198,6 +201,9 @@ export function getAllBaseTools(): Tools {
     WebSearchTool,
     TaskStopTool,
     AskUserQuestionTool,
+    LintTool,
+    UnitTestTool,
+    CoverageTool,
     SkillTool,
     EnterPlanModeTool,
     ...(SuggestBackgroundPRTool ? [SuggestBackgroundPRTool] : []),
