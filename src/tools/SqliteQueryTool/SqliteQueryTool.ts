@@ -5,7 +5,7 @@ import { z } from 'zod/v4'
 import { buildTool } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { expandPath } from '../../utils/path.js'
-import { checkReadPermissionForTool } from '../../utils/permissions/filesystem.js'
+import { checkReadPermissionForTool, checkWritePermissionForTool } from '../../utils/permissions/filesystem.js'
 import { DESCRIPTION, SQLITE_QUERY_TOOL_NAME, PROMPT } from './prompt.js'
 
 const inputSchema = lazySchema(() =>
@@ -76,6 +76,7 @@ export const SqliteQueryTool = buildTool({
     return false
   },
   toAutoClassifierInput(input) { return `${input.path}: ${input.query.slice(0, 100)}` },
+  getPath({ path }): string { return path || '' },
   async description() { return DESCRIPTION },
   async prompt() { return PROMPT },
   async validateInput(input) {
@@ -86,8 +87,12 @@ export const SqliteQueryTool = buildTool({
     if (!f.endsWith('.db') && !f.endsWith('.sqlite') && !f.endsWith('.sqlite3')) return { result: false, message: 'File must have .db, .sqlite, or .sqlite3 extension', errorCode: 1 }
     return { result: true }
   },
-  async checkPermissions(input) {
-    return { behavior: 'ask', askReason: `Execute ${input.mode === 'write' ? 'write' : 'read'} query on ${input.path}?`, updatedInput: input }
+  async checkPermissions(input, context) {
+    const appState = context.getAppState()
+    if (input.mode === 'write') {
+      return checkWritePermissionForTool(SqliteQueryTool, input, appState.toolPermissionContext)
+    }
+    return checkReadPermissionForTool(SqliteQueryTool, input, appState.toolPermissionContext)
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
@@ -106,19 +111,15 @@ export const SqliteQueryTool = buildTool({
     const resolvedPath = normalize(resolve(expandPath(input.path)))
     if (!existsSync(resolvedPath)) return { data: { success: false, durationMs: Date.now() - startTime, error: `Database file not found: ${resolvedPath}`, dbPath: resolvedPath } }
 
-    // Permission check for BOTH read and write modes
-    const permResult = await checkReadPermissionForTool(resolvedPath, ctx)
-    if (permResult.behavior === 'deny') return { data: { success: false, durationMs: Date.now() - startTime, error: `Permission denied: ${resolvedPath}`, dbPath: resolvedPath } }
-
     const readOnly = input.mode === 'read'
     if (readOnly && isWriteQuery(input.query)) return { data: { success: false, durationMs: Date.now() - startTime, error: `Write queries not allowed in read mode. Set mode to 'write' to execute: ${input.query.slice(0, 100)}`, dbPath: resolvedPath } }
 
     try {
       const args: string[] = ['-header', '-separator', '|']
       if (readOnly) args.push('-readonly')
-      // Use a single sqlite3 invocation: run the query then SELECT changes() in the same call
-      // This ensures changes() reflects the write statement that just ran, not a separate connection
-      const fullSql = isWriteQuery(input.query) ? `${input.query}; SELECT changes() AS _changes;` : input.query
+      // Use a marker query appended to the same sqlite3 invocation for row count
+      const CHG_MARKER = '!CHG!'
+      const fullSql = isWriteQuery(input.query) ? `${input.query}; SELECT '${CHG_MARKER}', changes();` : input.query
       args.push(resolvedPath, fullSql)
 
       const result = spawnSync('sqlite3', args, { timeout: 30000, maxBuffer: MAX_RESULT_CHARS, encoding: 'utf-8' })
@@ -127,26 +128,30 @@ export const SqliteQueryTool = buildTool({
 
       if ((result.status ?? 1) !== 0 && !stdout) return { data: { success: false, durationMs: Date.now() - startTime, error: stderr || `sqlite3 exited with code ${result.status}`, dbPath: resolvedPath } }
 
-      // If write query: parse main result + extract changes() from last line
+      // Extract changes() from the last line of output, then strip marker lines
       let rowCount: number | undefined
-      let parseOutput_str = stdout
+      let cleanStdout = stdout
       if (isWriteQuery(input.query)) {
-        const lines = stdout.split('\n').filter(l => l.trim())
-        const changesLine = lines[lines.length - 1]
-        if (changesLine && changesLine.includes('_changes|')) {
-          const val = changesLine.split('|')[1]?.trim()
-          if (val) rowCount = parseInt(val, 10)
-          // Remove the changes() result from the display
-          parseOutput_str = lines.slice(0, -1).join('\n')
+        const lines = stdout.split('\n')
+        // Scan backwards for the marker line: !CHG!|N
+        let markerIdx = -1
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const m = lines[i].trim().match(new RegExp(`^${CHG_MARKER}\\|(\\d+)$`))
+          if (m) { rowCount = parseInt(m[1], 10); markerIdx = i; break }
+        }
+        if (markerIdx >= 0) {
+          // Remove the marker data line + its header line (markerIdx-1 should be header)
+          const remove = new Set([markerIdx, markerIdx - 1])
+          cleanStdout = lines.filter((_, i) => !remove.has(i)).join('\n').trim()
         }
       }
 
-      const { rows, columns } = parseOutput(parseOutput_str)
+      const { rows, columns } = parseOutput(cleanStdout)
       const isSelectLike = !isWriteQuery(input.query)
       if (isSelectLike) rowCount = rows.length
 
       const truncated = rows.length > MAX_RESULT_ROWS
-      return { data: { success: true, rows: truncated ? rows.slice(0, MAX_RESULT_ROWS) : rows, rowCount: rowCount ?? rows.length, columns: columns.filter(c => c !== '_changes'), durationMs: Date.now() - startTime, truncated, dbPath: resolvedPath } }
+      return { data: { success: true, rows: truncated ? rows.slice(0, MAX_RESULT_ROWS) : rows, rowCount: rowCount ?? rows.length, columns, durationMs: Date.now() - startTime, truncated, dbPath: resolvedPath } }
     } catch (err) {
       return { data: { success: false, durationMs: Date.now() - startTime, error: err instanceof Error ? err.message : String(err), dbPath: resolvedPath } }
     }
