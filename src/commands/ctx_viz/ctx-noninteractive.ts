@@ -1,11 +1,7 @@
 import { feature } from 'bun:bundle'
-import chalk from 'chalk'
-import figures from 'figures'
 import { getEffectiveContextWindowSize, getAutoCompactThreshold, isAutoCompactEnabled } from '../../services/compact/autoCompact.js'
 import { microcompactMessages } from '../../services/compact/microCompact.js'
-import type { AppState } from '../../state/AppStateStore.js'
-import type { Tools, ToolUseContext } from '../../Tool.js'
-import type { AgentDefinitionsResult } from '../../tools/AgentTool/loadAgentsDir.js'
+import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
 import { analyzeContextUsage } from '../../utils/analyzeContext.js'
 import { getContextWindowForModel, getModelMaxOutputTokens } from '../../utils/context.js'
@@ -25,18 +21,6 @@ import {
   getTotalLinesAdded,
   getTotalLinesRemoved,
 } from '../../bootstrap/state.js'
-
-type CtxInput = {
-  messages: Message[]
-  getAppState: () => AppState
-  options: {
-    mainLoopModel: string
-    tools: Tools
-    agentDefinitions: AgentDefinitionsResult
-    customSystemPrompt?: string
-    appendSystemPrompt?: string
-  }
-}
 
 function toApiView(messages: Message[]): Message[] {
   let view = getMessagesAfterCompactBoundary(messages)
