@@ -24,7 +24,6 @@ export const COMMON_EXTERNALS: string[] = [
   '@opentelemetry/exporter-prometheus',
   '@opentelemetry/resources',
   '@opentelemetry/sdk-trace-base',
-  '@opentelemetry/sdk-trace-node',
   '@opentelemetry/sdk-logs',
   '@opentelemetry/sdk-metrics',
   '@opentelemetry/semantic-conventions',
@@ -51,7 +50,6 @@ export const COMMON_EXTERNALS: string[] = [
 export const SDK_ONLY_EXTERNALS: string[] = [
   'react',
   'react-reconciler',
-  'ink',
   '@anthropic-ai/sdk',
   '@modelcontextprotocol/sdk',
 ]
