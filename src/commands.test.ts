@@ -1,9 +1,34 @@
 import { describe, expect, test } from 'bun:test'
-import { builtInCommandNames, formatDescriptionWithSource } from './commands.js'
+import {
+  BRIDGE_SAFE_COMMANDS,
+  builtInCommandNames,
+  findCommand,
+  formatDescriptionWithSource,
+  isBridgeSafeCommand,
+} from './commands.js'
+import update from './commands/update/index.js'
 
 describe('builtInCommandNames', () => {
   test('includes the LSP command', () => {
     expect(builtInCommandNames()).toContain('lsp')
+  })
+})
+
+describe('/update command registration', () => {
+  test('registers update and self-update alias', () => {
+    const names = builtInCommandNames()
+
+    expect(names).toContain('update')
+    expect(names).toContain('self-update')
+  })
+
+  test('does not mark update as bridge-safe (spawns local installer)', () => {
+    expect(BRIDGE_SAFE_COMMANDS).not.toContain(update)
+    expect(isBridgeSafeCommand(update)).toBe(false)
+  })
+
+  test('resolves update by alias', () => {
+    expect(findCommand('self-update', [update])).toBe(update)
   })
 })
 
