@@ -124,6 +124,17 @@ export async function call(
     lines.push('')
   }
 
+  const sessionTotalTokens = sessionInput + sessionOutput + sessionCacheRead + sessionCacheCreation
+  if (sessionTotalTokens > 0) {
+    lines.push(`Session Token Usage`)
+    lines.push(`  Input:       ${formatNumber(sessionInput)} tokens`)
+    lines.push(`  Output:      ${formatNumber(sessionOutput)} tokens`)
+    if (sessionCacheRead > 0) lines.push(`  Cache read:  ${formatNumber(sessionCacheRead)} tokens`)
+    if (sessionCacheCreation > 0) lines.push(`  Cache write: ${formatNumber(sessionCacheCreation)} tokens`)
+    lines.push(`  Total:       ${formatNumber(sessionTotalTokens)} tokens`)
+    lines.push('')
+  }
+
   if (Object.keys(modelUsageMap).length > 0) {
     lines.push(`Per-Model Session Totals`)
     for (const [modelName, usage] of Object.entries(modelUsageMap)) {

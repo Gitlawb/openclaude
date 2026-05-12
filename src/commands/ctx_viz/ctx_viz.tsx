@@ -146,6 +146,22 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
     lines.push('')
   }
 
+  const sessionTotalTokens = sessionInput + sessionOutput + sessionCacheRead + sessionCacheCreation
+  if (sessionTotalTokens > 0) {
+    const sessionMax = Math.max(sessionInput, sessionOutput, sessionCacheRead, sessionCacheCreation, 1)
+    lines.push(chalk.bold('  Session Token Usage'))
+    lines.push(categoryLine('Input', sessionInput, sessionMax, barWidth, 'blue'))
+    lines.push(categoryLine('Output', sessionOutput, sessionMax, barWidth, 'green'))
+    if (sessionCacheRead > 0) {
+      lines.push(categoryLine('Cache read', sessionCacheRead, sessionMax, barWidth, 'cyan'))
+    }
+    if (sessionCacheCreation > 0) {
+      lines.push(categoryLine('Cache write', sessionCacheCreation, sessionMax, barWidth, 'yellow'))
+    }
+    lines.push(`  ${'Total:'.padStart(14)}  ${chalk.bold(formatNumber(sessionTotalTokens))} tokens`)
+    lines.push('')
+  }
+
   if (Object.keys(modelUsageMap).length > 0) {
     lines.push(chalk.bold('  Per-Model Session Totals'))
     for (const [modelName, usage] of Object.entries(modelUsageMap)) {
