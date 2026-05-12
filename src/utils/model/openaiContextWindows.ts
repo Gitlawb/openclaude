@@ -6,21 +6,27 @@
  * override path for custom/private deployments.
  */
 
-import { getInitialSettings } from '../settings/settings.js'
+import type { SettingsJson } from '../settings/types.js'
 
 type LimitEnvVar =
   | 'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS'
   | 'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS'
 
+let settingsGetter: (() => SettingsJson | undefined) | undefined
+
+export function registerSettingsGetter(getter: () => SettingsJson | undefined) {
+  settingsGetter = getter
+}
+
 function readExternalLimits(
   envVarName: LimitEnvVar,
   processEnv: NodeJS.ProcessEnv,
 ): Record<string, number> {
-  const settings = getInitialSettings()
+  const settings = settingsGetter?.()
   const settingsLimits =
     envVarName === 'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS'
-      ? settings.openaiContextWindows
-      : settings.openaiMaxOutputTokens
+      ? settings?.openaiContextWindows
+      : settings?.openaiMaxOutputTokens
 
   const raw = processEnv[envVarName]
   const envLimits = (() => {
