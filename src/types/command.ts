@@ -205,6 +205,23 @@ export type CommandBase = {
 export type Command = CommandBase &
   (PromptCommand | LocalCommand | LocalJSXCommand)
 
+/** Runtime guard for values that are allowed into command registries. */
+export function isCommand(value: unknown): value is Command {
+  if (typeof value !== 'object' || value === null) return false
+
+  const maybeCommand = value as {
+    name?: unknown
+    type?: unknown
+  }
+
+  return (
+    typeof maybeCommand.name === 'string' &&
+    (maybeCommand.type === 'prompt' ||
+      maybeCommand.type === 'local' ||
+      maybeCommand.type === 'local-jsx')
+  )
+}
+
 /** Resolves the user-visible name, falling back to `cmd.name` when not overridden. */
 export function getCommandName(cmd: CommandBase): string {
   return cmd.userFacingName?.() ?? cmd.name
