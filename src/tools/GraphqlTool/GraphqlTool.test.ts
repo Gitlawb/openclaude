@@ -9,12 +9,17 @@ describe('GraphqlTool', () => {
 
   it('marks query as read-only', () => { expect(GraphqlTool.isReadOnly?.({ query: 'query { users { id } }' })).toBe(true) })
   it('marks mutation as not read-only', () => { expect(GraphqlTool.isReadOnly?.({ query: 'mutation { createUser(name: "x") { id } }' })).toBe(false) })
+  it('marks comment-prefixed mutation as not read-only', () => { expect(GraphqlTool.isReadOnly?.({ query: '# comment\nmutation { createUser(name: "x") { id } }' })).toBe(false) })
 
   it('accepts valid input', async () => { expect((await GraphqlTool.validateInput({ endpoint: 'https://api.example.com/graphql', query: 'query { users { id } }' })).result).toBe(true) })
   it('rejects missing endpoint', async () => { expect((await GraphqlTool.validateInput({} as any)).result).toBe(false) })
 
   it('asks permission for mutation', async () => {
     const p = await GraphqlTool.checkPermissions!({ endpoint: 'https://api.example.com/graphql', query: 'mutation { createUser(name: "x") { id } }' })
+    expect(p.behavior).toBe('ask')
+  })
+  it('asks permission for comment-prefixed mutation', async () => {
+    const p = await GraphqlTool.checkPermissions!({ endpoint: 'https://api.example.com/graphql', query: '# comment\nmutation { createUser(name: "x") { id } }' })
     expect(p.behavior).toBe('ask')
   })
   it('allows query without permission', async () => {

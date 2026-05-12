@@ -29,6 +29,11 @@ export type Output = z.infer<OutputSchema>
 
 const MAX_RESPONSE_CHARS = 100_000
 
+// Strip GraphQL comments before detecting operation type
+function strippedQuery(q: string): string {
+  return q.replace(/#[^\n]*/g, '').trim()
+}
+
 export const GraphqlTool = buildTool({
   name: GRAPHQL_TOOL_NAME,
   searchHint: 'execute GraphQL queries and mutations',
@@ -38,7 +43,7 @@ export const GraphqlTool = buildTool({
   get outputSchema(): OutputSchema { return outputSchema() },
   userFacingName: () => 'GraphQL Query',
   isReadOnly(input) {
-    if (input && 'query' in input) return !String(input.query).trim().match(/^\s*(mutation|subscription)\s/i)
+    if (input && 'query' in input) return !strippedQuery(input.query).match(/^(mutation|subscription)\s/i)
     return true
   },
   isDestructive() { return false },
@@ -52,8 +57,9 @@ export const GraphqlTool = buildTool({
     return { result: true }
   },
   async checkPermissions(input) {
-    const isMut = String(input.query).trim().match(/^\s*(mutation|subscription)\s/i)
-    if (isMut) return { behavior: 'ask', askReason: `Send ${isMut[1].toUpperCase()} to ${input.endpoint}?`, updatedInput: input }
+    const sq = strippedQuery(input.query)
+    const isMut = sq.match(/^(mutation|subscription)\s/i)
+    if (isMut) return { behavior: 'ask', message: `Send ${isMut[1].toUpperCase()} to ${input.endpoint}?`, updatedInput: input }
     return { behavior: 'allow', updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {

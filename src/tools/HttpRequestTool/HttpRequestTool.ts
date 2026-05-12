@@ -50,8 +50,7 @@ export const HttpRequestTool = buildTool({
     return { result: true }
   },
   async checkPermissions(input) {
-    if (!SAFE_METHODS.has(input.method)) return { behavior: 'ask', askReason: `Send ${input.method} to ${input.url}?`, updatedInput: input }
-    return { behavior: 'allow', updatedInput: input }
+    return { behavior: 'ask', message: `Send ${input.method} to ${input.url}?`, updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }

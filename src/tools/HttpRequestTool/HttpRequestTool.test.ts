@@ -22,9 +22,9 @@ describe('HttpRequestTool', () => {
     const p = await HttpRequestTool.checkPermissions!({ method: 'POST', url: 'https://api.example.com/data' })
     expect(p.behavior).toBe('ask')
   })
-  it('allows GET without permission', async () => {
+  it('asks permission for all requests including GET', async () => {
     const p = await HttpRequestTool.checkPermissions!({ method: 'GET', url: 'https://api.example.com/data' })
-    expect(p.behavior).toBe('allow')
+    expect(p.behavior).toBe('ask')
   })
 
   it('has mapToolResultToToolResultBlockParam', () => {
