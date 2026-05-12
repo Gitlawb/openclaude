@@ -69,28 +69,40 @@ export function ModelProviderSettings({
       setMode('editModel');
     } else if (value.startsWith('delete-')) {
       const id = value.replace('delete-', '');
-      const nextAgent = { ...agentModels };
-      const nextContext = { ...contextWindows };
-      const nextMax = { ...maxTokens };
-      delete nextAgent[id];
-      delete nextContext[id];
-      delete nextMax[id];
-      saveAll(nextAgent, nextContext, nextMax);
+      const nextAgent = {
+        ...agentModels
+      };
+      const nextContext = {
+        ...contextWindows
+      };
+      const nextMax = {
+        ...maxTokens
+      };
+      (nextAgent as any)[id] = undefined;
+      (nextContext as any)[id] = undefined;
+      (nextMax as any)[id] = undefined;
+      saveAll(nextAgent as any, nextContext as any, nextMax as any);
     }
   };
 
-  const handleEditModelSelect = (value: string) => {
-    if (value === 'back') {
+  const handleEditModelSelect = (value_0: string) => {
+    if (value_0 === 'back') {
       setMode('list');
-    } else if (value === 'delete') {
+    } else if (value_0 === 'delete') {
       if (selectedModel) {
-        const nextAgent = { ...agentModels };
-        const nextContext = { ...contextWindows };
-        const nextMax = { ...maxTokens };
-        delete nextAgent[selectedModel];
-        delete nextContext[selectedModel];
-        delete nextMax[selectedModel];
-        saveAll(nextAgent, nextContext, nextMax);
+        const nextAgent_0 = {
+          ...agentModels
+        };
+        const nextContext_0 = {
+          ...contextWindows
+        };
+        const nextMax_0 = {
+          ...maxTokens
+        };
+        (nextAgent_0 as any)[selectedModel] = undefined;
+        (nextContext_0 as any)[selectedModel] = undefined;
+        (nextMax_0 as any)[selectedModel] = undefined;
+        saveAll(nextAgent_0 as any, nextContext_0 as any, nextMax_0 as any);
         setMode('list');
       }
     } else {
@@ -131,12 +143,10 @@ export function ModelProviderSettings({
       nextAgent[selectedModel] = { ...nextAgent[selectedModel], api_key: inputValue, base_url: nextAgent[selectedModel]?.base_url || '' };
     } else if (editingField === 'context_window') {
       const val = parseInt(inputValue, 10);
-      if (!isNaN(val)) nextContext[selectedModel] = val;
-      else delete nextContext[selectedModel];
+      if (!isNaN(val)) nextContext[selectedModel] = val;else (nextContext as any)[selectedModel] = undefined;
     } else if (editingField === 'max_tokens') {
       const val = parseInt(inputValue, 10);
-      if (!isNaN(val)) nextMax[selectedModel] = val;
-      else delete nextMax[selectedModel];
+      if (!isNaN(val)) nextMax[selectedModel] = val;else (nextMax as any)[selectedModel] = undefined;
     }
 
     saveAll(nextAgent, nextContext, nextMax);
@@ -145,13 +155,15 @@ export function ModelProviderSettings({
 
   if (mode === 'editField') {
     return (
-      <Dialog title={`Edit ${editingField}`} onCancel={() => setMode(selectedModel ? 'editModel' : 'list')}>
+      <Dialog title={`Edit ${editingField}`} onCancel={() => setMode(selectedModel ? 'editModel' : 'list')} isCancelActive={false}>
         <Box flexDirection="column" gap={1}>
           <Text>Enter {editingField}:</Text>
           <TextInput
             value={inputValue}
             onChange={setInputValue}
             onSubmit={handleFieldSubmit}
+            onExit={() => setMode(selectedModel ? 'editModel' : 'list')}
+            mask={editingField === 'api_key' ? '*' : undefined}
             focus
           />
         </Box>

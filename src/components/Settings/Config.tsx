@@ -1274,6 +1274,9 @@ export function Config({
       autoUpdatesChannel: iu?.autoUpdatesChannel,
       minimumVersion: iu?.minimumVersion,
       language: iu?.language,
+      agentModels: iu?.agentModels,
+      openaiContextWindows: iu?.openaiContextWindows,
+      openaiMaxOutputTokens: iu?.openaiMaxOutputTokens,
       ...(feature('TRANSCRIPT_CLASSIFIER') ? {
         useAutoModeDuringPlan: (iu as {
           useAutoModeDuringPlan?: boolean;

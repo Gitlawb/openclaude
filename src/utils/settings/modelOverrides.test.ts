@@ -20,6 +20,23 @@ describe('SettingsSchema model overrides', () => {
     }
   });
 
+  test('SettingsSchema accepts agentModels', async () => {
+    const { SettingsSchema } = await import('./types.js');
+    const settings = {
+      agentModels: {
+        'custom-model': {
+          base_url: 'https://example.com/api',
+          api_key: 'secret-key'
+        }
+      }
+    };
+    const result = SettingsSchema().safeParse(settings);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.agentModels).toEqual(settings.agentModels);
+    }
+  });
+
   test('SettingsSchema rejects invalid override types', async () => {
     const { SettingsSchema } = await import('./types.js');
     const settings = {
