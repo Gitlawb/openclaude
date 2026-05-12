@@ -62,7 +62,7 @@ function PermissionDecisionInfoItem(t0) {
             return <Box flexDirection="column">{Array.from(decisionReason.reasons.entries()).map(t2 => {
                 const [subcommand, result] = t2;
                 const icon = result.behavior === "allow" ? color("success", theme)(figures.tick) : color("error", theme)(figures.cross);
-                return <Box flexDirection="column" key={subcommand}><Text>{icon} {subcommand}</Text>{result.decisionReason !== undefined && result.decisionReason.type !== "subcommandResults" && <Text><Text dimColor={true}>{"  "}⎿{"  "}</Text><Ansi>{decisionReasonDisplayString(result.decisionReason)}</Ansi></Text>}{result.behavior === "ask" && <SuggestedRules suggestions={result.suggestions} />}</Box>;
+                return <Box flexDirection="column" key={subcommand}><Text>{icon} {subcommand}</Text>{result.decisionReason !== undefined && result.decisionReason.type !== "subcommandResults" && <Text><Text dimColor={true}>{"  "}└{"  "}</Text><Ansi>{decisionReasonDisplayString(result.decisionReason)}</Ansi></Text>}{result.behavior === "ask" && <SuggestedRules suggestions={result.suggestions} />}</Box>;
               })}</Box>;
           }
         default:
@@ -127,7 +127,7 @@ function SuggestedRules(t0) {
       }
       T1 = Text;
       if ($[8] === Symbol.for("react.memo_cache_sentinel")) {
-        t2 = <Text dimColor={true}>{"  "}⎿{"  "}</Text>;
+        t2 = <Text dimColor={true}>{"  "}└{"  "}</Text>;
         $[8] = t2;
       } else {
         t2 = $[8];

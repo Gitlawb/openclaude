@@ -1,6 +1,6 @@
 {
   "name": "@gitlawb/openclaude",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "description": "OpenClaude opens coding-agent workflows to any LLM — OpenAI, Gemini, DeepSeek, Ollama, and 200+ models",
   "type": "module",
   "bin": {
@@ -91,6 +91,8 @@
     "@opentelemetry/sdk-trace-base": "2.6.1",
     "@opentelemetry/sdk-trace-node": "2.6.1",
     "@opentelemetry/semantic-conventions": "1.40.0",
+    "@orama/orama": "^3.1.18",
+    "@orama/plugin-data-persistence": "^3.1.18",
     "@vscode/ripgrep": "^1.17.1",
     "ajv": "8.18.0",
     "auto-bind": "5.0.1",

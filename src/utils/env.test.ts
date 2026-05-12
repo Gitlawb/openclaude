@@ -41,14 +41,14 @@ async function importFreshEnvModule() {
   return import(`./env.js?ts=${Date.now()}-${Math.random()}`)
 }
 
-// getGlobalClaudeFile — three migration branches
+// getGlobalClaudeFile — default path plus explicit override compatibility
 
 test('getGlobalClaudeFile: new install returns .openclaude.json when neither file exists', async () => {
   const { getGlobalClaudeFile } = await importFreshEnvModule()
   expect(getGlobalClaudeFile()).toBe(join(tempDir, '.openclaude.json'))
 })
 
-test('getGlobalClaudeFile: existing user keeps .claude.json when only legacy file exists', async () => {
+test('getGlobalClaudeFile: explicit config dir keeps .claude.json fallback when only legacy file exists', async () => {
   writeFileSync(join(tempDir, '.claude.json'), '{}')
   const { getGlobalClaudeFile } = await importFreshEnvModule()
   expect(getGlobalClaudeFile()).toBe(join(tempDir, '.claude.json'))
@@ -59,4 +59,17 @@ test('getGlobalClaudeFile: migrated user uses .openclaude.json when both files e
   writeFileSync(join(tempDir, '.openclaude.json'), '{}')
   const { getGlobalClaudeFile } = await importFreshEnvModule()
   expect(getGlobalClaudeFile()).toBe(join(tempDir, '.openclaude.json'))
+})
+
+test('resolveGlobalClaudeFile: failed default migration keeps legacy file when new file is missing', async () => {
+  writeFileSync(join(tempDir, '.claude.json'), '{}')
+  const { resolveGlobalClaudeFile } = await importFreshEnvModule()
+
+  expect(
+    resolveGlobalClaudeFile({
+      homeDir: tempDir,
+      migrationSucceeded: false,
+      existsSync: path => path === join(tempDir, '.claude.json'),
+    }),
+  ).toBe(join(tempDir, '.claude.json'))
 })

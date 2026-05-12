@@ -203,7 +203,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // xAI — flagship Grok model for "opus"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4'
+    return process.env.OPENAI_MODEL || 'grok-4.3'
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
@@ -249,7 +249,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // xAI — flagship Grok model for "sonnet"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4'
+    return process.env.OPENAI_MODEL || 'grok-4.3'
   }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (getAPIProvider() !== 'firstParty') {
@@ -363,9 +363,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'codex') {
     return process.env.OPENAI_MODEL || 'gpt-5.5'
   }
-  // xAI provider: always use the configured Grok model (default grok-4)
+  // xAI provider: always use the configured Grok model (default grok-4.3)
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4'
+    return process.env.OPENAI_MODEL || 'grok-4.3'
   }
   // MiniMax provider: always use the configured MiniMax model
   if (getAPIProvider() === 'minimax') {

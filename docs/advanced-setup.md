@@ -86,9 +86,6 @@ export GEMINI_API_KEY=...
 export GEMINI_MODEL=gemini-3-flash-preview
 ```
 
-If you prefer access-token or ADC-based Gemini auth instead of an API key, use
-the guided `/provider` flow.
-
 ### Gemini via OpenRouter
 
 ```bash

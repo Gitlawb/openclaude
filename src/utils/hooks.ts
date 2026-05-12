@@ -163,6 +163,7 @@ import {
 } from './hooks/sessionHooks.js'
 import type { AppState } from '../state/AppState.js'
 import { jsonStringify, jsonParse } from './slowOperations.js'
+import { stableStringify } from './stableStringify.js'
 import { isEnvTruthy } from './envUtils.js'
 import { errorMessage, getErrnoCode } from './errors.js'
 import { getAgentName, getTeamName, getTeammateColor } from './teammate.js'
@@ -174,6 +175,39 @@ import type {
 } from './hookChains.js'
 
 const TOOL_HOOK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
+
+function dedupeRegisteredPluginHooks(
+  registeredHooks: Array<HookCallbackMatcher | PluginHookMatcher>,
+): Array<HookCallbackMatcher | PluginHookMatcher> {
+  const seenPluginMatchers = new Set<string>()
+  const deduped: Array<HookCallbackMatcher | PluginHookMatcher> = []
+
+  for (const matcher of registeredHooks) {
+    // SDK callback hooks are intentionally not deduped. Their callbacks are
+    // runtime values, so structural comparison would be lossy and unsafe.
+    if (!('pluginRoot' in matcher)) {
+      deduped.push(matcher)
+      continue
+    }
+
+    const pluginMatcherKey = stableStringify({
+      pluginId: matcher.pluginId,
+      pluginName: matcher.pluginName,
+      pluginRoot: matcher.pluginRoot,
+      matcher: matcher.matcher ?? null,
+      hooks: matcher.hooks,
+    })
+
+    if (seenPluginMatchers.has(pluginMatcherKey)) {
+      continue
+    }
+
+    seenPluginMatchers.add(pluginMatcherKey)
+    deduped.push(matcher)
+  }
+
+  return deduped
+}
 
 function normalizeFallbackAgentModel(
   model: string | undefined,
@@ -1127,7 +1161,15 @@ async function execCommandHook(
   // Hooks use pipe mode — stdout must be streamed into JS so we can parse
   // the first response line to detect async hooks ({"async": true}).
   const hookTaskOutput = new TaskOutput(`hook_${child.pid}`, null)
-  const shellCommand = wrapSpawn(child, signal, hookTimeoutMs, hookTaskOutput)
+  const shellCommand = wrapSpawn(
+    child,
+    signal,
+    hookTimeoutMs,
+    hookTaskOutput,
+    false,
+    undefined,
+    { keepAliveOnInterrupt: hook.asyncRewake === true },
+  )
   // Track whether shellCommand ownership was transferred (e.g., to async hook registry)
   let shellCommandTransferred = false
   // Track whether stdin has already been written (to avoid "write after end" errors)
@@ -1664,7 +1706,7 @@ function getHooksConfig(
   // Process registered hooks (SDK callbacks and plugin native hooks)
   const registeredHooks = getRegisteredHooks()?.[hookEvent]
   if (registeredHooks) {
-    for (const matcher of registeredHooks) {
+    for (const matcher of dedupeRegisteredPluginHooks(registeredHooks)) {
       // Skip plugin hooks when restricted to managed hooks only
       // Plugin hooks have pluginRoot set, SDK callbacks do not
       if (managedOnly && 'pluginRoot' in matcher) {

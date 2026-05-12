@@ -651,7 +651,7 @@ test('env-only xAI fallback replaces stale OpenAI credentials and model env', as
   })
 
   expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-  expect(process.env.OPENAI_MODEL).toBe('grok-4')
+  expect(process.env.OPENAI_MODEL).toBe('grok-4.3')
   expect(process.env.OPENAI_API_KEY).toBe('xai-test-key')
 })
 

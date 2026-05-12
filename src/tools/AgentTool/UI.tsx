@@ -530,7 +530,7 @@ export function renderToolUseProgressMessage(progressMessages: ProgressMessage<P
   // After grouping, displayedMessages can be empty when the only progress so
   // far is an assistant tool_use for a search/read op (grouped but not yet
   // counted, since counts increment on tool_result). Fall back to the
-  // initializing text so MessageResponse doesn't render a bare ⎿.
+  // initializing text so MessageResponse doesn't render a bare └.
   if (displayedMessages.length === 0 && !(isTranscriptMode && prompt)) {
     return <MessageResponse height={1}>
         <Text dimColor>{INITIALIZING_TEXT}</Text>

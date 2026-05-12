@@ -13,6 +13,7 @@ import { c as _c } from "react-compiler-runtime";
  */
 import * as React from 'react';
 import { useCallback, useMemo, useState } from 'react';
+import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js';
 import { useAppState, useAppStateStore } from 'src/state/AppState.js';
 import type { CommandResultDisplay } from '../../commands.js';
@@ -351,7 +352,7 @@ export function HooksConfigMenu(t0) {
     }
     let t32;
     if ($[53] !== disabledByPolicy) {
-      t32 = !disabledByPolicy && <Text dimColor={true}>To re-enable hooks, remove "disableAllHooks" from settings.json or ask Claude.</Text>;
+      t32 = !disabledByPolicy && <Text dimColor={true}>To re-enable hooks, remove "disableAllHooks" from settings.json or ask {PRODUCT_DISPLAY_NAME}.</Text>;
       $[53] = disabledByPolicy;
       $[54] = t32;
     } else {

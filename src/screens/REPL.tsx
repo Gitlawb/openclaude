@@ -3301,7 +3301,7 @@ export function REPL({
               });
               // In fullscreen the command just showed as a centered modal
               // pane — the notification above is enough feedback. Adding
-              // "❯ /config" + "⎿ dismissed" to the transcript is clutter
+              // "❯ /config" + "└ dismissed" to the transcript is clutter
               // (those messages are type:system subtype:local_command —
               // user-visible but NOT sent to the model, so skipping them
               // doesn't change model context). Outside fullscreen the
