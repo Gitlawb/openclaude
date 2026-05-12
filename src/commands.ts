@@ -93,19 +93,13 @@ const forceSnip = feature('HISTORY_SNIP')
   ? require('./commands/force-snip.js').default
   : null
 const workflowsCmd = feature('WORKFLOW_SCRIPTS')
-  ? (
-      require('./commands/workflows/index.js') as typeof import('./commands/workflows/index.js')
-    ).default
+  ? require('./commands/workflows/index.js').default
   : null
 const webCmd = feature('CCR_REMOTE_SETUP')
-  ? (
-      require('./commands/remote-setup/index.js') as typeof import('./commands/remote-setup/index.js')
-    ).default
+  ? require('./commands/remote-setup/index.js').default
   : null
 const clearSkillIndexCache = feature('EXPERIMENTAL_SKILL_SEARCH')
-  ? (
-      require('./services/skillSearch/localSearch.js') as typeof import('./services/skillSearch/localSearch.js')
-    ).clearSkillIndexCache
+  ? require('./services/skillSearch/localSearch.js').clearSkillIndexCache
   : null
 const subscribePr = feature('KAIROS_GITHUB_WEBHOOKS')
   ? require('./commands/subscribe-pr.js').default
@@ -115,19 +109,13 @@ const ultraplan = feature('ULTRAPLAN')
   : null
 const torch = feature('TORCH') ? require('./commands/torch.js').default : null
 const peersCmd = feature('UDS_INBOX')
-  ? (
-      require('./commands/peers/index.js') as typeof import('./commands/peers/index.js')
-    ).default
+  ? require('./commands/peers/index.js').default
   : null
 const forkCmd = feature('FORK_SUBAGENT')
-  ? (
-      require('./commands/fork/index.js') as typeof import('./commands/fork/index.js')
-    ).default
+  ? require('./commands/fork/index.js').default
   : null
 const buddy = isBuddyEnabled()
-  ? (
-      require('./commands/buddy/index.js') as typeof import('./commands/buddy/index.js')
-    ).default
+  ? require('./commands/buddy/index.js').default
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 import thinkback from './commands/thinkback/index.js'
@@ -178,6 +166,7 @@ import {
   getPluginSkills,
   clearPluginSkillsCache,
 } from './utils/plugins/loadPluginCommands.js'
+import { removeCollidingPluginAliases } from './utils/plugins/pluginAliasCollisions.js'
 import memoize from 'lodash-es/memoize.js'
 import { isUsing3PServices, isClaudeAISubscriber } from './utils/auth.js'
 import { isFirstPartyAnthropicBaseUrl } from './utils/model/providers.js'
@@ -422,9 +411,7 @@ async function getSkills(cwd: string): Promise<{
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const getWorkflowCommands = feature('WORKFLOW_SCRIPTS')
-  ? (
-      require('./tools/WorkflowTool/createWorkflowCommand.js') as typeof import('./tools/WorkflowTool/createWorkflowCommand.js')
-    ).getWorkflowCommands
+  ? require('./tools/WorkflowTool/createWorkflowCommand.js').getWorkflowCommands
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -455,11 +442,8 @@ export function meetsAvailabilityRequirement(cmd: Command | null | undefined): b
         )
           return true
         break
-      default: {
-        const _exhaustive: never = a
-        void _exhaustive
+      default:
         break
-      }
     }
   }
   return false
@@ -480,7 +464,7 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
     getWorkflowCommands ? getWorkflowCommands(cwd) : Promise.resolve([]),
   ])
 
-  return [
+  return removeCollidingPluginAliases([
     ...bundledSkills,
     ...builtinPluginSkills,
     ...skillDirCommands,
@@ -488,7 +472,7 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
     ...pluginCommands,
     ...pluginSkills,
     ...COMMANDS(),
-  ]
+  ])
 })
 
 /**

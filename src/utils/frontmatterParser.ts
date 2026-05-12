@@ -15,6 +15,7 @@ export type FrontmatterData = {
   // Only applicable to memory files; narrowed via parseMemoryType() in src/memdir/memoryTypes.ts
   type?: string | null
   'argument-hint'?: string | null
+  aliases?: string | string[] | null
   when_to_use?: string | null
   version?: string | null
   // Only applicable to slash commands -- a string similar to a boolean env var
@@ -61,6 +62,10 @@ export type FrontmatterData = {
 export type ParsedMarkdown = {
   frontmatter: FrontmatterData
   content: string
+}
+
+function isFrontmatterData(value: unknown): value is FrontmatterData {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 // Characters that require quoting in YAML values (when unquoted)
@@ -146,16 +151,16 @@ export function parseFrontmatter(
 
   let frontmatter: FrontmatterData = {}
   try {
-    const parsed = parseYaml(frontmatterText) as FrontmatterData | null
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const parsed = parseYaml(frontmatterText)
+    if (isFrontmatterData(parsed)) {
       frontmatter = parsed
     }
   } catch {
     // YAML parsing failed - try again after quoting problematic values
     try {
       const quotedText = quoteProblematicValues(frontmatterText)
-      const parsed = parseYaml(quotedText) as FrontmatterData | null
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const parsed = parseYaml(quotedText)
+      if (isFrontmatterData(parsed)) {
         frontmatter = parsed
       }
     } catch (retryError) {
@@ -340,6 +345,10 @@ export type FrontmatterShell = 'bash' | 'powershell'
 
 const FRONTMATTER_SHELLS: readonly FrontmatterShell[] = ['bash', 'powershell']
 
+function isFrontmatterShell(value: string): value is FrontmatterShell {
+  return FRONTMATTER_SHELLS.some(shell => shell === value)
+}
+
 /**
  * Parse and validate the `shell:` frontmatter field.
  *
@@ -359,8 +368,8 @@ export function parseShellFrontmatter(
   if (normalized === '') {
     return undefined
   }
-  if ((FRONTMATTER_SHELLS as readonly string[]).includes(normalized)) {
-    return normalized as FrontmatterShell
+  if (isFrontmatterShell(normalized)) {
+    return normalized
   }
   logForDebugging(
     `Frontmatter 'shell: ${value}' in ${source} is not recognized. Valid values: ${FRONTMATTER_SHELLS.join(', ')}. Falling back to bash.`,

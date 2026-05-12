@@ -35,6 +35,11 @@ import {
   substituteUserConfigInContent,
 } from './pluginOptionsStorage.js'
 import type { CommandMetadata, PluginManifest } from './schemas.js'
+import {
+  buildDirectSkillAliases,
+  stringFrontmatter,
+  stringListFrontmatter,
+} from './pluginSkillAliases.js'
 import { walkPluginMarkdown } from './walkPluginMarkdown.js'
 
 // Similar to MarkdownFile but for plugin sources
@@ -263,20 +268,22 @@ function createPluginCommand(
       substitutedAllowedTools,
     )
 
-    const argumentHint = frontmatter['argument-hint'] as string | undefined
+    const argumentHint = stringFrontmatter(frontmatter['argument-hint'])
     const argumentNames = parseArgumentNames(
-      frontmatter.arguments as string | string[] | undefined,
+      stringListFrontmatter(frontmatter.arguments),
     )
-    const whenToUse = frontmatter.when_to_use as string | undefined
-    const version = frontmatter.version as string | undefined
-    const displayName = frontmatter.name as string | undefined
+    const whenToUse = stringFrontmatter(frontmatter.when_to_use)
+    const version = stringFrontmatter(frontmatter.version)
+    const displayName =
+      typeof frontmatter.name === 'string' ? frontmatter.name : undefined
 
     // Handle model configuration, resolving aliases like 'haiku', 'sonnet', 'opus'
+    const modelName = stringFrontmatter(frontmatter.model)
     const model =
-      frontmatter.model === 'inherit'
+      modelName === 'inherit'
         ? undefined
-        : frontmatter.model
-          ? parseUserSpecifiedModel(frontmatter.model as string)
+        : modelName
+          ? parseUserSpecifiedModel(modelName)
           : undefined
 
     const effortRaw = frontmatter['effort']
@@ -299,10 +306,18 @@ function createPluginCommand(
         : parseBooleanFrontmatter(userInvocableValue)
 
     const shell = parseShellFrontmatter(frontmatter.shell, commandName)
+    const aliases = buildDirectSkillAliases({
+      commandName,
+      displayName,
+      frontmatter,
+      pluginManifest,
+      isSkillCommand: isSkill || config.isSkillMode,
+    })
 
     return {
       type: 'prompt',
       name: commandName,
+      aliases,
       description,
       hasUserSpecifiedDescription: validatedDescription !== null,
       allowedTools,
@@ -324,6 +339,9 @@ function createPluginCommand(
       isHidden: !userInvocable,
       progressMessage: isSkill || config.isSkillMode ? 'loading' : 'running',
       userFacingName(): string {
+        if (isSkill || config.isSkillMode) {
+          return commandName
+        }
         return displayName || commandName
       },
       async getPromptForCommand(args, context) {

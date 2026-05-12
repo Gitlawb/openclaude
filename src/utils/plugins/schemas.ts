@@ -316,6 +316,12 @@ const PluginManifestMetadataSchema = lazySchema(() =>
       .describe(
         'Plugins that must be enabled for this plugin to function. Bare names (no "@marketplace") are resolved against the declaring plugin\'s own marketplace.',
       ),
+    directSkillAliases: z
+      .boolean()
+      .optional()
+      .describe(
+        'When true, plugin skills may expose direct slash command aliases from their SKILL.md name or aliases frontmatter while keeping the namespaced plugin command canonical.',
+      ),
   }),
 )
 
