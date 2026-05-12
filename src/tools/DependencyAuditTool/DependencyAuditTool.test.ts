@@ -72,4 +72,22 @@ describe('DependencyAuditTool', () => {
       expect(msg.text).toContain('1 critical')
     }
   })
+
+  it('parses pip-audit format via rendering', () => {
+    const msg = DependencyAuditTool.renderToolResultMessage?.({
+      success: true, manager: 'pip', total: 2,
+      bySeverity: { critical: 1, high: 1, medium: 0, low: 0 },
+      advisories: [
+        { package: 'requests', severity: 'high', title: 'HTTP request smuggling', patchedIn: '2.31.0' },
+        { package: 'flask', severity: 'critical', title: 'SSTI vulnerability', patchedIn: '2.3.0' },
+      ],
+      durationMs: 400,
+    })
+    expect(msg).toBeDefined()
+    if (msg && 'text' in msg) {
+      expect(msg.text).toContain('2 vulnerabilities')
+      expect(msg.text).toContain('1 critical')
+      expect(msg.text).toContain('1 high')
+    }
+  })
 })

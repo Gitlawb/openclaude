@@ -53,18 +53,38 @@ function parseAdvisories(stdout: string, mgr: string, minSev: number): Output['a
   const result: Output['advisories'] = []
   try {
     const data = JSON.parse(stdout)
-    const items = mgr === 'npm' ? Object.values(data.advisories ?? data.vulnerabilities ?? {}) : data.vulnerabilities ?? data.results ?? []
-    for (const v of items as any[]) {
-      const sevRaw = ((v.severity ?? v.criticality ?? 'medium') + '').toLowerCase()
-      const sev = SEVERITY_MAP[sevRaw] ?? 'medium'
-      if ((SEVERITY_ORDER[sev] ?? 99) > minSev) continue
-      result.push({
-        package: v.name ?? v.package ?? v.package_name ?? 'unknown',
-        severity: sev,
-        title: v.title ?? v.description ?? 'Unknown vulnerability',
-        patchedIn: v.patchedVersions ?? v.fixed_version ?? v.patchedIn ?? undefined,
-        moreInfo: v.url ?? v.reference ?? v.advisory?.url ?? undefined,
-      })
+    // pip-audit uses dependencies[].vulns[] shape
+    if (data.dependencies && Array.isArray(data.dependencies)) {
+      for (const dep of data.dependencies) {
+        if (!dep.vulns || !Array.isArray(dep.vulns)) continue
+        for (const v of dep.vulns) {
+          const sevRaw = ((v.severity ?? 'medium') + '').toLowerCase()
+          const sev = SEVERITY_MAP[sevRaw] ?? 'medium'
+          if ((SEVERITY_ORDER[sev] ?? 99) > minSev) continue
+          result.push({
+            package: dep.name ?? v.name ?? 'unknown',
+            severity: sev,
+            title: v.description ?? v.id ?? 'Unknown vulnerability',
+            patchedIn: v.fixed_version ?? undefined,
+            moreInfo: v.url ?? undefined,
+          })
+        }
+      }
+    } else {
+      // npm/cargo/govulncheck: advisories dict or vulnerabilities/results array
+      const items = mgr === 'npm' ? Object.values(data.advisories ?? data.vulnerabilities ?? {}) : data.vulnerabilities ?? data.results ?? []
+      for (const v of items as any[]) {
+        const sevRaw = ((v.severity ?? v.criticality ?? 'medium') + '').toLowerCase()
+        const sev = SEVERITY_MAP[sevRaw] ?? 'medium'
+        if ((SEVERITY_ORDER[sev] ?? 99) > minSev) continue
+        result.push({
+          package: v.name ?? v.package ?? v.package_name ?? 'unknown',
+          severity: sev,
+          title: v.title ?? v.description ?? 'Unknown vulnerability',
+          patchedIn: v.patchedVersions ?? v.fixed_version ?? v.patchedIn ?? undefined,
+          moreInfo: v.url ?? v.reference ?? v.advisory?.url ?? undefined,
+        })
+      }
     }
   } catch { /* empty */ }
   return result.slice(0, MAX_ADVISORIES)
