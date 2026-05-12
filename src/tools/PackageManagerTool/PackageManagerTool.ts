@@ -2,7 +2,7 @@ import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef, type ToolResult } from '../../Tool.js'
+import { buildTool, type ToolResult } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { expandPath } from '../../utils/path.js'
 import { DESCRIPTION, PACKAGE_MANAGER_TOOL_NAME, PROMPT } from './prompt.js'
@@ -105,7 +105,7 @@ function buildArgs(input: z.infer<InputSchema>, mgr: string): string[] {
   return a
 }
 
-export const PackageManagerTool: ToolDef<InputSchema, Output> = {
+export const PackageManagerTool = buildTool({
   name: PACKAGE_MANAGER_TOOL_NAME,
   searchHint: 'manage project dependencies',
   maxResultSizeChars: MAX_OUTPUT,
@@ -124,7 +124,7 @@ export const PackageManagerTool: ToolDef<InputSchema, Output> = {
   },
   async checkPermissions(input) {
     if (['install', 'remove', 'update'].includes(input.action)) {
-      return { behavior: 'ask', askReason: `Run "${input.action}" on ${(input.packages ?? []).join(', ')}?`, updatedInput: input }
+      return { behavior: 'ask', message: `Run "${input.action}" on ${(input.packages ?? []).join(', ')}?`, updatedInput: input }
     }
     return { behavior: 'allow', updatedInput: input }
   },
@@ -162,4 +162,4 @@ export const PackageManagerTool: ToolDef<InputSchema, Output> = {
       return { data: { success: false, manager: mgrName, action: input.action, output: '', durationMs: Date.now() - startTime, error: msg } }
     }
   },
-}
+})

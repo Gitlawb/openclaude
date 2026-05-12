@@ -2,7 +2,7 @@ import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef, type ToolResult } from '../../Tool.js'
+import { buildTool, type ToolResult } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { expandPath } from '../../utils/path.js'
 import { DESCRIPTION, DEPENDENCY_AUDIT_TOOL_NAME, PROMPT } from './prompt.js'
@@ -70,7 +70,7 @@ function parseAdvisories(stdout: string, mgr: string, minSev: number): Output['a
   return result.slice(0, MAX_ADVISORIES)
 }
 
-export const DependencyAuditTool: ToolDef<InputSchema, Output> = {
+export const DependencyAuditTool = buildTool({
   name: DEPENDENCY_AUDIT_TOOL_NAME,
   searchHint: 'scan dependencies for known vulnerabilities',
   maxResultSizeChars: 100_000,
@@ -133,4 +133,4 @@ export const DependencyAuditTool: ToolDef<InputSchema, Output> = {
       return { data: { success: false, manager: mgrName, total: 0, bySeverity: { critical: 0, high: 0, medium: 0, low: 0 }, advisories: [], durationMs: Date.now() - startTime, error: msg } }
     }
   },
-}
+})
