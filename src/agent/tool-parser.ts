@@ -2,8 +2,9 @@ import { synthesizeToolUseFromText } from '../api/adapters/ollama-tool-adapter.j
 
 export type ToolUse = {
   type: 'tool_use';
-  tool: string;
-  args: Record<string, any>;
+  id: string;
+  name: string;
+  input: Record<string, any>;
 };
 
 /**
@@ -17,7 +18,15 @@ export function parseToolUse(text: string): ToolUse | null {
   // fallback: attempt looser heuristics
   try {
     const maybe = JSON.parse(text);
-    if (maybe && maybe.tool) return { type: 'tool_use', tool: maybe.tool, args: maybe.args || {} };
+    const name = maybe?.tool ?? maybe?.name;
+    if (maybe && typeof name === 'string' && name) {
+      return {
+        type: 'tool_use',
+        id: `ollama_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        name,
+        input: maybe.args ?? maybe.input ?? maybe.arguments ?? {},
+      };
+    }
   } catch (e) {
     // ignore
   }

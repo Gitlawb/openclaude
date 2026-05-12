@@ -84,6 +84,10 @@ import {
   getStreamStats,
 } from '../../utils/streamingOptimizer.js'
 import { stableStringify } from '../../utils/stableStringify.js'
+import {
+  adaptIncoming,
+  adaptOutgoing,
+} from '../../api/providers/ollama.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -154,6 +158,25 @@ function hasCerebrasApiHost(baseUrl: string | undefined): boolean {
     return host === 'api.cerebras.ai' || host.endsWith('.cerebras.ai')
   } catch {
     return false
+  }
+}
+
+function isOllamaRequestUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false
+
+  try {
+    const parsed = new URL(baseUrl)
+    const host = parsed.hostname.toLowerCase()
+    const path = parsed.pathname.toLowerCase()
+    return (
+      parsed.port === '11434' ||
+      parsed.port === '11435' ||
+      host.includes('ollama') ||
+      path.includes('ollama')
+    )
+  } catch {
+    const lower = baseUrl.toLowerCase()
+    return lower.includes(':11434') || lower.includes(':11435') || lower.includes('ollama')
   }
 }
 
@@ -916,6 +939,7 @@ async function* openaiStreamToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
+  options?: { synthesizeTextToolUse?: boolean },
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   let contentBlockIndex = 0
@@ -933,6 +957,7 @@ async function* openaiStreamToAnthropic(
   let hasEmittedThinkingStart = false
   let hasClosedThinking = false
   const thinkFilter = createThinkTagFilter()
+  let bufferedTextForSyntheticToolUse = ''
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let hasProcessedFinishReason = false
@@ -1077,6 +1102,12 @@ async function* openaiStreamToAnthropic(
         // Text content — use != null to distinguish absent field from empty string,
         // some providers send "" as first delta to signal streaming start
         if (delta.content != null && delta.content !== '') {
+          if (options?.synthesizeTextToolUse) {
+            bufferedTextForSyntheticToolUse += delta.content
+            processStreamChunk(streamState, delta.content)
+            continue
+          }
+
           // Close thinking block if transitioning from reasoning to content
           if (hasEmittedThinkingStart && !hasClosedThinking) {
             yield { type: 'content_block_stop', index: contentBlockIndex }
@@ -1200,6 +1231,48 @@ async function* openaiStreamToAnthropic(
           if (hasEmittedContentStart) {
             yield* closeActiveContentBlock()
           }
+          const syntheticToolUse = options?.synthesizeTextToolUse && activeToolCalls.size === 0
+            ? adaptIncoming({ text: bufferedTextForSyntheticToolUse }).syntheticToolUse
+            : null
+          if (syntheticToolUse) {
+            if (hasEmittedThinkingStart && !hasClosedThinking) {
+              yield { type: 'content_block_stop', index: contentBlockIndex }
+              contentBlockIndex++
+              hasClosedThinking = true
+            }
+            yield {
+              type: 'content_block_start',
+              index: contentBlockIndex,
+              content_block: syntheticToolUse,
+            }
+            yield { type: 'content_block_stop', index: contentBlockIndex }
+            contentBlockIndex++
+          } else if (
+            options?.synthesizeTextToolUse &&
+            activeToolCalls.size === 0 &&
+            bufferedTextForSyntheticToolUse
+          ) {
+            if (hasEmittedThinkingStart && !hasClosedThinking) {
+              yield { type: 'content_block_stop', index: contentBlockIndex }
+              contentBlockIndex++
+              hasClosedThinking = true
+            }
+            yield {
+              type: 'content_block_start',
+              index: contentBlockIndex,
+              content_block: { type: 'text', text: '' },
+            }
+            const visible = thinkFilter.feed(bufferedTextForSyntheticToolUse)
+            if (visible) {
+              yield {
+                type: 'content_block_delta',
+                index: contentBlockIndex,
+                delta: { type: 'text_delta', text: visible },
+              }
+            }
+            yield { type: 'content_block_stop', index: contentBlockIndex }
+            contentBlockIndex++
+          }
           // Close active tool calls
           for (const [, tc] of activeToolCalls) {
             if (tc.normalizeAtStop) {
@@ -1264,7 +1337,7 @@ async function* openaiStreamToAnthropic(
           }
 
           const stopReason =
-            choice.finish_reason === 'tool_calls'
+            syntheticToolUse || choice.finish_reason === 'tool_calls'
               ? 'tool_use'
               : choice.finish_reason === 'length'
                 ? 'max_tokens'
@@ -1376,6 +1449,10 @@ class OpenAIShimMessages {
       const request = resolveProviderRequest({ model: self.providerOverride?.model ?? params.model, baseUrl: self.providerOverride?.baseURL, reasoningEffortOverride: self.reasoningEffort })
       const response = await self._doRequest(request, params, options)
       httpResponse = response
+      const shouldSynthesizeOllamaToolUse =
+        isOllamaRequestUrl(request.baseUrl) &&
+        Array.isArray(params.tools) &&
+        params.tools.length > 0
 
       if (params.stream) {
         const isResponsesStream = response.url?.includes('/responses')
@@ -1386,7 +1463,9 @@ class OpenAIShimMessages {
             isResponsesStream
           )
             ? codexStreamToAnthropic(response, request.resolvedModel, options?.signal)
-            : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
+            : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal, {
+                synthesizeTextToolUse: shouldSynthesizeOllamaToolUse,
+              }),
         )
       }
 
@@ -1417,14 +1496,22 @@ class OpenAIShimMessages {
               request.resolvedModel,
             )
           }
-          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
+          return self._convertNonStreamingResponse(
+            parsed,
+            request.resolvedModel,
+            { synthesizeTextToolUse: shouldSynthesizeOllamaToolUse },
+          )
         }
       }
 
       const contentType = response.headers.get('content-type') ?? ''
       if (contentType.includes('application/json')) {
         const data = await response.json()
-        return self._convertNonStreamingResponse(data, request.resolvedModel)
+        return self._convertNonStreamingResponse(
+          data,
+          request.resolvedModel,
+          { synthesizeTextToolUse: shouldSynthesizeOllamaToolUse },
+        )
       }
 
       const textBody = await response.text().catch(() => '')
@@ -1735,6 +1822,19 @@ class OpenAIShimMessages {
       }
 
       return responsesBody
+    }
+
+    if (request.transport === 'chat_completions' && isOllamaRequestUrl(request.baseUrl)) {
+      const toolSchemas = Array.isArray(body.tools) ? body.tools : []
+      const adapted = adaptOutgoing(
+        {
+          model: String(body.model ?? request.resolvedModel),
+          messages: body.messages as Array<{ role: string; content: string }>,
+          tools: toolSchemas,
+        },
+        toolSchemas,
+      )
+      body.messages = adapted.messages
     }
 
     const headers: Record<string, string> = {
@@ -2200,6 +2300,7 @@ class OpenAIShimMessages {
       }
     },
     model: string,
+    options?: { synthesizeTextToolUse?: boolean },
   ) {
     const choice = data.choices?.[0]
     const content: Array<Record<string, unknown>> = []
@@ -2216,10 +2317,17 @@ class OpenAIShimMessages {
         ? choice?.message?.content
         : null
     if (typeof rawContent === 'string' && rawContent) {
-      content.push({
-        type: 'text',
-        text: stripThinkTags(rawContent),
-      })
+      const syntheticToolUse = options?.synthesizeTextToolUse
+        ? adaptIncoming({ text: rawContent }).syntheticToolUse
+        : null
+      if (syntheticToolUse) {
+        content.push(syntheticToolUse)
+      } else {
+        content.push({
+          type: 'text',
+          text: stripThinkTags(rawContent),
+        })
+      }
     } else if (Array.isArray(rawContent) && rawContent.length > 0) {
       const parts: string[] = []
       for (const part of rawContent) {
@@ -2234,10 +2342,17 @@ class OpenAIShimMessages {
       }
       const joined = parts.join('\n')
       if (joined) {
-        content.push({
-          type: 'text',
-          text: stripThinkTags(joined),
-        })
+        const syntheticToolUse = options?.synthesizeTextToolUse
+          ? adaptIncoming({ text: joined }).syntheticToolUse
+          : null
+        if (syntheticToolUse) {
+          content.push(syntheticToolUse)
+        } else {
+          content.push({
+            type: 'text',
+            text: stripThinkTags(joined),
+          })
+        }
       }
     }
 
@@ -2262,7 +2377,7 @@ class OpenAIShimMessages {
     }
 
     const stopReason =
-      choice?.finish_reason === 'tool_calls'
+      content.some(block => block.type === 'tool_use') || choice?.finish_reason === 'tool_calls'
         ? 'tool_use'
         : choice?.finish_reason === 'length'
           ? 'max_tokens'

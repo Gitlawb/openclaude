@@ -15,7 +15,7 @@ export async function handleModelResponse(responseText: string, executor: ToolEx
     const toolUse = parseToolUse(text);
     if (!toolUse) return false;
     dispatches++;
-    await executor(toolUse.tool, toolUse.args);
+    await executor(toolUse.name, toolUse.input);
 
     // After a dispatch we break — higher level loop can re-query model for follow-ups.
     return true;

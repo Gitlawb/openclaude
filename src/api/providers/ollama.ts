@@ -14,6 +14,8 @@ export type OllamaResponse = {
  * Adapt an outgoing request for Ollama: inject tool schemas into the system prompt
  */
 export function adaptOutgoing(request: OllamaRequest, toolSchemas: any[] = []) : OllamaRequest {
+  if (!toolSchemas || toolSchemas.length === 0) return request;
+
   const sysIdx = request.messages.findIndex(m => m.role === 'system');
   const original = sysIdx >= 0 ? request.messages[sysIdx].content : '';
   const injected = injectToolInstructions(original, toolSchemas);
