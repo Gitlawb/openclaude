@@ -54,6 +54,27 @@ export const SDK_ONLY_EXTERNALS: string[] = [
   '@modelcontextprotocol/sdk',
 ]
 
+// Packages kept external but NOT listed in package.json dependencies.
+// These are dynamically imported at runtime — they're optional and resolved
+// from transitive deps or installed by users who need that provider/protocol.
+export const OPTIONAL_RUNTIME_EXTERNALS: string[] = [
+  // OTel protocol exporters (dynamically imported based on OTEL_EXPORTER_OTLP_PROTOCOL)
+  '@opentelemetry/exporter-trace-otlp-http',
+  '@opentelemetry/exporter-trace-otlp-proto',
+  '@opentelemetry/exporter-logs-otlp-proto',
+  '@opentelemetry/exporter-logs-otlp-grpc',
+  '@opentelemetry/exporter-metrics-otlp-proto',
+  '@opentelemetry/exporter-metrics-otlp-grpc',
+  '@opentelemetry/exporter-metrics-otlp-http',
+  '@opentelemetry/exporter-prometheus',
+  // Cloud provider SDKs (dynamically imported per-provider)
+  '@aws-sdk/client-bedrock',
+  '@aws-sdk/client-bedrock-runtime',
+  '@aws-sdk/client-sts',
+  '@aws-sdk/credential-providers',
+  '@azure/identity',
+]
+
 // Computed full lists
 export const CLI_EXTERNALS: string[] = COMMON_EXTERNALS
 export const SDK_EXTERNALS: string[] = [...COMMON_EXTERNALS, ...SDK_ONLY_EXTERNALS]
