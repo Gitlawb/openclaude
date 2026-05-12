@@ -17,6 +17,7 @@ import { logError } from '../../utils/log.js';
 import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js';
 import { isBridgeEnabled } from '../../bridge/bridgeEnabled.js';
 import { ThemePicker } from '../ThemePicker.js';
+import { ModelProviderSettings } from './ModelProviderSettings.js';
 import { useAppState, useSetAppState, useAppStateStore } from '../../state/AppState.js';
 import { ModelPicker } from '../ModelPicker.js';
 import { modelDisplayString, isOpus1mMergeEnabled } from '../../utils/model/model.js';
@@ -81,7 +82,7 @@ type Setting = (SettingBase & {
   onChange(value: string): void;
   type: 'managedEnum';
 });
-type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
+type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates' | 'ContextWindows';
 export function Config({
   onClose,
   context,
@@ -262,6 +263,15 @@ export function Config({
 
   // TODO: Add MCP servers
   const settingsItems: Setting[] = [
+  {
+    id: 'openaiContextWindows',
+    label: 'Custom Model Providers',
+    value: (settingsData?.openaiContextWindows && Object.keys(settingsData.openaiContextWindows).length > 0) || (settingsData?.openaiMaxOutputTokens && Object.keys(settingsData.openaiMaxOutputTokens).length > 0) || (settingsData?.agentModels && Object.keys(settingsData.agentModels).length > 0) ? 'Configured' : 'None',
+    type: 'managedEnum' as const,
+    onChange() {
+      setShowSubmenu('ContextWindows');
+    }
+  },
   // Global settings
   {
     id: 'autoCompactEnabled',
@@ -1357,7 +1367,7 @@ export function Config({
       }
       return;
     }
-    if (setting_0.id === 'theme' || setting_0.id === 'model' || setting_0.id === 'teammateDefaultModel' || setting_0.id === 'showExternalIncludesDialog' || setting_0.id === 'outputStyle' || setting_0.id === 'language') {
+    if (setting_0.id === 'theme' || setting_0.id === 'model' || setting_0.id === 'teammateDefaultModel' || setting_0.id === 'showExternalIncludesDialog' || setting_0.id === 'outputStyle' || setting_0.id === 'language' || setting_0.id === 'openaiContextWindows') {
       // managedEnum items open a submenu — isDirty is set by the submenu's
       // completion callback, not here (submenu may be cancelled).
       switch (setting_0.id) {
@@ -1383,6 +1393,10 @@ export function Config({
           return;
         case 'language':
           setShowSubmenu('Language');
+          setTabsHidden(true);
+          return;
+        case 'openaiContextWindows':
+          setShowSubmenu('ContextWindows');
           setTabsHidden(true);
           return;
       }
@@ -1683,7 +1697,15 @@ export function Config({
           channel: channel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
         });
       }} />}
-        </Dialog> : showSubmenu === 'ChannelDowngrade' ? <ChannelDowngradeDialog currentVersion={MACRO.VERSION} onChoice={(choice: ChannelDowngradeChoice) => {
+        </Dialog> : showSubmenu === 'ContextWindows' ? <ModelProviderSettings initialAgentModels={settingsData?.agentModels} initialContextWindows={settingsData?.openaiContextWindows} initialMaxTokens={settingsData?.openaiMaxOutputTokens} onCancel={() => {
+      setShowSubmenu(null);
+      setTabsHidden(false);
+    }} onComplete={() => {
+      setShowSubmenu(null);
+      setTabsHidden(false);
+      // Force refresh settings data from disk
+      setSettingsData(getInitialSettings());
+    }} /> : showSubmenu === 'ChannelDowngrade' ? <ChannelDowngradeDialog currentVersion={MACRO.VERSION} onChoice={(choice: ChannelDowngradeChoice) => {
       setShowSubmenu(null);
       setTabsHidden(false);
       if (choice === 'cancel') {

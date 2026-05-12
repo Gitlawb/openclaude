@@ -6,6 +6,8 @@
  * override path for custom/private deployments.
  */
 
+import { getInitialSettings } from '../settings/settings.js'
+
 type LimitEnvVar =
   | 'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS'
   | 'CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS'
@@ -14,32 +16,42 @@ function readExternalLimits(
   envVarName: LimitEnvVar,
   processEnv: NodeJS.ProcessEnv,
 ): Record<string, number> {
-  const raw = processEnv[envVarName]
-  if (!raw) {
-    return {}
-  }
+  const settings = getInitialSettings()
+  const settingsLimits =
+    envVarName === 'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS'
+      ? settings.openaiContextWindows
+      : settings.openaiMaxOutputTokens
 
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  const raw = processEnv[envVarName]
+  const envLimits = (() => {
+    if (!raw) {
       return {}
     }
 
-    return Object.fromEntries(
-      Object.entries(parsed)
-        .filter(
-          (entry): entry is [string, number] =>
-            typeof entry[0] === 'string' &&
-            typeof entry[1] === 'number' &&
-            Number.isFinite(entry[1]) &&
-            entry[1] > 0,
-        )
-        .map(([key, value]) => [key.trim(), value])
-        .filter(([key]) => key.length > 0),
-    )
-  } catch {
-    return {}
-  }
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {}
+      }
+
+      return Object.fromEntries(
+        Object.entries(parsed)
+          .filter(
+            (entry): entry is [string, number] =>
+              typeof entry[0] === 'string' &&
+              typeof entry[1] === 'number' &&
+              Number.isFinite(entry[1]) &&
+              entry[1] > 0,
+          )
+          .map(([key, value]) => [key.trim(), value])
+          .filter(([key]) => key.length > 0),
+      )
+    } catch {
+      return {}
+    }
+  })()
+
+  return { ...envLimits, ...settingsLimits }
 }
 
 function lookupExactByKey(
