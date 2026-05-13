@@ -788,15 +788,19 @@ function convertMessages(
       }
 
       // Preserve reasoning_content when coalescing assistant messages.
-      // Prefer the incoming message's reasoning_content if present, otherwise
-      // keep the existing one. Both cannot be preserved simultaneously since
-      // the field is singular per message.
+      // Never overwrite a non-empty reasoning_content with an empty one,
+      // since empty values are fallback placeholders while non-empty ones
+      // carry actual thinking text that providers require.
       if (
         msg.role === 'assistant' &&
         msg.reasoning_content !== undefined &&
         lastAfterPossibleInjection.role === 'assistant'
       ) {
-        lastAfterPossibleInjection.reasoning_content = msg.reasoning_content
+        const existing = lastAfterPossibleInjection.reasoning_content
+        const incoming = msg.reasoning_content
+        if (typeof existing !== 'string' || existing.length === 0 || incoming.length > 0) {
+          lastAfterPossibleInjection.reasoning_content = incoming
+        }
       }
     } else {
       coalesced.push(msg)
