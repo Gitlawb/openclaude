@@ -11,11 +11,10 @@ describe('SqliteQueryTool', () => {
   it('marks write mode as not read-only', () => { expect(SqliteQueryTool.isReadOnly?.({ mode: 'write', query: 'SELECT 1' })).toBe(false) })
   it('marks INSERT as not read-only', () => { expect(SqliteQueryTool.isReadOnly?.({ mode: 'read', query: 'INSERT INTO t VALUES(1)' })).toBe(false) })
   it('marks DROP as destructive', () => { expect(SqliteQueryTool.isDestructive?.({ query: 'DROP TABLE users' })).toBe(true) })
-  it('marks SELECT as not destructive', () => { expect(SqliteQueryTool.isDestructive?.({ query: 'SELECT * FROM users' })).toBe(false) })
+  it('marks SELECT as not destructive', () => { expect(SqliteQueryTool.isDestructive?.({ query: 'SELECT 1' })).toBe(false) })
 
-  it('has checkPermissions defined', () => {
-    expect(typeof SqliteQueryTool.checkPermissions).toBe('function')
-  })
+  it('has checkPermissions defined', () => { expect(typeof SqliteQueryTool.checkPermissions).toBe('function') })
+  it('has getPath defined', () => { expect(typeof SqliteQueryTool.getPath).toBe('function') })
 
   it('validates empty path', async () => { expect((await SqliteQueryTool.validateInput({ path: '', query: 'SELECT 1' })).result).toBe(false) })
   it('validates empty query', async () => { expect((await SqliteQueryTool.validateInput({ path: 'test.db', query: '' })).result).toBe(false) })
@@ -27,13 +26,7 @@ describe('SqliteQueryTool', () => {
     expect(b.tool_use_id).toBe('tid'); expect(b.type).toBe('tool_result')
   })
 
-  it('renders success with rows', () => {
-    const m = SqliteQueryTool.renderToolResultMessage?.({ success: true, rows: [{ id: 1 }], rowCount: 1, durationMs: 2, truncated: false, dbPath: '/tmp/test.db' })
-    if (m && 'text' in m) expect(m.text).toContain('1 rows')
-  })
-  it('renders error', () => {
-    const m = SqliteQueryTool.renderToolResultMessage?.({ success: false, durationMs: 1, error: 'no such table', dbPath: '/tmp/test.db' })
-    if (m && 'text' in m) expect(m.text).toContain('no such table')
-  })
+  it('renders success with rows', () => { expect(SqliteQueryTool.renderToolResultMessage?.({ success: true, rows: [{ id: 1 }], rowCount: 1, durationMs: 2, truncated: false, dbPath: '/tmp/test.db' })).toContain('1 rows') })
+  it('renders error', () => { expect(SqliteQueryTool.renderToolResultMessage?.({ success: false, durationMs: 1, error: 'no such table', dbPath: '/tmp/test.db' })).toContain('no such table') })
   it('provides auto-classifier', () => { expect(SqliteQueryTool.toAutoClassifierInput?.({ path: 'test.db', query: 'SELECT 1' })).toContain('SELECT 1') })
 })

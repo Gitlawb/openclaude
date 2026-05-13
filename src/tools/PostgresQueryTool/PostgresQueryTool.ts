@@ -103,24 +103,24 @@ export const PostgresQueryTool = buildTool({
     return { result: true }
   },
   async checkPermissions(input) {
-    if (isDestructiveQuery(input.query)) return { behavior: 'ask', askReason: `Execute destructive query? ${input.query.slice(0, 200)}`, updatedInput: input }
-    if (!isReadOnlyQuery(input.query)) return { behavior: 'ask', askReason: `Execute write query? ${input.query.slice(0, 200)}`, updatedInput: input }
+    if (isDestructiveQuery(input.query)) return { behavior: 'ask', message: `Execute destructive query? ${input.query.slice(0, 200)}`, updatedInput: input }
+    if (!isReadOnlyQuery(input.query)) return { behavior: 'ask', message: `Execute write query? ${input.query.slice(0, 200)}`, updatedInput: input }
     return { behavior: 'allow', updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
   },
   renderToolUseMessage(input) {
-    return { type: 'text', text: `Executing PostgreSQL query: ${input.query.slice(0, 200)}` }
+    return `Executing PostgreSQL query: ${input.query.slice(0, 200)}`
   },
   renderToolResultMessage(output) {
-    if (!output.success) return { type: 'text', text: `Query failed: ${output.error}` }
+    if (!output.success) return `Query failed: ${output.error}`
     if (output.rows?.length) {
       const preview = output.truncated ? `Returned ${output.rowCount} rows (truncated, showing first ${output.rows.length})` : `Returned ${output.rowCount} rows`
-      return { type: 'text', text: `${preview} in ${output.durationMs}ms` }
+      return `${preview} in ${output.durationMs}ms`
     }
-    if (output.rowCount !== undefined) return { type: 'text', text: `${output.rowCount} rows affected in ${output.durationMs}ms` }
-    return { type: 'text', text: `Query executed in ${output.durationMs}ms` }
+    if (output.rowCount !== undefined) return `${output.rowCount} rows affected in ${output.durationMs}ms`
+    return `Query executed in ${output.durationMs}ms`
   },
   async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?) {
     const startTime = Date.now()
@@ -143,7 +143,7 @@ export const PostgresQueryTool = buildTool({
       const stdout = (result.stdout ?? '').trim()
       const stderr = (result.stderr ?? '').trim()
 
-      if ((result.status ?? 1) !== 0 && !stdout) return { data: { success: false, durationMs: Date.now() - startTime, error: stderr || `psql exited with code ${result.status}` } }
+      if ((result.status ?? 1) !== 0) return { data: { success: false, durationMs: Date.now() - startTime, error: (stdout + '\n' + stderr).trim().slice(0, 2000) || `psql exited with code ${result.status}` } }
 
       const { rows, columns } = input.format === 'csv' ? parseCsv(stdout) : parseAligned(stdout)
       const selectLike = /^\s*(select)\s/i.test(input.query.trim())

@@ -98,15 +98,15 @@ export const SqliteQueryTool = buildTool({
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
   },
   renderToolUseMessage(input) {
-    return { type: 'text', text: `Querying SQLite ${input.path}: ${input.query.slice(0, 150)}` }
+    return `Querying SQLite ${input.path}: ${input.query.slice(0, 150)}`
   },
   renderToolResultMessage(output) {
-    if (!output.success) return { type: 'text', text: `SQLite query failed on ${output.dbPath}: ${output.error}` }
-    if (output.rows?.length) return { type: 'text', text: `Returned ${output.rowCount} rows from ${output.dbPath} in ${output.durationMs}ms${output.truncated ? ' (truncated)' : ''}` }
-    if (output.rowCount !== undefined) return { type: 'text', text: `${output.rowCount} rows affected on ${output.dbPath} in ${output.durationMs}ms` }
-    return { type: 'text', text: `Query executed on ${output.dbPath} in ${output.durationMs}ms` }
+    if (!output.success) return `SQLite query failed on ${output.dbPath}: ${output.error}`
+    if (output.rows?.length) return `Returned ${output.rowCount} rows from ${output.dbPath} in ${output.durationMs}ms${output.truncated ? ' (truncated)' : ''}`
+    if (output.rowCount !== undefined) return `${output.rowCount} rows affected on ${output.dbPath} in ${output.durationMs}ms`
+    return `Query executed on ${output.dbPath} in ${output.durationMs}ms`
   },
-  async call(input, ctx, _canUseTool?, _parentMessage?, _onProgress?) {
+  async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?) {
     const startTime = Date.now()
     const resolvedPath = normalize(resolve(expandPath(input.path)))
     if (!existsSync(resolvedPath)) return { data: { success: false, durationMs: Date.now() - startTime, error: `Database file not found: ${resolvedPath}`, dbPath: resolvedPath } }
@@ -123,10 +123,11 @@ export const SqliteQueryTool = buildTool({
       args.push(resolvedPath, fullSql)
 
       const result = spawnSync('sqlite3', args, { timeout: 30000, maxBuffer: MAX_RESULT_CHARS, encoding: 'utf-8' })
+      if (result.error) return { data: { success: false, durationMs: Date.now() - startTime, error: `Binary not found: sqlite3. Install it and try again.`, dbPath: resolvedPath } }
       const stdout = (result.stdout ?? '').trim()
       const stderr = (result.stderr ?? '').trim()
 
-      if ((result.status ?? 1) !== 0 && !stdout) return { data: { success: false, durationMs: Date.now() - startTime, error: stderr || `sqlite3 exited with code ${result.status}`, dbPath: resolvedPath } }
+      if ((result.status ?? 1) !== 0) return { data: { success: false, durationMs: Date.now() - startTime, error: (stdout + '\n' + stderr).trim().slice(0, 2000) || `sqlite3 exited with code ${result.status}`, dbPath: resolvedPath } }
 
       // Extract changes() from the last line of output, then strip marker lines
       let rowCount: number | undefined
