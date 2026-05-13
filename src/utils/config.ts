@@ -294,6 +294,13 @@ export type GlobalConfig = {
     [tipId: string]: number // Key is tipId, value is the numStartups when tip was last shown
   }
 
+  // Sponsored tip throttling. lastShownAt is numStartups when last sponsored tip
+  // was displayed; used with sponsoredTipsFrequency to enforce a 1-in-N cap.
+  sponsoredTipsHistory?: {
+    lastShownAt: number
+    totalShown: number
+  }
+
   // /buddy companion soul — bones regenerated from userId on read. See src/buddy/.
   companion?: import('../buddy/types.js').StoredCompanion
   companionMuted?: boolean
@@ -703,6 +710,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'diffTool',
   'env',
   'tipsHistory',
+  'sponsoredTipsHistory',
   'todoFeatureEnabled',
   'showExpandedTodos',
   'messageIdleNotifThresholdMs',
