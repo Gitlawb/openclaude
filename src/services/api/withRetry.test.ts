@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { APIError } from '@anthropic-ai/sdk'
 
 // Helper to build a mock APIError with specific headers
@@ -15,15 +15,27 @@ function makeError(headers: Record<string, string>): APIError {
 
 // Save/restore env vars between tests
 const originalEnv = { ...process.env }
+
+const envKeys = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'OPENAI_MODEL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+] as const
+
+beforeEach(() => {
+  for (const key of envKeys) {
+    delete process.env[key]
+  }
+})
+
 afterEach(() => {
-  for (const key of [
-    'CLAUDE_CODE_USE_OPENAI',
-    'CLAUDE_CODE_USE_GEMINI',
-    'CLAUDE_CODE_USE_GITHUB',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'CLAUDE_CODE_USE_VERTEX',
-    'CLAUDE_CODE_USE_FOUNDRY',
-  ]) {
+  for (const key of envKeys) {
     if (originalEnv[key] === undefined) delete process.env[key]
     else process.env[key] = originalEnv[key]
   }

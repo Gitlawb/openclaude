@@ -1,12 +1,21 @@
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { mock } from 'bun:test'
 
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
 import { saveGlobalConfig } from '../config.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from '../settings/settingsCache.js'
 
 async function importFreshModelOptionsModule() {
   mock.restore()
   mock.module('./providers.js', () => ({
     getAPIProvider: () => 'github',
+    getAPIProviderForStatsig: () => 'github',
+    isFirstPartyAnthropicBaseUrl: () => false,
+    isGithubNativeAnthropicMode: () => false,
+    usesAnthropicAccountFlow: () => false,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./modelOptions.js?ts=${nonce}`)
@@ -24,8 +33,20 @@ const originalEnv = {
   ANTHROPIC_CUSTOM_MODEL_OPTION: process.env.ANTHROPIC_CUSTOM_MODEL_OPTION,
 }
 
+function restoreEnvValue(
+  key: keyof typeof originalEnv,
+): void {
+  const value = originalEnv[key]
+  if (value === undefined) {
+    delete process.env[key]
+  } else {
+    process.env[key] = value
+  }
+}
+
 beforeEach(() => {
   mock.restore()
+  setSessionSettingsCache({ settings: {}, errors: [] })
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -39,16 +60,17 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  process.env.CLAUDE_CODE_USE_GITHUB = originalEnv.CLAUDE_CODE_USE_GITHUB
-  process.env.CLAUDE_CODE_USE_OPENAI = originalEnv.CLAUDE_CODE_USE_OPENAI
-  process.env.CLAUDE_CODE_USE_GEMINI = originalEnv.CLAUDE_CODE_USE_GEMINI
-  process.env.CLAUDE_CODE_USE_BEDROCK = originalEnv.CLAUDE_CODE_USE_BEDROCK
-  process.env.CLAUDE_CODE_USE_VERTEX = originalEnv.CLAUDE_CODE_USE_VERTEX
-  process.env.CLAUDE_CODE_USE_FOUNDRY = originalEnv.CLAUDE_CODE_USE_FOUNDRY
-  process.env.OPENAI_MODEL = originalEnv.OPENAI_MODEL
-  process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
-  process.env.ANTHROPIC_CUSTOM_MODEL_OPTION =
-    originalEnv.ANTHROPIC_CUSTOM_MODEL_OPTION
+  mock.restore()
+  resetSettingsCache()
+  restoreEnvValue('CLAUDE_CODE_USE_GITHUB')
+  restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
+  restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
+  restoreEnvValue('CLAUDE_CODE_USE_BEDROCK')
+  restoreEnvValue('CLAUDE_CODE_USE_VERTEX')
+  restoreEnvValue('CLAUDE_CODE_USE_FOUNDRY')
+  restoreEnvValue('OPENAI_MODEL')
+  restoreEnvValue('OPENAI_BASE_URL')
+  restoreEnvValue('ANTHROPIC_CUSTOM_MODEL_OPTION')
   saveGlobalConfig(current => ({
     ...current,
     additionalModelOptionsCache: [],
@@ -61,7 +83,7 @@ afterEach(() => {
   resetModelStringsForTestingOnly()
 })
 
-test('GitHub provider exposes only default + GitHub model in /model options', async () => {
+test('GitHub provider exposes default + all Copilot models in /model options', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -69,7 +91,7 @@ test('GitHub provider exposes only default + GitHub model in /model options', as
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
 
-  process.env.OPENAI_MODEL = 'github:copilot'
+  process.env.OPENAI_MODEL = 'gpt-4o'
   delete process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
 
   const { getModelOptions } = await importFreshModelOptionsModule()
@@ -78,6 +100,7 @@ test('GitHub provider exposes only default + GitHub model in /model options', as
     (option: { value: unknown }) => option.value !== null,
   )
 
-  expect(nonDefault.length).toBe(1)
-  expect(nonDefault[0]?.value).toBe('github:copilot')
+  expect(nonDefault.length).toBeGreaterThan(1)
+  expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-4o')).toBe(true)
+  expect(nonDefault.some((o: { value: unknown }) => o.value === 'gpt-5.3-codex')).toBe(true)
 })

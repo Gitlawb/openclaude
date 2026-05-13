@@ -101,6 +101,7 @@ const TEAMMATE_ENV_VARS = [
   'CLAUDE_CODE_USE_FOUNDRY',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_OPENAI',
   'GITHUB_TOKEN',
   'GH_TOKEN',
@@ -111,6 +112,9 @@ const TEAMMATE_ENV_VARS = [
   'GEMINI_BASE_URL',
   'GEMINI_MODEL',
   'GOOGLE_API_KEY',
+  'MISTRAL_API_KEY',
+  'MISTRAL_MODEL',
+  'MISTRAL_BASE_URL',
   // Custom API endpoint
   'ANTHROPIC_BASE_URL',
   // Config directory override
@@ -137,6 +141,9 @@ const TEAMMATE_ENV_VARS = [
   'NODE_EXTRA_CA_CERTS',
   'REQUESTS_CA_BUNDLE',
   'CURL_CA_BUNDLE',
+  // Source builds may rely on user shell PATH for rg/node/bun and other tools.
+  // Forward it so teammates resolve the same toolchain as the parent session.
+  'PATH',
 ] as const
 
 /**
@@ -145,7 +152,13 @@ const TEAMMATE_ENV_VARS = [
  * plus any provider/config env vars that are set in the current process.
  */
 export function buildInheritedEnvVars(): string {
-  const envVars = ['CLAUDECODE=1', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1']
+  const envVars = [
+    'CLAUDECODE=1',
+    'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1',
+    // Teammates should inherit the leader-selected provider route instead of
+    // replaying persisted ~/.claude or settings.env provider defaults.
+    'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1',
+  ]
 
   for (const key of TEAMMATE_ENV_VARS) {
     const value = process.env[key]

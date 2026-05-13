@@ -8,6 +8,7 @@ import { useAppState, useAppStateStore, useSetAppState } from 'src/state/AppStat
 import { getSdkBetas, getSessionId, isSessionPersistenceDisabled, setHasExitedPlanMode, setNeedsAutoModeExitAttachment, setNeedsPlanModeExitAttachment } from '../../../bootstrap/state.js';
 import { generateSessionName } from '../../../commands/rename/generateSessionName.js';
 import { launchUltraplan } from '../../../commands/ultraplan.js';
+import { PRODUCT_DISPLAY_NAME } from '../../../constants/product.js';
 import type { KeyboardEvent } from '../../../ink/events/keyboard-event.js';
 import { Box, Text } from '../../../ink.js';
 import type { AppState } from '../../../state/AppStateStore.js';
@@ -23,7 +24,7 @@ import { toIDEDisplayName } from '../../../utils/ide.js';
 import { logError } from '../../../utils/log.js';
 import { enqueuePendingNotification } from '../../../utils/messageQueueManager.js';
 import { createUserMessage } from '../../../utils/messages.js';
-import { getMainLoopModel, getRuntimeMainLoopModel } from '../../../utils/model/model.js';
+import { getMainLoopModel, getRuntimeMainLoopModel, modelDisplayString } from '../../../utils/model/model.js';
 import { createPromptRuleContent, isClassifierPermissionsEnabled, PROMPT_PREFIX } from '../../../utils/permissions/bashClassifier.js';
 import { type PermissionMode, toExternalPermissionMode } from '../../../utils/permissions/PermissionMode.js';
 import type { PermissionUpdate } from '../../../utils/permissions/PermissionUpdateSchema.js';
@@ -148,14 +149,17 @@ export function ExitPlanModePermissionRequest({
     isAutoModeAvailable,
     isBypassPermissionsModeAvailable
   } = toolPermissionContext;
+  const planAuthorName = modelDisplayString(toolUseConfirm.assistantMessage.message.model);
   const options = useMemo(() => buildPlanApprovalOptions({
     showClearContext,
     showUltraplan,
     usedPercent: showClearContext ? getContextUsedPercent(usage, mode) : null,
     isAutoModeAvailable,
     isBypassPermissionsModeAvailable,
+    assistantDisplayName: PRODUCT_DISPLAY_NAME,
+    planAuthorName,
     onFeedbackChange: setPlanFeedback
-  }), [showClearContext, showUltraplan, usage, mode, isAutoModeAvailable, isBypassPermissionsModeAvailable]);
+  }), [showClearContext, showUltraplan, usage, mode, isAutoModeAvailable, isBypassPermissionsModeAvailable, planAuthorName]);
   function onImagePaste(base64Image: string, mediaType?: string, filename?: string, dimensions?: ImageDimensions, _sourcePath?: string) {
     const pasteId = nextPasteIdRef.current++;
     const newContent: PastedContent = {
@@ -600,7 +604,7 @@ export function ExitPlanModePermissionRequest({
     }
     return <PermissionDialog color="planMode" title="Exit plan mode?" workerBadge={workerBadge}>
         <Box flexDirection="column" paddingX={1} marginTop={1}>
-          <Text>Claude wants to exit plan mode</Text>
+          <Text>{PRODUCT_DISPLAY_NAME} wants to exit plan mode</Text>
           <Box marginTop={1}>
             <Select options={[{
             label: 'Yes',
@@ -627,7 +631,7 @@ export function ExitPlanModePermissionRequest({
       <PermissionDialog color="planMode" title="Ready to code?" innerPaddingX={0} workerBadge={workerBadge}>
         <Box flexDirection="column" marginTop={1}>
           <Box paddingX={1} flexDirection="column">
-            <Text>Here is Claude&apos;s plan:</Text>
+            <Text>Here is {planAuthorName}&apos;s plan:</Text>
           </Box>
           <Box borderColor="subtle" borderStyle="dashed" flexDirection="column" borderLeft={false} borderRight={false} paddingX={1} marginBottom={1}
         // Necessary for Windows Terminal to render properly
@@ -644,7 +648,7 @@ export function ExitPlanModePermissionRequest({
                 </Box>}
             {!useStickyFooter && <>
                 <Text dimColor>
-                  Claude has written up a plan and is ready to execute. Would
+                  {planAuthorName} has written up a plan and is ready to execute. Would
                   you like to proceed?
                 </Text>
                 <Box marginTop={1}>
@@ -677,6 +681,8 @@ export function buildPlanApprovalOptions({
   usedPercent,
   isAutoModeAvailable,
   isBypassPermissionsModeAvailable,
+  assistantDisplayName,
+  planAuthorName,
   onFeedbackChange
 }: {
   showClearContext: boolean;
@@ -684,6 +690,8 @@ export function buildPlanApprovalOptions({
   usedPercent: number | null;
   isAutoModeAvailable: boolean | undefined;
   isBypassPermissionsModeAvailable: boolean | undefined;
+  assistantDisplayName: string;
+  planAuthorName: string;
   onFeedbackChange: (v: string) => void;
 }): OptionWithDescription<ResponseValue>[] {
   const options: OptionWithDescription<ResponseValue>[] = [];
@@ -730,7 +738,7 @@ export function buildPlanApprovalOptions({
   });
   if (showUltraplan) {
     options.push({
-      label: 'No, refine with Ultraplan on Claude Code on the web',
+      label: `No, refine with Ultraplan on ${assistantDisplayName} on the web`,
       value: 'ultraplan'
     });
   }
@@ -738,7 +746,7 @@ export function buildPlanApprovalOptions({
     type: 'input',
     label: 'No, keep planning',
     value: 'no',
-    placeholder: 'Tell Claude what to change',
+    placeholder: `Tell ${planAuthorName} what to change`,
     description: 'shift+tab to approve with this feedback',
     onChange: onFeedbackChange
   });

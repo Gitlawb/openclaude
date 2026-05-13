@@ -40,6 +40,7 @@ import {
   modelSupportsStructuredOutputs,
   shouldUseGlobalCacheScope,
 } from './betas.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -111,9 +112,58 @@ function filterSwarmFieldsFromSchema(
       delete filteredProps[field]
     }
     filtered.properties = filteredProps
+
+    // Keep `required` in sync after removing properties
+    if (Array.isArray(filtered.required)) {
+      filtered.required = filtered.required.filter(
+        (key: string) => key in filteredProps,
+      )
+    }
   }
 
   return filtered
+}
+
+/**
+ * Ensure `required` only lists keys present in `properties`.
+ * MCP servers may emit schemas where these are out of sync, causing
+ * API 400 errors ("Extra required key supplied").
+ * Recurses into nested object schemas.
+ */
+function sanitizeSchemaRequired(
+  schema: Anthropic.Tool.InputSchema,
+): Anthropic.Tool.InputSchema {
+  if (!schema || typeof schema !== 'object') {
+    return schema
+  }
+
+  const result = { ...schema }
+  const props = result.properties as Record<string, unknown> | undefined
+
+  if (props && Array.isArray(result.required)) {
+    result.required = result.required.filter(
+      (key: string) => key in props,
+    )
+  }
+
+  // Recurse into nested object properties
+  if (props) {
+    const sanitizedProps = { ...props }
+    for (const [key, value] of Object.entries(sanitizedProps)) {
+      if (
+        value &&
+        typeof value === 'object' &&
+        (value as Record<string, unknown>).type === 'object'
+      ) {
+        sanitizedProps[key] = sanitizeSchemaRequired(
+          value as Anthropic.Tool.InputSchema,
+        )
+      }
+    }
+    result.properties = sanitizedProps
+  }
+
+  return result
 }
 
 export async function toolToAPISchema(
@@ -156,7 +206,7 @@ export async function toolToAPISchema(
     // Use tool's JSON schema directly if provided, otherwise convert Zod schema
     let input_schema = (
       'inputJSONSchema' in tool && tool.inputJSONSchema
-        ? tool.inputJSONSchema
+        ? sanitizeSchemaRequired(tool.inputJSONSchema as Anthropic.Tool.InputSchema)
         : zodToJsonSchema(tool.inputSchema)
     ) as Anthropic.Tool.InputSchema
 
@@ -505,11 +555,19 @@ export async function logContextMetrics(
     ignorePatternsByRoot,
     currentDir,
   )
-  const fileCount = await countFilesRoundedRg(
-    currentDir,
-    AbortSignal.timeout(1000),
-    normalizedIgnorePatterns,
-  )
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: 1000,
+  })
+  let fileCount: number
+  try {
+    fileCount = await countFilesRoundedRg(
+      currentDir,
+      signal,
+      normalizedIgnorePatterns,
+    )
+  } finally {
+    cleanup()
+  }
 
   // Calculate tool metrics
   let mcpToolsCount = 0
@@ -613,10 +671,6 @@ export function normalizeToolInput<T extends Tool>(
         ...(timeout !== undefined && { timeout }),
         ...(description !== undefined && { description }),
         ...(run_in_background !== undefined && { run_in_background }),
-        ...('dangerouslyDisableSandbox' in parsed &&
-          parsed.dangerouslyDisableSandbox !== undefined && {
-            dangerouslyDisableSandbox: parsed.dangerouslyDisableSandbox,
-          }),
       } as z.infer<T['inputSchema']>
     }
     case FileEditTool.name: {

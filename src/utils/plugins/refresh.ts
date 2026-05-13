@@ -21,6 +21,7 @@ import { getOriginalCwd } from '../../bootstrap/state.js'
 import type { Command } from '../../commands.js'
 import { reinitializeLspServerManager } from '../../services/lsp/manager.js'
 import type { AppState } from '../../state/AppState.js'
+import { setPluginCommandsState } from '../../state/pluginCommandsStore.js'
 import type { AgentDefinitionsResult } from '../../tools/AgentTool/loadAgentsDir.js'
 import { getAgentDefinitionsWithOverrides } from '../../tools/AgentTool/loadAgentsDir.js'
 import type { PluginError } from '../../types/plugin.js'
@@ -92,6 +93,7 @@ export async function refreshActivePlugins(
   ])
 
   const { enabled, disabled, errors } = pluginResult
+  setPluginCommandsState(pluginCommands)
 
   // Populate mcpServers/lspServers on each enabled plugin. These are lazy
   // cache slots NOT filled by loadAllPlugins() — they're written later by
@@ -126,7 +128,7 @@ export async function refreshActivePlugins(
       ...prev.plugins,
       enabled,
       disabled,
-      commands: pluginCommands,
+      commands: [],
       errors: mergePluginErrors(prev.plugins.errors, errors),
       needsRefresh: false,
     },

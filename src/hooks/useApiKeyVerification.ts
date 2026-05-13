@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getIsNonInteractiveSession } from '../bootstrap/state.js'
 import { verifyApiKey } from '../services/api/claude.js'
 import {
@@ -21,24 +21,43 @@ export type ApiKeyVerificationResult = {
   error: Error | null
 }
 
-export function useApiKeyVerification(): ApiKeyVerificationResult {
-  const [status, setStatus] = useState<VerificationStatus>(() => {
-    if (!isAnthropicAuthEnabled() || isClaudeAISubscriber()) {
-      return 'valid'
-    }
-    // Use skipRetrievingKeyFromApiKeyHelper to avoid executing apiKeyHelper
-    // before trust dialog is shown (security: prevents RCE via settings.json)
-    const { key, source } = getAnthropicApiKeyWithSource({
-      skipRetrievingKeyFromApiKeyHelper: true,
-    })
-    // If apiKeyHelper is configured, we have a key source even though we
-    // haven't executed it yet - return 'loading' to indicate we'll verify later
-    if (key || source === 'apiKeyHelper') {
-      return 'loading'
-    }
-    return 'missing'
+function getInitialVerificationStatus(): VerificationStatus {
+  if (!isAnthropicAuthEnabled() || isClaudeAISubscriber()) {
+    return 'valid'
+  }
+  // Use skipRetrievingKeyFromApiKeyHelper to avoid executing apiKeyHelper
+  // before trust dialog is shown (security: prevents RCE via settings.json)
+  const { key, source } = getAnthropicApiKeyWithSource({
+    skipRetrievingKeyFromApiKeyHelper: true,
   })
+  // If apiKeyHelper is configured, we have a key source even though we
+  // haven't executed it yet - return 'loading' to indicate we'll verify later
+  if (key || source === 'apiKeyHelper') {
+    return 'loading'
+  }
+  return 'missing'
+}
+
+export function useApiKeyVerification(): ApiKeyVerificationResult {
+  const [status, setStatus] = useState<VerificationStatus>(
+    getInitialVerificationStatus,
+  )
   const [error, setError] = useState<Error | null>(null)
+  const anthropicVerificationEnabled =
+    isAnthropicAuthEnabled() && !isClaudeAISubscriber()
+
+  useEffect(() => {
+    const nextStatus = anthropicVerificationEnabled
+      ? getInitialVerificationStatus()
+      : 'valid'
+
+    setStatus(currentStatus =>
+      currentStatus === nextStatus ? currentStatus : nextStatus,
+    )
+    if (nextStatus !== 'error') {
+      setError(null)
+    }
+  }, [anthropicVerificationEnabled])
 
   const verify = useCallback(async (): Promise<void> => {
     if (!isAnthropicAuthEnabled() || isClaudeAISubscriber()) {

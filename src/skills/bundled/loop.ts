@@ -6,87 +6,218 @@ import {
 } from '../../tools/ScheduleCronTool/prompt.js'
 import { registerBundledSkill } from '../bundledSkills.js'
 
-const DEFAULT_INTERVAL = '10m'
+type LoopMode =
+  | 'dynamic-prompt'
+  | 'dynamic-maintenance'
+  | 'fixed-prompt'
+  | 'fixed-maintenance'
 
-const USAGE_MESSAGE = `Usage: /loop [interval] <prompt>
+type ParsedLoopArgs = {
+  mode: LoopMode
+  interval?: string
+  prompt?: string
+}
 
-Run a prompt or slash command on a recurring interval.
+const DYNAMIC_MIN_DELAY = '1 minute'
+const DYNAMIC_MAX_DELAY = '1 hour'
 
-Intervals: Ns, Nm, Nh, Nd (e.g. 5m, 30m, 2h, 1d). Minimum granularity is 1 minute.
-If no interval is specified, defaults to ${DEFAULT_INTERVAL}.
+const MAINTENANCE_PROMPT = `Scheduled maintenance loop iteration.
 
-Examples:
-  /loop 5m /babysit-prs
-  /loop 30m check the deploy
-  /loop 1h /standup 1
-  /loop check the deploy          (defaults to ${DEFAULT_INTERVAL})
-  /loop check the deploy every 20m`
+If .claude/loop.md exists, read it and follow it.
+Otherwise, if ~/.claude/loop.md exists, read it and follow it.
+Otherwise:
+- continue any unfinished work from the conversation
+- tend to the current branch's pull request: review comments, failed CI runs, merge conflicts
+- run cleanup passes such as bug hunts or simplification when nothing else is pending
 
-function buildPrompt(args: string): string {
-  return `# /loop — schedule a recurring prompt
+Do not start new initiatives outside that scope.
+Irreversible actions such as pushing or deleting only proceed when they continue something the transcript already authorized.`
 
-Parse the input below into \`[interval] <prompt…>\` and schedule it with ${CRON_CREATE_TOOL_NAME}.
+function normalizeIntervalUnit(rawUnit: string): 's' | 'm' | 'h' | 'd' | null {
+  const unit = rawUnit.toLowerCase()
+  if (['s', 'sec', 'secs', 'second', 'seconds'].includes(unit)) return 's'
+  if (['m', 'min', 'mins', 'minute', 'minutes'].includes(unit)) return 'm'
+  if (['h', 'hr', 'hrs', 'hour', 'hours'].includes(unit)) return 'h'
+  if (['d', 'day', 'days'].includes(unit)) return 'd'
+  return null
+}
 
-## Parsing (in priority order)
+function parseIntervalToken(token: string): string | null {
+  const match = token.trim().match(/^(\d+)\s*([a-zA-Z]+)$/)
+  if (!match) return null
+  const value = Number.parseInt(match[1]!, 10)
+  if (!Number.isFinite(value) || value < 1) return null
+  const unit = normalizeIntervalUnit(match[2]!)
+  if (!unit) return null
+  return `${value}${unit}`
+}
 
-1. **Leading token**: if the first whitespace-delimited token matches \`^\\d+[smhd]$\` (e.g. \`5m\`, \`2h\`), that's the interval; the rest is the prompt.
-2. **Trailing "every" clause**: otherwise, if the input ends with \`every <N><unit>\` or \`every <N> <unit-word>\` (e.g. \`every 20m\`, \`every 5 minutes\`, \`every 2 hours\`), extract that as the interval and strip it from the prompt. Only match when what follows "every" is a time expression — \`check every PR\` has no interval.
-3. **Default**: otherwise, interval is \`${DEFAULT_INTERVAL}\` and the entire input is the prompt.
+function parseTrailingEveryClause(input: string): {
+  prompt: string
+  interval: string
+} | null {
+  const match = input.match(/^(.*?)(?:\s+every\s+)(\d+)\s*([a-zA-Z]+)\s*$/i)
+  if (!match) return null
+  const interval = parseIntervalToken(`${match[2]!}${match[3]!}`)
+  if (!interval) return null
+  return {
+    prompt: match[1]!.trim(),
+    interval,
+  }
+}
 
-If the resulting prompt is empty, show usage \`/loop [interval] <prompt>\` and stop — do not call ${CRON_CREATE_TOOL_NAME}.
+function parseLoopArgs(args: string): ParsedLoopArgs {
+  const trimmed = args.trim()
+  if (!trimmed) return { mode: 'dynamic-maintenance' }
 
-Examples:
-- \`5m /babysit-prs\` → interval \`5m\`, prompt \`/babysit-prs\` (rule 1)
-- \`check the deploy every 20m\` → interval \`20m\`, prompt \`check the deploy\` (rule 2)
-- \`run tests every 5 minutes\` → interval \`5m\`, prompt \`run tests\` (rule 2)
-- \`check the deploy\` → interval \`${DEFAULT_INTERVAL}\`, prompt \`check the deploy\` (rule 3)
-- \`check every PR\` → interval \`${DEFAULT_INTERVAL}\`, prompt \`check every PR\` (rule 3 — "every" not followed by time)
-- \`5m\` → empty prompt → show usage
+  const bareInterval = parseIntervalToken(trimmed)
+  if (bareInterval) {
+    return { mode: 'fixed-maintenance', interval: bareInterval }
+  }
 
-## Interval → cron
+  const [firstToken, ...restTokens] = trimmed.split(/\s+/)
+  const leadingInterval = parseIntervalToken(firstToken ?? '')
+  if (leadingInterval) {
+    const prompt = restTokens.join(' ').trim()
+    if (!prompt) return { mode: 'fixed-maintenance', interval: leadingInterval }
+    return {
+      mode: 'fixed-prompt',
+      interval: leadingInterval,
+      prompt,
+    }
+  }
 
-Supported suffixes: \`s\` (seconds, rounded up to nearest minute, min 1), \`m\` (minutes), \`h\` (hours), \`d\` (days). Convert:
+  const trailingEvery = parseTrailingEveryClause(trimmed)
+  if (trailingEvery) {
+    if (!trailingEvery.prompt) {
+      return {
+        mode: 'fixed-maintenance',
+        interval: trailingEvery.interval,
+      }
+    }
+    return {
+      mode: 'fixed-prompt',
+      interval: trailingEvery.interval,
+      prompt: trailingEvery.prompt,
+    }
+  }
 
-| Interval pattern      | Cron expression     | Notes                                    |
-|-----------------------|---------------------|------------------------------------------|
-| \`Nm\` where N ≤ 59   | \`*/N * * * *\`     | every N minutes                          |
-| \`Nm\` where N ≥ 60   | \`0 */H * * *\`     | round to hours (H = N/60, must divide 24)|
-| \`Nh\` where N ≤ 23   | \`0 */N * * *\`     | every N hours                            |
-| \`Nd\`                | \`0 0 */N * *\`     | every N days at midnight local           |
-| \`Ns\`                | treat as \`ceil(N/60)m\` | cron minimum granularity is 1 minute  |
+  return {
+    mode: 'dynamic-prompt',
+    prompt: trimmed,
+  }
+}
 
-**If the interval doesn't cleanly divide its unit** (e.g. \`7m\` → \`*/7 * * * *\` gives uneven gaps at :56→:00; \`90m\` → 1.5h which cron can't express), pick the nearest clean interval and tell the user what you rounded to before scheduling.
+function buildFixedPrompt(parsed: ParsedLoopArgs): string {
+  const targetInstructions = parsed.prompt
+    ? `Use this prompt verbatim for both the immediate run and the recurring scheduled task:
 
-## Action
+--- BEGIN PROMPT ---
+${parsed.prompt}
+--- END PROMPT ---
+`
+    : `This is a maintenance loop with no explicit prompt.
 
-1. Call ${CRON_CREATE_TOOL_NAME} with:
-   - \`cron\`: the expression from the table above
-   - \`prompt\`: the parsed prompt from above, verbatim (slash commands are passed through unchanged)
-   - \`recurring\`: \`true\`
-2. Briefly confirm: what's scheduled, the cron expression, the human-readable cadence, that recurring tasks auto-expire after ${DEFAULT_MAX_AGE_DAYS} days, and that they can cancel sooner with ${CRON_DELETE_TOOL_NAME} (include the job ID).
-3. **Then immediately execute the parsed prompt now** — don't wait for the first cron fire. If it's a slash command, invoke it via the Skill tool; otherwise act on it directly.
+For the recurring scheduled task, use this exact maintenance prompt body:
 
-## Input
+--- BEGIN MAINTENANCE PROMPT ---
+${MAINTENANCE_PROMPT}
+--- END MAINTENANCE PROMPT ---
+`
 
-${args}`
+  return `# /loop — fixed recurring interval
+
+The user invoked /loop with a fixed interval.
+
+Requested interval: ${parsed.interval}
+
+${targetInstructions}
+## Instructions
+
+1. Convert the requested interval to a recurring cron expression.
+   - Supported suffixes: s, m, h, d.
+   - Seconds must be rounded up to the nearest minute because cron has minute granularity.
+   - If the requested interval does not map cleanly to cron cadence, choose the nearest clean recurring interval and tell the user what you picked.
+2. Call ${CRON_CREATE_TOOL_NAME} with:
+   - the recurring cron expression
+   - the effective prompt body above
+   - recurring: true
+   - durable: false
+3. Briefly confirm what was scheduled, the cron expression, the human cadence, that recurring tasks auto-expire after ${DEFAULT_MAX_AGE_DAYS} days, and that the user can cancel sooner with ${CRON_DELETE_TOOL_NAME} using the returned job ID.
+4. Immediately execute the effective prompt now — do not wait for the first cron fire.
+   - If the effective prompt starts with a slash command, invoke it via the Skill tool.
+   - Otherwise, act on it directly.
+`
+}
+
+function buildDynamicPrompt(parsed: ParsedLoopArgs): string {
+  const effectivePromptInstructions = parsed.prompt
+    ? `Use this prompt verbatim as the effective prompt for this iteration:
+
+--- BEGIN PROMPT ---
+${parsed.prompt}
+--- END PROMPT ---
+`
+    : `This is a maintenance loop with no explicit prompt.
+
+Determine the effective prompt in this order:
+1. If .claude/loop.md exists, read it and use it.
+2. Otherwise, if ~/.claude/loop.md exists, read it and use it.
+3. Otherwise, use this built-in maintenance prompt:
+
+--- BEGIN MAINTENANCE PROMPT ---
+${MAINTENANCE_PROMPT}
+--- END MAINTENANCE PROMPT ---
+`
+
+  const reschedulePrompt = parsed.prompt ? `/loop ${parsed.prompt}` : '/loop'
+
+  return `# /loop — dynamic rescheduling
+
+The user invoked /loop without a fixed interval.
+
+${effectivePromptInstructions}
+## Instructions
+
+1. Execute the effective prompt now.
+   - If it starts with a slash command, invoke it via the Skill tool.
+   - Otherwise, act on it directly.
+2. After the work finishes, choose the next delay dynamically between ${DYNAMIC_MIN_DELAY} and ${DYNAMIC_MAX_DELAY}.
+   - Use shorter delays while active work is progressing or likely to change soon.
+   - Use longer delays when the situation is quiet or stable.
+3. Briefly tell the user the chosen delay and the reason.
+4. Schedule exactly one session-only follow-up run with ${CRON_CREATE_TOOL_NAME}.
+   - Use recurring: false.
+   - Use durable: false.
+   - Pin the cron expression to a specific future local-time minute that matches the chosen delay.
+   - Set the scheduled prompt to this exact text so the next iteration stays in dynamic mode:
+
+--- BEGIN SCHEDULED PROMPT ---
+${reschedulePrompt}
+--- END SCHEDULED PROMPT ---
+
+5. Confirm the next run time and the returned job ID.
+6. Do not create a recurring cron for this mode.
+`
 }
 
 export function registerLoopSkill(): void {
   registerBundledSkill({
     name: 'loop',
     description:
-      'Run a prompt or slash command on a recurring interval (e.g. /loop 5m /foo, defaults to 10m)',
+      'Run a prompt on a fixed interval or dynamically reschedule it, including bare maintenance-mode loops.',
     whenToUse:
-      'When the user wants to set up a recurring task, poll for status, or run something repeatedly on an interval (e.g. "check the deploy every 5 minutes", "keep running /babysit-prs"). Do NOT invoke for one-off tasks.',
-    argumentHint: '[interval] <prompt>',
+      'When the user wants to poll for status, babysit a workflow, run recurring maintenance, or keep re-running a prompt within the current session.',
+    argumentHint: '[interval] [prompt]',
     userInvocable: true,
     isEnabled: isKairosCronEnabled,
     async getPromptForCommand(args) {
-      const trimmed = args.trim()
-      if (!trimmed) {
-        return [{ type: 'text', text: USAGE_MESSAGE }]
-      }
-      return [{ type: 'text', text: buildPrompt(trimmed) }]
+      const parsed = parseLoopArgs(args)
+      const text =
+        parsed.mode === 'fixed-prompt' || parsed.mode === 'fixed-maintenance'
+          ? buildFixedPrompt(parsed)
+          : buildDynamicPrompt(parsed)
+      return [{ type: 'text', text }]
     },
   })
 }

@@ -2,7 +2,7 @@
   "name": "openclaude-vscode",
   "displayName": "OpenClaude",
   "description": "Practical VS Code companion for OpenClaude with project-aware launch behavior and a real Control Center.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "devnull-bootloader",
   "engines": {
     "vscode": "^1.95.0"
@@ -19,7 +19,12 @@
     "onCommand:openclaude.openSetupDocs",
     "onCommand:openclaude.openWorkspaceProfile",
     "onCommand:openclaude.openControlCenter",
-    "onView:openclaude.controlCenter"
+    "onCommand:openclaude.newChat",
+    "onCommand:openclaude.openChat",
+    "onCommand:openclaude.resumeSession",
+    "onCommand:openclaude.abortChat",
+    "onView:openclaude.controlCenter",
+    "onView:openclaude.chat"
   ],
   "main": "./src/extension.js",
   "files": [
@@ -28,6 +33,7 @@
     "src/extension.js",
     "src/presentation.js",
     "src/state.js",
+    "src/chat/**",
     "themes/**"
   ],
   "contributes": {
@@ -61,6 +67,26 @@
         "command": "openclaude.openControlCenter",
         "title": "OpenClaude: Open Control Center",
         "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.newChat",
+        "title": "OpenClaude: New Chat",
+        "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.openChat",
+        "title": "OpenClaude: Open Chat Panel",
+        "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.resumeSession",
+        "title": "OpenClaude: Resume Session",
+        "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.abortChat",
+        "title": "OpenClaude: Abort Generation",
+        "category": "OpenClaude"
       }
     ],
     "viewsContainers": {
@@ -75,12 +101,24 @@
     "views": {
       "openclaude": [
         {
+          "id": "openclaude.chat",
+          "name": "Chat",
+          "type": "webview"
+        },
+        {
           "id": "openclaude.controlCenter",
           "name": "Control Center",
           "type": "webview"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "openclaude.openChat",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l"
+      }
+    ],
     "configuration": {
       "title": "OpenClaude",
       "properties": {
@@ -98,6 +136,18 @@
           "type": "boolean",
           "default": false,
           "description": "Optionally set CLAUDE_CODE_USE_OPENAI=1 in launched OpenClaude terminals."
+        },
+        "openclaude.permissionMode": {
+          "type": "string",
+          "default": "acceptEdits",
+          "enum": ["default", "acceptEdits", "bypassPermissions", "plan"],
+          "enumDescriptions": [
+            "Prompt for permission on each tool use (requires manual approval)",
+            "Auto-approve file edits, prompt for other operations (recommended)",
+            "Auto-approve all operations without prompting",
+            "Read-only mode — no file modifications allowed"
+          ],
+          "description": "Permission mode for chat sessions. Controls which tool operations are auto-approved."
         }
       }
     },
@@ -111,7 +161,7 @@
   },
   "scripts": {
     "test": "node --test ./src/*.test.js",
-    "lint": "node -e \"for (const file of require('node:fs').readdirSync('./src')) { if (file.endsWith('.js')) { require('node:child_process').execFileSync(process.execPath, ['--check', require('node:path').join('src', file)], { stdio: 'inherit' }); } }\"",
+    "lint": "node scripts/lint.js",
     "package": "npx @vscode/vsce package --no-dependencies"
   },
   "keywords": [

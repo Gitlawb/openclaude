@@ -267,7 +267,7 @@ export async function suggestPathUnderCwd(
 }
 
 /**
- * Whether to use the compact line-number prefix format (`N\t` instead of
+ * Whether to use the compact line-number prefix format (`N→` instead of
  * `     N→`). The padded-arrow format costs 9 bytes/line overhead; at
  * 1.35B Read calls × 132 lines avg this is 2.18% of fleet uncached input
  * (bq-queries/read_line_prefix_overhead_verify.sql).
@@ -303,7 +303,7 @@ export function addLineNumbers({
 
   if (isCompactLinePrefixEnabled()) {
     return lines
-      .map((line, index) => `${index + startLine}\t${line}`)
+      .map((line, index) => `${index + startLine}→${line}`)
       .join('\n')
   }
 

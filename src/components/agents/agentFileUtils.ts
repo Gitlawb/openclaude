@@ -1,5 +1,5 @@
 import { mkdir, open, unlink } from 'fs/promises'
-import { join } from 'path'
+import { join, relative } from 'path'
 import type { SettingSource } from 'src/utils/settings/constants.js'
 import { getManagedFilePath } from 'src/utils/settings/managedPath.js'
 import type { AgentMemoryScope } from '../../tools/AgentTool/agentMemory.js'
@@ -31,7 +31,13 @@ export function formatAgentAsMarkdown(
   // - Backslashes: \ -> \\
   // - Double quotes: " -> \"
   // - Newlines: \n -> \\n (so yaml reads it as literal backslash-n, not newline)
-  const escapedWhenToUse = whenToUse
+  // Defensive fail-closed: upstream callers (LLM-generated metadata, manually
+  // edited agent files) have produced non-string values here in the past,
+  // which crashed agent creation with `whenToUse.replace is not a function`.
+  // Stringifying junk like `[object Object]` or `"42"` would silently save
+  // garbage; write an empty description instead so the bad value is visible.
+  const whenToUseStr = typeof whenToUse === 'string' ? whenToUse : ''
+  const escapedWhenToUse = whenToUseStr
     .replace(/\\/g, '\\\\') // Escape backslashes first
     .replace(/"/g, '\\"') // Escape double quotes
     .replace(/\n/g, '\\\\n') // Escape newlines as \\n so yaml preserves them as \n
@@ -66,11 +72,7 @@ function getAgentDirectoryPath(location: SettingSource): string {
     case 'projectSettings':
       return join(getCwd(), AGENT_PATHS.FOLDER_NAME, AGENT_PATHS.AGENTS_DIR)
     case 'policySettings':
-      return join(
-        getManagedFilePath(),
-        AGENT_PATHS.FOLDER_NAME,
-        AGENT_PATHS.AGENTS_DIR,
-      )
+      return join(getManagedFilePath(), '.claude', AGENT_PATHS.AGENTS_DIR)
     case 'localSettings':
       return join(getCwd(), AGENT_PATHS.FOLDER_NAME, AGENT_PATHS.AGENTS_DIR)
   }
@@ -109,7 +111,7 @@ export function getActualAgentFilePath(agent: AgentDefinition): string {
     throw new Error('Cannot get file path for plugin agents')
   }
 
-  const dirPath = getAgentDirectoryPath(agent.source)
+  const dirPath = agent.baseDir || getAgentDirectoryPath(agent.source)
   const filename = agent.filename || agent.agentType
   return join(dirPath, `${filename}.md`)
 }
@@ -143,7 +145,13 @@ export function getActualRelativeAgentFilePath(agent: AgentDefinition): string {
     return 'CLI argument'
   }
 
-  const dirPath = getRelativeAgentDirectoryPath(agent.source)
+  const dirPath =
+    agent.baseDir &&
+    (agent.source === 'projectSettings' ||
+      agent.source === 'localSettings' ||
+      agent.source === 'policySettings')
+      ? join('.', relative(getCwd(), agent.baseDir))
+      : getRelativeAgentDirectoryPath(agent.source)
   const filename = agent.filename || agent.agentType
   return join(dirPath, `${filename}.md`)
 }

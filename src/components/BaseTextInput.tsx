@@ -31,9 +31,11 @@ export function BaseTextInput(t0) {
   } = t0;
   const {
     onInput,
+    value,
     renderedValue,
     cursorLine,
-    cursorColumn
+    cursorColumn,
+    offset,
   } = inputState;
   const t1 = Boolean(props.focus && props.showCursor && terminalFocus);
   let t2;
@@ -78,7 +80,7 @@ export function BaseTextInput(t0) {
     renderedPlaceholder
   } = renderPlaceholder({
     placeholder: props.placeholder,
-    value: props.value,
+    value,
     showCursor: props.showCursor,
     focus: props.focus,
     terminalFocus,
@@ -88,9 +90,9 @@ export function BaseTextInput(t0) {
   useInput(wrappedOnInput, {
     isActive: props.focus
   });
-  const commandWithoutArgs = props.value && props.value.trim().indexOf(" ") === -1 || props.value && props.value.endsWith(" ");
-  const showArgumentHint = Boolean(props.argumentHint && props.value && commandWithoutArgs && props.value.startsWith("/"));
-  const cursorFiltered = props.showCursor && props.highlights ? props.highlights.filter(h => h.dimColor || props.cursorOffset < h.start || props.cursorOffset >= h.end) : props.highlights;
+  const commandWithoutArgs = value && value.trim().indexOf(" ") === -1 || value && value.endsWith(" ");
+  const showArgumentHint = Boolean(props.argumentHint && value && commandWithoutArgs && value.startsWith("/"));
+  const cursorFiltered = props.showCursor && props.highlights ? props.highlights.filter(h => h.dimColor || offset < h.start || offset >= h.end) : props.highlights;
   const {
     viewportCharOffset,
     viewportCharEnd
@@ -102,13 +104,13 @@ export function BaseTextInput(t0) {
   })) : cursorFiltered;
   const hasHighlights = filteredHighlights && filteredHighlights.length > 0;
   if (hasHighlights) {
-    return <Box ref={cursorRef}><HighlightedInput text={renderedValue} highlights={filteredHighlights} />{showArgumentHint && <Text dimColor={true}>{props.value?.endsWith(" ") ? "" : " "}{props.argumentHint}</Text>}{children}</Box>;
+    return <Box ref={cursorRef}><HighlightedInput text={renderedValue} highlights={filteredHighlights} />{showArgumentHint && <Text dimColor={true}>{value.endsWith(" ") ? "" : " "}{props.argumentHint}</Text>}{children}</Box>;
   }
   const T0 = Box;
   const T1 = Text;
   const t4 = "truncate-end";
   const t5 = showPlaceholder && props.placeholderElement ? props.placeholderElement : showPlaceholder && renderedPlaceholder ? <Ansi>{renderedPlaceholder}</Ansi> : <Ansi>{renderedValue}</Ansi>;
-  const t6 = showArgumentHint && <Text dimColor={true}>{props.value?.endsWith(" ") ? "" : " "}{props.argumentHint}</Text>;
+  const t6 = showArgumentHint && <Text dimColor={true}>{value.endsWith(" ") ? "" : " "}{props.argumentHint}</Text>;
   let t7;
   if ($[4] !== T1 || $[5] !== children || $[6] !== props || $[7] !== t5 || $[8] !== t6) {
     t7 = <T1 wrap={t4} dimColor={props.dimColor}>{t5}{t6}{children}</T1>;

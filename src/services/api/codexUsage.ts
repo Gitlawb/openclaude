@@ -1,7 +1,14 @@
 import {
+  readCodexCredentialsAsync,
+  refreshCodexAccessTokenIfNeeded,
+} from '../../utils/codexCredentials.js'
+import { createCombinedAbortSignal } from '../../utils/combinedAbortSignal.js'
+import { logForDebugging } from '../../utils/debug.js'
+import { isBareMode } from '../../utils/envUtils.js'
+import {
   DEFAULT_CODEX_BASE_URL,
   isCodexBaseUrl,
-  resolveCodexApiCredentials,
+  resolveRuntimeCodexCredentials,
   resolveProviderRequest,
 } from './providerConfig.js'
 
@@ -391,6 +398,18 @@ export function getCodexUsageUrl(baseUrl = DEFAULT_CODEX_BASE_URL): string {
 }
 
 export async function fetchCodexUsage(): Promise<CodexUsageData> {
+  const refreshResult = await refreshCodexAccessTokenIfNeeded().catch(
+    async error => {
+      logForDebugging(
+        `[codex] access token refresh failed before usage fetch: ${error instanceof Error ? error.message : String(error)}`,
+        { level: 'warn' },
+      )
+      return {
+        refreshed: false,
+        credentials: await readCodexCredentialsAsync(),
+      }
+    },
+  )
   const request = resolveProviderRequest({
     model: process.env.OPENAI_MODEL,
     baseUrl: process.env.OPENAI_BASE_URL,
@@ -401,34 +420,44 @@ export async function fetchCodexUsage(): Promise<CodexUsageData> {
     )
   }
 
-  const credentials = resolveCodexApiCredentials()
+  const credentials = resolveRuntimeCodexCredentials({
+    storedCredentials: refreshResult.credentials,
+  })
   if (!credentials.apiKey) {
+    const oauthHint = isBareMode() ? '' : ', choose Codex OAuth in /provider'
     const authHint = credentials.authPath
-      ? ` or place a Codex auth.json at ${credentials.authPath}`
-      : ''
+      ? `${oauthHint} or place a Codex auth.json at ${credentials.authPath}`
+      : oauthHint
     throw new Error(`Codex auth is required. Set CODEX_API_KEY${authHint}.`)
   }
   if (!credentials.accountId) {
     throw new Error(
-      'Codex auth is missing chatgpt_account_id. Re-login with the Codex CLI or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.',
+      'Codex auth is missing chatgpt_account_id. Re-login with Codex OAuth, the Codex CLI, or set CHATGPT_ACCOUNT_ID/CODEX_ACCOUNT_ID.',
     )
   }
 
-  const response = await fetch(getCodexUsageUrl(request.baseUrl), {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${credentials.apiKey}`,
-      'chatgpt-account-id': credentials.accountId,
-      originator: 'openclaude',
-    },
-    signal: AbortSignal.timeout(5000),
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: 5000,
   })
+  try {
+    const response = await fetch(getCodexUsageUrl(request.baseUrl), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${credentials.apiKey}`,
+        'chatgpt-account-id': credentials.accountId,
+        originator: 'openclaude',
+      },
+      signal,
+    })
 
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => 'unknown error')
-    throw new Error(`Codex usage error ${response.status}: ${errorBody}`)
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => 'unknown error')
+      throw new Error(`Codex usage error ${response.status}: ${errorBody}`)
+    }
+
+    return normalizeCodexUsagePayload(await response.json())
+  } finally {
+    cleanup()
   }
-
-  return normalizeCodexUsagePayload(await response.json())
 }

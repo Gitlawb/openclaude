@@ -7,6 +7,7 @@ const SAVED_PROFILES = new Set([
   'codex',
   'gemini',
   'atomic-chat',
+  'mistral'
 ]);
 
 const CODEX_ALIAS_MODELS = new Set([
@@ -315,8 +316,10 @@ function getDetail(env, fallback) {
   return (
     asNonEmptyString(env.OPENAI_MODEL) ||
     asNonEmptyString(env.GEMINI_MODEL) ||
+    asNonEmptyString(env.MISTRAL_MODEL) ||
     asNonEmptyString(env.OPENAI_BASE_URL) ||
-    asNonEmptyString(env.GEMINI_BASE_URL) ||
+    asNonEmptyString(env.GEMINI_BASE_URL) || 
+    asNonEmptyString(env.MISTRAL_BASE_URL) ||
     fallback
   );
 }
@@ -339,6 +342,8 @@ function describeSavedProfile(profile) {
       return buildProviderState('Ollama', getDetail(profile.env, 'saved profile'), 'profile');
     case 'gemini':
       return buildProviderState('Gemini', getDetail(profile.env, 'saved profile'), 'profile');
+    case 'mistral':
+      return buildProviderState('Mistral', getDetail(profile.env, 'saved profile'), 'profile')
     case 'codex':
       return buildProviderState('Codex', getDetail(profile.env, 'saved profile'), 'profile');
     case 'atomic-chat':
@@ -356,6 +361,10 @@ function describeProviderState({ shimEnabled, env, profile }) {
 
   if (isEnvTruthy(env.CLAUDE_CODE_USE_GEMINI)) {
     return buildProviderState('Gemini', getDetail(env, 'from environment'), 'env');
+  }
+
+  if (isEnvTruthy(env.CLAUDE_CODE_USE_MISTRAL)) {
+    return buildProviderState('Mistral', getDetail(env, 'from environment'), 'env');
   }
 
   if (isEnvTruthy(env.CLAUDE_CODE_USE_GITHUB)) {

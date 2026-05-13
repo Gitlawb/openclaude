@@ -6,6 +6,7 @@ import { c as _c } from "react-compiler-runtime";
  * and simply lets the user drill into each matcher to see its hooks.
  */
 import * as React from 'react';
+import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js';
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js';
 import { Box, Text } from '../../ink.js';
 import { type HookSource, hookSourceInlineDisplayString, type IndividualHookConfig } from '../../utils/hooks/hooksSettings.js';
@@ -67,7 +68,7 @@ export function SelectMatcherMode(t0) {
     const t2 = `${selectedEvent} - Matchers`;
     let t3;
     if ($[7] === Symbol.for("react.memo_cache_sentinel")) {
-      t3 = <Box flexDirection="column" gap={1}><Text dimColor={true}>No hooks configured for this event.</Text><Text dimColor={true}>To add hooks, edit settings.json directly or ask Claude.</Text></Box>;
+      t3 = <Box flexDirection="column" gap={1}><Text dimColor={true}>No hooks configured for this event.</Text><Text dimColor={true}>To add hooks, edit settings.json directly or ask {PRODUCT_DISPLAY_NAME}.</Text></Box>;
       $[7] = t3;
     } else {
       t3 = $[7];

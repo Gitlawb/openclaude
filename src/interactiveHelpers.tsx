@@ -158,24 +158,25 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     // Now that trust is established, prefetch system context if it wasn't already
     void getSystemContext();
 
-    // Skip MCP approval dialogs for third-party providers (no interactive auth prompts)
-    if (usesAnthropicSetup) {
-      // If settings are valid, check for any mcp.json servers that need approval
-      const {
-        errors: allErrors
-      } = getSettingsWithAllErrors();
-      if (allErrors.length === 0) {
-        await handleMcpjsonServerApprovals(root);
-      }
+    // MCP approval and external-includes warnings are about workspace
+    // trust, not about Anthropic auth. They must run for all providers
+    // — including third-party — otherwise project-scoped .mcp.json
+    // servers never get the approval that writes
+    // enableAllProjectMcpServers / enabledMcpjsonServers into
+    // settings.local.json, and the servers are silently dropped from
+    // /mcp and `mcp list` (issue #696).
+    const { errors: allErrors } = getSettingsWithAllErrors();
+    if (allErrors.length === 0) {
+      await handleMcpjsonServerApprovals(root);
+    }
 
-      // Check for claude.md includes that need approval
-      if (await shouldShowClaudeMdExternalIncludesWarning()) {
-        const externalIncludes = getExternalClaudeMdIncludes(await getMemoryFiles(true));
-        const {
-          ClaudeMdExternalIncludesDialog
-        } = await import('./components/ClaudeMdExternalIncludesDialog.js');
-        await showSetupDialog(root, done => <ClaudeMdExternalIncludesDialog onDone={done} isStandaloneDialog externalIncludes={externalIncludes} />);
-      }
+    // Check for claude.md includes that need approval
+    if (await shouldShowClaudeMdExternalIncludesWarning()) {
+      const externalIncludes = getExternalClaudeMdIncludes(await getMemoryFiles(true));
+      const {
+        ClaudeMdExternalIncludesDialog
+      } = await import('./components/ClaudeMdExternalIncludesDialog.js');
+      await showSetupDialog(root, done => <ClaudeMdExternalIncludesDialog onDone={done} isStandaloneDialog externalIncludes={externalIncludes} />);
     }
   }
 

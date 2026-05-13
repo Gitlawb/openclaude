@@ -240,21 +240,28 @@ For commands that are harder to parse at a glance (piped commands, obscure flags
 - curl -s url | jq '.data[]' → "Fetch JSON from URL and extract data array elements"`),
   run_in_background: semanticBoolean(z.boolean().optional()).describe(`Set to true to run this command in the background. Use Read to read the output later.`),
   dangerouslyDisableSandbox: semanticBoolean(z.boolean().optional()).describe('Set this to true to dangerously override sandbox mode and run commands without sandboxing.'),
+  _dangerouslyDisableSandboxApproved: z.boolean().optional().describe('Internal: user-approved sandbox override'),
   _simulatedSedEdit: z.object({
     filePath: z.string(),
     newContent: z.string()
   }).optional().describe('Internal: pre-computed sed edit result from preview')
 }));
 
-// Always omit _simulatedSedEdit from the model-facing schema. It is an internal-only
-// field set by SedEditPermissionRequest after the user approves a sed edit preview.
-// Exposing it in the schema would let the model bypass permission checks and the
-// sandbox by pairing an innocuous command with an arbitrary file write.
+// Always omit internal-only fields from the model-facing schema.
+// _simulatedSedEdit is set by SedEditPermissionRequest after the user approves a
+// sed edit preview; exposing it would let the model bypass permission checks and
+// the sandbox by pairing an innocuous command with an arbitrary file write.
+// dangerouslyDisableSandbox is also omitted because sandbox escape must be tied
+// to trusted user/internal provenance, not model-controlled tool input.
 // Also conditionally remove run_in_background when background tasks are disabled.
 const inputSchema = lazySchema(() => isBackgroundTasksDisabled ? fullInputSchema().omit({
   run_in_background: true,
+  dangerouslyDisableSandbox: true,
+  _dangerouslyDisableSandboxApproved: true,
   _simulatedSedEdit: true
 }) : fullInputSchema().omit({
+  dangerouslyDisableSandbox: true,
+  _dangerouslyDisableSandboxApproved: true,
   _simulatedSedEdit: true
 }));
 type InputSchema = ReturnType<typeof inputSchema>;

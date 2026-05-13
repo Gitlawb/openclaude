@@ -27,6 +27,7 @@ export {
 
 // Also import for use within this file
 import { type HookCommand, HooksSchema } from '../../schemas/hooks.js'
+import { AutoFixConfigSchema } from '../../services/autoFix/autoFixConfig.js'
 import { count } from '../array.js'
 
 /**
@@ -68,6 +69,12 @@ export const PermissionsSchema = lazySchema(() =>
         .enum(['disable'])
         .optional()
         .describe('Disable the ability to bypass permission prompts'),
+      allowBypassPermissionsMode: z
+        .boolean()
+        .optional()
+        .describe(
+          'Allow bypass permissions mode to appear in the mode list without requiring the CLI flag',
+        ),
       ...(feature('TRANSCRIPT_CLASSIFIER')
         ? {
             disableAutoMode: z
@@ -435,6 +442,12 @@ export const SettingsSchema = lazySchema(() =>
       hooks: HooksSchema()
         .optional()
         .describe('Custom commands to run before/after tool executions'),
+      autoFix: AutoFixConfigSchema
+        .optional()
+        .describe(
+          'Auto-fix configuration: automatically run lint/test after AI file edits ' +
+          'and feed errors back for self-repair.',
+        ),
       worktree: z
         .object({
           symlinkDirectories: z
@@ -665,6 +678,20 @@ export const SettingsSchema = lazySchema(() =>
         .boolean()
         .optional()
         .describe('Whether to show tips in the spinner'),
+      sponsoredTipsEnabled: z
+        .boolean()
+        .optional()
+        .describe(
+          'Whether to show sponsored partner tips alongside regular tips (default: true). Disabling does not affect regular tips.',
+        ),
+      sponsoredTipsFrequency: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          'Show at most 1 sponsored tip per N spinner picks. Default 10. Set 0 to disable sponsored tips.',
+        ),
       spinnerVerbs: z
         .object({
           mode: z.enum(['append', 'replace']),
@@ -701,11 +728,7 @@ export const SettingsSchema = lazySchema(() =>
             'enabled automatically for supported models.',
         ),
       effortLevel: z
-        .enum(
-          process.env.USER_TYPE === 'ant'
-            ? ['low', 'medium', 'high', 'max']
-            : ['low', 'medium', 'high'],
-        )
+        .enum(['low', 'medium', 'high', 'max'])
         .optional()
         .catch(undefined)
         .describe('Persisted effort level for supported models.'),
@@ -847,7 +870,7 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .describe(
           'Custom directory for plan files, relative to project root. ' +
-            'If not set, defaults to ~/.claude/plans/',
+            'If not set, defaults to ~/.openclaude/plans/',
         ),
       ...(process.env.USER_TYPE === 'ant'
         ? {
@@ -1075,10 +1098,10 @@ export const SettingsSchema = lazySchema(() =>
         .array(z.string())
         .optional()
         .describe(
-          'Glob patterns or absolute paths of CLAUDE.md files to exclude from loading. ' +
+          'Glob patterns or absolute paths of AGENTS.md/CLAUDE.md files to exclude from loading. ' +
             'Patterns are matched against absolute file paths using picomatch. ' +
             'Only applies to User, Project, and Local memory types (Managed/policy files cannot be excluded). ' +
-            'Examples: "/home/user/monorepo/CLAUDE.md", "**/code/CLAUDE.md", "**/some-dir/.claude/rules/**"',
+            'Examples: "/home/user/monorepo/AGENTS.md", "**/code/CLAUDE.md", "**/some-dir/.claude/rules/**"',
         ),
       pluginTrustMessage: z
         .string()

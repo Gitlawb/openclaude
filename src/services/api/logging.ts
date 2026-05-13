@@ -22,12 +22,6 @@ import { logError } from 'src/utils/log.js'
 import { getAPIProviderForStatsig } from 'src/utils/model/providers.js'
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
-import { logOTelEvent } from 'src/utils/telemetry/events.js'
-import {
-  endLLMRequestSpan,
-  isBetaTracingEnabled,
-  type Span,
-} from 'src/utils/telemetry/sessionTracing.js'
 import type { NonNullableUsage } from '../../entrypoints/sdk/sdkUtilityTypes.js'
 import { consumeInvokingRequestId } from '../../utils/agentContext.js'
 import {
@@ -247,7 +241,6 @@ export function logAPIError({
   headers,
   queryTracking,
   querySource,
-  llmSpan,
   fastMode,
   previousRequestId,
 }: {
@@ -266,8 +259,6 @@ export function logAPIError({
   headers?: globalThis.Headers
   queryTracking?: QueryChainTracking
   querySource?: string
-  /** The span from startLLMRequestSpan - pass this to correctly match responses to requests */
-  llmSpan?: Span
   fastMode?: boolean
   previousRequestId?: string | null
 }): void {
@@ -364,24 +355,7 @@ export function logAPIError({
     ...getAnthropicEnvMetadata(),
   })
 
-  // Log API error event for OTLP
-  void logOTelEvent('api_error', {
-    model: model,
-    error: errStr,
-    status_code: String(status),
-    duration_ms: String(durationMs),
-    attempt: String(attempt),
-    speed: fastMode ? 'fast' : 'normal',
-  })
-
-  // Pass the span to correctly match responses to requests when beta tracing is enabled
-  endLLMRequestSpan(llmSpan, {
-    success: false,
-    statusCode: status ? parseInt(status) : undefined,
-    error: errStr,
-    attempt,
-  })
-
+  
   // Log first error for teleported sessions (reliability tracking)
   const teleportInfo = getTeleportedSessionInfo()
   if (teleportInfo?.isTeleported && !teleportInfo.hasLoggedFirstMessage) {
@@ -597,7 +571,6 @@ export function logAPISuccessAndDuration({
   queryTracking,
   permissionMode,
   newMessages,
-  llmSpan,
   globalCacheStrategy,
   requestSetupMs,
   attemptStartTimes,
@@ -622,11 +595,8 @@ export function logAPISuccessAndDuration({
   costUSD: number
   queryTracking?: QueryChainTracking
   permissionMode?: PermissionMode
-  /** Assistant messages from the response - used to extract model_output and thinking_output
-   *  when beta tracing is enabled */
+  /** Assistant messages from the response - used to calculate content length */
   newMessages?: AssistantMessage[]
-  /** The span from startLLMRequestSpan - pass this to correctly match responses to requests */
-  llmSpan?: Span
   /** Strategy used for global prompt caching: 'tool_based', 'system_prompt', or 'none' */
   globalCacheStrategy?: GlobalCacheStrategy
   /** Time spent in pre-request setup before the successful attempt */
@@ -713,67 +683,6 @@ export function logAPISuccessAndDuration({
     fastMode,
     previousRequestId,
     betas,
-  })
-  // Log API request event for OTLP
-  void logOTelEvent('api_request', {
-    model,
-    input_tokens: String(usage.input_tokens),
-    output_tokens: String(usage.output_tokens),
-    cache_read_tokens: String(usage.cache_read_input_tokens),
-    cache_creation_tokens: String(usage.cache_creation_input_tokens),
-    cost_usd: String(costUSD),
-    duration_ms: String(durationMs),
-    speed: fastMode ? 'fast' : 'normal',
-  })
-
-  // Extract model output, thinking output, and tool call flag when beta tracing is enabled
-  let modelOutput: string | undefined
-  let thinkingOutput: string | undefined
-  let hasToolCall: boolean | undefined
-
-  if (isBetaTracingEnabled() && newMessages) {
-    // Model output - visible to all users
-    modelOutput =
-      newMessages
-        .flatMap(m =>
-          m.message.content
-            .filter(c => c.type === 'text')
-            .map(c => (c as { type: 'text'; text: string }).text),
-        )
-        .join('\n') || undefined
-
-    // Thinking output - Ant-only (build-time gated)
-    if (process.env.USER_TYPE === 'ant') {
-      thinkingOutput =
-        newMessages
-          .flatMap(m =>
-            m.message.content
-              .filter(c => c.type === 'thinking')
-              .map(c => (c as { type: 'thinking'; thinking: string }).thinking),
-          )
-          .join('\n') || undefined
-    }
-
-    // Check if any tool_use blocks were in the output
-    hasToolCall = newMessages.some(m =>
-      m.message.content.some(c => c.type === 'tool_use'),
-    )
-  }
-
-  // Pass the span to correctly match responses to requests when beta tracing is enabled
-  endLLMRequestSpan(llmSpan, {
-    success: true,
-    inputTokens: usage.input_tokens,
-    outputTokens: usage.output_tokens,
-    cacheReadTokens: usage.cache_read_input_tokens,
-    cacheCreationTokens: usage.cache_creation_input_tokens,
-    attempt,
-    modelOutput,
-    thinkingOutput,
-    hasToolCall,
-    ttftMs: ttftMs ?? undefined,
-    requestSetupMs,
-    attemptStartTimes,
   })
 
   // Log first successful message for teleported sessions (reliability tracking)

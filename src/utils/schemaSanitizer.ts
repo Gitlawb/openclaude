@@ -33,6 +33,15 @@ function stripSchemaKeywords(schema: unknown, keywords: Set<string>): unknown {
 
   const result: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(schema)) {
+    if (key === 'properties' && isSchemaRecord(value)) {
+      const sanitizedProps: Record<string, unknown> = {}
+      for (const [propName, propSchema] of Object.entries(value)) {
+        sanitizedProps[propName] = stripSchemaKeywords(propSchema, keywords)
+      }
+      result[key] = sanitizedProps
+      continue
+    }
+
     if (keywords.has(key)) {
       continue
     }
@@ -215,10 +224,13 @@ export function sanitizeSchemaForOpenAICompat(
     }
   }
 
-  if (Array.isArray(record.required) && isSchemaRecord(record.properties)) {
+  const properties = isSchemaRecord(record.properties)
+    ? record.properties
+    : undefined
+
+  if (Array.isArray(record.required) && properties) {
     record.required = record.required.filter(
-      (value): value is string =>
-        typeof value === 'string' && value in record.properties,
+      (value): value is string => typeof value === 'string' && value in properties,
     )
   }
 

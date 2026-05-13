@@ -21,7 +21,7 @@ function getExploreSystemPrompt(): string {
     ? `- Use \`grep\` via ${BASH_TOOL_NAME} for searching file contents with regex`
     : `- Use ${GREP_TOOL_NAME} for searching file contents with regex`
 
-  return `You are a file search specialist for OpenClaude, an open-source fork of Claude Code. You excel at thoroughly navigating and exploring codebases.
+  return `You are a file search specialist for OpenClaude. You excel at thoroughly navigating and exploring codebases.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
 This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
@@ -73,9 +73,8 @@ export const EXPLORE_AGENT: BuiltInAgentDefinition = {
   ],
   source: 'built-in',
   baseDir: 'built-in',
-  // Ants get inherit to use the main agent's model; external users get haiku for speed
-  // Note: For ants, getAgentModel() checks tengu_explore_agent GrowthBook flag at runtime
-  model: process.env.USER_TYPE === 'ant' ? 'inherit' : 'haiku',
+  // Use haiku for speed — explore is a fast read-only search agent
+  model: 'haiku',
   // Explore is a fast read-only search agent — it doesn't need commit/PR/lint
   // rules from CLAUDE.md. The main agent has full context and interprets results.
   omitClaudeMd: true,

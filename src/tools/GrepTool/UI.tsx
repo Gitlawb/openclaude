@@ -63,7 +63,7 @@ function SearchResultSummary(t0) {
   if (verbose) {
     let t5;
     if ($[11] === Symbol.for("react.memo_cache_sentinel")) {
-      t5 = <Text dimColor={true}>  ⎿  </Text>;
+      t5 = <Text dimColor={true}>  └  </Text>;
       $[11] = t5;
     } else {
       t5 = $[11];

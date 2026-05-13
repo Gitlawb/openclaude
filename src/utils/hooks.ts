@@ -10,6 +10,7 @@ import { wrapSpawn } from './ShellCommand.js'
 import { TaskOutput } from './task/TaskOutput.js'
 import { getCwd } from './cwd.js'
 import { randomUUID } from 'crypto'
+import { feature } from 'bun:bundle'
 import { formatShellPrefixCommand } from './bash/shellPrefix.js'
 import {
   getHookEnvFilePath,
@@ -134,6 +135,7 @@ import { registerPendingAsyncHook } from './hooks/AsyncHookRegistry.js'
 import { enqueuePendingNotification } from './messageQueueManager.js'
 import {
   extractTextContent,
+  createAssistantMessage,
   getLastAssistantMessage,
   wrapInSystemReminder,
 } from './messages.js'
@@ -145,6 +147,7 @@ import {
 import { createAttachmentMessage } from './attachments.js'
 import { all } from './generators.js'
 import { findToolByName, type Tools, type ToolUseContext } from '../Tool.js'
+import type { CanUseToolFn } from '../hooks/useCanUseTool.js'
 import { execPromptHook } from './hooks/execPromptHook.js'
 import type { Message, AssistantMessage } from '../types/message.js'
 import { execAgentHook } from './hooks/execAgentHook.js'
@@ -160,10 +163,182 @@ import {
 } from './hooks/sessionHooks.js'
 import type { AppState } from '../state/AppState.js'
 import { jsonStringify, jsonParse } from './slowOperations.js'
+import { stableStringify } from './stableStringify.js'
 import { isEnvTruthy } from './envUtils.js'
 import { errorMessage, getErrnoCode } from './errors.js'
+import { getAgentName, getTeamName, getTeammateColor } from './teammate.js'
+import type {
+  HookChainOutcome,
+  HookChainRuntimeContext,
+  SpawnFallbackAgentRequest,
+  SpawnFallbackAgentResponse,
+} from './hookChains.js'
 
 const TOOL_HOOK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
+
+function dedupeRegisteredPluginHooks(
+  registeredHooks: Array<HookCallbackMatcher | PluginHookMatcher>,
+): Array<HookCallbackMatcher | PluginHookMatcher> {
+  const seenPluginMatchers = new Set<string>()
+  const deduped: Array<HookCallbackMatcher | PluginHookMatcher> = []
+
+  for (const matcher of registeredHooks) {
+    // SDK callback hooks are intentionally not deduped. Their callbacks are
+    // runtime values, so structural comparison would be lossy and unsafe.
+    if (!('pluginRoot' in matcher)) {
+      deduped.push(matcher)
+      continue
+    }
+
+    const pluginMatcherKey = stableStringify({
+      pluginId: matcher.pluginId,
+      pluginName: matcher.pluginName,
+      pluginRoot: matcher.pluginRoot,
+      matcher: matcher.matcher ?? null,
+      hooks: matcher.hooks,
+    })
+
+    if (seenPluginMatchers.has(pluginMatcherKey)) {
+      continue
+    }
+
+    seenPluginMatchers.add(pluginMatcherKey)
+    deduped.push(matcher)
+  }
+
+  return deduped
+}
+
+function normalizeFallbackAgentModel(
+  model: string | undefined,
+): 'sonnet' | 'opus' | 'haiku' | undefined {
+  if (model === 'sonnet' || model === 'opus' || model === 'haiku') {
+    return model
+  }
+  return undefined
+}
+
+async function launchFallbackAgentFromHookChains(
+  request: SpawnFallbackAgentRequest,
+  toolUseContext: ToolUseContext,
+  canUseTool: CanUseToolFn,
+): Promise<SpawnFallbackAgentResponse> {
+  try {
+    const { AgentTool } = await import('../tools/AgentTool/AgentTool.js')
+    const normalizedModel = normalizeFallbackAgentModel(request.model)
+    const result = await AgentTool.call(
+      {
+        prompt: request.prompt,
+        description: request.description,
+        run_in_background: true,
+        ...(request.agentType ? { subagent_type: request.agentType } : {}),
+        ...(normalizedModel ? { model: normalizedModel } : {}),
+      },
+      toolUseContext,
+      canUseTool,
+      createAssistantMessage({ content: [] }),
+    )
+
+    const data = result.data as
+      | {
+          status?: string
+          agentId?: string
+          agent_id?: string
+        }
+      | undefined
+    const status = data?.status
+
+    if (
+      status === 'async_launched' ||
+      status === 'completed' ||
+      status === 'remote_launched' ||
+      status === 'teammate_spawned'
+    ) {
+      return {
+        launched: true,
+        agentId: data?.agentId ?? data?.agent_id,
+      }
+    }
+
+    return {
+      launched: true,
+      reason:
+        status !== undefined
+          ? `Fallback launched with status ${status}`
+          : undefined,
+    }
+  } catch (error) {
+    return {
+      launched: false,
+      reason: `Fallback launch failed: ${errorMessage(error)}`,
+    }
+  }
+}
+
+async function dispatchHookChainFromHookRuntime(args: {
+  eventName: 'PostToolUseFailure' | 'TaskCompleted'
+  outcome: HookChainOutcome
+  payload: Record<string, unknown>
+  signal?: AbortSignal
+  toolUseContext?: ToolUseContext
+}): Promise<void> {
+  try {
+    if (!feature('HOOK_CHAINS')) {
+      return
+    }
+
+    const { dispatchHookChainsForEvent } = await import('./hookChains.js')
+
+    const runtime: HookChainRuntimeContext = {
+      signal: args.signal,
+      senderName: getAgentName() ?? undefined,
+      senderColor: getTeammateColor() ?? undefined,
+      teamName: getTeamName() ?? undefined,
+    }
+
+    const chainDepth = args.toolUseContext?.queryTracking?.depth
+    if (typeof chainDepth === 'number' && Number.isFinite(chainDepth)) {
+      runtime.chainDepth = chainDepth
+    }
+
+    const hookChainsCanUseTool = (
+      args.toolUseContext as
+        | (ToolUseContext & { hookChainsCanUseTool?: CanUseToolFn })
+        | undefined
+    )?.hookChainsCanUseTool
+
+    if (args.toolUseContext) {
+      runtime.onSpawnFallbackAgent = request => {
+        if (!hookChainsCanUseTool) {
+          return Promise.resolve({
+            launched: false,
+            reason:
+              'Fallback action requires canUseTool in this hook runtime context',
+          })
+        }
+
+        return launchFallbackAgentFromHookChains(
+          request,
+          args.toolUseContext!,
+          hookChainsCanUseTool,
+        )
+      }
+    }
+
+    await dispatchHookChainsForEvent({
+      event: {
+        eventName: args.eventName,
+        outcome: args.outcome,
+        payload: args.payload,
+      },
+      runtime,
+    })
+  } catch (error) {
+    logForDebugging(
+      `[hook-chains] Dispatch failed for ${args.eventName}: ${errorMessage(error)}`,
+    )
+  }
+}
 
 /**
  * SessionEnd hooks run during shutdown/clear and need a much tighter bound
@@ -986,7 +1161,15 @@ async function execCommandHook(
   // Hooks use pipe mode — stdout must be streamed into JS so we can parse
   // the first response line to detect async hooks ({"async": true}).
   const hookTaskOutput = new TaskOutput(`hook_${child.pid}`, null)
-  const shellCommand = wrapSpawn(child, signal, hookTimeoutMs, hookTaskOutput)
+  const shellCommand = wrapSpawn(
+    child,
+    signal,
+    hookTimeoutMs,
+    hookTaskOutput,
+    false,
+    undefined,
+    { keepAliveOnInterrupt: hook.asyncRewake === true },
+  )
   // Track whether shellCommand ownership was transferred (e.g., to async hook registry)
   let shellCommandTransferred = false
   // Track whether stdin has already been written (to avoid "write after end" errors)
@@ -1208,10 +1391,15 @@ async function execCommandHook(
         })
         // Explicitly specify UTF-8 encoding to ensure proper handling of Unicode characters
         child.stdin.write(jsonInput + '\n', 'utf8')
-        // When requestPrompt is provided, keep stdin open for prompt responses
-        if (!requestPrompt) {
-          child.stdin.end()
-        }
+        // Always close stdin after writing the initial JSON payload. The Anthropic
+        // hook input contract (https://docs.claude.com/en/docs/claude-code/hooks#hook-input)
+        // states stdin is closed after the payload is sent, and every plugin written
+        // against that spec reads stdin until EOF. Leaving stdin open to support
+        // future prompt-response on the same channel caused every UserPromptSubmit
+        // hook to block for the full per-hook timeout (default 60s) on every user
+        // message in interactive mode, since requestPrompt is truthy whenever the
+        // REPL is mounted. See issue #825 for the full analysis.
+        child.stdin.end()
         resolve()
       })
 
@@ -1518,7 +1706,7 @@ function getHooksConfig(
   // Process registered hooks (SDK callbacks and plugin native hooks)
   const registeredHooks = getRegisteredHooks()?.[hookEvent]
   if (registeredHooks) {
-    for (const matcher of registeredHooks) {
+    for (const matcher of dedupeRegisteredPluginHooks(registeredHooks)) {
       // Skip plugin hooks when restricted to managed hooks only
       // Plugin hooks have pluginRoot set, SDK callbacks do not
       if (managedOnly && 'pluginRoot' in matcher) {
@@ -3502,9 +3690,11 @@ export async function* executePostToolUseFailureHooks<ToolInput>(
 ): AsyncGenerator<AggregatedHookResult> {
   const appState = toolUseContext.getAppState()
   const sessionId = toolUseContext.agentId ?? getSessionId()
-  if (!hasHookForEvent('PostToolUseFailure', appState, sessionId)) {
-    return
-  }
+  const hasPostToolFailureHooks = hasHookForEvent(
+    'PostToolUseFailure',
+    appState,
+    sessionId,
+  )
 
   const hookInput: PostToolUseFailureHookInput = {
     ...createBaseHookInput(permissionMode, undefined, toolUseContext),
@@ -3516,12 +3706,33 @@ export async function* executePostToolUseFailureHooks<ToolInput>(
     is_interrupt: isInterrupt,
   }
 
-  yield* executeHooks({
-    hookInput,
-    toolUseID,
-    matchQuery: toolName,
+  let blockingHookCount = 0
+
+  if (hasPostToolFailureHooks) {
+    for await (const result of executeHooks({
+      hookInput,
+      toolUseID,
+      matchQuery: toolName,
+      signal,
+      timeoutMs,
+      toolUseContext,
+    })) {
+      if (result.blockingError) {
+        blockingHookCount++
+      }
+      yield result
+    }
+  }
+
+  await dispatchHookChainFromHookRuntime({
+    eventName: 'PostToolUseFailure',
+    outcome: 'failed',
+    payload: {
+      ...hookInput,
+      hook_blocking_error_count: blockingHookCount,
+      hook_execution_skipped: !hasPostToolFailureHooks,
+    },
     signal,
-    timeoutMs,
     toolUseContext,
   })
 }
@@ -3807,11 +4018,35 @@ export async function* executeTaskCompletedHooks(
     team_name: teamName,
   }
 
-  yield* executeHooks({
+  let blockingHookCount = 0
+  let preventedContinuation = false
+
+  for await (const result of executeHooks({
     hookInput,
     toolUseID: randomUUID(),
     signal,
     timeoutMs,
+    toolUseContext,
+  })) {
+    if (result.blockingError) {
+      blockingHookCount++
+    }
+    if (result.preventContinuation) {
+      preventedContinuation = true
+    }
+    yield result
+  }
+
+  await dispatchHookChainFromHookRuntime({
+    eventName: 'TaskCompleted',
+    outcome:
+      blockingHookCount > 0 || preventedContinuation ? 'failed' : 'success',
+    payload: {
+      ...hookInput,
+      hook_blocking_error_count: blockingHookCount,
+      hook_prevented_continuation: preventedContinuation,
+    },
+    signal,
     toolUseContext,
   })
 }
@@ -4615,7 +4850,9 @@ export async function executeStatusLineCommand(
   }
 
   // Use provided signal or create a default one
-  const abortSignal = signal || AbortSignal.timeout(timeoutMs)
+  const { signal: abortSignal, cleanup } = signal
+    ? { signal, cleanup: () => {} }
+    : createCombinedAbortSignal(undefined, { timeoutMs })
 
   try {
     // Convert status input to JSON
@@ -4662,6 +4899,8 @@ export async function executeStatusLineCommand(
   } catch (error) {
     logForDebugging(`Status hook failed: ${error}`, { level: 'error' })
     return undefined
+  } finally {
+    cleanup()
   }
 }
 
@@ -4705,7 +4944,9 @@ export async function executeFileSuggestionCommand(
   }
 
   // Use provided signal or create a default one
-  const abortSignal = signal || AbortSignal.timeout(timeoutMs)
+  const { signal: abortSignal, cleanup } = signal
+    ? { signal, cleanup: () => {} }
+    : createCombinedAbortSignal(undefined, { timeoutMs })
 
   try {
     const jsonInput = jsonStringify(fileSuggestionInput)
@@ -4734,6 +4975,8 @@ export async function executeFileSuggestionCommand(
       level: 'error',
     })
     return []
+  } finally {
+    cleanup()
   }
 }
 
