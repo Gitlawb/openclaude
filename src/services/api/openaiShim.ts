@@ -21,7 +21,8 @@
  *   OPENAI_MODEL                     — optional; use github:copilot or openai/gpt-4.1 style IDs
  */
 
-import { APIError } from '@anthropic-ai/sdk'
+import { APIConnectionError, APIError } from '@anthropic-ai/sdk'
+import { logForDiagnosticsNoPII } from '../../utils/diagLogs.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
@@ -61,6 +62,7 @@ const GITHUB_429_MAX_RETRIES = 3
 const GITHUB_429_BASE_DELAY_SEC = 1
 const GITHUB_429_MAX_DELAY_SEC = 32
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
+const LOCALHOST_HOSTNAMES = new Set(['localhost', '::1'])
 
 function isGithubModelsMode(): boolean {
   return isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
@@ -95,6 +97,119 @@ function sanitizeUrl(raw: string): string {
   } catch {
     return '[invalid URL]'
   }
+}
+
+type TransportErrorCategory =
+  | 'connection_refused'
+  | 'dns_resolution_failed'
+  | 'timeout'
+  | 'connection_reset'
+  | 'tls_error'
+  | 'network_unreachable'
+  | 'transport_error'
+
+function getErrorCode(error: unknown): string | undefined {
+  let current = error
+  let depth = 0
+  while (current && depth < 5) {
+    if (
+      typeof current === 'object' &&
+      current !== null &&
+      'code' in current &&
+      typeof current.code === 'string'
+    ) {
+      return current.code
+    }
+    if (
+      current instanceof Error &&
+      'cause' in current &&
+      current.cause !== current
+    ) {
+      current = current.cause
+      depth++
+      continue
+    }
+    break
+  }
+  return undefined
+}
+
+function sanitizeCauseMessage(raw: string): string {
+  return raw.replace(/https?:\/\/\S+/g, match => sanitizeUrl(match))
+}
+
+function classifyTransportError(
+  code: string | undefined,
+  sanitizedCause: string,
+): TransportErrorCategory {
+  const upperCode = code?.toUpperCase()
+  const upperCause = sanitizedCause.toUpperCase()
+  if (upperCode === 'ECONNREFUSED' || upperCause.includes('ECONNREFUSED')) {
+    return 'connection_refused'
+  }
+  if (
+    upperCode === 'ENOTFOUND' ||
+    upperCode === 'EAI_AGAIN' ||
+    upperCause.includes('ENOTFOUND') ||
+    upperCause.includes('EAI_AGAIN') ||
+    upperCause.includes('GETADDRINFO')
+  ) {
+    return 'dns_resolution_failed'
+  }
+  if (
+    upperCode === 'ETIMEDOUT' ||
+    upperCode === 'ECONNABORTED' ||
+    upperCause.includes('TIMED OUT')
+  ) {
+    return 'timeout'
+  }
+  if (upperCode === 'ECONNRESET' || upperCause.includes('ECONNRESET')) {
+    return 'connection_reset'
+  }
+  if (
+    upperCode === 'ENETUNREACH' ||
+    upperCode === 'EHOSTUNREACH' ||
+    upperCause.includes('ENETUNREACH') ||
+    upperCause.includes('EHOSTUNREACH')
+  ) {
+    return 'network_unreachable'
+  }
+  if (
+    upperCode?.startsWith('ERR_TLS') ||
+    upperCode?.includes('SSL') ||
+    upperCause.includes('CERTIFICATE') ||
+    upperCause.includes('TLS')
+  ) {
+    return 'tls_error'
+  }
+  return 'transport_error'
+}
+
+function isResolutionFailure(category: TransportErrorCategory): boolean {
+  return category === 'dns_resolution_failed'
+}
+
+function shouldRetryViaLoopback(url: URL, category: TransportErrorCategory): boolean {
+  return LOCALHOST_HOSTNAMES.has(url.hostname.toLowerCase()) &&
+    isResolutionFailure(category)
+}
+
+function buildLoopbackUrl(raw: string): string {
+  const next = new URL(raw)
+  next.hostname = '127.0.0.1'
+  return next.toString()
+}
+
+function buildTransportErrorMessage(
+  safeUrl: string,
+  category: TransportErrorCategory,
+  sanitizedCause: string,
+  isLocal: boolean,
+): string {
+  const localHint = isLocal
+    ? ' Ensure the local server is running.'
+    : ''
+  return `Network request failed for ${safeUrl} - check your provider URL and connection. openai_category=${category}.${localHint} Cause: ${sanitizedCause}`
 }
 
 // ---------------------------------------------------------------------------
@@ -1173,17 +1288,49 @@ class OpenAIShimMessages {
 
     const maxAttempts = isGithub ? GITHUB_429_MAX_RETRIES : 1
     let response: Response | undefined
+    let transportRetryUrl: string | null = null
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        response = await fetch(chatCompletionsUrl, fetchInit)
+        response = await fetch(transportRetryUrl ?? chatCompletionsUrl, fetchInit)
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') throw err
 
+        const requestUrl = transportRetryUrl ?? chatCompletionsUrl
         const rawCause = err instanceof Error ? err.message : String(err)
-        const safeUrl = sanitizeUrl(chatCompletionsUrl)
-        const safeCause = rawCause.replace(/https?:\/\/\S+/g, match => sanitizeUrl(match))
+        const safeUrl = sanitizeUrl(requestUrl)
+        const safeCause = sanitizeCauseMessage(rawCause)
+        const code = getErrorCode(err)
+        const category = classifyTransportError(code, safeCause)
+        const parsedUrl = new URL(requestUrl)
+        const isLocal = isLocalProviderUrl(parsedUrl.origin)
 
-        throw new Error(`Network request failed for ${safeUrl} - check your provider URL and connection. Cause: ${safeCause}`)
+        logForDiagnosticsNoPII('warn', 'openai_transport_request_failed', {
+          openai_category: category,
+          code: code ?? 'UNKNOWN',
+          url: safeUrl,
+        })
+
+        if (!transportRetryUrl && shouldRetryViaLoopback(parsedUrl, category)) {
+          transportRetryUrl = buildLoopbackUrl(requestUrl)
+          logForDiagnosticsNoPII('info', 'openai_transport_localhost_loopback_retry', {
+            from_url: safeUrl,
+            to_url: sanitizeUrl(transportRetryUrl),
+            openai_category: category,
+            code: code ?? 'UNKNOWN',
+          })
+          attempt--
+          continue
+        }
+
+        throw new APIConnectionError({
+          message: buildTransportErrorMessage(
+            safeUrl,
+            category,
+            safeCause,
+            isLocal,
+          ),
+          cause: err instanceof Error ? err : undefined,
+        })
       }
       if (response.ok) {
         return response

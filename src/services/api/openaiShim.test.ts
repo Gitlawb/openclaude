@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { APIConnectionError } from '@anthropic-ai/sdk'
 import { createOpenAIShimClient } from './openaiShim.ts'
 
 type FetchType = typeof globalThis.fetch
@@ -2105,4 +2106,95 @@ test('preserves AbortError on user cancellation', async () => {
   }
 
   expect((caught as Error).name).toBe('AbortError')
+})
+
+test('classifies localhost transport failures as APIConnectionError with actionable marker', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+  globalThis.fetch = (async () => {
+    const err = new Error('connect ECONNREFUSED 127.0.0.1:11434')
+    ;(err as Error & { code?: string }).code = 'ECONNREFUSED'
+    throw err
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (e) {
+    caught = e
+  }
+
+  expect(caught).toBeInstanceOf(APIConnectionError)
+  const message = (caught as Error).message
+  expect(message).toContain('openai_category=connection_refused')
+  expect(message).toContain('local server is running')
+  expect(message).not.toContain('HTTP status 503')
+})
+
+test('self-heals localhost resolution failures by retrying local loopback base URL', async () => {
+  process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1?token=abc123'
+  const seenUrls: string[] = []
+
+  globalThis.fetch = (async (input) => {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    seenUrls.push(url)
+
+    if (url.includes('localhost')) {
+      const err = new Error(
+        'getaddrinfo ENOTFOUND http://user:secret@localhost:11434/v1?token=abc123/chat/completions',
+      )
+      ;(err as Error & { code?: string }).code = 'ENOTFOUND'
+      throw err
+    }
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-local',
+        model: 'fake-model',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages.create({
+    model: 'fake-model',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(result).toBeDefined()
+  expect(seenUrls).toHaveLength(2)
+  expect(seenUrls[0]).toContain('http://localhost:11434/v1?token=abc123/chat/completions')
+  expect(seenUrls[1]).toContain('http://127.0.0.1:11434/v1?token=abc123/chat/completions')
 })
