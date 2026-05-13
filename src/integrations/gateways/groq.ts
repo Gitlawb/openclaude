@@ -16,7 +16,7 @@ export default defineGateway({
     kind: 'openai-compatible',
     openaiShim: {
       supportsAuthHeaders: true,
-      removeBodyFields: ['store'],
+      removeBodyFields: ['store', 'reasoning_effort'],
     },
   },
   preset: {
@@ -26,10 +26,27 @@ export default defineGateway({
     vendorId: 'openai',
   },
   catalog: {
-    source: 'static',
-    models: [
-      { id: 'groq-llama-3.3-70b', apiName: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', modelDescriptorId: 'llama-3.3-70b-versatile' },
-    ],
+    source: 'dynamic',
+    discovery: {
+      kind: 'openai-compatible',
+      mapModel(raw: unknown) {
+        const model = raw as { id?: string; active?: boolean; context_window?: number }
+        if (!model.id || model.active === false) {
+          return null
+        }
+        if (/^(whisper-|distil-whisper-|llama-guard-|playai-)/i.test(model.id)) {
+          return null
+        }
+        return {
+          id: model.id,
+          apiName: model.id,
+          label: model.id,
+        }
+      },
+    },
+    discoveryCacheTtl: '1d',
+    discoveryRefreshMode: 'background-if-stale',
+    allowManualRefresh: true,
   },
   usage: { supported: false },
 })
