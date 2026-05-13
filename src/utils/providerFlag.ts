@@ -1,3 +1,8 @@
+import {
+  clearProviderSelectionFlags,
+  EXPLICIT_PROVIDER_ENV_VAR,
+} from './providerEnvSelection.js'
+
 /**
  * --provider CLI flag support.
  *
@@ -201,16 +206,13 @@ export function applyProviderFlag(
               ? 'minimax'
               : null
 
-  delete process.env.CLAUDE_CODE_USE_OPENAI
-  delete process.env.CLAUDE_CODE_USE_GEMINI
+  clearProviderSelectionFlags()
   delete process.env.CLAUDE_CODE_USE_MISTRAL
-  delete process.env.CLAUDE_CODE_USE_GITHUB
-  delete process.env.CLAUDE_CODE_USE_BEDROCK
-  delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.NVIDIA_NIM
   if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
     delete process.env.OPENAI_API_KEY
   }
+  process.env[EXPLICIT_PROVIDER_ENV_VAR] = provider
 
   const model = parseModelFlag(args)
   const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)

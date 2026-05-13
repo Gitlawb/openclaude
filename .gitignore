@@ -15,5 +15,6 @@ CLAUDE.md
 package-lock.json
 /.claude
 coverage/
+.worktrees/
 agent.log
 plan/

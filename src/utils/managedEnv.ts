@@ -8,6 +8,7 @@ import {
 } from './managedEnvConstants.js'
 import { clearMTLSCache } from './mtls.js'
 import { clearProxyCache, configureGlobalAgents } from './proxy.js'
+import { filterSettingsEnvForExplicitProvider } from './providerEnvSelection.js'
 import { applyActiveProviderProfileFromConfig } from './providerProfiles.js'
 import { isSettingSourceEnabled } from './settings/constants.js'
 import {
@@ -87,7 +88,9 @@ function filterSettingsEnv(
   env: Record<string, string> | undefined,
 ): Record<string, string> {
   return withoutCcdSpawnEnvKeys(
-    withoutHostManagedProviderVars(withoutSSHTunnelVars(env)),
+    filterSettingsEnvForExplicitProvider(
+      withoutHostManagedProviderVars(withoutSSHTunnelVars(env)),
+    ),
   )
 }
 

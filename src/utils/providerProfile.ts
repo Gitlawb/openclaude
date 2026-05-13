@@ -915,6 +915,10 @@ export function hasExplicitProviderSelection(
     return true
   }
 
+  if (processEnv.CLAUDE_CODE_EXPLICIT_PROVIDER?.trim()) {
+    return true
+  }
+
   return (
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB) ||
@@ -1396,6 +1400,10 @@ export async function buildStartupEnvFromProfile(options?: {
   // "banner shows gpt-4o / api.openai.com even though my saved profile is
   // Moonshot" bug.
   if (profileManagedEnv) {
+    return processEnv
+  }
+
+  if (processEnv.CLAUDE_CODE_EXPLICIT_PROVIDER?.trim()) {
     return processEnv
   }
 

@@ -917,6 +917,26 @@ test('buildStartupEnvFromProfile leaves explicit provider selections untouched',
   assert.equal(env.OPENAI_API_KEY, undefined)
 })
 
+test('buildStartupEnvFromProfile preserves explicit anthropic startup selection', async () => {
+  const processEnv = {
+    CLAUDE_CODE_EXPLICIT_PROVIDER: 'anthropic',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      CLAUDE_CODE_USE_GITHUB: '1',
+      OPENAI_MODEL: 'github:copilot',
+    }),
+    processEnv,
+  })
+
+  assert.equal(env, processEnv)
+  assert.equal(env.CLAUDE_CODE_EXPLICIT_PROVIDER, 'anthropic')
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, undefined)
+  assert.equal(env.CLAUDE_CODE_USE_GITHUB, undefined)
+  assert.equal(env.OPENAI_MODEL, undefined)
+})
+
 test('legacy openai saved profiles still deserialize and rebuild startup env', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
 

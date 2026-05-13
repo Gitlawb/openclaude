@@ -796,8 +796,7 @@ export function REPL({
   // accepts, and only then is the REPL component mounted and this effect runs.
   // This ensures that plugin installations from repository and user settings only
   // happen after explicit user consent to trust the current working directory.
-  // Deferring startup checks is handled below (after promptTypingSuppressionActive
-  // is declared) to avoid temporal dead zone issues.
+  // Deferring startup checks is handled below to avoid temporal dead zone issues.
 
   // Allow Claude in Chrome MCP to send prompts through MCP notifications
   // and sync permission mode changes to the Chrome extension
