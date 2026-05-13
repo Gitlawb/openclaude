@@ -215,12 +215,29 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     descriptor && routeId
       ? getCatalogEntryForModel(routeId, options?.model)
       : null
+  const remoteModelInferredConfig = inferRemoteModelOpenAIShimConfig(options?.model)
   const inferredConfig =
     options?.treatAsLocal === true
       ? {
           maxTokensField: 'max_tokens' as const,
+          // Local proxies (e.g. key routers like grouter) may forward to remote
+          // reasoning models that require reasoning_content. Preserve the
+          // model-inferred config for reasoning fields so local routing doesn't
+          // strip thinking continuity.
+          ...(remoteModelInferredConfig?.preserveReasoningContent !== undefined
+            ? { preserveReasoningContent: remoteModelInferredConfig.preserveReasoningContent }
+            : {}),
+          ...(remoteModelInferredConfig?.requireReasoningContentOnAssistantMessages !== undefined
+            ? { requireReasoningContentOnAssistantMessages: remoteModelInferredConfig.requireReasoningContentOnAssistantMessages }
+            : {}),
+          ...(remoteModelInferredConfig?.reasoningContentFallback !== undefined
+            ? { reasoningContentFallback: remoteModelInferredConfig.reasoningContentFallback }
+            : {}),
+          ...(remoteModelInferredConfig?.thinkingRequestFormat !== undefined
+            ? { thinkingRequestFormat: remoteModelInferredConfig.thinkingRequestFormat }
+            : {}),
         }
-      : inferRemoteModelOpenAIShimConfig(options?.model)
+      : remoteModelInferredConfig
 
   return {
     routeId,
