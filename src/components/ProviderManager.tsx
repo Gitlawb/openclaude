@@ -1813,9 +1813,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
 
             const active =
-              existing && activeProfileId !== saved.id
-                ? setActiveProviderProfile(saved.id)
-                : saved
+              activeProfileId === saved.id
+                ? saved
+                : setActiveProviderProfile(saved.id)
             if (!active) {
               setErrorMessage(
                 'Codex OAuth login finished, but the provider could not be set as the startup provider.',
