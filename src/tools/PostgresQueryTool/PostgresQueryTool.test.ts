@@ -17,9 +17,9 @@ describe('PostgresQueryTool', () => {
     const p = await PostgresQueryTool.checkPermissions!({ query: 'DROP TABLE users' })
     expect(p.behavior).toBe('ask')
   })
-  it('allows SELECT without permission', async () => {
-    const p = await PostgresQueryTool.checkPermissions!({ query: 'SELECT 1' })
-    expect(p.behavior).toBe('allow')
+  it('asks permission for SELECT too (database access)', async () => {
+    const p = await PostgresQueryTool.checkPermissions!({ query: 'SELECT * FROM users' })
+    expect(p.behavior).toBe('ask')
   })
 
   it('validates empty query', async () => { expect((await PostgresQueryTool.validateInput({} as any)).result).toBe(false) })
@@ -34,5 +34,6 @@ describe('PostgresQueryTool', () => {
   it('renders error', () => { expect(PostgresQueryTool.renderToolResultMessage?.({ success: false, durationMs: 3, error: 'connection refused' })).toContain('connection refused') })
   it('provides auto-classifier', () => { expect(PostgresQueryTool.toAutoClassifierInput?.({ query: 'SELECT 1' })).toBe('SELECT 1') })
   it('renders aligned output', () => { expect(PostgresQueryTool.renderToolResultMessage?.({ success: true, rows: [{ id: 1, name: 'alice' }], rowCount: 1, columns: ['id', 'name'], durationMs: 10 })).toContain('1 rows') })
+  it('renders single-column output', () => { expect(PostgresQueryTool.renderToolResultMessage?.({ success: true, rows: [{ count: 42 }], rowCount: 1, columns: ['count'], durationMs: 5 })).toContain('1 rows') })
   it('renders CSV output', () => { expect(PostgresQueryTool.renderToolResultMessage?.({ success: true, rows: [{ id: 1, name: 'hello, world' }], rowCount: 1, columns: ['id', 'name'], durationMs: 5 })).toContain('1 rows') })
 })

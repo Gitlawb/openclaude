@@ -49,6 +49,18 @@ function parseAligned(stdout: string): { rows: Record<string, unknown>[]; column
   if (lines.length < 3) return { rows: [], columns: [] }
   const sep = lines[1]
   if (!sep || (!sep.includes('+') && !sep.includes('-'))) return { rows: [], columns: [] }
+  const hasPipes = lines[0].includes('|')
+  if (!hasPipes) {
+    // Single-column output: no pipe separators
+    // header: " count", separator: "-------", data: " 42"
+    const header = lines[0].trim()
+    const dataLines = lines.slice(2).filter(l => l.trim() && !l.includes('---'))
+    const rows = dataLines.map(line => {
+      const val = line.trim()
+      return { [header]: /^\d+(\.\d+)?$/.test(val) ? (val.includes('.') ? parseFloat(val) : parseInt(val, 10)) : val }
+    })
+    return { rows, columns: [header] }
+  }
   const headers = lines[0].split('|').map(h => h.trim()).filter(Boolean)
   const data = lines.slice(2).filter(l => l.includes('|') && !l.includes('+') && !l.includes('---'))
   const rows = data.map(line => {
@@ -103,9 +115,8 @@ export const PostgresQueryTool = buildTool({
     return { result: true }
   },
   async checkPermissions(input) {
-    if (isDestructiveQuery(input.query)) return { behavior: 'ask', message: `Execute destructive query? ${input.query.slice(0, 200)}`, updatedInput: input }
-    if (!isReadOnlyQuery(input.query)) return { behavior: 'ask', message: `Execute write query? ${input.query.slice(0, 200)}`, updatedInput: input }
-    return { behavior: 'allow', updatedInput: input }
+    if (isDestructiveQuery(input.query)) return { behavior: 'ask', message: `Execute destructive query on PostgreSQL? ${input.query.slice(0, 200)}`, updatedInput: input }
+    return { behavior: 'ask', message: `Execute PostgreSQL query? ${input.query.slice(0, 200)}`, updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
