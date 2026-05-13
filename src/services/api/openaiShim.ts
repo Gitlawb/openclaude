@@ -210,6 +210,12 @@ function sleepMs(ms: number): Promise<void> {
 
 type ShimToolSearchMode = 'off' | 'minify' | 'predict' | 'lazy'
 
+interface OpenAIShimTokenAuditPart {
+  name: string
+  chars: number
+  estimatedTokens: number
+}
+
 function getShimToolSearchMode(): ShimToolSearchMode {
   const raw = (
     process.env.OPENAI_SHIM_TOOL_MODE ??
@@ -228,12 +234,158 @@ function getShimToolSearchMode(): ShimToolSearchMode {
   return 'off'
 }
 
+function isOpenAIShimTokenAuditEnabled(): boolean {
+  return isEnvTruthy(process.env.OPENAI_SHIM_TOKEN_AUDIT)
+}
+
 function debugShimToolSearch(message: string): void {
   if (
     isEnvTruthy(process.env.OPENAI_SHIM_DEBUG) ||
     isEnvTruthy(process.env.ENABLE_SHIM_TOOL_SEARCH_DEBUG)
   ) {
     process.stderr.write(`[ShimToolSearch] ${message}\n`)
+  }
+}
+
+function estimateRequestTokensFromChars(chars: number): number {
+  return Math.round(chars / 4)
+}
+
+function serializedSizeOf(value: unknown): number {
+  return stableStringify(value).length
+}
+
+function sumSerializedMessageChars(
+  messages: OpenAIMessage[],
+  role: OpenAIMessage['role'],
+): number {
+  return messages
+    .filter(message => message.role === role)
+    .reduce((sum, message) => sum + serializedSizeOf(message), 0)
+}
+
+function sumResponsesInputMessageChars(
+  input: unknown,
+  role: string,
+): number {
+  if (!Array.isArray(input)) return 0
+
+  return input
+    .filter(item =>
+      item &&
+      typeof item === 'object' &&
+      'role' in item &&
+      item.role === role,
+    )
+    .reduce((sum, item) => sum + serializedSizeOf(item), 0)
+}
+
+function makeTokenAuditPart(name: string, chars: number): OpenAIShimTokenAuditPart {
+  return {
+    name,
+    chars,
+    estimatedTokens: estimateRequestTokensFromChars(chars),
+  }
+}
+
+function buildChatCompletionsTokenAuditParts(
+  body: Record<string, unknown>,
+): OpenAIShimTokenAuditPart[] {
+  const messages = Array.isArray(body.messages)
+    ? body.messages as OpenAIMessage[]
+    : []
+  const responseConfig = { ...body }
+  delete responseConfig.messages
+  delete responseConfig.tools
+
+  return [
+    makeTokenAuditPart('messages.system', sumSerializedMessageChars(messages, 'system')),
+    makeTokenAuditPart('messages.user', sumSerializedMessageChars(messages, 'user')),
+    makeTokenAuditPart('messages.assistant', sumSerializedMessageChars(messages, 'assistant')),
+    makeTokenAuditPart('messages.tool_results', sumSerializedMessageChars(messages, 'tool')),
+    makeTokenAuditPart('tool_schemas', Array.isArray(body.tools) ? serializedSizeOf(body.tools) : 0),
+    makeTokenAuditPart('response_config', serializedSizeOf(responseConfig)),
+  ]
+}
+
+function buildResponsesTokenAuditParts(
+  body: Record<string, unknown>,
+): OpenAIShimTokenAuditPart[] {
+  const responseConfig = { ...body }
+  delete responseConfig.input
+  delete responseConfig.instructions
+  delete responseConfig.tools
+
+  return [
+    makeTokenAuditPart('instructions', typeof body.instructions === 'string' ? body.instructions.length : 0),
+    makeTokenAuditPart('input.user', sumResponsesInputMessageChars(body.input, 'user')),
+    makeTokenAuditPart('input.assistant', sumResponsesInputMessageChars(body.input, 'assistant')),
+    makeTokenAuditPart('input.system', sumResponsesInputMessageChars(body.input, 'system')),
+    makeTokenAuditPart('tool_schemas', Array.isArray(body.tools) ? serializedSizeOf(body.tools) : 0),
+    makeTokenAuditPart('response_config', serializedSizeOf(responseConfig)),
+  ]
+}
+
+function logOpenAIShimTokenAudit(args: {
+  body: Record<string, unknown>
+  serializedBody: string
+  model: string
+  transport: ReturnType<typeof resolveProviderRequest>['transport']
+}): void {
+  if (!isOpenAIShimTokenAuditEnabled()) return
+
+  const baseParts = args.transport === 'responses'
+    ? buildResponsesTokenAuditParts(args.body)
+    : buildChatCompletionsTokenAuditParts(args.body)
+  const usedChars = baseParts.reduce((sum, part) => sum + part.chars, 0)
+  const remainingChars = Math.max(args.serializedBody.length - usedChars, 0)
+  const parts = [
+    ...baseParts,
+    makeTokenAuditPart('json_overhead', remainingChars),
+  ]
+    .filter(part => part.chars > 0)
+    .sort((a, b) => b.chars - a.chars)
+
+  const totalEstimatedTokens = estimateRequestTokensFromChars(args.serializedBody.length)
+  const toolCount = Array.isArray(args.body.tools) ? args.body.tools.length : 0
+  process.stderr.write(
+    `[OpenAIShimTokenAudit] total chars=${args.serializedBody.length} est_tokens=${totalEstimatedTokens} model=${args.model} transport=${args.transport} tools=${toolCount}\n`,
+  )
+
+  for (const part of parts) {
+    const percent = args.serializedBody.length > 0
+      ? Math.round((part.chars / args.serializedBody.length) * 100)
+      : 0
+    process.stderr.write(
+      `[OpenAIShimTokenAudit]   ${part.name}: chars=${part.chars} est_tokens=${part.estimatedTokens} pct=${percent}\n`,
+    )
+  }
+
+  const getToolNameForAudit = (tool: unknown): string | null => {
+    if (!tool || typeof tool !== 'object' || Array.isArray(tool)) return null
+
+    const record = tool as Record<string, unknown>
+    const functionValue = record.function
+    if (functionValue && typeof functionValue === 'object' && !Array.isArray(functionValue)) {
+      const functionName = (functionValue as Record<string, unknown>).name
+      if (typeof functionName === 'string') return functionName
+    }
+
+    return typeof record.name === 'string' ? record.name : null
+  }
+
+  const tools = Array.isArray(args.body.tools) ? args.body.tools : []
+  for (const tool of tools
+    .map(tool => ({
+      name: getToolNameForAudit(tool),
+      chars: serializedSizeOf(tool),
+    }))
+    .filter((tool): tool is { name: string; chars: number } => tool.name !== null)
+    .sort((a, b) => b.chars - a.chars)
+    .slice(0, 10)) {
+    process.stderr.write(
+      `[OpenAIShimTokenAudit]   tool.${tool.name}: chars=${tool.chars} est_tokens=${estimateRequestTokensFromChars(tool.chars)}\n`,
+    )
   }
 }
 
@@ -505,6 +657,138 @@ interface OpenAITool {
     description: string
     parameters: Record<string, unknown>
     strict?: boolean
+  }
+}
+
+interface OpenAIResponsesTool {
+  type: 'function'
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+  strict: boolean
+}
+
+interface ShimPhase1ToolCall {
+  function?: {
+    name?: string
+    arguments?: string
+  }
+}
+
+interface ShimPhase1Response {
+  choices?: Array<{
+    message?: {
+      role?: string
+      content?: string | null
+      tool_calls?: ShimPhase1ToolCall[]
+    }
+    finish_reason?: string
+  }>
+  output?: Array<{
+    type?: string
+    role?: string
+    content?: string | null | Array<{ type?: string; text?: string }>
+    name?: string
+    arguments?: string
+  }>
+  output_text?: string | null
+}
+
+function convertOpenAIToolsToResponsesTools(tools: OpenAITool[]): OpenAIResponsesTool[] {
+  return tools
+    .filter(tool => tool.function.name !== 'ToolSearchTool')
+    .map(tool => ({
+      type: 'function' as const,
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+      strict: tool.function.strict ?? true,
+    }))
+}
+
+function convertOpenAIToolChoiceToResponsesToolChoice(toolChoice: unknown): unknown {
+  if (
+    toolChoice === 'auto' ||
+    toolChoice === 'required' ||
+    toolChoice === 'none'
+  ) {
+    return toolChoice
+  }
+
+  if (!toolChoice || typeof toolChoice !== 'object' || Array.isArray(toolChoice)) {
+    return undefined
+  }
+
+  const record = toolChoice as Record<string, unknown>
+  const functionValue = record.function
+  if (
+    record.type === 'function' &&
+    functionValue &&
+    typeof functionValue === 'object' &&
+    !Array.isArray(functionValue)
+  ) {
+    const name = (functionValue as Record<string, unknown>).name
+    if (typeof name === 'string') {
+      return {
+        type: 'function',
+        name,
+      }
+    }
+  }
+
+  return undefined
+}
+
+function extractResponsesMessageContent(
+  content: string | null | Array<{ type?: string; text?: string }> | undefined,
+): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map(part => typeof part.text === 'string' ? part.text : '')
+    .join('')
+}
+
+function extractShimPhase1ToolCalls(phase1Json: ShimPhase1Response): ShimPhase1ToolCall[] {
+  const chatToolCalls = phase1Json.choices?.[0]?.message?.tool_calls
+  if (Array.isArray(chatToolCalls)) {
+    return chatToolCalls
+  }
+
+  if (!Array.isArray(phase1Json.output)) {
+    return []
+  }
+
+  return phase1Json.output
+    .filter(item => item.type === 'function_call' || item.type === 'tool_call')
+    .map(item => ({
+      function: {
+        name: item.name,
+        arguments: item.arguments,
+      },
+    }))
+}
+
+function extractShimPhase1Message(phase1Json: ShimPhase1Response): Record<string, unknown> {
+  const chatMessage = phase1Json.choices?.[0]?.message
+  if (chatMessage) {
+    return chatMessage
+  }
+
+  const outputMessage = Array.isArray(phase1Json.output)
+    ? phase1Json.output.find(item => item.type === 'message' && item.role === 'assistant')
+    : undefined
+
+  if (outputMessage) {
+    return {
+      role: outputMessage.role ?? 'assistant',
+      content: extractResponsesMessageContent(outputMessage.content),
+    }
+  }
+
+  return {
+    role: 'assistant',
+    content: phase1Json.output_text ?? '',
   }
 }
 
@@ -1907,30 +2191,19 @@ class OpenAIShimMessages {
       tools: [REQUEST_TOOLS_TOOL] as typeof params.tools,
     }
     const phase1Response = await this._doRequest(request, phase1Params, options)
-    const phase1Json = await phase1Response.json() as {
-      choices?: Array<{
-        message?: {
-          role?: string
-          content?: string | null
-          tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>
-        }
-        finish_reason?: string
-      }>
-    }
-
-    const choice = phase1Json.choices?.[0]
-    const toolCalls = choice?.message?.tool_calls ?? []
+    const phase1Json = await phase1Response.json() as ShimPhase1Response
+    const toolCalls = extractShimPhase1ToolCalls(phase1Json)
     const requestToolsCall = toolCalls.find(tc => tc.function?.name === 'request_tools')
 
     if (!requestToolsCall) {
       // Model chose to respond conversationally — return as synthetic stream
       debugShimToolSearch('Phase 1 result: conversational (no tools requested)')
-      const msg = choice?.message ?? { role: 'assistant', content: '' }
+      const msg = extractShimPhase1Message(phase1Json)
       if (params.stream) {
         return {
           data: new OpenAIShimStream(
             openaiStreamToAnthropic(
-              new Response(this._syntheticStream(msg as Record<string, unknown>), {
+              new Response(this._syntheticStream(msg), {
                 status: 200,
                 headers: { 'content-type': 'text/event-stream' },
               }),
@@ -2203,7 +2476,12 @@ class OpenAIShimMessages {
       if (params.temperature !== undefined) responsesBody.temperature = params.temperature
       if (params.top_p !== undefined) responsesBody.top_p = params.top_p
 
-      if (!omitResponsesTools && params.tools && params.tools.length > 0) {
+      if (!omitResponsesTools && Array.isArray(body.tools) && body.tools.length > 0) {
+        const convertedTools = convertOpenAIToolsToResponsesTools(body.tools as OpenAITool[])
+        if (convertedTools.length > 0) {
+          responsesBody.tools = convertedTools
+        }
+      } else if (!omitResponsesTools && params.tools && params.tools.length > 0) {
         const convertedTools = convertToolsToResponsesTools(
           params.tools as Array<{
             name?: string
@@ -2213,6 +2491,13 @@ class OpenAIShimMessages {
         )
         if (convertedTools.length > 0) {
           responsesBody.tools = convertedTools
+        }
+      }
+
+      if (responsesBody.tools && body.tool_choice !== undefined) {
+        const responsesToolChoice = convertOpenAIToolChoiceToResponsesToolChoice(body.tool_choice)
+        if (responsesToolChoice !== undefined) {
+          responsesBody.tool_choice = responsesToolChoice
         }
       }
 
@@ -2377,18 +2662,25 @@ class OpenAIShimMessages {
     // Local backends do not implement prefix caching, so the deep key-sort
     // is pure CPU overhead per request (issue #1016). Drop to the native
     // `JSON.stringify` fast path when the fast-path config opts out.
+    let outgoingBody = request.transport === 'responses' ? buildResponsesBody() : body
     const serializeBody = (): string => {
-      const payload =
-        request.transport === 'responses' ? buildResponsesBody() : body
+      outgoingBody = request.transport === 'responses' ? buildResponsesBody() : body
       return fastPath.skipStableStringify
-        ? JSON.stringify(payload)
-        : stableStringify(payload)
+        ? JSON.stringify(outgoingBody)
+        : stableStringify(outgoingBody)
     }
     let serializedBody = serializeBody()
 
     const refreshSerializedBody = (): void => {
       serializedBody = serializeBody()
     }
+
+    logOpenAIShimTokenAudit({
+      body: outgoingBody,
+      serializedBody,
+      model: request.resolvedModel,
+      transport: request.transport,
+    })
 
     const buildFetchInit = () => ({
       method: 'POST' as const,
