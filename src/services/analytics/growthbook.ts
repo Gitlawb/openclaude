@@ -126,25 +126,28 @@ export function getFeatureValue_CACHED_WITH_REFRESH<T>(
 	return _getFlagValue(_featureName, defaultValue)
 }
 
-/** Returns false — all feature gates are off by default. */
+/** Resolves gate from local feature flags file, defaults to false. */
 export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(
-	_gateName: string,
+	gateName: string,
 ): boolean {
-	return false
+	return Boolean(_getFlagValue(gateName, false))
 }
 
-/** Returns false — security restriction gates are off by default. */
+/**
+ * Always returns false — security restriction gates must not be overridable
+ * via local flags, as they protect bypass-permissions mode.
+ */
 export async function checkSecurityRestrictionGate(
 	_gateName: string,
 ): Promise<boolean> {
 	return false
 }
 
-/** Returns false — no blocking gate checks. */
+/** Resolves gate from local feature flags file, defaults to false. */
 export async function checkGate_CACHED_OR_BLOCKING(
-	_gateName: string,
+	gateName: string,
 ): Promise<boolean> {
-	return false
+	return Boolean(_getFlagValue(gateName, false))
 }
 
 /** No-op — nothing to refresh. */

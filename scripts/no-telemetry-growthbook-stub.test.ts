@@ -120,4 +120,29 @@ describe('growthbook stub — local feature flag overrides', () => {
     expect(await stub.getDynamicConfig_BLOCKS_ON_INIT('tengu_config', {})).toEqual({})
     expect(stub.getDynamicConfig_CACHED_MAY_BE_STALE('tengu_config', {})).toEqual({})
   })
+
+  // ── Gate helpers route through _getFlagValue ──────────────────────────
+
+  test('checkStatsigFeatureGate_CACHED_MAY_BE_STALE returns false when file is absent', () => {
+    expect(stub.checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_gate')).toBe(false)
+  })
+
+  test('checkStatsigFeatureGate_CACHED_MAY_BE_STALE returns true from flags file', () => {
+    writeFileSync(flagsFile, JSON.stringify({ tengu_gate: true }))
+    expect(stub.checkStatsigFeatureGate_CACHED_MAY_BE_STALE('tengu_gate')).toBe(true)
+  })
+
+  test('checkGate_CACHED_OR_BLOCKING returns false when file is absent', async () => {
+    expect(await stub.checkGate_CACHED_OR_BLOCKING('tengu_bridge')).toBe(false)
+  })
+
+  test('checkGate_CACHED_OR_BLOCKING returns true from flags file', async () => {
+    writeFileSync(flagsFile, JSON.stringify({ tengu_bridge: true }))
+    expect(await stub.checkGate_CACHED_OR_BLOCKING('tengu_bridge')).toBe(true)
+  })
+
+  test('checkSecurityRestrictionGate always returns false regardless of flags', async () => {
+    writeFileSync(flagsFile, JSON.stringify({ tengu_disable_bypass_permissions_mode: true }))
+    expect(await stub.checkSecurityRestrictionGate('tengu_disable_bypass_permissions_mode')).toBe(false)
+  })
 })
