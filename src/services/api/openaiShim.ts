@@ -84,7 +84,6 @@ import {
   getStreamStats,
 } from '../../utils/streamingOptimizer.js'
 import { stableStringify } from '../../utils/stableStringify.js'
-import { modelSupportsEffort } from '../../utils/effort.js'
 
 type SecretValueSource = Partial<{
   OPENAI_API_KEY: string
@@ -1574,9 +1573,7 @@ class OpenAIShimMessages {
      // request carries a reasoning effort (set via /effort, model alias default,
      // or `?reasoning=<level>` query on the model string). OpenAI, Codex, and
      // most OpenAI-compatible endpoints read it from this top-level field.
-     // Only emit when the resolved model actually supports reasoning effort to
-     // avoid 400 errors from providers that reject the field for non-reasoning models.
-    if (request.reasoning && modelSupportsEffort(request.resolvedModel)) {
+    if (request.reasoning) {
       body.reasoning_effort = request.reasoning.effort
     }
     // Convert max_tokens to max_completion_tokens for OpenAI API compatibility.

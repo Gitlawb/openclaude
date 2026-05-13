@@ -146,14 +146,14 @@ test('openai provider still reads OPENAI_MODEL (regression guard)', async () => 
   expect(model).toBe('gpt-4o')
 })
 
-test('github provider still reads OPENAI_MODEL (regression guard)', async () => {
+test('github provider normalizes legacy github:copilot alias to gpt-4o', async () => {
   saveGlobalConfig(current => ({ ...current, model: 'stale-default' }))
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   process.env.OPENAI_MODEL = 'github:copilot'
 
   const { getUserSpecifiedModelSetting } = await importFreshModelModule()
   const model = getUserSpecifiedModelSetting()
-  expect(model).toBe('github:copilot')
+  expect(model).toBe('gpt-4o')
 })
 
 // ---------------------------------------------------------------------------

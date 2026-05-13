@@ -290,10 +290,12 @@ async function runDiscovery(
         return rawId
       }
 
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
       try {
         const response = await fetch('https://api.githubcopilot.com/models', {
           headers,
-          signal: AbortSignal.timeout(5000),
+          signal: controller.signal,
         })
         if (!response.ok) return null
 
@@ -315,6 +317,8 @@ async function runDiscovery(
         return models.length > 0 ? models : null
       } catch {
         return null
+      } finally {
+        clearTimeout(timeoutId)
       }
     }
 
