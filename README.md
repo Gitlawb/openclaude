@@ -116,16 +116,11 @@ $env:OPENAI_MODEL="qwen2.5-coder:7b"
 openclaude
 ```
 
-### Using Ollama's launch command
+If `openclaude` opens a text editor on Windows instead of starting the CLI, run `Get-Command openclaude -All` and make sure `openclaude.ps1` or `openclaude.cmd` resolves before any extensionless `openclaude` shim.
 
-If you have [Ollama](https://ollama.com) installed, you can skip the env var setup entirely:
+---
 
-```bash
-ollama launch openclaude --model qwen2.5-coder:7b
-```
-
-This automatically sets `ANTHROPIC_BASE_URL`, model routing, and auth so all API traffic goes through your local Ollama instance. Works with any model you have pulled — local or cloud.
-
+## Setup Guides
 ## Setup Guides
 
 Beginner-friendly guides:
