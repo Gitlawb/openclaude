@@ -22,9 +22,9 @@ describe('GraphqlTool', () => {
     const p = await GraphqlTool.checkPermissions!({ endpoint: 'https://api.example.com/graphql', query: '# comment\nmutation { createUser(name: "x") { id } }' })
     expect(p.behavior).toBe('ask')
   })
-  it('allows query without permission', async () => {
+  it('asks permission for query too (arbitrary endpoint)', async () => {
     const p = await GraphqlTool.checkPermissions!({ endpoint: 'https://api.example.com/graphql', query: 'query { users { id } }' })
-    expect(p.behavior).toBe('allow')
+    expect(p.behavior).toBe('ask')
   })
 
   it('has mapToolResultToToolResultBlockParam', () => {

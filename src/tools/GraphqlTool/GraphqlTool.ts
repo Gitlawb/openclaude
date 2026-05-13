@@ -46,7 +46,10 @@ export const GraphqlTool = buildTool({
     if (input && 'query' in input) return !strippedQuery(input.query).match(/^(mutation|subscription)\s/i)
     return true
   },
-  isDestructive() { return false },
+  isDestructive(input) {
+    if (input && 'query' in input) return !!strippedQuery(input.query).match(/^(mutation|subscription)\s/i)
+    return false
+  },
   toAutoClassifierInput(input) { return `${input.endpoint}: ${input.query.slice(0, 80)}` },
   async description() { return DESCRIPTION },
   async prompt() { return PROMPT },
@@ -57,10 +60,7 @@ export const GraphqlTool = buildTool({
     return { result: true }
   },
   async checkPermissions(input) {
-    const sq = strippedQuery(input.query)
-    const isMut = sq.match(/^(mutation|subscription)\s/i)
-    if (isMut) return { behavior: 'ask', message: `Send ${isMut[1].toUpperCase()} to ${input.endpoint}?`, updatedInput: input }
-    return { behavior: 'allow', updatedInput: input }
+    return { behavior: 'ask', message: `GraphQL request to ${input.endpoint}`, updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }

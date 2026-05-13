@@ -40,7 +40,7 @@ export const HttpRequestTool = buildTool({
   get outputSchema(): OutputSchema { return outputSchema() },
   userFacingName: () => 'HTTP Request',
   isReadOnly(input) { return input ? SAFE_METHODS.has(input.method) : true },
-  isDestructive() { return false },
+  isDestructive(input) { return input ? !SAFE_METHODS.has(input.method) : false },
   toAutoClassifierInput(input) { return `${input.method} ${input.url}` },
   async description() { return DESCRIPTION },
   async prompt() { return PROMPT },

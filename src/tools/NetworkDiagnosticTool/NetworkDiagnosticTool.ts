@@ -51,7 +51,7 @@ export const NetworkDiagnosticTool = buildTool({
     return { result: true }
   },
   async checkPermissions(input) {
-    return { behavior: 'ask', askReason: `Run ${input.action} on ${input.target}${input.port ? `:${input.port}` : ''}?`, updatedInput: input }
+    return { behavior: 'ask', message: `${input.action} on ${input.target}${input.port ? `:${input.port}` : ''}`, updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
@@ -77,7 +77,7 @@ export const NetworkDiagnosticTool = buildTool({
             binary = 'powershell'; args.push('-Command', `$t=new-object System.Net.Sockets.TcpClient; try{$t.ConnectAsync('${input.target}','${input.port}').Wait(5000);write-host 'open'}catch{write-host 'closed'}`)
           } else { binary = 'bash'; args.push('-c', `echo > /dev/tcp/${input.target}/${input.port} 2>&1 && echo 'open' || echo 'closed'`) }
           break
-        case 'ssl-cert': binary = 'openssl'; args.push('s_client', '-connect', `${input.target}:${input.port ?? 443}`, '-servername', input.target); break
+        case 'ssl-cert': binary = 'openssl'; args.push('s_client', '-connect', `${input.target}:${input.port ?? 443}`, '-servername', input.target, '-verify_return_error'); break
         case 'http-status': binary = 'curl'; args.push('-sI', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', String(input.timeout ?? 10), `https://${input.target}${input.port ? `:${input.port}` : ''}`); break
         case 'latency':
           if (process.platform === 'win32') {
@@ -89,7 +89,12 @@ export const NetworkDiagnosticTool = buildTool({
       if (result.error) return { data: { success: false, action: input.action, target: input.target, output: result.error.message, durationMs: Date.now() - startTime, error: result.error.message } }
       const stdout = (result.stdout ?? '').slice(0, MAX_OUTPUT_CHARS)
       const stderr = (result.stderr ?? '').slice(0, 2000)
-      return { data: { success: (result.status ?? 1) === 0 && !result.error, action: input.action, target: input.target, output: stdout || stderr || 'No output', durationMs: Date.now() - startTime, error: stderr || undefined } }
+      const output = stdout || stderr || 'No output'
+      // Derive success from output for port-check/latency (exit 0 with closed/timeout should be failure)
+      let success = (result.status ?? 1) === 0
+      if (input.action === 'port-check') success = output.toLowerCase().includes('open') && !output.toLowerCase().includes('closed')
+      if (input.action === 'latency') success = !output.toLowerCase().includes('timeout') && output.includes('ms')
+      return { data: { success, action: input.action, target: input.target, output, durationMs: Date.now() - startTime, error: stderr || undefined } }
     } catch (err) {
       return { data: { success: false, action: input.action, target: input.target, output: err instanceof Error ? err.message : String(err), durationMs: Date.now() - startTime, error: err instanceof Error ? err.message : String(err) } }
     }
