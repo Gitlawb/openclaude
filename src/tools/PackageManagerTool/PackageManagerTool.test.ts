@@ -40,9 +40,9 @@ describe('PackageManagerTool', () => {
     expect(perm.behavior).toBe('ask')
   })
 
-  it('allows audit without permission', async () => {
+  it('asks permission for audit (network/remote code)', async () => {
     const perm = await PackageManagerTool.checkPermissions!({ action: 'audit' })
-    expect(perm.behavior).toBe('allow')
+    expect(perm.behavior).toBe('ask')
   })
 
   it('has mapToolResultToToolResultBlockParam', () => {
@@ -53,20 +53,17 @@ describe('PackageManagerTool', () => {
 
   it('renders tool use message', () => {
     const msg = PackageManagerTool.renderToolUseMessage?.({ manager: 'npm', action: 'install', packages: ['lodash'] })
-    expect(msg).toBeDefined()
-    if (msg && 'text' in msg) expect(msg.text).toContain('npm install lodash')
+    expect(msg).toContain('npm install lodash')
   })
 
   it('renders success result', () => {
     const msg = PackageManagerTool.renderToolResultMessage?.({ success: true, manager: 'npm', action: 'list', output: '', durationMs: 500 })
-    expect(msg).toBeDefined()
-    if (msg && 'text' in msg) expect(msg.text).toContain('npm list succeeded')
+    expect(msg).toContain('npm list succeeded')
   })
 
   it('renders error result', () => {
     const msg = PackageManagerTool.renderToolResultMessage?.({ success: false, manager: 'npm', action: 'install', output: '', durationMs: 100, error: 'EACCES: permission denied' })
-    expect(msg).toBeDefined()
-    if (msg && 'text' in msg) expect(msg.text).toContain('EACCES')
+    expect(msg).toContain('EACCES')
   })
 
   it('provides auto-classifier input', () => {

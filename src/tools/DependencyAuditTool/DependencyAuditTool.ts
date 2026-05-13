@@ -98,27 +98,30 @@ export const DependencyAuditTool = buildTool({
   get inputSchema(): InputSchema { return inputSchema() },
   get outputSchema(): OutputSchema { return outputSchema() },
   userFacingName: () => 'Dependency Audit',
-  isReadOnly() { return true },
+  isReadOnly() { return false },
   isDestructive() { return false },
   toAutoClassifierInput(input) { return `${input.manager ?? 'auto'} audit${input.severity ? ` >=${input.severity}` : ''}` },
   async description() { return DESCRIPTION },
   async prompt() { return PROMPT },
   async validateInput() { return { result: true } },
+  async checkPermissions(input) {
+    return { behavior: 'ask', message: `Audit ${input.manager ?? 'auto'} dependencies`, updatedInput: input }
+  },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
   },
   renderToolUseMessage(input) {
-    return { type: 'text', text: `Auditing ${input.manager ?? 'auto'} dependencies${input.severity ? ` (${input.severity}+)` : ''}` }
+    return `Auditing ${input.manager ?? 'auto'} dependencies${input.severity ? ` (${input.severity}+)` : ''}`
   },
   renderToolResultMessage(output) {
-    if (!output.success) return { type: 'text', text: `Dependency audit failed: ${output.error}` }
-    if (output.total === 0) return { type: 'text', text: `No vulnerabilities found in ${output.durationMs}ms` }
+    if (!output.success) return `Dependency audit failed: ${output.error}`
+    if (output.total === 0) return `No vulnerabilities found in ${output.durationMs}ms`
     const parts = [`Found ${output.total} vulnerabilities:`]
     for (const [s, l] of [['critical', 'critical'], ['high', 'high'], ['medium', 'medium'], ['low', 'low']]) {
       const c = (output.bySeverity as any)?.[s] ?? 0; if (c > 0) parts.push(`${c} ${l}`)
     }
     parts.push(`in ${output.durationMs}ms`)
-    return { type: 'text', text: parts.join(' ') }
+    return parts.join(' ')
   },
   async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
     const startTime = Date.now()
@@ -133,6 +136,7 @@ export const DependencyAuditTool = buildTool({
     try {
       // Use spawnSync instead of execSync so non-zero exit (vulnerabilities found) still captures output
       const result = spawnSync(mgr.binary, mgr.args, { cwd: targetPath, timeout: 120_000, maxBuffer: 200_000, encoding: 'utf-8' })
+      if (result.error) return { data: { success: false, manager: mgrName, total: 0, bySeverity: { critical: 0, high: 0, medium: 0, low: 0 }, advisories: [], durationMs: Date.now() - startTime, error: `Binary not found: ${mgr.binary}` } }
       const stdout = result.stdout ?? ''
       const stderr = result.stderr ?? ''
       const status = result.status ?? 0

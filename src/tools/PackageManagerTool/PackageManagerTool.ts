@@ -123,7 +123,8 @@ export const PackageManagerTool = buildTool({
     return { result: true }
   },
   async checkPermissions(input) {
-    if (['install', 'remove', 'update'].includes(input.action)) {
+    // audit and outdated can also download/execute remote code (e.g. go run ...@latest)
+    if (['install', 'remove', 'update', 'audit', 'outdated'].includes(input.action)) {
       return { behavior: 'ask', message: `Run "${input.action}" on ${(input.packages ?? []).join(', ')}?`, updatedInput: input }
     }
     return { behavior: 'allow', updatedInput: input }
@@ -133,14 +134,14 @@ export const PackageManagerTool = buildTool({
   },
   renderToolUseMessage(input) {
     const d = input.dryRun ? ' (dry-run)' : ''
-    return { type: 'text', text: `${input.manager ?? 'auto'} ${input.action} ${(input.packages ?? []).join(', ')}${d}`.trim() }
+    return `${input.manager ?? 'auto'} ${input.action} ${(input.packages ?? []).join(', ')}${d}`.trim()
   },
   renderToolResultMessage(output) {
-    if (!output.success) return { type: 'text', text: `${output.manager} ${output.action} failed: ${output.error}` }
+    if (!output.success) return `${output.manager} ${output.action} failed: ${output.error}`
     const c = output.packagesChanged?.length ? ` — ${output.packagesChanged.join(', ')}` : ''
-    return { type: 'text', text: `${output.manager} ${output.action} succeeded${c} in ${output.durationMs}ms` }
+    return `${output.manager} ${output.action} succeeded${c} in ${output.durationMs}ms`
   },
-  async call(input, ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
+  async call(input, _ctx, _canUseTool?, _parentMessage?, _onProgress?): Promise<ToolResult<Output>> {
     const startTime = Date.now()
     const targetPath = resolve(expandPath(input.path ?? '.'))
     const mgrName = input.manager ?? detectManager(targetPath)
@@ -152,6 +153,7 @@ export const PackageManagerTool = buildTool({
       if (!args.length) return { data: { success: false, manager: mgrName, action: input.action, output: '', durationMs: Date.now() - startTime, error: `Unsupported action ${input.action} for ${mgrName}` } }
 
       const result = spawnSync(MANAGERS[mgrName].binary, args, { cwd: targetPath, timeout: 120_000, maxBuffer: MAX_OUTPUT, encoding: 'utf-8' })
+      if (result.error) return { data: { success: false, manager: mgrName, action: input.action, output: '', durationMs: Date.now() - startTime, error: `Binary not found: ${MANAGERS[mgrName].binary}` } }
       const stdout = (result.stdout ?? '').slice(0, MAX_OUTPUT)
       const stderr = (result.stderr ?? '').slice(0, 2000)
       const changed = ['install', 'update', 'remove'].includes(input.action) ? input.packages : undefined
