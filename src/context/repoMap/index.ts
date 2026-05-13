@@ -38,7 +38,7 @@ export async function buildRepoMap(options: RepoMapOptions = {}): Promise<RepoMa
   const totalFileCount = files.length
 
   // Check if we have a cached rendered map
-  const mapHash = computeMapHash(files, maxTokens, focusFiles)
+  const mapHash = computeMapHash(files, maxTokens, focusFiles, root)
   const cache = loadCache(root)
 
   // Check if rendered map is cached (stored as a special entry)

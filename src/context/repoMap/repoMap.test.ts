@@ -273,3 +273,35 @@ describe('error handling', () => {
     }
   })
 })
+
+describe('rendered cache invalidation', () => {
+  test('reflects file edits without manual invalidation', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-stale-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'main.ts'),
+        'export function oldName(): void {}\n',
+      )
+
+      const first = await buildRepoMap({ root: tempDir, maxTokens: 1024 })
+      expect(first.cacheHit).toBe(false)
+      expect(first.map).toContain('oldName')
+
+      // Bump mtime forward so the change is visible on filesystems with
+      // coarse timestamp resolution.
+      const future = new Date(Date.now() + 2000)
+      writeFileSync(
+        join(tempDir, 'main.ts'),
+        'export function newName(): void {}\n',
+      )
+      utimesSync(join(tempDir, 'main.ts'), future, future)
+
+      const second = await buildRepoMap({ root: tempDir, maxTokens: 1024 })
+      expect(second.map).toContain('newName')
+      expect(second.map).not.toContain('oldName')
+    } finally {
+      invalidateCache(tempDir)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})

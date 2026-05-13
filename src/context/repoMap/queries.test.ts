@@ -11,10 +11,13 @@ describe('bundled query drift guard', () => {
   test.each<SupportedLanguage>(['typescript', 'javascript', 'python'])(
     '%s: bundled query matches the .scm source file byte-for-byte',
     (language) => {
+      // Normalize CRLF → LF so Windows checkouts (where Git may convert line
+      // endings) still pass the byte-for-byte drift guard against the
+      // LF-only TypeScript string constants in queries.ts.
       const fromFile = readFileSync(
         join(__dirname, 'queries', `${language}-tags.scm`),
         'utf-8',
-      )
+      ).replace(/\r\n/g, '\n')
       const bundled = getBundledQuery(language)
       expect(bundled).not.toBeNull()
       expect(bundled).toBe(fromFile)

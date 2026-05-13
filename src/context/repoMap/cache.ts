@@ -93,14 +93,33 @@ export function setCachedTags(
 /**
  * Compute a hash of the inputs that affect the rendered map.
  * Used to cache the final rendered output.
+ *
+ * The fingerprint includes per-file mtime+size so that editing a file
+ * (without changing the file list) invalidates the rendered cache. Without
+ * this, `buildRepoMap` would return a stale rendered map until manual
+ * `invalidateCache()`.
  */
 export function computeMapHash(
   files: string[],
   maxTokens: number,
   focusFiles: string[],
+  root: string,
 ): string {
   const sorted = [...files].sort()
-  const input = JSON.stringify({ files: sorted, maxTokens, focusFiles: [...focusFiles].sort() })
+  const fingerprint = sorted.map(file => {
+    try {
+      const stat = statSync(join(root, file))
+      return `${file}:${stat.mtimeMs}:${stat.size}`
+    } catch {
+      return `${file}:missing`
+    }
+  })
+  const input = JSON.stringify({
+    files: sorted,
+    fingerprint,
+    maxTokens,
+    focusFiles: [...focusFiles].sort(),
+  })
   return createHash('sha1').update(input).digest('hex')
 }
 
