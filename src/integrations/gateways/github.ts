@@ -46,7 +46,7 @@ export default defineGateway({
     source: 'dynamic',
     discovery: { kind: 'github-models', requiresAuth: true },
     discoveryCacheTtl: '1h',
-    discoveryRefreshMode: 'on-open',
+    discoveryRefreshMode: 'background-if-stale',
     allowManualRefresh: true,
   },
   usage: { supported: false },
