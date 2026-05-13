@@ -69,40 +69,53 @@ export function ModelProviderSettings({
       setMode('editModel');
     } else if (value.startsWith('delete-')) {
       const id = value.replace('delete-', '');
-      const nextAgent = {
-        ...agentModels
-      };
-      const nextContext = {
-        ...contextWindows
-      };
-      const nextMax = {
-        ...maxTokens
-      };
-      (nextAgent as any)[id] = undefined;
-      (nextContext as any)[id] = undefined;
-      (nextMax as any)[id] = undefined;
-      saveAll(nextAgent as any, nextContext as any, nextMax as any);
+      const nextAgent = { ...agentModels };
+      const nextContext = { ...contextWindows };
+      const nextMax = { ...maxTokens };
+      delete nextAgent[id];
+      delete nextContext[id];
+      delete nextMax[id];
+      
+      updateSettingsForSource('userSettings', {
+        agentModels: { [id]: undefined } as any,
+        openaiContextWindows: { [id]: undefined } as any,
+        openaiMaxOutputTokens: { [id]: undefined } as any
+      });
+      
+      setAgentModels(nextAgent);
+      setContextWindows(nextContext);
+      setMaxTokens(nextMax);
     }
   };
 
-  const handleEditModelSelect = (value_0: string) => {
-    if (value_0 === 'back') {
+  const handleEditModelSelect = (value: string) => {
+    if (value === 'back') {
       setMode('list');
-    } else if (value_0 === 'delete') {
+    } else if (value === 'delete') {
       if (selectedModel) {
-        const nextAgent_0 = {
-          ...agentModels
-        };
-        const nextContext_0 = {
-          ...contextWindows
-        };
-        const nextMax_0 = {
-          ...maxTokens
-        };
-        (nextAgent_0 as any)[selectedModel] = undefined;
-        (nextContext_0 as any)[selectedModel] = undefined;
-        (nextMax_0 as any)[selectedModel] = undefined;
-        saveAll(nextAgent_0 as any, nextContext_0 as any, nextMax_0 as any);
+        const nextAgent = { ...agentModels };
+        const nextContext = { ...contextWindows };
+        const nextMax = { ...maxTokens };
+        delete nextAgent[selectedModel];
+        delete nextContext[selectedModel];
+        delete nextMax[selectedModel];
+        
+        updateSettingsForSource('userSettings', {
+          agentModels: { [selectedModel]: undefined } as any,
+          openaiContextWindows: { [selectedModel]: undefined } as any,
+          openaiMaxOutputTokens: { [selectedModel]: undefined } as any
+        });
+        
+        setAgentModels(nextAgent);
+        setContextWindows(nextContext);
+        setMaxTokens(nextMax);
+        setMode('list');
+      }
+    } else if (value === 'set-default') {
+      if (selectedModel) {
+        updateSettingsForSource('userSettings', {
+          model: selectedModel
+        });
         setMode('list');
       }
     } else {
@@ -143,10 +156,10 @@ export function ModelProviderSettings({
       nextAgent[selectedModel] = { ...nextAgent[selectedModel], api_key: inputValue, base_url: nextAgent[selectedModel]?.base_url || '' };
     } else if (editingField === 'context_window') {
       const val = parseInt(inputValue, 10);
-      if (!isNaN(val)) nextContext[selectedModel] = val;else (nextContext as any)[selectedModel] = undefined;
+      if (!isNaN(val) && val > 0) nextContext[selectedModel] = val;else delete nextContext[selectedModel];
     } else if (editingField === 'max_tokens') {
       const val = parseInt(inputValue, 10);
-      if (!isNaN(val)) nextMax[selectedModel] = val;else (nextMax as any)[selectedModel] = undefined;
+      if (!isNaN(val) && val > 0) nextMax[selectedModel] = val;else delete nextMax[selectedModel];
     }
 
     saveAll(nextAgent, nextContext, nextMax);
@@ -181,6 +194,7 @@ export function ModelProviderSettings({
               { label: `API Key: ${agentModels[selectedModel!]?.api_key ? '********' : 'Not set'}`, value: 'api_key' },
               { label: `Context Window: ${contextWindows[selectedModel!] || 'Default (128k)'}`, value: 'context_window' },
               { label: `Max Tokens: ${maxTokens[selectedModel!] || 'Default'}`, value: 'max_tokens' },
+              { label: '[Set as Default Model]', value: 'set-default' },
               { label: <Text color="error">[Delete This Provider]</Text>, value: 'delete' },
               { label: '<-- Back', value: 'back' }
             ]}

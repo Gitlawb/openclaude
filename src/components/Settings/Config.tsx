@@ -1703,6 +1703,7 @@ export function Config({
         </Dialog> : showSubmenu === 'ContextWindows' ? <ModelProviderSettings initialAgentModels={settingsData?.agentModels} initialContextWindows={settingsData?.openaiContextWindows} initialMaxTokens={settingsData?.openaiMaxOutputTokens} onCancel={() => {
       setShowSubmenu(null);
       setTabsHidden(false);
+      setSettingsData(getInitialSettings());
     }} onComplete={() => {
       setShowSubmenu(null);
       setTabsHidden(false);

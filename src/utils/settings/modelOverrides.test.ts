@@ -20,6 +20,30 @@ describe('SettingsSchema model overrides', () => {
     }
   });
 
+  test('SettingsSchema rejects invalid override types (non-integers)', async () => {
+    const { SettingsSchema } = await import('./types.js');
+    const settings = {
+      openaiContextWindows: {
+        'invalid-model': 123.45
+      }
+    };
+    const result = SettingsSchema().safeParse(settings);
+    expect(result.success).toBe(false);
+  });
+
+  test('SettingsSchema rejects non-positive integers', async () => {
+    const { SettingsSchema } = await import('./types.js');
+    const result1 = SettingsSchema().safeParse({
+      openaiContextWindows: { 'm': 0 }
+    });
+    expect(result1.success).toBe(false);
+
+    const result2 = SettingsSchema().safeParse({
+      openaiContextWindows: { 'm': -100 }
+    });
+    expect(result2.success).toBe(false);
+  });
+
   test('SettingsSchema accepts agentModels', async () => {
     const { SettingsSchema } = await import('./types.js');
     const settings = {
@@ -35,16 +59,5 @@ describe('SettingsSchema model overrides', () => {
     if (result.success) {
       expect(result.data.agentModels).toEqual(settings.agentModels);
     }
-  });
-
-  test('SettingsSchema rejects invalid override types', async () => {
-    const { SettingsSchema } = await import('./types.js');
-    const settings = {
-      openaiContextWindows: {
-        'invalid-model': 'not-a-number'
-      }
-    };
-    const result = SettingsSchema().safeParse(settings);
-    expect(result.success).toBe(false);
   });
 });

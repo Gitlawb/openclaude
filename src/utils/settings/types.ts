@@ -723,14 +723,14 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .describe('Advisor model for the server-side advisor tool.'),
       openaiContextWindows: z
-        .record(z.string(), z.number())
+        .record(z.string(), z.number().int().positive())
         .optional()
         .describe(
           'Override context window sizes for specific models. ' +
             'Example: { "devstral-small-2": 256000 }'
         ),
       openaiMaxOutputTokens: z
-        .record(z.string(), z.number())
+        .record(z.string(), z.number().int().positive())
         .optional()
         .describe(
           'Override max output tokens for specific models. ' +

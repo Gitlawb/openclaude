@@ -23,10 +23,23 @@ function readExternalLimits(
   processEnv: NodeJS.ProcessEnv,
 ): Record<string, number> {
   const settings = settingsGetter?.()
-  const settingsLimits =
+  const rawSettingsLimits =
     envVarName === 'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS'
       ? settings?.openaiContextWindows
       : settings?.openaiMaxOutputTokens
+
+  const settingsLimits = Object.fromEntries(
+    Object.entries(rawSettingsLimits || {})
+      .filter(
+        (entry): entry is [string, number] =>
+          typeof entry[0] === 'string' &&
+          typeof entry[1] === 'number' &&
+          Number.isFinite(entry[1]) &&
+          entry[1] > 0,
+      )
+      .map(([key, value]) => [key.trim(), value])
+      .filter(([key]) => key.length > 0),
+  )
 
   const raw = processEnv[envVarName]
   const envLimits = (() => {

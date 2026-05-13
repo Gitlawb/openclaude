@@ -696,6 +696,20 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     }
   }
 
+  // Append user-defined custom agentModels
+  const settings = getSettings_DEPRECATED()
+  if (settings?.agentModels) {
+    for (const modelId of Object.keys(settings.agentModels)) {
+      if (!options.some(existing => existing.value === modelId)) {
+        options.push({
+          value: modelId,
+          label: modelId,
+          description: 'Custom Provider (from Config)',
+        })
+      }
+    }
+  }
+
   // Add custom model from either the current model value or the initial one
   // if it is not already in the options.
   let customModel: ModelSetting = null
