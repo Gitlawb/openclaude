@@ -1,0 +1,3 @@
+export const FILE_ARCHIVE_TOOL_NAME = 'FileArchive'
+export const DESCRIPTION = 'Create, extract, and inspect file archives (zip, tar, tar.gz, gz).'
+export const PROMPT = 'Create, extract, and inspect file archives.\n\n## Actions\n- create: Create a new archive from files/directories\n- extract: Extract an existing archive\n- list: List contents of an archive without extracting\n\n## Formats\n- zip: ZIP archive (cross-platform)\n- tar: Uncompressed tar\n- tar.gz: Gzip-compressed tar\n- gz: Single-file gzip compression\n\n## Safety\n- Extraction validates paths to prevent directory traversal\n- Existing files are not overwritten without confirmation'
