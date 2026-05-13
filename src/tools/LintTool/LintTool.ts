@@ -111,8 +111,7 @@ export const LintTool: ToolDef<InputSchema, Output> = {
     return { result: true }
   },
   async checkPermissions(input) {
-    const desc = `${input.tool ?? 'auto'} ${input.fix ? '(fix mode) ' : ''}on ${input.path}`
-    return { behavior: 'ask', askReason: `Run ${desc}?`, updatedInput: input }
+    return { behavior: 'ask', message: `${input.tool ?? 'auto'} linter on ${input.path}${input.fix ? ' (fix mode)' : ''}`, updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
@@ -158,8 +157,8 @@ export const LintTool: ToolDef<InputSchema, Output> = {
       else { findings = parseGenericOutput(stdout) }
 
       if (findings.length === 0 && stderr) findings = parseGenericOutput(stderr)
-      if (findings.length === 0 && result.status !== 0 && stderr) {
-        return { data: { success: true, tool: toolName, errors: 0, warnings: 0, findings: [], durationMs: Date.now() - startTime, error: stderr.slice(0, 2000) } }
+      if (findings.length === 0 && result.status !== 0) {
+        return { data: { success: false, tool: toolName, errors: 0, warnings: 0, findings: [], durationMs: Date.now() - startTime, error: (stderr || `${binary} exited with code ${result.status}`).slice(0, 2000) } }
       }
 
       const errors = findings.filter(f => f.severity === 'error').length

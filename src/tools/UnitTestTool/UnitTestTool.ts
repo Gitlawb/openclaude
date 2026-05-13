@@ -70,8 +70,7 @@ export const UnitTestTool: ToolDef<InputSchema, Output> = {
     return { result: true }
   },
   async checkPermissions(input) {
-    const desc = `${input.framework ?? 'auto'} test on ${input.path}${input.coverage ? ' (with coverage)' : ''}`
-    return { behavior: 'ask', askReason: `Run ${desc}?`, updatedInput: input }
+    return { behavior: 'ask', message: `${input.framework ?? 'auto'} test on ${input.path}${input.coverage ? ' (with coverage)' : ''}`, updatedInput: input }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     return { tool_use_id: toolUseID, type: 'tool_result', content: JSON.stringify(output) }
