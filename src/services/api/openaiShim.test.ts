@@ -3568,6 +3568,39 @@ test('streaming: preserves prose without tags (no phrase-based false positive)',
   )
 })
 
+test('strips credentials and query params from URL in fetch network error message', async () => {
+  process.env.OPENAI_BASE_URL =
+    'https://user:password@internal.example.test/v1?token=abc123'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  globalThis.fetch = (async () => {
+    throw new TypeError(
+      'fetch failed https://user:password@internal.example.test/v1?token=abc123/chat/completions',
+    )
+  }) as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  let caught: unknown
+  try {
+    await client.beta.messages.create({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } catch (error) {
+    caught = error
+  }
+
+  const message = (caught as Error).message
+  expect(message).toContain('internal.example.test')
+  expect(message).toContain('fetch failed')
+  expect(message).not.toContain('password')
+  expect(message).not.toContain('user:')
+  expect(message).not.toContain('token=abc123')
+})
+
 test('classifies localhost transport failures with actionable category marker', async () => {
   process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
 

@@ -191,6 +191,10 @@ function redactUrlForDiagnostics(url: string): string {
   }
 }
 
+function redactUrlsInMessage(message: string): string {
+  return message.replace(/https?:\/\/\S+/g, match => redactUrlForDiagnostics(match))
+}
+
 function sleepMs(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -1937,7 +1941,7 @@ class OpenAIShimMessages {
       const redactedUrl = redactUrlForDiagnostics(requestUrl)
       const safeMessage =
         redactSecretValueForDisplay(
-          failure.message,
+          redactUrlsInMessage(failure.message),
           process.env as SecretValueSource,
         ) || 'Request failed'
 
