@@ -11,8 +11,8 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
-import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
-import { parseUserSpecifiedModel } from '../utils/model/model.js'
+import { getInitialSettings } from '../utils/settings/settings.js'
+import { getPublicModelDisplayName, parseUserSpecifiedModel } from '../utils/model/model.js'
 import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
@@ -93,10 +93,12 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   if (useGithub) {
-    const model = modelOverride || process.env.OPENAI_MODEL || 'github:copilot'
+    const settings = getInitialSettings() || {}
+    const model = modelOverride || settings.model || process.env.OPENAI_MODEL || 'gpt-4o'
+    const displayName = model === 'github:copilot' ? 'GPT-4o' : (getPublicModelDisplayName(model) || model)
     const baseUrl =
       process.env.OPENAI_BASE_URL || 'https://api.githubcopilot.com'
-    return { name: 'GitHub Copilot', model, baseUrl, isLocal: false }
+    return { name: 'GitHub Copilot', model: displayName, baseUrl, isLocal: false }
   }
 
   if (useOpenAI) {
@@ -156,7 +158,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   // Default: Anthropic - check settings.model first, then env vars
-  const settings = getSettings_DEPRECATED() || {}
+  const settings = getInitialSettings() || {}
   const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
