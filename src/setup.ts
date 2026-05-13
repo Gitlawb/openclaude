@@ -41,6 +41,7 @@ import { hasWorktreeCreateHook } from './utils/hooks.js'
 import { checkAndRestoreITerm2Backup } from './utils/iTermBackup.js'
 import { logError } from './utils/log.js'
 import { getRecentActivity } from './utils/logoV2Utils.js'
+import { getAPIProvider } from './utils/model/providers.js'
 import { lockCurrentVersion } from './utils/nativeInstaller/index.js'
 import type { PermissionMode } from './utils/permissions/PermissionMode.js'
 import { getPlanSlug } from './utils/plans.js'
@@ -400,6 +401,30 @@ export async function setup(
       process.exit(1)
     }
 
+  }
+
+  // Surface a startup warning when permissive permission modes are combined
+  // with a third-party provider. modelSupportsAutoMode() short-circuits to
+  // false for non-firstParty providers when USER_TYPE !== 'ant' (see
+  // utils/betas.ts), so the AI-based tool-call classifier never runs in this
+  // configuration even though acceptEdits / bypassPermissions / --dangerously-
+  // skip-permissions auto-allow tool calls. Static pattern checks still
+  // apply; the warning makes the absent safety layer visible to the user.
+  // Tracks #244 finding 1.
+  if (
+    process.env.USER_TYPE !== 'ant' &&
+    getAPIProvider() !== 'firstParty' &&
+    (permissionMode === 'acceptEdits' ||
+      permissionMode === 'bypassPermissions' ||
+      allowDangerouslySkipPermissions)
+  ) {
+    // biome-ignore lint/suspicious/noConsole:: intentional console output
+    console.warn(
+      chalk.yellow(
+        'Warning: AI safety classifier is not active for third-party providers.',
+      ) +
+        '\nTool calls are validated by static pattern checks only. Use caution with untrusted codebases.',
+    )
   }
 
   if (process.env.NODE_ENV === 'test') {
