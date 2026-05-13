@@ -96,7 +96,7 @@ export interface ModelCatalogConfig {
   models?: ModelCatalogEntry[]
 }
 
-export type ModelDiscoveryKind = 'openai-compatible' | 'ollama' | 'custom'
+export type ModelDiscoveryKind = 'openai-compatible' | 'ollama' | 'custom' | 'github-models'
 
 export interface ModelDiscoveryConfig {
   kind: ModelDiscoveryKind

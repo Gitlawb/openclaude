@@ -244,6 +244,80 @@ async function runDiscovery(
       return models?.map(model => toDiscoveredModelEntry(model)) ?? null
     }
 
+    case 'github-models': {
+      const apiKey = getRouteDiscoveryApiKey(routeId, options)
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${apiKey}`,
+        'Editor-Version': 'vscode/1.96.0',
+        'Editor-Plugin-Version': 'copilot/1.250.0',
+        'User-Agent': 'GitHubCopilot/1.250.0',
+        Accept: 'application/json',
+      }
+
+      function formatModelLabel(rawId: string): string {
+        const base = rawId.replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/-\d{4}$/, '')
+        if (base.startsWith('claude-')) {
+          const parts = base.replace('claude-', '').split('-')
+          if (parts.length >= 2) return `Claude ${parts[0].charAt(0).toUpperCase() + parts[0].slice(1)} ${parts.slice(1).join('.')}`
+        }
+        if (base.startsWith('gpt-')) {
+          const rest = base.slice(4)
+          const named = rest
+            .replace(/^4o-mini/, '4o Mini')
+            .replace(/^4o/, '4o')
+            .replace(/^4-o/, '4o')
+            .replace(/^4\.1/, '4.1')
+            .replace(/^4/, '4')
+            .replace(/^3\.5-turbo/, '3.5 Turbo')
+            .replace(/^5\.5-mini/, '5.5 Mini')
+            .replace(/^5\.5/, '5.5')
+            .replace(/^5\.4-mini/, '5.4 Mini')
+            .replace(/^5\.4/, '5.4')
+            .replace(/^5\.3-codex/, '5.3 Codex')
+            .replace(/^5\.2-codex/, '5.2 Codex')
+            .replace(/^5\.2/, '5.2')
+            .replace(/^5\.1-codex/, '5.1 Codex')
+            .replace(/^5-mini/, '5 Mini')
+            .replace(/^5/, '5')
+          return `GPT-${named}`
+        }
+        if (base.startsWith('gemini-')) return base.replace('gemini-', 'Gemini ')
+        if (base.startsWith('grok-')) {
+          const v = base.replace('grok-', '')
+          if (v === 'code-fast-1') return 'Grok Code Fast 1'
+          return `Grok ${v}`
+        }
+        return rawId
+      }
+
+      try {
+        const response = await fetch('https://api.githubcopilot.com/models', {
+          headers,
+          signal: AbortSignal.timeout(5000),
+        })
+        if (!response.ok) return null
+
+        const body = (await response.json()) as { data?: Array<{ id?: string }> }
+        if (!body.data || !Array.isArray(body.data)) return null
+
+        const seen = new Set<string>()
+        const models = body.data
+          .map(item => {
+            const id = item.id?.trim()
+            if (!id) return null
+            if (id.startsWith('accounts/') || id.startsWith('oswe-') || id.includes('text-embedding')) return null
+            if (seen.has(id)) return null
+            seen.add(id)
+            return { id, apiName: id, label: formatModelLabel(id) } as ModelCatalogEntry
+          })
+          .filter((m): m is ModelCatalogEntry => m !== null)
+
+        return models.length > 0 ? models : null
+      } catch {
+        return null
+      }
+    }
+
     case 'custom':
       return null
   }
