@@ -27,6 +27,7 @@
  */
 
 import type { SearchInput, SearchProvider } from './types.js'
+import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js'
 import {
   applyDomainFilters,
   normalizeHit,
@@ -587,14 +588,13 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
   let lastStatus: number | undefined
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    // Compose timeout with caller signal via AbortSignal.any so each attempt
+    // Compose timeout with caller signal so each attempt
     // has a fresh timeout and we don't leak an abort listener on `signal`
     // (the previous implementation added one per attempt and never removed
     // it, and the listener kept a reference to a stale AbortController).
-    const timeoutSignal = AbortSignal.timeout(timeoutMs)
-    const combined = signal
-      ? AbortSignal.any([signal, timeoutSignal])
-      : timeoutSignal
+    const { signal: combined, cleanup } = createCombinedAbortSignal(signal, {
+      timeoutMs,
+    })
 
     lastStatus = undefined
     try {
@@ -611,8 +611,8 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
       // Caller-initiated abort wins — propagate without retry or rewrite.
       if (signal?.aborted) throw lastErr
 
-      // Timeout (TimeoutError on Bun/Node, or AbortError with timeoutSignal aborted).
-      if (timeoutSignal.aborted) {
+      // Timeout (TimeoutError on Bun/Node, or AbortError with timeout signal aborted).
+      if (combined.aborted) {
         throw new Error(`Custom search timed out after ${timeoutSec}s`)
       }
 
@@ -622,6 +622,8 @@ async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSign
         continue
       }
       throw lastErr
+    } finally {
+      cleanup()
     }
   }
   throw lastErr!

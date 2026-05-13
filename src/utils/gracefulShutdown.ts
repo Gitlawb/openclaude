@@ -37,6 +37,7 @@ import {
 } from '../services/analytics/index.js'
 import type { AppState } from '../state/AppState.js'
 import { runCleanupFunctions } from './cleanupRegistry.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
 import { isEnvTruthy } from './envUtils.js'
@@ -479,14 +480,19 @@ export async function gracefulShutdown(
   // Execute SessionEnd hooks. Bound both the per-hook default timeout and the
   // overall execution via a single budget (CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS,
   // default 1.5s). hook.timeout in settings is respected up to this cap.
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: sessionEndTimeoutMs,
+  })
   try {
     await executeSessionEndHooks(reason, {
       ...options,
-      signal: AbortSignal.timeout(sessionEndTimeoutMs),
+      signal,
       timeoutMs: sessionEndTimeoutMs,
     })
   } catch {
     // Ignore SessionEnd hook exceptions (including AbortError on timeout)
+  } finally {
+    cleanup()
   }
 
   // Log startup perf before analytics shutdown flushes/cancels timers

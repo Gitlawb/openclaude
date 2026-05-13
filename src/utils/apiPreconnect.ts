@@ -24,6 +24,7 @@
  */
 
 import { getOauthConfig } from '../constants/oauth.js'
+import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { isEnvTruthy } from './envUtils.js'
 import { getAPIProvider } from './model/providers.js'
 
@@ -69,9 +70,14 @@ export function preconnectAnthropicApi(): void {
   // for keep-alive pool reuse immediately after headers arrive. 10s timeout
   // so a slow network doesn't hang the process; abort is fine since the real
   // request will handshake fresh if needed.
+  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+    timeoutMs: 10_000,
+  })
   // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
   void fetch(baseUrl, {
     method: 'HEAD',
-    signal: AbortSignal.timeout(10_000),
-  }).catch(() => {})
+    signal,
+  })
+    .catch(() => {})
+    .finally(cleanup)
 }
