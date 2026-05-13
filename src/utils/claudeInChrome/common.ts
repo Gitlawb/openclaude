@@ -500,7 +500,7 @@ export function getAllSocketPaths(): string[] {
 
   // Scan for *.sock files in the socket directory
   try {
-    // eslint-disable-next-line custom-rules/no-sync-fs -- ClaudeForChromeContext.getSocketPaths (external @ant/claude-for-chrome-mcp) requires a sync () => string[] callback
+    // eslint-disable-next-line custom-rules/no-sync-fs -- ClaudeForChromeContext.getSocketPaths (openclaude-for-chrome-mcp) requires a sync () => string[] callback
     const files = readdirSync(socketDir)
     for (const file of files) {
       if (file.endsWith('.sock')) {

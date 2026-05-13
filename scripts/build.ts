@@ -226,6 +226,11 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
 
         // NOTE: @opentelemetry/* kept as external deps (too many named exports to stub)
 
+        // Resolve openclaude-for-chrome-mcp to the local package
+        build.onResolve({ filter: /^openclaude-for-chrome-mcp$/ }, () => ({
+          path: join(import.meta.dir, '..', 'packages', 'openclaude-for-chrome-mcp', 'index.ts'),
+        }))
+
         // Resolve native addon and missing snapshot imports to stubs
         for (const mod of [
           'audio-capture-napi',
@@ -235,7 +240,6 @@ export async function handleBgFlag() { throw new Error("Background sessions are 
           'url-handler-napi',
           'color-diff-napi',
           '@anthropic-ai/mcpb',
-          '@ant/claude-for-chrome-mcp',
           '@anthropic-ai/sandbox-runtime',
           'asciichart',
           'plist',
@@ -273,13 +277,11 @@ export const __stub = true;
 export const SandboxViolationStore = null;
 export const SandboxManager = new Proxy({}, { get: () => noop });
 export const SandboxRuntimeConfigSchema = { parse: () => ({}) };
-export const BROWSER_TOOLS = [];
 export const getMcpConfigForManifest = noop;
 export const ColorDiff = null;
 export const ColorFile = null;
 export const getSyntaxTheme = noop;
 export const plot = noop;
-export const createClaudeForChromeMcpServer = noop;
 // OpenTelemetry exports
 export const ExportResultCode = { SUCCESS: 0, FAILED: 1 };
 export const resourceFromAttributes = noop;
