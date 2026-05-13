@@ -353,7 +353,7 @@ function ModelPickerWrapper({
   discoveryContext: ModelDiscoveryContext | null
   onDone: (result?: string, options?: { display?: CommandResultDisplay }) => void
 }) {
-  const mainLoopModel = useAppState((s: AppState) => s.mainLoopModel)
+  const mainLoopModel = useAppState((s: AppState) => s.mainLoopModel) ?? getDefaultMainLoopModelSetting()
   const mainLoopModelForSession = useAppState(
     (s: AppState) => s.mainLoopModelForSession,
   )

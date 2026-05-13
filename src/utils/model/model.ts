@@ -60,7 +60,7 @@ export function getSmallFastModel(): ModelName {
   }
   // For GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
+    return process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // NVIDIA NIM — OPENAI_MODEL carries the user's active NIM model; use a
   // small Meta Llama variant as the conservative fallback.
@@ -136,6 +136,11 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       undefined
   }
 
+  // Normalize legacy GitHub Copilot alias to concrete model ID
+  if (specifiedModel === 'github:copilot') {
+    specifiedModel = 'gpt-4o'
+  }
+
   // Ignore the user-specified model if it's not in the availableModels allowlist.
   if (specifiedModel && !isModelAllowed(specifiedModel)) {
     return undefined
@@ -191,7 +196,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
+    return process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
@@ -237,7 +242,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
+    return process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // NVIDIA NIM
   if (getAPIProvider() === 'nvidia-nim') {
@@ -277,7 +282,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
-    return process.env.OPENAI_MODEL || 'github:copilot'
+    return process.env.OPENAI_MODEL || 'gpt-4o'
   }
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
@@ -345,7 +350,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     return (
       normalizeModelSetting(settings.model) ||
       normalizeModelSetting(process.env.OPENAI_MODEL) ||
-      'github:copilot'
+      'gpt-4o'
     )
   }
   // Gemini provider: always use the configured Gemini model

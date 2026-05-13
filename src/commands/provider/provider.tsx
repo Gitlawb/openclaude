@@ -326,7 +326,7 @@ export function buildCurrentProviderSummary(options?: {
     return {
       providerLabel: 'GitHub Models',
       modelLabel: getSafeDisplayValue(
-        processEnv.OPENAI_MODEL ?? 'github:copilot',
+        processEnv.OPENAI_MODEL ?? 'gpt-4o',
         secretSource,
       ),
       endpointLabel: getSafeDisplayValue(
