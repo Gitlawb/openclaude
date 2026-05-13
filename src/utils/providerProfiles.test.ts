@@ -59,6 +59,7 @@ const RESTORED_KEYS = [
   'BANKR_MODEL',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'MIMO_API_KEY',
   'HICAP_API_KEY',
 ] as const
 
@@ -188,6 +189,17 @@ function buildVeniceProfile(overrides: Partial<ProviderProfile> = {}): ProviderP
     baseUrl: 'https://api.venice.ai/api/v1',
     model: 'venice-uncensored',
     apiKey: 'venice-test-key',
+    ...overrides,
+  })
+}
+
+function buildXiaomiMimoProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'xiaomi-mimo',
+    name: 'Xiaomi MiMo',
+    baseUrl: 'https://api.xiaomimimo.com/v1',
+    model: 'mimo-v2.5-pro',
+    apiKey: 'mimo-test-key',
     ...overrides,
   })
 }
@@ -494,6 +506,38 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('openai')
   })
 
+  test('xiaomi mimo profile applies OpenAI-compatible env with MIMO_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildXiaomiMimoProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('mimo-v2.5-pro')
+    expect(process.env.OPENAI_API_KEY).toBe('mimo-test-key')
+    expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
+    expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
+
+  test('xiaomi mimo profile normalizes stale docs endpoint to resolving API host', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(buildXiaomiMimoProfile({
+      baseUrl: 'https://api.mimo-v2.com/v1',
+    }))
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1')
+    expect(process.env.MIMO_API_KEY).toBe('mimo-test-key')
+    expect(getFreshAPIProvider()).toBe('xiaomi-mimo')
+  })
 
   test('legacy OpenAI profile on restricted route ignores advanced settings', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -1098,6 +1142,20 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.requiresApiKey).toBe(true)
   })
 
+  test('xiaomi mimo preset defaults to the official Xiaomi MiMo endpoint', async () => {
+    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    process.env.MIMO_API_KEY = 'mimo-live-key'
+
+    const defaults = getProviderPresetDefaults('xiaomi-mimo')
+
+    expect(defaults.provider).toBe('xiaomi-mimo')
+    expect(defaults.name).toBe('Xiaomi MiMo')
+    expect(defaults.baseUrl).toBe('https://api.xiaomimimo.com/v1')
+    expect(defaults.model).toBe('mimo-v2.5-pro')
+    expect(defaults.apiKey).toBe('mimo-live-key')
+    expect(defaults.requiresApiKey).toBe(true)
+  })
+
   test('xai preset ignores stale generic OpenAI model when creating defaults', async () => {
     const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
     process.env.OPENAI_MODEL = 'gpt-5.4'
@@ -1324,6 +1382,47 @@ describe('setActiveProviderProfile', () => {
         OPENAI_MODEL: 'venice-uncensored',
         OPENAI_API_KEY: 'venice-test-key',
         VENICE_API_KEY: 'venice-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists Xiaomi MiMo profiles using a legacy-compatible openai startup profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const mimoProfile = buildXiaomiMimoProfile({
+        baseUrl: 'https://api.mimo-v2.com/v1',
+        id: 'mimo_prof',
+        model: 'mimo-v2.5-pro, mimo-v2-flash',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [mimoProfile],
+      }))
+
+      const result = setActiveProviderProfile('mimo_prof')
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('mimo_prof')
+      expect(existsSync(join(tempDir, '.openclaude-profile.json'))).toBe(false)
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://api.xiaomimimo.com/v1',
+        OPENAI_MODEL: 'mimo-v2.5-pro',
+        OPENAI_API_KEY: 'mimo-test-key',
+        MIMO_API_KEY: 'mimo-test-key',
       })
     } finally {
       process.chdir(originalCwd)

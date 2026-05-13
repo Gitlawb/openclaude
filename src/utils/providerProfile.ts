@@ -22,6 +22,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  normalizeXiaomiMimoBaseUrl,
 } from '../integrations/routeMetadata.js'
 import {
   maskSecretForDisplay,
@@ -91,6 +92,7 @@ const PROFILE_ENV_KEYS = [
   'BANKR_MODEL',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'MIMO_API_KEY',
 ] as const
 
 export type CompatibilityProfileMode =
@@ -114,6 +116,7 @@ const SECRET_ENV_KEYS = [
   'BNKR_API_KEY',
   'XAI_API_KEY',
   'VENICE_API_KEY',
+  'MIMO_API_KEY',
 ] as const
 
 export type ProviderProfile =
@@ -169,6 +172,7 @@ export type ProfileEnv = {
   BANKR_MODEL?: string
   XAI_API_KEY?: string
   VENICE_API_KEY?: string
+  MIMO_API_KEY?: string
 }
 
 export type ProfileFile = {
@@ -189,7 +193,8 @@ type SecretValueSource = Partial<
     | 'MISTRAL_API_KEY'
     | 'BNKR_API_KEY'
     | 'XAI_API_KEY'
-    | 'VENICE_API_KEY',
+    | 'VENICE_API_KEY'
+    | 'MIMO_API_KEY',
     string | undefined
   >
 >
@@ -499,6 +504,50 @@ export function buildVeniceProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     VENICE_API_KEY: key,
+  }
+}
+
+export function buildXiaomiMimoProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.MIMO_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('xiaomi-mimo')
+  const defaultModel = getRouteDefaultModel('xiaomi-mimo')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('Xiaomi MiMo route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    MIMO_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      normalizeXiaomiMimoBaseUrl(
+        sanitizeProviderConfigValue(options.baseUrl, secretSource),
+      ) ||
+      normalizeXiaomiMimoBaseUrl(
+        sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource),
+      ) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    MIMO_API_KEY: key,
   }
 }
 

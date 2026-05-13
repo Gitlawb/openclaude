@@ -218,6 +218,19 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
   }
 }
 
+function getPresetLabel(preset: ProviderPreset, label: string): React.ReactNode {
+  if (preset !== 'xiaomi-mimo') {
+    return label
+  }
+
+  return (
+    <Text>
+      <Text>{label} </Text>
+      <Text color="success" bold>[Sponsor]</Text>
+    </Text>
+  )
+}
+
 function presetToDraft(preset: ProviderPreset): ProviderDraft {
   const defaults = getProviderPresetDefaults(preset)
   return {
@@ -1517,7 +1530,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       const metadata = getProviderPresetUiMetadata(preset)
       return {
         value: preset,
-        label: metadata.label,
+        label: getPresetLabel(preset, metadata.label),
         description: metadata.description,
       }
     })

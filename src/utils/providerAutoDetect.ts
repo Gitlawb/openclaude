@@ -41,6 +41,7 @@ export type DetectedProviderKind =
   | 'gemini'
   | 'mistral'
   | 'minimax'
+  | 'xiaomi-mimo'
   | 'xai'
   | 'ollama'
   | 'lm-studio'
@@ -159,6 +160,10 @@ export function detectProviderFromEnv(
 
   if (envHasNonEmpty(env, 'MINIMAX_API_KEY')) {
     return { kind: 'minimax', source: 'MINIMAX_API_KEY set' }
+  }
+
+  if (envHasNonEmpty(env, 'MIMO_API_KEY')) {
+    return { kind: 'xiaomi-mimo', source: 'MIMO_API_KEY set' }
   }
 
   if (envHasNonEmpty(env, 'XAI_API_KEY')) {

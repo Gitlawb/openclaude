@@ -163,6 +163,17 @@ export OPENAI_MODEL=llama-3.3-70b-versatile
 
 `GROQ_API_KEY` matches the built-in Groq gateway preset. `OPENAI_API_KEY` also works as a fallback on the generic OpenAI-compatible path, but `GROQ_API_KEY` is the preferred variable for Groq-specific setup.
 
+### Xiaomi MiMo
+
+```bash
+export CLAUDE_CODE_USE_OPENAI=1
+export MIMO_API_KEY=...
+export OPENAI_BASE_URL=https://api.xiaomimimo.com/v1
+export OPENAI_MODEL=mimo-v2.5-pro
+```
+
+The `/provider` Xiaomi MiMo preset uses the same endpoint and stores the key as `MIMO_API_KEY`. `OPENAI_API_KEY` also works as a compatibility fallback, but `MIMO_API_KEY` keeps the profile tied to the MiMo route.
+
 ### Mistral
 
 ```bash
@@ -189,6 +200,7 @@ export OPENAI_MODEL=gpt-4o
 | `OPENAI_MODEL` | OpenAI-compatible only | Model name such as `gpt-4o`, `deepseek-v4-flash`, or `llama3.3:70b` |
 | `OPENAI_BASE_URL` | No | API endpoint, defaulting to `https://api.openai.com/v1` |
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
+| `MIMO_API_KEY` | Xiaomi MiMo route | Xiaomi MiMo API key for `https://api.xiaomimimo.com/v1`; mirrored into the OpenAI-compatible auth env when the MiMo route is active |
 | `CLAUDE_CODE_USE_GEMINI` | Gemini only | Set to `1` to enable the direct Gemini provider path |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini API-key auth | Gemini API key for direct Gemini setup |
 | `GEMINI_MODEL` | Gemini only | Model name such as `gemini-3-flash-preview` or `gemini-2.5-pro` |

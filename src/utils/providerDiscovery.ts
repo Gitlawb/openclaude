@@ -211,6 +211,15 @@ export function getLocalOpenAICompatibleProviderLabel(baseUrl?: string): string 
     if (host.includes('minimax') || haystack.includes('minimax')) {
       return 'MiniMax'
     }
+    // Check for Xiaomi MiMo
+    if (
+      host.includes('xiaomimimo') ||
+      haystack.includes('xiaomimimo') ||
+      host.includes('mimo-v2') ||
+      haystack.includes('mimo-v2')
+    ) {
+      return 'Xiaomi MiMo'
+    }
     // Kimi Code subscription API
     if (hostname === 'api.kimi.com' && path.includes('/coding')) {
       return 'Moonshot AI - Kimi Code'
