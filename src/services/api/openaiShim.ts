@@ -1659,70 +1659,24 @@ class OpenAIShimMessages {
         const msgs = Array.isArray(params.messages) ? params.messages as unknown[] : []
         const predicted = predictNeededTools(msgs)
         if (predicted !== null && predicted.size === 0) {
-          return await self._shimToolSearchCreate(request, params, options)
+          const shimResult = await self._shimToolSearchCreate(request, params, options)
+          httpResponse = shimResult.response
+          if (shimResult.converted) {
+            return shimResult.data
+          }
+          return await self._convertCreateResponse(
+            request,
+            shimResult.data as Response,
+            params,
+            options,
+          )
         }
       }
 
       const response = await self._doRequest(request, params, options)
       httpResponse = response
 
-      if (params.stream) {
-        const isResponsesStream = response.url?.includes('/responses')
-        return new OpenAIShimStream(
-          (
-            request.transport === 'codex_responses' ||
-            request.transport === 'responses' ||
-            isResponsesStream
-          )
-            ? codexStreamToAnthropic(response, request.resolvedModel, options?.signal)
-            : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
-        )
-      }
-
-      if (request.transport === 'codex_responses') {
-        const data = await collectCodexCompletedResponse(response, options?.signal)
-        return convertCodexResponseToAnthropicMessage(
-          data,
-          request.resolvedModel,
-        )
-      }
-
-      const isResponsesNonStream = response.url?.includes('/responses')
-      if (
-        request.transport === 'responses' ||
-        isResponsesNonStream ||
-        (request.transport === 'chat_completions' && isGithubModelsMode())
-      ) {
-        const contentType = response.headers.get('content-type') ?? ''
-        if (contentType.includes('application/json')) {
-          const parsed = await response.json() as Record<string, unknown>
-          if (
-            parsed &&
-            typeof parsed === 'object' &&
-            ('output' in parsed || 'incomplete_details' in parsed)
-          ) {
-            return convertCodexResponseToAnthropicMessage(
-              parsed,
-              request.resolvedModel,
-            )
-          }
-          return self._convertNonStreamingResponse(parsed, request.resolvedModel)
-        }
-      }
-
-      const contentType = response.headers.get('content-type') ?? ''
-      if (contentType.includes('application/json')) {
-        const data = await response.json()
-        return self._convertNonStreamingResponse(data, request.resolvedModel)
-      }
-
-      const textBody = await response.text().catch(() => '')
-      throw APIError.generate(
-        response.status,
-        undefined,
-        `OpenAI API error ${response.status}: unexpected response: ${textBody.slice(0, 500)}`,
-        response.headers as unknown as Headers,
-      )
+      return await self._convertCreateResponse(request, response, params, options)
     })()
 
       ; (promise as unknown as Record<string, unknown>).withResponse =
@@ -1737,6 +1691,71 @@ class OpenAIShimMessages {
         }
 
     return promise
+  }
+
+  private async _convertCreateResponse(
+    request: ReturnType<typeof resolveProviderRequest>,
+    response: Response,
+    params: ShimCreateParams,
+    options?: { signal?: AbortSignal; headers?: Record<string, string> },
+  ) {
+    if (params.stream) {
+      const isResponsesStream = response.url?.includes('/responses')
+      return new OpenAIShimStream(
+        (
+          request.transport === 'codex_responses' ||
+          request.transport === 'responses' ||
+          isResponsesStream
+        )
+          ? codexStreamToAnthropic(response, request.resolvedModel, options?.signal)
+          : openaiStreamToAnthropic(response, request.resolvedModel, options?.signal),
+      )
+    }
+
+    if (request.transport === 'codex_responses') {
+      const data = await collectCodexCompletedResponse(response, options?.signal)
+      return convertCodexResponseToAnthropicMessage(
+        data,
+        request.resolvedModel,
+      )
+    }
+
+    const isResponsesNonStream = response.url?.includes('/responses')
+    if (
+      request.transport === 'responses' ||
+      isResponsesNonStream ||
+      (request.transport === 'chat_completions' && isGithubModelsMode())
+    ) {
+      const contentType = response.headers.get('content-type') ?? ''
+      if (contentType.includes('application/json')) {
+        const parsed = await response.json() as Record<string, unknown>
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          ('output' in parsed || 'incomplete_details' in parsed)
+        ) {
+          return convertCodexResponseToAnthropicMessage(
+            parsed,
+            request.resolvedModel,
+          )
+        }
+        return this._convertNonStreamingResponse(parsed, request.resolvedModel)
+      }
+    }
+
+    const contentType = response.headers.get('content-type') ?? ''
+    if (contentType.includes('application/json')) {
+      const data = await response.json()
+      return this._convertNonStreamingResponse(data, request.resolvedModel)
+    }
+
+    const textBody = await response.text().catch(() => '')
+    throw APIError.generate(
+      response.status,
+      undefined,
+      `OpenAI API error ${response.status}: unexpected response: ${textBody.slice(0, 500)}`,
+      response.headers as unknown as Headers,
+    )
   }
 
   private async _doRequest(
@@ -1861,7 +1880,11 @@ class OpenAIShimMessages {
     request: ReturnType<typeof resolveProviderRequest>,
     params: ShimCreateParams,
     options?: { signal?: AbortSignal; headers?: Record<string, string> },
-  ): Promise<OpenAIShimStream | Response> {
+  ): Promise<{
+    data: OpenAIShimStream | Response
+    response: Response
+    converted: boolean
+  }> {
     debugShimToolSearch('Phase 1: conversational prediction — sending meta-tool only')
 
     const allConverted = convertTools(
@@ -1904,20 +1927,28 @@ class OpenAIShimMessages {
       debugShimToolSearch('Phase 1 result: conversational (no tools requested)')
       const msg = choice?.message ?? { role: 'assistant', content: '' }
       if (params.stream) {
-        return new OpenAIShimStream(
-          openaiStreamToAnthropic(
-            new Response(this._syntheticStream(msg as Record<string, unknown>), {
-              status: 200,
-              headers: { 'content-type': 'text/event-stream' },
-            }),
-            request.resolvedModel,
+        return {
+          data: new OpenAIShimStream(
+            openaiStreamToAnthropic(
+              new Response(this._syntheticStream(msg as Record<string, unknown>), {
+                status: 200,
+                headers: { 'content-type': 'text/event-stream' },
+              }),
+              request.resolvedModel,
+            ),
           ),
-        )
+          response: phase1Response,
+          converted: true,
+        }
       }
-      return new Response(JSON.stringify(phase1Json), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
+      return {
+        data: new Response(JSON.stringify(phase1Json), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+        response: phase1Response,
+        converted: false,
+      }
     }
 
     // Model requested tools — parse and do phase 2
@@ -1948,13 +1979,21 @@ class OpenAIShimMessages {
 
     if (params.stream) {
       const isResponsesStream = response.url?.includes('/responses')
-      return new OpenAIShimStream(
-        (request.transport === 'codex_responses' || isResponsesStream)
-          ? codexStreamToAnthropic(response, request.resolvedModel)
-          : openaiStreamToAnthropic(response, request.resolvedModel),
-      )
+      return {
+        data: new OpenAIShimStream(
+          (request.transport === 'codex_responses' || isResponsesStream)
+            ? codexStreamToAnthropic(response, request.resolvedModel)
+            : openaiStreamToAnthropic(response, request.resolvedModel),
+        ),
+        response,
+        converted: true,
+      }
     }
-    return response
+    return {
+      data: response,
+      response,
+      converted: false,
+    }
   }
 
   private async _doOpenAIRequest(

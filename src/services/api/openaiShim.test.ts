@@ -1389,14 +1389,20 @@ test('ShimToolSearch lazy phase 1 sends a valid request_tools schema through sys
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
-  await client.beta.messages.create({
-    model: 'fake-model',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'What is 2+2?' }],
-    tools: makeShimToolFixtures(),
-    max_tokens: 32,
-    stream: false,
-  })
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'What is 2+2?' }],
+      tools: makeShimToolFixtures(),
+      max_tokens: 32,
+      stream: false,
+    })
+    .withResponse() as {
+      data: { content: Array<{ type: string; text?: string }> }
+      response: Response
+      request_id: string
+    }
 
   expect(requestBodies).toHaveLength(1)
   const phase1Body = requestBodies[0]
@@ -1406,6 +1412,9 @@ test('ShimToolSearch lazy phase 1 sends a valid request_tools schema through sys
   )
   expect(systemMessage?.content).toContain('Available tools')
   expect(systemMessage?.content).toContain('WebSearch')
+  expect(result.data.content).toEqual([{ type: 'text', text: 'direct answer' }])
+  expect(result.response.headers.get('content-type')).toContain('application/json')
+  expect(result.request_id).toMatch(/^msg_/)
 })
 
 test('ShimToolSearch lazy phase 2 falls back to all tools on malformed request_tools JSON', async () => {
@@ -1438,7 +1447,12 @@ test('ShimToolSearch lazy phase 2 falls back to all tools on malformed request_t
           ],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
         }),
-        { headers: { 'Content-Type': 'application/json' } },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-request-id': 'phase1-request',
+          },
+        },
       )
     }
 
@@ -1449,26 +1463,40 @@ test('ShimToolSearch lazy phase 2 falls back to all tools on malformed request_t
         choices: [{ message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }),
-      { headers: { 'Content-Type': 'application/json' } },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-request-id': 'phase2-request',
+        },
+      },
     )
   }) as FetchType
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
-  await client.beta.messages.create({
-    model: 'fake-model',
-    system: 'test system',
-    messages: [{ role: 'user', content: 'What is 2+2?' }],
-    tools: makeShimToolFixtures(),
-    max_tokens: 32,
-    stream: false,
-  })
+  const result = await client.beta.messages
+    .create({
+      model: 'fake-model',
+      system: 'test system',
+      messages: [{ role: 'user', content: 'What is 2+2?' }],
+      tools: makeShimToolFixtures(),
+      max_tokens: 32,
+      stream: false,
+    })
+    .withResponse() as {
+      data: { content: Array<{ type: string; text?: string }> }
+      response: Response
+      request_id: string
+    }
 
   expect(requestBodies).toHaveLength(2)
   const phase2ToolNames = ((requestBodies[1].tools ?? []) as Array<{ function: { name: string } }>)
     .map(tool => tool.function.name)
     .sort()
   expect(phase2ToolNames).toEqual(['Bash', 'Read', 'Skill', 'WebFetch', 'WebSearch'])
+  expect(result.data.content).toEqual([{ type: 'text', text: 'done' }])
+  expect(result.response.headers.get('x-request-id')).toBe('phase2-request')
+  expect(result.request_id).toBe('phase2-request')
 })
 
 test('does not infer Gemini mode from OPENAI_BASE_URL path substrings', async () => {
