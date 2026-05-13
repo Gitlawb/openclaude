@@ -2,7 +2,7 @@ import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef, type ToolResult } from '../../Tool.js'
+import { buildTool, type ToolResult } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { expandPath } from '../../utils/path.js'
 import { DESCRIPTION, LINT_TOOL_NAME, PROMPT } from './prompt.js'
@@ -93,7 +93,7 @@ function parseGenericOutput(stdout: string): Output['findings'] {
   return findings.slice(0, MAX_FINDINGS)
 }
 
-export const LintTool: ToolDef<InputSchema, Output> = {
+export const LintTool = buildTool({
   name: LINT_TOOL_NAME,
   searchHint: 'run linters and code formatters',
   maxResultSizeChars: 100_000,
@@ -170,4 +170,4 @@ export const LintTool: ToolDef<InputSchema, Output> = {
       return { data: { success: false, tool: toolName, errors: 0, warnings: 0, findings: [], durationMs: Date.now() - startTime, error: msg } }
     }
   },
-}
+})

@@ -2,7 +2,7 @@ import { spawnSync } from 'child_process'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef, type ToolResult } from '../../Tool.js'
+import { buildTool, type ToolResult } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { expandPath } from '../../utils/path.js'
 import { DESCRIPTION, UNIT_TEST_TOOL_NAME, PROMPT } from './prompt.js'
@@ -52,7 +52,7 @@ function detectFramework(dir: string): string | null {
   return null
 }
 
-export const UnitTestTool: ToolDef<InputSchema, Output> = {
+export const UnitTestTool = buildTool({
   name: UNIT_TEST_TOOL_NAME,
   searchHint: 'run unit tests with structured results',
   maxResultSizeChars: 200_000,
@@ -135,4 +135,4 @@ export const UnitTestTool: ToolDef<InputSchema, Output> = {
       return { data: { success: false, framework: fwName, passed: 0, failed: 1, total: 1, durationMs: Date.now() - startTime, error: msg } }
     }
   },
-}
+})

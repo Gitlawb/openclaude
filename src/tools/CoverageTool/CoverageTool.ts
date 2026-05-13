@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef, type ToolResult } from '../../Tool.js'
+import { buildTool, type ToolResult } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { expandPath } from '../../utils/path.js'
 import { DESCRIPTION, COVERAGE_TOOL_NAME, PROMPT } from './prompt.js'
@@ -65,7 +65,7 @@ function parseLcov(content: string): { lines: number; branches?: number; totalLi
   return { lines, branches, totalLines, coveredLines, files }
 }
 
-export const CoverageTool: ToolDef<InputSchema, Output> = {
+export const CoverageTool = buildTool({
   name: COVERAGE_TOOL_NAME,
   searchHint: 'analyze code coverage from lcov reports',
   maxResultSizeChars: 100_000,
@@ -115,4 +115,4 @@ export const CoverageTool: ToolDef<InputSchema, Output> = {
       return { data: { success: false, format: 'lcov', lines: 0, durationMs: Date.now() - startTime, error: msg } }
     }
   },
-}
+})
