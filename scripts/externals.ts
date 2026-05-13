@@ -8,25 +8,6 @@
 
 // Packages that should be kept external in ALL bundles (CLI + SDK)
 export const COMMON_EXTERNALS: string[] = [
-  // OpenTelemetry — too many named exports to stub, kept external
-  '@opentelemetry/api',
-  '@opentelemetry/api-logs',
-  '@opentelemetry/core',
-  '@opentelemetry/exporter-trace-otlp-grpc',
-  '@opentelemetry/exporter-trace-otlp-http',
-  '@opentelemetry/exporter-trace-otlp-proto',
-  '@opentelemetry/exporter-logs-otlp-http',
-  '@opentelemetry/exporter-logs-otlp-proto',
-  '@opentelemetry/exporter-logs-otlp-grpc',
-  '@opentelemetry/exporter-metrics-otlp-proto',
-  '@opentelemetry/exporter-metrics-otlp-grpc',
-  '@opentelemetry/exporter-metrics-otlp-http',
-  '@opentelemetry/exporter-prometheus',
-  '@opentelemetry/resources',
-  '@opentelemetry/sdk-trace-base',
-  '@opentelemetry/sdk-logs',
-  '@opentelemetry/sdk-metrics',
-  '@opentelemetry/semantic-conventions',
   // Native image processing
   'sharp',
   // Cloud provider SDKs
@@ -58,15 +39,6 @@ export const SDK_ONLY_EXTERNALS: string[] = [
 // These are dynamically imported at runtime — they're optional and resolved
 // from transitive deps or installed by users who need that provider/protocol.
 export const OPTIONAL_RUNTIME_EXTERNALS: string[] = [
-  // OTel protocol exporters (dynamically imported based on OTEL_EXPORTER_OTLP_PROTOCOL)
-  '@opentelemetry/exporter-trace-otlp-http',
-  '@opentelemetry/exporter-trace-otlp-proto',
-  '@opentelemetry/exporter-logs-otlp-proto',
-  '@opentelemetry/exporter-logs-otlp-grpc',
-  '@opentelemetry/exporter-metrics-otlp-proto',
-  '@opentelemetry/exporter-metrics-otlp-grpc',
-  '@opentelemetry/exporter-metrics-otlp-http',
-  '@opentelemetry/exporter-prometheus',
   // Cloud provider SDKs (dynamically imported per-provider)
   '@aws-sdk/client-bedrock',
   '@aws-sdk/client-bedrock-runtime',
@@ -148,9 +120,7 @@ export const INTENTIONALLY_BUNDLED: string[] = [
   '@modelcontextprotocol/sdk',
   // Schema validation
   'zod',
-  // Feature flags / analytics
-  '@growthbook/growthbook',
-  // gRPC (bundled into CLI, not external)
+    // gRPC (bundled into CLI, not external)
   '@grpc/grpc-js',
   '@grpc/proto-loader',
   // Web scraping
