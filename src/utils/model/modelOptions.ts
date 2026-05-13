@@ -330,6 +330,23 @@ function getCodexSparkOption(): ModelOption {
   }
 }
 
+// Mirrors the base-URL sniffing pattern already used by isNvidiaNimProvider().
+// `getAPIProvider() === 'openai'` is set for any OpenAI-compatible endpoint
+// (Kimi, Z.AI, OpenRouter, SambaNova, …), so it can't be used alone to decide
+// whether the hardcoded GPT/Codex catalog applies. When OPENAI_BASE_URL is
+// unset we assume vanilla api.openai.com; otherwise we only treat known
+// OpenAI / Codex / ChatGPT hosts as a match. Tracks #1119.
+export function isOpenAIOrCodexBaseUrl(): boolean {
+  const baseUrl = process.env.OPENAI_BASE_URL?.trim()
+  if (!baseUrl) return true
+  const lower = baseUrl.toLowerCase()
+  return (
+    lower.includes('openai.com') ||
+    lower.includes('chatgpt.com') ||
+    lower.includes('codex')
+  )
+}
+
 function getCodexModelOptions(): ModelOption[] {
   return [
     {
@@ -546,8 +563,16 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // PAYG 3P: Default (Sonnet 4.5) + Sonnet (3P custom) or Sonnet 4.6/1M + Opus (3P custom) or Opus 4.1/Opus 4.6/Opus1M + Haiku + Opus 4.1
   const payg3pOptions = [getDefaultOptionForUser(fastMode)]
 
-  // Add Codex models for openai and codex providers
-  if (getAPIProvider() === 'openai' || getAPIProvider() === 'codex') {
+  // Add Codex models for openai and codex providers.
+  // For the generic 'openai' route the user may be pointed at a non-OpenAI
+  // OpenAI-compatible endpoint (Kimi, Z.AI, OpenRouter, SambaNova, …); the
+  // hardcoded GPT/Codex catalog isn't reachable through those endpoints, so
+  // injecting it just clutters the /model picker (#1119). The 'codex' route
+  // is routing-specific, so we always keep it.
+  if (
+    getAPIProvider() === 'codex' ||
+    (getAPIProvider() === 'openai' && isOpenAIOrCodexBaseUrl())
+  ) {
     payg3pOptions.push(...getCodexModelOptions())
   }
 
