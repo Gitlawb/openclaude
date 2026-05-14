@@ -25,6 +25,14 @@ export function locationLabel(skill: SkillListCommand): string {
   return '-'
 }
 
+export function isPublicSkill(skill: SkillListCommand): boolean {
+  return sourceLabel(skill) !== 'bundled'
+}
+
+function publicSkills(skills: SkillListCommand[]): SkillListCommand[] {
+  return skills.filter(isPublicSkill)
+}
+
 function getResolutionState(
   skills: SkillListCommand[],
 ): Map<SkillListCommand, string> {
@@ -143,11 +151,12 @@ function skillListJson(
 }
 
 export function formatSkillsListJson(skills: SkillListCommand[]): string {
-  const states = getResolutionState(skills)
+  const visibleSkills = publicSkills(skills)
+  const states = getResolutionState(visibleSkills)
   return JSON.stringify(
     {
       enabledCount: [...states.values()].filter(s => s === 'enabled').length,
-      skills: skills
+      skills: visibleSkills
         .slice()
         .sort((a, b) => getCommandName(a).localeCompare(getCommandName(b)))
         .map(skill => skillListJson(skill, states.get(skill))),
@@ -161,11 +170,10 @@ export function formatSkillsListForDisplay(
   skills: SkillListCommand[],
   columns = terminalWidth(),
 ): string {
-  const sortedSkills = skills
+  const sortedSkills = publicSkills(skills)
     .slice()
-    .filter(skill => sourceLabel(skill) !== 'bundled')
     .sort((a, b) => getCommandName(a).localeCompare(getCommandName(b)))
-  const states = getResolutionState(skills)
+  const states = getResolutionState(sortedSkills)
   const enabledCount = sortedSkills.filter(
     skill => states.get(skill) === 'enabled',
   ).length
