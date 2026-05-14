@@ -197,7 +197,7 @@ test('wraps description continuations under the Description column', () => {
 test('formats empty skills list cleanly', () => {
   assert.equal(
     formatSkillsListForDisplay([], 100),
-    'Skills: 0 enabled\n\nNo skills found.',
+    'Skills: 0 enabled\n\nNo installed skills found.',
   )
 })
 
@@ -207,7 +207,7 @@ test('formats all-bundled skills as empty in the human table', () => {
       [skill('debug', 'Enable debug logging.', 'bundled')],
       100,
     ),
-    'Skills: 0 enabled\n\nNo skills found.',
+    'Skills: 0 enabled\n\nNo installed skills found.',
   )
 })
 
