@@ -7,7 +7,10 @@ WORKDIR /app
 COPY package.json bun.lock .bun-version ./
 
 # Install the Bun version tracked by the repo
-RUN npm install -g bun@$(cat .bun-version)
+RUN set -eu; \
+    BUN_VERSION="$(tr -d '\r\n' < .bun-version)"; \
+    printf '%s' "$BUN_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; \
+    npm install -g "bun@$BUN_VERSION"
 
 # Install all dependencies (including devDependencies for build)
 RUN bun install --frozen-lockfile
