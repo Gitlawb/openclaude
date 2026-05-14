@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'bun:test'
@@ -29,6 +36,20 @@ trust: local
 
 Use this skill for install tests.
 Document token scopes without storing secret values.
+`
+
+const PATH_TRAVERSAL_SKILL = `---
+name: ../escape
+title: Unsafe Skill
+description: Invalid skill used by install tests.
+version: 0.1.0
+category: test
+author: OpenClaude Tests
+license: MIT
+trust: local
+---
+
+# Unsafe Skill
 `
 
 function skill(
@@ -229,5 +250,56 @@ test.serial('installs a registry skill by id from a local registry file', async 
     ) as { trust: string; sha256: string }
     assert.equal(installedMetadata.trust, 'official')
     assert.equal(installedMetadata.sha256, sha256OfSkillSource(VALID_SKILL))
+  })
+})
+
+test.serial('rejects path-like skill names before installing raw markdown', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = join(tempDir, 'source')
+    const sourceFile = join(sourceDir, 'SKILL.md')
+    mkdirSync(sourceDir, { recursive: true })
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(sourceFile, PATH_TRAVERSAL_SKILL, 'utf8')
+
+    await skillsInstallHandler(sourceFile, { projectDir: cwd })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
+test.serial('rejects registry names that would escape the install root', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'gitlawb/sample-skill',
+          name: '../escape',
+          title: 'Sample Skill',
+          description: 'Sample skill used by install tests.',
+          trust: 'official',
+          version: '0.1.0',
+          license: 'MIT',
+          author: 'OpenClaude Tests',
+          source: join(sourceDir, 'SKILL.md'),
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        },
+      ]),
+      'utf8',
+    )
+
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
   })
 })
