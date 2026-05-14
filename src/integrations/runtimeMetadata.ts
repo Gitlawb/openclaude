@@ -163,6 +163,28 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
+  if (normalizedModel.includes('mimo')) {
+    return {
+      preserveReasoningContent: true,
+      requireReasoningContentOnAssistantMessages: true,
+      reasoningContentFallback: '',
+      thinkingRequestFormat: 'deepseek-compatible',
+      maxTokensField: 'max_tokens',
+      removeBodyFields: ['store'],
+    }
+  }
+
+  if (normalizedModel.includes('glm')) {
+    return {
+      preserveReasoningContent: true,
+      requireReasoningContentOnAssistantMessages: true,
+      reasoningContentFallback: '',
+      thinkingRequestFormat: 'deepseek-compatible',
+      maxTokensField: 'max_tokens',
+      removeBodyFields: ['store'],
+    }
+  }
+
   return undefined
 }
 
