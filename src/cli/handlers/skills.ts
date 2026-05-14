@@ -23,6 +23,10 @@ import {
   trustLabel,
   type SkillListCommand,
 } from './skillsListFormat.js'
+import {
+  findLocalSkillForRemoval,
+  getSkillRemoveNotFoundMessage,
+} from './skillsRemoveMessage.js'
 import { validateSkillPath } from './skillsValidation.js'
 
 export { skillsInstallHandler } from './skillsInstall.js'
@@ -116,15 +120,10 @@ export async function skillsRemoveHandler(
 ): Promise<void> {
   const skills = (await loadSkills()).filter(isPublicSkill)
   const targetSource = options.global ? 'userSettings' : 'projectSettings'
-  const skill = skills.find(
-    candidate =>
-      candidate.source === targetSource &&
-      candidate.loadedFrom === 'skills' &&
-      (candidate.name === name || getCommandName(candidate) === name),
-  )
+  const skill = findLocalSkillForRemoval(skills, name, targetSource)
 
   if (!skill) {
-    console.error(`Skill "${name}" not found.`)
+    console.error(getSkillRemoveNotFoundMessage(skills, name, options))
     process.exitCode = 1
     return
   }
