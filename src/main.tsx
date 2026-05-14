@@ -4156,6 +4156,22 @@ async function run(): Promise<CommanderCommand> {
     await agentsHandler();
     process.exit(0);
   });
+
+  const skillsCmd = program.command('skills').description('List and inspect OpenClaude skills').configureHelp(createSortedHelpConfig());
+  skillsCmd.command('list').description('List configured skills').action(async () => {
+    const {
+      skillsListHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsListHandler();
+    process.exit(process.exitCode ?? 0);
+  });
+  skillsCmd.command('show <name>').description('Show details for a configured skill').action(async (name: string) => {
+    const {
+      skillsShowHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsShowHandler(name);
+    process.exit(process.exitCode ?? 0);
+  });
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     // Skip when tengu_auto_mode_config.enabled === 'disabled' (circuit breaker).
     // Reads from disk cache — GrowthBook isn't initialized at registration time.
