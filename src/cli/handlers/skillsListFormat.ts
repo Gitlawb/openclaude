@@ -179,7 +179,7 @@ export function formatSkillsListForDisplay(
   ).length
 
   if (sortedSkills.length === 0) {
-    return ['Skills: 0 enabled', '', 'No skills found.'].join('\n')
+    return ['Skills: 0 enabled', '', 'No installed skills found.'].join('\n')
   }
 
   const nameWidth = Math.max(
