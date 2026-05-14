@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
-import { buildTool, type ToolDef } from '../../Tool.js'
+import { buildTool } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
+import { setCleanupTimeout } from '../../utils/cleanupRegistry.js'
 import { DESCRIPTION, HTTP_REQUEST_TOOL_NAME, PROMPT } from './prompt.js'
 
 const inputSchema = lazySchema(() =>
@@ -70,7 +71,9 @@ export const HttpRequestTool = buildTool({
       const urlObj = new URL(input.url)
       if (input.query) for (const [k, v] of Object.entries(input.query)) urlObj.searchParams.set(k, v)
       const headers: Record<string, string> = { ...input.headers }
-      const fetchOpts: RequestInit = { method: input.method, headers, redirect: input.followRedirects ? 'follow' : 'manual', signal: AbortSignal.timeout((input.timeout ?? 30) * 1000) }
+      const ac = new AbortController()
+      setCleanupTimeout(() => { try { ac.abort() } catch {} }, (input.timeout ?? 30) * 1000)
+      const fetchOpts: RequestInit = { method: input.method, headers, redirect: input.followRedirects ? 'follow' : 'manual', signal: ac.signal }
       if (input.body) {
         const bodyStr = typeof input.body === 'string' ? input.body : JSON.stringify(input.body)
         if (!Object.keys(headers).some(k => k.toLowerCase() === 'content-type')) headers['Content-Type'] = typeof input.body === 'string' && !(input.body as string).startsWith('{') && !(input.body as string).startsWith('[') ? 'text/plain' : 'application/json'

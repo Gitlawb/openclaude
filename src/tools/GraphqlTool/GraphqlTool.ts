@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
 import { buildTool } from '../../Tool.js'
 import { lazySchema } from '../../utils/lazySchema.js'
+import { setCleanupTimeout } from '../../utils/cleanupRegistry.js'
 import { DESCRIPTION, GRAPHQL_TOOL_NAME, PROMPT } from './prompt.js'
 
 const inputSchema = lazySchema(() =>
@@ -80,7 +81,9 @@ export const GraphqlTool = buildTool({
       const body: Record<string, unknown> = { query: input.query }
       if (input.variables) body.variables = input.variables
       if (input.operationName) body.operationName = input.operationName
-      const resp = await fetch(input.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...input.headers }, body: JSON.stringify(body), signal: AbortSignal.timeout((input.timeout ?? 30) * 1000) })
+      const ac = new AbortController()
+      setCleanupTimeout(() => { try { ac.abort() } catch {} }, (input.timeout ?? 30) * 1000)
+      const resp = await fetch(input.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...input.headers }, body: JSON.stringify(body), signal: ac.signal })
       const text = await resp.text()
       if (text.length > MAX_RESPONSE_CHARS) return { data: { success: false, durationMs: Date.now() - startTime, error: 'Response too large' } }
       const parsed = JSON.parse(text) as { data?: unknown; errors?: Array<{ message: string; locations?: Array<{ line: number; column: number }> }> }
