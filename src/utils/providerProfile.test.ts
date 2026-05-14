@@ -60,6 +60,22 @@ async function importFreshProviderProfileModule() {
 }
 
 const missingCodexAuthPath = join(tmpdir(), 'openclaude-missing-codex-auth.json')
+let globalProfileStateLock = Promise.resolve()
+
+async function withGlobalProfileState<T>(fn: () => T | Promise<T>): Promise<T> {
+  const previous = globalProfileStateLock
+  let release!: () => void
+  globalProfileStateLock = new Promise<void>(resolve => {
+    release = resolve
+  })
+
+  await previous
+  try {
+    return await fn()
+  } finally {
+    release()
+  }
+}
 
 beforeEach(async () => {
   await acquireEnvMutex()
@@ -917,7 +933,8 @@ test('saveProfileFile writes a profile that loadProfileFile can read back', () =
   }
 })
 
-test('saveProfileFile defaults to user config instead of the working directory', () => {
+test('saveProfileFile defaults to user config instead of the working directory', async () => {
+  await withGlobalProfileState(() => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-workspace-profile-'))
   const configRoot = mkdtempSync(join(tmpdir(), 'openclaude-config-profile-'))
   const configDir = join(configRoot, 'config')
@@ -954,9 +971,11 @@ test('saveProfileFile defaults to user config instead of the working directory',
     rmSync(cwd, { recursive: true, force: true })
     rmSync(configRoot, { recursive: true, force: true })
   }
+  })
 })
 
-test('loadProfileFile keeps project-local files as a legacy fallback', () => {
+test('loadProfileFile keeps project-local files as a legacy fallback', async () => {
+  await withGlobalProfileState(() => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-legacy-profile-'))
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-empty-config-profile-'))
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
@@ -987,9 +1006,11 @@ test('loadProfileFile keeps project-local files as a legacy fallback', () => {
     rmSync(cwd, { recursive: true, force: true })
     rmSync(configDir, { recursive: true, force: true })
   }
+  })
 })
 
-test('loadProfileFile does not fall back when user config profile is invalid', () => {
+test('loadProfileFile does not fall back when user config profile is invalid', async () => {
+  await withGlobalProfileState(() => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-invalid-profile-'))
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-invalid-config-profile-'))
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
@@ -1021,9 +1042,11 @@ test('loadProfileFile does not fall back when user config profile is invalid', (
     rmSync(cwd, { recursive: true, force: true })
     rmSync(configDir, { recursive: true, force: true })
   }
+  })
 })
 
-test('deleteProfileFile clears the default profile and legacy workspace fallback', () => {
+test('deleteProfileFile clears the default profile and legacy workspace fallback', async () => {
+  await withGlobalProfileState(() => {
   const cwd = mkdtempSync(join(tmpdir(), 'openclaude-delete-profile-'))
   const configDir = mkdtempSync(join(tmpdir(), 'openclaude-delete-config-profile-'))
   const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
@@ -1063,6 +1086,7 @@ test('deleteProfileFile clears the default profile and legacy workspace fallback
     rmSync(cwd, { recursive: true, force: true })
     rmSync(configDir, { recursive: true, force: true })
   }
+  })
 })
 
 test('deleteProfileFile with configDir and cwd clears both user config and legacy fallback', () => {
@@ -1178,55 +1202,57 @@ test('clearPersistedCodexOAuthProfile removes only persisted Codex OAuth profile
 })
 
 test('clearPersistedCodexOAuthProfile clears both default and legacy OAuth profiles', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-profile-'))
-  const configDir = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-config-'))
-  const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
-  const previousCwd = process.cwd()
+  await withGlobalProfileState(async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-profile-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-clear-oauth-config-'))
+    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+    const previousCwd = process.cwd()
 
-  try {
-    process.env.CLAUDE_CONFIG_DIR = configDir
-    process.chdir(cwd)
+    try {
+      process.env.CLAUDE_CONFIG_DIR = configDir
+      process.chdir(cwd)
 
-    const {
-      PROFILE_FILE_NAME: freshProfileFileName,
-      clearPersistedCodexOAuthProfile: clearPersistedCodexOAuthProfileFresh,
-      createProfileFile: createProfileFileFresh,
-      loadProfileFile: loadProfileFileFresh,
-      saveProfileFile: saveProfileFileFresh,
-    } = await importFreshProviderProfileModule()
+      const {
+        PROFILE_FILE_NAME: freshProfileFileName,
+        clearPersistedCodexOAuthProfile: clearPersistedCodexOAuthProfileFresh,
+        createProfileFile: createProfileFileFresh,
+        loadProfileFile: loadProfileFileFresh,
+        saveProfileFile: saveProfileFileFresh,
+      } = await importFreshProviderProfileModule()
 
-    const oauthProfile = createProfileFileFresh('codex', {
-      OPENAI_MODEL: 'codexplan',
-      OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
-      CHATGPT_ACCOUNT_ID: 'acct_oauth',
-      CODEX_CREDENTIAL_SOURCE: 'oauth',
-    })
+      const oauthProfile = createProfileFileFresh('codex', {
+        OPENAI_MODEL: 'codexplan',
+        OPENAI_BASE_URL: DEFAULT_CODEX_BASE_URL,
+        CHATGPT_ACCOUNT_ID: 'acct_oauth',
+        CODEX_CREDENTIAL_SOURCE: 'oauth',
+      })
 
-    saveProfileFileFresh(oauthProfile, { configDir })
-    assert.deepEqual(loadProfileFileFresh({ configDir, cwd }), oauthProfile)
-    writeFileSync(
-      join(cwd, freshProfileFileName),
-      JSON.stringify(oauthProfile, null, 2),
-      'utf8',
-    )
+      saveProfileFileFresh(oauthProfile, { configDir })
+      assert.deepEqual(loadProfileFileFresh({ configDir, cwd }), oauthProfile)
+      writeFileSync(
+        join(cwd, freshProfileFileName),
+        JSON.stringify(oauthProfile, null, 2),
+        'utf8',
+      )
 
-    assert.equal(
-      clearPersistedCodexOAuthProfileFresh({ configDir, cwd }),
-      join(configDir, freshProfileFileName),
-    )
-    assert.equal(existsSync(join(configDir, freshProfileFileName)), false)
-    assert.equal(existsSync(join(cwd, freshProfileFileName)), false)
-    assert.equal(loadProfileFileFresh({ configDir, cwd }), null)
-  } finally {
-    process.chdir(previousCwd)
-    if (previousConfigDir === undefined) {
-      delete process.env.CLAUDE_CONFIG_DIR
-    } else {
-      process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+      assert.equal(
+        clearPersistedCodexOAuthProfileFresh({ configDir, cwd }),
+        join(configDir, freshProfileFileName),
+      )
+      assert.equal(existsSync(join(configDir, freshProfileFileName)), false)
+      assert.equal(existsSync(join(cwd, freshProfileFileName)), false)
+      assert.equal(loadProfileFileFresh({ configDir, cwd }), null)
+    } finally {
+      process.chdir(previousCwd)
+      if (previousConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+      }
+      rmSync(cwd, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
     }
-    rmSync(cwd, { recursive: true, force: true })
-    rmSync(configDir, { recursive: true, force: true })
-  }
+  })
 })
 
 test('buildStartupEnvFromProfile applies persisted gemini settings when no provider is explicitly selected', async () => {
