@@ -104,12 +104,27 @@ function serializeToCacheMessage(events: SDKMessage[]): CacheMessage[] {
       tool_use_id: m.tool_use_id,
       timestamp: Date.now(),
     }
+    // Core SDK fields (always present)
     if ('id' in m && m.id) cacheMsg.id = m.id
-    if ('type' in m && m.type) cacheMsg.type = m.type
+    if ('type' in m) cacheMsg.type = m.type
+    // Assistant message payload
+    if ('message' in m) cacheMsg.message = m.message as CacheMessage['message']
+    // User message fields
+    if ('uuid' in m) cacheMsg.uuid = m.uuid
+    if ('session_id' in m) cacheMsg.session_id = m.session_id
+    if ('parent_tool_use_id' in m) cacheMsg.parent_tool_use_id = m.parent_tool_use_id
+    if ('tool_use_result' in m) cacheMsg.tool_use_result = m.tool_use_result as CacheMessage['tool_use_result']
+    // Assistant message metadata
     if ('model' in m && m.model) cacheMsg.model = m.model
     if ('created_at' in m && m.created_at) cacheMsg.created_at = m.created_at
     if ('stop_reason' in m && m.stop_reason) cacheMsg.stop_reason = m.stop_reason
     if ('usage' in m && m.usage) cacheMsg.usage = m.usage as CacheMessage['usage']
+    // Result/system fields
+    if ('subtype' in m) cacheMsg.subtype = m.subtype
+    if ('result' in m) cacheMsg.result = m.result as CacheMessage['result']
+    // Stream event payload
+    if ('event' in m) cacheMsg.event = m.event as CacheMessage['event']
+    // Generic metadata
     if ('is_development' in m) cacheMsg.is_development = m.is_development
     if ('index' in m && typeof m.index === 'number') cacheMsg.index = m.index
     return cacheMsg
@@ -135,12 +150,21 @@ function deserializeFromCacheMessage(messages: CacheMessage[]): SDKMessage[] {
       tool_calls: m.tool_calls as SDKMessage['tool_calls'],
       tool_use_id: m.tool_use_id,
     }
+    // Restore all SDK fields
     if (m.id) msg.id = m.id
     if (m.type) msg.type = m.type
+    if (m.message) msg.message = m.message as SDKMessage['message']
+    if (m.uuid) msg.uuid = m.uuid
+    if (m.session_id) msg.session_id = m.session_id
+    if (m.parent_tool_use_id) msg.parent_tool_use_id = m.parent_tool_use_id
+    if (m.tool_use_result) msg.tool_use_result = m.tool_use_result as SDKMessage['tool_use_result']
     if (m.model) msg.model = m.model
     if (m.created_at) msg.created_at = m.created_at
     if (m.stop_reason) msg.stop_reason = m.stop_reason
     if (m.usage) msg.usage = m.usage as SDKMessage['usage']
+    if (m.subtype) msg.subtype = m.subtype
+    if (m.result) msg.result = m.result as SDKMessage['result']
+    if (m.event) msg.event = m.event as SDKMessage['event']
     if (typeof m.is_development === 'boolean') msg.is_development = m.is_development
     if (typeof m.index === 'number') msg.index = m.index
     return msg
