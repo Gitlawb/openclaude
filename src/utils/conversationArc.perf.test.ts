@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 import { 
   initializeArc, 
   updateArcPhase, 
@@ -6,6 +6,10 @@ import {
   resetArc 
 } from './conversationArc.js'
 import { getGlobalGraph, clearMemoryOnly, resetGlobalGraph } from './knowledgeGraph.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 function createMessage(content: string): any {
   return {
@@ -15,11 +19,22 @@ function createMessage(content: string): any {
 }
 
 describe('Conversation Arc Scale and Stability', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('conversationArc.perf')
     resetGlobalGraph()
     clearMemoryOnly()
     resetArc()
     initializeArc()
+  })
+
+  afterEach(() => {
+    try {
+      resetGlobalGraph()
+      clearMemoryOnly()
+      resetArc()
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   it('extracts the expected facts repeatedly without unbounded graph growth', async () => {
