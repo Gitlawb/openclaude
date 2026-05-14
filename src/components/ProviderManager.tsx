@@ -219,16 +219,25 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
 }
 
 function getPresetLabel(preset: ProviderPreset, label: string): React.ReactNode {
-  if (preset !== 'xiaomi-mimo') {
-    return label
+  if (preset === 'gitlawb-opengateway') {
+    return (
+      <Text>
+        <Text>{label} </Text>
+        <Text color="success" bold>[FREE]</Text>
+      </Text>
+    )
   }
 
-  return (
-    <Text>
-      <Text>{label} </Text>
-      <Text color="success" bold>[Sponsor]</Text>
-    </Text>
-  )
+  if (preset === 'xiaomi-mimo') {
+    return (
+      <Text>
+        <Text>{label} </Text>
+        <Text color="success" bold>[Sponsor]</Text>
+      </Text>
+    )
+  }
+
+  return label
 }
 
 function presetToDraft(preset: ProviderPreset): ProviderDraft {
@@ -1536,7 +1545,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })
 
     if (canUseCodexOAuth) {
-      options.splice(6, 0, {
+      // Insert after DeepSeek so Codex OAuth keeps its established position
+      // in the picker even with Gitlawb Opengateway pinned at the top.
+      options.splice(7, 0, {
         value: 'codex-oauth',
         label: (
           <Text>

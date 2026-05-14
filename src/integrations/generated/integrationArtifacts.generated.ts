@@ -20,6 +20,7 @@ import gatewayCustom from '../gateways/custom.js'
 import gatewayDashscopeCn from '../gateways/dashscope-cn.js'
 import gatewayDashscopeIntl from '../gateways/dashscope-intl.js'
 import gatewayGithub from '../gateways/github.js'
+import gatewayGitlawbOpengateway from '../gateways/gitlawb-opengateway.js'
 import gatewayGroq from '../gateways/groq.js'
 import gatewayHicap from '../gateways/hicap.js'
 import gatewayKimiCode from '../gateways/kimi-code.js'
@@ -60,13 +61,32 @@ import modelXai from '../models/xai.js'
 import modelXiaomiMimo from '../models/xiaomi-mimo.js'
 
 export const VENDOR_DESCRIPTORS = [vendorAnthropic, vendorBankr, vendorDeepseek, vendorGemini, vendorMinimax, vendorMoonshot, vendorOpenai, vendorVenice, vendorXai, vendorXiaomiMimo, vendorZai] as const satisfies readonly VendorDescriptor[]
-export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
+export const GATEWAY_DESCRIPTORS = [gatewayAtomicChat, gatewayAzureOpenai, gatewayBedrock, gatewayCustom, gatewayDashscopeCn, gatewayDashscopeIntl, gatewayGithub, gatewayGitlawbOpengateway, gatewayGroq, gatewayHicap, gatewayKimiCode, gatewayLmstudio, gatewayMistral, gatewayNvidiaNim, gatewayOllama, gatewayOpenrouter, gatewayTogether, gatewayVertex] as const satisfies readonly GatewayDescriptor[]
 export const ANTHROPIC_PROXY_DESCRIPTORS = [] as const satisfies readonly AnthropicProxyDescriptor[]
 export const BRAND_DESCRIPTORS = [brandClaude, brandDeepseek, brandGemini, brandGlm, brandGpt, brandKimi, brandLlama, brandMinimax, brandMistral, brandNemotron, brandOpenaiCompatibleAlias, brandQwen, brandXai, brandXiaomiMimo] as const satisfies readonly BrandDescriptor[]
 export const MODEL_DESCRIPTOR_GROUPS = [modelClaude, modelDeepseek, modelGemini, modelGlm, modelGpt, modelKimi, modelLlama, modelMinimax, modelMistral, modelNemotron, modelOpenaiCompatibleAlias, modelQwen, modelXai, modelXiaomiMimo] as const satisfies readonly (readonly ModelDescriptor[])[]
 export const MODEL_DESCRIPTORS = MODEL_DESCRIPTOR_GROUPS.flat() satisfies readonly ModelDescriptor[]
 
 export const PROVIDER_PRESET_MANIFEST = [
+  {
+    "preset": "gitlawb-opengateway",
+    "routeKind": "gateway",
+    "routeId": "gitlawb-opengateway",
+    "vendorId": "xiaomi-mimo",
+    "gatewayId": "gitlawb-opengateway",
+    "description": "Gitlawb Opengateway — free hosted MiMo (Xiaomi partnership)",
+    "label": "Gitlawb Opengateway",
+    "name": "Gitlawb Opengateway",
+    "baseUrlEnvVars": [
+      "OPENGATEWAY_BASE_URL",
+      "OPENAI_BASE_URL"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ],
+    "fallbackBaseUrl": "https://opengateway.gitlawb.com/v1/xiaomi-mimo",
+    "fallbackModel": "mimo-v2.5-pro"
+  },
   {
     "preset": "anthropic",
     "routeKind": "vendor",
@@ -375,6 +395,7 @@ export const PROVIDER_PRESET_MANIFEST = [
 ] as const satisfies readonly ProviderPresetManifestEntry[]
 export type ProviderPreset = (typeof PROVIDER_PRESET_MANIFEST)[number]['preset']
 export const ORDERED_PROVIDER_PRESETS = [
+  "gitlawb-opengateway",
   "anthropic",
   "dashscope-cn",
   "dashscope-intl",
