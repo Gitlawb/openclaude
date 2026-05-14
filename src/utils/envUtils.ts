@@ -202,33 +202,19 @@ export function getClaudeConfigHomeDirOverrideForTesting(): string | undefined {
   return claudeConfigHomeDirOverride
 }
 
-// Memoized: 150+ callers, many on hot paths. Keyed off both override env
-// vars so tests that change either get a fresh value without explicit
-// cache.clear.
-export const getClaudeConfigHomeDir = memoize(
+// Memoized for the default home-dir path: 150+ callers, many on hot paths.
+// Explicit env overrides and test overrides bypass this cache so runtime
+// overrides cannot be masked by a previously memoized default path.
+const getDefaultClaudeConfigHomeDir = memoize(
   (): string => {
-    if (claudeConfigHomeDirOverride) {
-      return claudeConfigHomeDirOverride
-    }
-
-    const configDirEnv = resolveConfigDirEnv({
-      openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
-      legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
-      warn: message => {
-        // eslint-disable-next-line no-console
-        console.warn(`[openclaude] ${message}`)
-      },
-    })
     const homeDir = homedir()
     const migrationSucceeded = migrateLegacyClaudeConfigHome({
-      configDirEnv,
       homeDir,
     })
     const openClaudeDir = join(homeDir, '.openclaude')
     const legacyClaudeDir = join(homeDir, '.claude')
 
     if (
-      !configDirEnv &&
       !migrationSucceeded &&
       !pathIsDirectory(openClaudeDir) &&
       pathExists(legacyClaudeDir)
@@ -237,13 +223,31 @@ export const getClaudeConfigHomeDir = memoize(
     }
 
     return resolveClaudeConfigHomeDir({
-      configDirEnv,
       homeDir,
     })
   },
-  () =>
-    `${claudeConfigHomeDirOverride ?? ''}\0${process.env.OPENCLAUDE_CONFIG_DIR ?? ''}\0${process.env.CLAUDE_CONFIG_DIR ?? ''}`,
+  () => homedir(),
 )
+
+export function getClaudeConfigHomeDir(): string {
+  if (claudeConfigHomeDirOverride) {
+    return claudeConfigHomeDirOverride
+  }
+
+  const configDirEnv = resolveConfigDirEnv({
+    openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
+    legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
+    warn: message => {
+      // eslint-disable-next-line no-console
+      console.warn(`[openclaude] ${message}`)
+    },
+  })
+  if (configDirEnv) {
+    return resolveClaudeConfigHomeDir({ configDirEnv })
+  }
+
+  return getDefaultClaudeConfigHomeDir()
+}
 
 export function getTeamsDir(): string {
   return join(getClaudeConfigHomeDir(), 'teams')
