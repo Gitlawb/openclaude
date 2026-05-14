@@ -4157,7 +4157,7 @@ async function run(): Promise<CommanderCommand> {
     process.exit(0);
   });
 
-  const skillsCmd = program.command('skills').description('List and inspect OpenClaude skills').configureHelp(createSortedHelpConfig());
+  const skillsCmd = program.command('skills').description('List, inspect, validate, and manage OpenClaude skills').configureHelp(createSortedHelpConfig());
   skillsCmd.command('list').description('List configured skills').action(async () => {
     const {
       skillsListHandler
@@ -4170,6 +4170,22 @@ async function run(): Promise<CommanderCommand> {
       skillsShowHandler
     } = await import('./cli/handlers/skills.js');
     await skillsShowHandler(name);
+    process.exit(process.exitCode ?? 0);
+  });
+  skillsCmd.command('validate <path>').description('Validate a local skill directory').action(async (path: string) => {
+    const {
+      skillsValidateHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsValidateHandler(path);
+    process.exit(process.exitCode ?? 0);
+  });
+  skillsCmd.command('remove <name>').description('Remove a local project skill').option('--global', 'Remove from the user-global skills directory').action(async (name: string, options: {
+    global?: boolean;
+  }) => {
+    const {
+      skillsRemoveHandler
+    } = await import('./cli/handlers/skills.js');
+    await skillsRemoveHandler(name, options);
     process.exit(process.exitCode ?? 0);
   });
   if (feature('TRANSCRIPT_CLASSIFIER')) {
