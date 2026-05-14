@@ -975,6 +975,61 @@ export function hasExplicitProviderSelection(
   )
 }
 
+function hasConcreteProviderSelection(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1') {
+    return true
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) {
+    return (
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL) !== undefined ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_API_BASE) !== undefined ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL),
+      ) !== undefined
+    )
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
+    return (
+      sanitizeProviderConfigValue(processEnv.GEMINI_BASE_URL) !== undefined ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.GEMINI_MODEL),
+      ) !== undefined ||
+      sanitizeApiKey(processEnv.GEMINI_API_KEY) !== undefined ||
+      sanitizeApiKey(processEnv.GOOGLE_API_KEY) !== undefined
+    )
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)) {
+    return (
+      sanitizeProviderConfigValue(processEnv.MISTRAL_BASE_URL) !== undefined ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.MISTRAL_MODEL),
+      ) !== undefined ||
+      sanitizeApiKey(processEnv.MISTRAL_API_KEY) !== undefined
+    )
+  }
+
+  if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)) {
+    return (
+      sanitizeApiKey(processEnv.GITHUB_TOKEN) !== undefined ||
+      sanitizeApiKey(processEnv.GH_TOKEN) !== undefined ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL),
+      ) !== undefined
+    )
+  }
+
+  return (
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) ||
+    isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  )
+}
+
 export function selectAutoProfile(
   recommendedOllamaModel: string | null,
 ): ProviderProfile {
@@ -1423,6 +1478,7 @@ export async function buildStartupEnvFromProfile(options?: {
   persisted?: ProfileFile | null
   goal?: RecommendationGoal
   processEnv?: NodeJS.ProcessEnv
+  hasConfiguredProviderProfile?: boolean
   getOllamaChatBaseUrl?: (baseUrl?: string) => string
   resolveOllamaDefaultModel?: (goal: RecommendationGoal) => Promise<string>
   readGeminiAccessToken?: () => string | undefined
@@ -1431,6 +1487,8 @@ export async function buildStartupEnvFromProfile(options?: {
   const persisted = options?.persisted ?? loadProfileFile()
 
   const profileManagedEnv = processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  const hasConfiguredProviderProfile =
+    options?.hasConfiguredProviderProfile ?? false
 
   // The single-profile file in the user config directory is a
   // first-run / fallback mechanism. The newer plural provider-profile
@@ -1445,6 +1503,18 @@ export async function buildStartupEnvFromProfile(options?: {
   // "banner shows gpt-4o / api.openai.com even though my saved profile is
   // Moonshot" bug.
   if (profileManagedEnv) {
+    return processEnv
+  }
+
+  // If startup already has a concrete provider selection and the modern
+  // plural-profile system is configured, keep trusting that selection.
+  // This prevents the legacy single-profile file from becoming a silent
+  // third precedence layer when `/provider` profiles or explicit env/flags
+  // already chose a provider before startup fallback runs.
+  if (
+    hasConfiguredProviderProfile &&
+    hasConcreteProviderSelection(processEnv)
+  ) {
     return processEnv
   }
 
