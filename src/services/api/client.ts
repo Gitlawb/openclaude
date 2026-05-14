@@ -347,10 +347,11 @@ export async function getAnthropicClient({
   const useMiniMaxEnvOnlyProvider = envOnlyProviderRouteId === 'minimax'
   const useXiaomiMimoEnvOnlyProvider = envOnlyProviderRouteId === 'xiaomi-mimo'
   const useXaiEnvOnlyProvider = envOnlyProviderRouteId === 'xai'
+  const useSparkExplicitProvider = isEnvTruthy(process.env.CLAUDE_CODE_USE_SPARK)
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults()
   }
-  if (useSparkEnvOnlyProvider) {
+  if (useSparkEnvOnlyProvider || useSparkExplicitProvider) {
     applySparkEnvOnlyDefaults()
   }
   if (useXiaomiMimoEnvOnlyProvider) {
