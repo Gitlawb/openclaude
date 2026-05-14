@@ -4,6 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as realOs from 'node:os'
 
+// Snapshot the real `os` exports at file load — before any mock.module('node:os')
+// call runs — so afterEach can restore the original implementation. Bun's
+// mock.restore() does not undo mock.module(), and the live binding inside
+// `realOs` is itself replaced when 'node:os' is mocked, so we have to capture
+// the originals up-front to prevent homedir() leaking into later test files.
+const originalOs = { ...realOs }
+
 function makeJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
     .toString('base64url')
@@ -14,6 +21,7 @@ function makeJwt(payload: Record<string, unknown>): string {
 describe('resolveCodexApiCredentials with secure storage', () => {
   afterEach(() => {
     mock.restore()
+    mock.module('node:os', () => originalOs)
   })
 
   test('loads Codex credentials from OpenClaude secure storage', async () => {

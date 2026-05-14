@@ -3,6 +3,18 @@ import * as fsPromises from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
 
+import * as realEnvUtils from './envUtils.ts'
+import * as realEnv from './env.ts'
+import * as realExecFileNoThrow from './execFileNoThrow.ts'
+
+// Snapshot the real exports at file load — before any mock.module() call runs
+// — so afterEach can restore the original implementation. Bun's mock.restore()
+// does not undo mock.module(), so without this restoration any downstream test
+// file that imports these modules would see the leaked test doubles.
+const originalEnvUtils = { ...realEnvUtils }
+const originalEnvMod = { ...realEnv }
+const originalExecFileNoThrow = { ...realExecFileNoThrow }
+
 const originalEnv = { ...process.env }
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 
@@ -10,6 +22,10 @@ afterEach(() => {
   process.env = { ...originalEnv }
   ;(globalThis as Record<string, unknown>).MACRO = originalMacro
   mock.restore()
+  mock.module('./envUtils.js', () => originalEnvUtils)
+  mock.module('../utils/env.js', () => originalEnvMod)
+  mock.module('./execFileNoThrow.js', () => originalExecFileNoThrow)
+  mock.module('fs/promises', () => fsPromises)
 })
 
 async function importFreshInstallCommand() {

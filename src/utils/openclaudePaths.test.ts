@@ -8,8 +8,16 @@ import {
   writeFileSync,
 } from 'fs'
 import * as fsPromises from 'fs/promises'
+import * as realOs from 'os'
 import { homedir, tmpdir } from 'os'
 import { join } from 'path'
+
+// Snapshot the real `os` exports at file load — before any mock.module('os')
+// call runs — so afterEach can restore the original implementation. Bun's
+// mock.restore() does not undo mock.module(), and the live binding inside
+// `realOs` is itself replaced when 'os' is mocked, so we have to capture the
+// originals up-front.
+const originalOs = { ...realOs }
 
 const originalEnv = { ...process.env }
 const originalArgv = [...process.argv]
@@ -34,6 +42,7 @@ afterEach(() => {
   process.env = { ...originalEnv }
   process.argv = [...originalArgv]
   mock.restore()
+  mock.module('os', () => originalOs)
 })
 
 describe('OpenClaude paths', () => {

@@ -1,5 +1,21 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 
+import * as realAuth from './auth.ts'
+import * as realConfig from './config.ts'
+import * as realCwd from './cwd.ts'
+import * as realEnvMod from './env.ts'
+import * as realEnvUtils from './envUtils.ts'
+
+// Snapshot the real exports at file load — before any mock.module() call runs
+// — so afterEach can restore the original implementation. Bun's mock.restore()
+// does not undo mock.module(), so without this restoration any downstream test
+// file that imports these modules would see the leaked test doubles.
+const originalAuth = { ...realAuth }
+const originalConfig = { ...realConfig }
+const originalCwd = { ...realCwd }
+const originalEnvMod = { ...realEnvMod }
+const originalEnvUtils = { ...realEnvUtils }
+
 const originalEnv = { ...process.env }
 
 async function importFreshUserModule() {
@@ -61,6 +77,11 @@ afterEach(() => {
   mock.restore()
   process.env = { ...originalEnv }
   delete (globalThis as Record<string, unknown>).MACRO
+  mock.module('./auth.js', () => originalAuth)
+  mock.module('./config.js', () => originalConfig)
+  mock.module('./cwd.js', () => originalCwd)
+  mock.module('./env.js', () => originalEnvMod)
+  mock.module('./envUtils.js', () => originalEnvUtils)
 })
 
 describe('user email fallbacks', () => {
