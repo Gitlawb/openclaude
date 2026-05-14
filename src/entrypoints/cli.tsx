@@ -159,9 +159,12 @@ async function main(): Promise<void> {
   const { eagerParseCliFlag } = await import('../utils/cliArgs.js')
   const earlyModelFlag = eagerParseCliFlag('--model')
 
-  // Print the gradient startup screen before the Ink UI loads
-  const { printStartupScreen } = await import('../components/StartupScreen.js')
-  printStartupScreen(earlyModelFlag)
+  // Print the gradient startup screen before the Ink UI loads. Plain CLI
+  // management subcommands should stay script-friendly and avoid the banner.
+  if (args[0] !== 'skills') {
+    const { printStartupScreen } = await import('../components/StartupScreen.js')
+    printStartupScreen(earlyModelFlag)
+  }
 
   // For all other paths, load the startup profiler
   const {
