@@ -351,10 +351,28 @@ function makeOutputFromCodexWebSearchResponse(
   }
 }
 
+/**
+ * Prepend a notice string to the output's `results` array. Used when the
+ * adapter path failed and we fell through to native/Codex search: surface
+ * the adapter failure to the user instead of swallowing it in a log.
+ *
+ * Returns a shallow copy when notice is set; otherwise returns the input
+ * unchanged (so callers can pass through cheaply when there is nothing to
+ * surface).
+ */
+function withAdapterFallthroughNotice(
+  output: Output,
+  notice: string | undefined,
+): Output {
+  if (!notice) return output
+  return { ...output, results: [notice, ...output.results] }
+}
+
 export const __test = {
   makeOutputFromCodexWebSearchResponse,
   buildEmptyAdapterResultHint,
   formatProviderOutputWithEmptyHint,
+  withAdapterFallthroughNotice,
 }
 
 async function runCodexWebSearch(
@@ -672,6 +690,14 @@ export const WebSearchTool = buildTool({
     return { result: true }
   },
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
+    // Captures adapter-failure context when auto mode falls through to the
+    // native path. Without this, the only signal that the DDG (or other
+    // adapter) failed is the console.error below — invisible inside the
+    // tool result. Issue #994: surface the rate-limit / config diagnostic
+    // alongside the eventual native output so users see why nothing came
+    // back, instead of getting "no results found" with no explanation.
+    let adapterFallthroughNotice: string | undefined
+
     // --- Adapter-based providers (custom, firecrawl, ddg) ---
     // runSearch handles fallback semantics based on WEB_SEARCH_PROVIDER mode:
     //   - "auto": tries each provider, falls through on failure
@@ -727,6 +753,8 @@ export const WebSearchTool = buildTool({
               `Try switching to a provider with built-in web search (e.g. Anthropic, Codex) or try again later.`,
           )
         }
+        const errMsg = err instanceof Error ? err.message : String(err)
+        adapterFallthroughNotice = `Web search adapter failed before falling back to native search: ${errMsg}`
         console.error(
           `[web-search] Adapter failed, falling through to native: ${err}`,
         )
@@ -735,8 +763,12 @@ export const WebSearchTool = buildTool({
 
     // --- Codex / OpenAI Responses path ---
     if (isCodexResponsesWebSearchEnabled()) {
+      const codexData = await runCodexWebSearch(
+        input,
+        context.abortController.signal,
+      )
       return {
-        data: await runCodexWebSearch(input, context.abortController.signal),
+        data: withAdapterFallthroughNotice(codexData, adapterFallthroughNotice),
       }
     }
 
@@ -880,7 +912,9 @@ export const WebSearchTool = buildTool({
       query,
       durationSeconds,
     )
-    return { data }
+    return {
+      data: withAdapterFallthroughNotice(data, adapterFallthroughNotice),
+    }
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     const { query, results } = output
