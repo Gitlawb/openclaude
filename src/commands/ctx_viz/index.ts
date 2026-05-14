@@ -15,7 +15,6 @@ export const ctxNonInteractive: Command = {
   name: 'ctx',
   supportsNonInteractive: true,
   description: 'Show context window usage and token breakdown',
-  aliases: ['ctx_viz', 'context-viz'],
   get isHidden() {
     return !getIsNonInteractiveSession()
   },

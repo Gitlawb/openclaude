@@ -278,17 +278,19 @@ export function formatTotalCost(): string {
     totalCacheCreation > 0 ? formatTokenBar('Cache write', totalCacheCreation, maxTokens, chalk.yellow) : null,
   ].filter(Boolean).join('\n')
 
-  return chalk.dim(
+  const statsBlock = chalk.dim(
     `Total cost:            ${costDisplay}\n` +
       `Total duration (API):  ${formatDuration(getTotalAPIDuration())}
 Total duration (wall): ${formatDuration(getTotalDuration())}
-Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed
+Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed`,
+  )
+
+  return `${statsBlock}
 
 Token usage:
 ${tokenBars}
 
-${modelUsageDisplay}`,
-  )
+${modelUsageDisplay}`
 }
 
 function round(number: number, precision: number): number {
