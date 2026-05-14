@@ -17,6 +17,7 @@ import { parseFrontmatter } from '../../utils/frontmatterParser.js'
 import {
   formatSkillsListForDisplay,
   formatSkillsListJson,
+  isPublicSkill,
   locationLabel,
   sourceLabel,
   trustLabel,
@@ -59,7 +60,7 @@ export async function skillsListHandler(options: ListOptions = {}): Promise<void
 
 export async function skillsShowHandler(name: string): Promise<void> {
   const skills = await loadSkills()
-  const skill = findCommand(name, skills)
+  const skill = findCommand(name, skills.filter(isPublicSkill))
   if (!skill || !isSkillCommand(skill)) {
     console.error(`Skill "${name}" not found.`)
     process.exitCode = 1
@@ -113,7 +114,7 @@ export async function skillsRemoveHandler(
   name: string,
   options: RemoveOptions,
 ): Promise<void> {
-  const skills = await loadSkills()
+  const skills = (await loadSkills()).filter(isPublicSkill)
   const targetSource = options.global ? 'userSettings' : 'projectSettings'
   const skill = skills.find(
     candidate =>
@@ -123,8 +124,7 @@ export async function skillsRemoveHandler(
   )
 
   if (!skill) {
-    const scope = options.global ? 'global user' : 'project'
-    console.error(`Local ${scope} skill "${name}" not found.`)
+    console.error(`Skill "${name}" not found.`)
     process.exitCode = 1
     return
   }

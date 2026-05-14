@@ -213,7 +213,10 @@ test('formats all-bundled skills as empty in the human table', () => {
 test('formats skills list json as machine-readable metadata', () => {
   const description = 'Full description should remain in JSON. Extra sentence stays.'
   const parsed = JSON.parse(
-    formatSkillsListJson([skill('debug', description, 'projectSettings')]),
+    formatSkillsListJson([
+      skill('debug', description, 'projectSettings'),
+      skill('batch', 'Bundled skill should stay hidden.', 'bundled'),
+    ]),
   ) as {
     enabledCount: number
     skills: Array<{ name: string; source: string; description: string }>
@@ -223,6 +226,26 @@ test('formats skills list json as machine-readable metadata', () => {
   assert.equal(parsed.skills[0]?.name, 'debug')
   assert.equal(parsed.skills[0]?.source, 'project')
   assert.equal(parsed.skills[0]?.description, description)
+  assert.equal(parsed.skills.length, 1)
+  assert.equal(
+    parsed.skills.some(item => item.name === 'batch'),
+    false,
+  )
+})
+
+test('formats all-bundled skills as empty json', () => {
+  const parsed = JSON.parse(
+    formatSkillsListJson([
+      skill('batch', 'Research and plan large-scale changes.', 'bundled'),
+      skill('debug', 'Enable debug logging.', 'bundled'),
+    ]),
+  ) as {
+    enabledCount: number
+    skills: Array<{ name: string }>
+  }
+
+  assert.equal(parsed.enabledCount, 0)
+  assert.deepEqual(parsed.skills, [])
 })
 
 test.serial('installs a local skill directory into project skills by default', async () => {
