@@ -19,9 +19,6 @@ export const ctxNonInteractive: Command = {
   get isHidden() {
     return !getIsNonInteractiveSession()
   },
-  isEnabled() {
-    return getIsNonInteractiveSession()
-  },
   load: () => import('./ctx-noninteractive.js'),
 }
 
