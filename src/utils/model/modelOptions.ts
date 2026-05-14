@@ -37,6 +37,7 @@ import {
   getActiveOpenAIModelOptionsCache,
   getActiveProviderProfile,
   getProfileModelOptions,
+  getProviderProfiles,
 } from '../providerProfiles.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
@@ -51,6 +52,51 @@ export type ModelOption = {
   label: string
   description: string
   descriptionForModel?: string
+  /**
+   * When set, selecting this option also activates the named provider profile
+   * before switching the main-loop model. Encoded into `value` as a
+   * `SWITCH_PROFILE_VALUE_PREFIX`-prefixed string so the picker's `value`
+   * channel stays a plain string; consumers must call `parseSwitchProfileValue`
+   * on `value` (or read `switchToProfileId` directly) before treating it as a
+   * model setting. Used to surface inactive `providerProfiles` from the
+   * `/model` picker (issue #1119).
+   */
+  switchToProfileId?: string
+}
+
+/**
+ * Prefix encoded into `ModelOption.value` for options that, when selected,
+ * should activate a different provider profile before applying the model.
+ * Format: `${SWITCH_PROFILE_VALUE_PREFIX}<profileId>:<model>`. Two profiles can
+ * legally expose the same model string under different base URLs, so the
+ * profile id is part of the value to keep options unique.
+ */
+export const SWITCH_PROFILE_VALUE_PREFIX = '__switch_profile__:'
+
+export type ParsedSwitchProfileValue = {
+  profileId: string
+  model: string
+}
+
+export function parseSwitchProfileValue(
+  value: ModelSetting,
+): ParsedSwitchProfileValue | null {
+  if (typeof value !== 'string' || !value.startsWith(SWITCH_PROFILE_VALUE_PREFIX)) {
+    return null
+  }
+  const tail = value.slice(SWITCH_PROFILE_VALUE_PREFIX.length)
+  const sep = tail.indexOf(':')
+  if (sep <= 0 || sep === tail.length - 1) {
+    return null
+  }
+  return {
+    profileId: tail.slice(0, sep),
+    model: tail.slice(sep + 1),
+  }
+}
+
+export function encodeSwitchProfileValue(profileId: string, model: string): string {
+  return `${SWITCH_PROFILE_VALUE_PREFIX}${profileId}:${model}`
 }
 
 function getScopedAdditionalModelOptions(): ModelOption[] {
@@ -526,13 +572,25 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // getActiveProviderProfile which would affect users with inactive profiles.
   const profileEnvApplied = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
   const profileModelOptions: ModelOption[] = []
+  let activeProfileId: string | undefined
   if (profileEnvApplied) {
     const activeProfile = getActiveProviderProfile()
     if (activeProfile) {
+      activeProfileId = activeProfile.id
       const models = getProfileModelOptions(activeProfile)
       profileModelOptions.push(...models)
     }
   }
+
+  // Inactive provider profile options. Surfaces each configured-but-inactive
+  // provider profile's models in the picker so users can switch active provider
+  // + model from `/model` instead of having to round-trip through `/provider`
+  // (issue #1119). Only built when the active profile env is applied so we
+  // don't expose this affordance to users who haven't opted into the
+  // multi-profile workflow.
+  const inactiveProfileOptions: ModelOption[] = profileEnvApplied
+    ? getInactiveProviderProfileOptions(activeProfileId)
+    : []
 
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
   if (getAPIProvider() === 'firstParty') {
@@ -551,6 +609,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     }
     payg1POptions.push(getHaiku45Option())
     payg1POptions.push(...profileModelOptions)
+    payg1POptions.push(...inactiveProfileOptions)
     return payg1POptions
   }
 
@@ -592,7 +651,42 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     payg3pOptions.push(getHaikuOption())
   }
   payg3pOptions.push(...profileModelOptions)
+  payg3pOptions.push(...inactiveProfileOptions)
   return payg3pOptions
+}
+
+/**
+ * Build picker options for each provider profile that is NOT currently active.
+ * Selecting one of these activates the profile (swapping `OPENAI_BASE_URL` /
+ * `OPENAI_API_KEY` / etc. via `setActiveProviderProfile`) and then sets the
+ * main-loop model to the chosen entry — the equivalent of `/provider` followed
+ * by `/model`, but in one step. See issue #1119.
+ */
+export function getInactiveProviderProfileOptions(
+  activeProfileId: string | undefined,
+): ModelOption[] {
+  const profiles = getProviderProfiles()
+  const options: ModelOption[] = []
+  for (const profile of profiles) {
+    if (profile.id === activeProfileId) {
+      continue
+    }
+    const baseOptions = getProfileModelOptions(profile)
+    for (const baseOption of baseOptions) {
+      const modelValue =
+        typeof baseOption.value === 'string' ? baseOption.value : ''
+      if (!modelValue) {
+        continue
+      }
+      options.push({
+        value: encodeSwitchProfileValue(profile.id, modelValue),
+        label: `${modelValue} · ${profile.name}`,
+        description: `Switch to ${profile.name} (${profile.baseUrl})`,
+        switchToProfileId: profile.id,
+      })
+    }
+  }
+  return options
 }
 
 // @[MODEL LAUNCH]: Add the new model ID to the appropriate family pattern below

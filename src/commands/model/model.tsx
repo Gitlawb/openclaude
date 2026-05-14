@@ -46,7 +46,10 @@ import {
   checkOpus1mAccess,
   checkSonnet1mAccess,
 } from '../../utils/model/check1mAccess.js'
-import type { ModelOption } from '../../utils/model/modelOptions.js'
+import {
+  parseSwitchProfileValue,
+  type ModelOption,
+} from '../../utils/model/modelOptions.js'
 import { buildRouteCatalogModelOptions, mergeRouteCatalogEntries } from '../../utils/model/routeCatalogOptions.js'
 import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiModelDiscovery.js'
 import {
@@ -63,6 +66,7 @@ import {
   getActiveOpenAIModelOptionsCache,
   getActiveProviderProfile,
   setActiveOpenAIModelOptionsCache,
+  setActiveProviderProfile,
 } from '../../utils/providerProfiles.js'
 
 type ModelDiscoveryContext =
@@ -379,6 +383,35 @@ function ModelPickerWrapper({
   }
 
   const handleSelect = (model: string | null, effort: EffortLevel | undefined) => {
+    // Cross-profile switch from /model picker (issue #1119). The composite
+    // value carries the profile id; activate that profile first so subsequent
+    // requests use the new OPENAI_BASE_URL / OPENAI_API_KEY, then drop down to
+    // the regular model-switch path with the bare model string.
+    const switchTarget = parseSwitchProfileValue(model)
+    if (switchTarget) {
+      const activated = setActiveProviderProfile(switchTarget.profileId)
+      if (!activated) {
+        onDone(`Could not activate provider profile "${switchTarget.profileId}".`, {
+          display: 'system',
+        })
+        return
+      }
+      logEvent('tengu_model_command_menu', {
+        action: 'switch_profile' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        to_model: String(switchTarget.model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      })
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: switchTarget.model,
+        mainLoopModelForSession: null,
+      }))
+      onDone(
+        `Switched to ${chalk.bold(activated.name)} · model ${chalk.bold(switchTarget.model)}`,
+      )
+      return
+    }
+
     logEvent('tengu_model_command_menu', {
       action: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
