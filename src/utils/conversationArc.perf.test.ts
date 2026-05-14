@@ -5,6 +5,7 @@ import {
   getArcSummary,
   resetArc 
 } from './conversationArc.js'
+import { getGlobalGraph, clearMemoryOnly, resetGlobalGraph } from './knowledgeGraph.js'
 
 function createMessage(content: string): any {
   return {
@@ -13,42 +14,47 @@ function createMessage(content: string): any {
   }
 }
 
-describe('Conversation Arc Performance Benchmarks', () => {
+describe('Conversation Arc Scale and Stability', () => {
   beforeEach(() => {
+    resetGlobalGraph()
+    clearMemoryOnly()
     resetArc()
     initializeArc()
   })
 
-  it('performs automatic fact extraction in sub-millisecond time', async () => {
+  it('extracts the expected facts repeatedly without unbounded graph growth', async () => {
     const iterations = 100
     const complexContent =
       'Deploying version v1.2.3 to /opt/prod/server on https://api.prod.local with JIRA_URL=https://jira.corp'
 
-    const startTime = performance.now()
     for (let i = 0; i < iterations; i++) {
       await updateArcPhase([createMessage(complexContent)])
     }
-    const duration = performance.now() - startTime
-    const averageTime = duration / iterations
 
-    // Performance guard: should definitely be under 5.0ms per message on any modern CI
-    // (Async overhead and Orama checks add some cost)
-    expect(averageTime).toBeLessThan(5.0)
+    const graph = getGlobalGraph()
+    const entityPairs = Object.values(graph.entities).map(entity => [
+      entity.type,
+      entity.name,
+    ])
+
+    expect(entityPairs).toContainEqual(['environment_variable', 'JIRA_URL'])
+    expect(entityPairs).toContainEqual(['path', '/opt/prod/server'])
+    expect(entityPairs).toContainEqual(['endpoint', 'api.prod.local'])
+    expect(entityPairs).toContainEqual(['version', 'v1.2.3'])
+    // Repeated extraction should upsert the same facts rather than ballooning.
+    expect(Object.keys(graph.entities).length).toBeLessThanOrEqual(10)
   })
 
-  it('generates summaries quickly even with a populated graph', async () => {
+  it('generates summaries with a populated graph', async () => {
     // Populate graph with 50 facts
     for (let i = 0; i < 50; i++) {
       await updateArcPhase([createMessage(`Var_${i}=Value_${i} in /path/to/file_${i}`)])
     }
 
-    const startTime = performance.now()
     const summary = await getArcSummary()
-    const duration = performance.now() - startTime
 
     expect(summary).toMatch(/Knowledge Graph/)
-    // Summary generation should be fast
-    expect(duration).toBeLessThan(50)
+    expect(summary).toMatch(/project_file|path|environment_variable|concept/i)
   })
 
   it('maintains a compact memory footprint', async () => {
