@@ -53,18 +53,36 @@
  * `undefined`, the value is dropped from its parent (matching native
  * `JSON.stringify`).
  *
- * Single-pass: `deepSort` walks the (possibly converted) value tree
- * once, building a sorted clone. A `WeakSet` of ancestors tracks the
- * current path through the object graph so that circular references
- * throw `TypeError` (same contract as native `JSON.stringify`). The
- * cycle check runs on the post-`toJSON` value, so a `toJSON` impl that
- * returns an ancestor still throws. Ancestors are always removed in a
- * `finally` block when unwinding out of each object branch (even on
- * exception), so DAG inputs — where the same object is reachable via
- * multiple keys — are handled correctly and do not throw.
+ * Compact output is emitted directly in sorted-key order instead of first
+ * building a full sorted clone. A `WeakSet` of ancestors tracks the current
+ * path through the object graph so that circular references throw `TypeError`
+ * (same contract as native `JSON.stringify`). The cycle check runs on the
+ * post-`toJSON` value, so a `toJSON` impl that returns an ancestor still
+ * throws. Ancestors are always removed in a `finally` block when unwinding out
+ * of each object branch (even on exception), so DAG inputs — where the same
+ * object is reachable via multiple keys — are handled correctly and do not
+ * throw.
  */
-export function stableStringify(value: unknown, space?: number): string {
-  return JSON.stringify(deepSort(value, new WeakSet(), ''), null, space)
+export function stableStringify(
+  value: unknown,
+  space?: number,
+): string | undefined {
+  // Pretty printing is used only in tests/debug helpers. Keep it on the
+  // native JSON.stringify path so spacing behavior stays exactly native.
+  if (space !== undefined && space >= 1) {
+    return JSON.stringify(deepSort(value, new WeakSet(), ''), null, space)
+  }
+  return stringifyStable(value, new WeakSet(), '')
+}
+
+export function stableStringifyJson(value: unknown, space?: number): string {
+  const serialized = stableStringify(value, space)
+  if (serialized === undefined) {
+    throw new TypeError(
+      'stableStringifyJson cannot serialize a top-level undefined, function, or symbol value',
+    )
+  }
+  return serialized
 }
 
 /**
@@ -86,19 +104,8 @@ function deepSort(
   ancestors: WeakSet<object>,
   key: string,
 ): unknown {
-  // Step 1: invoke toJSON(key) if present — matches native pre-processing.
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    typeof (value as { toJSON?: unknown }).toJSON === 'function'
-  ) {
-    value = (value as { toJSON: (k: string) => unknown }).toJSON(key)
-  }
-
-  // Step 2: unbox primitive wrappers.
-  if (value instanceof Number) value = Number(value)
-  else if (value instanceof String) value = String(value)
-  else if (value instanceof Boolean) value = Boolean(value.valueOf())
+  // Steps 1-2: invoke toJSON(key), then unbox primitive wrappers.
+  value = prepareJsonValue(value, key)
 
   // Step 3: primitives short-circuit (post-toJSON the value may now be one).
   if (value === null || typeof value !== 'object') return value
@@ -128,4 +135,80 @@ function deepSort(
   } finally {
     ancestors.delete(value as object)
   }
+}
+
+function stringifyStable(
+  value: unknown,
+  ancestors: WeakSet<object>,
+  key: string,
+): string | undefined {
+  value = prepareJsonValue(value, key)
+
+  if (value === null) return 'null'
+
+  switch (typeof value) {
+    case 'string':
+      return JSON.stringify(value)
+    case 'number':
+      return Number.isFinite(value) ? String(value) : 'null'
+    case 'boolean':
+      return value ? 'true' : 'false'
+    case 'bigint':
+      // Match native JSON.stringify's failure mode.
+      JSON.stringify(value)
+      return undefined
+    case 'undefined':
+    case 'function':
+    case 'symbol':
+      return undefined
+  }
+
+  if (ancestors.has(value as object)) {
+    throw new TypeError('Converting circular structure to JSON')
+  }
+  ancestors.add(value as object)
+  try {
+    if (Array.isArray(value)) {
+      let out = '['
+      for (let i = 0; i < value.length; i++) {
+        if (i > 0) out += ','
+        out += stringifyStable(value[i], ancestors, String(i)) ?? 'null'
+      }
+      return `${out}]`
+    }
+
+    let out = '{'
+    let first = true
+    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+      const serialized = stringifyStable(
+        (value as Record<string, unknown>)[k],
+        ancestors,
+        k,
+      )
+      if (serialized !== undefined) {
+        if (!first) out += ','
+        first = false
+        out += `${JSON.stringify(k)}:${serialized}`
+      }
+    }
+    return `${out}}`
+  } finally {
+    ancestors.delete(value as object)
+  }
+}
+
+function prepareJsonValue(value: unknown, key: string): unknown {
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as { toJSON?: unknown }).toJSON === 'function'
+  ) {
+    value = (value as { toJSON: (k: string) => unknown }).toJSON(key)
+  }
+
+  if (value instanceof Number) return Number(value)
+  if (value instanceof String) return String(value)
+  if (value instanceof Boolean) return Boolean(value.valueOf())
+
+  return value
 }
