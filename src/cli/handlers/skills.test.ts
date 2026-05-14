@@ -102,29 +102,73 @@ test('formats skills list as an aligned human table', () => {
       skill(
         'batch',
         'Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR.',
+        'projectSettings',
       ),
-      skill('debug', 'Enable debug logging for this session and help diagnose issues.'),
+      skill(
+        'debug',
+        'Enable debug logging for this session and help diagnose issues.',
+        'userSettings',
+      ),
       skill(
         'loop',
         'Run a prompt on a fixed interval or dynamically reschedule it, including bare maintenance-mode loops.',
+        'projectSettings',
       ),
       skill(
         'simplify',
         'Review changed code for reuse, quality, and efficiency, then fix any issues found.',
+        'projectSettings',
       ),
       skill(
         'update-config',
         'Use this skill to configure the Claude Code harness via settings.json. Automated behaviors require hooks.',
+        'projectSettings',
       ),
     ],
     80,
   )
 
   assert.match(output, /^Skills: 5 enabled/)
-  assert.match(output, /Name\s+Status\s+Source\s+Description/)
+  assert.match(output, /Name\s+Status\s+Description/)
+  assert.doesNotMatch(output, /\bSource\b/)
   assert.doesNotMatch(output, /source: bundled \| trust:/)
-  assert.match(output, /batch\s+enabled\s+bundled\s+Research and plan/)
-  assert.match(output, /update-config\s+enabled\s+bundled\s+Configure the Claude Code harness via/)
+  assert.doesNotMatch(output, /\bbundled\b/)
+  assert.match(output, /batch\s+enabled\s+Research and plan/)
+  assert.match(output, /update-config\s+enabled\s+Configure the Claude Code harness via/)
+})
+
+test('omits source column while preserving installed rows', () => {
+  const output = formatSkillsListForDisplay(
+    [
+      skill('docs-writer', 'Writes project documentation.', 'projectSettings'),
+      skill('pr-review', 'Reviews pull requests.', 'userSettings'),
+      skill('debug', 'Enable debug logging.', 'bundled'),
+    ],
+    100,
+  )
+
+  assert.doesNotMatch(output, /\bSource\b/)
+  assert.doesNotMatch(output, /docs-writer\s+enabled\s+project\s+/)
+  assert.doesNotMatch(output, /pr-review\s+enabled\s+user\s+/)
+  assert.match(output, /docs-writer\s+enabled\s+Writes project documentation\./)
+  assert.match(output, /pr-review\s+enabled\s+Reviews pull requests\./)
+  assert.doesNotMatch(output, /\bdebug\b/)
+  assert.doesNotMatch(output, /Enable debug logging/)
+})
+
+test('omits bundled skills from the human table', () => {
+  const output = formatSkillsListForDisplay(
+    [
+      skill('debug', 'Enable debug logging.', 'bundled'),
+      skill('docs-writer', 'Writes project documentation.', 'projectSettings'),
+    ],
+    100,
+  )
+
+  assert.match(output, /^Skills: 1 enabled/)
+  assert.doesNotMatch(output, /\bdebug\b/)
+  assert.doesNotMatch(output, /Enable debug logging/)
+  assert.match(output, /docs-writer\s+enabled\s+Writes project documentation\./)
 })
 
 test('wraps description continuations under the Description column', () => {
@@ -133,16 +177,17 @@ test('wraps description continuations under the Description column', () => {
       skill(
         'batch',
         'Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR.',
+        'projectSettings',
       ),
     ],
-    70,
+    45,
   )
   const lines = output.split('\n')
   const header = lines.find(line => line.includes('Description'))
   assert.ok(header)
   const descriptionColumn = header.indexOf('Description')
   const continuation = lines.find(line =>
-    line.trim().startsWith('then execute'),
+    line.trim().startsWith('large-scale change'),
   )
   assert.ok(continuation)
   assert.equal(continuation.search(/\S/), descriptionColumn)
@@ -151,6 +196,16 @@ test('wraps description continuations under the Description column', () => {
 test('formats empty skills list cleanly', () => {
   assert.equal(
     formatSkillsListForDisplay([], 100),
+    'Skills: 0 enabled\n\nNo skills found.',
+  )
+})
+
+test('formats all-bundled skills as empty in the human table', () => {
+  assert.equal(
+    formatSkillsListForDisplay(
+      [skill('debug', 'Enable debug logging.', 'bundled')],
+      100,
+    ),
     'Skills: 0 enabled\n\nNo skills found.',
   )
 })

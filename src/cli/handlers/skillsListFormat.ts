@@ -100,7 +100,6 @@ function formatSkillListRow({
   state,
   nameWidth,
   statusWidth,
-  sourceWidth,
   descriptionWidth,
   descriptionIndent,
 }: {
@@ -108,13 +107,11 @@ function formatSkillListRow({
   state: string | undefined
   nameWidth: number
   statusWidth: number
-  sourceWidth: number
   descriptionWidth: number
   descriptionIndent: string
 }): string {
   const status = state ?? 'enabled'
-  const source = sourceLabel(skill)
-  const prefix = `${getCommandName(skill).padEnd(nameWidth)}  ${status.padEnd(statusWidth)}   ${source.padEnd(sourceWidth)}   `
+  const prefix = `${getCommandName(skill).padEnd(nameWidth)}  ${status.padEnd(statusWidth)}   `
   const descriptionLines = wrapSkillDescription(
     descriptionSummary(skill.description),
     descriptionWidth,
@@ -166,11 +163,14 @@ export function formatSkillsListForDisplay(
 ): string {
   const sortedSkills = skills
     .slice()
+    .filter(skill => sourceLabel(skill) !== 'bundled')
     .sort((a, b) => getCommandName(a).localeCompare(getCommandName(b)))
   const states = getResolutionState(skills)
-  const enabledCount = [...states.values()].filter(s => s === 'enabled').length
+  const enabledCount = sortedSkills.filter(
+    skill => states.get(skill) === 'enabled',
+  ).length
 
-  if (skills.length === 0) {
+  if (sortedSkills.length === 0) {
     return ['Skills: 0 enabled', '', 'No skills found.'].join('\n')
   }
 
@@ -182,23 +182,17 @@ export function formatSkillsListForDisplay(
     'Status'.length,
     ...sortedSkills.map(skill => (states.get(skill) ?? 'enabled').length),
   )
-  const sourceWidth = Math.max(
-    'Source'.length,
-    ...sortedSkills.map(skill => sourceLabel(skill).length),
-  )
-  const descriptionStart =
-    nameWidth + 2 + statusWidth + 3 + sourceWidth + 3
+  const descriptionStart = nameWidth + 2 + statusWidth + 3
   const descriptionWidth = Math.max(20, columns - descriptionStart)
   const descriptionIndent = ' '.repeat(descriptionStart)
-  const header = `${'Name'.padEnd(nameWidth)}  ${'Status'.padEnd(statusWidth)}   ${'Source'.padEnd(sourceWidth)}   Description`
-  const rule = `${separator(nameWidth)}  ${separator(statusWidth)}   ${separator(sourceWidth)}   ${separator(descriptionWidth)}`
+  const header = `${'Name'.padEnd(nameWidth)}  ${'Status'.padEnd(statusWidth)}   Description`
+  const rule = `${separator(nameWidth)}  ${separator(statusWidth)}   ${separator(descriptionWidth)}`
   const rows = sortedSkills.map(skill =>
     formatSkillListRow({
       skill,
       state: states.get(skill),
       nameWidth,
       statusWidth,
-      sourceWidth,
       descriptionWidth,
       descriptionIndent,
     }),
