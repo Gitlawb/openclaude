@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_CODEX_BASE_URL,
+  DEFAULT_GEMINI_BASE_URL,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_MISTRAL_BASE_URL,
+  DEFAULT_MISTRAL_MODEL,
   DEFAULT_OPENAI_BASE_URL,
+} from '../services/api/constants.js'
+import {
   isCodexBaseUrl,
   parseOpenAICompatibleApiFormat,
   resolveCodexApiCredentials,
@@ -39,11 +45,6 @@ export {
 import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 
 export const PROFILE_FILE_NAME = '.openclaude-profile.json'
-export const DEFAULT_GEMINI_BASE_URL =
-  'https://generativelanguage.googleapis.com/v1beta/openai'
-export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview'
-export const DEFAULT_MISTRAL_BASE_URL = 'https://api.mistral.ai/v1'
-export const DEFAULT_MISTRAL_MODEL = 'devstral-latest'
 
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',

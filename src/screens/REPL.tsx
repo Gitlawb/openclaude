@@ -1,3 +1,5 @@
+import { resolveProviderOverrideForModel } from '../services/api/providerConfig.js';
+import { getInitialSettings } from '../utils/settings/settings.js';
 import { c as _c } from "react-compiler-runtime";
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { feature } from 'bun:bundle';
@@ -2451,6 +2453,7 @@ export function REPL({
         debug,
         verbose: s.verbose,
         mainLoopModel,
+        providerOverride: resolveProviderOverrideForModel(mainLoopModel, s.settings),
         thinkingConfig: s.thinkingEnabled !== false ? thinkingConfig : {
           type: 'disabled'
         },

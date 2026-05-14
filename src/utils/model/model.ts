@@ -28,7 +28,7 @@ import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
-import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
+import { DEFAULT_GEMINI_MODEL } from '../../services/api/constants.js'
 
 export type ModelShortName = string
 export type ModelName = string

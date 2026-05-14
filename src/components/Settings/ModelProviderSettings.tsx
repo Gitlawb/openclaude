@@ -36,6 +36,7 @@ export function ModelProviderSettings({
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<'id' | 'base_url' | 'api_key' | 'context_window' | 'max_tokens' | null>(null);
   const [inputValue, setInputValue] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const allModelIds = Array.from(new Set([
     ...Object.keys(agentModels),
@@ -48,8 +49,21 @@ export function ModelProviderSettings({
     updatedContext: Record<string, number>,
     updatedMax: Record<string, number>
   ) => {
+    // Only persist valid agent models to settings.json
+    const validAgentModels: Record<string, { base_url: string; api_key: string }> = {};
+    for (const [id, config] of Object.entries(updatedAgent)) {
+      if (config && config.base_url && config.api_key) {
+        try {
+          new URL(config.base_url);
+          validAgentModels[id] = config;
+        } catch {
+          // Skip invalid or incomplete model configs
+        }
+      }
+    }
+
     updateSettingsForSource('userSettings', {
-      agentModels: updatedAgent,
+      agentModels: validAgentModels,
       openaiContextWindows: updatedContext,
       openaiMaxOutputTokens: updatedMax
     });
@@ -63,6 +77,7 @@ export function ModelProviderSettings({
       setSelectedModel(null);
       setEditingField('id');
       setInputValue('');
+      setErrorMessage('');
       setMode('editField');
     } else if (value.startsWith('edit-')) {
       setSelectedModel(value.replace('edit-', ''));
@@ -75,13 +90,13 @@ export function ModelProviderSettings({
       delete nextAgent[id];
       delete nextContext[id];
       delete nextMax[id];
-      
+
       updateSettingsForSource('userSettings', {
         agentModels: { [id]: undefined } as any,
         openaiContextWindows: { [id]: undefined } as any,
         openaiMaxOutputTokens: { [id]: undefined } as any
       });
-      
+
       setAgentModels(nextAgent);
       setContextWindows(nextContext);
       setMaxTokens(nextMax);
@@ -99,13 +114,13 @@ export function ModelProviderSettings({
         delete nextAgent[selectedModel];
         delete nextContext[selectedModel];
         delete nextMax[selectedModel];
-        
+
         updateSettingsForSource('userSettings', {
           agentModels: { [selectedModel]: undefined } as any,
           openaiContextWindows: { [selectedModel]: undefined } as any,
           openaiMaxOutputTokens: { [selectedModel]: undefined } as any
         });
-        
+
         setAgentModels(nextAgent);
         setContextWindows(nextContext);
         setMaxTokens(nextMax);
@@ -128,6 +143,7 @@ export function ModelProviderSettings({
         if (value === 'max_tokens') currentVal = String(maxTokens[selectedModel] || '');
       }
       setInputValue(currentVal);
+      setErrorMessage('');
       setMode('editField');
     }
   };
@@ -145,6 +161,15 @@ export function ModelProviderSettings({
     }
 
     if (!selectedModel) return;
+
+    if (editingField === 'base_url' && inputValue) {
+      try {
+        new URL(inputValue);
+      } catch {
+        setErrorMessage('Invalid URL format (must include protocol, e.g. https://)');
+        return;
+      }
+    }
 
     const nextAgent = { ...agentModels };
     const nextContext = { ...contextWindows };
@@ -173,16 +198,21 @@ export function ModelProviderSettings({
           <Text>Enter {editingField}:</Text>
           <TextInput
             value={inputValue}
-            onChange={setInputValue}
+            onChange={(val) => {
+              setInputValue(val);
+              if (errorMessage) setErrorMessage('');
+            }}
             onSubmit={handleFieldSubmit}
             onExit={() => setMode(selectedModel ? 'editModel' : 'list')}
             mask={editingField === 'api_key' ? '*' : undefined}
             focus
           />
+          {errorMessage && <Text color="error">{errorMessage}</Text>}
         </Box>
       </Dialog>
     );
   }
+
 
   if (mode === 'editModel') {
     return (

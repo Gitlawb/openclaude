@@ -1460,7 +1460,11 @@ class OpenAIShimMessages {
     const isGithubWithCodexTransport = isGithubMode && request.transport === 'codex_responses'
 
     if (isGithubWithCodexTransport) {
-      const apiKey = this.providerOverride?.apiKey ?? process.env.OPENAI_API_KEY ?? ''
+      const apiKey =
+        this.providerOverride?.apiKey ??
+        request.apiKey ??
+        process.env.OPENAI_API_KEY ??
+        ''
       if (!apiKey) {
         throw new Error(
           'GitHub Copilot auth is required. Run /onboard-github to sign in.',
@@ -1752,6 +1756,7 @@ class OpenAIShimMessages {
     })
     const apiKey =
       this.providerOverride?.apiKey ??
+      request.apiKey ??
       routeCredential ??
       process.env.OPENAI_API_KEY ??
       ''

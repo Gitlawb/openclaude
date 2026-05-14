@@ -1,4 +1,5 @@
 import type { SettingsJson } from '../../utils/settings/types.js'
+import { registerSettingsGetter } from '../../utils/model/openaiContextWindows.js'
 
 /**
  * Provider override resolved from agent routing config.
@@ -11,6 +12,24 @@ export interface ProviderOverride {
   baseURL: string
   /** API key for this provider */
   apiKey: string
+}
+
+// Registry to avoid direct imports of settings, which can break test isolation
+// and cause circular dependencies.
+let settingsGetter: (() => SettingsJson | undefined) | undefined
+export function registerProviderSettingsGetter(getter: () => SettingsJson | undefined) {
+  settingsGetter = getter
+  // Also register it for context windows resolution
+  registerSettingsGetter(getter)
+}
+
+export function resetProviderSettingsGetter() {
+  settingsGetter = undefined
+  registerSettingsGetter(() => undefined)
+}
+
+export function getProviderSettingsGetter() {
+  return settingsGetter
 }
 
 /**
@@ -28,7 +47,7 @@ function normalize(key: string): string {
 export function resolveAgentProvider(
   name: string | undefined,
   subagentType: string | undefined,
-  settings: SettingsJson | null,
+  settings: SettingsJson | null | undefined,
 ): ProviderOverride | null {
   if (!settings) return null
 
@@ -63,6 +82,28 @@ export function resolveAgentProvider(
   }
 
   if (!modelName) return null
+
+  const modelConfig = models[modelName]
+  if (!modelConfig) return null
+
+  return {
+    model: modelName,
+    baseURL: modelConfig.base_url,
+    apiKey: modelConfig.api_key,
+  }
+}
+
+/**
+ * Resolves custom model provider credentials from settings for a specific model name.
+ */
+export function resolveProviderOverrideForModel(
+  modelName: string | undefined,
+  settings: SettingsJson | null | undefined,
+): ProviderOverride | null {
+  if (!settings || !modelName) return null
+
+  const models = settings.agentModels
+  if (!models) return null
 
   const modelConfig = models[modelName]
   if (!modelConfig) return null

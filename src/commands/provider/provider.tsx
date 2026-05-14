@@ -27,7 +27,13 @@ import {
 } from '../../services/api/codexOAuth.js'
 import {
   DEFAULT_CODEX_BASE_URL,
+  DEFAULT_GEMINI_BASE_URL,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_MISTRAL_BASE_URL,
+  DEFAULT_MISTRAL_MODEL,
   DEFAULT_OPENAI_BASE_URL,
+} from '../../services/api/constants.js'
+import {
   isLocalProviderUrl,
   resolveCodexApiCredentials,
   resolveProviderRequest,
@@ -41,10 +47,6 @@ import {
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   createProfileFile,
-  DEFAULT_GEMINI_BASE_URL,
-  DEFAULT_GEMINI_MODEL,
-  DEFAULT_MISTRAL_BASE_URL,
-  DEFAULT_MISTRAL_MODEL,
   deleteProfileFile,
   loadProfileFile,
   maskSecretForDisplay,

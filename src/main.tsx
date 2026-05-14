@@ -130,11 +130,11 @@ import { countFilesRoundedRg } from './utils/ripgrep.js';
 import { processSessionStartHooks, processSetupHooks } from './utils/sessionStart.js';
 import { cacheSessionTitle, getSessionIdFromLog, loadTranscriptFromFile, saveAgentSetting, saveMode, searchSessionsByCustomTitle, sessionIdExists } from './utils/sessionStorage.js';
 import { ensureMdmSettingsLoaded } from './utils/settings/mdm/settings.js';
-import { registerSettingsGetter } from './utils/model/openaiContextWindows.js';
+import { registerProviderSettingsGetter } from './services/api/agentRouting.js';
 import { getInitialSettings, getManagedSettingsKeysForLogging, getSettingsForSource, getSettingsWithErrors } from './utils/settings/settings.js';
 
 // eslint-disable-next-line custom-rules/no-top-level-side-effects
-registerSettingsGetter(getInitialSettings);
+registerProviderSettingsGetter(getInitialSettings);
 
 import { resetSettingsCache } from './utils/settings/settingsCache.js';
 import type { ValidationError } from './utils/settings/validation.js';

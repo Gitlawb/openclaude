@@ -13,7 +13,7 @@ import {
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js'
 import { parseUserSpecifiedModel } from '../utils/model/model.js'
-import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
+import { DEFAULT_GEMINI_MODEL } from '../services/api/constants.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
 import {

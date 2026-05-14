@@ -20,14 +20,14 @@ describe('openaiContextWindows resolution', () => {
   test('sanitizes invalid limits from settings', () => {
     const { registerSettingsGetter } = require('./openaiContextWindows.js');
     registerSettingsGetter(() => ({
-      openaiContextWindows: { 
+      openaiContextWindows: {
         'bad-model': -500,
         'zero-model': 0,
         'float-model': 123.45,
         'good-model': 100000
       }
     } as any));
-    
+
     // Fallback to 128k (standard) because these are ignored/filtered out
     // and they are not in environment vars.
     // Actually, getOpenAIContextWindow returns number | undefined.
