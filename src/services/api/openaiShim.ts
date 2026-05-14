@@ -1750,6 +1750,16 @@ async function* openaiStreamToAnthropic(
                 hasClosedThinking = true
               }
               if (hasEmittedContentStart) {
+                // Flush buffered Ollama text before closing the text block so
+                // visible prose that preceded a real structured tool call is not lost.
+                if (isOllamaStream && ollamaTextBuffer) {
+                  yield {
+                    type: 'content_block_delta',
+                    index: contentBlockIndex,
+                    delta: { type: 'text_delta', text: ollamaTextBuffer },
+                  }
+                  ollamaTextBuffer = ''
+                }
                 yield* closeActiveContentBlock()
               }
 
@@ -1849,11 +1859,17 @@ async function* openaiStreamToAnthropic(
               ollamaClosedContentBlock = true
               if (hasEmittedContentStart) {
                 const stripped = stripRanges(accumulatedText, toolCallRanges).trim()
-                if (stripped) {
+                // Also remove <think>...</think> blocks — accumulatedText is raw
+                // (unfiltered), so think content that was already hidden from the
+                // user would otherwise re-surface here.
+                const strippedVisible = stripped
+                  .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                  .trim()
+                if (strippedVisible) {
                   yield {
                     type: 'content_block_delta',
                     index: contentBlockIndex,
-                    delta: { type: 'text_delta', text: stripped },
+                    delta: { type: 'text_delta', text: strippedVisible },
                   }
                 }
                 yield* closeActiveContentBlock()
