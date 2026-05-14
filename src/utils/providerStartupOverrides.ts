@@ -39,10 +39,10 @@ export const STARTUP_PROVIDER_OVERRIDE_ENV_KEYS = [
   'MINIMAX_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
-'SPARK_API_KEY',
+  'SPARK_API_KEY',
   'SPARK_BASE_URL',
   'SPARK_MODEL',
-'VENICE_API_KEY',
+  'VENICE_API_KEY',
 ] as const
 
 type GlobalConfigWithEnv = {

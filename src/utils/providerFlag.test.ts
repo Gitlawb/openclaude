@@ -438,7 +438,7 @@ describe('applyProviderFlag - spark', () => {
     const result = applyProviderFlag('spark', [])
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://spark-api-open.xf-yun.com/v1/chat/completions')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://spark-api-open.xf-yun.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('generalv3.5')
   })
 
